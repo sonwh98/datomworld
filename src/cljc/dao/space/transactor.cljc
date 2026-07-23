@@ -55,7 +55,7 @@
   (content-addressed: `publish-index!` compares against the existing
   root and skips the cas!) never reorders anything and so never gaps
   either. Fold-back on the next append does not re-gap, since it does
-  not reorder anything already minted (see append-datoms!).
+  not reorder anything already minted (see cas-append!).
 
   `:daostream/gap` means something different here than on the
   eviction-based transports (ringbuffer, udp, file): there the cursor's
@@ -123,7 +123,7 @@
 
 
 (def ^:private max-append-retries
-  "Bound on append-datoms!'s CAS retry loop. With one writer per root,
+  "Bound on cas-append!'s CAS retry loop. With one writer per root,
   every retry means a same-name handle raced us — expected to be rare,
   but a busy-spin retry loop with no cap pegs a thread indefinitely if
   that assumption is ever wrong (two runaway handles on one name, a
@@ -132,10 +132,13 @@
   64)
 
 
-(defn- append-datoms!
-  "Read-modify-cas! the new datoms onto the root, retrying on a lost CAS
-  up to `max-append-retries` times before throwing. `t` is the log
-  position at append time (a monotone per-root watermark); it is a
+(defn- cas-append!
+  "Drives the read-modify-cas! loop to append new datoms to the root,
+  retrying up to max-append-retries times.
+  build-new-datoms is a fn [existing-datoms] -> new-datoms.
+  Returns the new-datoms on success, or throws on retry exhaustion.
+
+  `t` is the log position at append time (a monotone per-root watermark); it is a
   write-time identity, not a live cursor position — a fold-back does not
   renumber old datoms to match wherever they now sit in `next`'s order.
   `:reorder-epoch` is carried forward unchanged (index/read-root, §ns
@@ -144,25 +147,19 @@
   `read-root` gives datoms/rev/epoch as one snapshot — reading them
   separately risked a rev that no longer matched the datoms a concurrent
   publish! had already reshaped, costing a spurious lost-CAS retry."
-  [store datoms-key val]
-  ;; attempt counts lost CAS attempts only — it advances in the failure
-  ;; branch below, not on every loop iteration; a successful cas! returns
-  ;; directly and never reaches recur.
+  [store datoms-key build-new-datoms error-msg]
   (loop [attempt 0]
     (when (>= attempt max-append-retries)
-      (throw
-        (ex-info
-          "append! could not win the root cas! after max-append-retries attempts"
-          {:key datoms-key, :attempts attempt})))
+      (throw (ex-info error-msg {:key datoms-key, :attempts attempt})))
     (let [{:keys [datoms rev reorder-epoch]} (index/read-root store datoms-key)
           existing (vec datoms)
-          new-datoms (val->datoms val (count existing))]
+          new-datoms (build-new-datoms existing)]
       (if (jing/cas! store
                      datoms-key
                      rev
                      {:datoms (into existing new-datoms),
                       :reorder-epoch reorder-epoch})
-        {:result :ok, :woke []}
+        new-datoms
         (recur (inc attempt))))))
 
 
@@ -175,7 +172,12 @@
     [_this val]
     (when (:closed @state)
       (throw (ex-info "Cannot put to closed stream" {:name stream-name})))
-    (append-datoms! store datoms-key val))
+    (cas-append!
+      store
+      datoms-key
+      (fn [existing] (val->datoms val (count existing)))
+      "append! could not win the root cas! after max-append-retries attempts")
+    {:result :ok, :woke []})
 
 
   ds/IDaoStreamReader
@@ -237,7 +239,7 @@
 
   The next `ds/append!` on this (or any other handle sharing the same
   root) folds the published root back to wholesale, per this ns's own
-  append-datoms! — publishing is not sticky across writes, by design
+  cas-append! — publishing is not sticky across writes, by design
   (§ns docstring)."
   ([log] (publish! log nil))
   ([^DaoStreamLog log opts]
@@ -250,3 +252,27 @@
                                   :key datoms-key
                                   :rev rev
                                   :reorder-epoch reorder-epoch)))))
+
+
+(defn transact!
+  "Commits multiple entity maps or datoms as a single atomic batch under a single t.
+  Throws if log is closed or if tx-data is empty."
+  [^DaoStreamLog log tx-data]
+  (when (ds/closed? log)
+    (throw (ex-info "Cannot transact! to closed stream"
+                    {:name (.-stream-name log)})))
+  (when (empty? tx-data)
+    (throw (ex-info "transact! requires at least one transaction item"
+                    {:tx-data tx-data})))
+  (let
+    [store (.-store log)
+     datoms-key (.-datoms-key log)
+     new-datoms
+     (cas-append!
+       store
+       datoms-key
+       (fn [existing]
+         (let [t (count existing)]
+           (into [] (mapcat #(val->datoms % t)) tx-data)))
+       "transact! could not win the root cas! after max-append-retries attempts")]
+    {:result :ok, :tx-datoms new-datoms}))

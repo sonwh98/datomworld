@@ -223,7 +223,7 @@
 (deftest append-throws-after-max-retries
   (testing
     "append! throws rather than spin forever when the root cas!
-          never wins (the bound append-datoms! exists to catch)"
+          never wins (the bound cas-append! exists to catch)"
     ;; A wrapper store whose cas! always loses on the stream's own root,
     ;; but still lets open!'s membership-root registration succeed —
     ;; with-redefs does not reach this: mem's deftype implements
@@ -343,6 +343,85 @@
           log (ds/open! {:type :transactor, :store store, :name "w"})]
       (transactor/publish! log)
       (is (= [] (query/match store ['_ '_ '_]))))))
+
+
+(deftest transact-bang
+  (testing
+    "transact! commits multiple entity maps as one atomic write, sharing one t"
+    (let [store (mem/create-kv-mem)
+          log (ds/open! {:type :transactor, :store store, :name "producer"})
+          {:keys [result tx-datoms]}
+          (transactor/transact!
+            log
+            [{:db/id 100, :work/posted true, :work/task "process payment"}
+             {:db/id 101, :work/posted true, :work/task "send invoice"}])]
+      (is (= :ok result))
+      (is (= 4 (count tx-datoms)))
+      (is (apply = (map #(nth % 3) tx-datoms))
+          "every datom in the batch shares one t")
+      (is (= #{[100 "process payment"] [101 "send invoice"]}
+             (query/q '[:find ?w ?task :where [?w :work/posted true]
+                        [?w :work/task ?task]]
+                      store)))))
+  (testing "transact! accepts a mix of entity maps and raw datom vectors"
+    (let [store (mem/create-kv-mem)
+          log (ds/open! {:type :transactor, :store store, :name "w"})]
+      (transactor/transact! log [{:db/id 1, :a 1} [2 :b 2]])
+      (is (= #{[1 :a 1] [2 :b 2]}
+             (query/q '[:find ?e ?a ?v :where [?e ?a ?v]] store)))
+      (is (= #{0} (into #{} (map #(nth % 3)) (query/match store ['_ :b '_])))
+          "raw datom [2 :b 2] gets t=0 from the batch")))
+  (testing "a batch gets its own t, distinct from a prior append's"
+    (let [store (mem/create-kv-mem)
+          log (ds/open! {:type :transactor, :store store, :name "w"})]
+      (ds/append! log {:db/id 1, :a 1})
+      (transactor/transact! log [{:db/id 2, :a 2} {:db/id 3, :a 3}])
+      (is
+        (= #{0 1} (into #{} (map #(nth % 3)) (query/match store ['_ :a '_])))
+        "the first append's datom keeps t=0; the batch's two datoms both land at t=1")))
+  (testing "an empty tx-data throws"
+    (let [store (mem/create-kv-mem)
+          log (ds/open! {:type :transactor, :store store, :name "w"})]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"at least one"
+            (transactor/transact! log [])))))
+  (testing "transact! on a closed stream throws"
+    (let [store (mem/create-kv-mem)
+          log (ds/open! {:type :transactor, :store store, :name "w"})]
+      (ds/close! log)
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"closed"
+            (transactor/transact! log [{:db/id 1, :a 1}])))))
+  (testing
+    "transact! throws rather than spin forever when the root cas! never wins"
+    (let [real (mem/create-kv-mem)
+          always-loses-cas (reify
+                             jing/IKVStore
+                             (put! [_ k v-map] (jing/put! real k v-map))
+
+                             (cas!
+                               [_ k old-rev v-map]
+                               (if (= k index/members-key)
+                                 (jing/cas! real k old-rev v-map)
+                                 false))
+
+                             (get [_ k not-found] (jing/get real k not-found))
+
+                             (delete! [_ k] (jing/delete! real k))
+
+                             (close! [_] (jing/close! real)))
+          log (ds/open!
+                {:type :transactor, :store always-loses-cas, :name "w"})]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"max-append-retries"
+            (transactor/transact! log
+                                  [{:db/id 1, :x true}]))))))
 
 
 (deftest cursor-gap-on-publish
