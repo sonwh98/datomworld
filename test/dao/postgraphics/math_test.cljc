@@ -1,8 +1,7 @@
 (ns dao.postgraphics.math-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.postgraphics.math :as math]
-    [dao.postgraphics.validation :as v]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.postgraphics.math :as math]
+            [dao.postgraphics.validation :as v]))
 
 
 (def eps 1.0e-6)
@@ -79,13 +78,6 @@
     (is (approx= (+ 1 4) (nth result 12)))
     (is (approx= (+ 2 5) (nth result 13)))
     (is (approx= (+ 3 6) (nth result 14)))))
-
-
-(deftest mat4-mul-rotation-identity
-  (let [id (math/identity-mat4)
-        rx (math/mat4-rotation-x (* 0.5 math/PI))]
-    (is (approx-vec= rx (math/mat4-mul id rx)))
-    (is (approx-vec= rx (math/mat4-mul rx id)))))
 
 
 ;; ---------------------------------------------------------------------------

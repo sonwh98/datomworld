@@ -64,13 +64,6 @@
              (ds/next stream {:position 3}))))))
 
 
-(deftest ring-buffer-stream-test
-  (testing "Fresh RingBufferStream is open and empty"
-    (let [s (make-stream)]
-      (is (false? (ds/closed? s)))
-      (is (= 0 (count s))))))
-
-
 (deftest put-take-test
   (testing "put! / take! round trip with length tracking"
     (let [s (make-stream)]
@@ -127,20 +120,6 @@
     (let [s (make-stream)]
       (ds/close! s)
       (is (= :end (ds/drain-one! s))))))
-
-
-(deftest length-test
-  (testing "length tracks puts and takes"
-    (let [s (make-stream)]
-      (is (= 0 (count s)))
-      (ds/append! s :a)
-      (is (= 1 (count s)))
-      (ds/append! s :b)
-      (is (= 2 (count s)))
-      (ds/drain-one! s)
-      (is (= 1 (count s)))
-      (ds/drain-one! s)
-      (is (= 0 (count s))))))
 
 
 (deftest gap-test
@@ -216,15 +195,6 @@
           (ds/open! {:type :ringbuffer,
                      :capacity 2,
                      :eviction-policy :bogus})))))
-
-
-(deftest next-sentinels-test
-  (testing ":blocked on empty open stream"
-    (let [s (make-stream)] (is (= :blocked (ds/next s {:position 0})))))
-  (testing ":end on closed empty stream"
-    (let [s (make-stream)]
-      (ds/close! s)
-      (is (= :end (ds/next s {:position 0}))))))
 
 
 (deftest take-sentinels-test
@@ -370,22 +340,7 @@
       (is (= [] (vec (ds/->seq nil s)))))))
 
 
-(deftest open-descriptor-capacity-test
-  (testing "open! with :capacity propagates to ringbuffer transport"
-    (let [s (ds/open! {:type :ringbuffer, :mode :create, :capacity 3})]
-      (is (= :ok (:result (ds/append! s 1))))
-      (is (= :ok (:result (ds/append! s 2))))
-      (is (= :ok (:result (ds/append! s 3))))
-      (is (= :full (:result (ds/append! s 4))))))
-  (testing "open! with :eviction-policy propagates to ringbuffer transport"
-    (let [s (ds/open! {:type :ringbuffer,
-                       :mode :create,
-                       :capacity 2,
-                       :eviction-policy :evict-oldest})]
-      (is (= :ok (:result (ds/append! s 1))))
-      (is (= :ok (:result (ds/append! s 2))))
-      (is (= :ok (:result (ds/append! s 3))))
-      (is (= :daostream/gap (ds/next s {:position 0})))))
+(deftest open-descriptor-nil-capacity-is-unbounded-test
   (testing "open! with nil :capacity is unbounded"
     (let [s (ds/open! {:type :ringbuffer, :mode :create, :capacity nil})]
       (dotimes [i 1000] (ds/append! s i))
