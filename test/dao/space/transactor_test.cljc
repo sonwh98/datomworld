@@ -543,3 +543,42 @@
         (is
           (= #{[2]} (query/q '[:find ?e :where [?e :a 2]] store))
           "the concurrent append survives — publish! did not overwrite it")))))
+
+
+(deftest cross-stream-entity-id-collision-contract
+  (testing
+    "documents query behavior when multiple transactor handles append datoms with identical local entity IDs"
+    (let [store (mem/create-kv-mem)
+          s1 (ds/open! {:type :transactor, :store store, :name "s1"})
+          s2 (ds/open! {:type :transactor, :store store, :name "s2"})]
+      (ds/append! s1 {:db/id 100, :user/name "Alice-Stream1"})
+      (ds/append! s2 {:db/id 100, :user/name "Alice-Stream2"})
+      ;; Document that current query/q folds both member roots without
+      ;; automatic namespace disambiguation
+      (let [res (query/q '[:find ?name :where [100 :user/name ?name]] store)]
+        (is (= #{["Alice-Stream1"] ["Alice-Stream2"]} res))))))
+
+
+(deftest multi-stage-index-lifecycle-reorder
+  (testing "multi-stage append -> publish! -> append -> gapping -> resync cycle"
+    (let [store (mem/create-kv-mem)
+          log (ds/open! {:type :transactor, :store store, :name "producer"})]
+      ;; Stage 1: append wholesale
+      (ds/append! log {:db/id 1, :val "a"})
+      (let [c0 {:position 0}
+            r1 (ds/next log c0)
+            cur1 (:cursor r1)]
+        (is (= 1 (first (:ok r1))))
+        ;; Stage 2: publish! index (advances reorder-epoch)
+        (transactor/publish! log)
+        ;; Stage 3: append again (folds indexed root back to wholesale, 2
+        ;; datoms now)
+        (ds/append! log {:db/id 2, :val "b"})
+        ;; Stale cursor cur1 (epoch 0) reading position 1 when root has
+        ;; reordered epoch detects gap
+        (is (= :daostream/gap (ds/next log cur1)))
+        ;; Resyncing cursor with updated epoch reads second datom
+        (let [{:keys [reorder-epoch]} (index/read-root store :root/producer)
+              resynced-cur (assoc cur1 :epoch reorder-epoch)
+              r2 (ds/next log resynced-cur)]
+          (is (= 2 (first (:ok r2)))))))))
