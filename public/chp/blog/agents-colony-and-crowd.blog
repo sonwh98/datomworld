@@ -17,7 +17,9 @@
            "The alternative is older than any of these tools. Let the agents coordinate the way ants do: by modifying a shared medium and reacting to what they find there. That medium is the tuple space."]
           [:h2 "The Tuple Space Is the Collaboration Layer"]
           [:p
-           "In dao.space the collaboration layer is not an API. It is the space of datoms. An agent does not call another agent. It writes a trace (Linda "
+           "In dao.space the collaboration layer is not an API. It is the space of datoms. An agent does not call another agent. It writes a trace ("
+           [:a {:href "https://en.wikipedia.org/wiki/Linda_(coordination_language)"} "Linda"]
+           " "
            [:code "out"]
            ") and reads traces that match a pattern (Linda "
            [:code "rd"]
