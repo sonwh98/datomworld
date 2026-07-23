@@ -301,7 +301,7 @@
              (query/q '[:find ?e :where [?e :work/status :todo]] store))))))
 
 
-(deftest publish-bang
+(deftest publish!
   (testing "publish! builds covered indexes over everything appended so far"
     (let [store (mem/create-kv-mem)
           log (ds/open! {:type :transactor, :store store, :name "w"})]
@@ -345,7 +345,7 @@
       (is (= [] (query/match store ['_ '_ '_]))))))
 
 
-(deftest transact-bang
+(deftest transact!
   (testing
     "transact! commits multiple entity maps as one atomic write, sharing one t"
     (let [store (mem/create-kv-mem)
@@ -506,7 +506,7 @@
                second, unchanged republish"))))))
 
 
-(deftest publish-bang-rejects-concurrent-append
+(deftest publish!-rejects-concurrent-append
   (testing
     "publish! throws rather than silently commit indexes over a stale
           snapshot when a same-name append lands between the datom read
