@@ -1,6 +1,5 @@
 (ns yin.vm.parity-test
   (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
             [dao.stream.ringbuffer]
             [yang.clojure :as yang]
             [yin.vm :as vm]
@@ -306,3 +305,215 @@
           (str
             vm-type
             ": x should still be 42 after shadow-test returns, not the parameter value"))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Consolidated Backend Parity Tests (docs/design/yin.vm.test-consolidation.md)
+;; ---------------------------------------------------------------------------
+
+(deftest addition-edge-cases-parity-test
+  (testing "addition handles zero-args, identity, and negation across all VMs"
+    (let [add (fn [a b]
+                {:type :application,
+                 :operator {:type :variable, :name '+},
+                 :operands [{:type :literal, :value a}
+                            {:type :literal, :value b}]})
+          cases [[(add 0 0) 0] [(add -5 5) 0] [(add -3 -7) -10]]]
+      (doseq [[ast expected] cases]
+        (let [results (vtu/run-all-vms ast)]
+          (doseq [[vm-type value] results]
+            (is (= expected value)
+                (str vm-type
+                     " should compute " (pr-str ast)
+                     " => " expected
+                     ", got " (pr-str value)))))))))
+
+
+(deftest nested-lambda-parity-test
+  (testing "Nested lambda with closure capture across all VMs"
+    (let [ast {:type :application,
+               :operator
+               {:type :lambda,
+                :params ['x],
+                :body {:type :application,
+                       :operator
+                       {:type :lambda,
+                        :params ['y],
+                        :body {:type :application,
+                               :operator {:type :variable, :name '+},
+                               :operands [{:type :variable, :name 'x}
+                                          {:type :variable, :name 'y}]}},
+                       :operands [{:type :literal, :value 5}]}},
+               :operands [{:type :literal, :value 3}]}
+          results (vtu/run-all-vms ast)]
+      (doseq [[vm-type value] results]
+        (is (= 8 value)
+            (str vm-type
+                 " should evaluate nested-lambda to 8, got "
+                 (pr-str value)))))))
+
+
+(deftest compound-expression-parity-test
+  (testing "Lambda with compound body across all VMs"
+    (let [ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['a 'b],
+                          :body {:type :application,
+                                 :operator {:type :variable, :name '+},
+                                 :operands
+                                 [{:type :variable, :name 'a}
+                                  {:type :application,
+                                   :operator {:type :variable, :name '-},
+                                   :operands [{:type :variable, :name 'b}
+                                              {:type :literal, :value 1}]}]}},
+               :operands [{:type :literal, :value 10}
+                          {:type :literal, :value 5}]}
+          results (vtu/run-all-vms ast)]
+      (doseq [[vm-type value] results]
+        (is (= 14 value)
+            (str vm-type
+                 " should evaluate compound-expression to 14, got "
+                 (pr-str value)))))))
+
+
+(deftest multi-param-lambda-parity-test
+  (testing "Lambda with two parameters across all VMs"
+    (let [ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['x 'y],
+                          :body {:type :application,
+                                 :operator {:type :variable, :name '+},
+                                 :operands [{:type :variable, :name 'x}
+                                            {:type :variable, :name 'y}]}},
+               :operands [{:type :literal, :value 3}
+                          {:type :literal, :value 5}]}
+          results (vtu/run-all-vms ast)]
+      (doseq [[vm-type value] results]
+        (is (= 8 value)
+            (str vm-type
+                 " should evaluate multi-param-lambda to 8, got "
+                 (pr-str value)))))))
+
+
+(deftest stream-ordering-parity-test
+  (testing "stream maintains append order via cursors across all VMs"
+    (doseq [[vm-type create-vm] (vtu/vm-factories)]
+      (let [vm0 (create-vm)
+            vm1 (vm/eval vm0 {:type :stream/make, :buffer 10})
+            stream-ref (vm/value vm1)
+            put (fn [vm val]
+                  (vm/eval vm
+                           {:type :stream/put,
+                            :target {:type :literal, :value stream-ref},
+                            :val {:type :literal, :value val}}))
+            vm2 (-> vm1
+                    (put :first)
+                    (put :second)
+                    (put :third))
+            cursor-vm (vm/eval vm2
+                               {:type :stream/cursor,
+                                :source {:type :literal, :value stream-ref}})
+            cursor-ref (vm/value cursor-vm)
+            next-ast {:type :stream/next,
+                      :source {:type :literal, :value cursor-ref}}
+            v1 (vm/eval cursor-vm next-ast)
+            v2 (vm/eval v1 next-ast)
+            v3 (vm/eval v2 next-ast)]
+        (is (= :first (vm/value v1)) (str vm-type " stream-ordering: first"))
+        (is (= :second (vm/value v2)) (str vm-type " stream-ordering: second"))
+        (is (= :third (vm/value v3))
+            (str vm-type " stream-ordering: third"))))))
+
+
+(deftest stream-channel-mobility-parity-test
+  (testing
+    "A stream-ref sent through a stream arrives intact at VM level across all VMs"
+    (doseq [[vm-type create-vm] (vtu/vm-factories)]
+      (let [vm0 (vm/eval (create-vm) {:type :stream/make, :buffer 10})
+            ref-a (vm/value vm0)
+            vm1 (vm/eval vm0 {:type :stream/make, :buffer 10})
+            ref-b (vm/value vm1)
+            vm2 (vm/eval vm1
+                         {:type :stream/put,
+                          :target {:type :literal, :value ref-b},
+                          :val {:type :literal, :value 42}})
+            vm3 (vm/eval vm2
+                         {:type :stream/put,
+                          :target {:type :literal, :value ref-a},
+                          :val {:type :literal, :value ref-b}})
+            vm4 (vm/eval vm3
+                         {:type :stream/cursor,
+                          :source {:type :literal, :value ref-a}})
+            cursor-a (vm/value vm4)
+            vm5 (vm/eval vm4
+                         {:type :stream/next,
+                          :source {:type :literal, :value cursor-a}})
+            recovered-ref (vm/value vm5)]
+        (is (= ref-b recovered-ref)
+            (str vm-type " stream-channel-mobility: ref-b recovered"))
+        (let [vm6 (vm/eval vm5
+                           {:type :stream/cursor,
+                            :source {:type :literal, :value recovered-ref}})
+              cursor-b (vm/value vm6)
+              vm7 (vm/eval vm6
+                           {:type :stream/next,
+                            :source {:type :literal, :value cursor-b}})]
+          (is (= 42 (vm/value vm7))
+              (str vm-type " stream-channel-mobility: 42 recovered")))))))
+
+
+(deftest stream-put-cursor-next-roundtrip-parity-test
+  ;; Consolidation note (docs/design/yin.vm.test-consolidation.md): this
+  ;; scenario's pre-consolidation ast-walker copy used the stream-ingestion
+  ;; path (queue-ast!+run), while register/semantic/stack already used
+  ;; vm/eval directly. run-all-vms (below) is eval-path for all backends,
+  ;; so this is a real path change for ast-walker specifically, verified
+  ;; non-divergent by this test asserting the same expected value (42) that
+  ;; the stream path asserted before consolidation.
+  (testing "put then cursor+next roundtrip within nested lambdas across all VMs"
+    (let [ast {:type :application,
+               :operator
+               {:type :lambda,
+                :params ['s],
+                :body {:type :application,
+                       :operator {:type :lambda,
+                                  :params ['_],
+                                  :body {:type :application,
+                                         :operator {:type :lambda,
+                                                    :params ['c],
+                                                    :body {:type :stream/next,
+                                                           :source
+                                                           {:type :variable,
+                                                            :name 'c}}},
+                                         :operands [{:type :stream/cursor,
+                                                     :source {:type :variable,
+                                                              :name 's}}]}},
+                       :operands [{:type :stream/put,
+                                   :target {:type :variable, :name 's},
+                                   :val {:type :literal, :value 42}}]}},
+               :operands [{:type :stream/make, :buffer 5}]}
+          results (vtu/run-all-vms ast)]
+      (doseq [[vm-type value] results]
+        (is (= 42 value)
+            (str vm-type
+                 " should evaluate stream-put-cursor-next-roundtrip to 42, got "
+                 (pr-str value)))))))
+
+
+(deftest stream-with-lambda-parity-test
+  ;; Consolidation note: same ast-walker stream-path -> eval-path change as
+  ;; stream-put-cursor-next-roundtrip-parity-test above, same verification.
+  (testing "stream operations within lambda application across all VMs"
+    (let [ast {:type :application,
+               :operator {:type :lambda,
+                          :params ['s],
+                          :body {:type :stream/put,
+                                 :target {:type :variable, :name 's},
+                                 :val {:type :literal, :value 42}}},
+               :operands [{:type :stream/make, :buffer 5}]}
+          results (vtu/run-all-vms ast)]
+      (doseq [[vm-type value] results]
+        (is (= 42 value)
+            (str vm-type
+                 " should evaluate stream-with-lambda to 42, got "
+                 (pr-str value)))))))

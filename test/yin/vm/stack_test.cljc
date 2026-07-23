@@ -309,20 +309,6 @@
           :else (recur (vm/step v) (inc ticks)))))))
 
 
-(deftest multi-param-lambda-test
-  (testing "Lambda with two parameters ((fn [x y] (+ x y)) 3 5)"
-    (let [ast {:type :application,
-               :operator {:type :lambda,
-                          :params ['x 'y],
-                          :body {:type :application,
-                                 :operator {:type :variable, :name '+},
-                                 :operands [{:type :variable, :name 'x}
-                                            {:type :variable, :name 'y}]}},
-               :operands [{:type :literal, :value 3}
-                          {:type :literal, :value 5}]}]
-      (is (= 8 (compile-and-run ast))))))
-
-
 (deftest all-arithmetic-primitives-test
   (testing "All arithmetic primitive operations"
     (let [binop (fn [op a b]
@@ -347,56 +333,6 @@
       (is (false? (compile-and-run (binop '= 5 6))))
       (is (true? (compile-and-run (binop '< 3 5))))
       (is (true? (compile-and-run (binop '> 10 5)))))))
-
-
-(deftest addition-edge-cases-test
-  (testing "Addition edge cases"
-    (let [add (fn [a b]
-                {:type :application,
-                 :operator {:type :variable, :name '+},
-                 :operands [{:type :literal, :value a}
-                            {:type :literal, :value b}]})]
-      (is (= 0 (compile-and-run (add 0 0))))
-      (is (= 0 (compile-and-run (add -5 5))))
-      (is (= -10 (compile-and-run (add -3 -7)))))))
-
-
-(deftest nested-lambda-test
-  (testing
-    "Nested lambda with closure capture ((fn [x] ((fn [y] (+ x y)) 5)) 3)"
-    (let [ast {:type :application,
-               :operator
-               {:type :lambda,
-                :params ['x],
-                :body {:type :application,
-                       :operator
-                       {:type :lambda,
-                        :params ['y],
-                        :body {:type :application,
-                               :operator {:type :variable, :name '+},
-                               :operands [{:type :variable, :name 'x}
-                                          {:type :variable, :name 'y}]}},
-                       :operands [{:type :literal, :value 5}]}},
-               :operands [{:type :literal, :value 3}]}]
-      (is (= 8 (compile-and-run ast))))))
-
-
-(deftest compound-expression-test
-  (testing "Lambda with compound body ((fn [a b] (+ a (- b 1))) 10 5)"
-    (let [ast {:type :application,
-               :operator {:type :lambda,
-                          :params ['a 'b],
-                          :body {:type :application,
-                                 :operator {:type :variable, :name '+},
-                                 :operands
-                                 [{:type :variable, :name 'a}
-                                  {:type :application,
-                                   :operator {:type :variable, :name '-},
-                                   :operands [{:type :variable, :name 'b}
-                                              {:type :literal, :value 1}]}]}},
-               :operands [{:type :literal, :value 10}
-                          {:type :literal, :value 5}]}]
-      (is (= 14 (compile-and-run ast))))))
 
 
 (deftest boundary-recompile-test
@@ -541,117 +477,6 @@
           vm-after-next (-> vm-with-stream
                             (vm/eval ast))]
       (is (= :yin/blocked (vm/value vm-after-next))))))
-
-
-(deftest stream-ordering-test
-  (testing "stream maintains append order via cursors"
-    (let [vm-with-stream (-> (make-stream-vm)
-                             (vm/eval {:type :stream/make, :buffer 10}))
-          stream-ref (vm/value vm-with-stream)
-          put-ast (fn [val]
-                    {:type :stream/put,
-                     :target {:type :literal, :value stream-ref},
-                     :val {:type :literal, :value val}})
-          vm-after-puts (-> vm-with-stream
-                            (vm/eval (put-ast :first))
-                            (vm/eval (put-ast :second))
-                            (vm/eval (put-ast :third)))
-          read-ast (fn [cursor-ref]
-                     {:type :stream/next,
-                      :source {:type :literal, :value cursor-ref}})
-          vm-with-cursor (-> vm-after-puts
-                             (vm/eval {:type :stream/cursor,
-                                       :source {:type :literal,
-                                                :value stream-ref}}))
-          cursor-ref (vm/value vm-with-cursor)
-          vm-read1 (-> vm-with-cursor
-                       (vm/eval (read-ast cursor-ref)))
-          vm-read2 (-> vm-read1
-                       (vm/eval (read-ast cursor-ref)))
-          vm-read3 (-> vm-read2
-                       (vm/eval (read-ast cursor-ref)))]
-      (is (= :first (vm/value vm-read1)))
-      (is (= :second (vm/value vm-read2)))
-      (is (= :third (vm/value vm-read3))))))
-
-
-(deftest stream-with-lambda-test
-  (testing "stream operations within lambda application"
-    (let [ast {:type :application,
-               :operator {:type :lambda,
-                          :params ['s],
-                          :body {:type :stream/put,
-                                 :target {:type :variable, :name 's},
-                                 :val {:type :literal, :value 42}}},
-               :operands [{:type :stream/make, :buffer 5}]}
-          vm (-> (make-stream-vm)
-                 (vm/eval ast))]
-      (is (= 42 (vm/value vm))))))
-
-
-(deftest stream-put-cursor-next-roundtrip-test
-  (testing "put then cursor+next roundtrip within nested lambdas"
-    (let [ast {:type :application,
-               :operator
-               {:type :lambda,
-                :params ['s],
-                :body {:type :application,
-                       :operator {:type :lambda,
-                                  :params ['_],
-                                  :body {:type :application,
-                                         :operator {:type :lambda,
-                                                    :params ['c],
-                                                    :body {:type :stream/next,
-                                                           :source
-                                                           {:type :variable,
-                                                            :name 'c}}},
-                                         :operands [{:type :stream/cursor,
-                                                     :source {:type :variable,
-                                                              :name 's}}]}},
-                       :operands [{:type :stream/put,
-                                   :target {:type :variable, :name 's},
-                                   :val {:type :literal, :value 42}}]}},
-               :operands [{:type :stream/make, :buffer 5}]}
-          vm (-> (make-stream-vm)
-                 (vm/eval ast))]
-      (is (= 42 (vm/value vm))))))
-
-
-(deftest stream-channel-mobility-test
-  (testing "A stream-ref sent through a stream arrives intact"
-    (let [vm0 (-> (make-stream-vm)
-                  (vm/eval {:type :stream/make, :buffer 10}))
-          ref-a (vm/value vm0)
-          vm1 (-> vm0
-                  (vm/eval {:type :stream/make, :buffer 10}))
-          ref-b (vm/value vm1)
-          vm2 (-> vm1
-                  (vm/eval {:type :stream/put,
-                            :target {:type :literal, :value ref-b},
-                            :val {:type :literal, :value 42}}))
-          vm3 (-> vm2
-                  (vm/eval {:type :stream/put,
-                            :target {:type :literal, :value ref-a},
-                            :val {:type :literal, :value ref-b}}))
-          vm4 (-> vm3
-                  (vm/eval {:type :stream/cursor,
-                            :source {:type :literal, :value ref-a}}))
-          cursor-a (vm/value vm4)
-          vm5 (-> vm4
-                  (vm/eval {:type :stream/next,
-                            :source {:type :literal, :value cursor-a}}))
-          recovered-ref (vm/value vm5)]
-      (is (= ref-b recovered-ref)
-          "Stream-ref passes through a stream unchanged")
-      (let [vm6 (-> vm5
-                    (vm/eval {:type :stream/cursor,
-                              :source {:type :literal, :value recovered-ref}}))
-            cursor-b (vm/value vm6)
-            vm7 (-> vm6
-                    (vm/eval {:type :stream/next,
-                              :source {:type :literal, :value cursor-b}}))]
-        (is (= 42 (vm/value vm7))
-            "Reading from recovered stream-ref yields the original value")))))
 
 
 (deftest continuation-park-resume-test
