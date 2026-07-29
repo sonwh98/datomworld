@@ -49,13 +49,29 @@ both sides share — **not** a query API.
 
 ```clojure
 ;; The dumb storage API (see src/cljc/dao/jing.cljc) — all five IKVStore methods
-(kv/put! store :segment-id v-map)      ; write a fresh immutable segment chunk
-(kv/cas! store :root old-rev v-map)    ; advance a mutable root reference
-(kv/get store :root nil)               ; read a mutable root reference
-(kv/get store :segment-id nil)         ; read an immutable segment chunk
+(kv/put! store :segment-id v)          ; write a fresh immutable segment chunk
+(kv/cas! store :root expected v)       ; advance a mutable root reference
+(kv/get store :root kv/absent)         ; read a mutable root reference
+(kv/get store :segment-id kv/absent)   ; read an immutable segment chunk
 (kv/delete! store :segment-id)         ; remove an entry by key
 (kv/close! store)                      ; release the backend's resources
 ```
+
+**Values are opaque.** Whatever a caller hands `put!` or `cas!` is stored verbatim and
+returned by `get` `=` to what went in — any value, including scalars, collections, and `nil`.
+The store adds nothing, removes nothing, and inspects nothing. It follows that `nil` is a
+legal *value*, so absence is never signalled by a `nil` return: it comes back as the caller's
+`not-found`, for which `dao.jing/absent` is the canonical sentinel.
+
+`cas!` guards on the **expected previous value**, not a revision counter — git's ref-update
+semantics. `(kv/cas! store k kv/absent v)` is therefore "create, and only if the key does not
+already exist." The store keeps no versioning state of its own; the value a reader just read
+*is* the token it hands back to guard its write.
+
+The trade-off is **ABA**: value comparison cannot distinguish `A → B → A`, so a writer still
+holding the first `A` wins a CAS it ought to lose. A counter would have caught that. Callers
+whose root values can recur must carry their own discriminator — `dao.space.index` does, with
+a monotonically incremented `:reorder-epoch` — and the store cannot enforce it for them.
 
 An agent accumulates datoms by appending to its own `dao.stream` log before anything reaches
 `dao.jing`; which streams currently count as members of the space is tracked there too.
@@ -67,14 +83,16 @@ lands a byte blob at a key, as shown above.
 The two write paths shown above share one keyspace under a discipline the store does not
 enforce: immutable segments are written with `put!` under fresh, content-derived keys and are
 never rewritten; the mutable root reference is written with `cas!` under optimistic
-concurrency. Keep these keyspaces disjoint — `put!` re-stamps `:rev` to 0 unconditionally, so
-a `put!` over a `cas!`-governed key resets its revision and breaks the optimistic-concurrency
-guard.
+concurrency. Keep these keyspaces disjoint — `put!` is an unconditional replace, so a `put!`
+over a `cas!`-governed key silently clobbers whatever a concurrent writer was guarding
+against, and the loser never learns it lost.
 
 The content-derived key half of that discipline has a concrete mechanism: `dao.jing` itself
 (not any one backend) owns `canonical` (order-normalize a value so equal values print
-identical bytes, `defn-`, private), `content-hash` (sha256 of the canonical print, excluding
-`:rev`), `segment-key` (mint `:segment/sha256-<hash>` from a v-map; the prefix keeps the keyword readable EDN), and `key-class` (dispatch a key
+identical bytes, `defn-`, private), `content-hash` (sha256 of the canonical print — total over
+any value, since there is no longer a stamp to exclude), `segment-key` (mint
+`:segment/sha256-<hash>` from a value; the prefix keeps the keyword readable EDN), and
+`key-class` (dispatch a key
 to `:segment` or `:root`) — see `src/cljc/dao/jing.cljc`. `dao.jing.dht` (`dao.jing.dht.cljc`)
 consumes these (`jing/segment-key`, `jing/key-class`, `jing/content-hash`) for its own routing
 and key-discipline enforcement rather than defining its own copies — see `dao.jing.dht.md`,
@@ -170,7 +188,7 @@ implemented at the storage boundary today, and the contracts already pinned down
   new log, and atomically swaps the file beneath the `IKVStore` interface, reclaiming disk space.
 - **Encoding: canonical bytes are unbuilt in both layers; what separates `dao.jing` from
   `yin.content` is the shape of the hash, not the byte encoding.** `dao.jing` hashes a whole
-  opaque v-map blob for key-minting (no entity structure, no `[a v]` pairs, no `:db/derived`
+  opaque value for key-minting (no entity structure, no `[a v]` pairs, no `:db/derived`
   bookkeeping); `yin.content` computes an AST/entity-level Merkle hash over sorted `[a v]`
   pairs with ref-resolution and a dependency-ordered hash cache (`compute-content-hashes`).
   That structural difference — not "one is canonical, the other isn't" — is why `dao.jing`
@@ -179,7 +197,7 @@ implemented at the storage boundary today, and the contracts already pinned down
 
   The evidence for "unbuilt in both": where `dao.jing` mints a content-derived segment key
   (`segment-key`, above), today's implementation hashes an order-normalized `pr-str` print of
-  the v-map (sort map keys and set members so equal values print identical bytes, then sha256)
+  the value (sort map keys and set members so equal values print identical bytes, then sha256)
   — the same stand-in `dao.jing.dht.md` names for the pinned Eve Flat encoding, not the
   canonical byte encoding `datom-spec.md` mandates (little-endian ints, IEEE754 floats,
   per-type length-prefixing, the inline-or-hash-over-32-bytes threshold). `yin/content.cljc` is

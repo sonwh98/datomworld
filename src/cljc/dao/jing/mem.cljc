@@ -8,21 +8,19 @@
 
   jing/IKVStore
 
-  (put! [_ k v-map] (swap! state-atom assoc k (assoc v-map :rev 0)) true)
+  (put! [_ k v] (swap! state-atom assoc k v) true)
 
 
   (cas!
-    [_ k old-rev v-map]
+    [_ k expected v]
     (loop []
       (let [state @state-atom
-            current (get state k)
-            current-rev (or (:rev current) 0)]
-        (if (not= old-rev current-rev)
+            ;; contains? rather than a nil test: nil is a legal stored
+            ;; value, so absence has to be its own fact
+            current (if (contains? state k) (get state k) jing/absent)]
+        (if (not= expected current)
           false
-          (if (compare-and-set! state-atom
-                                state
-                                (assoc state
-                                       k (assoc v-map :rev (inc current-rev))))
+          (if (compare-and-set! state-atom state (assoc state k v))
             true
             (recur))))))
 

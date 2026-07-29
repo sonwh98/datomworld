@@ -96,11 +96,13 @@
                      (if (= k (jing/segment-key v))
                        {:ok (boolean (jing/put! local k v))}
                        {:ok false, :error :bad-hash}))
+            ;; :found travels explicitly on both reads: values are opaque
+            ;; and nil is a legal one, so it cannot be inferred from :v
             :fetch (let [v (jing/get local (:k msg) ::none)]
                      (if (= ::none v) {:found false} {:found true, :v v}))
             :root-get (let [v (jing/get local (:k msg) ::none)]
                         (if (= ::none v) {:found false} {:found true, :v v}))
-            :root-cas {:ok (jing/cas! local (:k msg) (:old-rev msg) (:v msg))}
+            :root-cas {:ok (jing/cas! local (:k msg) (:expected msg) (:v msg))}
             {:error :unknown-op})))
 
 
@@ -211,60 +213,60 @@
 ;; =============================================================================
 
 #?(:cljd nil
-   :clj
-   (defrecord UdpNode
-     [^DatagramSocket socket peer local table
-      ^ConcurrentHashMap pending ^AtomicLong rpc-counter
-      ^AtomicBoolean closed receiver opts]
+   :clj (defrecord UdpNode
+          [^DatagramSocket socket peer local table
+           ^ConcurrentHashMap pending ^AtomicLong rpc-counter
+           ^AtomicBoolean closed receiver opts]
 
-     dht/IDhtNet
+          dht/IDhtNet
 
-     (self-peer [_] peer)
-
-
-     (known-peers [_ target-id n] (kad/nearest @table target-id n))
+          (self-peer [_] peer)
 
 
-     (find-closer
-       [this to target-id]
-       (when-let [res
-                  (request! this to {:op :find-node, :target target-id})]
-         (let [found (remove #(= (:id %) (:id peer)) (:peers res))]
-           (doseq [q found] (swap! table kad/observe (:id peer) q))
-           found)))
+          (known-peers [_ target-id n] (kad/nearest @table target-id n))
 
 
-     (store-segment!
-       [this to k v-map]
-       (try (boolean (:ok (request! this to {:op :store, :k k, :v v-map})))
-            (catch Exception _ false)))
+          (find-closer
+            [this to target-id]
+            (when-let [res (request! this
+                                     to
+                                     {:op :find-node, :target target-id})]
+              (let [found (remove #(= (:id %) (:id peer)) (:peers res))]
+                (doseq [q found] (swap! table kad/observe (:id peer) q))
+                found)))
 
 
-     (fetch-segment
-       [this to k]
-       (let [res (request! this to {:op :fetch, :k k})]
-         (when (:found res) (:v res))))
+          (store-segment!
+            [this to k v]
+            (try (boolean (:ok (request! this to {:op :store, :k k, :v v})))
+                 (catch Exception _ false)))
 
 
-     (root-get
-       [this to k]
-       (when-let [res (request! this to {:op :root-get, :k k})]
-         {:value (when (:found res) (:v res))}))
+          (fetch-segment
+            [this to k]
+            (when-let [res (request! this to {:op :fetch, :k k})]
+              {:found? (boolean (:found res)), :value (:v res)}))
 
 
-     (root-cas!
-       [this to k old-rev v-map]
-       (when-let [res (request!
-                        this
-                        to
-                        {:op :root-cas, :k k, :old-rev old-rev, :v v-map})]
-         (boolean (:ok res))))
+          (root-get
+            [this to k]
+            (when-let [res (request! this to {:op :root-get, :k k})]
+              {:found? (boolean (:found res)), :value (:v res)}))
 
 
-     (close-net!
-       [_]
-       (when (.compareAndSet closed false true) (.close socket))
-       nil)))
+          (root-cas!
+            [this to k expected v]
+            (when-let [res (request!
+                             this
+                             to
+                             {:op :root-cas, :k k, :expected expected, :v v})]
+              (boolean (:ok res))))
+
+
+          (close-net!
+            [_]
+            (when (.compareAndSet closed false true) (.close socket))
+            nil)))
 
 
 #?(:cljd nil

@@ -39,10 +39,10 @@
 
   jing/IKVStore
 
-  (put! [_ k v-map] (call-fn :jing/put! [k v-map]))
+  (put! [_ k v] (call-fn :jing/put! [k v]))
 
 
-  (cas! [_ k old-rev v-map] (call-fn :jing/cas! [k old-rev v-map]))
+  (cas! [_ k expected v] (call-fn :jing/cas! [k expected v]))
 
 
   (get [_ k not-found] (call-fn :jing/get [k not-found]))

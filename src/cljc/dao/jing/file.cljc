@@ -24,7 +24,10 @@
 
 
 (defn- recover-index
-  "Scans stream sequentially, returning {:index {k {:cursor cursor :rev rev}}}"
+  "Scans stream sequentially, returning {:index {k {:cursor cursor}}}.
+
+  Records are `[k op v]` with op :put or :delete; a :delete record is the
+  tombstone that removes k from the live keyset."
   [stream]
   (let [idx (atom {})]
     (loop [cursor {:position 0}]
@@ -46,10 +49,10 @@
                               nil))]
             (if-not (vector? parsed)
               {:index @idx}
-              (let [[k rev _] parsed]
-                (if (= rev -1)
+              (let [[k op _] parsed]
+                (if (= op :delete)
                   (swap! idx dissoc k)
-                  (swap! idx assoc k {:cursor cursor, :rev rev}))
+                  (swap! idx assoc k {:cursor cursor}))
                 (recur next-cursor)))))))))
 
 
@@ -102,18 +105,18 @@
         (try
           (let [new-index
                 (reduce-kv
-                  (fn [idx k {:keys [cursor rev]}]
+                  (fn [idx k {:keys [cursor]}]
                     (let [res (ds/next old-stream cursor)]
                       (if-not (map? res)
                         (throw (ex-info "Compaction failed to read live key"
                                         {:key k, :cursor cursor}))
                         (let [payload (bytes->str (:ok res))
-                              [_ _ v-map] (edn/read-string payload)
-                              new-payload (pr-str [k rev v-map])
+                              [_ _ v] (edn/read-string payload)
+                              new-payload (pr-str [k :put v])
                               {put-res :result, new-cursor :cursor}
                               (ds/append! new-stream (->bytes new-payload))]
                           (if (= :ok put-res)
-                            (assoc idx k {:cursor new-cursor, :rev rev})
+                            (assoc idx k {:cursor new-cursor})
                             (throw (ex-info
                                      "Compaction failed to write live key"
                                      {:key k, :result put-res})))))))
@@ -164,43 +167,48 @@
   jing/IKVStore
 
   (put!
-    [_ k v-map]
-    (do-with-lock state-atom
-                  (fn []
-                    (let [state @state-atom
-                          stream (:stream state)
-                          v-map (assoc v-map :rev 0)
-                          payload (pr-str [k 0 v-map])
-                          {res :result, cursor :cursor}
-                          (ds/append! stream (->bytes payload))]
-                      (when (= :ok res)
-                        (reset! state-atom (assoc-in state
-                                                     [:index k]
-                                                     {:cursor cursor, :rev 0}))
-                        true)))))
+    [_ k v]
+    (do-with-lock
+      state-atom
+      (fn []
+        (let [state @state-atom
+              stream (:stream state)
+              payload (pr-str [k :put v])
+              {res :result, cursor :cursor} (ds/append! stream
+                                                        (->bytes payload))]
+          (when (= :ok res)
+            (reset! state-atom (assoc-in state [:index k] {:cursor cursor}))
+            true)))))
 
 
   (cas!
-    [_ k old-rev v-map]
-    (do-with-lock state-atom
-                  (fn []
-                    (let [state @state-atom
-                          stream (:stream state)
-                          current (get-in state [:index k])
-                          current-rev (or (:rev current) 0)]
-                      (if (not= old-rev current-rev)
-                        false
-                        (let [new-rev (inc current-rev)
-                              v-map (assoc v-map :rev new-rev)
-                              payload (pr-str [k new-rev v-map])
-                              {res :result, cursor :cursor}
-                              (ds/append! stream (->bytes payload))]
-                          (when (= :ok res)
-                            (reset! state-atom (assoc-in state
-                                                         [:index k]
-                                                         {:cursor cursor,
-                                                          :rev new-rev}))
-                            true)))))))
+    [_ k expected v]
+    (do-with-lock
+      state-atom
+      (fn []
+        (let [state @state-atom
+              stream (:stream state)
+              ;; the guard is the value itself, so it has to be read back
+              ;; off the log — the index carries only cursors (Bitcask's
+              ;; memory profile is keys-and-cursors by design, so caching
+              ;; values or their hashes here is not on the table). One
+              ;; extra read per cas!, under the lock we already hold.
+              current (if-let [idx (get-in state [:index k])]
+                        (let [res (ds/next stream (:cursor idx))]
+                          (if (map? res)
+                            (nth (edn/read-string (bytes->str (:ok res))) 2)
+                            jing/absent))
+                        jing/absent)]
+          (if (not= expected current)
+            false
+            (let [payload (pr-str [k :put v])
+                  {res :result, cursor :cursor}
+                  (ds/append! stream (->bytes payload))]
+              (when (= :ok res)
+                (reset! state-atom (assoc-in state
+                                             [:index k]
+                                             {:cursor cursor}))
+                true)))))))
 
 
   (get
@@ -217,8 +225,8 @@
                               _
                          ::closed))]
           (cond (map? res) (let [payload (bytes->str (:ok res))
-                                 [_ _ v-map] (edn/read-string payload)]
-                             v-map)
+                                 [_ _ v] (edn/read-string payload)]
+                             v)
                 (or (= ::closed res) (ds/closed? stream))
                 (if (:closed @state-atom)
                   not-found
@@ -233,7 +241,7 @@
       (fn []
         (let [state @state-atom
               stream (:stream state)
-              payload (pr-str [k -1 nil])]
+              payload (pr-str [k :delete nil])]
           (when (= :ok (:result (ds/append! stream (->bytes payload))))
             (reset! state-atom (update state :index dissoc k))
             true)))))

@@ -232,12 +232,12 @@
     (let [real (mem/create-kv-mem)
           always-loses-cas (reify
                              jing/IKVStore
-                             (put! [_ k v-map] (jing/put! real k v-map))
+                             (put! [_ k v] (jing/put! real k v))
 
                              (cas!
-                               [_ k old-rev v-map]
+                               [_ k expected v]
                                (if (= k index/members-key)
-                                 (jing/cas! real k old-rev v-map)
+                                 (jing/cas! real k expected v)
                                  false))
 
                              (get [_ k not-found] (jing/get real k not-found))
@@ -283,7 +283,10 @@
   (testing "a :transactor append preserves datoms already seeded wholesale"
     (let [store (mem/create-kv-mem)]
       (index/register-member! store :root/w)
-      (jing/cas! store :root/w 0 {:datoms [[1 :work/status :todo 0 1]]})
+      (jing/cas! store
+                 :root/w
+                 jing/absent
+                 {:datoms [[1 :work/status :todo 0 1]]})
       (let [log (ds/open! {:type :transactor, :store store, :name "w"})]
         (ds/append! log {:db/id 2, :work/status :todo})
         (is (= #{[1] [2]}
@@ -326,16 +329,16 @@
       (is (nil? (jing/get store :root/other nil))
           "opts cannot redirect publish! away from the stream's own root")))
   (testing
-    "opts :rev/:reorder-epoch are ignored — publish! always uses its
+    "opts :expected/:reorder-epoch are ignored — publish! always uses its
           own read-root snapshot, not caller-supplied ones"
     (let [store (mem/create-kv-mem)
           log (ds/open! {:type :transactor, :store store, :name "w"})]
       (ds/append! log {:db/id 1, :work/status :todo})
-      ;; a wildly wrong :rev/:reorder-epoch in opts must not reach cas! —
-      ;; if it did, this cas! would either throw (wrong rev) or corrupt
-      ;; :reorder-epoch (wrong epoch); neither happens because publish!
-      ;; overwrites both from its own read-root call.
-      (transactor/publish! log {:rev 999999, :reorder-epoch 999999})
+      ;; a wildly wrong :expected/:reorder-epoch in opts must not reach
+      ;; cas! — if it did, this cas! would either throw (wrong expected
+      ;; value) or corrupt :reorder-epoch (wrong epoch); neither happens
+      ;; because publish! overwrites both from its own read-root call.
+      (transactor/publish! log {:expected :bogus, :reorder-epoch 999999})
       (is (= 1 (:reorder-epoch (jing/get store :root/w nil)))
           "epoch advanced from the real prior epoch (0), not the bogus opt")))
   (testing "publishing an empty stream is readable, not an error"
@@ -401,12 +404,12 @@
     (let [real (mem/create-kv-mem)
           always-loses-cas (reify
                              jing/IKVStore
-                             (put! [_ k v-map] (jing/put! real k v-map))
+                             (put! [_ k v] (jing/put! real k v))
 
                              (cas!
-                               [_ k old-rev v-map]
+                               [_ k expected v]
                                (if (= k index/members-key)
-                                 (jing/cas! real k old-rev v-map)
+                                 (jing/cas! real k expected v)
                                  false))
 
                              (get [_ k not-found] (jing/get real k not-found))
@@ -510,30 +513,33 @@
   (testing
     "publish! throws rather than silently commit indexes over a stale
           snapshot when a same-name append lands between the datom read
-          and the cas! — the lost-update race publish-index!'s :rev
+          and the cas! — the lost-update race publish-index!'s :expected
           option exists to close"
     (let [store (mem/create-kv-mem)]
       (index/register-member! store :root/w)
-      (jing/cas! store :root/w 0 {:datoms [[1 :a 1 0 1]]})
+      (jing/cas! store :root/w jing/absent {:datoms [[1 :a 1 0 1]]})
       ;; simulate the exact window publish! races against: read the
-      ;; datoms/rev/epoch snapshot, then a concurrent append commits,
+      ;; datoms/expected/epoch snapshot, then a concurrent append commits,
       ;; then try to publish against the now-stale snapshot.
-      (let [{:keys [datoms rev reorder-epoch]} (index/read-root store :root/w)]
-        (jing/cas! store :root/w rev {:datoms (conj datoms [2 :a 2 1 1])})
-        (is (thrown-with-msg?
-              #?(:cljs js/Error
-                 :cljd Object
-                 :default Exception)
-              #"lost the root cas!"
-              (index/publish-index!
-                store
-                datoms
-                {:key :root/w, :rev rev, :reorder-epoch reorder-epoch})))
+      (let [{:keys [datoms expected reorder-epoch]} (index/read-root store
+                                                                     :root/w)]
+        (jing/cas! store :root/w expected {:datoms (conj datoms [2 :a 2 1 1])})
+        (is (thrown-with-msg? #?(:cljs js/Error
+                                 :cljd Object
+                                 :default Exception)
+                              #"lost the root cas!"
+              (index/publish-index! store
+                                    datoms
+                                    {:key :root/w,
+                                     :expected expected,
+                                     :reorder-epoch
+                                     reorder-epoch})))
         (testing "the exception carries a :likely-cause for callers to log"
-          (try (index/publish-index!
-                 store
-                 datoms
-                 {:key :root/w, :rev rev, :reorder-epoch reorder-epoch})
+          (try (index/publish-index! store
+                                     datoms
+                                     {:key :root/w,
+                                      :expected expected,
+                                      :reorder-epoch reorder-epoch})
                (is false "should have thrown")
                (catch #?(:cljs js/Error
                          :cljd Object

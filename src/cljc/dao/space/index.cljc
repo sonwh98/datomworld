@@ -68,11 +68,13 @@
   [store k]
   (validate-root-key! k "register-member!")
   (loop []
-    (let [root (jing/get store members-key nil)
-          rev (:rev root 0)
-          members (or (:members root) #{})]
+    (let [root (jing/get store members-key jing/absent)
+          members (if (= jing/absent root) #{} (or (:members root) #{}))]
       (or (contains? members k)
-          (jing/cas! store members-key rev {:members (conj members k)})
+          ;; guard on the whole root as read: the members set only ever
+          ;; grows, so it can never recur and the value is a sound CAS
+          ;; token
+          (jing/cas! store members-key root {:members (conj members k)})
           (recur)))))
 
 
@@ -282,24 +284,28 @@
 
 
 (defn read-root
-  "Atomically read a stream's root as `{:datoms [...] :rev n
+  "Atomically read a stream's root as `{:datoms [...] :expected v
   :reorder-epoch n}` — one `jing/get`, so the three are a consistent
-  snapshot. `:rev` lets a caller (`publish-index!`, `transactor/publish!`)
-  `cas!` against exactly what it read instead of a fresher-but-mismatched
-  revision, closing the lost-update race where a concurrent append lands
-  between an index build and its commit. `:reorder-epoch` increments only
-  on wholesale→indexes publish (the one transition that changes what
-  `next`'s position `n` refers to — see `dao.space.transactor`'s cursor
-  gap check); ordinary appends and index→wholesale fold-back carry it
-  forward unchanged, since neither reorders an already-minted position."
+  snapshot. `:expected` is the raw root value exactly as read (or
+  `jing/absent` when the key has never been written), and is what a caller
+  (`publish-index!`, `transactor/publish!`) hands back to `cas!` so it
+  guards against precisely what it saw, closing the lost-update race where
+  a concurrent append lands between an index build and its commit.
+  `:reorder-epoch` increments only on wholesale→indexes publish (the one
+  transition that changes what `next`'s position `n` refers to — see
+  `dao.space.transactor`'s cursor gap check); ordinary appends and
+  index→wholesale fold-back carry it forward unchanged, since neither
+  reorders an already-minted position."
   [store datoms-key]
   (validate-root-key! datoms-key "read-root")
-  (let [root (jing/get store datoms-key {:datoms [], :rev 0, :reorder-epoch 0})]
-    {:datoms (if-some [indexes (:indexes root)]
-               (vec (walk-index-datoms store (:eavt indexes)))
-               (:datoms root)),
-     :rev (:rev root 0),
-     :reorder-epoch (:reorder-epoch root 0)}))
+  (let [root (jing/get store datoms-key jing/absent)
+        missing? (= jing/absent root)]
+    {:datoms (cond missing? []
+                   (:indexes root)
+                   (vec (walk-index-datoms store (:eavt (:indexes root))))
+                   :else (:datoms root)),
+     :expected root,
+     :reorder-epoch (if missing? 0 (:reorder-epoch root 0))}))
 
 
 (defn read-datoms
@@ -350,11 +356,11 @@
   `{:indexes {...} :count n :branching-factor n}` via cas!. Republishing
   unchanged data is idempotent. Single-writer discipline: throws if the
   root cas! is lost — including when it is lost to a concurrent append
-  landing after `datoms` was read: pass `:rev` (from `read-root`) so the
-  cas! targets the revision `datoms` actually came from, not a
-  fresher one, otherwise the cas! always finds a revision to succeed
-  against and silently commits indexes built over stale data, dropping
-  the concurrent append. Runs on every platform (dao.data.btree).
+  landing after `datoms` was read: pass `:expected` (from `read-root`) so
+  the cas! guards on the root value `datoms` actually came from, not a
+  fresher one, otherwise the cas! always finds a value to succeed against
+  and silently commits indexes built over stale data, dropping the
+  concurrent append. Runs on every platform (dao.data.btree).
 
   Usage:
     (publish-index! store datoms-key)  — reindexes the current contents of datoms-key
@@ -363,21 +369,21 @@
   opts: {:branching-factor n  — max keys per node (default 512, Datomic-
                                 style fat segments)
          :key k               — the stream root to advance (required)
-         :rev n               — the revision `datoms` was read at
+         :expected v          — the raw root value `datoms` was read at
                                 (default: a fresh read at cas! time, for
                                 callers indexing a datom seq unrelated to
                                 any live root)
          :reorder-epoch n     — carried into the published root's
                                 `:reorder-epoch` + 1 (default: read
-                                alongside the :rev fallback)}."
+                                alongside the :expected fallback)}."
   ([store datoms-key]
    ;; guard the re-aritied API: the old 2-arity took a datom seq, and a
    ;; vector silently becomes a phantom root key. read-root handles this.
-   (let [{:keys [datoms rev reorder-epoch]} (read-root store datoms-key)]
+   (let [{:keys [datoms expected reorder-epoch]} (read-root store datoms-key)]
      (publish-index!
        store
        datoms
-       {:key datoms-key, :rev rev, :reorder-epoch reorder-epoch})))
+       {:key datoms-key, :expected expected, :reorder-epoch reorder-epoch})))
   ([store datoms opts]
    (let [datoms-key (or (:key opts)
                         (throw (ex-info "publish-index! requires a :key option"
@@ -399,27 +405,29 @@
                     :vaet (root-addr vaet-cmp)}
            ;; content addressing means `indexes` already tells us whether
            ;; anything changed; comparing against the current root (rather
-           ;; than trusting the :rev/:reorder-epoch opts alone) is what
-           ;; keeps a same-data republish a true no-op: no cas!, no
+           ;; than trusting the :expected/:reorder-epoch opts alone) is
+           ;; what keeps a same-data republish a true no-op: no cas!, no
            ;; :reorder-epoch bump, no gapping every live cursor over data
            ;; that never actually reordered.
-           current (jing/get store datoms-key nil)
-           rev (or (:rev opts) (:rev current 0))
-           epoch (or (:reorder-epoch opts) (:reorder-epoch current 0))]
-       (if (= indexes (:indexes current))
+           current (jing/get store datoms-key jing/absent)
+           missing? (= jing/absent current)
+           expected (if (contains? opts :expected) (:expected opts) current)
+           epoch (or (:reorder-epoch opts)
+                     (if missing? 0 (:reorder-epoch current 0)))]
+       (if (and (not missing?) (= indexes (:indexes current)))
          indexes
          (let [v {:indexes indexes,
                   :count (count datoms),
                   :branching-factor branching,
                   :reorder-epoch (inc epoch)}]
-           (when-not (jing/cas! store datoms-key rev v)
+           (when-not (jing/cas! store datoms-key expected v)
              (throw
                (ex-info
                  "publish-index! lost the root cas!"
                  {:key datoms-key,
-                  :rev rev,
+                  :expected expected,
                   :likely-cause
-                  "the root changed since datoms/:rev were read — most
+                  "the root changed since datoms/:expected were read — most
                         often a concurrent append (or, for the 2-arity
                         transactor/publish! path, another publish! winning
                         first — indistinguishable from here); if `datoms`

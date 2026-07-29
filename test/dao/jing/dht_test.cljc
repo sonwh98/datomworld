@@ -48,24 +48,24 @@
          vec))
 
 
-  (store-segment! [_ to k v-map] (jing/put! (local-of registry to) k v-map))
+  (store-segment! [_ to k v] (jing/put! (local-of registry to) k v))
 
 
   (fetch-segment
     [_ to k]
     (let [v (jing/get (local-of registry to) k ::none)]
-      (when (not= ::none v) v)))
+      {:found? (not= ::none v), :value (when (not= ::none v) v)}))
 
 
   (root-get
     [_ to k]
     (let [v (jing/get (local-of registry to) k ::none)]
-      {:value (when (not= ::none v) v)}))
+      {:found? (not= ::none v), :value (when (not= ::none v) v)}))
 
 
   (root-cas!
-    [_ to k old-rev v-map]
-    (jing/cas! (local-of registry to) k old-rev v-map))
+    [_ to k expected v]
+    (jing/cas! (local-of registry to) k expected v))
 
 
   (close-net! [_] nil))
@@ -115,7 +115,7 @@
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (jing/cas! a (jing/segment-key {:x 1}) 0 {:x 1}))
+            (jing/cas! a (jing/segment-key {:x 1}) jing/absent {:x 1}))
           "segments are immutable")
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
@@ -134,13 +134,48 @@
           v {:bytes [1 2 3]}
           k (jing/segment-key v)]
       (is (true? (jing/put! a k v)))
-      (is (= {:bytes [1 2 3], :rev 0} (jing/get b k nil)))
-      (is (= {:bytes [1 2 3], :rev 0} (jing/get c k nil))))))
+      (is (= v (jing/get b k nil)))
+      (is (= v (jing/get c k nil))))))
 
 
 (deftest get-absent-returns-not-found
   (let [{[a] :stores} (grid 2)]
     (is (= :none (jing/get a (jing/segment-key {:ghost 1}) :none)))))
+
+
+(deftest opaque-values-cross-the-grid-intact
+  (testing "a segment may hold any value, and it survives the network path"
+    (let [{[a b] :stores} (grid 3)]
+      (doseq [v [42 "s" :kw [1 2 3] #{:x} {:m 1}]]
+        (let [k (jing/segment-key v)]
+          (is (true? (jing/put! a k v)))
+          ;; drop b's replica so the read must go over the wire and
+          ;; re-verify the content hash on arrival
+          (jing/delete! b k)
+          (is (= v (jing/get b k ::miss))
+              (str (pr-str v) " must survive the fetch path")))))))
+
+
+(deftest stored-nil-is-not-absence-across-the-grid
+  (testing
+    "nil is a legal segment value: a remote fetch must report it as found
+    rather than collapsing it into not-found"
+    (let [{[a b] :stores} (grid 3)
+          k (jing/segment-key nil)]
+      (is (true? (jing/put! a k nil)))
+      (jing/delete! b k)
+      (is (nil? (jing/get b k ::miss))
+          "a nil segment fetched over the wire is present, not missing")
+      (is (= ::miss (jing/get b (jing/segment-key {:never 1}) ::miss))
+          "a genuinely absent segment still reports not-found")))
+  (testing "and the same holds for a root, whose read is never cached"
+    (let [{[a b] :stores} (grid 3)]
+      (is (true? (jing/cas! a :root/n jing/absent nil)))
+      (is (nil? (jing/get b :root/n ::miss))
+          "a nil root read from a non-owner is present, not missing")
+      (is (= ::miss (jing/get b :root/never ::miss)))
+      (is (true? (jing/cas! b :root/n nil {:now "set"}))
+          "nil is quotable as the expected value over the wire"))))
 
 
 (deftest put-is-idempotent
@@ -150,7 +185,7 @@
           k (jing/segment-key v)]
       (is (true? (jing/put! a k v)))
       (is (true? (jing/put! a k v)))
-      (is (= {:bytes [4], :rev 0} (jing/get a k nil))))))
+      (is (= v (jing/get a k nil))))))
 
 
 (deftest delete-is-advisory-unpin
@@ -160,8 +195,7 @@
           k (jing/segment-key v)]
       (jing/put! a k v)
       (is (true? (jing/delete! a k)))
-      (is (= {:bytes [9], :rev 0} (jing/get a k nil))
-          "the segment survives on other peers"))))
+      (is (= v (jing/get a k nil)) "the segment survives on other peers"))))
 
 
 (deftest fetched-segments-are-cached-locally
@@ -172,8 +206,8 @@
       (jing/put! a k v)
       (jing/delete! b k)
       (is (= :miss (jing/get (:local b) k :miss)))
-      (is (= {:bytes [7], :rev 0} (jing/get b k nil)))
-      (is (= {:bytes [7], :rev 0} (jing/get (:local b) k :miss))
+      (is (= v (jing/get b k nil)))
+      (is (= v (jing/get (:local b) k :miss))
           "the fetch populated b's local cache"))))
 
 
@@ -193,15 +227,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest root-cas-serializes-across-nodes
-  (testing "cas! routes to the root's owner: revs advance globally"
+  (testing "cas! routes to the root's owner: the guard is global"
     (let [{[a b] :stores} (grid 3)
           k :root/pointer]
-      (is (true? (jing/cas! a k 0 {:p "1"})))
-      (is (= {:p "1", :rev 1} (jing/get b k nil))
+      (is (true? (jing/cas! a k jing/absent {:p "1"})))
+      (is (= {:p "1"} (jing/get b k nil))
           "roots read fresh from the owner, never from a cache")
-      (is (false? (jing/cas! b k 0 {:p "2"})) "a stale rev fails")
-      (is (true? (jing/cas! b k 1 {:p "2"})))
-      (is (= {:p "2", :rev 2} (jing/get a k nil))))))
+      (is (false? (jing/cas! b k jing/absent {:p "2"}))
+          "a stale expected value fails")
+      (is (true? (jing/cas! b k {:p "1"} {:p "2"})))
+      (is (= {:p "2"} (jing/get a k nil))))))
 
 
 (deftest root-get-absent-returns-not-found
@@ -218,9 +253,9 @@
           v {:bytes [5]}
           k (jing/segment-key v)]
       (is (true? (jing/put! a k v)))
-      (is (= {:bytes [5], :rev 0} (jing/get a k nil)))
-      (is (true? (jing/cas! a :root/r 0 {:p "x"})))
-      (is (= {:p "x", :rev 1} (jing/get a :root/r nil))))))
+      (is (= v (jing/get a k nil)))
+      (is (true? (jing/cas! a :root/r jing/absent {:p "x"})))
+      (is (= {:p "x"} (jing/get a :root/r nil))))))
 
 
 (deftest close-returns-nil

@@ -37,7 +37,7 @@
     jing/IKVStore
     (put! [_ k v] (jing/put! store k v))
 
-    (cas! [_ k old-rev v] (jing/cas! store k old-rev v))
+    (cas! [_ k expected v] (jing/cas! store k expected v))
 
     (get [_ k not-found] (swap! counter inc) (jing/get store k not-found))
 
@@ -140,7 +140,7 @@
 (deftest corruption-detection-test
   (let [{:keys [store storage address]} (stored-fixture 16 200)
         ;; tamper: overwrite the root blob under its original key
-        blob (dissoc (jing/get store address nil) :rev)
+        blob (jing/get store address nil)
         evil (update blob :keys (fn [ks] (assoc (vec ks) 0 :tampered)))
         _ (jing/put! store address evil)]
     (testing "verification off (default): tampering goes unnoticed"
@@ -332,7 +332,7 @@
   (let [{:keys [store storage address]} (stored-fixture 16 500)
         blob-graph (letfn [(walk
                              [addr]
-                             (let [blob (dissoc (jing/get store addr nil) :rev)]
+                             (let [blob (jing/get store addr nil)]
                                (into #{addr} (mapcat walk (:addresses blob)))))]
                      (walk address))
         walked

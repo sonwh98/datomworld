@@ -30,11 +30,6 @@
      :cljs (js-obj)))
 
 
-(defn- rev-less
-  [blob]
-  (dissoc blob :rev))
-
-
 (deftype KVStorage
   [store settings verify?]
 
@@ -53,13 +48,12 @@
     (let [blob (jing/get store addr absent)]
       (when (identical? blob absent)
         (throw (ex-info "missing index segment" {:address addr})))
-      (let [blob (rev-less blob)]
-        (when verify?
-          (let [actual (jing/segment-key blob)]
-            (when (not= addr actual)
-              (throw (ex-info "corrupt index segment"
-                              {:expected addr, :actual actual})))))
-        (bt/blob->node blob settings))))
+      (when verify?
+        (let [actual (jing/segment-key blob)]
+          (when (not= addr actual)
+            (throw (ex-info "corrupt index segment"
+                            {:expected addr, :actual actual})))))
+      (bt/blob->node blob settings)))
 
 
   (-accessed [_ _addr] nil)
@@ -111,7 +105,7 @@
       (if (identical? blob absent)
         ;; absent vs not-hydrated is undecidable synchronously (§5.4)
         (throw (ex-info "unhydrated segment" {:address addr}))
-        (bt/blob->node (rev-less blob) settings))))
+        (bt/blob->node blob settings))))
 
 
   (-accessed [_ _addr] nil)
@@ -155,8 +149,7 @@
                   (let [blob (jing/get source addr absent)]
                     (when (identical? blob absent)
                       (throw (ex-info "missing index segment" {:address addr})))
-                    (let [blob (rev-less blob)]
-                      (jing/put! cache addr blob)
-                      (doseq [a (:addresses blob)] (pull! a)))))]
+                    (jing/put! cache addr blob)
+                    (doseq [a (:addresses blob)] (pull! a))))]
           (when-some [addr (bt/set-address s)] (pull! addr)))))
     s))

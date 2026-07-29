@@ -49,8 +49,7 @@
                   ;; drop c's replica so the read exercises the
                   ;; network path
                   (jing/delete! c k)
-                  (is (= {:bytes [1 2 3], :rev 0}
-                         (jing/get c k nil)))))))))
+                  (is (= v (jing/get c k nil)))))))))
 
 
 #?(:cljd nil
@@ -59,11 +58,11 @@
             (with-cluster
               3
               (fn [[_ b c]]
-                (is (true? (jing/cas! b :root/head 0 {:p "1"})))
-                (is (= {:p "1", :rev 1} (jing/get c :root/head nil)))
-                (is (false? (jing/cas! c :root/head 0 {:p "2"})))
-                (is (true? (jing/cas! c :root/head 1 {:p "2"})))
-                (is (= {:p "2", :rev 2} (jing/get b :root/head nil))))))))
+                (is (true? (jing/cas! b :root/head jing/absent {:p "1"})))
+                (is (= {:p "1"} (jing/get c :root/head nil)))
+                (is (false? (jing/cas! c :root/head jing/absent {:p "2"})))
+                (is (true? (jing/cas! c :root/head {:p "1"} {:p "2"})))
+                (is (= {:p "2"} (jing/get b :root/head nil))))))))
 
 
 #?(:cljd nil
@@ -136,7 +135,7 @@
                    k (jing/segment-key v)]
                (is (true? (jing/put! a k v)))
                (jing/delete! b k)
-               (is (= {:bytes [42], :rev 0} (jing/get b k nil))))))))))
+               (is (= v (jing/get b k nil))))))))))
 
 
 #?(:cljd nil
@@ -162,22 +161,23 @@
    (deftest udp-segment-size-variation
      (testing
        "packets of varying sizes can be received sequentially without truncation"
-       (with-cluster
-         2
+       (with-cluster 2
          (fn [[a b]]
            (let [v-small {:bytes [1]}
                  k-small (jing/segment-key v-small)
                  v-large {:bytes (vec (repeat 400 2))}
                  k-large (jing/segment-key v-large)]
-             ;; 1. Small write & read (sets receiver packet length to
+             ;; 1. Small write & read (sets receiver packet
+             ;; length to
              ;; small)
              (is (true? (jing/put! a k-small v-small)))
              (jing/delete! b k-small)
-             (is (= (assoc v-small :rev 0) (jing/get b k-small nil)))
-             ;; 2. Large write & read (should not be truncated)
+             (is (= v-small (jing/get b k-small nil)))
+             ;; 2. Large write & read (should not be
+             ;; truncated)
              (is (true? (jing/put! a k-large v-large)))
              (jing/delete! b k-large)
-             (is (= (assoc v-large :rev 0) (jing/get b k-large nil)))))))))
+             (is (= v-large (jing/get b k-large nil)))))))))
 
 
 #?(:cljd nil

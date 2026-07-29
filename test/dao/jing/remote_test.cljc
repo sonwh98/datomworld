@@ -77,6 +77,29 @@
 ;; put! and get Operations
 ;; =============================================================================
 
+(deftest remote-opaque-values-survive-transit
+  #?(:clj (with-remote-server
+            :memory
+            (fn []
+              (let [url (str "ws://localhost:" (:port *server*))
+                    client (remote/connect-kv! url)]
+                (try (testing "any value round-trips across the transit codec"
+                       (doseq [v [42 "s" :kw [1 2 3] #{:x} {:m 1} {}]]
+                         (is (true? (jing/put! client :opaque v)))
+                         (is (= v (jing/get client :opaque ::miss))
+                             (str (pr-str v) " must survive the wire"))))
+                     (testing "a stored nil is present, not absent"
+                       (is (true? (jing/put! client :nil-v nil)))
+                       (is (nil? (jing/get client :nil-v ::miss))
+                           "nil must not be reported as not-found")
+                       (is (= ::miss (jing/get client :never-written ::miss))
+                           "an absent key is still distinguishable"))
+                     (testing "and nil is quotable as cas!'s expected value"
+                       (is (true? (jing/cas! client :nil-v nil {:now "set"})))
+                       (is (= {:now "set"} (jing/get client :nil-v nil))))
+                     (finally (jing/close! client))))))))
+
+
 (deftest remote-put-and-get-test
   #?(:clj (with-remote-server
             :memory
@@ -94,8 +117,7 @@
                     (is (= "hello" (:value result))
                         "get should return the stored value")
                     (is (= [1 2 3] (:bytes result))
-                        "get should preserve all fields")
-                    (is (= 0 (:rev result)) "Initial revision should be 0"))
+                        "get should preserve all fields"))
                   ;; Get non-existent key
                   (is (= :not-found (jing/get client :missing-key :not-found))
                       "get should return not-found sentinel for missing keys")
@@ -112,11 +134,10 @@
                   ;; First put
                   (jing/put! client :key {:v 1})
                   (is (= 1 (:v (jing/get client :key nil))))
-                  ;; Second put (overwrites with rev 0)
+                  ;; Second put replaces outright
                   (jing/put! client :key {:v 2})
-                  (is (= 2 (:v (jing/get client :key nil))))
-                  (is (= 0 (:rev (jing/get client :key nil)))
-                      "put! resets revision to 0")
+                  (is (= {:v 2} (jing/get client :key nil))
+                      "put! replaces the value wholesale")
                   (finally (jing/close! client))))))))
 
 
@@ -133,15 +154,12 @@
                 (try
                   ;; Initial put
                   (jing/put! client :counter {:n 0})
-                  (is (= 0 (:rev (jing/get client :counter nil))))
+                  (is (= {:n 0} (jing/get client :counter nil)))
                   ;; Successful CAS
-                  (is (true? (jing/cas! client :counter 0 {:n 1}))
-                      "cas! should return true when revision matches")
+                  (is (true? (jing/cas! client :counter {:n 0} {:n 1}))
+                      "cas! should return true when the expected value matches")
                   ;; Verify update
-                  (let [result (jing/get client :counter nil)]
-                    (is (= 1 (:n result)))
-                    (is (= 1 (:rev result))
-                        "Revision should increment after CAS"))
+                  (is (= {:n 1} (jing/get client :counter nil)))
                   (finally (jing/close! client))))))))
 
 
@@ -155,26 +173,29 @@
                   ;; Initial put
                   (jing/put! client :counter {:n 0})
                   ;; First CAS succeeds
-                  (jing/cas! client :counter 0 {:n 1})
-                  ;; Second CAS with stale revision fails
-                  (is (false? (jing/cas! client :counter 0 {:n 2}))
-                      "cas! should return false when revision doesn't match")
+                  (jing/cas! client :counter {:n 0} {:n 1})
+                  ;; Second CAS quoting the now-stale value fails
+                  (is
+                    (false? (jing/cas! client :counter {:n 0} {:n 2}))
+                    "cas! should return false when the expected value is stale")
                   ;; Value unchanged
                   (is (= 1 (:n (jing/get client :counter nil))))
                   (finally (jing/close! client))))))))
 
 
 (deftest remote-cas-on-fresh-key-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote/connect-kv! url)]
-                (try
-                  ;; CAS on non-existent key with old-rev 0 should succeed
-                  (is (true? (jing/cas! client :fresh-key 0 {:data "value"})))
-                  (is (= "value" (:data (jing/get client :fresh-key nil))))
-                  (finally (jing/close! client))))))))
+  #?(:clj
+     (with-remote-server
+       :memory
+       (fn []
+         (let [url (str "ws://localhost:" (:port *server*))
+               client (remote/connect-kv! url)]
+           (try
+             ;; CAS against jing/absent creates a non-existent key
+             (is (true?
+                   (jing/cas! client :fresh-key jing/absent {:data "value"})))
+             (is (= "value" (:data (jing/get client :fresh-key nil))))
+             (finally (jing/close! client))))))))
 
 
 ;; =============================================================================
@@ -230,7 +251,7 @@
                       "Client B should see writes from Client A")
                   ;; Client B updates via CAS
                   (let [current (jing/get client-b :shared nil)]
-                    (jing/cas! client-b :shared (:rev current) {:from "b"}))
+                    (jing/cas! client-b :shared current {:from "b"}))
                   ;; Client A should see the update
                   (is (= "b" (:from (jing/get client-a :shared nil)))
                       "Client A should see CAS from Client B")
@@ -298,9 +319,8 @@
                 (try
                   ;; Empty value map
                   (jing/put! client :empty {})
-                  (let [result (jing/get client :empty nil)]
-                    (is (= {} (dissoc result :rev))
-                        "Empty map should round-trip"))
+                  (is (= {} (jing/get client :empty nil))
+                      "Empty map should round-trip")
                   (finally (jing/close! client))))))))
 
 

@@ -19,7 +19,7 @@
   a stream owner would before publishing indexes."
   [store datoms]
   (index/register-member! store :root/test)
-  (jing/cas! store :root/test 0 {:datoms datoms}))
+  (jing/cas! store :root/test jing/absent {:datoms datoms}))
 
 
 ;; publish-index! and restored-indexes run on every platform since the
@@ -41,7 +41,7 @@
     jing/IKVStore
     (put! [_ k v] (jing/put! inner k v))
 
-    (cas! [_ k old-rev v] (jing/cas! inner k old-rev v))
+    (cas! [_ k expected v] (jing/cas! inner k expected v))
 
     (get [_ k not-found] (swap! log conj k) (jing/get inner k not-found))
 
@@ -293,7 +293,7 @@
       (index/register-member! store :root/test)
       (jing/cas! store
                  :root/test
-                 0
+                 jing/absent
                  {:indexes {:eavt kb, :aevt kb, :avet kb, :vaet kb}, :count 3})
       (is (= #{["x"]} (query/q '[:find ?v :where [1 :a ?v]] store)))
       (is (= 3 (count (query/match store ['_ '_ '_])))))))
@@ -327,7 +327,7 @@
       (index/register-member! store :root/test)
       (jing/cas! store
                  :root/test
-                 0
+                 jing/absent
                  ;; pre-VAET shape: no :vaet key
                  {:indexes {:eavt k, :aevt k, :avet k}, :count 2})
       (is (= #{[1 :a "x" 0 1] [2 :a "y" 0 1]}

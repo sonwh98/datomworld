@@ -89,7 +89,7 @@
   writes; see its ns docstring)."
   [store datoms]
   (index/register-member! store :root/test)
-  (jing/cas! store :root/test 0 {:datoms datoms}))
+  (jing/cas! store :root/test jing/absent {:datoms datoms}))
 
 
 (deftest q-over-a-single-dao-jing-handle

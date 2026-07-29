@@ -150,20 +150,21 @@
   wherever they now sit in `next`'s order. `:reorder-epoch` is carried
   forward unchanged (index/read-root, §ns docstring): folding an indexed
   root back to wholesale does not reorder the positions already minted
-  against it, only a fresh publish! does. `read-root` gives datoms/rev/epoch
-  as one snapshot — reading them separately risked a rev that no longer
-  matched the datoms a concurrent publish! had already reshaped, costing a
-  spurious lost-CAS retry."
+  against it, only a fresh publish! does. `read-root` gives
+  datoms/expected/epoch as one snapshot — reading them separately risked an
+  expected value that no longer matched the datoms a concurrent publish! had
+  already reshaped, costing a spurious lost-CAS retry."
   [store datoms-key build-new-datoms error-msg]
   (loop [attempt 0]
     (when (>= attempt max-append-retries)
       (throw (ex-info error-msg {:key datoms-key, :attempts attempt})))
-    (let [{:keys [datoms rev reorder-epoch]} (index/read-root store datoms-key)
+    (let [{:keys [datoms expected reorder-epoch]} (index/read-root store
+                                                                   datoms-key)
           existing (vec datoms)
           new-datoms (build-new-datoms existing)]
       (if (jing/cas! store
                      datoms-key
-                     rev
+                     expected
                      {:datoms (into existing new-datoms),
                       :reorder-epoch reorder-epoch})
         new-datoms
@@ -237,12 +238,12 @@
   `log` so far, advancing its root to `{:indexes ... :count n}`. Runs on
   every platform (dao.data.btree, not psset — see
   docs/design/dao.data.btree.md §6). opts: as `dao.space.index/publish-index!`
-  (e.g. `:branching-factor`); `:key`, `:rev`, and `:reorder-epoch` are
+  (e.g. `:branching-factor`); `:key`, `:expected`, and `:reorder-epoch` are
   supplied from `log`'s own atomic read (`index/read-root`) and cannot be
-  overridden — the datoms this builds indexes from and the revision the
-  final cas! targets must be the same snapshot, or a same-root append
-  landing mid-build would be silently dropped instead of causing the
-  loud cas! failure `publish-index!` promises.
+  overridden — the datoms this builds indexes from and the value the final
+  cas! guards on must be the same snapshot, or a same-root append landing
+  mid-build would be silently dropped instead of causing the loud cas!
+  failure `publish-index!` promises.
 
   The next `ds/append!` on this (or any other handle sharing the same
   root) folds the published root back to wholesale, per this ns's own
@@ -252,12 +253,13 @@
   ([^DaoStreamLog log opts]
    (let [store (.-store log)
          datoms-key (.-datoms-key log)
-         {:keys [datoms rev reorder-epoch]} (index/read-root store datoms-key)]
+         {:keys [datoms expected reorder-epoch]} (index/read-root store
+                                                                  datoms-key)]
      (index/publish-index! store
                            datoms
                            (assoc opts
                                   :key datoms-key
-                                  :rev rev
+                                  :expected expected
                                   :reorder-epoch reorder-epoch)))))
 
 

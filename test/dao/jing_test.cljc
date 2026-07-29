@@ -1,10 +1,11 @@
 (ns dao.jing-test
   "Contract tests for the dao.jing storage boundary.
 
-  Pins the KVStore protocol's observable contract: put!/get round-trip with
-  :rev stamping, cas! optimistic-concurrency semantics (success bumps :rev by
-  one, a stale rev fails without mutating the entry), delete!, and, on the JVM
-  only, cas! under contention with no lost updates."
+  Pins the IKVStore protocol's observable contract: values are opaque (stored
+  and returned verbatim, any value legal including nil), put! is an
+  unconditional replace, cas! guards on the expected previous value (jing/absent
+  meaning \"must not exist\") and leaves the entry untouched when it loses,
+  delete!, and, on the JVM only, cas! under contention with no lost updates."
   (:require [clojure.test :refer [deftest is testing]]
             #?(:clj [clojure.edn])
             [dao.jing :as jing]
@@ -32,11 +33,41 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest put-then-get-round-trips
-  (testing "put! stores the value and get retrieves it with :rev stamped 0"
+  (testing "put! stores the value and get returns it unchanged"
     (run-with-stores (fn [store]
                        (is (true? (jing/put! store :a {:bytes [1 2 3]})))
-                       (is (= {:bytes [1 2 3], :rev 0}
-                              (jing/get store :a nil)))))))
+                       (is (= {:bytes [1 2 3]} (jing/get store :a nil))))))
+  (testing
+    "the value is opaque: any value round-trips = to what was written, with
+    nothing added, removed, or reordered"
+    (run-with-stores (fn [store]
+                       (doseq [[k v] {:int 42,
+                                      :string "hello",
+                                      :keyword :kw,
+                                      :vector [1 2 3],
+                                      :nested {:a {:b [1 #{2} "3"]}},
+                                      :empty-map {},
+                                      :empty-vec [],
+                                      :list '(1 2 3),
+                                      :set #{:x :y}}]
+                         (is (true? (jing/put! store k v)))
+                         (is (= v (jing/get store k ::missing))
+                             (str (pr-str v) " must round-trip unchanged")))))))
+
+
+(deftest nil-is-a-legal-value-distinct-from-absence
+  (testing
+    "a stored nil is a value, not a hole: get must report it as present and
+    absence must be observable only through not-found"
+    (run-with-stores
+      (fn [store]
+        (is (true? (jing/put! store :n nil)))
+        (is (nil? (jing/get store :n ::missing))
+            "a stored nil comes back as nil, not as not-found")
+        (is (= ::missing (jing/get store :never-written ::missing))
+            "an absent key is distinguishable from a stored nil")
+        (is (= jing/absent (jing/get store :never-written jing/absent))
+            "jing/absent serves as the not-found sentinel")))))
 
 
 (deftest get-absent-returns-not-found
@@ -49,62 +80,87 @@
 
 
 (deftest put-overwrites-unconditionally
-  (testing
-    "put! is unconditional: a second put! replaces the value and re-stamps :rev 0"
+  (testing "put! is unconditional: a second put! replaces the value outright"
     (run-with-stores (fn [store]
                        (jing/put! store :k {:v 1})
                        (jing/put! store :k {:v 2})
-                       (is (= {:v 2, :rev 0} (jing/get store :k nil)))))))
+                       (is (= {:v 2} (jing/get store :k nil)))))))
 
 
 ;; ---------------------------------------------------------------------------
 ;; cas!
 ;; ---------------------------------------------------------------------------
 
-(deftest cas-succeeds-and-bumps-rev
-  (testing "cas! with the current rev returns true and advances :rev by one"
-    (run-with-stores (fn [store]
-                       (jing/put! store :root {:pointer "a"})
-                       (is (true? (jing/cas! store :root 0 {:pointer "b"})))
-                       (is (= {:pointer "b", :rev 1}
-                              (jing/get store :root nil)))))))
-
-
-(deftest cas-fails-on-stale-rev
-  (testing "cas! with a stale rev returns false and leaves the entry unchanged"
-    (run-with-stores (fn [store]
-                       (jing/put! store :root {:pointer "a"})
-                       (is (false? (jing/cas! store :root 99 {:pointer "b"})))
-                       (is (= {:pointer "a", :rev 0}
-                              (jing/get store :root nil)))))))
-
-
-(deftest cas-creates-absent-key-at-rev-one
+(deftest cas-succeeds-when-expected-matches
   (testing
-    "cas! on a never-written key treats absence as rev 0 and lands at rev 1"
+    "cas! quoting the current value returns true and installs the new one"
+    (run-with-stores
+      (fn [store]
+        (jing/put! store :root {:pointer "a"})
+        (is (true? (jing/cas! store :root {:pointer "a"} {:pointer "b"})))
+        (is (= {:pointer "b"} (jing/get store :root nil)))))))
+
+
+(deftest cas-fails-on-stale-expected
+  (testing
+    "cas! quoting a value that is no longer current returns false and leaves
+    the entry untouched"
+    (run-with-stores
+      (fn [store]
+        (jing/put! store :root {:pointer "a"})
+        (is (false? (jing/cas! store :root {:pointer "stale"} {:pointer "b"})))
+        (is (= {:pointer "a"} (jing/get store :root nil)))))))
+
+
+(deftest cas-with-absent-creates-only-when-missing
+  (testing "cas! against jing/absent creates a key that does not yet exist"
+    (run-with-stores
+      (fn [store]
+        (is (true? (jing/cas! store :fresh jing/absent {:pointer "a"})))
+        (is (= {:pointer "a"} (jing/get store :fresh nil))))))
+  (testing "and is refused once the key exists"
+    (run-with-stores
+      (fn [store]
+        (jing/put! store :taken {:pointer "a"})
+        (is (false? (jing/cas! store :taken jing/absent {:pointer "b"})))
+        (is (= {:pointer "a"} (jing/get store :taken nil))))))
+  (testing "a present key whose value is nil is still present, not absent"
     (run-with-stores (fn [store]
-                       (is (true? (jing/cas! store :fresh 0 {:pointer "a"})))
-                       (is (= {:pointer "a", :rev 1}
-                              (jing/get store :fresh nil)))))))
+                       (jing/put! store :holds-nil nil)
+                       (is (false?
+                             (jing/cas! store :holds-nil jing/absent {:v 1}))
+                           "absent must not match a stored nil")
+                       (is (true? (jing/cas! store :holds-nil nil {:v 1}))
+                           "nil is quotable as the expected value")))))
 
 
 (deftest cas-replaces-value-wholesale
-  (testing
-    "cas! stores the new map wholesale (replace, not merge), then stamps :rev"
-    (run-with-stores (fn [store]
-                       (jing/put! store :k {:keep "yes", :drop "yes"})
-                       (is (true? (jing/cas! store :k 0 {:keep "yes"})))
-                       (is (= {:keep "yes", :rev 1}
-                              (jing/get store :k nil)))))))
+  (testing "cas! stores the new value wholesale (replace, not merge)"
+    (run-with-stores
+      (fn [store]
+        (jing/put! store :k {:keep "yes", :drop "yes"})
+        (is (true?
+              (jing/cas! store :k {:keep "yes", :drop "yes"} {:keep "yes"})))
+        (is (= {:keep "yes"} (jing/get store :k nil)))))))
 
 
-(deftest cas-rev-sequence-is-monotonic
-  (testing "successive cas! calls advance :rev through 1, 2, 3"
+(deftest cas-chains-through-successive-values
+  (testing "each cas! quotes the value the previous one installed"
     (run-with-stores (fn [store]
                        (jing/put! store :k {:n 0})
-                       (doseq [r [1 2 3]]
-                         (is (true? (jing/cas! store :k (dec r) {:n r})))
-                         (is (= {:n r, :rev r} (jing/get store :k nil))))))))
+                       (doseq [n [1 2 3]]
+                         (is (true? (jing/cas! store :k {:n (dec n)} {:n n})))
+                         (is (= {:n n} (jing/get store :k nil))))))))
+
+
+(deftest cas-compares-by-value-not-identity
+  (testing
+    "the guard is =, so an equal-but-not-identical expected value still wins"
+    (run-with-stores
+      (fn [store]
+        (jing/put! store :k {:a [1 2 3]})
+        (is (true? (jing/cas! store :k {:a (vec (range 1 4))} {:a :done}))
+            "a freshly built equal value must match")))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -141,13 +197,13 @@
     (let [path (str "target/crash-test-" (random-uuid) ".db")
           store1 (file/create-kv-file path)]
       (jing/put! store1 :a {:x 1})
-      (jing/cas! store1 :root 0 {:pointer "p1"})
-      (jing/cas! store1 :root 1 {:pointer "p2"})
+      (jing/cas! store1 :root jing/absent {:pointer "p1"})
+      (jing/cas! store1 :root {:pointer "p1"} {:pointer "p2"})
       (jing/delete! store1 :a)
       (jing/close! store1)
       (let [store2 (file/create-kv-file path)]
         (is (= :absent (jing/get store2 :a :absent)))
-        (is (= {:pointer "p2", :rev 2} (jing/get store2 :root nil)))
+        (is (= {:pointer "p2"} (jing/get store2 :root nil)))
         (jing/close! store2))
       #?(:clj (.delete (java.io.File. path))
          :cljs (.unlinkSync (js/require "fs") path)
@@ -161,7 +217,7 @@
        (let [path (str "target/torn-test-" (random-uuid) ".db")
              store1 (file/create-kv-file path)]
          (jing/put! store1 :a {:x 1})
-         (jing/cas! store1 :root 0 {:pointer "p1"})
+         (jing/cas! store1 :root jing/absent {:pointer "p1"})
          (jing/close! store1)
          (let [clean-len (.length (java.io.File. path))]
            ;; Simulate a torn write: a length header claiming 999 bytes
@@ -174,9 +230,9 @@
            (is (> (.length (java.io.File. path)) clean-len)
                "the torn tail is on disk before recovery")
            (let [store2 (file/create-kv-file path)]
-             (is (= {:x 1, :rev 0} (jing/get store2 :a nil))
+             (is (= {:x 1} (jing/get store2 :a nil))
                  "complete records before the tear survive")
-             (is (= {:pointer "p1", :rev 1} (jing/get store2 :root nil)))
+             (is (= {:pointer "p1"} (jing/get store2 :root nil)))
              (jing/close! store2))
            (is
              (= clean-len (.length (java.io.File. path)))
@@ -191,7 +247,7 @@
        (let [path (str "target/corrupt-test-" (random-uuid) ".db")
              store1 (file/create-kv-file path)]
          (jing/put! store1 :a {:x 1})
-         (jing/cas! store1 :root 0 {:pointer "p1"})
+         (jing/cas! store1 :root jing/absent {:pointer "p1"})
          (jing/close! store1)
          ;; Append a frame whose length header matches its payload
          ;; exactly (so the transport's boundary scan keeps it) but whose
@@ -203,9 +259,9 @@
              (.write raf garbage)))
          (let [store2 (file/create-kv-file path)]
            (is
-             (= {:x 1, :rev 0} (jing/get store2 :a nil))
+             (= {:x 1} (jing/get store2 :a nil))
              "records before the corrupt frame are recovered, not crashed on")
-           (is (= {:pointer "p1", :rev 1} (jing/get store2 :root nil)))
+           (is (= {:pointer "p1"} (jing/get store2 :root nil)))
            (jing/close! store2))
          (.delete (java.io.File. path))))))
 
@@ -224,9 +280,9 @@
          (jing/put! store :live {:x 1})
          (jing/put! store :dead {:x 2})
          ;; Update a key multiple times (creates dead space)
-         (jing/cas! store :root 0 {:p "1"})
-         (jing/cas! store :root 1 {:p "2"})
-         (jing/cas! store :root 2 {:p "3"})
+         (jing/cas! store :root jing/absent {:p "1"})
+         (jing/cas! store :root {:p "1"} {:p "2"})
+         (jing/cas! store :root {:p "2"} {:p "3"})
          ;; Delete a key (creates dead space and a tombstone)
          (jing/delete! store :dead)
          (let [pre-size (.length (java.io.File. path))]
@@ -235,12 +291,12 @@
              (is (< post-size pre-size)
                  "the file size should shrink after compaction")
              ;; Verify live keys are intact
-             (is (= {:x 1, :rev 0} (jing/get store :live nil)))
-             (is (= {:p "3", :rev 3} (jing/get store :root nil)))
+             (is (= {:x 1} (jing/get store :live nil)))
+             (is (= {:p "3"} (jing/get store :root nil)))
              (is (= :gone (jing/get store :dead :gone)))
              ;; Write after compact to verify the new stream is writable
              (is (true? (jing/put! store :post {:x 3})))
-             (is (= {:x 3, :rev 0} (jing/get store :post nil)))
+             (is (= {:x 3} (jing/get store :post nil)))
              (jing/close! store)
              (.delete (java.io.File. path))))))))
 
@@ -252,29 +308,32 @@
 (deftest cas-contention-loses-no-updates
   #?(:clj
      (testing
-       "concurrent cas! retries apply exactly one bump per worker with no lost updates"
+       "concurrent cas! retries apply exactly one increment per worker with no lost updates"
        (run-with-stores
          (fn [store]
            (let [n 200
                  _ (jing/put! store :counter {:n 0})
                  wins (atom 0)
-                 workers
-                 (doall
-                   (for [_ (range n)]
-                     (future
-                       (loop []
-                         (let [cur (jing/get store :counter nil)
-                               old-rev (:rev cur)
-                               proposed (assoc cur :n (inc (:n cur)))]
-                           (if (jing/cas! store :counter old-rev proposed)
-                             (swap! wins inc)
-                             (recur)))))))]
+                 workers (doall
+                           (for [_ (range n)]
+                             (future
+                               (loop []
+                                 ;; the value read *is* the guard:
+                                 ;; nothing of the store's to strip back
+                                 ;; out before proposing the successor,
+                                 ;; and no revision to carry alongside
+                                 (let [cur
+                                       (jing/get store :counter jing/absent)
+                                       proposed (update cur :n inc)]
+                                   (if (jing/cas! store :counter cur proposed)
+                                     (swap! wins inc)
+                                     (recur)))))))]
              (run! deref workers)
              (let [final (jing/get store :counter nil)]
                (is (= n @wins) "every worker must win its cas exactly once")
-               (is (= n (:rev final))
-                   ":rev must equal the number of applied updates")
-               (is (= n (:n final)) "the value must agree with :rev"))))))))
+               (is
+                 (= n (:n final))
+                 "the counter must equal the number of applied updates"))))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -327,7 +386,7 @@
            ;; space so each compact! actually rebuilds the log and swaps
            ;; the stream.
            (jing/put! store :root {:p "v"})
-           (let [expected {:p "v", :rev 0}
+           (let [expected {:p "v"}
                  stop (atom false)
                  seen-wrong (atom [])
                  reader (future (while (not @stop)
@@ -360,12 +419,17 @@
 ;; key-discipline.
 
 (deftest segment-key-is-content-addressed
-  (testing "the key is deterministic, order-insensitive, and excludes :rev"
+  (testing "the key is deterministic and order-insensitive"
     (is (= (jing/segment-key {:a 1, :b 2}) (jing/segment-key {:b 2, :a 1})))
-    (is (= (jing/segment-key {:a 1}) (jing/segment-key {:a 1, :rev 7}))
-        ":rev is the backend's stamp, not content")
     (is (not= (jing/segment-key {:a 1}) (jing/segment-key {:a 2})))
-    (is (= "segment" (namespace (jing/segment-key {:a 1}))))))
+    (is (= "segment" (namespace (jing/segment-key {:a 1})))))
+  (testing "and is total over non-map values, which are now legal payloads"
+    (doseq [v [42 "hello" :kw [1 2 3] nil #{:a}]]
+      (is (= (jing/segment-key v) (jing/segment-key v))
+          (str (pr-str v) " must hash deterministically"))
+      (is (= "segment" (namespace (jing/segment-key v)))))
+    (is (not= (jing/segment-key 42) (jing/segment-key "42"))
+        "distinct values must not collide across types")))
 
 
 (deftest segment-keys-are-readable-edn
@@ -408,8 +472,9 @@
              store (file/create-kv-file path)]
          (try
            (jing/put! store :live {:x 1})
-           (jing/cas! store :root 0 {:p "1"})
-           (jing/cas! store :root 1 {:p "2"}) ; dead space so compaction
+           (jing/cas! store :root jing/absent {:p "1"})
+           (jing/cas! store :root {:p "1"} {:p "2"}) ; dead space so
+           ;; compaction
            ;; rewrites. Inject a failure in rename-file!, which runs
            ;; AFTER compact! Has already closed the old stream — the
            ;; exact window that used to leave state-atom pointing at a
@@ -431,11 +496,11 @@
                         2000
                         {:timeout true})]
              (is
-               (= {:live {:x 1, :rev 0}, :root {:p "2", :rev 2}} outcome)
+               (= {:live {:x 1}, :root {:p "2"}} outcome)
                (str
                  "store should stay readable after a failed compaction; got "
                  outcome)))
            ;; And the restored stream must still accept writes.
            (is (true? (jing/put! store :post {:y 9})))
-           (is (= {:y 9, :rev 0} (jing/get store :post nil)))
+           (is (= {:y 9} (jing/get store :post nil)))
            (finally (jing/close! store) (.delete (java.io.File. path))))))))
