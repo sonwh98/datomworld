@@ -186,33 +186,28 @@ implemented at the storage boundary today, and the contracts already pinned down
   storage backend (e.g., via `dao.jing.file/compact-store!`). Overwritten stream roots and deleted tombstones create dead space 
   in the append-only log; compaction sweeps the live keyset, rewrites all live values to a 
   new log, and atomically swaps the file beneath the `IKVStore` interface, reclaiming disk space.
-- **Encoding: canonical bytes are unbuilt in both layers; what separates `dao.jing` from
-  `yin.content` is the shape of the hash, not the byte encoding.** `dao.jing` hashes a whole
-  opaque value for key-minting (no entity structure, no `[a v]` pairs, no `:db/derived`
-  bookkeeping); `yin.content` computes an AST/entity-level Merkle hash over sorted `[a v]`
-  pairs with ref-resolution and a dependency-ordered hash cache (`compute-content-hashes`).
-  That structural difference — not "one is canonical, the other isn't" — is why `dao.jing`
-  must not depend on `yin/content.cljc`: it would be pulling in a higher-layer, entity-shaped
-  mechanism to solve a lower-layer, blob-shaped problem.
+- **Encoding: canonical bytes are unbuilt.** Where `dao.jing` mints a content-derived segment
+  key (`segment-key`, above), today's implementation hashes an order-normalized `pr-str` print
+  of the value (sort map keys and set members so equal values print identical bytes, then
+  sha256) — the same stand-in `dao.jing.dht.md` names for the pinned Eve Flat encoding, not
+  the canonical byte encoding `datom-spec.md` mandates (little-endian ints, IEEE754 floats,
+  per-type length-prefixing, the inline-or-hash-over-32-bytes threshold). The gap is a real
+  one: a hash over `pr-str` is stable only up to this codebase's own printer, so it does not
+  survive a platform whose printer differs — which is why `dao.data.btree.storage`'s
+  same-host integrity check (`:verify?`) is off by default.
 
-  The evidence for "unbuilt in both": where `dao.jing` mints a content-derived segment key
-  (`segment-key`, above), today's implementation hashes an order-normalized `pr-str` print of
-  the value (sort map keys and set members so equal values print identical bytes, then sha256)
-  — the same stand-in `dao.jing.dht.md` names for the pinned Eve Flat encoding, not the
-  canonical byte encoding `datom-spec.md` mandates (little-endian ints, IEEE754 floats,
-  per-type length-prefixing, the inline-or-hash-over-32-bytes threshold). `yin/content.cljc` is
-  in the same position: its `sha256` is also computed over a plain `pr-str`
-  (`(dw/sha256 (pr-str resolved))`, not per-type canonical bytes), despite its own docstring
-  calling the result "gauge-invariant" — that claim holds only up to this codebase's one
-  `pr-str` printer, not across languages/platforms with a different printer, the same narrower
-  gap `dao.jing`'s own hash has. Both currently share that non-canonical printer underneath;
-  neither is a solved problem the other is missing.
+  Note the level this hash operates at. `dao.jing` hashes a whole **opaque value** — no entity
+  structure, no `[a v]` pairs, no `:db/derived` bookkeeping — because the store holds blobs and
+  nothing else. Entity-level Merkle hashing over sorted `[a v]` pairs, with ref-resolution and
+  a dependency-ordered cache, is a *reader-layer* concern and does not belong below this
+  boundary: it would solve a higher-layer, entity-shaped problem with a lower-layer,
+  blob-shaped mechanism. (`yin/content.cljc` was one such implementation; it was removed once
+  nothing consumed it.)
 
   Making `dao.jing`'s segment-key hash canonical (Eve Flat encoding, per `dao.jing.dht.md`) is
-  a `dao.jing`-internal follow-up, orthogonal to whatever `yin.content` eventually does about
-  its own encoding, and does not change this document's API. Whether entity-level namespace
-  stamping (above) ever needs `datom-spec.md`'s per-type canonical encoding is a separate
-  question for the reader layer, out of scope here.
+  a `dao.jing`-internal follow-up and does not change this document's API. Whether
+  entity-level namespace stamping (above) ever needs `datom-spec.md`'s per-type canonical
+  encoding is a separate question for the reader layer, out of scope here.
 
 ## Implementation Platform
 

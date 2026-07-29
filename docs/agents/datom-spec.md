@@ -227,12 +227,12 @@ Datom-specific principles (d5):
 Merkle property (d5):
   Entity hash = hash(sorted (a, encode(v)) byte pairs).
   In storage a ref's v is the bare stream-local offset (gauge-dependent); the hasher
-  first resolves it to the referent's content hash, so the hash stays gauge-invariant
-  (yin.content/resolve-value does this). With that resolution v is a content hash
+  first resolves it to the referent's content hash, so the hash stays gauge-invariant.
+  With that resolution v is a content hash
   whenever it is a ref or compound value (see CANONICAL ENCODING).
   Hashing never crosses a stream boundary. Resolution applies only when the referent
-  is in the hashing context (the same content-addressed unit's hash-cache; see
-  yin.content/compute-content-hashes). A reference whose referent is outside that
+  is in the hashing context (the same content-addressed unit's hash-cache).
+  A reference whose referent is outside that
   unit — including an already-stamped cross-stream [namespace offset] — is hashed as
   its literal value, never by reading another stream. So content hashes are
   gauge-invariant within a content-addressed unit (AST), while a cross-unit reference
@@ -244,6 +244,9 @@ Merkle property (d5):
 
 Content hash is asserted as a derived datom:
   [e :yin/content-hash "sha256:..." t 2]    ; m=2 means :db/derived
+  Status: specified, not implemented. No namespace computes entity-level Merkle
+  hashes today. dao.jing/content-hash addresses opaque blobs at the storage
+  boundary, which is a different level (docs/design/dao.jing.md, Encoding).
 
 Variable names are included in the content hash.
   (lambda [x] x) and (lambda [y] y) produce different hashes.

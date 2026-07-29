@@ -489,11 +489,14 @@ question is **what graph (what `D`)?**
 
 **Implementation status (documentation debt).** This geometry takes the
 content-hash as the base `B` of the fibration (the gauge-invariant identity).
-That base is only **partially realized** in code today: `src/cljc/yin/content.cljc`
-computes Merkle content hashes over `[a v]` pairs for AST/d5 entities, but (a) it
-hashes via `pr-str`, not the canonical byte encoding `datom-spec.md` mandates, so
-it is not yet the portable identity; and (b) `dao.db` still allocates entity IDs
-sequentially, so the content hash is not yet load-bearing as the identity base.
+That base is **not realized** in code today. Entity-level Merkle hashing over
+`[a v]` pairs once existed (`src/cljc/yin/content.cljc`, removed when nothing
+consumed it) but hashed via `pr-str` rather than the canonical byte encoding
+`datom-spec.md` mandates, so it was never the portable identity either; and
+`dao.db` still allocates entity IDs sequentially, so the content hash is not
+load-bearing as the identity base. `dao.jing/content-hash` content-addresses
+*blobs* at the storage boundary, which is a different level (see
+`dao.jing.md`, Encoding) and does not supply this base.
 The full geometric program assumes the canonical d1 content-addressing floor;
 prioritizing that implementation is a prerequisite for treating these claims as
 operational rather than design-level.
