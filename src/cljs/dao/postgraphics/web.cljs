@@ -29,21 +29,26 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- resize-canvas!
-  [^js canvas]
+  ([^js canvas] (resize-canvas! canvas nil))
+  ([^js canvas pixel-ratio]
   (when (and (exists? js/window) (.-getBoundingClientRect canvas))
-    (let [dpr (or (.-devicePixelRatio js/window) 1)
+    (let [dpr (or pixel-ratio (.-devicePixelRatio js/window) 1)
           rect (.getBoundingClientRect canvas)
           w (max 1 (int (* dpr (.-width rect))))
           h (max 1 (int (* dpr (.-height rect))))]
       (when (or (not= (.-width canvas) w) (not= (.-height canvas) h))
         (set! (.-width canvas) w)
-        (set! (.-height canvas) h)))))
+        (set! (.-height canvas) h))))))
 
 
-(defn- present-software!
-  [^js canvas lowered]
-  (resize-canvas! canvas)
-  (sw/submit-software! canvas lowered))
+(defn software-backend
+  "Canvas2D backend with an explicit 1:1 CSS-pixel backing store. Useful for
+   transparent UI overlays that must share coordinates with a native DOM plane."
+  []
+  {:prepare! #(resize-canvas! % 1)
+   :submit! sw/submit-software!
+   :supports-render-targets? false
+   :supports-image? false})
 
 
 (defn- choose-backend
@@ -54,9 +59,7 @@
     {:submit! gpu/submit-webgpu!,
      :supports-render-targets? true,
      :supports-image? true}
-    {:submit! present-software!,
-     :supports-render-targets? false,
-     :supports-image? false}))
+    (software-backend)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -68,10 +71,54 @@
   [(.-width canvas) (.-height canvas)])
 
 
+(defn- pointer-position
+  [canvas event]
+  (let [rect (.getBoundingClientRect canvas)
+        scale-x (/ (.-width canvas) (max 1 (.-width rect)))
+        scale-y (/ (.-height canvas) (max 1 (.-height rect)))]
+    {:x (* (- (.-clientX event) (.-left rect)) scale-x)
+     :y (* (- (.-clientY event) (.-top rect)) scale-y)}))
+
+
+(defn- bind-input!
+  [canvas binding input-stream]
+  (when (and input-stream (:accept-input! binding))
+    (let [accept! (:accept-input! binding)
+          pointer-handler
+          (fn [kind]
+            (fn [event]
+              (let [position (pointer-position canvas event)]
+              (when (= kind :pointer-down)
+                (.setPointerCapture canvas (.-pointerId event)))
+              (accept! {:input/kind kind
+                        :pointer/id (.-pointerId event)
+                        :position position})
+              (when (and (= kind :pointer-up) (:accept-tap! binding))
+                ((:accept-tap! binding) position))
+              (when (and (= kind :pointer-up)
+                         (.hasPointerCapture canvas (.-pointerId event)))
+                (.releasePointerCapture canvas (.-pointerId event))))))
+          handlers {"pointerdown" (pointer-handler :pointer-down)
+                    "pointermove" (pointer-handler :pointer-move)
+                    "pointerup" (pointer-handler :pointer-up)
+                    "pointercancel" (pointer-handler :pointer-cancel)
+                    "keydown" (fn [event]
+                                (accept! {:input/kind :key-down
+                                          :key (.-key event)
+                                          :repeat? (boolean (.-repeat event))}))
+                    "focus" (fn [_] (accept! {:input/kind :focus}))
+                    "blur" (fn [_] (accept! {:input/kind :blur}))}]
+      (doseq [[event-name handler] handlers]
+        (.addEventListener canvas event-name handler))
+      (fn []
+        (doseq [[event-name handler] handlers]
+          (.removeEventListener canvas event-name handler))))))
+
+
 (defn- bind-frame-stream!
   [canvas frame-stream
    {:keys [viewport-size resolve-resource backend], :as opts}]
-  (let [{:keys [submit! supports-render-targets? supports-image?]}
+  (let [{:keys [prepare! submit! supports-render-targets? supports-image?]}
         (or backend (choose-backend))
         host {:canvas canvas, :device-options (:device-options opts)}
         viewport-size (or viewport-size #(default-viewport-size canvas))
@@ -87,8 +134,11 @@
                     {:validate-frame! #(lower/validate-frame! % lowering-opts),
                      :present-frame!
                      (fn [frame]
+                       (when prepare! (prepare! canvas))
                        (let [lowered (lower/lower-frame frame lowering-opts)]
-                         (submit! canvas lowered)))}))]
+                         (submit! canvas lowered)
+                         (terminal/geometry-from-report
+                           (:geometry-report lowered))))}))]
     (merge host binding {:submit! submit!})))
 
 
@@ -105,17 +155,25 @@
   - :viewport-size function returning [width height]
   - :resolve-resource function resolving image/texture resources
   - :backend       override {:submit! :supports-render-targets? :supports-image?}"
-  [frame-stream & {:keys [canvas-attrs], :as opts}]
+  [frame-stream & {:keys [canvas-attrs input-stream on-binding], :as opts}]
   ;; Form-2 component: the constructor closes over per-instance state
   ;; (handle, set-ref!) created once; the render fn reuses the captured
   ;; opts.  The :ref callback binds on mount (canvas non-nil) and tears
   ;; down on unmount (nil).
   (let [handle (atom nil)
+        unbind-input! (atom nil)
         set-ref!
         (fn [canvas]
           (if canvas
-            (reset! handle (bind-frame-stream! canvas frame-stream opts))
-            (do (when-let [h @handle]
+            (let [binding (bind-frame-stream! canvas frame-stream opts)]
+              (reset! handle binding)
+              (reset! unbind-input! (bind-input! canvas binding input-stream))
+              (when on-binding (on-binding binding)))
+            (do (when-let [unbind @unbind-input!] (unbind))
+                (reset! unbind-input! nil)
+                (when-let [h @handle]
                   (when-let [close! (:close! h)] (close!)))
+                (when on-binding (on-binding nil))
                 (reset! handle nil))))]
-    (fn [] [:canvas (assoc canvas-attrs :ref set-ref!)])))
+    (fn [] [:canvas (assoc (merge {:tab-index 0} canvas-attrs)
+                           :ref set-ref!)])))

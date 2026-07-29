@@ -363,7 +363,13 @@
 (def ^:private layout-only-attrs
   "Keys consumed by the compiler for layout/constraint reasons; never emitted
    into the frame program, regardless of which primitive carries them."
-  #{:max-width :max-height})
+  #{:max-width :max-height :node-id :interactive-events})
+
+(def ^:private draw-op-kinds
+  "Op kinds that represent draw ops — these carry :node-id in :op/meta for
+   provenance when the Hiccup node has an interactive identity."
+  #{:draw/fill-rect :draw/stroke-rect :draw/fill-circle
+    :draw/stroke-circle :draw/path :draw/text :draw/image})
 
 
 (defn- op-attrs
@@ -380,6 +386,39 @@
                     {:path *evaluation-path*, k v}))))
 
 
+(defn- attach-interactive-metadata
+  "When :node-id is present in attrs, attaches it to :op/meta on every draw op
+   in the contribution's flow and overlay for provenance.  When
+   :interactive-events is present and the current context is translate-only,
+   prepends a :meta/region op to the flow with the full primitive bounds as the
+   authoritative hit target."
+  [contribution attrs translate-only?]
+  (let [node-id (:node-id attrs)
+        events (:interactive-events attrs)
+        emit-region? (and events translate-only?
+                          (pos? (:width contribution))
+                          (pos? (:height contribution)))
+        attach-node-id (fn [ops]
+                         (if node-id
+                           (mapv (fn [op]
+                                   (if (draw-op-kinds (:op/kind op))
+                                     (update op :op/meta #(assoc (or % {}) :node-id node-id))
+                                     op))
+                                 ops)
+                           ops))]
+    (cond-> contribution
+      true (update :flow attach-node-id)
+      true (update :overlay attach-node-id)
+      emit-region?
+      (update :flow
+              (fn [flow]
+                (into [{:op/kind :meta/region
+                        :rect [0 0 (:width contribution) (:height contribution)]
+                        :op/meta {:node-id node-id
+                                  :interactive-events events}}]
+                      flow))))))
+
+
 (defn- handle-primitive
   [tag attrs children constraints ctx]
   (let [translate-only? (:translate-only? ctx)
@@ -390,7 +429,7 @@
                       (:max-width attrs) (assoc :max-width (:max-width attrs))
                       (:max-height attrs) (assoc :max-height
                                                  (:max-height attrs)))]
-    (case tag
+    (-> (case tag
       (:column :row :stack)
       (let [child-results (compile-children children constraints ctx tag)
             layout (resolve-child-placements child-results tag constraints)
@@ -500,7 +539,8 @@
          :flow (vec (concat [push-op]
                             (:flow emitted)
                             [{:op/kind :transform/pop}])),
-         :overlay (:overlay emitted)}))))
+         :overlay (:overlay emitted)}))
+        (attach-interactive-metadata attrs translate-only?))))
 
 
 (defn- normalize-hiccup
@@ -644,6 +684,30 @@
         :else :root-fallback))
 
 
+(defn- check-duplicate-interactive-targets!
+  "Post-pass: scan the assembled frame for :meta/region ops and reject
+   duplicate (node-id, event-kind) pairs within one producer's frame artifact."
+  [ops]
+  (let [seen (volatile! {})]
+    (doseq [op ops]
+      (when (= :meta/region (:op/kind op))
+        (let [{:keys [node-id interactive-events]} (:op/meta op)]
+          (doseq [event-kind interactive-events]
+            (let [key [node-id event-kind]]
+              (when (contains? @seen key)
+                (let [prev-path (get @seen key)]
+                  (throw
+                    (ex-info
+                      (str "Duplicate interactive target: (" node-id ", "
+                           event-kind
+                           ") previously declared at "
+                           prev-path)
+                      {:node-id node-id,
+                       :event-kind event-kind,
+                       :duplicate-at (:path (meta op)),
+                       :previous-at prev-path}))))
+              (vswap! seen assoc key (or (:path (meta op)) ::root)))))))))
+
 (defn compile-ui
   "Pure compiler entry point.
    Inputs:
@@ -672,4 +736,6 @@
                                   (if (arity-mismatch? e)
                                     (compile-node [root-form] constraints ctx)
                                     (throw e)))))]
-      (vec (concat (:flow result) (:overlay result))))))
+      (let [frame (vec (concat (:flow result) (:overlay result)))]
+        (check-duplicate-interactive-targets! frame)
+        frame))))

@@ -7,11 +7,18 @@
 
  :deps {:aliases [:cljs]}
 
- :dev-http {9000 "public"}
+ :dev-http {9000 {:root "public"
+                  :push-state/always-index true}}
 
  :builds {:demo {:target :browser
                  :devtools {:use-document-protocol true}
                  :modules {:main {:init-fn datomworld.demo/init}}}
+
+          :media-player
+          {:target :browser
+           :output-dir "public/js/media-player"
+           :asset-path "/js/media-player"
+           :modules {:main {:init-fn datomworld.media.app/init}}}
 
           :local {:target :browser
                   :devtools {:use-document-protocol true}

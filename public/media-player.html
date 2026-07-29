@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#070a12">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <link rel="manifest" href="/media-player.webmanifest">
+    <link rel="icon" href="/assets/media-player-icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/media-player.css">
+    <title>Datom.world Local Media Terminal</title>
+  </head>
+  <body>
+    <div id="media-player-root"></div>
+    <noscript>This local media player requires JavaScript.</noscript>
+    <script src="/js/media-player/main.js"></script>
+  </body>
+</html>

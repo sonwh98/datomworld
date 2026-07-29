@@ -720,3 +720,178 @@
     (is (thrown?
           clojure.lang.ExceptionInfo
           (compiler/compile-ui [:rect {:width "ten", :height 10}] {} {} {})))))
+
+
+;; =============================================================================
+;; Interactive identity (:node-id, :interactive-events)
+;; =============================================================================
+
+(deftest interactive-rect-emits-meta-region
+  (testing "a :rect with :interactive-events #{:tap} emits a :meta/region op"
+    (let [frame (compiler/compile-ui
+                  [:rect {:width 10, :height 5,
+                          :node-id ::btn,
+                          :interactive-events #{:tap}}]
+                  {} {} {})
+          meta-ops (filter #(= :meta/region (:op/kind %)) frame)
+          draw-ops (filter #(= :draw/fill-rect (:op/kind %)) frame)]
+      (is (= 1 (count meta-ops))
+          "should emit exactly one :meta/region")
+      (is (= [0 0 10 5] (:rect (first meta-ops)))
+          ":meta/region rect should match primitive bounds")
+      (is (= ::btn (:node-id (:op/meta (first meta-ops))))
+          ":meta/region should carry :node-id in :op/meta")
+      (is (= #{:tap} (:interactive-events (:op/meta (first meta-ops))))
+          ":meta/region should carry :interactive-events in :op/meta")
+      (is (= 1 (count draw-ops))
+          "should still emit the draw op")
+      (is (= ::btn (:node-id (:op/meta (first draw-ops))))
+          "draw op should carry :node-id in :op/meta for provenance")
+      (is (not (contains? (:op/meta (first draw-ops)) :interactive-events))
+          "draw op MUST NOT carry :interactive-events"))))
+
+(deftest interactive-attrs-do-not-leak-into-draw-ops
+  (testing ":node-id and :interactive-events are stripped from draw op attrs"
+    (let [frame (compiler/compile-ui
+                  [:rect {:width 10, :height 5,
+                          :node-id ::btn,
+                          :interactive-events #{:tap},
+                          :color [1.0 0.0 0.0 1.0]}]
+                  {} {} {})
+          draw-op (first (filter #(= :draw/fill-rect (:op/kind %)) frame))]
+      (is (not (contains? draw-op :node-id))
+          ":node-id should not appear as a top-level key on draw op")
+      (is (not (contains? draw-op :interactive-events))
+          ":interactive-events should not appear as a top-level key on draw op")
+      (is (= [1.0 0.0 0.0 1.0] (:color draw-op))
+          "other attrs like :color should still pass through"))))
+
+(deftest non-interactive-node-emits-no-meta-region
+  (testing "a primitive without :interactive-events emits no :meta/region"
+    (let [frame (compiler/compile-ui
+                  [:rect {:width 10, :height 5, :node-id ::btn}]
+                  {} {} {})
+          meta-ops (filter #(= :meta/region (:op/kind %)) frame)]
+      (is (empty? meta-ops)
+          "should not emit :meta/region without :interactive-events"))))
+
+(deftest interactive-under-non-translate-transform-skips-meta-region
+  (testing "under :transform {:scale [2 2]}, :meta/region is skipped"
+    (let [frame (compiler/compile-ui
+                  [:transform {:scale [2 2]}
+                   [:rect {:width 10, :height 5,
+                           :node-id ::btn,
+                           :interactive-events #{:tap}}]]
+                  {} {} {})
+          meta-ops (filter #(= :meta/region (:op/kind %)) frame)]
+      (is (empty? meta-ops)
+          ":meta/region should be skipped under non-translate transforms")
+      (is (some #(= ::btn (:node-id (:op/meta %))) frame)
+          "draw ops should still carry :node-id for provenance"))))
+
+(deftest interactive-under-translate-transform-emits-meta-region
+  (testing "under :transform {:translate [5 5]}, :meta/region is emitted"
+    (let [frame (compiler/compile-ui
+                  [:transform {:translate [5 5]}
+                   [:rect {:width 10, :height 5,
+                           :node-id ::btn,
+                           :interactive-events #{:tap}}]]
+                  {} {} {})
+          meta-ops (filter #(= :meta/region (:op/kind %)) frame)]
+      (is (= 1 (count meta-ops))
+          ":meta/region should be emitted under translate-only transforms"))))
+
+(deftest duplicate-node-id-event-kind-is-compiler-error
+  (testing "duplicate (node-id, event-kind) in same frame throws"
+    (is (thrown? clojure.lang.ExceptionInfo
+          (compiler/compile-ui
+            [:stack
+             [:rect {:width 10, :height 5,
+                     :node-id ::dup,
+                     :interactive-events #{:tap}}]
+             [:rect {:width 10, :height 5,
+                     :node-id ::dup,
+                     :interactive-events #{:tap}}]]
+            {} {} {}))))
+  (testing "different node-ids with same event kind are fine"
+    (let [frame (compiler/compile-ui
+                  [:stack
+                   [:rect {:width 10, :height 5,
+                           :node-id ::a,
+                           :interactive-events #{:tap}}]
+                   [:rect {:width 10, :height 5,
+                           :node-id ::b,
+                           :interactive-events #{:tap}}]]
+                  {} {} {})
+          meta-ops (filter #(= :meta/region (:op/kind %)) frame)]
+      (is (= 2 (count meta-ops))
+          "different node-ids should each get their own :meta/region"))))
+
+(deftest interactive-text-emits-meta-region
+  (testing "a :text with :interactive-events emits :meta/region with measured bounds"
+    (let [capabilities {:measure-text (fn [_] {:width 40, :height 12})}
+          frame (compiler/compile-ui
+                  [:text {:value "hi", :font-size 14,
+                          :node-id ::label,
+                          :interactive-events #{:tap}}]
+                  {} {} capabilities)
+          meta-ops (filter #(= :meta/region (:op/kind %)) frame)]
+      (is (= 1 (count meta-ops)))
+      (is (= [0 0 40 12] (:rect (first meta-ops)))
+          ":meta/region rect should match measured text dimensions"))))
+
+(deftest interactive-image-emits-meta-region
+  (testing "an :image with :interactive-events emits :meta/region"
+    (let [frame (compiler/compile-ui
+                  [:image {:image/source :logo, :width 30, :height 20,
+                           :node-id ::logo,
+                           :interactive-events #{:tap}}]
+                  {} {} {})
+          meta-ops (filter #(= :meta/region (:op/kind %)) frame)]
+      (is (= 1 (count meta-ops)))
+      (is (= [0 0 30 20] (:rect (first meta-ops)))))))
+
+(deftest interactive-clip-emits-meta-region
+  (testing "a :clip with :interactive-events emits :meta/region with clip bounds"
+    (let [frame (compiler/compile-ui
+                  [:clip {:width 30, :height 20,
+                          :node-id ::scroller,
+                          :interactive-events #{:tap}}
+                   [:rect {:width 50, :height 50}]]
+                  {} {} {})
+          meta-ops (filter #(= :meta/region (:op/kind %)) frame)]
+      (is (= 1 (count meta-ops)))
+      (is (= [0 0 30 20] (:rect (first meta-ops)))
+          ":meta/region rect should match clip dimensions"))))
+
+(deftest interactive-column-emits-meta-region
+  (testing "a :column with :interactive-events emits :meta/region with layout bounds"
+    (let [frame (compiler/compile-ui
+                  [:column {:node-id ::list,
+                            :interactive-events #{:tap}}
+                   [:rect {:width 10, :height 5}]
+                   [:rect {:width 10, :height 5}]]
+                  {} {} {})
+          meta-ops (filter #(= :meta/region (:op/kind %)) frame)]
+      (is (= 1 (count meta-ops)))
+      (let [rect (:rect (first meta-ops))]
+        (is (= 0 (nth rect 0)) "x should be 0")
+        (is (= 0 (nth rect 1)) "y should be 0")
+        (is (= 10 (nth rect 2)) "width should be max child width")
+        (is (= 10 (nth rect 3)) "height should be sum of child heights")))))
+
+(deftest nested-interactive-nodes-each-get-meta-region
+  (testing "nested interactive nodes each emit their own :meta/region"
+    (let [frame (compiler/compile-ui
+                  [:column {:node-id ::outer,
+                            :interactive-events #{:tap}}
+                   [:rect {:width 10, :height 5,
+                           :node-id ::inner,
+                           :interactive-events #{:tap}}]]
+                  {} {} {})
+          meta-ops (filter #(= :meta/region (:op/kind %)) frame)]
+      (is (= 2 (count meta-ops))
+          "both outer container and inner child should get :meta/region")
+      (is (= #{::outer ::inner}
+             (set (map #(:node-id (:op/meta %)) meta-ops)))
+          "each :meta/region should carry its own :node-id"))))

@@ -17,6 +17,11 @@
     [datomworld.demo.responsive-test]
     [datomworld.demo.vm-state-keys-test]
     [datomworld.demo.yin-repl-test]
+    [datomworld.media.controller-test]
+    [datomworld.media.datom-log-test]
+    [datomworld.media.format-test]
+    [datomworld.media.web-terminal-test]
+    [datomworld.media.view-test]
     [yin.content-test]
     [yin.repl-test]
     [yin.transport-test]
@@ -52,6 +57,11 @@
              'datomworld.demo.continuation-handoff-test
              'datomworld.demo.responsive-test
              'datomworld.demo.vm-state-keys-test
+             'datomworld.media.controller-test
+             'datomworld.media.datom-log-test
+             'datomworld.media.format-test
+             'datomworld.media.web-terminal-test
+             'datomworld.media.view-test
              'yin.repl-test
              'dao.stream-test
              'yin.content-test
