@@ -418,6 +418,34 @@
 ;; throwing on a violation) is tested separately in dao.jing.dht-test,
 ;; key-discipline.
 
+(deftest sha256-known-answer
+  ;; Every other test here pins only that hashing is *deterministic*, which
+  ;; a wrong-but-consistent digest would satisfy. This one pins the actual
+  ;; function, and it is load-bearing across hosts: :clj delegates to
+  ;; MessageDigest and :cljs to goog.crypt, but :cljd runs a hand-rolled
+  ;; SHA-256 in dao.jing. If that implementation drifts, cljd peers mint
+  ;; different segment-keys than JVM/JS peers for identical values and
+  ;; content addressing silently fractures — with no other test failing.
+  ;; Vectors are the NIST/FIPS-180-4 published digests.
+  (testing "published vectors"
+    (doseq
+      [[in want]
+       {"" "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "abc"
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+        "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+        "hello world"
+        "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"}]
+      (is (= want (jing/sha256 in)) (str "sha256 of " (pr-str in)))))
+  (testing "a 65-byte input, which crosses the 64-byte block boundary"
+    ;; the multi-chunk path: exercises padding into a second block
+    (is (= "635361c48bb9eab14198e76ea8ab7f1a41685d6ad62aa9146d301d4f17eb0ae0"
+           (jing/sha256 (apply str (repeat 65 "a"))))))
+  (testing "and content-hash is that digest over the canonical print"
+    (is (= (jing/sha256 (pr-str {:a 1})) (jing/content-hash {:a 1})))))
+
+
 (deftest segment-key-is-content-addressed
   (testing "the key is deterministic and order-insensitive"
     (is (= (jing/segment-key {:a 1, :b 2}) (jing/segment-key {:b 2, :a 1})))
@@ -474,8 +502,8 @@
            (jing/put! store :live {:x 1})
            (jing/cas! store :root jing/absent {:p "1"})
            (jing/cas! store :root {:p "1"} {:p "2"}) ; dead space so
-           ;; compaction
-           ;; rewrites. Inject a failure in rename-file!, which runs
+           ;; compaction rewrites. Inject a failure in rename-file!,
+           ;; which runs
            ;; AFTER compact! Has already closed the old stream — the
            ;; exact window that used to leave state-atom pointing at a
            ;; dead stream.

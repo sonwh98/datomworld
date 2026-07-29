@@ -10,7 +10,7 @@ A content-addressable filesystem (CAS-FS) layered on the existing datom infrastr
 - **Datoms diffuse like heat.** `:cas.peer/want` and `:cas.peer/have` datoms propagate through the peer stream medium. No routing tables, no coordinators. A "want" is a cold region; a "have" is hot. Chunk data flows along the gradient.
 
 Existing infrastructure to reuse:
-- `dw/sha256` (`src/cljc/datomworld.cljc`) — string to hex hash
+- `jing/sha256` (`src/cljc/dao/jing.cljc`) — string to hex hash
 - `dao.stream` protocols (ringbuffer, websocket, link) — the diffusion medium
 - `dao.stream.link` — peer-to-peer datom sync protocol (`:datom/put`, `:datom/sync-*`)
 - `dao.db` / `dao.db.in-memory` — DaoDB for storing metadata datoms

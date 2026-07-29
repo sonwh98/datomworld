@@ -25,8 +25,7 @@
   Transport is behind the IDhtNet protocol below; dao.jing.dht.node is the
   UDP Kademlia implementation."
   (:require [dao.jing :as jing]
-            [dao.jing.dht.kad :as kad]
-            [datomworld :as dw]))
+            [dao.jing.dht.kad :as kad]))
 
 
 ;; =============================================================================
@@ -42,7 +41,7 @@
   "Deterministic node id: SHA-256 of host:port. Node ids share the key
   space with content hashes, so XOR routing treats peers and keys uniformly."
   [host port]
-  (dw/sha256 (str host ":" port)))
+  (jing/sha256 (str host ":" port)))
 
 
 (defn- key->target
@@ -52,7 +51,7 @@
   [k]
   (case (jing/key-class k)
     :segment (jing/segment-hash k)
-    :root (dw/sha256 (str k))))
+    :root (jing/sha256 (str k))))
 
 
 ;; =============================================================================

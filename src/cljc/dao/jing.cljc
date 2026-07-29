@@ -13,7 +13,8 @@
    network; it does not invent it."
   (:refer-clojure :exclude [get])
   (:require [clojure.string :as str]
-            [datomworld :as dw]))
+            #?@(:cljs [[goog.crypt :as crypt] goog.crypt.Sha256])
+            #?@(:cljd [["dart:convert" :as convert]])))
 
 
 (defprotocol IKVStore
@@ -110,11 +111,140 @@
         :else v))
 
 
+#?(:cljd (do
+           (def ^:private mask-32 0xffffffff)
+           (def ^:private initial-h
+             [0x6a09e667 0xbb67ae85 0x3c6ef372 0xa54ff53a 0x510e527f 0x9b05688c
+              0x1f83d9ab 0x5be0cd19])
+           (def ^:private k-table
+             [0x428a2f98 0x71374491 0xb5c0fbcf 0xe9b5dba5 0x3956c25b 0x59f111f1
+              0x923f82a4 0xab1c5ed5 0xd807aa98 0x12835b01 0x243185be 0x550c7dc3
+              0x72be5d74 0x80deb1fe 0x9bdc06a7 0xc19bf174 0xe49b69c1 0xefbe4786
+              0x0fc19dc6 0x240ca1cc 0x2de92c6f 0x4a7484aa 0x5cb0a9dc 0x76f988da
+              0x983e5152 0xa831c66d 0xb00327c8 0xbf597fc7 0xc6e00bf3 0xd5a79147
+              0x06ca6351 0x14292967 0x27b70a85 0x2e1b2138 0x4d2c6dfc 0x53380d13
+              0x650a7354 0x766a0abb 0x81c2c92e 0x92722c85 0xa2bfe8a1 0xa81a664b
+              0xc24b8b70 0xc76c51a3 0xd192e819 0xd6990624 0xf40e3585 0x106aa070
+              0x19a4c116 0x1e376c08 0x2748774c 0x34b0bcb5 0x391c0cb3 0x4ed8aa4a
+              0x5b9cca4f 0x682e6ff3 0x748f82ee 0x78a5636f 0x84c87814 0x8cc70208
+              0x90befffa 0xa4506ceb 0xbef9a3f7 0xc67178f2])
+           (def ^:private hex-digits "0123456789abcdef")
+           (defn- mask32
+             [n]
+             (bit-and n mask-32))
+           (defn- rotr32
+             [n b]
+             (mask32 (bit-or (unsigned-bit-shift-right n b)
+                             (bit-shift-left n (- 32 b)))))
+           (defn- shr32
+             [n b]
+             (unsigned-bit-shift-right n b))
+           (defn- ch
+             [x y z]
+             (bit-xor (bit-and x y) (bit-and (bit-not x) z)))
+           (defn- maj
+             [x y z]
+             (bit-xor (bit-xor (bit-and x y) (bit-and x z)) (bit-and y z)))
+           (defn- sigma0
+             [x]
+             (bit-xor (bit-xor (rotr32 x 2) (rotr32 x 13)) (rotr32 x 22)))
+           (defn- sigma1
+             [x]
+             (bit-xor (bit-xor (rotr32 x 6) (rotr32 x 11)) (rotr32 x 25)))
+           (defn- gamma0
+             [x]
+             (bit-xor (bit-xor (rotr32 x 7) (rotr32 x 18)) (shr32 x 3)))
+           (defn- gamma1
+             [x]
+             (bit-xor (bit-xor (rotr32 x 17) (rotr32 x 19)) (shr32 x 10)))
+           (defn- utf8-bytes
+             [s]
+             (convert/utf8.encode s))
+           (defn- pad-message
+             [bytes]
+             (let [len (count bytes)
+                   bit-len (* len 8)
+                   k (mod (- 55 (mod len 64)) 64)
+                   padded (concat bytes [0x80] (repeat k 0))
+                   high-bits (quot bit-len 0x100000000)
+                   low-bits (mod bit-len 0x100000000)]
+               (concat padded
+                       [(bit-shift-right high-bits 24)
+                        (bit-and (bit-shift-right high-bits 16) 0xff)
+                        (bit-and (bit-shift-right high-bits 8) 0xff)
+                        (bit-and high-bits 0xff) (bit-shift-right low-bits 24)
+                        (bit-and (bit-shift-right low-bits 16) 0xff)
+                        (bit-and (bit-shift-right low-bits 8) 0xff)
+                        (bit-and low-bits 0xff)])))
+           (defn- process-chunk
+             [h chunk]
+             (let [w (vec (concat (map (fn [[b0 b1 b2 b3]]
+                                         (mask32 (bit-or (bit-shift-left b0 24)
+                                                         (bit-shift-left b1 16)
+                                                         (bit-shift-left b2 8)
+                                                         b3)))
+                                       (partition 4 chunk))
+                                  (repeat 48 0)))
+                   w (loop [i 16
+                            w w]
+                       (if (< i 64)
+                         (let [s0 (gamma0 (nth w (- i 15)))
+                               s1 (gamma1 (nth w (- i 2)))
+                               v (mask32
+                                   (+ (nth w (- i 16)) s0 (nth w (- i 7)) s1))]
+                           (recur (inc i) (assoc w i v)))
+                         w))]
+               (loop [i 0
+                      [a b c d e f g h-val] h]
+                 (if (< i 64)
+                   (let [t1 (mask32 (+ h-val
+                                       (sigma1 e)
+                                       (ch e f g)
+                                       (nth k-table i)
+                                       (nth w i)))
+                         t2 (mask32 (+ (sigma0 a) (maj a b c)))
+                         new-a (mask32 (+ t1 t2))
+                         new-e (mask32 (+ d t1))]
+                     (recur (inc i) [new-a a b c new-e e f g]))
+                   (mapv (fn [orig curr] (mask32 (+ orig curr)))
+                         h
+                         [a b c d e f g h-val])))))
+           (defn- word->hex8
+             [word]
+             (let [d7 (nth hex-digits (bit-and (bit-shift-right word 28) 0xf))
+                   d6 (nth hex-digits (bit-and (bit-shift-right word 24) 0xf))
+                   d5 (nth hex-digits (bit-and (bit-shift-right word 20) 0xf))
+                   d4 (nth hex-digits (bit-and (bit-shift-right word 16) 0xf))
+                   d3 (nth hex-digits (bit-and (bit-shift-right word 12) 0xf))
+                   d2 (nth hex-digits (bit-and (bit-shift-right word 8) 0xf))
+                   d1 (nth hex-digits (bit-and (bit-shift-right word 4) 0xf))
+                   d0 (nth hex-digits (bit-and word 0xf))]
+               (str d7 d6 d5 d4 d3 d2 d1 d0)))
+           (defn- bytes->hex
+             [words]
+             (apply str (for [word words] (word->hex8 (mask32 word)))))))
+
+
+(defn sha256
+  "SHA-256 hex digest of string s."
+  [s]
+  #?(:clj (let [digest (java.security.MessageDigest/getInstance "SHA-256")
+                bytes (.digest digest (.getBytes s "UTF-8"))]
+            (apply str (map (partial format "%02x") bytes)))
+     :cljs (let [hasher (new goog.crypt.Sha256)]
+             (.update hasher s)
+             (crypt/byteArrayToHex (.digest hasher)))
+     :cljd (let [padded (pad-message (utf8-bytes s))
+                 chunks (partition 64 padded)
+                 final-h (reduce process-chunk initial-h chunks)]
+             (bytes->hex final-h))))
+
+
 (defn content-hash
   "SHA-256 of the canonical print of v. Total over any value: the store no
   longer stamps anything into the payload, so there is nothing to exclude."
   [v]
-  (dw/sha256 (pr-str (canonical v))))
+  (sha256 (pr-str (canonical v))))
 
 
 (defn segment-key
