@@ -292,8 +292,8 @@ Two universal equivalence relations come for free and interpreters build on them
 - **d3 floor** — equal iff same projection to `(s, a, v)`. Coarser; collapses d5
   provenance and time.
 
-Domain interpreters add their own relations: alpha-equivalence (via the derived
-`:yin/alpha-hash` datom in `datom-spec.md`), "same customer," "same topic," a
+Domain interpreters add their own relations: alpha-equivalence (as a derived
+datom, per `datom-spec.md`), "same customer," "same topic," a
 projection to a coarser dimension, and so on. Each relation slices the same
 typed stream a different way.
 

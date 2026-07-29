@@ -63,8 +63,7 @@ Runtime State:
     Joins across $code (dao.jing) and $runtime (in-memory stream) in a single dao.space.query/q:
       [:find ?node-type ?frame-type
        :in $code $runtime
-       :where [$runtime ?frame :cont/pending-arg [0 ?node-hash]]
-              [$code ?node :yin/content-hash ?node-hash]
+       :where [$runtime ?frame :cont/pending-arg [0 ?node]]
               [$code ?node :yin/type ?node-type]
               [$runtime ?frame :cont/type ?frame-type]]
   Persistence boundary: park/migrate promotes ephemeral state to persistent datoms in dao.jing.

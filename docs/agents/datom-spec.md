@@ -242,17 +242,16 @@ Merkle property (d5):
   No recursion at the entity layer; recursion lives at the value layer.
   Same structure -> same root hash, regardless of entity ID assignment.
 
-Content hash is asserted as a derived datom:
-  [e :yin/content-hash "sha256:..." t 2]    ; m=2 means :db/derived
-  Status: specified, not implemented. No namespace computes entity-level Merkle
-  hashes today. dao.jing/content-hash addresses opaque blobs at the storage
-  boundary, which is a different level (docs/design/dao.jing.md, Encoding).
+Content hash would be asserted as a derived datom (m=2, :db/derived).
+  Status: specified, not implemented, and no attribute is reserved for it.
+  Nothing computes entity-level Merkle hashes today; dao.jing/content-hash
+  addresses opaque blobs at the storage boundary, which is a different level
+  (docs/design/dao.jing.md, Encoding).
 
 Variable names are included in the content hash.
   (lambda [x] x) and (lambda [y] y) produce different hashes.
-  Alpha-equivalence can be added later as a separate derived datom:
-    [e :yin/alpha-hash "sha256:..." t 2]
-  with a De Bruijn normalization step before hashing.
+  Alpha-equivalence can be added later as its own derived datom, with a
+  De Bruijn normalization step before hashing.
   Two notions of identity, both derived, neither privileged.
 
 Ordered references use position-in-value tuples:
