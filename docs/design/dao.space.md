@@ -521,11 +521,13 @@ medium, don't address a receiver), spatial and temporal decoupling, non-destruct
 associative matching. The divergences are immutability (append, never `take`) and being an
 **n-tuple space**: tuples of any dimension (the moduli-space framing of
 `docs/agents/datom-spec.md`) in place of untyped positional arrays. The datom — the canonical
-persistent 5-tuple `[e a v t m]` — is the special case where `dao.space` behaves like Datomic.
+persistent tuple `[e a v t m]`, or `[e a v t m ns]` once folded across streams — is the
+special case where `dao.space` behaves like Datomic.
 Unlike Datomic, `dao.space.query/q` is specified to match over n-tuples of any dimension, not
 just the datom shape; the implementation today is still datom-shaped (`match` and `q` pad
-positional templates to five via `pad-to-5` and unify against 5-tuples), so general n-tuple
-matching is spec, not yet implemented. Matching stays global by default,
+positional templates to `max-slot-arity` via `pad-slots` and unify against 5- and 6-tuples),
+so general n-tuple matching is spec, not yet implemented. Raising that ceiling is a one-constant
+change (`dao.space.query/max-slot-arity`), which is why the shape generalizes by appending. Matching stays global by default,
 because a coordination medium for strangers must let any reader match the whole store, not
 only what it bound.
 

@@ -164,6 +164,97 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; Namespace slot (d6): [e a v t m ns]
+;; ---------------------------------------------------------------------------
+;; ns goes last so [e a v t m] stays a literal prefix: existing accessors,
+;; comparators and datom literals are untouched, and eliding ns is plain
+;; truncation rather than an encoding convention.
+;;
+;; Both streams below independently assign entity 1025 — the collision the
+;; slot exists to prevent. Stream beta also knows Alice, under its own local
+;; id 1026.
+
+(def ^:private ns-a :ns/alpha)
+
+
+(def ^:private ns-b :ns/beta)
+
+
+(def cross-stream-datoms
+  [[1025 :person/email "alice@example.com" 0 1 ns-a]
+   [1025 :person/name "Alice" 0 1 ns-a]
+   [1025 :person/email "bob@example.com" 0 1 ns-b]
+   [1025 :person/name "Bob" 0 1 ns-b]
+   [1026 :person/email "alice@example.com" 0 1 ns-b]
+   [1026 :person/nick "Ali" 0 1 ns-b]])
+
+
+(deftest ns-slot-scopes-joins-within-one-stream
+  (testing "a repeated ?ns keeps the join inside a single stream"
+    ;; _ skips t and m to reach ns — the shape Datomic users already write
+    ;; to reach `added`: [?e :attr ?v _ ?op].
+    (is (= #{[ns-a 1025 "Alice"]}
+           (query/q '[:find ?ns ?e ?name :where
+                      [?e :person/email "alice@example.com" _ _ ?ns]
+                      [?e :person/name ?name _ _ ?ns]]
+                    cross-stream-datoms)))))
+
+
+(deftest ns-slot-permits-deliberate-cross-stream-joins
+  (testing "distinct ?ns vars join on a shared value, across streams"
+    (is (= #{[ns-a 1025 ns-b 1026] [ns-b 1026 ns-a 1025]}
+           (query/q '[:find ?ns1 ?e1 ?ns2 ?e2 :where
+                      [?e1 :person/email ?email _ _ ?ns1]
+                      [?e2 :person/email ?email _ _ ?ns2] [(not= ?ns1 ?ns2)]]
+                    cross-stream-datoms)))))
+
+
+(deftest unscoped-clauses-conflate-streams
+  (testing
+    "without ?ns, entity 1025 unifies across streams — a fabricated
+            person whose email came from one stream and name from another.
+            This asserts the WRONG result deliberately, pinning the hazard;
+            invert it once the multi-source validation rule lands."
+    (is (contains? (query/q '[:find ?e ?email ?name :where
+                              [?e :person/email ?email] [?e :person/name ?name]]
+                            cross-stream-datoms)
+                   [1025 "alice@example.com" "Bob"]))))
+
+
+(deftest ns-in-negation-assumes-arity-homogeneous-sources
+  (testing "a free ?ns inside not is caught by the existing bound-vars guard"
+    (is (thrown-with-msg?
+          #?(:cljs js/Error
+             :cljd Object
+             :default Exception)
+          #"inside not must be bound"
+          (query/q '[:find ?e :where [?e :name _] (not [?e :claim _ _ _ ?ns])]
+                   [[1 :name "Alice" 0 1] [1 :claim "c" 0 1]]))))
+  (testing
+    "a bound ?ns inside not silently ignores datoms that carry no ns —
+            entity 1 HAS a claim, but the claim datom is a 5-tuple, so the
+            slot-5 template exceeds its arity and cannot match. Correct only
+            when a source is arity-homogeneous, which nothing enforces: this
+            pins the assumption rather than endorsing the mixed case."
+    (let [mixed [[1 :name "Alice" 0 1 :ns/a] [2 :name "Bob" 0 1 :ns/a]
+                 [1 :claim "c" 0 1]] ; 5-tuple: no ns slot
+          homogeneous [[1 :name "Alice" 0 1 :ns/a] [2 :name "Bob" 0 1 :ns/a]
+                       [1 :claim "c" 0 1 :ns/a]]
+          q '[:find ?e :where [?e :name _ _ _ ?ns] (not [?e :claim _ _ _ ?ns])]]
+      (is (= #{[1] [2]} (query/q q mixed)) "false negative on mixed arity")
+      (is (= #{[2]} (query/q q homogeneous)) "correct when arity is uniform"))))
+
+
+(deftest local-queries-ignore-the-ns-slot
+  (testing
+    "5-tuple datoms and 3-element clauses are unaffected: [e a v t m]
+            is a literal prefix of [e a v t m ns]"
+    (is (= #{[1 "write tests"] [2 "ship it"]}
+           (query/q '[:find ?id ?task :where [?id :work/task ?task]]
+                    sample-datoms)))))
+
+
+;; ---------------------------------------------------------------------------
 ;; Mixed sources
 ;; ---------------------------------------------------------------------------
 

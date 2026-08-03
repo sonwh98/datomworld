@@ -333,3 +333,39 @@
       (is (= #{[1 :a "x" 0 1] [2 :a "y" 0 1]}
              (set (query/match store ['_ '_ '_]))))
       (is (= #{["x"]} (query/q '[:find ?v :where [1 :a ?v]] store))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Namespace slot (d6): [e a v t m ns]
+;; ---------------------------------------------------------------------------
+
+(deftest ns-slot-separates-otherwise-identical-datoms
+  (testing
+    "two streams asserting the same [e a v t m] are distinct datoms: the
+           indexes are SETS, so without ns as a tiebreaker the comparators
+           return 0 and one is silently dropped at insert — data loss before
+           any query runs"
+    (let [alpha [1025 :person/name "Alice" 0 1 :ns/alpha]
+          beta [1025 :person/name "Alice" 0 1 :ns/beta]
+          idx (index/index-datoms [alpha beta])]
+      (is (not (zero? (index/eavt-cmp alpha beta))))
+      (doseq [order [:eavt :aevt :avet :vaet]]
+        (is (= #{alpha beta} (set (order idx)))
+            (str "both datoms survive in " order))))))
+
+
+(deftest ns-slot-leaves-local-ordering-untouched
+  (testing
+    "a 5-tuple has no ns, so cmp-field sees nil on both sides and the
+           existing order is unchanged — [e a v t m] is a literal prefix"
+    (let [a [1 :a "x" 0 1]
+          b [2 :a "x" 0 1]]
+      (is (nil? (index/datom-ns a)))
+      (is (zero? (index/eavt-cmp a a)))
+      (is (neg? (index/eavt-cmp a b)))
+      (is (= 2 (count (:eavt (index/index-datoms [a b])))))))
+  (testing "a local 5-tuple and a namespaced 6-tuple stay distinct"
+    (let [local [1 :a "x" 0 1]
+          stamped [1 :a "x" 0 1 :ns/alpha]]
+      (is (not (zero? (index/eavt-cmp local stamped))))
+      (is (= 2 (count (:eavt (index/index-datoms [local stamped]))))))))

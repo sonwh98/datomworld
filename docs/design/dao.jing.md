@@ -180,8 +180,16 @@ implemented at the storage boundary today, and the contracts already pinned down
   root the reader then `get`s the immutable segments that root references (all of them on an
   eager walk; only the traversal path on the JVM's lazy path). What a reader builds from the
   resulting bytes is outside this boundary.
-- **Namespace stamping.** Not yet: the reader's per-member namespace is not yet derived from
-  the canonical kickoff hash, because content addressing is not yet load-bearing (below).
+- **Namespace stamping — not here, and not yet.** A datom carries its authoring stream's
+  namespace in a trailing `ns` slot when several streams are folded together
+  (`datom-spec.md`, *d5: NAMESPACES*); within one stream the slot is elided and the datom is
+  the familiar `[e a v t m]`. None of that is `dao.jing`'s: attaching `ns` is a reader-layer
+  fold (`dao.space.index/store-datoms`), and a stream's namespace is the hash of its kickoff
+  metadata, which lives with the stream, not the store. What `dao.jing` supplies is
+  `content-hash` — the mechanism, over whatever bytes a caller hands it. The reader side is
+  unbuilt: `store-datoms` currently folds every member root without attaching a namespace, so
+  a multi-root fold can still conflate two streams' entity ids. Blocked on kickoff hashes
+  existing, not on anything at this boundary.
 - **Compaction / GC.** The `KVFile` backend implements Bitcask-style file compaction via the
   storage backend (e.g., via `dao.jing.file/compact-store!`). Overwritten stream roots and deleted tombstones create dead space 
   in the append-only log; compaction sweeps the live keyset, rewrites all live values to a 
@@ -198,11 +206,19 @@ implemented at the storage boundary today, and the contracts already pinned down
 
   Note the level this hash operates at. `dao.jing` hashes a whole **opaque value** — no entity
   structure, no `[a v]` pairs, no `:db/derived` bookkeeping — because the store holds blobs and
-  nothing else. Entity-level Merkle hashing over sorted `[a v]` pairs, with ref-resolution and
-  a dependency-ordered cache, is a *reader-layer* concern and does not belong below this
-  boundary: it would solve a higher-layer, entity-shaped problem with a lower-layer,
-  blob-shaped mechanism. (`yin/content.cljc` was one such implementation; it was removed once
-  nothing consumed it.)
+  nothing else. This is the **syntactic** hash: total over any value, gauge-dependent (it sees
+  whatever bytes it is given, entity ids and all), and the finest equality in the system — the
+  one every interpreter above coarsens and none may redefine. That is the precise form of
+  "pure syntax" from *What DaoJing Is*.
+
+  A **semantic** hash is the other thing, and it is a *reader-layer* concern: an interpreter's
+  projection of an entity — sorted `[a v]` pairs, with ref-resolution and a dependency-ordered
+  cache — hashed so that gauge differences (which `e` a stream happened to assign) do not show
+  up. It does not belong below this boundary: it would solve a higher-layer, entity-shaped
+  problem with a lower-layer, blob-shaped mechanism, and would require the store to know what
+  an entity is. (`yin/content.cljc` was one such implementation; it was removed once nothing
+  consumed it.) See `advanced-concepts.md`, *Parallel Transport*, which depends on the semantic
+  one and must not be read as depending on this one.
 
   Making `dao.jing`'s segment-key hash canonical (Eve Flat encoding, per `dao.jing.dht.md`) is
   a `dao.jing`-internal follow-up and does not change this document's API. Whether

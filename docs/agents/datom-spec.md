@@ -1,12 +1,14 @@
 ---
-description: Moduli space of tuples; meta-protocol over open dimensions; N-dimensional tuples, entity IDs, content addressing, namespaces; datom defined as the 5-tuple [e a v t m] instance
+description: Moduli space of tuples; meta-protocol over open dimensions; N-dimensional tuples, entity IDs, content addressing, namespaces; datom defined as [e a v t m] locally, [e a v t m ns] when folded across streams
 ---
 
 # TUPLES AND DATOMS
 
 Tuples are elements in a moduli space, graded by dimension n.
 A tuple can be any dimension/size; each dimension dn is a distinct kind of fact, fit for a distinct role.
-A datom is specifically the canonical 5-tuple: [e a v t m].
+A datom is the canonical fact tuple: [e a v t m] locally, [e a v t m ns] once a namespace is attached.
+The namespace slot is last, so [e a v t m] is a literal prefix of [e a v t m ns]: a stream stores the
+short form and a cross-stream fold materializes the sixth slot. Eliding ns is truncation, not a convention.
 The moduli space is open: applications declare new dimensions as needed. No dimension is canonical.
 
 Tuples (including datoms) are immutable facts, not objects.
@@ -16,7 +18,9 @@ Streams carry whatever values the consumer needs (datoms or other tuples for per
 Dimensions in use:
   d1: (v). Pure values; identity = hash(v). Blob storage, primitive interning.
   d3: (s, a, v). Bare facts (RDF-style triples). The semantic floor for fact-shaped dimensions.
-  d5: (e, a, v, t, m). Provenanced temporal facts. The original 5-tuple, specifically called a **datom**. Documented in detail below.
+  d5: (e, a, v, t, m). Provenanced temporal facts, scoped to one stream. The **datom**. Documented in detail below.
+  d6: (e, a, v, t, m, ns). A datom carrying its authoring stream's namespace. What a cross-stream fold
+      produces; never what a stream stores. d5 is its literal prefix, so every d5 accessor works unchanged.
   Higher / domain-specific: signatures, capabilities, sensor frames, vector clocks, named-graph quads.
 
 Two universal floors:
@@ -42,7 +46,7 @@ Intuition (physics metaphor):
   Time (causal): [t m] defines when and why (transaction, metadata).
   Interpreters observe parts of the stream and construct higher-dimensional structures.
   Like quantum measurement, each interpreter projects the stream differently: same data, different meanings.
-  Higher-dimensional tuples (6-tuple, 7-tuple, etc.) can be used for specialized streams (e.g., spatial coordinates, confidence scores, or parallel transport context).
+  Higher-dimensional tuples (7-tuple, 8-tuple, etc.) can be used for specialized streams (e.g., spatial coordinates, confidence scores, or signatures). The moduli space grows by appending slots, as d6 does.
 
 # META-PROTOCOL
 
@@ -127,9 +131,14 @@ The remainder of this document defines the datom (d5) in detail: components, siz
 Other dimensions (d1, d3, etc.) are documented separately when introduced.
 
 Tuple shape:
-  [e a v t m]
+  [e a v t m]        within a stream (what a stream stores, what a local query sees)
+  [e a v t m ns]     d6, once several streams are folded together
 
-Components (for canonical 5-tuples/datoms):
+Entity ids are stream-local, so two streams independently assign e 1025 to different entities. Merging
+their datoms without ns lets a join unify those, fabricating an entity whose attributes came from both.
+The ns slot is what keeps them apart; see d5: NAMESPACES below for how it enters a query.
+
+Components (ns is d6-only; the rest are every datom):
   e: Entity ID. Local handle for evolving identity. Relative offset from zero basis.
      Negative IDs are temporary local IDs (tempids), used during compilation and before commitment.
      Positive IDs are permanent IDs assigned by the authoring stream's writer after a successful transaction.
@@ -140,28 +149,13 @@ Components (for canonical 5-tuples/datoms):
      kickoff hash, see CONTENT ADDRESSING > Streams) is its namespace. The
      gauge-invariant identity is the content hash; e is only a local cache index, so
      different streams assign different e to the same logical fact.
-     Global form: a 128-bit two-element vector [namespace offset] (namespace 64-bit,
-     offset 64-bit), mirroring IPv6's network-prefix + interface-id split. (Written
-     "namespace:offset" by analogy to IPv6; that shorthand denotes the vector, not
-     EDN keyword syntax.) The namespace
-     value is the authoring stream's identity (derived from its kickoff hash):
-     globally unique and self-describing, so the same entity carries the same
-     stamped id in every reader's frame and cross-stream value-joins by equality
-     hold. It addresses streams, not nodes — a node hosts many. The bare-offset
-     form, with the namespace elided to 0 ("this stream"), is the intra-stream
-     storage compaction of that global form: inside its authoring stream a stream's
-     own namespace is implied, so only the offset is stored. "Relative to self" is
-     an encoding convention, not the nature of the namespace field.
-     Stamp on crossing: within its authoring stream an e is the bare offset. When
-     datoms from several streams are combined (the fold behind a query), the fold
-     stamps each e to [namespace offset] using its authoring stream's namespace. A
-     writer never stamps: to reference another stream's entity it copies the stamped
-     id it observed from such a read. Bare offsets exist only inside their authoring
-     stream's own log; an e appearing as a value in another stream is always stamped.
-     Migration relocates a stream (its log) to another node; its namespace (kickoff
-     hash) and offsets travel with it unchanged, so nothing is re-stamped. The only
-     crossing of the namespace boundary is a cross-stream reference, resolved by the
-     fold above, not by migration.
+     e is always the bare local offset. It is never widened, never fused with a
+     namespace, and never rewritten. When several streams are combined (the fold
+     behind a query), the fold appends the ns slot rather than touching e — see the
+     ns component below. A writer never stamps: to reference another stream's entity
+     it copies the stamped id it observed from such a read, and that lands in v, not
+     in e. Migration relocates a stream (its log) to another node; its namespace
+     (kickoff hash) and offsets travel with it unchanged, so nothing is re-stamped.
      Semantic identity uses unique attributes (e.g., :person/email). Uniqueness is
      namespace-scoped: :db/unique enforces uniqueness within a stream, and within the
      assigned namespace once stamped. Cross-namespace correlation uses queries.
@@ -169,6 +163,14 @@ Components (for canonical 5-tuples/datoms):
   v: Value. Inline canonical primitive (<= 32 bytes) or 32-byte content hash.
      Entity references and compound values appear here as hashes.
      See CANONICAL ENCODING for per-type rules.
+     v is the one slot that may hold a *foreign* reference. A reference to an entity in
+     another stream is written as a stamped id — the two-element vector [namespace offset]
+     (namespace 64-bit, offset 64-bit), mirroring IPv6's network-prefix + interface-id
+     split, and written "namespace:offset" by that analogy. It fits well under the 32-byte
+     inline threshold. A writer never mints one: it copies a stamped id it observed from a
+     read. Note this is a value, not a coordinate on the datom itself — the datom's own
+     namespace is the ns slot, and the two are independent (a datom in stream A may
+     reference an entity in stream B).
   t: Transaction ID. Monotonic integer, intrinsic and stream-local.
   m: Metadata entity reference (always an integer, never language-level nil).
      Establishes causality across streams (since t is local).
@@ -179,6 +181,27 @@ Components (for canonical 5-tuples/datoms):
      reified metadata entities carrying :db/op plus provenance as their own datoms.
      The single source of truth for the reserved ids is dao.datom/reserved; code must
      never compare m against a bare integer literal.
+     m is always stream-local, like e. Cross-stream causality is established *through*
+     m, not by m being foreign: m names a local reified metadata entity whose own
+     datoms carry stamped cross-stream references in their v slots. Every entity-position
+     slot (e, m) is stream-local; v is the only slot that may hold a foreign reference.
+  ns: Namespace (d6 only). The authoring stream's identity — its kickoff hash, see
+     CONTENT ADDRESSING > Streams. Globally meaningful with no coordination: two
+     instances that have never communicated agree on what a namespace denotes.
+     Present only in a cross-stream fold. A stream stores [e a v t m]; segments are
+     per-stream, so where a namespace must be recorded at rest it belongs to the
+     segment, not repeated per datom. Absence means "this stream," and because ns is
+     the last slot, absence is plain truncation — a 5-tuple is a 6-tuple with ns
+     elided, the same value, not a different encoding.
+     ns is a coordinate, not an identity claim. It keeps two streams' offsets from
+     colliding; it does not assert that two entities are the same thing. Correlating
+     entities across streams goes through unique attributes or a derived content hash,
+     never through e.
+     Sort position: ns is the last tiebreaker in every index order, never a leading
+     component. The indexes are sets, so without it two datoms agreeing on [e a v t m]
+     compare equal and one is silently dropped. Trailing, it leaves 5-tuple ordering
+     identical. Slot order is not index order — a fold wanting per-stream locality
+     builds its own comparator.
 
 Sizing:
   Datoms can be variable-size (general case) or fixed-size (typed streams).
@@ -186,6 +209,8 @@ Sizing:
   Fixed-size streams enable: cache-efficient layouts, SIMD operations, O(1) indexing.
   Variable-size streams provide flexibility at the cost of offset-table overhead.
   Example typed stream: {:e :int64, :a :keyword, :v :hash, :t :int64, :m :int64}
+  Folded (d6) adds {:ns :hash}. Within a segment ns is constant, so it costs one
+  run-length run, not a value per datom.
 
 Value Constraints:
   v is always small: an inline canonical primitive or a fixed-size content hash.
@@ -267,14 +292,55 @@ Content addressing applies to AST (permanent code), not to ephemeral runtime sta
 
 Namespaces scope entity IDs and uniqueness constraints. This is a d5-specific concern (d3 has no e; the question does not arise there).
 
-Each stream is a namespace. A stream's identity (its kickoff hash) names its namespace, so the bare offsets a stream stores are scoped by it. Folding several streams (e.g. a DaoSpace query) stamps each datom with its stream's namespace before indexing, so stream-local offsets never collide.
+Each stream is a namespace. A stream's identity (its kickoff hash) names its namespace, so the bare offsets a stream stores are scoped by it. Folding several streams (e.g. a DaoSpace query) appends the ns slot to each datom, so stream-local offsets never collide.
 
-Cross-Namespace Queries:
-  Namespaces are treated as separate databases in queries (explicit inputs).
-  Like Datomic's multiple database pattern:
-    [:find ?e1 ?e2
-     :in $local $remote
-     :where [$local ?e1 :person/email ?email]
-            [$remote ?e2 :person/email ?email]]
+Local queries are d5: ns is constant across a single stream, so dropping it loses nothing and
+a local query is exactly a Datomic query — [e a v t m], e a plain integer, four indexes.
+Cross-stream queries are d6. Clauses are positional prefix patterns, so ns is reached with
+wildcards for the slots between, the same shape Datomic uses to reach `added`:
+
+  ; scoped — a repeated ?ns keeps the join inside one stream
+  [:find ?ns ?e ?name
+   :where [?e :person/email "alice@example.com" _ _ ?ns]
+          [?e :person/name ?name _ _ ?ns]]
+
+  ; deliberate crossing — distinct ?ns, joined on a shared value
+  [:find ?ns1 ?e1 ?ns2 ?e2
+   :where [?e1 :person/email ?email _ _ ?ns1]
+          [?e2 :person/email ?email _ _ ?ns2]
+          [(not= ?ns1 ?ns2)]]
+
   Joins across namespaces happen on shared values, not entity IDs.
   Cross-namespace identity correlation is a query-time concern, not storage-time.
+
+Because clauses are prefix patterns, an unqualified clause does not fail against a folded
+relation — it leaves ns unconstrained and unifies e across streams, which is the collision
+the slot exists to prevent. The safety property is therefore a stated rule, not an accident
+of arity:
+
+  Against a multi-source relation, every clause binding an entity variable must also
+  bind its namespace.
+
+Likewise a result: any e appearing in :find must carry its ns, inside aggregates too, or it
+is a gauge-dependent integer meaning nothing outside its stream. (count ?e) is ill-formed
+across streams; (count ?h) over a derived identity is well-formed.
+
+A source is arity-homogeneous: every datom in one relation carries ns, or none does. A clause
+slot past a datom's own arity is a non-match, never a nil binding — binding nil is what would
+let two streams' entity ids unify. That rule is right for a uniform source and silently wrong
+for a mixed one, where a namespaced negation ignores un-namespaced datoms: (not [?e :claim _ _ _ ?ns])
+finds no claim for an entity whose claim datom is a 5-tuple, and the negation passes. Folds
+produce uniform relations by construction; nothing enforces it for a hand-built source.
+
+  Status. Three separate gaps, none of them blocking the others:
+    1. Stamping. dao.space.index/store-datoms folds every member root without attaching a
+       namespace, because a stream's kickoff hash is not yet derived (see
+       docs/design/dao.jing.md, "Namespace stamping"). Until it lands, multi-root folds
+       carry the collision described above.
+    2. The per-clause rule above is stated, not enforced. Nothing in dao.space.query rejects
+       an unqualified clause over a multi-source relation; it simply unifies across streams,
+       exactly as it did before the slot existed. Independent of (1): stamping could land and
+       this would still be unchecked.
+    3. Arity homogeneity is assumed, not validated.
+  What is built: the query engine matches and unifies the ns slot (dao.space.query), and the
+  index comparators order by it as a trailing tiebreaker (dao.space.index).

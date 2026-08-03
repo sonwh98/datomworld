@@ -146,6 +146,28 @@
   (or (= x '_) (nil? x) (= x FREE)))
 
 
+(def ^:private max-slot-arity
+  "Longest datom shape the engine matches positionally: [e a v t m ns].
+   A datom is 5 slots locally and 6 in a cross-stream fold, where ns
+   carries the authoring stream (docs/agents/datom-spec.md). Patterns and
+   clauses are prefix templates, so a shorter one leaves the trailing
+   slots wildcard."
+  6)
+
+
+(defn- slots-match?
+  "Positional template test against a datom. A template slot past the
+   datom's own arity matches only when it is a wildcard: asking for the
+   namespace of a datom that carries none is a non-match, not a nil
+   comparison."
+  [tmpl d]
+  (let [n (count d)]
+    (every? (fn [i]
+              (let [t (nth tmpl i)]
+                (if (< i n) (or (wildcard? t) (= t (nth d i))) (wildcard? t))))
+            (range (count tmpl)))))
+
+
 (defn current-state-seq
   "Takes a sequence of datoms (the log) and returns a sequence of currently asserted datoms.
    If a datom is retracted, it masks prior assertions."
@@ -215,16 +237,12 @@
   Options: {:as-of t}."
   ([source pattern] (match source pattern nil))
   ([source pattern {:keys [as-of]}]
-   (let [[te ta tv tt tm] (into (vec pattern) (repeat (- 5 (count pattern)) '_))
+   (let [tmpl (into (vec pattern)
+                    (repeat (- max-slot-arity (count pattern)) '_))
+         [te ta tv] tmpl
          idx (fold source as-of)
          candidates (select-by-index idx te ta tv)]
-     (vec (filter (fn [d]
-                    (and (or (wildcard? te) (= te (nth d 0)))
-                         (or (wildcard? ta) (= ta (nth d 1)))
-                         (or (wildcard? tv) (= tv (nth d 2)))
-                         (or (wildcard? tt) (= tt (nth d 3)))
-                         (or (wildcard? tm) (= tm (nth d 4)))))
-                  candidates)))))
+     (vec (filter #(slots-match? tmpl %) candidates)))))
 
 
 ;; =============================================================================
@@ -536,9 +554,9 @@
   (if (symbol? sym) (get binding sym FREE) sym))
 
 
-(defn- pad-to-5
+(defn- pad-slots
   [clause]
-  (into (vec clause) (repeat (- 5 (count clause)) FREE)))
+  (into (vec clause) (repeat (- max-slot-arity (count clause)) FREE)))
 
 
 (defn- unify
@@ -547,6 +565,24 @@
         (not (symbol? sym)) (when (= sym val) binding)
         (contains? binding sym) (when (= (get binding sym) val) binding)
         :else (assoc binding sym val)))
+
+
+(defn- unify-slots
+  "Unify a padded template against a datom, positionally. A template slot
+   past the datom's own arity matches only when it is a wildcard: asking
+   for the namespace of a datom that carries none is a non-match, not a
+   nil binding — otherwise ?ns would bind nil and entity ids from
+   different streams would unify, which is the collision the slot exists
+   to prevent."
+  [binding tmpl d]
+  (let [n (count d)]
+    (reduce (fn [b i]
+              (let [t (nth tmpl i)]
+                (if (< i n)
+                  (or (unify b t (nth d i)) (reduced nil))
+                  (if (wildcard? t) b (reduced nil)))))
+            binding
+            (range (count tmpl)))))
 
 
 (defn- and-then
@@ -632,19 +668,13 @@
         idx (resolve-db binding db-sym)]
     (if-not idx
       []
-      (let [[ce ca cv ct cm] (pad-to-5 pattern)
+      (let [tmpl (pad-slots pattern)
+            [ce ca cv] tmpl
             e-val (resolve-binding binding ce)
             a-val (resolve-binding binding ca)
             v-val (resolve-binding binding cv)
             datoms (select-datoms idx e-val a-val v-val)]
-        (keep (fn [d]
-                (-> binding
-                    (unify ce (nth d 0))
-                    (and-then #(unify % ca (nth d 1)))
-                    (and-then #(unify % cv (nth d 2)))
-                    (and-then #(unify % ct (nth d 3)))
-                    (and-then #(unify % cm (nth d 4)))))
-              datoms)))))
+        (keep #(unify-slots binding tmpl %) datoms)))))
 
 
 (defn- query-var?
@@ -1040,7 +1070,7 @@
         idx (resolve-db binding db-sym)]
     (if-not idx
       1000000
-      (let [[ce ca cv] (pad-to-5 pattern)
+      (let [[ce ca cv] (pad-slots pattern)
             e-val (resolve-binding binding ce)
             a-val (resolve-binding binding ca)
             v-val (resolve-binding binding cv)]

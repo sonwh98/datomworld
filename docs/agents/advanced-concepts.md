@@ -7,6 +7,37 @@ description: Advanced concepts - parallel transport across dao.jing instances, c
 Parallel transport moves datoms from one dao.jing to another.
 Entity-ref v values are local gauge; they must be resolved for transport.
 
+Transport is not the cross-stream query fold. Both cross a stream boundary; they are
+different operations and use different mechanisms:
+  Fold (dao.space.query): no ingestion. Datoms stay where they are; the fold appends
+    the ns slot so two streams' offsets cannot collide (docs/agents/datom-spec.md,
+    d5: NAMESPACES). e is never rewritten, nothing is deduplicated, nothing is hashed.
+    A coordinate operation.
+  Transport (this section): ingestion. The receiver ends up owning the datoms, mints
+    its own e for them, and deduplicates structurally. An identity operation.
+Neither subsumes the other. ns does not travel: transported datoms land in the
+receiver's stream and carry the receiver's namespace. Migration is a third thing —
+it relocates a stream whole, so its namespace and offsets travel unchanged.
+
+Transport is interpreter-level, and unimplemented.
+  The content hash below is the *semantic* hash of docs/agents/datom-spec.md: an
+  interpreter's projection of an entity, over (a v) or (a v m). It is specified,
+  not built, and no attribute is reserved for it.
+  It is NOT dao.jing/content-hash. That one is the *syntactic* hash — it addresses
+  opaque blobs at the storage boundary and knows nothing of entities. Asking it to
+  deduplicate entities would require teaching the well what an entity is, which is
+  precisely the structure-awareness that layer refuses.
+  Sender and receiver must use the SAME interpreter. Equality is interpreter-defined,
+  and hashes from different interpreters never compose — so the interpreter's own
+  identity is part of the hash, and a mismatch must not silently look like a miss.
+  Choice of projection is load-bearing: (a v) quotients away m, so an assertion and
+  its retraction hash alike. (a v m) keeps them apart but needs m resolved to the
+  metadata entity's own hash when m >= 1025, since a bare m is stream-local.
+  It dedupes *structures*, not evolving entities: an entity's (a v) set grows as facts
+  accumulate, so the hash identifies a version. Right for AST and other write-once
+  data; wrong as identity-over-time for, say, a person. Those correlate by unique
+  attribute instead.
+
 AST parallel transport (content-hash based):
   Sender computes transitive closure of content hashes from the root.
   Sends {content-hash -> set of [a v] pairs} with ref v replaced by content hashes.
@@ -14,12 +45,15 @@ AST parallel transport (content-hash based):
     - Content hash already exists locally: reuse existing e (structural deduplication).
     - Content hash is new: assign fresh local e, assert [a v] pairs.
   Receiver asserts datoms with its own e, t, and m.
+  This is why e never travels: it is a local gauge on both sides, and the receiver's
+  assignment is the only one meaningful in the receiver's stream.
   No external mapping table needed. The content hash is the connection.
 
 Continuation parallel transport (serialization based):
   Continuations are ephemeral runtime state. They do not have content hashes.
   A continuation references AST nodes (where in the code) and runtime values (computed state).
-  AST references resolve via content hash (AST is content-addressed in dao.jing).
+  AST references resolve via the same semantic hash as above — not dao.jing's blob
+  hash, which addresses segments rather than AST nodes.
   Runtime values serialize and travel as-is (no hashing, no deduplication).
   Transport protocol:
     1. Serialize runtime state (environment, partial results, frames).

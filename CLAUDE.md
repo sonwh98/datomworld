@@ -24,7 +24,9 @@ Do not assume graphs: graphs must be constructed explicitly from tuples.
 # TUPLES AND DATOMS
 
 Tuples are elements in an open moduli space, graded by dimension n. A tuple can be any dimension/size.
-A datom is specifically the canonical persistent 5-tuple `[e a v t m]` (entity, attribute, value, transaction, metadata).
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata).
+Folding several streams appends a namespace slot: `[e a v t m ns]`. The short form is a literal prefix of
+the long one, so a stream stores five slots and only a cross-stream query materializes the sixth.
 Streams carry whatever values the consumer needs.
 
 See docs/agents/datom-spec.md for full specification.
