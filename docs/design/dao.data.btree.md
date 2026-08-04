@@ -500,9 +500,9 @@ Modeled on psset's `IStorage.java` (`store`, `restore`, default no-op
 ```clojure
 (defprotocol IStorage
   (-store   [storage node]
-    "Serialize node, put! under jing/segment-key, return the address
-     (a :segment/sha256-<hash> key). Called only after all of the node's
-     children have been stored and have addresses.")
+    "Serialize node, write under jing/segment-key with cas!/absent, return
+     the address (a :segment/sha256-<hash> key). Called only after all of
+     the node's children have been stored and have addresses.")
   (-restore [storage address]
     "get + deserialize the node at address. Node type is determined by the
      *shape of the retrieved blob*, not by the address: a map carrying
@@ -532,7 +532,7 @@ cannot answer absence authoritatively). The sync seam is exactly this thin:
   (-store [_ node]
     (let [blob (node->blob node)              ;; §5.2 EDN shape
           k    (jing/segment-key blob)]
-      (jing/put! store k blob)
+      (jing/cas! store k jing/absent blob)
       k))
   (-restore [_ addr]
     (let [blob (jing/get store addr absent)]
@@ -850,20 +850,19 @@ worker; and rule 1 on Flutter Web is vacuous — there is no local file
 backend to be sync over.
 
 **Durability ordering:** the root only advances by `cas!` after
-`store-tree` completes (§3.1) — and "completes" means every `put!` has
-returned a **durable acknowledgment**, not merely been issued. On sync
-backends this is automatic: `store-tree` returns after its last synchronous
-`put!`. On async backends the ordering needs a home in the API, and it is
-`store-tree-async` — the write-side sibling of `hydrate-async`, returning a
-Promise (cljs) / Future (cljd) that resolves to the root address only after
-every `put!` in the dirty subgraph has durably acknowledged; the caller
-chains `cas!` on that resolution. The sync `store-tree` against an async
-backend throws (it cannot block for acknowledgments), exactly parallel to
-the read path's `"unhydrated segment"` discipline. Without this, a root
-that advances while segments are in flight can point at an address whose
-transitive closure is incomplete — the one ordering failure content
-addressing does not absorb. `store-tree-async` is a Phase 4 deliverable
-alongside `hydrate-async`.
+`store-tree` completes (§3.1) — and "completes" means every segment `cas!`
+has durably acknowledged, not merely been issued. On sync backends this is
+automatic: `store-tree` returns after its last synchronous write. On async
+backends the ordering needs a home in the API, and it is `store-tree-async`
+— the write-side sibling of `hydrate-async`, returning a Promise (cljs) /
+Future (cljd) that resolves to the root address only after every segment
+write in the dirty subgraph has durably acknowledged; the caller chains
+`cas!` on that resolution. The sync `store-tree` against an async backend
+throws (it cannot block for acknowledgments), exactly parallel to the read
+path's `"unhydrated segment"` discipline. Without this, a root that advances
+while segments are in flight can point at an address whose transitive closure
+is incomplete — the one ordering failure content addressing does not absorb.
+`store-tree-async` is a Phase 4 deliverable alongside `hydrate-async`.
 
 **Write path under laziness:** `conj`/`disj` on a lazily restored set forces
 synchronous loads along the modification path, and `store-tree` re-stores
@@ -1233,7 +1232,7 @@ dao.space.transactor ──► dao.space.index ──requires──► dao.data.
                      thin adapter)                   nothing of datoms)
                           │                              │
                           ▼                              ▼
-                     dao.jing (IKVStore) ◄── IStorage over put!/get
+                     dao.jing (IKVStore) ◄── IStorage over cas!/get
                           │
                           ▼
                      dao.space.query (unchanged; btree-free)

@@ -84,7 +84,7 @@ functions calling `dao.space.query`'s own index code, not as something reaching 
 running `dao.space.query` and the storage it reads, exactly Datomic's Peer/Storage
 split. Initial instinct was that this would require `dao.stream.apply` to cross the
 network boundary generally. That's not quite right, and the correction matters: `IKVStore`'s
-`get`/`put!`/`cas!` are uniform across local and remote backends by construction.
+`get`/`cas!` are uniform across local and remote backends by construction.
 `dao.jing.dht.md` states the intent outright: "the engine will simply ask `dao.jing`
 for nodes; it will not know the index was fetched from a peer." The network transport
 lives entirely inside the DHT backend's own implementation of `get`, not as a different

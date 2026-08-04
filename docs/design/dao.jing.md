@@ -18,16 +18,18 @@
 `dao.jing` is the **storage boundary**: a decentralized key-value store of **opaque bytes**,
 designed to hold immutable, content-addressed segments plus mutable stream-root references. It
 is **pure syntax** — it holds *form*, never *meaning*. That design intent is a discipline
-callers observe, not a guarantee the protocol enforces: the `IKVStore` contract itself (`put!` /
-`cas!` / `get` over caller-supplied keys) does not require keys to be content-derived or values
-to be immutable — a `put!` can overwrite any key with anything (see The Segment and Root
-Keyspace, below, and `dao.jing.dht.md`, "Key classes"). What any byte *denotes* — "datom,"
-"view," "query" — is **semantics an interpreter projects onto it**, never something storage
-knows. Concretely it is a dumb key-value store (the `IKVStore` protocol), the decentralized
-analog to Datomic's storage layer. It is therefore **not strict about what it holds**: it
-leaves all interpretation — materialization, matching, querying — to the readers above it,
-and whatever structures those interpreters build are, to the store, just more bytes. Datom
-segments are what it is built to hold, though storage knows them only as bytes.
+callers observe, not a guarantee the protocol enforces: the `IKVStore` contract itself (`cas!` /
+`get` over caller-supplied keys) does not require keys to be content-derived or values to be
+immutable — `(cas! store k absent v)` creates a fresh key, but a caller with the current value
+can still overwrite any key the protocol accepts. Immutability is enforced by the content
+addressing discipline (identical content mints the same key — overwrite it and you get the same
+bytes back), not by a protocol-level prohibition. What any byte *denotes* — "datom," "view,"
+"query" — is **semantics an interpreter projects onto it**, never something storage knows.
+Concretely it is a dumb key-value store (the `IKVStore` protocol), the decentralized analog to
+Datomic's storage layer. It is therefore **not strict about what it holds**: it leaves all
+interpretation — materialization, matching, querying — to the readers above it, and whatever
+structures those interpreters build are, to the store, just more bytes. Datom segments are what
+it is built to hold, though storage knows them only as bytes.
 
 A store is defined by **what it holds, not the pipe data arrived through.** `dao.jing` holds
 opaque bytes — read as datoms by the layers above, never known as datoms by storage; it is
@@ -48,25 +50,31 @@ reads them back from; it does not interpret what passes through it. This is the 
 both sides share — **not** a query API.
 
 ```clojure
-;; The dumb storage API (see src/cljc/dao/jing.cljc) — all five IKVStore methods
-(kv/put! store :segment-id v)          ; write a fresh immutable segment chunk
-(kv/cas! store :root expected v)       ; advance a mutable root reference
-(kv/get store :root kv/absent)         ; read a mutable root reference
-(kv/get store :segment-id kv/absent)   ; read an immutable segment chunk
-(kv/delete! store :segment-id)         ; remove an entry by key
-(kv/close! store)                      ; release the backend's resources
+;; The dumb storage API (see src/cljc/dao/jing.cljc) — all four IKVStore methods
+(kv/cas! store :segment-id kv/absent v)  ; create a fresh immutable segment chunk
+(kv/cas! store :root expected v)         ; advance a mutable root reference
+(kv/get store :root kv/absent)           ; read a mutable root reference
+(kv/get store :segment-id kv/absent)     ; read an immutable segment chunk
+(kv/delete! store :segment-id)           ; remove an entry by key
+(kv/close! store)                        ; release the backend's resources
 ```
 
-**Values are opaque.** Whatever a caller hands `put!` or `cas!` is stored verbatim and
-returned by `get` `=` to what went in — any value, including scalars, collections, and `nil`.
-The store adds nothing, removes nothing, and inspects nothing. It follows that `nil` is a
-legal *value*, so absence is never signalled by a `nil` return: it comes back as the caller's
-`not-found`, for which `dao.jing/absent` is the canonical sentinel.
+**Values are opaque.** Whatever a caller hands `cas!` is stored verbatim and returned by
+`get` `=` to what went in — any value, including scalars, collections, and `nil`. The store
+adds nothing, removes nothing, and inspects nothing. It follows that `nil` is a legal *value*,
+so absence is never signalled by a `nil` return: it comes back as the caller's `not-found`,
+for which `dao.jing/absent` is the canonical sentinel.
+
+**Every write is a `cas!`.** There is no unconditional put. To create a fresh key, pass
+`absent` as the expected value — `(kv/cas! store k kv/absent v)` means "write v, and only if k
+does not already exist." To advance a mutable reference, pass the value you last read as the
+guard. This eliminates the silent-clobber hazard of an unconditional put: a write can only
+succeed against the state the writer actually observed, and a `cas!` that loses the race
+returns false — the caller knows it lost and can retry.
 
 `cas!` guards on the **expected previous value**, not a revision counter — git's ref-update
-semantics. `(kv/cas! store k kv/absent v)` is therefore "create, and only if the key does not
-already exist." The store keeps no versioning state of its own; the value a reader just read
-*is* the token it hands back to guard its write.
+semantics. The store keeps no versioning state of its own; the value a reader just read *is*
+the token it hands back to guard its write.
 
 The trade-off is **ABA**: value comparison cannot distinguish `A → B → A`, so a writer still
 holding the first `A` wins a CAS it ought to lose. A counter would have caught that. Callers
@@ -75,34 +83,36 @@ a monotonically incremented `:reorder-epoch` — and the store cannot enforce it
 
 An agent accumulates datoms by appending to its own `dao.stream` log before anything reaches
 `dao.jing`; which streams currently count as members of the space is tracked there too.
-`dao.jing` never sees that log or its membership — only the eventual `put!`/`cas!` call that
-lands a byte blob at a key, as shown above.
+`dao.jing` never sees that log or its membership — only the eventual `cas!` call that lands a
+byte blob at a key, as shown above.
 
 ## The Segment and Root Keyspace
 
-The two write paths shown above share one keyspace under a discipline the store does not
-enforce: immutable segments are written with `put!` under fresh, content-derived keys and are
-never rewritten; the mutable root reference is written with `cas!` under optimistic
-concurrency. Keep these keyspaces disjoint — `put!` is an unconditional replace, so a `put!`
-over a `cas!`-governed key silently clobbers whatever a concurrent writer was guarding
-against, and the loser never learns it lost.
+All writes share a single `cas!` operation over one keyspace. The discipline callers observe:
+immutable segments are created with `(cas! store segment-key absent v)` under fresh,
+content-derived keys and are never rewritten; mutable root references advance with
+`(cas! store root-key expected v)` under optimistic concurrency. Because every write is
+guarded, a segment write on an already-occupied key is a no-op (same content, same key — the
+`absent` guard fails harmlessly, and the identical bytes are already there), and a root write
+with a stale guard returns false rather than silently clobbering a concurrent writer's
+advance.
 
 The content-derived key half of that discipline has a concrete mechanism: `dao.jing` itself
 (not any one backend) owns `canonical` (order-normalize a value so equal values print
 identical bytes, `defn-`, private), `content-hash` (sha256 of the canonical print — total over
 any value, since there is no longer a stamp to exclude), `segment-key` (mint
 `:segment/sha256-<hash>` from a value; the prefix keeps the keyword readable EDN), and
-`key-class` (dispatch a key
-to `:segment` or `:root`) — see `src/cljc/dao/jing.cljc`. `dao.jing.dht` (`dao.jing.dht.cljc`)
-consumes these (`jing/segment-key`, `jing/key-class`, `jing/content-hash`) for its own routing
-and key-discipline enforcement rather than defining its own copies — see `dao.jing.dht.md`,
-*Key classes*. Every backend (Mem, File, DHT alike) can now mint content-addressed keys the
-same way, and `put!`'s "fresh, content-derived keys" wording above is something any caller can
-actually invoke, not a convention only the DHT backend happened to honor. This also fixes the
-dependency direction: `dao.jing.dht` is built *on top of* core `dao.jing`
-(`dao.jing.dht.cljc` requires `dao.jing`, implementing the `IKVStore` protocol `dao.jing`
-defines) — a downstream backend was never the right place for a property of the storage
-boundary itself.
+`key-class` (dispatch a key to `:segment` or `:root` by namespace) — see
+`src/cljc/dao/jing.cljc`. `dao.jing.dht` (`dao.jing.dht.cljc`) consumes these
+(`jing/segment-key`, `jing/key-class`, `jing/content-hash`) for its own internal routing
+(segment keys replicate to the Kademlia neighborhood; root keys contact the key's designated
+owner) rather than defining its own copies — see `dao.jing.dht.md`, *Key classes*. Every
+backend (Mem, File, DHT alike) can now mint content-addressed keys the same way, and
+content-derived keys are something any caller can invoke via `cas!` with `absent`, not a
+convention only the DHT backend happened to honor. This also fixes the dependency direction:
+`dao.jing.dht` is built *on top of* core `dao.jing` (`dao.jing.dht.cljc` requires
+`dao.jing`, implementing the `IKVStore` protocol `dao.jing` defines) — a downstream backend
+was never the right place for a property of the storage boundary itself.
 
 This is not a networking feature that happens to be implemented in the networking backend —
 content addressing is a property of what an immutable segment *is* ("What DaoJing Is," above:
@@ -161,19 +171,19 @@ implemented at the storage boundary today, and the contracts already pinned down
   root (`:root/<name>`) holds either the stream's full datom vector wholesale
   (`{:datoms [...]}`) or, since 2026-07-10, an owner-built index manifest
   (`{:indexes {:eavt :segment/sha256-<hash> ...}
-  :count n}`) whose values point at immutable, content-addressed B-Tree node segments written
-  with `put!` under `segment-key` — published by `dao.space.index/publish-index!`. The
-  root-naming conventions (per-stream `:root/<name>`, the `:root/members` membership root)
-  and both root shapes are reader-owned conventions
+  :count n}`) whose values point at immutable, content-addressed B-Tree node segments created
+  with `(cas! store segment-key absent v)` under `segment-key` — published by
+  `dao.space.index/publish-index!`. The root-naming conventions (per-stream `:root/<name>`,
+  the `:root/members` membership root) and both root shapes are reader-owned conventions
   defined in `src/cljc/dao/space/index.cljc`, not `dao.jing` constants — storage only ever
   sees the keywords and blobs its caller hands it, and never knows the segments form an index.
 - **Member layout and discovery.** A stream owner performs an atomic `cas!` on its own
   mutable root reference (`:root/<name>`) to publish either shape: the wholesale
-  `{:datoms [...]}` blob, or the `{:indexes ...}` manifest after `put!`-ing the segments it
+  `{:datoms [...]}` blob, or the `{:indexes ...}` manifest after writing the segments it
   references. Republishing unchanged data is idempotent — content-derived keys make the same
-  segments land at the same addresses. Discovery is the membership root (`:root/members`),
-  written once per stream at `open!` and enumerated by readers — `IKVStore` has no scan, so
-  reachability starts there.
+  segments land at the same addresses, and the `absent` guard on the segment writes fails
+  harmlessly. Discovery is the membership root (`:root/members`), written once per stream at
+  `open!` and enumerated by readers — `IKVStore` has no scan, so reachability starts there.
 - **Querying (reader side).** A read resolves the stream's root reference from the `IKVStore`
   with a single `get`, which targets an immutable snapshot of that root's value at the time
   of the call — concurrent writes never disturb an in-flight read. For an `{:indexes ...}`
@@ -191,9 +201,10 @@ implemented at the storage boundary today, and the contracts already pinned down
   a multi-root fold can still conflate two streams' entity ids. Blocked on kickoff hashes
   existing, not on anything at this boundary.
 - **Compaction / GC.** The `KVFile` backend implements Bitcask-style file compaction via the
-  storage backend (e.g., via `dao.jing.file/compact-store!`). Overwritten stream roots and deleted tombstones create dead space 
-  in the append-only log; compaction sweeps the live keyset, rewrites all live values to a 
-  new log, and atomically swaps the file beneath the `IKVStore` interface, reclaiming disk space.
+  storage backend (e.g., via `dao.jing.file/compact-store!`). Overwritten stream roots and deleted
+  tombstones create dead space in the append-only log; compaction sweeps the live keyset, rewrites
+  all live values to a new log, and atomically swaps the file beneath the `IKVStore` interface,
+  reclaiming disk space.
 - **Encoding: canonical bytes are unbuilt.** Where `dao.jing` mints a content-derived segment
   key (`segment-key`, above), today's implementation hashes an order-normalized `pr-str` print
   of the value (sort map keys and set members so equal values print identical bytes, then
@@ -288,16 +299,15 @@ The layering, bottom to top:
   wraps it via `rpc.client/init-client`, waiting for the handshake to reach `:connected` first.
 - **`dao.jing.remote`** (`src/cljc/dao/jing/remote.cljc`) is the `dao.jing`-specific adapter on
   top of `dao.stream.rpc.ws`: `default-handlers` builds
-  `{:jing/put! ..., :jing/cas! ..., :jing/get ..., :jing/delete! ...}` from a local store and
-  hands it to `rpc.ws/start!`; `connect-kv!` returns a `RemoteKVStore` whose every
-  `IKVStore` method calls `rpc.client/call!` against the matching `:jing/*` op. This is a
-  third way to reach `IKVStore`, alongside a plain in-process handle and the `dao.jing.dht`
-  network backend (see The Storage Interface, above) — a WebSocket instead of
-  `dao.jing.dht`'s purpose-built `IDhtNet`/Kademlia transport.
-  (`RemoteKVStore` is cross-platform; `connect-kv!` is `:clj`-only today:
-  reconciling `IKVStore`'s synchronous-return contract with `rpc.client/call!`'s Promise/Future
-  return on `:cljs`/`:cljd` is unscoped; the `dao.stream.rpc` layer underneath is portable
-  regardless.)
+  `{:jing/cas! ..., :jing/get ..., :jing/delete! ...}` from a local store and hands it to
+  `rpc.ws/start!`; `connect-kv!` returns a `RemoteKVStore` whose every `IKVStore` method calls
+  `rpc.client/call!` against the matching `:jing/*` op. This is a third way to reach
+  `IKVStore`, alongside a plain in-process handle and the `dao.jing.dht` network backend (see
+  The Storage Interface, above) — a WebSocket instead of `dao.jing.dht`'s purpose-built
+  `IDhtNet`/Kademlia transport. (`RemoteKVStore` is cross-platform; `connect-kv!` is `:clj`-only
+  today: reconciling `IKVStore`'s synchronous-return contract with `rpc.client/call!`'s
+  Promise/Future return on `:cljs`/`:cljd` is unscoped; the `dao.stream.rpc` layer underneath
+  is portable regardless.)
 
 Not yet built: **controlled-mode confinement**, the more load-bearing case. A governed
 interpreter — per the "share governed computation, not data" model (`dao.space.security.md`,
@@ -311,27 +321,27 @@ capability-gated handlers there — present but refused when the capability does
 call, an empty allow-set equivalent to no handler at all — would be exactly the mediator the
 security model requires: one instance of the "effect handlers that securely honor capability
 tokens" the security doc names as not yet built. Unlike the plain
-`dao.jing.remote/default-handlers` exposed today (which trust every caller
-unconditionally), this capability-gated variant does not exist yet.
+`dao.jing.remote/default-handlers` exposed today (which trust every caller unconditionally),
+this capability-gated variant does not exist yet.
 
 ## The Block Storage Metaphor (Hardware Analogies)
 
 Because the `IKVStore` protocol is so primitive — a handful of operations, dominated by
-`put!`/`get`/`cas!` (`delete!`/`close!` are housekeeping, not part of the analogy below) — it
-behaves almost exactly like a hardware block storage device. This means proven hardware patterns map
-directly onto it as software abstractions. **Status: illustrative, not implemented.** Only
+`cas!`/`get` (`delete!`/`close!` are housekeeping, not part of the analogy below) — it
+behaves almost exactly like a hardware block storage device. This means proven hardware patterns
+map directly onto it as software abstractions. **Status: illustrative, not implemented.** Only
 the first bullet below (`compact-store!`) exists in `src/`; `CachingKVStore`, `RaidKVStore`,
 and `NetworkKVStore` are unbuilt middleware named here to show what the thin `IKVStore`
 boundary affords, not existing extension points:
 
 - **SSD Flash Translation Layer & Garbage Collection.** Solid State Drives cannot overwrite
   in place; they write to fresh blocks and orphan the old ones, leaving reclamation to a
-  Garbage Collector. Because `put!` is meant to write immutable, content-addressed chunks
-  (a discipline the caller observes, not the protocol enforces — see What DaoJing Is),
-  `dao.jing` updates are naturally out-of-place. As mutable stream roots advance (`cas!`),
-  old byte segments are orphaned. The local file backend solves this via `compact-store!`
-  (a Bitcask fold that filters out dead records and replaces the log), perfectly mirroring
-  an SSD's garbage collection. Implemented today.
+  Garbage Collector. Because segments are written under content-derived keys with
+  `cas!`/`absent` (a discipline the caller observes, not the protocol enforces — see What
+  DaoJing Is), `dao.jing` updates are naturally out-of-place. As mutable stream roots advance
+  (`cas!`), old byte segments are orphaned. The local file backend solves this via
+  `compact-store!` (a Bitcask fold that filters out dead records and replaces the log),
+  perfectly mirroring an SSD's garbage collection. Implemented today.
 - **NVMe Parallel Queues (Zero-Contention Writes).** NVMe solved the SATA bottleneck by
   giving every CPU core its own submission queue to the disk, avoiding locks. `dao.jing` gets
   the same zero-contention property for free: every writer's log lands at a distinct key, so
@@ -345,11 +355,10 @@ boundary affords, not existing extension points:
   store exists yet.
 - **RAID and Erasure Coding, hypothetical.** RAID mirrors or stripes blocks across physical
   disks for redundancy. A `RaidKVStore` middleware could do this for bytes: when a caller
-  calls `put!`, the store mirrors the chunk to three underlying `IKVStore` instances
-  (e.g., local disk + two remote buckets), and `get` fails over to a surviving copy if one
-  is lost. Erasure coding refines this: instead of full copies, the store splits each chunk
-  into `k` data fragments plus `m` parity fragments (Reed-Solomon), recovering the original
-  from any
+  calls `cas!`, the store mirrors the chunk to three underlying `IKVStore` instances (e.g.,
+  local disk + two remote buckets), and `get` fails over to a surviving copy if one is lost.
+  Erasure coding refines this: instead of full copies, the store splits each chunk into `k`
+  data fragments plus `m` parity fragments (Reed-Solomon), recovering the original from any
   `k` of the `k+m` pieces. This buys the same fault tolerance at a fraction of the storage
   cost, all with zero changes to the query logic above.
 

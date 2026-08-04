@@ -20,7 +20,7 @@ The query library reads `dao.jing` as an embeddable Peer, pulling byte segments 
         │  IKVStore, merges them, and runs Datalog
         ▼
 ╔═══════════════════ dao.jing ═══════════════════╗   ← STORAGE boundary (dao.jing, separate doc)
-║             IKVStore (put! / get / cas!)        ║
+║             IKVStore (cas! / get)        ║
 ║                                                 ║
 ║   [Mutable Stream Roots]   [Immutable Chunks]   ║
 ╚════════╪══════════════════════════════╪═════════╝
@@ -170,7 +170,7 @@ three covered indexes with **tonsky/persistent-sorted-set** (`from-sequential`, 
 
 1. `publish-index!` (the index builder — the decentralized transactor's duty, owned by
    `dao.space.index`) writes each
-   B-Tree node as an immutable, content-addressed segment blob (`put!` under
+   B-Tree node as an immutable, content-addressed segment blob (`cas!`/`absent` under
    `jing/segment-key`; Merkle by construction, since psset stores children before parents),
    then advances the stream root to `{:indexes {:eavt <segment-key> ...} :count n}` via
    `cas!`. Republishing unchanged data is idempotent: same content, same keys, same roots.
@@ -359,8 +359,8 @@ every `dao.jing*` doc.
 
 **Ruling 1 — Expose how: no new protocol.** Not "opt-in capability protocol vs. grow
 `IKVStore`" — neither. Everything the Target Architecture needs is buildable on the existing
-four `IKVStore` methods (`put!`/`cas!`/`get`/`delete!`). Immutable B-Tree nodes are just more
-content-addressed blobs, written with `jing/segment-key` (real as of this session — see
+four `IKVStore` methods (`cas!`/`get`/`delete!`/`close!`). Immutable B-Tree nodes are just more
+content-addressed blobs, written with `(cas! store segment-key absent blob)` (real as of this session — see
 `dao.jing.md`, *The Segment and Root Keyspace*). Lazy traversal is a **reader-side** property:
 `persistent-sorted-set`'s durable-storage API pulls a node only when the traversal reaches it,
 calling `jing/get` per node; storage never scans or seeks, it just answers `get k`. The

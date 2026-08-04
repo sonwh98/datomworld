@@ -66,7 +66,7 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
   published manifest lazily (JVM); `walk-index-datoms` reads the node graph
   eagerly on every platform; `read-datoms` reads either root shape.
 - **The transactor entry point** — `publish-index!`: build the four covered indexes
-  from the stream's datoms, persist the segments (`put!`), `cas!` the root to
+  from the stream's datoms, persist the segments (`cas!`/`absent`), `cas!` the root to
   the manifest.
 
 ## Public surface
