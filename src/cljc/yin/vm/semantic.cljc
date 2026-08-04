@@ -957,7 +957,7 @@
                    :halted? true,
                    :value nil,
                    :blocked? false,
-                   :node-id-counter -1024,
+                   :node-id-counter (- datom/first-user-id),
                    :macro-registry (or (:macro-registry opts) {})}))
          (telemetry/install :semantic)
          (telemetry/emit-snapshot :init)))))

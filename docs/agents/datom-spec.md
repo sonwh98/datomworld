@@ -134,7 +134,7 @@ Tuple shape:
   [e a v t m]        within a stream (what a stream stores, what a local query sees)
   [e a v t m ns]     d6, once several streams are folded together
 
-Entity ids are stream-local, so two streams independently assign e 1025 to different entities. Merging
+Entity ids are stream-local, so two streams independently assign e 16 to different entities. Merging
 their datoms without ns lets a join unify those, fabricating an entity whose attributes came from both.
 The ns slot is what keeps them apart; see d5: NAMESPACES below for how it enters a query.
 
@@ -142,8 +142,9 @@ Components (ns is d6-only; the rest are every datom):
   e: Entity ID. Local handle for evolving identity. Relative offset from zero basis.
      Negative IDs are temporary local IDs (tempids), used during compilation and before commitment.
      Positive IDs are permanent IDs assigned by the authoring stream's writer after a successful transaction.
-     Reserved range: 0-1024 for system entities (always positive).
-     User entities start at 1025 (positive). While local/uncommitted, they are represented as negative counterparts (e.g., -1025).
+     Reserved range: 0-15 for system entities (always positive) — markers only, see
+     Reserved Entities below for why it is this small.
+     User entities start at 16 (positive). While local/uncommitted, they are represented as negative counterparts (e.g., -16).
      Entity ID is a local gauge: a coordinate choice for a specific stream, never a
      portable reference. The stream is the namespace — a stream's identity (its
      kickoff hash, see CONTENT ADDRESSING > Streams) is its namespace. The
@@ -177,7 +178,7 @@ Components (ns is d6-only; the rest are every datom):
      Used for validity (assert/retract), provenance, access control, and cross-stream references.
      This is a strict superset of Datomic's 5th slot: where Datomic stores a boolean
      `added` (assert vs retract), d5 stores an entity reference whose low reserved ids
-     mirror that boolean (0 = retract, 1 = assert) and whose high ids (1025+) point at
+     mirror that boolean (0 = retract, 1 = assert) and whose high ids (16+) point at
      reified metadata entities carrying :db/op plus provenance as their own datoms.
      The single source of truth for the reserved ids is dao.datom/reserved; code must
      never compare m against a bare integer literal.
@@ -217,8 +218,9 @@ Value Constraints:
   Compound values and large blobs are referenced by hash; underlying bytes live in a content-addressed store, fetched lazily.
   Stream payloads remain compact regardless of underlying value size.
 
-Reserved Entities (0-1024):
-  System entities with universal meaning across all namespaces.
+Reserved Entities (0-15):
+  System entities with universal meaning across all namespaces. This is the one place a
+  numeric id is global rather than a local gauge, so it is kept as small as possible.
   The validity ids (0,1) mirror Datomic's `added` boolean so any Datomic datom maps
   to a d5 datom by identity; the remaining ids extend beyond what Datomic can express.
   Entity 0: :db/retract. When m=0, the datom is a retraction (Datomic added=false).
@@ -229,10 +231,23 @@ Reserved Entities (0-1024):
   Entity 2: :db/derived. When m=2, the datom is derived/computed
     (e.g., content hashes, type inference results, index materializations).
     Derived datoms are excluded from content hash computation.
-  Entities 3-1024: built-in attributes (:db/ident, :db/valueType, :db/cardinality, etc.),
-    primitive type markers, and other system primitives.
+  Entities 3-15: unallocated, held for further validity/provenance markers.
   These do not migrate: they have the same meaning everywhere.
-  User-defined schema lives in user space (1025+) and migrates with data.
+  User entities, including all schema, live at 16+ and migrate with data.
+
+  Why only markers are reserved. Built-in attributes (:db/ident, :db/valueType,
+  :db/cardinality), value-type markers, and cardinality/uniqueness values are not in this
+  range: they occupy the a and v slots, where they are already namespaced keywords and so
+  globally meaningful without any number. A schema entity appearing in e position takes an
+  ordinary stream-local id like anything else and is named across streams by its :db/ident.
+  Only the m slot needs fixed numbers, because m is an integer read on every validity fold
+  and a keyword lookup per datom would be a real cost. Reserving more than the markers would
+  put global coordinates in a slot the spec declares a local gauge (see e, above) — the size
+  is not the objection, the kind is.
+
+  What the small range buys. The reserved ceiling sets the floor for e's width. At 0-1024 a
+  signed int8 stream is arithmetically impossible; at 0-15 it holds 112 user entities
+  (16-127) with tempids in -16..-128, and an int16 stream holds ~32.7k. See Sizing.
 
 Validity fold (deferred):
   Assert/retract is resolved at the index layer by folding m, exactly as Datomic folds

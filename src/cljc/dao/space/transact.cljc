@@ -201,7 +201,7 @@
                                                    (not= (nth d 1) :db/ident))
                                             (inc v)
                                             0)))))
-                             1025
+                             datom/first-user-id
                              base-datoms))
         parsed-ops (parse-tx-data tx-data)
         same-tx-ident->eid
@@ -211,25 +211,27 @@
               parsed-ops)
         effective-ref-attrs
         (effective-ref-attrs-for-tx base-datoms parsed-ops same-tx-ident->eid)
-        alloc-base-eid
-        (reduce (fn [eid {:keys [op e a v m-raw]}]
-                  (let [mx (if (and (= op :db/add) (number? e) (>= e 1025))
-                             (max eid (inc e))
-                             eid)
-                        mx (if (and (= op :db/add)
-                                    (contains? effective-ref-attrs a)
-                                    (number? v)
-                                    (>= v 1025))
-                             (max mx (inc v))
-                             mx)
-                        mx (if (and (= op :db/add)
-                                    (number? m-raw)
-                                    (>= m-raw 1025))
-                             (max mx (inc m-raw))
-                             mx)]
-                    mx))
-                base-eid
-                parsed-ops)
+        alloc-base-eid (reduce
+                         (fn [eid {:keys [op e a v m-raw]}]
+                           (let [mx (if (and (= op :db/add)
+                                             (number? e)
+                                             (>= e datom/first-user-id))
+                                      (max eid (inc e))
+                                      eid)
+                                 mx (if (and (= op :db/add)
+                                             (contains? effective-ref-attrs a)
+                                             (number? v)
+                                             (>= v datom/first-user-id))
+                                      (max mx (inc v))
+                                      mx)
+                                 mx (if (and (= op :db/add)
+                                             (number? m-raw)
+                                             (>= m-raw datom/first-user-id))
+                                      (max mx (inc m-raw))
+                                      mx)]
+                             mx))
+                         base-eid
+                         parsed-ops)
         ops (mapv (fn [op]
                     (let [resolve (fn [id]
                                     (if (keyword? id)

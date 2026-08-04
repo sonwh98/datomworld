@@ -224,7 +224,7 @@ not the map key). And **the entry map is open**: `:other-keys` on write and
 `:other keys` on read, so a backend round-trips fields the protocol does not
 name.
 
-Concrete implementations that directly `implement datomic.kv_store.KVStore` (confirmed in disassembled bytecode): `KVSql`, `KVMem`, `KVDynamo`, `KVHotRod`, and the Cassandra drivers `KVCassandra`, `KVCassandra2`, `KVCassandra3` — all seven present in the peer jar (the Cassandra v2/v3 classes also ship in the transactor jar). `KVCluster` is a layer *above* raw KV: it implements `datomic.cluster.ClusteredStore` (the value/reference layer, next subsection) and composes shards — it is **not** itself a `KVStore`. The peer jar also carries a second-generation storage SPI, `datomic.core2.*` — a val-store SPI (`Get`/`Put`/`Delete`) with fs, S3, and DynamoDB implementations, a log SPI (`Append`/`Scan`/`Delete`), and durable/logged atoms — the Cloud-style architecture living alongside, not inside, the `KVStore` stack described here.
+Concrete implementations that directly `implement datomic.kv_store.KVStore` (confirmed in disassembled bytecode): `KVSql`, `KVMem`, `KVDynamo`, `KVHotRod`, and the Cassandra drivers `KVCassandra`, `KVCassandra2`, `KVCassandra3` — all seven present in the peer jar (the Cassandra v2/v3 classes also ship in the transactor jar). `KVCluster` is a layer *above* raw KV: it implements `datomic.cluster.ClusteredStore` (the value/reference layer, next subsection) and composes shards — it is **not** itself a `KVStore`. The peer jar also carries a second-generation storage SPI, `datomic.core2.*` — the Cloud-style architecture living alongside, not inside, the `KVStore` stack described here. It is a substantially simpler contract and is specified in full below (*The second generation*).
 
 Note there is **no separate compare-and-swap method**: the conditional write is folded into `put`, which returns `:ok` on success and `nil` when the condition fails.
 
@@ -357,6 +357,98 @@ This list is a synthesis of what a backend must provide, not a verbatim Datomic 
    * Writes to a single key must execute and become visible in the exact sequence they were requested.
 5. **High Point-Lookup Throughput**:
    * The engine relies on high-speed point reads (`get`) to fetch index segments. Low point-lookup latency is crucial to keep peers responsive when local caches are cold.
+
+### The second generation: `datomic.core2.*`
+
+The same peer jar ships a later storage SPI for the Cloud-style architecture. It is worth reading against §1 above, because it is the same team's second attempt at the same problem and it discards nearly every complication the original `KVStore` accumulated. Recovered the same way (`:sigs` reflection plus `javap`); arglists and docstrings verbatim.
+
+**It is not one protocol.** Where v1 had a single four-method `KVStore`, core2 has three separate concerns, each split into **one protocol per operation** — nine in total:
+
+```clojure
+;; datomic.core2.val-store.spi — immutable, content-keyed values
+(defprotocol Put    (-put    [_ k v opts]))  ;; "SPI for datomic.core2.val-store/put."
+(defprotocol Get    (-get    [_ k opts]))    ;; "SPI for datomic.core2.val-store/get."
+(defprotocol Delete (-delete [_ k opts]))    ;; "SPI for datomic.core2.val-store/delete."
+
+;; datomic.core2.log.spi — the append-only log
+(defprotocol Append (-append [_ header body]))
+(defprotocol Scan   (-scan   [_ opts]))      ;; "SPI for datomc.core2.log/scan. Return value ignored."
+(defprotocol Delete (-delete [_ t]))
+(defprotocol Item   (-item-header [_ item])
+                    (-item-body   [_ item]))
+
+;; datomic.core2.atom.spi — the mutable cell
+(defprotocol DurableAtom
+  (-swap-vals! [_ f ch])   ;; "Like atom swap-vals! but puts result on channel"
+  (-sync       [_ ch]))    ;; "Puts latest value from server on channel"
+```
+
+The public layers over them:
+
+```clojure
+;; datomic.core2.val-store
+(put    [val-store k v] [val-store k v opts])
+(get    [val-store k]   [val-store k opts])
+(delete [val-store k]   [val-store k opts])
+
+;; datomic.core2.log
+(append [log header] [log {:keys [t next-t] :as header} body])
+(scan   [log opts])                ;; opts: {:keys [direction t ch limit]}
+(ensure-tombstone [log tombstone])
+
+;; datomic.core2.atom — Clojure's own atom API, made durable
+(swap!      [a f & args])
+(swap-vals! [a f & args])
+(reset!     [a v])
+(sync       [a])
+
+;; datomic.core2.atom.logged — the implementation: an atom on top of a log
+(create [{:keys [log header value serialize]}])
+(load   [args])
+```
+
+Supporting fns: `partition-key [s]`, `splice-partition-key [k pk]`, `val-op-succeeded? [store-api-result]`, `no-val-error [k v]` (val-store); `normalize-scan-opts`, `result` (log); `-read-latest`, `-validated-v` (logged atom).
+
+#### Backends, and why the two SPIs take different ones
+
+The complete set shipped in the jars. The transactor jar carries no `core2` at all, so this is everything:
+
+| SPI | implementations |
+| :--- | :--- |
+| val-store | `fs`, `s3` (both an aws-api and an sdkv1 client), `double-store` |
+| log | `ddb`, `mem` |
+
+**The sets are disjoint, and that is the design.** The val store has no DynamoDB implementation; the log has no S3 implementation. `mem` is the log's testing backend, the way `KVMem` is for v1 — which leaves DynamoDB as the only production log.
+
+The asymmetry follows from what each SPI asks of a backend:
+
+* **A val store needs no coordination at all.** Keys are content-derived, so every write goes to a fresh, never-reused key and two writers racing on the same key are writing *identical bytes*. The write is idempotent by construction. Plain `put`/`get`/`delete` suffices, which is why object storage fits — and why the 10KB–1MB segments of §1's property 3 can sit on the cheapest durable tier available.
+* **A log must totally order appends.** Its public arity is `(append [log {:keys [t next-t] :as header} body])` — the *caller* supplies `t`, so the backend must reject an append at a `t` already taken. Otherwise two writers claim the same position and one transaction vanishes with no error raised. That is a conditional write, and the DynamoDB backend's constant pool contains exactly that: `conditional-put-request`. It is the only conditional-write vocabulary anywhere in the `core2` tree.
+
+So S3 was not merely a slower log — before it gained conditional writes it could not implement `append` *correctly* at all, because last-write-wins on a contended `t` loses data silently. This is the same argument as §1's property 1, but confined: instead of demanding conditional writes from **every** backend, `core2` demands them from **one component**, and lets everything else run on storage that has never had them.
+
+Note why the obvious cheaper fix does not work. Keeping v1's protocol and giving an S3 backend a **no-op `:ensure`** would be a silent lie: the transactor's commit is a single conditional root swing (§2), so under a fake guard both writers succeed, both believe they committed, and the loser is never told — no exception, no `nil`, no zero row count. Nothing in the protocol lets a caller detect this, either; `datomic.kv-store` exposes only `KVStore`, `Retryable`, and `*retry*`, with no capability query. It is worse than it sounds because the conditional write is *folded into* `put`: ignoring `:ensure` also disables the `{:id nil}` exists-false assertion, turning create-if-absent into unconditional overwrite. Throwing instead of ignoring is honest but makes `put` partial — legal on some backends, fatal on others, discoverable only at runtime. And neither variant removes the need for real coordination somewhere, so the split exists either way; the only question is whether it is explicit in the contract or implicit and unchecked. `core2` makes the invalid state unrepresentable: there is no conditional write in the val store to fake, because there is no replace operation at all.
+
+Two notes on the current state:
+
+* **The capability constraint has since lifted, and the split survived it.** S3 gained conditional writes (`If-None-Match`) in late 2024; this jar was built 2025-10-31, a year later, and still ships no S3 log. The likely reason is workload rather than capability — the log is the hot path on every commit, where a single-digit-millisecond conditional put beats an S3 PUT by an order of magnitude, and `scan` wants cheap indexed range reads; the val store is the opposite profile, large and cold and read-mostly. That reading is inference, not something the artifact states.
+* **Tiering is a val-store-only luxury.** `double-store` takes `{:keys [near-store far-store repair-metric get-fallback-msec]}` (fallback default 20ms): a fast near tier over a durable far tier, with read fallback and self-repair. That composition is only available because the value store has no coordination duties to preserve across the tiers.
+
+#### What changed, point by point
+
+| | v1 `KVStore` (§1) | core2 |
+| :--- | :--- | :--- |
+| Write signature | `(put val-map)` — key buried in the map | `(put store k v opts)` — positional |
+| Conditional write | `:ensure` map, with `:rev` privileged inside it | none: values are immutable |
+| Revision | `:rev`, required for any overwrite | absent from the value path entirely |
+| Mutation | folded into `put` | its own `DurableAtom`; `swap!` takes a **function** |
+| Log | shares one keyspace with segments, by key convention | its own SPI |
+| Granularity | one protocol, four methods | nine single-method protocols |
+| Async | synchronous return | core.async channels throughout (`ch`) |
+
+Three of those are the substantive ones. **The envelope is gone** — `put` takes `k` and `v` positionally, so v1's asymmetry (a `put` taking one map while `get` takes a key) disappears, and with it the `{:id nil}` exists-false overload. **The revision is gone from the value path**, because content-keyed immutable values have no replace operation for a guard to protect; §1's whole `:ensure`/`:rev` mechanism exists only to make *overwriting* safe, and core2 removes overwriting instead. **Mutation moved from a guard to a function**: `swap!` takes `f` and retries internally, so the read-modify-CAS loop that every v1 caller had to write correctly now lives inside the abstraction.
+
+The per-operation split is the remaining move. `:impls` is empty on all nine protocols — backends implement the generated interfaces directly via `deftype`, exactly as in §1 — but the segregation means a read-only store implements `Get` alone rather than stubbing a `put` it cannot honor.
 
 ---
 
@@ -572,8 +664,8 @@ The path from index traversal to actual storage read:
   - `delete(key, consistent?)` — Remove entry, returns `:ok`
   - Implementations: `KVSql`, `KVMem`, `KVDynamo`, `KVHotRod`, `KVCassandra`/`KVCassandra2`/`KVCassandra3`
 
-* **`datomic.core2.val_store.spi.Get`** — Second-gen value store protocol
-  - `_get(store, key)` — Fetch segment from storage
+* **`datomic.core2.val_store.spi.Get`** — Second-gen value store protocol (full SPI in §1, *The second generation*)
+  - `_get(k, opts)` — Fetch a value by key; `Put`/`Delete` are separate protocols, one per operation
 
 * **`datomic.cluster_stack.ValStoreOnKvCache`** — L1 cache layer over KV store
 * **`datomic.cluster_stack.ValStoreOnCluster`** — Cluster storage implementation

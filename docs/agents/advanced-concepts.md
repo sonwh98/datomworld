@@ -32,7 +32,7 @@ Transport is interpreter-level, and unimplemented.
   identity is part of the hash, and a mismatch must not silently look like a miss.
   Choice of projection is load-bearing: (a v) quotients away m, so an assertion and
   its retraction hash alike. (a v m) keeps them apart but needs m resolved to the
-  metadata entity's own hash when m >= 1025, since a bare m is stream-local.
+  metadata entity's own hash when m >= 16, since a bare m is stream-local.
   It dedupes *structures*, not evolving entities: an entity's (a v) set grows as facts
   accumulate, so the hash identifies a version. Right for AST and other write-once
   data; wrong as identity-over-time for, say, a person. Those correlate by unique

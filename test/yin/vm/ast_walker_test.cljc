@@ -1,5 +1,6 @@
 (ns yin.vm.ast-walker-test
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.datom :as datom]
             [dao.space.transact :as transact]
             [dao.stream :as ds]
             [dao.stream.apply :as dao.stream.apply]
@@ -402,9 +403,11 @@
     "Transacting nil literals succeeds by omitting nil :db/add assertions"
     (let [datoms (vec (vm/ast->datoms {:type :literal, :value nil}))
           tx-data (vec (vm/datoms->tx-data datoms))
-          {:keys [datoms]}
-          (transact/prepare-tx
-            {:base-datoms [], :tx-data tx-data, :next-t 1, :next-eid 1025})]
+          {:keys [datoms]} (transact/prepare-tx {:base-datoms [],
+                                                 :tx-data tx-data,
+                                                 :next-t 1,
+                                                 :next-eid
+                                                 datom/first-user-id})]
       (is (some #(= :yin/type (nth % 2)) tx-data)
           "Type assertion should still be projected to tx-data")
       (is (not-any? #(and (= :yin/value (nth % 2)) (nil? (nth % 3))) tx-data)

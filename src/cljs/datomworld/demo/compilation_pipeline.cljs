@@ -9,6 +9,7 @@
             ["codemirror" :refer [basicSetup]]
             [cljs.reader :as reader]
             [clojure.walk :as walk]
+            [dao.datom :as datom]
             [dao.space.query :as query]
             [dao.space.transact :as transact]
             [dao.stream :as ds]
@@ -707,7 +708,8 @@
           max-schema-eid (apply max (map first ast-db))
           {:keys [tempids datoms]} (transact/prepare-tx
                                      {:base-datoms ast-db,
-                                      :next-eid (max 1025 (inc max-schema-eid)),
+                                      :next-eid (max datom/first-user-id
+                                                     (inc max-schema-eid)),
                                       :tx-data tx-data})
           dao-db (into ast-db datoms)
           all-datoms (vec (query/current-state-seq dao-db))

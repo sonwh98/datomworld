@@ -131,8 +131,8 @@ Slot encoding follows the canonical-encoding rules in the datom spec. Slot value
 
 Reserved-entity space:
 
-- VM-universal attributes (`:vm/ip`, `:vm/env`, `:vm/parent`, `:cont/blocked-on`, etc.) live in the reserved range (entities 2 to 1024); their meaning is universal across any VM instance and they must not migrate.
-- Per-program user entities start at 1025.
+- VM-universal attributes (`:vm/ip`, `:vm/env`, `:vm/parent`, `:cont/blocked-on`, etc.) live in the reserved range (entities 2 to 15); their meaning is universal across any VM instance and they must not migrate.
+- Per-program user entities start at 16.
 
 ### Shared continuation semantics
 

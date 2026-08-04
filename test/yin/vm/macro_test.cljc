@@ -52,14 +52,14 @@
 
 (deftest macro-lambda-schema-test
   (testing "Lambda with :yin/macro? true and :yin/phase-policy is valid"
-    (let [datoms [[-1025 :yin/type :lambda 0 1] [-1025 :yin/macro? true 0 1]
-                  [-1025 :yin/phase-policy :compile 0 1]
-                  [-1025 :yin/params [] 0 1] [-1025 :yin/body -1026 0 1]
-                  [-1026 :yin/type :literal 0 1] [-1026 :yin/value 42 0 1]]
+    (let [datoms [[-16 :yin/type :lambda 0 1] [-16 :yin/macro? true 0 1]
+                  [-16 :yin/phase-policy :compile 0 1] [-16 :yin/params [] 0 1]
+                  [-16 :yin/body -17 0 1] [-17 :yin/type :literal 0 1]
+                  [-17 :yin/value 42 0 1]]
           {:keys [get-attr]} (vm/index-datoms datoms)]
-      (is (= :lambda (get-attr -1025 :yin/type)))
-      (is (= true (get-attr -1025 :yin/macro?)))
-      (is (= :compile (get-attr -1025 :yin/phase-policy))))))
+      (is (= :lambda (get-attr -16 :yin/type)))
+      (is (= true (get-attr -16 :yin/macro?)))
+      (is (= :compile (get-attr -16 :yin/phase-policy))))))
 
 
 ;; =============================================================================
@@ -69,25 +69,25 @@
 (deftest expand-once-simple-test
   (testing "Expands a top-level :yin/macro-expand node"
     ;; Program: (my-macro) → expands to literal 99
-    ;; macro-lambda-eid = -2000, call-eid = root
-    (let [macro-lambda-eid -2000
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
-                       [-1025 :yin/operator macro-lambda-eid 0 1]
-                       [-1025 :yin/operands [] 0 1]]
+    ;; macro-lambda-eid = -30, call-eid = root
+    (let [macro-lambda-eid -30
+          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
+                       [-16 :yin/operator macro-lambda-eid 0 1]
+                       [-16 :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 99)}
-          result (macro/expand-once call-datoms -1025 registry)]
+          result (macro/expand-once call-datoms -16 registry)]
       (is (true? (:expanded? result)))
-      (is (not= -1025 (:root-eid result)) "Root should have changed")
+      (is (not= -16 (:root-eid result)) "Root should have changed")
       ;; New root should be the literal 99 node
       (let [{:keys [get-attr]} (vm/index-datoms (:datoms result)
                                                 {:root-id (:root-eid result)})]
         (is (= :literal (get-attr (:root-eid result) :yin/type)))
         (is (= 99 (get-attr (:root-eid result) :yin/value))))))
   (testing "No expansion when no :yin/macro-expand nodes"
-    (let [datoms [[-1025 :yin/type :literal 0 1] [-1025 :yin/value 42 0 1]]
-          result (macro/expand-once datoms -1025 {})]
+    (let [datoms [[-16 :yin/type :literal 0 1] [-16 :yin/value 42 0 1]]
+          result (macro/expand-once datoms -16 {})]
       (is (false? (:expanded? result)))
-      (is (= -1025 (:root-eid result)))
+      (is (= -16 (:root-eid result)))
       (is (= datoms (:datoms result))))))
 
 
@@ -97,12 +97,12 @@
 
 (deftest expansion-event-provenance-test
   (testing "Expansion produces a :macro-expand-event entity"
-    (let [macro-lambda-eid -2000
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
-                       [-1025 :yin/operator macro-lambda-eid 0 1]
-                       [-1025 :yin/operands [] 0 1]]
+    (let [macro-lambda-eid -30
+          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
+                       [-16 :yin/operator macro-lambda-eid 0 1]
+                       [-16 :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 7)}
-          {:keys [datoms]} (macro/expand-once call-datoms -1025 registry)
+          {:keys [datoms]} (macro/expand-once call-datoms -16 registry)
           ;; Find the expansion event entity
           event-datoms (filter (fn [[_e a v]]
                                  (and (= a :yin/type)
@@ -112,7 +112,7 @@
           {:keys [get-attr]} (vm/index-datoms datoms)]
       (is (some? event-eid) "An expansion event entity should exist")
       (is (= :macro-expand-event (get-attr event-eid :yin/type)))
-      (is (= -1025 (get-attr event-eid :yin/source-call))
+      (is (= -16 (get-attr event-eid :yin/source-call))
           "source-call links to original call site")
       (is (= macro-lambda-eid (get-attr event-eid :yin/macro))
           "macro links to macro lambda EID")
@@ -120,23 +120,23 @@
       (is (some? (get-attr event-eid :yin/expansion-root))
           "expansion-root points to the new root node")))
   (testing "Original call datoms are immutable after expansion"
-    (let [macro-lambda-eid -2000
-          original-call-datom [-1025 :yin/type :yin/macro-expand 0 1]
+    (let [macro-lambda-eid -30
+          original-call-datom [-16 :yin/type :yin/macro-expand 0 1]
           call-datoms [original-call-datom
-                       [-1025 :yin/operator macro-lambda-eid 0 1]
-                       [-1025 :yin/operands [] 0 1]]
+                       [-16 :yin/operator macro-lambda-eid 0 1]
+                       [-16 :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 55)}
-          {:keys [datoms]} (macro/expand-once call-datoms -1025 registry)]
+          {:keys [datoms]} (macro/expand-once call-datoms -16 registry)]
       ;; Original datom must still be present and unchanged
       (is (some #(= % original-call-datom) datoms)
           "Original :yin/macro-expand datom is immutable and preserved")))
   (testing "Expansion output datoms carry m = expansion-event-eid"
-    (let [macro-lambda-eid -2000
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
-                       [-1025 :yin/operator macro-lambda-eid 0 1]
-                       [-1025 :yin/operands [] 0 1]]
+    (let [macro-lambda-eid -30
+          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
+                       [-16 :yin/operator macro-lambda-eid 0 1]
+                       [-16 :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 3)}
-          {:keys [datoms]} (macro/expand-once call-datoms -1025 registry)
+          {:keys [datoms]} (macro/expand-once call-datoms -16 registry)
           ;; Find event EID
           event-eid (ffirst (filter (fn [[_e a v]]
                                       (and (= a :yin/type)
@@ -154,16 +154,16 @@
 (deftest nested-expansion-test
   (testing "Macro inside an application is correctly patched up"
     ;; Program: (+ (my-macro) 10) → (+ 99 10)
-    (let [macro-lambda-eid -2000
+    (let [macro-lambda-eid -30
           ;; Build datoms for (+ (my-macro) 10)
           ;; literal 10
-          lit10-eid -1029
+          lit10-eid -20
           ;; macro-expand call (my-macro)
-          call-eid -1028
+          call-eid -19
           ;; variable '+'
-          plus-eid -1027
+          plus-eid -18
           ;; application (+ (my-macro) 10)
-          app-eid -1025
+          app-eid -16
           datoms [[app-eid :yin/type :application 0 1]
                   [app-eid :yin/operator plus-eid 0 1]
                   [app-eid :yin/operands [call-eid lit10-eid] 0 1]
@@ -197,21 +197,20 @@
 
 (deftest fixpoint-test
   (testing "Terminates when no new :yin/macro-expand datoms are emitted"
-    (let [macro-lambda-eid -2000
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
-                       [-1025 :yin/operator macro-lambda-eid 0 1]
-                       [-1025 :yin/operands [] 0 1]]
+    (let [macro-lambda-eid -30
+          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
+                       [-16 :yin/operator macro-lambda-eid 0 1]
+                       [-16 :yin/operands [] 0 1]]
           registry {macro-lambda-eid (make-literal-macro 42)}
-          {:keys [datoms root-eid]}
-          (macro/expand-all call-datoms -1025 registry)
+          {:keys [datoms root-eid]} (macro/expand-all call-datoms -16 registry)
           {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
       (is (= :literal (get-attr root-eid :yin/type)))
       (is (= 42 (get-attr root-eid :yin/value)))))
   (testing "Recursive macro expansion terminates at fixpoint"
     ;; First pass: (macro-a) → (macro-b)
     ;; Second pass: (macro-b) → literal 7
-    (let [macro-a-eid -2000
-          macro-b-eid -2001
+    (let [macro-a-eid -30
+          macro-b-eid -31
           ;; macro-a expands to a call to macro-b
           macro-a-fn (fn [{:keys [fresh-eid]}]
                        (let [call-eid (fresh-eid)]
@@ -222,11 +221,10 @@
           ;; macro-b expands to literal 7
           macro-b-fn (make-literal-macro 7)
           registry {macro-a-eid macro-a-fn, macro-b-eid macro-b-fn}
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
-                       [-1025 :yin/operator macro-a-eid 0 1]
-                       [-1025 :yin/operands [] 0 1]]
-          {:keys [datoms root-eid]}
-          (macro/expand-all call-datoms -1025 registry)
+          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
+                       [-16 :yin/operator macro-a-eid 0 1]
+                       [-16 :yin/operands [] 0 1]]
+          {:keys [datoms root-eid]} (macro/expand-all call-datoms -16 registry)
           {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
       (is (= :literal (get-attr root-eid :yin/type)))
       (is (= 7 (get-attr root-eid :yin/value))))))
@@ -238,7 +236,7 @@
 
 (deftest guard-overflow-test
   (testing "Depth guard throws on infinite recursive expansion"
-    (let [macro-eid -2000
+    (let [macro-eid -30
           ;; Self-referential macro: always expands to another macro-expand
           ;; call
           looping-macro (fn [{:keys [fresh-eid]}]
@@ -247,16 +245,16 @@
                                       [call-eid :yin/operator macro-eid 0 1]
                                       [call-eid :yin/operands [] 0 1]],
                              :root-eid call-eid}))
-          call-datoms [[-1025 :yin/type :yin/macro-expand 0 1]
-                       [-1025 :yin/operator macro-eid 0 1]
-                       [-1025 :yin/operands [] 0 1]]
+          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
+                       [-16 :yin/operator macro-eid 0 1]
+                       [-16 :yin/operands [] 0 1]]
           registry {macro-eid looping-macro}]
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo
                :cljs cljs.core.ExceptionInfo
                :cljd Object)
             #"depth guard exceeded"
-            (macro/expand-all call-datoms -1025 registry {:max-depth 5}))))))
+            (macro/expand-all call-datoms -16 registry {:max-depth 5}))))))
 
 
 ;; =============================================================================
@@ -265,8 +263,8 @@
 
 (deftest compile-time-register-test
   (testing "Register VM expands :yin/macro-expand before bytecode compilation"
-    (let [macro-lambda-eid -2000
-          call-eid -1025
+    (let [macro-lambda-eid -30
+          call-eid -16
           datoms [[call-eid :yin/type :yin/macro-expand 0 1]
                   [call-eid :yin/operator macro-lambda-eid 0 1]
                   [call-eid :yin/operands [] 0 1]]
@@ -276,9 +274,9 @@
                  (vm/run))]
       (is (= 77 (vm/value vm)))))
   (testing "Register VM: macro that returns identity of first arg"
-    (let [macro-lambda-eid -2000
-          lit-eid -1027
-          call-eid -1025
+    (let [macro-lambda-eid -30
+          lit-eid -18
+          call-eid -16
           datoms [[call-eid :yin/type :yin/macro-expand 0 1]
                   [call-eid :yin/operator macro-lambda-eid 0 1]
                   [call-eid :yin/operands [lit-eid] 0 1]
@@ -296,8 +294,8 @@
 
 (deftest compile-time-stack-test
   (testing "Stack VM expands :yin/macro-expand before bytecode compilation"
-    (let [macro-lambda-eid -2000
-          call-eid -1025
+    (let [macro-lambda-eid -30
+          call-eid -16
           datoms [[call-eid :yin/type :yin/macro-expand 0 1]
                   [call-eid :yin/operator macro-lambda-eid 0 1]
                   [call-eid :yin/operands [] 0 1]]
@@ -314,8 +312,8 @@
 
 (deftest runtime-semantic-test
   (testing "Semantic VM expands :yin/macro-expand at runtime"
-    (let [macro-lambda-eid -2000
-          call-eid -1025
+    (let [macro-lambda-eid -30
+          call-eid -16
           datoms [[call-eid :yin/type :yin/macro-expand 0 1]
                   [call-eid :yin/operator macro-lambda-eid 0 1]
                   [call-eid :yin/operands [] 0 1]]
@@ -325,9 +323,9 @@
                  (vm/run))]
       (is (= 55 (vm/value vm)))))
   (testing "Semantic VM: runtime macro with arg passthrough"
-    (let [macro-lambda-eid -2000
-          lit-eid -1027
-          call-eid -1025
+    (let [macro-lambda-eid -30
+          lit-eid -18
+          call-eid -16
           datoms [[call-eid :yin/type :yin/macro-expand 0 1]
                   [call-eid :yin/operator macro-lambda-eid 0 1]
                   [call-eid :yin/operands [lit-eid] 0 1]
@@ -345,8 +343,8 @@
 
 (deftest expansion-parity-test
   (testing "All VMs produce the same result for the same macro expansion"
-    (let [macro-lambda-eid -2000
-          call-eid -1025
+    (let [macro-lambda-eid -30
+          call-eid -16
           datoms [[call-eid :yin/type :yin/macro-expand 0 1]
                   [call-eid :yin/operator macro-lambda-eid 0 1]
                   [call-eid :yin/operands [] 0 1]]
@@ -370,12 +368,12 @@
   (testing "Macro receives correct arg-eids and can build new AST from them"
     ;; macro (swap-args op a b) → (op b a)
     ;; Expand (swap-args - 10 3) → (- 3 10) = -7
-    (let [macro-lambda-eid -2000
+    (let [macro-lambda-eid -30
           ;; operand nodes for swap-args call: op=minus, a=10, b=3
-          minus-eid -1027
-          lit10-eid -1028
-          lit3-eid -1029
-          call-eid -1025
+          minus-eid -18
+          lit10-eid -19
+          lit3-eid -20
+          call-eid -16
           datoms
           [[call-eid :yin/type :yin/macro-expand 0 1]
            [call-eid :yin/operator macro-lambda-eid 0 1]
@@ -407,8 +405,8 @@
 
 (deftest expansion-event-query-contract-test
   (testing "Query chain: source-call -> expansion-event -> expansion-root"
-    (let [macro-lambda-eid -2000
-          call-eid -1025
+    (let [macro-lambda-eid -30
+          call-eid -16
           datoms [[call-eid :yin/type :yin/macro-expand 0 1]
                   [call-eid :yin/operator macro-lambda-eid 0 1]
                   [call-eid :yin/operands [] 0 1]]
@@ -681,11 +679,10 @@
     "semantic-append-datoms adds nodes to the VM index without resetting state"
     (let [vm (semantic/create-vm)
           ;; Load initial program: literal 1
-          initial-datoms [[-1025 :yin/type :literal 0 1]
-                          [-1025 :yin/value 1 0 1]]
+          initial-datoms [[-16 :yin/type :literal 0 1] [-16 :yin/value 1 0 1]]
           vm-loaded (vtu/queue-vm vm initial-datoms)
           ;; Append new datoms: a new literal node
-          new-datoms [[-2000 :yin/type :literal 0 1] [-2000 :yin/value 99 0 1]]
+          new-datoms [[-30 :yin/type :literal 0 1] [-30 :yin/value 99 0 1]]
           vm-appended (semantic/semantic-append-datoms vm-loaded new-datoms)]
       ;; Original program still evaluates correctly
       (is (= 1 (vm/value (vm/run vm-loaded))))

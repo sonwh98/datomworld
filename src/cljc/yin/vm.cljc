@@ -276,16 +276,16 @@
   "Convert AST map into a vector of datoms. A datom is [e a v t m].
    Returns [root-id datoms].
 
-   Entity IDs are tempids (negative integers: -1024, -1025, -1026...) that get resolved
+   Entity IDs are tempids (negative integers: -16, -17, -18...) that get resolved
    to actual entity IDs when transacted. The transactor assigns real positive IDs.
 
    Options:
      :t - transaction ID (default 0)
      :m - metadata entity reference (default assert; see dao.datom/reserved)
-     :id-start - starting entity ID for tempids (default -1024)"
+     :id-start - starting entity ID for tempids (default (- datom/first-user-id))"
   ([ast] (ast->datoms-with-root ast {}))
   ([ast opts]
-   (let [id-counter (atom (or (:id-start opts) -1024))
+   (let [id-counter (atom (or (:id-start opts) (- datom/first-user-id)))
          t (or (:t opts) 0)
          m (or (:m opts) datom/default-op)
          gen-id #(swap! id-counter dec)
