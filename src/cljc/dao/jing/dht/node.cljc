@@ -94,7 +94,7 @@
             ;; over a cas!-managed key), bypassing the key-class discipline
             :store (let [{:keys [k v]} msg]
                      (if (= k (jing/segment-key v))
-                       {:ok (boolean (jing/put! local k v))}
+                       {:ok (boolean (jing/cas! local k jing/absent v))}
                        {:ok false, :error :bad-hash}))
             ;; :found travels explicitly on both reads: values are opaque
             ;; and nil is a legal one, so it cannot be inferred from :v

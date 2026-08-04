@@ -74,7 +74,7 @@
 
 
 ;; =============================================================================
-;; put! and get Operations
+;; cas! and get Operations
 ;; =============================================================================
 
 (deftest remote-opaque-values-survive-transit
@@ -85,11 +85,12 @@
                     client (remote/connect-kv! url)]
                 (try (testing "any value round-trips across the transit codec"
                        (doseq [v [42 "s" :kw [1 2 3] #{:x} {:m 1} {}]]
-                         (is (true? (jing/put! client :opaque v)))
+                         (jing/delete! client :opaque)
+                         (is (true? (jing/cas! client :opaque jing/absent v)))
                          (is (= v (jing/get client :opaque ::miss))
                              (str (pr-str v) " must survive the wire"))))
                      (testing "a stored nil is present, not absent"
-                       (is (true? (jing/put! client :nil-v nil)))
+                       (is (true? (jing/cas! client :nil-v jing/absent nil)))
                        (is (nil? (jing/get client :nil-v ::miss))
                            "nil must not be reported as not-found")
                        (is (= ::miss (jing/get client :never-written ::miss))
@@ -107,11 +108,12 @@
               (let [url (str "ws://localhost:" (:port *server*))
                     client (remote/connect-kv! url)]
                 (try
-                  ;; Put a value
-                  (is (true? (jing/put! client
+                  ;; Put a value via cas!
+                  (is (true? (jing/cas! client
                                         :test-key
+                                        jing/absent
                                         {:value "hello", :bytes [1 2 3]}))
-                      "put! should return true on success")
+                      "cas! should return true on success")
                   ;; Get it back
                   (let [result (jing/get client :test-key nil)]
                     (is (= "hello" (:value result))
@@ -131,11 +133,12 @@
                              (:port *server*))
                     client (remote/connect-kv! url)]
                 (try
-                  ;; First put
-                  (jing/put! client :key {:v 1})
+                  ;; First write
+                  (jing/cas! client :key jing/absent {:v 1})
                   (is (= 1 (:v (jing/get client :key nil))))
-                  ;; Second put replaces outright
-                  (jing/put! client :key {:v 2})
+                  ;; Second write via cas! replaces with
+                  ;; expected
+                  (jing/cas! client :key {:v 1} {:v 2})
                   (is (= {:v 2} (jing/get client :key nil))
                       "put! replaces the value wholesale")
                   (finally (jing/close! client))))))))
@@ -152,8 +155,8 @@
               (let [url (str "ws://localhost:" (:port *server*))
                     client (remote/connect-kv! url)]
                 (try
-                  ;; Initial put
-                  (jing/put! client :counter {:n 0})
+                  ;; Initial write
+                  (jing/cas! client :counter jing/absent {:n 0})
                   (is (= {:n 0} (jing/get client :counter nil)))
                   ;; Successful CAS
                   (is (true? (jing/cas! client :counter {:n 0} {:n 1}))
@@ -170,8 +173,8 @@
               (let [url (str "ws://localhost:" (:port *server*))
                     client (remote/connect-kv! url)]
                 (try
-                  ;; Initial put
-                  (jing/put! client :counter {:n 0})
+                  ;; Initial write
+                  (jing/cas! client :counter jing/absent {:n 0})
                   ;; First CAS succeeds
                   (jing/cas! client :counter {:n 0} {:n 1})
                   ;; Second CAS quoting the now-stale value fails
@@ -210,7 +213,7 @@
                     client (remote/connect-kv! url)]
                 (try
                   ;; Put then delete
-                  (jing/put! client :temp {:data "to delete"})
+                  (jing/cas! client :temp jing/absent {:data "to delete"})
                   (is (true? (jing/delete! client :temp))
                       "delete! should return true")
                   ;; Key should be gone
@@ -245,7 +248,7 @@
                     client-b (remote/connect-kv! url)]
                 (try
                   ;; Client A writes
-                  (jing/put! client-a :shared {:from "a"})
+                  (jing/cas! client-a :shared jing/absent {:from "a"})
                   ;; Client B should see it
                   (is (= "a" (:from (jing/get client-b :shared nil)))
                       "Client B should see writes from Client A")
@@ -274,7 +277,7 @@
              (Thread/sleep 100)
              ;; Client 1 connects and writes
              (let [client1 (remote/connect-kv! (str "ws://localhost:" port))]
-               (jing/put! client1 :persistent {:data "survives"})
+               (jing/cas! client1 :persistent jing/absent {:data "survives"})
                (jing/close! client1))
              ;; Stop server
              (rpc-ws/stop! server)
@@ -318,7 +321,7 @@
                     client (remote/connect-kv! url)]
                 (try
                   ;; Empty value map
-                  (jing/put! client :empty {})
+                  (jing/cas! client :empty jing/absent {})
                   (is (= {} (jing/get client :empty nil))
                       "Empty map should round-trip")
                   (finally (jing/close! client))))))))
@@ -331,7 +334,7 @@
               (let [url (str "ws://localhost:" (:port *server*))
                     client (remote/connect-kv! url)
                     large-data (vec (range 1000))]
-                (try (jing/put! client :large {:data large-data})
+                (try (jing/cas! client :large jing/absent {:data large-data})
                      (is (= large-data (:data (jing/get client :large nil)))
                          "Large values should round-trip correctly")
                      (finally (jing/close! client))))))))
@@ -345,9 +348,9 @@
                     client (remote/connect-kv! url)]
                 (try
                   ;; Various key types that dao.jing supports
-                  (jing/put! client :keyword-key {:type "keyword"})
-                  (jing/put! client "string-key" {:type "string"})
-                  (jing/put! client 42 {:type "number"})
+                  (jing/cas! client :keyword-key jing/absent {:type "keyword"})
+                  (jing/cas! client "string-key" jing/absent {:type "string"})
+                  (jing/cas! client 42 jing/absent {:type "number"})
                   (is (= "keyword" (:type (jing/get client :keyword-key nil))))
                   (is (= "string" (:type (jing/get client "string-key" nil))))
                   (is (= "number" (:type (jing/get client 42 nil))))

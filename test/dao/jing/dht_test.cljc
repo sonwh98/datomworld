@@ -48,7 +48,9 @@
          vec))
 
 
-  (store-segment! [_ to k v] (jing/put! (local-of registry to) k v))
+  (store-segment!
+    [_ to k v]
+    (jing/cas! (local-of registry to) k jing/absent v))
 
 
   (fetch-segment
@@ -106,21 +108,18 @@
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (jing/put! a :plain {:x 1})))
+            (jing/cas! a :plain jing/absent {:x 1})))
+      (is (true? (jing/cas! a :root/r jing/absent {:x 1}))
+          "roots are cas!-managed")
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (jing/put! a :root/r {:x 1}))
-          "roots are cas!-only")
+            (jing/cas! a (jing/segment-key {:x 1}) {:x 1} {:x 2}))
+          "segments are immutable and key must hash to value")
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (jing/cas! a (jing/segment-key {:x 1}) jing/absent {:x 1}))
-          "segments are immutable")
-      (is (thrown? #?(:clj Exception
-                      :cljs js/Error
-                      :cljd Object)
-            (jing/put! a :segment/not-the-hash {:x 1}))
+            (jing/cas! a :segment/not-the-hash jing/absent {:x 1}))
           "a segment key must be the content hash of its value"))))
 
 
@@ -133,7 +132,7 @@
     (let [{[a b c] :stores} (grid 3)
           v {:bytes [1 2 3]}
           k (jing/segment-key v)]
-      (is (true? (jing/put! a k v)))
+      (is (true? (jing/cas! a k jing/absent v)))
       (is (= v (jing/get b k nil)))
       (is (= v (jing/get c k nil))))))
 
@@ -148,7 +147,7 @@
     (let [{[a b] :stores} (grid 3)]
       (doseq [v [42 "s" :kw [1 2 3] #{:x} {:m 1}]]
         (let [k (jing/segment-key v)]
-          (is (true? (jing/put! a k v)))
+          (is (true? (jing/cas! a k jing/absent v)))
           ;; drop b's replica so the read must go over the wire and
           ;; re-verify the content hash on arrival
           (jing/delete! b k)
@@ -162,7 +161,7 @@
     rather than collapsing it into not-found"
     (let [{[a b] :stores} (grid 3)
           k (jing/segment-key nil)]
-      (is (true? (jing/put! a k nil)))
+      (is (true? (jing/cas! a k jing/absent nil)))
       (jing/delete! b k)
       (is (nil? (jing/get b k ::miss))
           "a nil segment fetched over the wire is present, not missing")
@@ -183,8 +182,8 @@
     (let [{[a] :stores} (grid 2)
           v {:bytes [4]}
           k (jing/segment-key v)]
-      (is (true? (jing/put! a k v)))
-      (is (true? (jing/put! a k v)))
+      (is (true? (jing/cas! a k jing/absent v)))
+      (is (true? (jing/cas! a k jing/absent v)))
       (is (= v (jing/get a k nil))))))
 
 
@@ -193,7 +192,7 @@
     (let [{[a] :stores} (grid 3)
           v {:bytes [9]}
           k (jing/segment-key v)]
-      (jing/put! a k v)
+      (jing/cas! a k jing/absent v)
       (is (true? (jing/delete! a k)))
       (is (= v (jing/get a k nil)) "the segment survives on other peers"))))
 
@@ -203,7 +202,7 @@
     (let [{[a b] :stores} (grid 3)
           v {:bytes [7]}
           k (jing/segment-key v)]
-      (jing/put! a k v)
+      (jing/cas! a k jing/absent v)
       (jing/delete! b k)
       (is (= :miss (jing/get (:local b) k :miss)))
       (is (= v (jing/get b k nil)))
@@ -217,7 +216,7 @@
           v {:bytes [1]}
           k (jing/segment-key v)]
       ;; poison b's local copy directly, bypassing the contract checks
-      (jing/put! (:local b) k {:bytes [:evil]})
+      (jing/cas! (:local b) k jing/absent {:bytes [:evil]})
       (is (= :none (jing/get a k :none))
           "the forged segment does not verify against the key"))))
 
@@ -252,7 +251,7 @@
     (let [{[a] :stores} (grid 1)
           v {:bytes [5]}
           k (jing/segment-key v)]
-      (is (true? (jing/put! a k v)))
+      (is (true? (jing/cas! a k jing/absent v)))
       (is (= v (jing/get a k nil)))
       (is (true? (jing/cas! a :root/r jing/absent {:p "x"})))
       (is (= {:p "x"} (jing/get a :root/r nil))))))

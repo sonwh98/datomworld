@@ -39,8 +39,6 @@
   [inner log]
   (reify
     jing/IKVStore
-    (put! [_ k v] (jing/put! inner k v))
-
     (cas! [_ k expected v] (jing/cas! inner k expected v))
 
     (get [_ k not-found] (swap! log conj k) (jing/get inner k not-found))
@@ -287,9 +285,9 @@
                   :keys [[2 :a "y" 0 1] [3 :b "z" 0 1]],
                   :addresses [k1 k2]}
           kb (jing/segment-key branch)]
-      (jing/put! store k1 leaf-1)
-      (jing/put! store k2 leaf-2)
-      (jing/put! store kb branch)
+      (jing/cas! store k1 jing/absent leaf-1)
+      (jing/cas! store k2 jing/absent leaf-2)
+      (jing/cas! store kb jing/absent branch)
       (index/register-member! store :root/test)
       (jing/cas! store
                  :root/test
@@ -323,7 +321,7 @@
     (let [store (mem/create-kv-mem)
           leaf {:keys [[1 :a "x" 0 1] [2 :a "y" 0 1]]}
           k (jing/segment-key leaf)]
-      (jing/put! store k leaf)
+      (jing/cas! store k jing/absent leaf)
       (index/register-member! store :root/test)
       (jing/cas! store
                  :root/test

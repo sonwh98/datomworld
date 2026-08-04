@@ -232,8 +232,6 @@
     (let [real (mem/create-kv-mem)
           always-loses-cas (reify
                              jing/IKVStore
-                             (put! [_ k v] (jing/put! real k v))
-
                              (cas!
                                [_ k expected v]
                                (if (= k index/members-key)
@@ -404,8 +402,6 @@
     (let [real (mem/create-kv-mem)
           always-loses-cas (reify
                              jing/IKVStore
-                             (put! [_ k v] (jing/put! real k v))
-
                              (cas!
                                [_ k expected v]
                                (if (= k index/members-key)

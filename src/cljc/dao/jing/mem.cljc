@@ -8,9 +8,6 @@
 
   jing/IKVStore
 
-  (put! [_ k v] (swap! state-atom assoc k v) true)
-
-
   (cas!
     [_ k expected v]
     (loop []
@@ -19,7 +16,9 @@
             ;; value, so absence has to be its own fact
             current (if (contains? state k) (get state k) jing/absent)]
         (if (not= expected current)
-          false
+          (if (and (= expected jing/absent) (contains? state k) (= current v))
+            true
+            false)
           (if (compare-and-set! state-atom state (assoc state k v))
             true
             (recur))))))

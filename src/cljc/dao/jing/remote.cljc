@@ -26,10 +26,9 @@
 
 
 (defn default-handlers
-  "The default handlers map exposing a dao.jing IKVStore's 4 operations."
+  "The default handlers map exposing a dao.jing IKVStore's operations."
   [store]
-  {:jing/put! (partial jing/put! store),
-   :jing/cas! (partial jing/cas! store),
+  {:jing/cas! (partial jing/cas! store),
    :jing/get (partial jing/get store),
    :jing/delete! (partial jing/delete! store)})
 
@@ -38,9 +37,6 @@
   [call-fn close-fn]
 
   jing/IKVStore
-
-  (put! [_ k v] (call-fn :jing/put! [k v]))
-
 
   (cas! [_ k expected v] (call-fn :jing/cas! [k expected v]))
 

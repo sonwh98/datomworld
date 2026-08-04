@@ -38,14 +38,14 @@
 
 
 #?(:cljd nil
-   :clj (deftest udp-put-get-across-nodes
+   :clj (deftest udp-put-then-get-across-nodes
           (testing
-            "a segment put! on one UDP node is fetched by another over the wire"
+            "a segment cas! on one UDP node is fetched by another over the wire"
             (with-cluster 3
               (fn [[a _ c]]
                 (let [v {:bytes [1 2 3]}
                       k (jing/segment-key v)]
-                  (is (true? (jing/put! a k v)))
+                  (is (true? (jing/cas! a k jing/absent v)))
                   ;; drop c's replica so the read exercises the
                   ;; network path
                   (jing/delete! c k)
@@ -75,7 +75,7 @@
          (fn [[a b]]
            (let [v {:bytes (apply str (repeat 3000 "x"))}
                  k (jing/segment-key v)]
-             (is (true? (jing/put! a k v))
+             (is (true? (jing/cas! a k jing/absent v))
                  "the local write succeeds; replication is best-effort")
              (is (= :none (jing/get b k :none))
                  "the segment cannot cross the wire yet")))))))
@@ -101,8 +101,8 @@
                           local
                           table
                           {:op :store, :k (keyword "root" hash), :v v})))
-           "a :root key cannot be planted via :store; an unconditional
-             put! over a cas!-managed key is the ABA hazard the design
+           "a :root key cannot be planted via :store; a write
+             over a cas!-managed key is the ABA hazard the design
              doc names")
          (is (= ::miss (jing/get local hash ::miss)))
          (is (= ::miss (jing/get local (keyword "root" hash) ::miss)))))))
@@ -133,7 +133,7 @@
              ;; the reply
              (let [v {:bytes [42]}
                    k (jing/segment-key v)]
-               (is (true? (jing/put! a k v)))
+               (is (true? (jing/cas! a k jing/absent v)))
                (jing/delete! b k)
                (is (= v (jing/get b k nil))))))))))
 
@@ -161,7 +161,8 @@
    (deftest udp-segment-size-variation
      (testing
        "packets of varying sizes can be received sequentially without truncation"
-       (with-cluster 2
+       (with-cluster
+         2
          (fn [[a b]]
            (let [v-small {:bytes [1]}
                  k-small (jing/segment-key v-small)
@@ -170,12 +171,12 @@
              ;; 1. Small write & read (sets receiver packet
              ;; length to
              ;; small)
-             (is (true? (jing/put! a k-small v-small)))
+             (is (true? (jing/cas! a k-small jing/absent v-small)))
              (jing/delete! b k-small)
              (is (= v-small (jing/get b k-small nil)))
              ;; 2. Large write & read (should not be
              ;; truncated)
-             (is (true? (jing/put! a k-large v-large)))
+             (is (true? (jing/cas! a k-large jing/absent v-large)))
              (jing/delete! b k-large)
              (is (= v-large (jing/get b k-large nil)))))))))
 

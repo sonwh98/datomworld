@@ -19,17 +19,6 @@
 
 (defprotocol IKVStore
 
-  (put!
-    [this k v]
-    "Write v at k unconditionally, replacing whatever is there.
-
-     The value is opaque: stored verbatim, returned verbatim by get, never
-     inspected or modified by the store. Any value is legal — scalars,
-     collections, nil.
-
-     Used for immutable segments, which are written once under a
-     content-derived key and never rewritten. Returns true on success.")
-
   (cas!
     [this k expected v]
     "Compare-and-swap: write v only if the value currently at k is `=` to

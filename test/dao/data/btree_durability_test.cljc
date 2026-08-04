@@ -35,8 +35,6 @@
   [store counter]
   (reify
     jing/IKVStore
-    (put! [_ k v] (jing/put! store k v))
-
     (cas! [_ k expected v] (jing/cas! store k expected v))
 
     (get [_ k not-found] (swap! counter inc) (jing/get store k not-found))
@@ -142,7 +140,7 @@
         ;; tamper: overwrite the root blob under its original key
         blob (jing/get store address nil)
         evil (update blob :keys (fn [ks] (assoc (vec ks) 0 :tampered)))
-        _ (jing/put! store address evil)]
+        _ (jing/cas! store address blob evil)]
     (testing "verification off (default): tampering goes unnoticed"
       (let [r (bt/restore-tree compare address storage 200)]
         (is (some? (seq r)))))
@@ -276,7 +274,8 @@
       (testing (str "bf=" bf " " (name profile))
         (let [{:keys [root count elements blobs]} (get-in fx [bf profile])
               store (mem/create-kv-mem)
-              _ (doseq [[addr blob] blobs] (jing/put! store addr blob))
+              _ (doseq [[addr blob] blobs]
+                  (jing/cas! store addr jing/absent blob))
               storage (bts/kv-storage store {:branching-factor bf})
               r (bt/restore-tree compare root storage count)]
           (is (== count (clojure.core/count r)))

@@ -39,7 +39,7 @@
     [_ node]
     (let [blob (bt/node->blob node)
           k (jing/segment-key blob)]
-      (jing/put! store k blob)
+      (jing/cas! store k jing/absent blob)
       k))
 
 
@@ -94,8 +94,8 @@
     ;; accelerator only
     (let [blob (bt/node->blob node)
           k (jing/segment-key blob)]
-      (jing/put! source k blob)
-      (jing/put! cache k blob)
+      (jing/cas! source k jing/absent blob)
+      (jing/cas! cache k jing/absent blob)
       k))
 
 
@@ -149,7 +149,7 @@
                   (let [blob (jing/get source addr absent)]
                     (when (identical? blob absent)
                       (throw (ex-info "missing index segment" {:address addr})))
-                    (jing/put! cache addr blob)
+                    (jing/cas! cache addr jing/absent blob)
                     (doseq [a (:addresses blob)] (pull! a))))]
           (when-some [addr (bt/set-address s)] (pull! addr)))))
     s))

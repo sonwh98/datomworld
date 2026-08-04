@@ -170,47 +170,35 @@
 
   jing/IKVStore
 
-  (put!
-    [_ k v]
-    (when (not= :segment (jing/key-class k))
-      (throw (ex-info
-               "put! is for immutable segments only; roots are cas!-managed"
-               {:k k})))
-    (let [minted (jing/segment-key v)]
-      (when (not= k minted)
-        (throw (ex-info "a segment key must be the content hash of its value"
-                        {:k k, :expected minted}))))
-    (jing/put! local k v)
-    (let [self-id (:id (self-peer net))
-          peers (remove #(= self-id (:id %)) (lookup net (key->target k)))]
-      ;; replication is best-effort and, on the JVM, concurrent: the call
-      ;; blocks until the slowest peer answers or times out, not for the
-      ;; sum of every peer's timeout. future's shared unbounded pool is
-      ;; acceptable because deref bounds each put! to at most kad/k
-      ;; in-flight threads; sustained write fan-out would deserve a
-      ;; dedicated bounded executor instead
-      #?(:clj (run! deref
-                    (mapv (fn [peer] (future (store-segment! net peer k v)))
-                          peers))
-         :default (run! (fn [peer] (store-segment! net peer k v)) peers)))
-    true)
-
-
   (cas!
     [_ k expected v]
-    (when (not= :root (jing/key-class k))
-      (throw (ex-info "cas! is for mutable roots only; segments are immutable"
-                      {:k k})))
-    (let [own (owner net k)]
-      (if (owner-here? net own)
-        (jing/cas! local k expected v)
-        (let [res (root-cas! net own k expected v)]
-          (when (nil? res)
-            ;; unreachable is not the same fact as a lost CAS: returning
-            ;; false would send the caller's retry loop chasing a rev it
-            ;; can never read
-            (throw (ex-info "root owner unreachable" {:k k, :owner own})))
-          (boolean res)))))
+    (case (jing/key-class k)
+      :segment
+      (let [minted (jing/segment-key v)]
+        (when (not= k minted)
+          (throw (ex-info
+                   "a segment key must be the content hash of its value"
+                   {:k k, :expected minted})))
+        (let [res (jing/cas! local k expected v)]
+          (when res
+            (let [self-id (:id (self-peer net))
+                  peers (remove #(= self-id (:id %))
+                                (lookup net (key->target k)))]
+              #?(:clj (run! deref
+                            (mapv (fn [peer]
+                                    (future (store-segment! net peer k v)))
+                                  peers))
+                 :default (run! (fn [peer] (store-segment! net peer k v))
+                                peers))))
+          res))
+      :root (let [own (owner net k)]
+              (if (owner-here? net own)
+                (jing/cas! local k expected v)
+                (let [res (root-cas! net own k expected v)]
+                  (when (nil? res)
+                    (throw (ex-info "root owner unreachable"
+                                    {:k k, :owner own})))
+                  (boolean res))))))
 
 
   (get
@@ -221,28 +209,17 @@
         (if (not= ::none v)
           v
           (let [self-id (:id (self-peer net))
-                ;; sequential and nearest-first by design: stop at the
-                ;; first peer whose bytes verify, spending no traffic
-                ;; on the rest. Wrapped in a vector so a peer
-                ;; legitimately holding nil still counts as a hit.
                 fetched (some (fn [peer]
                                 (when (not= self-id (:id peer))
                                   (when-let [res (fetch-segment net peer k)]
                                     (when (:found? res)
                                       (let [v (:value res)]
-                                        ;; integrity: received bytes
-                                        ;; must hash back to k (peers
-                                        ;; are untrusted); exact-key
-                                        ;; equality, same as
-                                        ;; node.cljc's :store check
                                         (when (= k (jing/segment-key v))
                                           [v]))))))
                               (lookup net (key->target k)))]
             (if fetched
               (let [v (nth fetched 0)]
-                ;; immutable, so cache forever. No stamp to normalize:
-                ;; the value crossing the wire is the value.
-                (jing/put! local k v)
+                (jing/cas! local k jing/absent v)
                 v)
               not-found))))
       :root

@@ -166,21 +166,6 @@
 
   jing/IKVStore
 
-  (put!
-    [_ k v]
-    (do-with-lock
-      state-atom
-      (fn []
-        (let [state @state-atom
-              stream (:stream state)
-              payload (pr-str [k :put v])
-              {res :result, cursor :cursor} (ds/append! stream
-                                                        (->bytes payload))]
-          (when (= :ok res)
-            (reset! state-atom (assoc-in state [:index k] {:cursor cursor}))
-            true)))))
-
-
   (cas!
     [_ k expected v]
     (do-with-lock
@@ -200,8 +185,12 @@
                             jing/absent))
                         jing/absent)]
           (if (not= expected current)
-            false
-            (let [payload (pr-str [k :put v])
+            (if (and (= expected jing/absent)
+                     (not= current jing/absent)
+                     (= current v))
+              true
+              false)
+            (let [payload (pr-str [k :cas v])
                   {res :result, cursor :cursor}
                   (ds/append! stream (->bytes payload))]
               (when (= :ok res)
