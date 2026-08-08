@@ -1,69 +1,208 @@
 (ns dao.jing
-  "The minimal key-value storage boundary for DaoJing.
-   This protocol represents the 'dumb storage' layer (analogous to Datomic's KVStore,
-   as specified in docs/datomic.md) that holds immutable datom segments and mutable
-   stream references. It is entirely agnostic to Datalog, indexing, or datoms.
-   It only stores opaque byte maps.
+  "A stream observer: the conceptual fold over a dao.stream that projects an
+   append-only log into a materialization target (docs/design/dao.jing.md).
 
-   Also owns dao.jing's content-addressing discipline (canonical, content-hash,
-   segment-key, key-class): minting a fresh, content-derived key for an
-   immutable segment is a property of the storage boundary itself, not of any
-   one backend (see docs/design/dao.jing.md, \"The Segment and Root Keyspace\").
-   A backend like dao.jing.dht enforces this discipline over an untrusted
-   network; it does not invent it."
+   There is no protocol — storage is a stream (ds/append!) with a materialized
+   target (a plain map or atom). Backends return a handle map {:stream s :target a
+   ...} and the operations below are plain functions over that data. Nothing is
+   polymorphic: what a handle-map holds is visible, and every consumer can add its
+   own fields (remote, DHT) without extending anything.
+
+   Also owns the content-addressing discipline (canonical, content-hash,
+   segment-key, key-class): minting a fresh, content-derived key for an immutable
+   segment is a property of the storage boundary itself, not of any one backend."
   (:refer-clojure :exclude [get])
   (:require [clojure.string :as str]
+            [dao.stream :as ds]
             #?@(:cljs [[goog.crypt :as crypt] goog.crypt.Sha256])
             #?@(:cljd [["dart:convert" :as convert]])))
 
 
-(defprotocol IKVStore
-
-  (cas!
-    [this k expected v]
-    "Compare-and-swap: write v only if the value currently at k is `=` to
-     `expected`. Pass `absent` as `expected` to require that k does not yet
-     exist. Used for mutable references like a stream root pointer.
-
-     Returns true if the write landed, false if it lost the race.
-     Distributed backends may instead throw when the authority for k is
-     unreachable: unreachability is not the same fact as a lost CAS, and
-     returning false would send the caller's retry loop chasing a value it
-     cannot read.
-
-     The guard is the previous value, not a revision counter, so it cannot
-     distinguish A -> B -> A: a writer still holding the first A wins a CAS it
-     ought to lose. Callers whose root values can recur must carry their own
-     discriminator — dao.space.index does this with a monotonically
-     incremented :reorder-epoch.")
-
-  (get
-    [this k not-found]
-    "Read the value at k, or not-found if the key is absent. Returns exactly
-     what was written. The 2-arg signature mirrors clojure.core/get.
-
-     Because nil is a legal stored value, absence must be detected through
-     not-found (`absent` serves as a sentinel), never by testing the result
-     for nil.
-
-     Distributed backends may instead throw when a mutable key's authority is
-     unreachable, rather than pass off a freshness failure as absence.")
-
-  (delete!
-    [this k]
-    "Remove an entry by key.")
-
-  (close!
-    [this]
-    "Release the storage backend resources."))
-
-
 (def absent
-  "Sentinel meaning \"no entry\": `cas!`'s `expected` when the key must not
-  already exist, and a usable `not-found` for `get`. A namespaced keyword so it
-  survives EDN and transit unchanged; it is therefore reserved and must not be
-  stored as a value."
+  "Sentinel meaning \"no entry\". Used as the `expected` guard in `cas!` when
+   a key must not already exist, and as the `not-found` return for `get`.
+   A namespaced keyword so it survives EDN and transit unchanged; it is
+   therefore reserved and must not be stored as a value."
   ::absent)
+
+
+(declare materialize-step)
+
+
+;; =============================================================================
+;; Store operations — plain functions over a handle
+;; =============================================================================
+;; Handle types (no protocol — dispatch on handle contents):
+;;   - plain map {:stream s :target a ...}         — mem, in-memory
+;;   - atom holding {:stream s :target a ...}       — file (compaction swaps
+;;   it)
+;;   - map with :call-fn + :close-fn                — remote (RPC delegation)
+;;   - map with :local + :node                      — DHT (local + network
+;;   fetch)
+
+(defn- resolve-handle
+  [h]
+  #?(:clj (if (instance? clojure.lang.IAtom h) @h h)
+     :cljs (if (instance? cljs.core/Atom h) @h h)
+     :cljd h))
+
+
+(defn cas!
+  "Append a [k :cas expected v] tuple. For stream handles, appends to the
+   stream and updates the target atom via materialize-step. For handles
+   carrying :call-fn, delegates to the RPC call. For handles carrying
+   :cas-fn, delegates to the custom CAS implementation.
+   Returns true if the CAS landed, false otherwise."
+  [handle k expected v]
+  (let [h (resolve-handle handle)]
+    (cond (:call-fn h) ((:call-fn h) :jing/cas! [k expected v])
+          (:cas-fn h) ((:cas-fn h) k expected v)
+          :else (let [{:keys [stream target encode-fn]} h
+                      rec [k :cas expected v]
+                      payload (if encode-fn (encode-fn rec) rec)
+                      res (ds/append! stream payload)]
+                  (if (and (map? res) (= :ok (:result res)))
+                    (let [changed? (atom false)]
+                      (swap! (:target h) (fn [old]
+                                           (let [new (materialize-step old rec)]
+                                             (when-not (= old new)
+                                               (reset! changed? true))
+                                             new)))
+                      (or @changed?
+                          (and (= expected absent)
+                               (= (clojure.core/get @(:target h) k absent) v))))
+                    false)))))
+
+
+(defn get
+  "Read the value at k from the handle. For stream handles, reads from the
+   materialized target. For remote handles (carrying :call-fn), delegates to
+   the RPC call. For DHT handles (carrying :get-fn), delegates to the DHT
+   lookup. Returns not-found if the key is absent."
+  [handle k not-found]
+  (let [h (resolve-handle handle)]
+    (if (:closed h)
+      not-found
+      (cond (:call-fn h) ((:call-fn h) :jing/get [k not-found])
+            (:get-fn h) ((:get-fn h) k not-found)
+            :else (let [target (:target h)]
+                    (clojure.core/get (if (instance? #?(:clj clojure.lang.IDeref
+                                                        :cljs cljs.core/IDeref
+                                                        :cljd Object)
+                                                     target)
+                                        @target
+                                        target)
+                                      k
+                                      not-found))))))
+
+
+(defn delete!
+  "Remove an entry. For stream handles, appends [k :cas current-v absent].
+   For remote handles, delegates to the RPC call. For DHT handles, delegates
+   to :delete-fn. Returns true if the key was present and deleted, or was
+   already absent."
+  [handle k]
+  (let [h (resolve-handle handle)]
+    (cond (:call-fn h) ((:call-fn h) :jing/delete! [k])
+          (:delete-fn h) ((:delete-fn h) k)
+          :else
+          (let [current (get handle k absent)]
+            (if (= current absent) true (cas! handle k current absent))))))
+
+
+(defn close!
+  "Release the handle's resources. Calls :close-fn when present, then closes
+   the stream. For atom handles (file), sets :closed. Idempotent."
+  [handle]
+  (let [h (resolve-handle handle)]
+    (when-let [close-fn (:close-fn h)] (close-fn))
+    (when (:stream h) (ds/close! (:stream h)))
+    (when (instance? #?(:clj clojure.lang.IDeref
+                        :cljs cljs.core/IDeref
+                        :cljd Object)
+                     handle)
+      (swap! handle assoc :closed true))
+    nil))
+
+
+;; =============================================================================
+;; Stream Observer & Step Functions (docs/design/dao.jing.md)
+;; =============================================================================
+
+(defn materialize-step
+  "Pure step function for in-memory map targets.
+   Processes a [k :cas expected v] record and returns the updated map."
+  [m record]
+  (if (and (vector? record) (= (count record) 4) (= (second record) :cas))
+    (let [[k _ expected v] record
+          current (clojure.core/get m k absent)]
+      (if (= current expected) (if (= v absent) (dissoc m k) (assoc m k v)) m))
+    m))
+
+
+(defn materialize-mutable-step!
+  "Side-effectful step function for external/mutable storage targets.
+   Uses read-fn, write-fn!, and delete-fn! to update target and returns target."
+  [target record read-fn write-fn! delete-fn!]
+  (if (and (vector? record) (= (count record) 4) (= (second record) :cas))
+    (let [[k _ expected v] record
+          current (read-fn target k absent)]
+      (if (= current expected)
+        (do (if (= v absent) (delete-fn! target k) (write-fn! target k v))
+            target)
+        target))
+    target))
+
+
+(defn evaluator
+  "Constructs a query evaluator function for dao.stream.apply read endpoints.
+   Accepts a target and optional read-fn (defaults to clojure.core/get).
+   Returns a handler (fn [{:dao.stream.apply/keys [id op args]}]) => response packet."
+  ([target] (evaluator target clojure.core/get))
+  ([target read-fn]
+   (fn [{:dao.stream.apply/keys [id op args]}]
+     (let [val (case op
+                 :op/get (let [[k] args] (read-fn target k absent))
+                 (throw (ex-info "Unknown query op" {:op op})))]
+       {:dao.stream.apply/id id, :dao.stream.apply/value val}))))
+
+
+(defn step-incremental!
+  "Single-step incremental materializer over a stream.
+   Reads next record at `@cursor-atom`, updates `@target-atom` via `materialize-step`,
+   and advances cursor. Returns stream signal (:ok, :wait, :complete, :resync)."
+  [target-atom cursor-atom stream]
+  (let [res (ds/next stream @cursor-atom)]
+    (cond (map? res) (let [record (:ok res)]
+                       ;; Loop-level fast-reject before swap!
+                       (when (and (vector? record)
+                                  (= (count record) 4)
+                                  (= (second record) :cas))
+                         (swap! target-atom materialize-step record))
+                       (reset! cursor-atom (:cursor res))
+                       :ok)
+          (= res :blocked) :wait
+          (= res :end) :complete
+          (= res :daostream/gap) :resync)))
+
+
+(defn step-service!
+  "Single-step query evaluator service over a dao.stream.apply endpoint pair.
+   Reads query request from request stream, evaluates via handler, and appends response packet."
+  [target cursor-atom endpoint-descriptor]
+  (let [{:dao.stream.apply/keys [request response]} endpoint-descriptor
+        handler (evaluator target)
+        res (ds/next request @cursor-atom)]
+    (cond (map? res) (let [req (:ok res)
+                           resp (handler req)]
+                       ;; Best-effort response delivery: if response stream
+                       ;; is full/closed, request is dropped
+                       (ds/append! response resp)
+                       (reset! cursor-atom (:cursor res))
+                       :ok)
+          (= res :blocked) :wait
+          (= res :end) :complete
+          (= res :daostream/gap) :resync)))
 
 
 ;; =============================================================================

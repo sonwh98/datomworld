@@ -1,6 +1,15 @@
 (ns dao.jing.file
-  "A single-file, persistent backend for IKVStore using the Bitcask (append-only log) architecture.
-   Provides true block storage over a local file."
+  "File-backed stream materializer for DaoJing, on top of dao.stream.log.
+
+   Observes an append-only file stream of UTF-8 EDN-encoded `:cas` records
+   `[k :cas expected v]`, folds them into a materialized target atom via
+   `jing/materialize-step`, and returns an atom handle that `jing/cas!`,
+   `jing/get`, `jing/delete!`, and `jing/close!` operate on directly.
+
+   Compaction (`compact-store!`) rebuilds the log from the current target
+   state, reclaiming dead space from overwritten or deleted keys. The handle
+   atom lets compaction swap the underlying stream without changing the
+   caller's reference."
   (:require #?@(:cljd [["dart:convert" :as convert] ["dart:io" :as dart-io]
                        ["dart:typed_data" :as typed]])
             [clojure.edn :as edn]
@@ -9,52 +18,86 @@
             [dao.stream.log]))
 
 
-(defn- ->bytes
+;; =============================================================================
+;; Serialization / Byte Conversion
+;; =============================================================================
+
+(defn ->bytes
+  "Convert a string or serializable payload into UTF-8 bytes."
   [payload]
   #?(:clj (.getBytes ^String payload "UTF-8")
      :cljs (js/Buffer.from payload "utf8")
      :cljd (typed/Uint8List.fromList (convert/utf8.encode payload))))
 
 
-(defn- bytes->str
+(defn bytes->str
+  "Convert UTF-8 bytes back to a string."
   [b]
   #?(:clj (String. ^bytes b "UTF-8")
      :cljs (.toString ^js b "utf8")
      :cljd (convert/utf8.decode b)))
 
 
-(defn- recover-index
-  "Scans stream sequentially, returning {:index {k {:cursor cursor}}}.
+(defn encode-record
+  "Encode a [k :cas expected v] tuple into a UTF-8 byte array."
+  [record]
+  (->bytes (pr-str record)))
 
-  Records are `[k op v]` with op :put or :delete; a :delete record is the
-  tombstone that removes k from the live keyset."
+
+(defn decode-record
+  "Decode a byte array or UTF-8 payload back into a canonical [k :cas expected v] tuple.
+   Returns nil for any record that is not a 4-element :cas vector."
+  [b]
+  (when b
+    (try (let [s (if (string? b) b (bytes->str b))
+               v (edn/read-string s)]
+           (if (and (vector? v) (= (count v) 4) (= (second v) :cas)) v nil))
+         (catch #?(:clj Exception
+                   :cljs :default
+                   :cljd Object)
+                _
+           nil))))
+
+
+;; =============================================================================
+;; File Stream Observer & Reducers
+;; =============================================================================
+
+(defn reduce-file-stream
+  "Fold an entire file stream from position 0 into an in-memory map via
+   jing/materialize-step. Stops on unparseable or corrupt records."
   [stream]
-  (let [idx (atom {})]
-    (loop [cursor {:position 0}]
-      (let [res (ds/next stream cursor)]
-        (if-not (map? res)
-          {:index @idx}
-          (let [{b :ok, next-cursor :cursor} res
-                ;; Defense-in-depth: the transport's torn-tail scan
-                ;; validates only frame-length boundaries, so a
-                ;; length-consistent but corrupt payload (bit-rot, or a
-                ;; length-extended-but-unflushed tail) can survive it. Stop
-                ;; the walk on an unparseable record rather than crashing
-                ;; open; everything recovered so far stands.
-                parsed (try (edn/read-string (bytes->str b))
-                            (catch #?(:clj Exception
-                                      :cljs :default
-                                      :cljd Object)
-                                   _
-                              nil))]
-            (if-not (vector? parsed)
-              {:index @idx}
-              (let [[k op _] parsed]
-                (if (= op :delete)
-                  (swap! idx dissoc k)
-                  (swap! idx assoc k {:cursor cursor}))
-                (recur next-cursor)))))))))
+  (loop [cursor {:position 0}
+         idx {}]
+    (let [res (ds/next stream cursor)]
+      (if (and (map? res) (contains? res :ok))
+        (let [{b :ok, next-cursor :cursor} res
+              record (decode-record b)]
+          (if record
+            (recur next-cursor (jing/materialize-step idx record))
+            idx))
+        idx))))
 
+
+(defn step-incremental-file!
+  "Single-step incremental materializer over a file stream.
+   Reads next record at @cursor-atom, decodes it, updates @target-atom via
+   jing/materialize-step, advances cursor. Returns stream signal."
+  [target-atom cursor-atom stream]
+  (let [res (ds/next stream @cursor-atom)]
+    (cond (map? res) (let [record (decode-record (:ok res))]
+                       (when record
+                         (swap! target-atom jing/materialize-step record))
+                       (reset! cursor-atom (:cursor res))
+                       :ok)
+          (= res :blocked) :wait
+          (= res :end) :complete
+          (= res :daostream/gap) :resync)))
+
+
+;; =============================================================================
+;; Platform Lock & File Helpers
+;; =============================================================================
 
 (defn- rename-file!
   [src dest]
@@ -71,17 +114,7 @@
              (.renameSync s dest))))
 
 
-#_{:clj-kondo/ignore [:unused-binding]}
-
-
-(defn- do-with-lock
-  [lock f]
-  #?(:clj (locking lock (f))
-     :default (f)))
-
-
 (defn- close-quietly!
-  "Close a stream, swallowing any error (it may already be closed)."
   [stream]
   (try (ds/close! stream)
        (catch #?(:clj Exception
@@ -91,182 +124,140 @@
          nil)))
 
 
-(defn compact-store!
-  "Perform garbage collection on a Bitcask file store to reclaim dead space from overwritten or deleted entries."
-  [{:keys [path state-atom]}]
-  (do-with-lock
-    state-atom
-    (fn []
-      (let [state @state-atom
-            old-stream (:stream state)
-            old-index (:index state)
-            compact-path (str path ".compact")
-            new-stream (ds/open! {:type :append-log, :path compact-path})]
-        (try
-          (let [new-index
-                (reduce-kv
-                  (fn [idx k {:keys [cursor]}]
-                    (let [res (ds/next old-stream cursor)]
-                      (if-not (map? res)
-                        (throw (ex-info "Compaction failed to read live key"
-                                        {:key k, :cursor cursor}))
-                        (let [payload (bytes->str (:ok res))
-                              [_ _ v] (edn/read-string payload)
-                              new-payload (pr-str [k :put v])
-                              {put-res :result, new-cursor :cursor}
-                              (ds/append! new-stream (->bytes new-payload))]
-                          (if (= :ok put-res)
-                            (assoc idx k {:cursor new-cursor})
-                            (throw (ex-info
-                                     "Compaction failed to write live key"
-                                     {:key k, :result put-res})))))))
-                  {}
-                  old-index)]
-            (ds/close! old-stream)
-            (ds/close! new-stream)
-            (rename-file! compact-path path)
-            (let [swapped-stream (ds/open! {:type :append-log, :path path})]
-              (reset! state-atom {:index new-index,
-                                  :stream swapped-stream,
-                                  :closed false})
-              true))
-          (catch #?(:clj Exception
-                    :cljs :default
-                    :cljd Object)
-                 e
-            ;; A failure after old-stream is closed (the rename or
-            ;; the reopen below) would leave state-atom pointing at
-            ;; a dead stream, wedging every future get in the
-            ;; ::closed retry loop. Discard the half-built
-            ;; compaction log and restore a live stream by
-            ;; reopening whatever now sits at `path` (the original
-            ;; log if the rename had not run, the compacted log if
-            ;; it had) with a freshly recovered index.
-            (close-quietly! new-stream)
-            #?(:clj (let [f (java.io.File. compact-path)]
-                      (when (.exists f) (.delete f)))
-               :cljs (try (.unlinkSync (js/require "fs") compact-path)
-                          (catch :default _))
-               :cljd (try (let [f (dart-io/File compact-path)]
-                            (when (.existsSync f) (.deleteSync f)))
-                          (catch #?(:cljd Object
-                                    :default Exception)
-                                 _)))
-            (close-quietly! old-stream)
-            (let [restored (ds/open! {:type :append-log, :path path})
-                  recovered (recover-index restored)]
-              (reset! state-atom (assoc recovered
-                                        :stream restored
-                                        :closed false)))
-            (throw e)))))))
-
-
-(defrecord KVFile
-  [path state-atom]
-
-  jing/IKVStore
-
-  (cas!
-    [_ k expected v]
-    (do-with-lock
-      state-atom
-      (fn []
-        (let [state @state-atom
-              stream (:stream state)
-              ;; the guard is the value itself, so it has to be read back
-              ;; off the log — the index carries only cursors (Bitcask's
-              ;; memory profile is keys-and-cursors by design, so caching
-              ;; values or their hashes here is not on the table). One
-              ;; extra read per cas!, under the lock we already hold.
-              current (if-let [idx (get-in state [:index k])]
-                        (let [res (ds/next stream (:cursor idx))]
-                          (if (map? res)
-                            (nth (edn/read-string (bytes->str (:ok res))) 2)
-                            jing/absent))
-                        jing/absent)]
-          (if (not= expected current)
-            (if (and (= expected jing/absent)
-                     (not= current jing/absent)
-                     (= current v))
-              true
-              false)
-            (let [payload (pr-str [k :cas v])
-                  {res :result, cursor :cursor}
-                  (ds/append! stream (->bytes payload))]
-              (when (= :ok res)
-                (reset! state-atom (assoc-in state
-                                             [:index k]
-                                             {:cursor cursor}))
-                true)))))))
-
-
-  (get
-    [this k not-found]
-    (let [state @state-atom
-          idx (get-in state [:index k])
-          stream (:stream state)]
-      (if-not idx
-        not-found
-        (let [res (try (ds/next stream (:cursor idx))
-                       (catch #?(:clj Exception
-                                 :cljs :default
-                                 :cljd Object)
-                              _
-                         ::closed))]
-          (cond (map? res) (let [payload (bytes->str (:ok res))
-                                 [_ _ v] (edn/read-string payload)]
-                             v)
-                (or (= ::closed res) (ds/closed? stream))
-                (if (:closed @state-atom)
-                  not-found
-                  (do #?(:clj (Thread/yield)) (jing/get this k not-found)))
-                :else not-found)))))
-
-
-  (delete!
-    [_ k]
-    (do-with-lock
-      state-atom
-      (fn []
-        (let [state @state-atom
-              stream (:stream state)
-              payload (pr-str [k :delete nil])]
-          (when (= :ok (:result (ds/append! stream (->bytes payload))))
-            (reset! state-atom (update state :index dissoc k))
-            true)))))
-
-
-  (close!
-    [_]
-    (do-with-lock state-atom
-                  (fn []
-                    (let [state @state-atom]
-                      (when-not (:closed state)
-                        (swap! state-atom assoc :closed true)
-                        (ds/close! (:stream state))))))))
-
-
-(defn create-kv-file
-  "Creates a persistent, single-file KVStore using a Bitcask append-only log.
-   Reads the entire file on startup to rebuild the in-memory index; a torn
-   trailing record from a crashed append is truncated during recovery.
-
-   Durability window: appends are written but not fsync'd, so a process crash is
-   safe (the OS still holds the bytes) while a power loss can lose the most recent
-   un-flushed appends."
-  [path]
-  ;; Clean up any orphaned .compact file from a previous crash
-  #?(:clj (let [f (java.io.File. (str path ".compact"))]
-            (when (.exists f) (.delete f)))
-     :cljs (try (.unlinkSync (js/require "fs") (str path ".compact"))
-                (catch :default _))
-     :cljd (try (let [f (dart-io/File (str path ".compact"))]
+(defn- cleanup-compact-file!
+  [compact-path]
+  #?(:clj (let [f (java.io.File. compact-path)] (when (.exists f) (.delete f)))
+     :cljs (try (.unlinkSync (js/require "fs") compact-path) (catch :default _))
+     :cljd (try (let [f (dart-io/File compact-path)]
                   (when (.existsSync f) (.deleteSync f)))
                 (catch #?(:cljd Object
                           :default Exception)
-                       _)))
-  ;; Important: ds/open! for log transport automatically truncates torn
-  ;; tails
+                       _))))
+
+
+;; =============================================================================
+;; Store handle helper
+;; =============================================================================
+
+(defn- make-file-fns
+  [stream target]
+  {:get-fn (fn file-get
+             [k not-found]
+             (let [s @target]
+               (if (contains? s k) (clojure.core/get s k) not-found))),
+   :cas-fn (fn file-cas!
+             [k expected v]
+             (let [rec [k :cas expected v]
+                   res (ds/append! stream (encode-record rec))]
+               (if (and (map? res) (= :ok (:result res)))
+                 (let [old @target
+                       new (jing/materialize-step old rec)]
+                   (if (= old new)
+                     (and (= expected jing/absent)
+                          (= (clojure.core/get old k jing/absent) v))
+                     (do (reset! target new) true)))
+                 false))),
+   :delete-fn (fn file-delete
+                [k]
+                (let [current (clojure.core/get @target k jing/absent)]
+                  (if (= current jing/absent)
+                    true
+                    (let [rec [k :cas current jing/absent]
+                          res (ds/append! stream (encode-record rec))]
+                      (if (and (map? res) (= :ok (:result res)))
+                        (do (swap! target jing/materialize-step rec) true)
+                        false)))))})
+
+
+;; =============================================================================
+;; Compaction
+;; =============================================================================
+
+(def ^:private compact-lock
+  #?(:clj (Object.)
+     :cljs (js-obj)
+     :cljd (Object.)))
+
+
+(defn- do-with-lock
+  [f]
+  #?(:clj (locking compact-lock (f))
+     :default (f)))
+
+
+(defn compact-store!
+  "Garbage-collect a file store: write live entries to a `.compact` log,
+   flush, rename, reopen, and swap the handle atom. Returns the handle."
+  [handle]
+  (do-with-lock
+    (fn []
+      (let [h @handle
+            old-stream (:stream h)
+            target @(:target h)
+            path (:path h)
+            compact-path (str path ".compact")
+            new-stream (ds/open! {:type :append-log, :path compact-path})]
+        (try (doseq [[k v] target]
+               (when (not= v jing/absent)
+                 (let [rec [k :cas jing/absent v]
+                       res (ds/append! new-stream (encode-record rec))]
+                   (when-not (= :ok (:result res))
+                     (throw (ex-info "Compaction failed to write live key"
+                                     {:key k, :res res}))))))
+             (ds/close! old-stream)
+             (ds/close! new-stream)
+             (rename-file! compact-path path)
+             (let [swapped-stream (ds/open! {:type :append-log, :path path})
+                   target (:target h)]
+               (reset! handle (merge {:stream swapped-stream,
+                                      :target target,
+                                      :encode-fn encode-record,
+                                      :closed false,
+                                      :path path}
+                                     (make-file-fns swapped-stream target)))
+               handle)
+             (catch #?(:clj Exception
+                       :cljs :default
+                       :cljd Object)
+                    e
+               (close-quietly! new-stream)
+               (cleanup-compact-file! compact-path)
+               (close-quietly! old-stream)
+               (let [restored (ds/open! {:type :append-log, :path path})
+                     recovered (reduce-file-stream restored)
+                     target (atom recovered)]
+                 (reset! handle (merge {:stream restored,
+                                        :target target,
+                                        :encode-fn encode-record,
+                                        :closed false,
+                                        :path path}
+                                       (make-file-fns restored target))))
+               (throw e)))))))
+
+
+;; =============================================================================
+;; Store Constructor
+;; =============================================================================
+
+(defn create-file-store
+  "Creates a persistent file-backed stream materializer using `dao.stream.log`.
+   Folds the append-only file stream on startup to reconstruct state. Returns
+   an atom handle that jing/cas!, jing/get, jing/delete!, and jing/close!
+   operate on."
+  [path]
+  (cleanup-compact-file! (str path ".compact"))
   (let [stream (ds/open! {:type :append-log, :path path})
-        state (recover-index stream)]
-    (->KVFile path (atom (assoc state :stream stream)))))
+        recovered (reduce-file-stream stream)
+        target (atom recovered)]
+    (atom (merge {:stream stream,
+                  :target target,
+                  :encode-fn encode-record,
+                  :closed false,
+                  :path path}
+                 (make-file-fns stream target)))))
+
+
+(defn create-kv-file
+  "Alias for `create-file-store` for backward compatibility."
+  [path]
+  (create-file-store path))
