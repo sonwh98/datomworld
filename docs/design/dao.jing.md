@@ -123,11 +123,11 @@ For mutable storage targets (SQL, disk log), the step function performs target-s
 (ds/append! stream [k :cas expected v])
 
 ;; dao.jing is a fold over the stream — executed via Clojure's reduce
-(def projection (reduce materialize-step {} (seq stream)))
+(def projection (reduce materialize-step {} (ds/->seq stream)))
 (get projection :root/my-db absent)
 ```
 
-*(Note: passing `(seq stream)` directly to `reduce` is a pedagogical shorthand for single-batch in-memory testing. Production long-lived materializers use the incremental `step-incremental!` loop below.)*
+*(Note: passing `(ds/->seq stream)` directly to `reduce` is a pedagogical shorthand for single-batch in-memory testing. Production long-lived materializers use the incremental `step-incremental!` loop below.)*
 
 For the in-memory case, the result is a plain Clojure map (or an atom holding one) that readers query with `clojure.core/get`.
 
@@ -142,7 +142,7 @@ The storage distinction splits across two orthogonal concerns:
 In production, long-lived observers do not re-fold from position 0 on every read. A materializer incrementally advances its projection by retaining a stream `cursor` and pulling batch updates via `(ds/next stream cursor)`.
 
 `ds/next` returns one of four explicit stream signals (matching `dao.stream.md`'s canonical return contract):
-- `{:result :ok, :value record, :cursor next-cursor}`: a valid record and updated cursor.
+- `{:ok record, :cursor next-cursor}`: a valid record and updated cursor.
 - `:blocked`: an active stream with no new records currently available.
 - `:end`: the stream is closed.
 - `:daostream/gap`: the cursor fell behind the stream's retention boundary, requiring a resync.
@@ -153,8 +153,8 @@ A production observer loop handles these stream signals explicitly:
 (defn step-incremental! [target-atom cursor-atom stream]
   (let [res (ds/next stream @cursor-atom)]
     (cond
-      (and (map? res) (= (:result res) :ok))
-      (let [record (:value res)]
+      (map? res)
+      (let [record (:ok res)]
         ;; Loop-level fast-reject before swap!
         (when (and (vector? record) (= (count record) 4) (= (second record) :cas))
           (swap! target-atom materialize-step record))
@@ -231,8 +231,8 @@ A long-lived **query evaluator service** (`step-service!`) uses the same platfor
         handler (evaluator target)
         res (ds/next request @cursor-atom)]
     (cond
-      (and (map? res) (= (:result res) :ok))
-      (let [req (:value res)
+      (map? res)
+      (let [req (:ok res)
             resp (handler req)]
         ;; Best-effort response delivery: if response stream is full/closed, request is dropped
         (ds/append! response resp)
