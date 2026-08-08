@@ -275,7 +275,7 @@
      "Open a UDP Kademlia peer implementing dht/IDhtNet. opts:
        :host        bind/advertised address (default \"127.0.0.1\")
        :port        listen port (default 0 = ephemeral)
-       :local       the IKVStore this peer serves (default in-memory)
+        :local       the storage handle this peer serves (default in-memory)
        :bootstrap   seq of {:host :port} of existing peers
        :timeout-ms  per-attempt reply timeout (default 500)
        :tries       attempts per request (default 3)"
@@ -310,8 +310,8 @@
 #?(:cljd nil
    :clj
    (defn create-kv-dht-udp
-     "Convenience: open a UDP node and wrap it as an IKVStore. The node and
-     the store share `local`, so this peer serves the same bytes it reads."
+     "Convenience: open a UDP node and wrap it as a DHT handle. The node and
+      the store share `local`, so this peer serves the same bytes it reads."
      [opts]
      (let [local (or (:local opts) (mem/create-kv-mem))
            node (create-node (assoc opts :local local))]

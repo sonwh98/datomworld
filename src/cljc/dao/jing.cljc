@@ -33,18 +33,10 @@
 ;; Store operations — plain functions over a handle
 ;; =============================================================================
 ;; Handle types (no protocol — dispatch on handle contents):
-;;   - plain map {:stream s :target a ...}         — mem, in-memory
-;;   - atom holding {:stream s :target a ...}       — file (compaction swaps
-;;   it)
+;;   - plain map {:stream s :target a ...}         — mem, in-memory, file
 ;;   - map with :call-fn + :close-fn                — remote (RPC delegation)
 ;;   - map with :local + :node                      — DHT (local + network
 ;;   fetch)
-
-(defn- resolve-handle
-  [h]
-  #?(:clj (if (instance? clojure.lang.IAtom h) @h h)
-     :cljs (if (instance? cljs.core/Atom h) @h h)
-     :cljd h))
 
 
 (defn cas!
@@ -54,24 +46,22 @@
    :cas-fn, delegates to the custom CAS implementation.
    Returns true if the CAS landed, false otherwise."
   [handle k expected v]
-  (let [h (resolve-handle handle)]
-    (cond (:call-fn h) ((:call-fn h) :jing/cas! [k expected v])
-          (:cas-fn h) ((:cas-fn h) k expected v)
-          :else (let [{:keys [stream target encode-fn]} h
-                      rec [k :cas expected v]
-                      payload (if encode-fn (encode-fn rec) rec)
-                      res (ds/append! stream payload)]
-                  (if (and (map? res) (= :ok (:result res)))
-                    (let [changed? (atom false)]
-                      (swap! (:target h) (fn [old]
-                                           (let [new (materialize-step old rec)]
-                                             (when-not (= old new)
-                                               (reset! changed? true))
-                                             new)))
-                      (or @changed?
-                          (and (= expected absent)
-                               (= (clojure.core/get @(:target h) k absent) v))))
-                    false)))))
+  (cond (:call-fn handle) ((:call-fn handle) :jing/cas! [k expected v])
+        (:cas-fn handle) ((:cas-fn handle) k expected v)
+        :else (let [{:keys [stream target encode-fn]} handle
+                    rec [k :cas expected v]
+                    payload (if encode-fn (encode-fn rec) rec)
+                    res (ds/append! stream payload)]
+                (if (and (map? res) (= :ok (:result res)))
+                  (loop []
+                    (let [old @target
+                          new (materialize-step old rec)]
+                      (if (= old new)
+                        (or (= (clojure.core/get old k absent) expected)
+                            (and (= expected absent)
+                                 (= (clojure.core/get old k absent) v)))
+                        (if (compare-and-set! target old new) true (recur)))))
+                  false))))
 
 
 (defn get
@@ -80,20 +70,19 @@
    the RPC call. For DHT handles (carrying :get-fn), delegates to the DHT
    lookup. Returns not-found if the key is absent."
   [handle k not-found]
-  (let [h (resolve-handle handle)]
-    (if (:closed h)
-      not-found
-      (cond (:call-fn h) ((:call-fn h) :jing/get [k not-found])
-            (:get-fn h) ((:get-fn h) k not-found)
-            :else (let [target (:target h)]
-                    (clojure.core/get (if (instance? #?(:clj clojure.lang.IDeref
-                                                        :cljs cljs.core/IDeref
-                                                        :cljd Object)
-                                                     target)
-                                        @target
-                                        target)
-                                      k
-                                      not-found))))))
+  (if (:closed handle)
+    not-found
+    (cond (:call-fn handle) ((:call-fn handle) :jing/get [k not-found])
+          (:get-fn handle) ((:get-fn handle) k not-found)
+          :else (let [target (:target handle)]
+                  (clojure.core/get
+                    (if #?(:clj (instance? clojure.lang.IDeref target)
+                           :cljs (instance? cljs.core/IDeref target)
+                           :cljd (satisfies? IDeref target))
+                      @target
+                      target)
+                    k
+                    not-found)))))
 
 
 (defn delete!
@@ -102,27 +91,20 @@
    to :delete-fn. Returns true if the key was present and deleted, or was
    already absent."
   [handle k]
-  (let [h (resolve-handle handle)]
-    (cond (:call-fn h) ((:call-fn h) :jing/delete! [k])
-          (:delete-fn h) ((:delete-fn h) k)
-          :else
-          (let [current (get handle k absent)]
-            (if (= current absent) true (cas! handle k current absent))))))
+  (cond (:call-fn handle) ((:call-fn handle) :jing/delete! [k])
+        (:delete-fn handle) ((:delete-fn handle) k)
+        :else (let [current (get handle k absent)]
+                (if (= current absent) true (cas! handle k current absent)))))
 
 
 (defn close!
   "Release the handle's resources. Calls :close-fn when present, then closes
-   the stream. For atom handles (file), sets :closed. Idempotent."
+   the stream. Idempotent."
   [handle]
-  (let [h (resolve-handle handle)]
-    (when-let [close-fn (:close-fn h)] (close-fn))
-    (when (:stream h) (ds/close! (:stream h)))
-    (when (instance? #?(:clj clojure.lang.IDeref
-                        :cljs cljs.core/IDeref
-                        :cljd Object)
-                     handle)
-      (swap! handle assoc :closed true))
-    nil))
+  (if-let [close-fn (:close-fn handle)]
+    (close-fn)
+    (when (:stream handle) (ds/close! (:stream handle))))
+  nil)
 
 
 ;; =============================================================================

@@ -62,8 +62,8 @@
               (let [url (str "ws://localhost:" (:port *server*))
                     client (remote/connect-kv! url)]
                 (is (some? client) "Client should connect successfully")
-                (is (satisfies? jing/IKVStore client)
-                    "Client should implement IKVStore")
+                (is (contains? client :call-fn)
+                    "Client should be a handle map with :call-fn")
                 (jing/close! client))))))
 
 

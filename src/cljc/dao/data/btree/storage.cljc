@@ -1,29 +1,30 @@
 (ns dao.data.btree.storage
-  "IStorage adapters over dao.jing's IKVStore (docs/design/dao.data.btree.md
-  §5.1, §5.4). Two adapters, one error taxonomy:
+  "IStorage adapters over dao.jing storage handles (docs/design/dao.data.btree.md
+   §5.1, §5.4). A handle is any map {:stream s :target a ...} or atom holding
+   one. Two adapters, one error taxonomy:
 
-  - KVStorage (kv-storage): the sync rule-1 adapter. Absence is
-    authoritative: a missing blob throws \"missing index segment\".
-    Optional same-host integrity verification (§5.2): rehash the fetched
-    blob against its content address; mismatch throws \"corrupt index
-    segment\". Off by default — jing/segment-key hashes a pr-str that is
-    not host-stable, so cross-host reads must not verify (dao.jing.md,
-    Current Scope).
-  - HydrationStorage (hydration-storage): the §5.4 hydration-cache
-    adapter for async-only backends. Reads answer only from the cache;
-    any miss throws \"unhydrated segment\" — the cache cannot distinguish
-    absent from not-yet-fetched without blocking on the backend. hydrate!
-    copies the reachable blob graph from the source into the cache.
+   - KVStorage (kv-storage): the sync rule-1 adapter. Absence is
+     authoritative: a missing blob throws \"missing index segment\".
+     Optional same-host integrity verification (§5.2): rehash the fetched
+     blob against its content address; mismatch throws \"corrupt index
+     segment\". Off by default — jing/segment-key hashes a pr-str that is
+     not host-stable, so cross-host reads must not verify (dao.jing.md,
+     Current Scope).
+   - HydrationStorage (hydration-storage): the §5.4 hydration-cache
+     adapter for async-only backends. Reads answer only from the cache;
+     any miss throws \"unhydrated segment\" — the cache cannot distinguish
+     absent from not-yet-fetched without blocking on the backend. hydrate!
+     copies the reachable blob graph from the source into the cache.
 
-  dao.data.btree itself stays storage-agnostic; this namespace is the one
-  place the tree meets dao.jing (Ruling 1: no new storage protocol —
-  everything below is put!/get/segment-key)."
+   dao.data.btree itself stays storage-agnostic; this namespace is the one
+   place the tree meets dao.jing (Ruling 1: no new storage protocol —
+   everything below is put!/get/segment-key)."
   (:require [dao.data.btree :as bt]
             [dao.jing :as jing]))
 
 
 (def ^:private absent
-  "Identity sentinel for IKVStore misses (§5.1 sketch): keywords are not
+  "Identity sentinel for handle misses (§5.1 sketch): keywords are not
    reliably `identical?` on cljs, an opaque host object is."
   #?(:cljd (Object.)
      :clj (Object.)
@@ -63,7 +64,7 @@
 
 
 (defn kv-storage
-  "A sync IStorage over an IKVStore. opts: {:branching-factor n (default
+  "A sync IStorage over a dao.jing handle. opts: {:branching-factor n (default
    512) :ref-type k (default per host, §5.3) :verify? bool (default false,
    §5.2 — same-host mint+read only)}. The returned storage owns the
    Settings every tree restored through it shares (§5.1 threading rule);
@@ -118,7 +119,7 @@
   "The §5.4 hydration-cache adapter: reads answer only from `cache` (miss
    => \"unhydrated segment\"); `hydrate!` fills the cache from `source`.
    In production `source` is an async backend accessed only by the
-   hydration pre-pass; in tests any IKVStore stands in."
+   hydration pre-pass; in tests any jing handle stands in."
   ([source cache] (hydration-storage source cache nil))
   ([source cache opts]
    (let [box (volatile! nil)

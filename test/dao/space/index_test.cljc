@@ -35,17 +35,14 @@
 
 
 (defn- recording-store
-  "Wrap an IKVStore, recording every get key into the log atom."
-  [inner log]
-  (reify
-    jing/IKVStore
-    (cas! [_ k expected v] (jing/cas! inner k expected v))
-
-    (get [_ k not-found] (swap! log conj k) (jing/get inner k not-found))
-
-    (delete! [_ k] (jing/delete! inner k))
-
-    (close! [_] (jing/close! inner))))
+  "Wrap a jing handle, recording every get key into the log atom via :get-fn.
+   Reads directly from the handle's :target atom, bypassing jing/get dispatch."
+  [store log]
+  (let [target (:target store)]
+    (assoc store
+           :get-fn (fn [k not-found]
+                     (swap! log conj k)
+                     (clojure.core/get @target k not-found)))))
 
 
 (deftest publish-index-root-shape-and-parity
@@ -125,17 +122,16 @@
   (testing
     "a bound-e match over a published index loads only the seek
           path, not the whole tree"
-    (let [inner (mem/create-kv-mem)
-          gets (atom [])
-          store (recording-store inner gets)
+    (let [store (mem/create-kv-mem)
           _ (seed! store many-datoms)
           _ (index/publish-index! store
                                   many-datoms
                                   {:key :root/test, :branching-factor 32})
           total-segments (count (filter #(= "segment" (namespace %))
-                                        (keys @(:state-atom inner))))
-          _ (reset! gets [])
-          result (query/match store [1300 :work/task '_])
+                                        (keys @(:target store))))
+          gets (atom [])
+          rstore (recording-store store gets)
+          result (query/match rstore [1300 :work/task '_])
           segment-gets (count (filter #(= "segment" (namespace %)) @gets))]
       (is (= [[1300 :work/task "task-1300" 0 1]] result))
       (is (> total-segments 15) "the tree really is multi-node")

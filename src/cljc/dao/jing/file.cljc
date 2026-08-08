@@ -3,13 +3,12 @@
 
    Observes an append-only file stream of UTF-8 EDN-encoded `:cas` records
    `[k :cas expected v]`, folds them into a materialized target atom via
-   `jing/materialize-step`, and returns an atom handle that `jing/cas!`,
+   `jing/materialize-step`, and returns a plain map handle that `jing/cas!`,
    `jing/get`, `jing/delete!`, and `jing/close!` operate on directly.
 
    Compaction (`compact-store!`) rebuilds the log from the current target
-   state, reclaiming dead space from overwritten or deleted keys. The handle
-   atom lets compaction swap the underlying stream without changing the
-   caller's reference."
+   state, reclaiming dead space from overwritten or deleted keys and returning
+   a new handle map."
   (:require #?@(:cljd [["dart:convert" :as convert] ["dart:io" :as dart-io]
                        ["dart:typed_data" :as typed]])
             [clojure.edn :as edn]
@@ -140,33 +139,42 @@
 ;; =============================================================================
 
 (defn- make-file-fns
-  [stream target]
-  {:get-fn (fn file-get
+  [stream target closed-atom]
+  {:close-fn (fn file-close! [] (reset! closed-atom true) (ds/close! stream)),
+   :get-fn (fn file-get
              [k not-found]
-             (let [s @target]
-               (if (contains? s k) (clojure.core/get s k) not-found))),
+             (if @closed-atom
+               not-found
+               (let [s @target]
+                 (if (contains? s k) (clojure.core/get s k) not-found)))),
    :cas-fn (fn file-cas!
              [k expected v]
-             (let [rec [k :cas expected v]
-                   res (ds/append! stream (encode-record rec))]
-               (if (and (map? res) (= :ok (:result res)))
-                 (let [old @target
-                       new (jing/materialize-step old rec)]
-                   (if (= old new)
-                     (and (= expected jing/absent)
-                          (= (clojure.core/get old k jing/absent) v))
-                     (do (reset! target new) true)))
-                 false))),
+             (if @closed-atom
+               false
+               (let [rec [k :cas expected v]
+                     res (ds/append! stream (encode-record rec))]
+                 (if (and (map? res) (= :ok (:result res)))
+                   (loop []
+                     (let [old @target
+                           new (jing/materialize-step old rec)]
+                       (if (= old new)
+                         (or (= (clojure.core/get old k jing/absent) expected)
+                             (and (= expected jing/absent)
+                                  (= (clojure.core/get old k jing/absent) v)))
+                         (if (compare-and-set! target old new) true (recur)))))
+                   false)))),
    :delete-fn (fn file-delete
                 [k]
-                (let [current (clojure.core/get @target k jing/absent)]
-                  (if (= current jing/absent)
-                    true
-                    (let [rec [k :cas current jing/absent]
-                          res (ds/append! stream (encode-record rec))]
-                      (if (and (map? res) (= :ok (:result res)))
-                        (do (swap! target jing/materialize-step rec) true)
-                        false)))))})
+                (if @closed-atom
+                  false
+                  (let [current (clojure.core/get @target k jing/absent)]
+                    (if (= current jing/absent)
+                      true
+                      (let [rec [k :cas current jing/absent]
+                            res (ds/append! stream (encode-record rec))]
+                        (if (and (map? res) (= :ok (:result res)))
+                          (do (swap! target jing/materialize-step rec) true)
+                          false))))))})
 
 
 ;; =============================================================================
@@ -187,11 +195,11 @@
 
 (defn compact-store!
   "Garbage-collect a file store: write live entries to a `.compact` log,
-   flush, rename, reopen, and swap the handle atom. Returns the handle."
+   flush, rename, reopen. Returns a new handle map."
   [handle]
   (do-with-lock
     (fn []
-      (let [h @handle
+      (let [h handle
             old-stream (:stream h)
             target @(:target h)
             path (:path h)
@@ -208,14 +216,15 @@
              (ds/close! new-stream)
              (rename-file! compact-path path)
              (let [swapped-stream (ds/open! {:type :append-log, :path path})
-                   target (:target h)]
-               (reset! handle (merge {:stream swapped-stream,
-                                      :target target,
-                                      :encode-fn encode-record,
-                                      :closed false,
-                                      :path path}
-                                     (make-file-fns swapped-stream target)))
-               handle)
+                   target-atom (:target h)
+                   closed-atom (or (:closed-atom h) (atom false))]
+               (merge {:stream swapped-stream,
+                       :target target-atom,
+                       :closed-atom closed-atom,
+                       :encode-fn encode-record,
+                       :closed false,
+                       :path path}
+                      (make-file-fns swapped-stream target-atom closed-atom)))
              (catch #?(:clj Exception
                        :cljs :default
                        :cljd Object)
@@ -225,14 +234,21 @@
                (close-quietly! old-stream)
                (let [restored (ds/open! {:type :append-log, :path path})
                      recovered (reduce-file-stream restored)
-                     target (atom recovered)]
-                 (reset! handle (merge {:stream restored,
-                                        :target target,
-                                        :encode-fn encode-record,
-                                        :closed false,
-                                        :path path}
-                                       (make-file-fns restored target))))
-               (throw e)))))))
+                     target-atom (atom recovered)
+                     closed-atom (or (:closed-atom h) (atom false))
+                     restored-handle
+                     (merge {:stream restored,
+                             :target target-atom,
+                             :closed-atom closed-atom,
+                             :encode-fn encode-record,
+                             :closed false,
+                             :path path}
+                            (make-file-fns restored target-atom closed-atom))]
+                 (throw (ex-info (str "Compaction failed: "
+                                      #?(:clj (.getMessage ^Throwable e)
+                                         :default e))
+                                 {:restored-handle restored-handle}
+                                 e)))))))))
 
 
 ;; =============================================================================
@@ -242,19 +258,21 @@
 (defn create-file-store
   "Creates a persistent file-backed stream materializer using `dao.stream.log`.
    Folds the append-only file stream on startup to reconstruct state. Returns
-   an atom handle that jing/cas!, jing/get, jing/delete!, and jing/close!
+   a plain map handle that jing/cas!, jing/get, jing/delete!, and jing/close!
    operate on."
   [path]
   (cleanup-compact-file! (str path ".compact"))
   (let [stream (ds/open! {:type :append-log, :path path})
         recovered (reduce-file-stream stream)
-        target (atom recovered)]
-    (atom (merge {:stream stream,
-                  :target target,
-                  :encode-fn encode-record,
-                  :closed false,
-                  :path path}
-                 (make-file-fns stream target)))))
+        target (atom recovered)
+        closed-atom (atom false)]
+    (merge {:stream stream,
+            :target target,
+            :closed-atom closed-atom,
+            :encode-fn encode-record,
+            :closed false,
+            :path path}
+           (make-file-fns stream target closed-atom))))
 
 
 (defn create-kv-file

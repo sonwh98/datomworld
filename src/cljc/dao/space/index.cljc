@@ -80,7 +80,7 @@
 
 (defn member-keys
   "Every datom-bearing root in the store, sorted by name. This is the
-  enumeration a query folds — IKVStore has no scan, so reachability starts
+  enumeration a query folds — the handle has no scan, so reachability starts
   from the membership root."
   [store]
   (sort (:members (jing/get store members-key nil))))

@@ -17,7 +17,7 @@
   Query Library\" and \"Source Polymorphism\".
 
   A source is, interchangeably (and freely mixed in a collection):
-    - a single `dao.jing` IKVStore handle
+    - a single `dao.jing` storage handle
     - a collection of `dao.jing` handles (a federated query — ADR 0001's
       monoid-homomorphism proof is why folding N stores and merging equals
       one store holding everything)
@@ -66,7 +66,7 @@
 
 (defn- dao-jing-handle?
   [x]
-  (satisfies? jing/IKVStore x))
+  (and (map? x) (some #(contains? x %) [:stream :target :call-fn :get-fn])))
 
 
 (declare source->datoms)

@@ -216,12 +216,17 @@
   (closed? [_this] (:closed @state)))
 
 
+(defn- dao-jing-handle?
+  [x]
+  (and (map? x) (some #(contains? x %) [:stream :target :call-fn :get-fn])))
+
+
 (ds/defopen
   :transactor
   [descriptor]
   (let [{store :store, stream-name :name, datoms-key :key} descriptor]
-    (when-not (and store (satisfies? jing/IKVStore store))
-      (throw (ex-info ":transactor descriptor requires a :store dao.jing handle"
+    (when-not (dao-jing-handle? store)
+      (throw (ex-info ":transactor descriptor requires a :store jing handle"
                       {:descriptor descriptor})))
     (when-not (or datoms-key stream-name)
       (throw

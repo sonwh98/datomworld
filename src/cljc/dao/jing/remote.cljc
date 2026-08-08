@@ -1,89 +1,38 @@
 (ns dao.jing.remote
-  "Remote IKVStore adapter over the generic dao.stream.rpc transport.
-
-   Server side: `default-handlers` builds the {:jing/put! ... :jing/cas! ...
-   :jing/get ... :jing/delete!} handlers map from a local store and hands it
-   to `dao.stream.rpc.ws/start!`. Transport, dispatch, and request/
-   response framing belong entirely to `dao.stream.rpc.server`/`.ws`, which
-   know nothing about `dao.jing`.
-
-   Client side: `connect-kv!` returns a `RemoteKVStore` whose every
-   `IKVStore` method calls `dao.stream.rpc.client/call!` against the
-   matching `:jing/*` op. `RemoteKVStore` itself is transport-agnostic
-   (parameterized over `call-fn`/`close-fn`); `connect-kv!` is the
-   convenience that wires it to a real RPC client.
-
-   `IKVStore`'s synchronous-return contract on every existing implementation
-   (mem/file/dht included) pairs with `rpc.client/call!` directly only on
-   `:clj` (it returns a Promise/Future on `:cljs`/`:cljd`). Reconciling a
-   synchronous protocol with an async client on those platforms is a
-   separate, unscoped problem, so `connect-kv!` stays `:clj`-only here --
-   the `RemoteKVStore` record and `default-handlers` it pairs with are
-   portable across clj/cljs/cljd regardless."
+  "Remote storage adapter over dao.stream.rpc.
+   Returns a handle map {:call-fn f :close-fn g} that jing/cas!, jing/get,
+   jing/delete!, and jing/close! dispatch through automatically."
   (:require [dao.jing :as jing]
             #?(:clj [dao.stream.rpc.client :as rpc-client])
             #?(:clj [dao.stream.rpc.ws :as rpc-ws])))
 
 
 (defn default-handlers
-  "The default handlers map exposing a dao.jing IKVStore's operations."
-  [store]
-  {:jing/cas! (partial jing/cas! store),
-   :jing/get (partial jing/get store),
-   :jing/delete! (partial jing/delete! store)})
-
-
-(defrecord RemoteKVStore
-  [call-fn close-fn]
-
-  jing/IKVStore
-
-  (cas! [_ k expected v] (call-fn :jing/cas! [k expected v]))
-
-
-  (get [_ k not-found] (call-fn :jing/get [k not-found]))
-
-
-  (delete! [_ k] (call-fn :jing/delete! [k]))
-
-
-  (close! [_] (close-fn)))
+  "Build the RPC handlers map from a local jing handle."
+  [handle]
+  {:jing/cas! (fn [k expected v] (jing/cas! handle k expected v)),
+   :jing/get (fn [k not-found] (jing/get handle k not-found)),
+   :jing/delete! (fn [k] (jing/delete! handle k))})
 
 
 #?(:clj
    (defn connect-kv!
-     "Connect to a remote dao.jing server and wrap it as an IKVStore.
-
-      Args:
-        url  - WebSocket URL (e.g., \"ws://localhost:8080\")
-        opts - optional map passed to dao.stream.rpc.ws/connect!:
-                 :timeout-ms         - connection handshake timeout (default 5000)
-                 :request-timeout-ms - per-call! timeout (default 5000)
-
-      Returns:
-        A RemoteKVStore implementing IKVStore. The underlying RPC client's
-        own close! is idempotent, so multiple close! calls on the returned
-        store are safe."
+     "Connect to a remote dao.jing server over WebSocket and return a handle
+      {:call-fn f :close-fn g} that works with jing/cas!, jing/get,
+      jing/delete!, and jing/close!."
      ([url] (connect-kv! url {}))
      ([url opts]
       (let [client (rpc-ws/connect! url opts)]
-        (->RemoteKVStore (fn [op args] (rpc-client/call! client op args))
-                         (fn [] (rpc-client/close! client)))))))
+        {:call-fn (fn [op args] (rpc-client/call! client op args)),
+         :close-fn (fn [] (rpc-client/close! client))}))))
 
 
 (comment
   (require '[dao.jing.file :as jing.file] '[dao.stream.rpc.ws :as rpc-ws])
-  ;; Start once and leave the server running for multiple client
-  ;; connections, including from other processes.
   (def store (jing.file/create-kv-file "target/dao/store.jing"))
   (def server (rpc-ws/start! (default-handlers store) 7070))
-  ;; Connect as many clients as needed.
-  (def client-1 (connect-kv! "ws://localhost:7070"))
-  (jing/put! client-1 :hello {:v "world"})
-  (jing/get client-1 :hello nil)
+  (def client (connect-kv! "ws://localhost:7070"))
+  (jing/cas! client :hello jing/absent {:v "world"})
+  (jing/get client :hello nil)
   (def client-2 (connect-kv! "ws://localhost:7070"))
-  (jing/get client-2 :hello nil)
-  ;; Explicit cleanup when the server should stop.
-  ;; (rpc-ws/stop! server)
-  ;; (jing/close! store)
-)
+  (jing/get client-2 :hello nil))

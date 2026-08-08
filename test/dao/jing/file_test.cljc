@@ -107,7 +107,9 @@
            (jing/cas! store :b jing/absent 2)
            (jing/cas! store :a 1 3)
            (jing/delete! store :b)
-           (is (some? (jing-file/compact-store! store)))
-           (is (= 3 (jing/get store :a nil)))
-           (is (= ::missing (jing/get store :b ::missing)))
-           (finally (jing/close! store) (cleanup-file path))))))
+           (let [store (jing-file/compact-store! store)]
+             (is (some? store))
+             (is (= 3 (jing/get store :a nil)))
+             (is (= ::missing (jing/get store :b ::missing)))
+             (jing/close! store))
+           (finally (cleanup-file path))))))

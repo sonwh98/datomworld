@@ -225,24 +225,14 @@
     "append! throws rather than spin forever when the root cas!
           never wins (the bound cas-append! exists to catch)"
     ;; A wrapper store whose cas! always loses on the stream's own root,
-    ;; but still lets open!'s membership-root registration succeed —
-    ;; with-redefs does not reach this: mem's deftype implements
-    ;; IKVStore's interface directly, so protocol calls on it dispatch
-    ;; straight to the interface method, bypassing Var indirection.
+    ;; but still lets open!'s membership-root registration succeed.
     (let [real (mem/create-kv-mem)
-          always-loses-cas (reify
-                             jing/IKVStore
-                             (cas!
-                               [_ k expected v]
-                               (if (= k index/members-key)
-                                 (jing/cas! real k expected v)
-                                 false))
-
-                             (get [_ k not-found] (jing/get real k not-found))
-
-                             (delete! [_ k] (jing/delete! real k))
-
-                             (close! [_] (jing/close! real)))
+          always-loses-cas {:stream nil,
+                            :target (:target real),
+                            :cas-fn (fn [k expected v]
+                                      (if (= k index/members-key)
+                                        (jing/cas! real k expected v)
+                                        false))}
           log (ds/open!
                 {:type :transactor, :store always-loses-cas, :name "w"})]
       (is (thrown-with-msg? #?(:cljs js/Error
@@ -400,19 +390,12 @@
   (testing
     "transact! throws rather than spin forever when the root cas! never wins"
     (let [real (mem/create-kv-mem)
-          always-loses-cas (reify
-                             jing/IKVStore
-                             (cas!
-                               [_ k expected v]
-                               (if (= k index/members-key)
-                                 (jing/cas! real k expected v)
-                                 false))
-
-                             (get [_ k not-found] (jing/get real k not-found))
-
-                             (delete! [_ k] (jing/delete! real k))
-
-                             (close! [_] (jing/close! real)))
+          always-loses-cas {:stream nil,
+                            :target (:target real),
+                            :cas-fn (fn [k expected v]
+                                      (if (= k index/members-key)
+                                        (jing/cas! real k expected v)
+                                        false))}
           log (ds/open!
                 {:type :transactor, :store always-loses-cas, :name "w"})]
       (is (thrown-with-msg? #?(:cljs js/Error
@@ -584,3 +567,21 @@
               resynced-cur (assoc cur1 :epoch reorder-epoch)
               r2 (ds/next log resynced-cur)]
           (is (= 2 (first (:ok r2)))))))))
+
+
+(deftest transactor-descriptor-store-validation
+  (testing "throws when :store is missing or invalid shape"
+    (is (thrown? #?(:clj Exception
+                    :cljs js/Error
+                    :cljd Object
+                    :default Exception)
+          (ds/open! {:type :transactor, :name "p"})))
+    (is (thrown? #?(:clj Exception
+                    :cljs js/Error
+                    :cljd Object
+                    :default Exception)
+          (ds/open!
+            {:type :transactor, :store "not-a-jing-store", :name "p"}))))
+  (testing "accepts valid jing store"
+    (let [store (mem/create-kv-mem)]
+      (is (some? (ds/open! {:type :transactor, :store store, :name "p"}))))))

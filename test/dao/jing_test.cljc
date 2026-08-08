@@ -10,7 +10,10 @@
             #?(:clj [clojure.edn])
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
-            [dao.jing.file :as file]))
+            [dao.jing.file :as file]
+            [dao.stream :as ds]
+            [dao.stream.apply :as dao-apply]
+            [dao.stream.ringbuffer]))
 
 
 (defn run-with-stores
@@ -164,6 +167,31 @@
             "a freshly built equal value must match")))))
 
 
+(deftest cas-to-same-value-succeeds
+  (testing "CASing a key to its current value is a no-op that returns true"
+    (run-with-stores (fn [store]
+                       (jing/cas! store :k jing/absent 10)
+                       (is (true? (jing/cas! store :k 10 10))
+                           "CAS to current value must succeed")
+                       (jing/cas! store :m jing/absent {:n 1})
+                       (is (true? (jing/cas! store :m {:n 1} {:n 1}))
+                           "CAS to structurally-equal value must succeed")))))
+
+
+(deftest cas-sentinel-absent-never-stored
+  (testing "CAS with jing/absent as v deletes the key, never stores ::absent"
+    (run-with-stores (fn [store]
+                       (jing/cas! store :k jing/absent "hello")
+                       (is (true? (jing/cas! store :k "hello" jing/absent))
+                           "CAS deletion must succeed")
+                       (is (= ::missing (jing/get store :k ::missing))
+                           "key must be deleted, not hold the absent sentinel")
+                       ;; Verify the key can be re-created
+                       (is (true? (jing/cas! store :k jing/absent "world"))
+                           "re-creation after deletion must succeed")
+                       (is (= "world" (jing/get store :k nil)))))))
+
+
 ;; ---------------------------------------------------------------------------
 ;; delete! / close!
 ;; ---------------------------------------------------------------------------
@@ -186,6 +214,15 @@
 (deftest close-releases-without-throwing
   (testing "close! returns nil and does not throw"
     (run-with-stores (fn [store] (is (nil? (jing/close! store)))))))
+
+
+(deftest close-is-idempotent
+  (testing "multiple close! calls do not throw or double-release"
+    (run-with-stores (fn [store]
+                       (jing/cas! store :k jing/absent 1)
+                       (jing/close! store)
+                       (jing/close! store)
+                       (is (true? true) "second close! must not throw")))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -286,8 +323,9 @@
          (jing/cas! store :root {:p "2"} {:p "3"})
          ;; Delete a key (creates dead space and a tombstone)
          (jing/delete! store :dead)
-         (let [pre-size (.length (java.io.File. path))]
-           (is (true? (file/compact-store! store)))
+         (let [pre-size (.length (java.io.File. path))
+               store (file/compact-store! store)]
+           (is (some? store))
            (let [post-size (.length (java.io.File. path))]
              (is (< post-size pre-size)
                  "the file size should shrink after compaction")
@@ -380,7 +418,8 @@
      (testing
        "a concurrent lock-free get never throws or observes a wrong/absent value for a live key while compact! swaps the stream"
        (let [path (str "target/compact-race-test-" (random-uuid) ".db")
-             store (file/create-kv-file path)]
+             store (file/create-kv-file path)
+             store-atom (atom store)]
          (try
            ;; :root is written once and never changed, so every read must
            ;; see exactly this value; :churn is rewritten to create dead
@@ -391,16 +430,17 @@
                  stop (atom false)
                  seen-wrong (atom [])
                  reader (future (while (not @stop)
-                                  (let [v (try
-                                            (jing/get store :root :not-found)
-                                            (catch Throwable t
-                                              {:threw (str (type t))}))]
+                                  (let [v (try (jing/get @store-atom
+                                                         :root
+                                                         :not-found)
+                                               (catch Throwable t
+                                                 {:threw (str (type t))}))]
                                     (when (and (not= expected v)
                                                (< (count @seen-wrong) 50))
                                       (swap! seen-wrong conj v)))))]
              (dotimes [_ 30]
-               (jing/cas! store :churn jing/absent {:n (rand-int 1000)})
-               (file/compact-store! store))
+               (jing/cas! @store-atom :churn jing/absent {:n (rand-int 1000)})
+               (swap! store-atom file/compact-store!))
              (reset! stop true)
              (deref reader 2000 :reader-timeout)
              (is (empty? @seen-wrong)
@@ -408,7 +448,8 @@
                    "concurrent reads during compaction returned wrong/absent "
                    "values for a live key: "
                    (distinct @seen-wrong))))
-           (finally (jing/close! store) (.delete (java.io.File. path))))))))
+           (finally (jing/close! @store-atom)
+                    (.delete (java.io.File. path))))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -508,28 +549,346 @@
            ;; AFTER compact! Has already closed the old stream — the
            ;; exact window that used to leave state-atom pointing at a
            ;; dead stream.
-           (is (thrown? Exception
-                 (with-redefs [dao.jing.file/rename-file!
-                               (fn [_ _]
-                                 (throw (ex-info
-                                          "injected rename failure"
-                                          {})))]
-                   (file/compact-store! store))))
-           ;; The store must stay readable, promptly (no ::closed retry
-           ;; hang), and no data may be lost by the aborted compaction.
-           (let [outcome
-                 (deref (future
-                          (try {:live (jing/get store :live :not-found),
-                                :root (jing/get store :root :not-found)}
-                               (catch Throwable t {:threw (str (type t))})))
-                        2000
-                        {:timeout true})]
-             (is
-               (= {:live {:x 1}, :root {:p "2"}} outcome)
-               (str
-                 "store should stay readable after a failed compaction; got "
-                 outcome)))
-           ;; And the restored stream must still accept writes.
-           (is (true? (jing/cas! store :post jing/absent {:y 9})))
-           (is (= {:y 9} (jing/get store :post nil)))
-           (finally (jing/close! store) (.delete (java.io.File. path))))))))
+           (let [restored (atom nil)]
+             (is (thrown?
+                   Exception
+                   (with-redefs [dao.jing.file/rename-file!
+                                 (fn [_ _]
+                                   (throw (ex-info "injected rename failure"
+                                                   {})))]
+                     (try (file/compact-store! store)
+                          (catch Exception e
+                            (reset! restored (:restored-handle (ex-data e)))
+                            (throw e))))))
+             ;; The store must stay readable, promptly (no ::closed retry
+             ;; hang), and no data may be lost by the aborted compaction.
+             (let [store @restored
+                   outcome (deref
+                             (future
+                               (try {:live (jing/get store :live :not-found),
+                                     :root (jing/get store :root :not-found)}
+                                    (catch Throwable t
+                                      {:threw (str (type t))})))
+                             2000
+                             {:timeout true})]
+               (is
+                 (= {:live {:x 1}, :root {:p "2"}} outcome)
+                 (str
+                   "store should stay readable after a failed compaction; got "
+                   outcome))
+               ;; And the restored stream must still accept writes.
+               (is (true? (jing/cas! store :post jing/absent {:y 9})))
+               (is (= {:y 9} (jing/get store :post nil)))
+               (jing/close! store)))
+           (finally (.delete (java.io.File. path))))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Stream Observer Functions (materialize-step, evaluator, step-incremental!)
+;; ---------------------------------------------------------------------------
+
+(deftest materialize-step-minting
+  (testing "cas absent creates the key"
+    (is (= {:k "v"} (jing/materialize-step {} [:k :cas jing/absent "v"]))))
+  (testing "cas absent fails silently when key already exists"
+    (is (= {:k "old"}
+           (jing/materialize-step {:k "old"} [:k :cas jing/absent "new"])))))
+
+
+(deftest materialize-step-update
+  (testing "cas with matching expected replaces the value"
+    (is (= {:k "new"}
+           (jing/materialize-step {:k "old"} [:k :cas "old" "new"]))))
+  (testing "cas with mismatched expected leaves the map unchanged"
+    (is (= {:k "old"}
+           (jing/materialize-step {:k "old"} [:k :cas "stale" "new"])))))
+
+
+(deftest materialize-step-deletion
+  (testing "cas with jing/absent as v dissocs the key"
+    (is (= {} (jing/materialize-step {:k "v"} [:k :cas "v" jing/absent]))))
+  (testing "deleting an already-absent key is a no-op"
+    (is (= {} (jing/materialize-step {} [:k :cas jing/absent jing/absent]))))
+  (testing "deletion fails when expected does not match current"
+    (is (= {:k "v"}
+           (jing/materialize-step {:k "v"} [:k :cas "wrong" jing/absent])))))
+
+
+(deftest materialize-step-malformed-record
+  (testing "non-vector record returns map unchanged"
+    (is (= {:x 1} (jing/materialize-step {:x 1} "not-a-vector"))))
+  (testing "wrong-length vector returns map unchanged"
+    (is (= {:x 1} (jing/materialize-step {:x 1} [:k :cas "v"]))))
+  (testing "non-:cas op returns map unchanged"
+    (is (= {:x 1} (jing/materialize-step {:x 1} [:k :put jing/absent "v"])))))
+
+
+(deftest evaluator-construction
+  (testing "returns a function that dispatches on :op/get"
+    (let [target {:root/my-db :segment/sha256-abc}
+          handler (jing/evaluator target)]
+      (is (fn? handler))
+      (let [resp (handler {:dao.stream.apply/id :q1,
+                           :dao.stream.apply/op :op/get,
+                           :dao.stream.apply/args [:root/my-db]})]
+        (is (= :q1 (:dao.stream.apply/id resp)))
+        (is (= :segment/sha256-abc (:dao.stream.apply/value resp))))))
+  (testing "returns jing/absent for a missing key"
+    (let [handler (jing/evaluator {})
+          resp (handler {:dao.stream.apply/id :q2,
+                         :dao.stream.apply/op :op/get,
+                         :dao.stream.apply/args [:not-here]})]
+      (is (= jing/absent (:dao.stream.apply/value resp)))))
+  (testing "throws on unknown op"
+    (let [handler (jing/evaluator {})]
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (handler {:dao.stream.apply/id :q3,
+                      :dao.stream.apply/op :op/unknown,
+                      :dao.stream.apply/args []}))))))
+
+
+(deftest evaluator-custom-read-fn
+  (testing "accepts a custom read-fn for non-map targets"
+    (let [target [[:k 42]]
+          handler (jing/evaluator target
+                                  (fn [coll k _]
+                                    (second (first (filter #(= k (first %))
+                                                           coll)))))
+          resp (handler {:dao.stream.apply/id :q1,
+                         :dao.stream.apply/op :op/get,
+                         :dao.stream.apply/args [:k]})]
+      (is (= 42 (:dao.stream.apply/value resp))))))
+
+
+(deftest step-incremental-minting
+  (testing
+    "reads a [k :cas expected v] tuple from ringbuffer, applies it, advances cursor"
+    (let [stream (ds/open! {:type :ringbuffer, :capacity 10})
+          target-atom (atom {})
+          cursor-atom (atom {:position 0})]
+      (ds/append! stream [:k :cas jing/absent "hello"])
+      (is (= :ok (jing/step-incremental! target-atom cursor-atom stream)))
+      (is (= {:k "hello"} @target-atom))
+      (is (= {:position 1} @cursor-atom)))))
+
+
+(deftest step-incremental-update
+  (testing "applies a sequence of tuples, updating target and cursor each step"
+    (let [stream (ds/open! {:type :ringbuffer, :capacity 10})
+          target-atom (atom {})
+          cursor-atom (atom {:position 0})]
+      (ds/append! stream [:k :cas jing/absent 1])
+      (ds/append! stream [:k :cas 1 2])
+      (is (= :ok (jing/step-incremental! target-atom cursor-atom stream)))
+      (is (= :ok (jing/step-incremental! target-atom cursor-atom stream)))
+      (is (= {:k 2} @target-atom))
+      (is (= {:position 2} @cursor-atom)))))
+
+
+(deftest step-incremental-blocked
+  (testing "returns :wait when the stream has no new records"
+    (let [stream (ds/open! {:type :ringbuffer, :capacity 10})
+          target-atom (atom {})
+          cursor-atom (atom {:position 0})]
+      (is (= :wait (jing/step-incremental! target-atom cursor-atom stream))))))
+
+
+(deftest step-incremental-end
+  (testing "returns :complete when the stream is closed"
+    (let [stream (ds/open! {:type :ringbuffer, :capacity 10})
+          target-atom (atom {})
+          cursor-atom (atom {:position 0})]
+      (ds/close! stream)
+      (is (= :complete
+             (jing/step-incremental! target-atom cursor-atom stream))))))
+
+
+(deftest step-incremental-gap
+  (testing "returns :resync when cursor is behind the eviction boundary"
+    (let [stream (ds/open! {:type :ringbuffer,
+                            :capacity 2,
+                            :eviction-policy :evict-oldest})
+          target-atom (atom {})
+          cursor-atom (atom {:position 0})]
+      (ds/append! stream [:a :cas jing/absent 1])
+      (ds/append! stream [:b :cas jing/absent 2])
+      (ds/append! stream [:c :cas jing/absent 3])
+      (is (= :resync
+             (jing/step-incremental! target-atom cursor-atom stream))))))
+
+
+;; ---------------------------------------------------------------------------
+;; materialize-mutable-step!
+;; ---------------------------------------------------------------------------
+
+(deftest materialize-mutable-step-minting
+  (testing "cas absent writes via write-fn! and returns target"
+    (let [target (atom {})
+          read-fn (fn [a k not-found] (clojure.core/get @a k not-found))
+          write-fn! (fn [a k v] (swap! a assoc k v))]
+      (is (= target
+             (jing/materialize-mutable-step! target
+                                             [:k :cas jing/absent "v"]
+                                             read-fn
+                                             write-fn!
+                                             nil)))
+      (is (= {:k "v"} @target)))))
+
+
+(deftest materialize-mutable-step-update
+  (testing "cas with matching expected writes via write-fn!"
+    (let [target (atom {:k "old"})
+          read-fn (fn [a k not-found] (clojure.core/get @a k not-found))
+          write-fn! (fn [a k v] (swap! a assoc k v))]
+      (jing/materialize-mutable-step! target
+                                      [:k :cas "old" "new"]
+                                      read-fn
+                                      write-fn!
+                                      nil)
+      (is (= {:k "new"} @target))))
+  (testing "cas with mismatched expected leaves target unchanged"
+    (let [target (atom {:k "old"})
+          read-fn (fn [a k not-found] (clojure.core/get @a k not-found))
+          write-fn! (fn [a k v] (swap! a assoc k v))]
+      (jing/materialize-mutable-step! target
+                                      [:k :cas "stale" "new"]
+                                      read-fn
+                                      write-fn!
+                                      nil)
+      (is (= {:k "old"} @target)))))
+
+
+(deftest materialize-mutable-step-deletion
+  (testing "cas with jing/absent as v calls delete-fn!"
+    (let [target (atom {:k "v"})
+          read-fn (fn [a k not-found] (clojure.core/get @a k not-found))
+          delete-fn! (fn [a k] (swap! a dissoc k))]
+      (jing/materialize-mutable-step! target
+                                      [:k :cas "v" jing/absent]
+                                      read-fn
+                                      nil
+                                      delete-fn!)
+      (is (= {} @target)))))
+
+
+(deftest materialize-mutable-step-malformed-record
+  (testing "non-vector record returns target unchanged without side effects"
+    (let [target (atom {:x 1})
+          read-fn (constantly ::unused)
+          write-fn! (fn [& _] (throw (ex-info "should not be called" {})))]
+      (is (= target
+             (jing/materialize-mutable-step! target
+                                             "not-a-vector"
+                                             read-fn
+                                             write-fn!
+                                             nil)))
+      (is (= {:x 1} @target)))))
+
+
+;; ---------------------------------------------------------------------------
+;; step-service!
+;; ---------------------------------------------------------------------------
+
+(deftest step-service-minting
+  (testing
+    "reads a request, evaluates via handler, appends response, advances cursor"
+    (let [req-stream (ds/open! {:type :ringbuffer, :capacity 10})
+          resp-stream (ds/open! {:type :ringbuffer, :capacity 10})
+          target {:k "hello"}
+          cursor-atom (atom {:position 0})
+          endpoint {:dao.stream.apply/request req-stream,
+                    :dao.stream.apply/response resp-stream}]
+      (ds/append! req-stream
+                  {:dao.stream.apply/id :q1,
+                   :dao.stream.apply/op :op/get,
+                   :dao.stream.apply/args [:k]})
+      (is (= :ok (jing/step-service! target cursor-atom endpoint)))
+      (is (= {:position 1} @cursor-atom))
+      (let [resp (ds/next resp-stream {:position 0})]
+        (is (= :q1 (get-in resp [:ok :dao.stream.apply/id])))
+        (is (= "hello" (get-in resp [:ok :dao.stream.apply/value])))))))
+
+
+(deftest step-service-absent
+  (testing "returns jing/absent for a missing key"
+    (let [req-stream (ds/open! {:type :ringbuffer, :capacity 10})
+          resp-stream (ds/open! {:type :ringbuffer, :capacity 10})
+          target {}
+          cursor-atom (atom {:position 0})
+          endpoint {:dao.stream.apply/request req-stream,
+                    :dao.stream.apply/response resp-stream}]
+      (ds/append! req-stream
+                  {:dao.stream.apply/id :q2,
+                   :dao.stream.apply/op :op/get,
+                   :dao.stream.apply/args [:not-here]})
+      (jing/step-service! target cursor-atom endpoint)
+      (let [resp (ds/next resp-stream {:position 0})]
+        (is (= jing/absent (get-in resp [:ok :dao.stream.apply/value])))))))
+
+
+(deftest step-service-blocked
+  (testing "returns :wait when no requests are available"
+    (let [req-stream (ds/open! {:type :ringbuffer, :capacity 10})
+          resp-stream (ds/open! {:type :ringbuffer, :capacity 10})
+          target {}
+          cursor-atom (atom {:position 0})
+          endpoint {:dao.stream.apply/request req-stream,
+                    :dao.stream.apply/response resp-stream}]
+      (is (= :wait (jing/step-service! target cursor-atom endpoint))))))
+
+
+(deftest step-service-end
+  (testing "returns :complete when request stream is closed"
+    (let [req-stream (ds/open! {:type :ringbuffer, :capacity 10})
+          resp-stream (ds/open! {:type :ringbuffer, :capacity 10})
+          target {}
+          cursor-atom (atom {:position 0})
+          endpoint {:dao.stream.apply/request req-stream,
+                    :dao.stream.apply/response resp-stream}]
+      (ds/close! req-stream)
+      (is (= :complete (jing/step-service! target cursor-atom endpoint))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Generic cas! stream contract (no :cas-fn, raw {:stream :target} handle)
+;; ---------------------------------------------------------------------------
+
+(deftest generic-cas-only-appends-successful-records
+  (testing
+    "the stream contains records for all CAS attempts (including dead records for failed CASes)"
+    (let [stream (ds/open! {:type :ringbuffer, :capacity 10})
+          handle {:stream stream, :target (atom {})}
+          ;; first CAS: absent→v1, should succeed
+          ok1 (jing/cas! handle :k jing/absent 1)
+          ;; second CAS: stale expected, should fail
+          ok2 (jing/cas! handle :k 999 2)
+          ;; third CAS: correct expected, should succeed
+          ok3 (jing/cas! handle :k 1 3)
+          ;; fourth CAS: delete
+          ok4 (jing/cas! handle :k 3 jing/absent)
+          records (loop [cursor {:position 0}
+                         acc []]
+                    (let [res (ds/next stream cursor)]
+                      (if (and (map? res) (contains? res :ok))
+                        (recur (:cursor res) (conj acc (:ok res)))
+                        acc)))]
+      (is (true? ok1))
+      (is (false? ok2) "stale expected must fail")
+      (is (true? ok3))
+      (is (true? ok4))
+      (is (= 4 (count records))
+          (str "stream contains records for all CAS attempts, got " records)))))
+
+
+(deftest generic-cas-preserves-target-value-semantics
+  (testing "target atom reflects only successful CASes, same as mem/file"
+    (let [handle {:stream (ds/open! {:type :ringbuffer, :capacity 10}),
+                  :target (atom {})}]
+      (jing/cas! handle :k jing/absent 1)
+      (jing/cas! handle :k 999 2)
+      (jing/cas! handle :k 1 3)
+      (jing/cas! handle :k 3 jing/absent)
+      (is (= jing/absent (jing/get handle :k jing/absent))
+          "deletion must be visible in target"))))

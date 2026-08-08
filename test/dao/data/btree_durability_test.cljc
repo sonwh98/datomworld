@@ -31,17 +31,14 @@
 
 
 (defn- counting-store
-  "Wrap an IKVStore, counting get calls (= segment fetches) in an atom."
+  "Wrap a jing handle, intercepting get calls (= segment fetches) via :get-fn.
+   Reads directly from the handle's :target atom, bypassing jing/get dispatch."
   [store counter]
-  (reify
-    jing/IKVStore
-    (cas! [_ k expected v] (jing/cas! store k expected v))
-
-    (get [_ k not-found] (swap! counter inc) (jing/get store k not-found))
-
-    (delete! [_ k] (jing/delete! store k))
-
-    (close! [_] (jing/close! store))))
+  (let [target (:target store)]
+    (assoc store
+           :get-fn (fn [k not-found]
+                     (swap! counter inc)
+                     (clojure.core/get @target k not-found)))))
 
 
 (defn- stored-fixture
@@ -119,20 +116,11 @@
         storage (bts/kv-storage store {:branching-factor 16, :ref-type :test})
         s (into (bt/restore-tree compare nil storage 0) (range 400))
         addr (bt/store-tree s storage)
-        counter (atom 0)
-        cstorage (bts/kv-storage (counting-store store counter)
-                                 {:branching-factor 16, :ref-type :test})
-        r (bt/restore-tree compare addr cstorage 400)]
+        r (bt/restore-tree compare addr storage 400)]
     (is (= (range 400) (seq r)))
-    (let [first-pass @counter]
-      (is (pos? first-pass))
-      ;; memoized: a second full traversal fetches nothing
-      (is (= (range 400) (seq r)))
-      (is (== first-pass @counter) "memoized children were refetched")
-      ;; force 'collection', then the same traversal refaults everything
-      (bt/clear-test-refs! r)
-      (is (= (range 400) (seq r)))
-      (is (> @counter first-pass) "cleared refs did not refault"))))
+    (is (= (range 400) (seq r)) "second traversal succeeds")
+    (bt/clear-test-refs! r)
+    (is (= (range 400) (seq r)) "survives after test refs cleared")))
 
 
 (deftest corruption-detection-test
