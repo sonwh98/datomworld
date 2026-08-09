@@ -64,7 +64,7 @@
 
 (defn reduce-file-stream
   "Fold an entire file stream from position 0 into an in-memory map via
-   jing/materialize-step. Stops on unparseable or corrupt records."
+   jing/materialize-step. Skips unparseable or corrupt records."
   [stream]
   (loop [cursor {:position 0}
          idx {}]
@@ -74,7 +74,7 @@
               record (decode-record b)]
           (if record
             (recur next-cursor (jing/materialize-step idx record))
-            idx))
+            (recur next-cursor idx)))
         idx))))
 
 
@@ -138,8 +138,14 @@
 ;; Store handle helper
 ;; =============================================================================
 
+(defn- do-with-lock
+  [lock f]
+  #?(:clj (locking lock (f))
+     :default (f)))
+
+
 (defn- make-file-fns
-  [stream target closed-atom]
+  [stream target closed-atom write-lock]
   {:close-fn (fn file-close! [] (reset! closed-atom true) (ds/close! stream)),
    :get-fn (fn file-get
              [k not-found]
@@ -147,108 +153,118 @@
                not-found
                (let [s @target]
                  (if (contains? s k) (clojure.core/get s k) not-found)))),
-   :cas-fn (fn file-cas!
-             [k expected v]
-             (if @closed-atom
-               false
-               (let [rec [k :cas expected v]
-                     res (ds/append! stream (encode-record rec))]
-                 (if (and (map? res) (= :ok (:result res)))
-                   (loop []
-                     (let [old @target
-                           new (jing/materialize-step old rec)]
-                       (if (= old new)
-                         (or (= (clojure.core/get old k jing/absent) expected)
-                             (and (= expected jing/absent)
-                                  (= (clojure.core/get old k jing/absent) v)))
-                         (if (compare-and-set! target old new) true (recur)))))
-                   false)))),
+   :cas-fn
+   (fn file-cas!
+     [k expected v]
+     (if @closed-atom
+       false
+       (do-with-lock
+         write-lock
+         (fn []
+           (if @closed-atom
+             false
+             (let [rec [k :cas expected v]
+                   res (ds/append! stream (encode-record rec))]
+               (if (and (map? res) (= :ok (:result res)))
+                 (loop []
+                   (let [old @target
+                         new (jing/materialize-step old rec)]
+                     (if (= old new)
+                       (or (= (clojure.core/get old k jing/absent) expected)
+                           (and (= expected jing/absent)
+                                (= (clojure.core/get old k jing/absent) v)))
+                       (if (compare-and-set! target old new) true (recur)))))
+                 false))))))),
    :delete-fn (fn file-delete
                 [k]
                 (if @closed-atom
                   false
-                  (let [current (clojure.core/get @target k jing/absent)]
-                    (if (= current jing/absent)
-                      true
-                      (let [rec [k :cas current jing/absent]
-                            res (ds/append! stream (encode-record rec))]
-                        (if (and (map? res) (= :ok (:result res)))
-                          (do (swap! target jing/materialize-step rec) true)
-                          false))))))})
+                  (do-with-lock
+                    write-lock
+                    (fn []
+                      (if @closed-atom
+                        false
+                        (let [current (clojure.core/get @target k jing/absent)]
+                          (if (= current jing/absent)
+                            true
+                            (let [rec [k :cas current jing/absent]
+                                  res (ds/append! stream (encode-record rec))]
+                              (if (and (map? res) (= :ok (:result res)))
+                                (do (swap! target jing/materialize-step rec)
+                                    true)
+                                false)))))))))})
 
 
 ;; =============================================================================
 ;; Compaction
 ;; =============================================================================
 
-(def ^:private compact-lock
-  #?(:clj (Object.)
-     :cljs (js-obj)
-     :cljd (Object.)))
-
-
-(defn- do-with-lock
-  [f]
-  #?(:clj (locking compact-lock (f))
-     :default (f)))
-
 
 (defn compact-store!
   "Garbage-collect a file store: write live entries to a `.compact` log,
    flush, rename, reopen. Returns a new handle map."
   [handle]
-  (do-with-lock
-    (fn []
-      (let [h handle
-            old-stream (:stream h)
-            target @(:target h)
-            path (:path h)
-            compact-path (str path ".compact")
-            new-stream (ds/open! {:type :append-log, :path compact-path})]
-        (try (doseq [[k v] target]
-               (when (not= v jing/absent)
-                 (let [rec [k :cas jing/absent v]
-                       res (ds/append! new-stream (encode-record rec))]
-                   (when-not (= :ok (:result res))
-                     (throw (ex-info "Compaction failed to write live key"
-                                     {:key k, :res res}))))))
-             (ds/close! old-stream)
-             (ds/close! new-stream)
-             (rename-file! compact-path path)
-             (let [swapped-stream (ds/open! {:type :append-log, :path path})
-                   target-atom (:target h)
-                   closed-atom (or (:closed-atom h) (atom false))]
-               (merge {:stream swapped-stream,
-                       :target target-atom,
-                       :closed-atom closed-atom,
-                       :encode-fn encode-record,
-                       :closed false,
-                       :path path}
-                      (make-file-fns swapped-stream target-atom closed-atom)))
-             (catch #?(:clj Exception
-                       :cljs :default
-                       :cljd Object)
-                    e
-               (close-quietly! new-stream)
-               (cleanup-compact-file! compact-path)
-               (close-quietly! old-stream)
-               (let [restored (ds/open! {:type :append-log, :path path})
-                     recovered (reduce-file-stream restored)
-                     target-atom (atom recovered)
-                     closed-atom (or (:closed-atom h) (atom false))
-                     restored-handle
-                     (merge {:stream restored,
-                             :target target-atom,
-                             :closed-atom closed-atom,
-                             :encode-fn encode-record,
-                             :closed false,
-                             :path path}
-                            (make-file-fns restored target-atom closed-atom))]
-                 (throw (ex-info (str "Compaction failed: "
-                                      #?(:clj (.getMessage ^Throwable e)
-                                         :default e))
-                                 {:restored-handle restored-handle}
-                                 e)))))))))
+  (let [write-lock (:write-lock handle)]
+    (do-with-lock
+      write-lock
+      (fn []
+        (let [h handle
+              old-stream (:stream h)
+              target @(:target h)
+              path (:path h)
+              compact-path (str path ".compact")
+              new-stream (ds/open! {:type :append-log, :path compact-path})]
+          (try (doseq [[k v] target]
+                 (when (not= v jing/absent)
+                   (let [rec [k :cas jing/absent v]
+                         res (ds/append! new-stream (encode-record rec))]
+                     (when-not (= :ok (:result res))
+                       (throw (ex-info "Compaction failed to write live key"
+                                       {:key k, :res res}))))))
+               (ds/close! old-stream)
+               (ds/close! new-stream)
+               (rename-file! compact-path path)
+               (let [swapped-stream (ds/open! {:type :append-log, :path path})
+                     target-atom (:target h)
+                     closed-atom (or (:closed-atom h) (atom false))]
+                 (merge {:stream swapped-stream,
+                         :target target-atom,
+                         :closed-atom closed-atom,
+                         :write-lock write-lock,
+                         :encode-fn encode-record,
+                         :closed false,
+                         :path path}
+                        (make-file-fns swapped-stream
+                                       target-atom
+                                       closed-atom
+                                       write-lock)))
+               (catch #?(:clj Exception
+                         :cljs :default
+                         :cljd Object)
+                      e
+                 (close-quietly! new-stream)
+                 (cleanup-compact-file! compact-path)
+                 (close-quietly! old-stream)
+                 (let [restored (ds/open! {:type :append-log, :path path})
+                       recovered (reduce-file-stream restored)
+                       target-atom (atom recovered)
+                       closed-atom (or (:closed-atom h) (atom false))
+                       restored-handle (merge {:stream restored,
+                                               :target target-atom,
+                                               :closed-atom closed-atom,
+                                               :write-lock write-lock,
+                                               :encode-fn encode-record,
+                                               :closed false,
+                                               :path path}
+                                              (make-file-fns restored
+                                                             target-atom
+                                                             closed-atom
+                                                             write-lock))]
+                   (throw (ex-info (str "Compaction failed: "
+                                        #?(:clj (.getMessage ^Throwable e)
+                                           :default e))
+                                   {:restored-handle restored-handle}
+                                   e))))))))))
 
 
 ;; =============================================================================
@@ -265,14 +281,18 @@
   (let [stream (ds/open! {:type :append-log, :path path})
         recovered (reduce-file-stream stream)
         target (atom recovered)
-        closed-atom (atom false)]
+        closed-atom (atom false)
+        write-lock #?(:clj (Object.)
+                      :cljs (js-obj)
+                      :cljd (Object.))]
     (merge {:stream stream,
             :target target,
             :closed-atom closed-atom,
+            :write-lock write-lock,
             :encode-fn encode-record,
             :closed false,
             :path path}
-           (make-file-fns stream target closed-atom))))
+           (make-file-fns stream target closed-atom write-lock))))
 
 
 (defn create-kv-file

@@ -66,6 +66,23 @@
         (finally (ds/close! stream) (cleanup-file path))))))
 
 
+(deftest file-stream-malformed-recovery-test
+  (testing "reduce-file-stream skips malformed EDN frames and recovers"
+    (let [path (temp-path "malformed")
+          stream (ds/open! {:type :file, :path path})]
+      (try (ds/append! stream
+                       (jing-file/encode-record [:k1 :cas jing/absent "val1"]))
+           ;; Append a malformed EDN frame
+           (ds/append! stream
+                       (jing-file/->bytes "[\"this is\" \"not a valid cas\"]"))
+           (ds/append! stream
+                       (jing-file/encode-record [:k2 :cas jing/absent "val2"]))
+           (let [target (jing-file/reduce-file-stream stream)]
+             (is (= "val1" (get target :k1)))
+             (is (= "val2" (get target :k2))))
+           (finally (ds/close! stream) (cleanup-file path))))))
+
+
 (deftest file-kv-store-contract-test
   (testing "create-kv-file satisfies IKVStore over dao.stream.file"
     (let [path (temp-path "kv")
@@ -113,3 +130,39 @@
              (is (= ::missing (jing/get store :b ::missing)))
              (jing/close! store))
            (finally (cleanup-file path))))))
+
+
+#?(:clj
+   (deftest file-kv-store-concurrency-test
+     (testing "durability CAS result is serialized with memory CAS result"
+       (let [path (temp-path "concurrency")
+             store (jing-file/create-kv-file path)
+             orig-materialize jing/materialize-step
+             first-append (promise)
+             unblock-f1 (promise)]
+         (try
+           (with-redefs [jing/materialize-step
+                         (fn [m rec]
+                           (when (= "A" (nth rec 3 nil))
+                             (deliver first-append true)
+                             (deref unblock-f1 3000 nil))
+                           (orig-materialize m rec))]
+             (let [f1 (future (jing/cas! store :race jing/absent "A"))
+                   _ (deref first-append 1000 nil)
+                   f2 (future (jing/cas! store :race jing/absent "B"))]
+               (try #?(:clj (Thread/sleep 50))
+                    (finally (deliver unblock-f1 true)))
+               (let [res-a (deref f1 3000 ::timeout)
+                     res-b (deref f2 3000 ::timeout)
+                     mem-val (jing/get store :race nil)]
+                 (is (not= ::timeout res-a) "f1 completed without timing out")
+                 (is (not= ::timeout res-b) "f2 completed without timing out")
+                 (jing/close! store)
+                 (let [store2 (jing-file/create-kv-file path)]
+                   (try (let [recovered-val (jing/get store2 :race nil)]
+                          (is (= mem-val recovered-val)
+                              "Execution state must match recovered state"))
+                        (finally (jing/close! store2)))))))
+           (finally (deliver first-append false)
+                    (deliver unblock-f1 true)
+                    (cleanup-file path)))))))

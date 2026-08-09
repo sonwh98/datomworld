@@ -32,10 +32,12 @@ It leaves all interpretation — matching, querying, segment addressing, and roo
 
 ## The Stream as Primitive
 
-The fundamental abstraction is the `dao.stream` append-only log. There is no key-value store.
+The fundamental abstraction is the `dao.stream` append-only log. The role of key-value state depends on the backend:
+- For **durable backends** (like file or SQL), the append-only stream is the authoritative record and the materialized KV state is a projection.
+- For the **ephemeral `dao.jing.mem` backend**, the in-memory atom acts as the authority, while stream appends operate as a best-effort capture of state changes.
 
-By modeling storage as a stream, we completely sidestep the distributed systems problems of consensus, leader election, and distributed CAS.
-- **Writes are local appends**: An agent only ever appends to its own stream via `ds/append!`. It never writes to a shared, global store. Because each stream has a single writer, there is no write contention and no need for distributed consensus.
+By modeling storage as a stream, single-writer stream-local appends avoid consensus for ordinary local root advancement. However, distributed ownership, replication, failover, and writer handoff still require explicit coordination.
+- **Writes are local appends**: An agent only ever appends to its own stream via `ds/append!`. It never writes to a shared, global store. Single-writer is the distributed ownership invariant and removes cross-agent writer contention/consensus; local shared-handle calls may be serialized defensively by the implementation and are not a distributed protocol.
 - **Distribution is stream replication**: To distribute the database, we simply replicate the stream of appends. Readers subscribe to the stream (e.g., via TCP/WebSocket/QUIC) and process the ordered log of facts.
 - **Reads are local projections or stream queries**: Readers consume the replicated stream and fold it into a materialization target (in-memory map, file, SQL, S3) or issue queries over `dao.stream.apply`.
 
@@ -49,7 +51,7 @@ Multi-stream composition (such as `dao.space` folding multiple agent member logs
 
 ## Write Path: Stream Record Format & Step Functions
 
-`dao.jing`'s stream record format has a single, unified operation vocabulary: **`:cas`** (compare-and-swap).
+`dao.jing`'s stream record format has a single, unified operation vocabulary: **`:cas`** (compare-and-swap). The append log records CAS attempts, including failed attempts; only matching CASes alter materialized state, and failed attempts replay as no-ops.
 
 ```clojure
 [k :cas expected v]     ; write/assoc v at key k ONLY IF current value = expected
@@ -76,8 +78,8 @@ The sentinel `absent` (`::absent`) is a reserved namespaced keyword exported by 
 
 ### Error Handling & Corrupted Records
 
-- **Malformed Tuples:** If a stream record is not a 4-element vector matching `[k :cas expected v]`, the fold skips the malformed record, logs a warning, and continues folding.
-- **`:cas` Mismatches:** If `current != expected`, the step function skips the mutation (noop) and returns the target unchanged. Because each stream has a single writer, a `:cas` mismatch indicates a writer bug, out-of-order replay, or stream corruption rather than concurrent write contention.
+- **Malformed Tuples:** If a stream record is not a 4-element vector matching `[k :cas expected v]`, the fold silently skips the malformed record and continues folding. (Logging a warning for malformed records is a future requirement.)
+- **`:cas` Mismatches:** If `current != expected`, the step function skips the mutation (noop) and returns the target unchanged. Under the distributed single-writer invariant, a mismatch indicates a stale caller, writer bug, out-of-order replay, or stream corruption rather than cross-agent contention. Shared local handles may still produce stale expectations, which the backend rejects safely.
 
 ### Step Function Variants: Pure vs Mutable Targets
 
@@ -119,7 +121,7 @@ For mutable storage targets (SQL, disk log), the step function performs target-s
 ### In-Memory Example
 
 ```clojure
-;; The stream is the sole source of truth
+;; The stream is the sole source of truth (except for the mem backend where the atom is authoritative)
 (ds/append! stream [k :cas expected v])
 
 ;; dao.jing is a fold over the stream — executed via Clojure's reduce
@@ -177,9 +179,9 @@ A production observer loop handles these stream signals explicitly:
 
 ### Checkpointing, Crash Recovery & Replay Idempotency
 
-If a materializer process crashes mid-fold, it must resume without reprocessing the entire stream log from index 0.
+As a design target, if a materializer process crashes mid-fold, it should ideally resume without reprocessing the entire stream log from index 0. (Note: the current file backend replays from the beginning; persisting and resuming from checkpoints is a planned enhancement.)
 
-- **Atomic Checkpointing:** For file/SQL targets, persistence and crash recovery are managed by storing `{:target target-state :cursor stream-cursor}` atomically in a single atom or transaction.
+- **Atomic Checkpointing (Target):** For file/SQL targets, persistence and crash recovery are intended to be managed by storing `{:target target-state :cursor stream-cursor}` atomically in a single atom or transaction.
 - **Replay Idempotency:** Even if crash recovery resumes from an earlier cursor position and replays previously processed records, re-application is completely safe across all operation types:
   - **Segments (`[k :cas absent v]`):** Minting content-addressed segments is idempotent. On replay, `current` equals `v`, so `current != absent` causes the CAS check to skip silently.
   - **Roots (`[k :cas old-root new-root]`):** Advancing mutable roots is guarded by the expected root hash. On replay, `current` equals `new-root`, so `current != old-root` causes the CAS check to skip silently without clobbering state.
@@ -269,15 +271,13 @@ Expressing reads via `dao.stream.apply` unifies storage access across all runtim
 **Stream Selection as an Implementation Detail:**
 Whether the request/response stream pair is an **ephemeral in-memory stream** (`:ringbuffer` via `dao.stream.ringbuffer` for zero-overhead, ultra-low latency) or a **durable, auditable log** (`:file` via `dao.stream.file` or `:websocket` via `dao.stream.ws` for auditable access and agent observation) is an orthogonal choice of `dao.stream` backend. `dao.jing` and `dao.stream.apply` remain identical across both.
 
-## Keyspace Ignorance
+## Keyspace
 
-The stream records describe changes to a keyspace governed by a strict discipline, but `dao.jing` itself is blind to this discipline. The fold simply processes stream records via your step function, which updates the materialization target.
+The stream records describe changes to a keyspace governed by a strict discipline. The fold itself is generic and does not enforce namespaces. It simply processes stream records via your step function, which updates the materialization target.
 
-While higher-level semantics (like `dao.space`) divide the keyspace into:
-- **Segment keys** (content addresses holding immutable data)
-- **Root keys** (mutable references advanced via optimistic concurrency)
+While higher-level semantics (like `dao.space`) divide the keyspace into segment keys (immutable data) and root keys (mutable references), the current `dao.jing.cljc` implementation still defines `canonical`, `content-hash`, `segment-key`, and `key-class`. Furthermore, `dao.jing.dht` depends on key classification for routing.
 
-`dao.jing` treats both simply as opaque keys in a plain map. It does not enforce namespaces, nor does it perform content hashing. The concepts of roots and segments belong entirely in `dao.space.address` (planned extraction; currently in `dao.jing.cljc`), a higher semantic layer for `dao.space` that manages the content addressing mechanism (`canonical`, `content-hash`, `segment-key`).
+This is a current transitional ownership intended for extraction to `dao.space.address`. Rather than `dao.jing` being entirely keyspace-blind today, it temporarily holds this content addressing mechanism. Once extracted, the fold will treat all keys simply as opaque identifiers in a plain map.
 
 ## Structural Ignorance: Format Stability Without the Engine
 
