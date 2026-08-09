@@ -44,11 +44,10 @@ here "the transactor" is not a process but a library duty every agent carries.
 One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
 *realization*: the shared vocabulary a builder and a reader must agree on.
 
-- **The root conventions** — each stream owns its root, `:root/<name>`,
-  enumerated through the membership root (`members-key`, `:root/members`,
-  written at `open!` by the `:transactor` transport, read by `member-keys`;
-  the old shared `default-datoms-key` / `:root/datoms` is removed), and the
-  two root shapes every datom root carries: wholesale `{:datoms [...]}` and
+- **The root conventions** — each stream owns its root, `:root/<name>`, named
+  explicitly by a `dao.space.query/root-source` descriptor. A collection of
+  root sources is the pool a query folds; no shared membership key is written.
+  The two root shapes every datom root carries are wholesale `{:datoms [...]}` and
   owner-built `{:indexes {:eavt <segment-key> :aevt ... :avet ...} :count n}`.
 - **Sort orders** — `eavt-cmp` / `aevt-cmp` / `avet-cmp` over heterogeneous
   values (`compare-vals`: type-ranked, nil-first — entity ids are
@@ -85,15 +84,11 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
 
 ;; the format's readers (every platform)
 (index/read-datoms store some-root-key)         ; either root shape -> datoms
-(index/store-datoms store)                      ; every member root, concatenated
 (index/walk-index-datoms store segment-key)     ; eager node-graph walk
 (index/restored-indexes store indexes)          ; lazy psset re-attach (JVM)
 
 ;; the shared vocabulary
-index/members-key                               ; :root/members
-(index/register-member! store :root/w)          ; open!-time intake
 (index/validate-root-key! :root/w "context")    ; validate root key shape/name
-(index/member-keys store)                       ; sorted member roots
 (index/index-datoms datoms)                     ; in-memory {:eavt :aevt :avet}
 (index/subseq-from sorted-set index/eavt-cmp sentinel)
 (index/compare-vals a b)
@@ -122,7 +117,7 @@ How the pieces compose for a long-lived agent (the write path is
 ;; ... more appends ...
 ;; local indexes are available immediately (dao.space.query reads them)
 (index/publish-index! store :root/w)          ; 2. periodically: persist to dao.jing
-;; other agents now see this data through dao.jing
+;; readers whose explicit pool includes :root/w can consume the persisted indexes
 ```
 
 The two stages mirror Datomic's memory-index → disk-index pipeline, decentralized:
@@ -131,9 +126,10 @@ The two stages mirror Datomic's memory-index → disk-index pipeline, decentrali
   agent's own cache. `dao.space.query` reads these directly — the agent's
   recent writes are queryable without publishing.
 - **Persistent indexes** (content-addressed B-Tree segments in `dao.jing`) are
-  what `publish-index!` produces. Other agents reach this data through
-  `dao.jing`; the local cache and the persisted segments cover the same
-  datoms at different lifecycle stages.
+  what `publish-index!` produces. Other agents consume this persisted indexed
+  representation through `dao.jing`; the underlying datoms were already visible
+  there in wholesale form after append. The local cache and the persisted segments
+  cover the same datoms at different lifecycle stages.
 
 Two interactions are deliberate:
 
@@ -164,14 +160,14 @@ dao.space.index
             ▼
         dao.space.query reads from both layers:
             • local indexes (own agent's recent writes)
-            • persistent indexes in dao.jing (all agents' published data)
+            • persistent indexes in dao.jing (published indexed representations)
 ```
 
 The local indexes and the persisted indexes are the same structure at different
 lifecycle stages — like Datomic's memory-index → disk-index pipeline, but
 decentralized (each agent has its own). `dao.space.query` hits both layers: the
 local cache for the agent's most recent writes, and the persisted segments for
-everything published (its own previously-published data and every other agent's).
+every published indexed representation, whether its own or another agent's.
 
 ```
 dao.space.transactor  ──►  dao.space.index  ◄──  dao.space.query
@@ -188,8 +184,8 @@ dao.space.transactor  ──►  dao.space.index  ◄──  dao.space.query
 - `dao.space.query` requires `dao.space.index` and sheds its
   `persistent-sorted-set` dependency entirely — every psset touchpoint lives
   in the index library.
-- `dao.space.transactor` requires only `dao.space.index` (`read-datoms`,
-  `register-member!`) — the write path does not drag in the Datalog engine.
+- `dao.space.transactor` requires only `dao.space.index` (`read-datoms`, root
+  validation) — the write path does not drag in the Datalog engine.
 - `dao.space.index` requires `dao.jing` and (JVM/cljs) psset; never
   `dao.space.query`. No cycle is possible: realization below, interpretation
   above.

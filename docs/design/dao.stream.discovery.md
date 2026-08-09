@@ -3,9 +3,10 @@
 **Status: proposal.** This document records a design conversation (2026-07) about how
 agents find streams at internet scale. Nothing here is implemented; it exists to pin
 down the mechanisms worth building, the mechanisms explicitly rejected, and why. The
-implemented baseline it extends is the membership root (`:root/members`,
-`src/cljc/dao/space/index.cljc`) — within-store enumeration, written at `open!` by the
-`:transactor` transport and folded by `dao.space.query`.
+implemented baseline it extends is an explicit collection of
+`dao.space.query/root-source` values. That collection is caller-owned intake topology:
+`open!` performs no registration write, and `dao.space.query` folds exactly the supplied
+pool.
 
 **Related documents:**
 - `docs/design/dao.space.md` — the tuple space; *Membership is intake*
@@ -16,16 +17,14 @@ implemented baseline it extends is the membership root (`:root/members`,
 
 ## The Problem
 
-`:root/members` is the degenerate single-store case of discovery, exactly as the old
-shared `:root/datoms` was the degenerate single-stream case of storage. It hits three
-ceilings at scale:
+An explicit root-source pool is the correct local primitive, but it is not itself an
+internet-scale discovery mechanism. It hits three ceilings at scale:
 
-1. **The value grows O(N).** The member set lives inline in one v-map, rewritten
-   wholesale per registration — an unbounded value traveling through `cas!`, the same
-   disease the wholesale datoms root had.
-2. **One cell = one write authority.** Over a DHT, one key means one neighborhood owns
-   it and every join is a consensus round through it: the global transactor,
-   reintroduced at the membership layer.
+1. **The attention set grows O(N).** A reader cannot keep or fold an unbounded pool of
+   root-source descriptors.
+2. **Intake presupposes discovery.** Constructing a root source requires already knowing
+   the stream identity and location; the local primitive deliberately does not answer
+   how a stranger learns them.
 3. **Enumeration stops being meaningful.** "The list of all member streams" is not a
    thing any reader can fold at internet scale, and complete enumeration is only a
    sensible primitive when the space is small enough to fold.
@@ -111,9 +110,9 @@ own stream — `[me :stream/exists true]`, `[me :stream/follows <hash>]`,
 read-side transitive closure of announce/follow datoms from wherever a reader starts.
 Announcements form a grow-set CRDT (datoms merge by union — convergent with no
 coordination, by construction). Reach is bounded by the social graph, which doubles as
-spam defense: an unfollowed announcer is not in anyone's closure. This is the endpoint
-`:root/members` evolves toward: the cell dissolves into datoms, and discovery becomes
-a query.
+spam defense: an unfollowed announcer is not in anyone's closure. This is what can
+produce a reader's explicit source pool: discovery becomes a query over single-writer
+facts rather than mutation of a privileged registry.
 
 ### 4. Rendezvous topics (discovery by interest)
 
@@ -226,8 +225,8 @@ Everything above rests on prerequisites already tracked elsewhere:
    merges, prerequisite for folding strangers' directories.
 3. **Postage design** — what a deposit costs and who verifies it (proof-of-work vs.
    stamps) is unspecified.
-4. **`unregister-member!` / liveness** — even the interim membership root has no
-   eviction story; the stigmergic mechanism (3) needs a liveness convention
+4. **Pool liveness** — explicit source pools need a refresh convention; the stigmergic
+   mechanism (3) needs a liveness convention
    (e.g., announce TTLs as datoms) so dead streams fall out of closures.
 5. **The `:dir/*` and `:stream/*` vocabularies** above are sketches; a resolver-walk
    spec (path syntax, delegation semantics, cycle handling) is unwritten.

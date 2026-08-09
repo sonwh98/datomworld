@@ -149,14 +149,16 @@ The library reads from **two layers**, reflecting the index lifecycle:
   This is the shared layer: other agents' data reaches you through `dao.jing`, never
   through their local indexes.
 
-A query over a single agent's store may hit both layers (local cache for recent appends,
-persisted segments for previously-published data). A federated query over multiple stores
-merges the persistent layers.
+A query over one root source may hit either lifecycle representation (wholesale datoms or
+persisted segments). A query over a source pool merges the named roots, including roots from
+multiple stores.
 
 ```clojure
 (require '[dao.space.query :as query])
 
-;; q — Datalog over all of storage. The design contract is full Datalog
+(def source (query/root-source store :root/worker-7))
+
+;; q — Datalog over the supplied source pool. The design contract is full Datalog
 ;; (joins, negation, aggregation, predicates, recursion); the
 ;; implementation covers it: not/not-join, :find aggregates (count,
 ;; count-distinct, sum, min, max, avg) with :with, predicate/function
@@ -166,15 +168,15 @@ merges the persistent layers.
 (query/q '[:find ?id ?task
            :where [?id :work/status :todo]
                   [?id :work/task ?task]]
-  store)
+  source)
 ;; => #{[id task] ...}
 
 ;; match — a positional datom template (Linda-style), lighter than q
-(query/match store [_ :work/status :todo])   ; => matching datoms
+(query/match source [_ :work/status :todo])   ; => matching datoms
 
 ;; as-of — a read bound: index storage only up to `point`
-(query/q query-form store {:as-of t})
-(query/match store pattern {:as-of (instant "2026-01-01")})
+(query/q query-form source {:as-of t})
+(query/match source pattern {:as-of (instant "2026-01-01")})
 ```
 
 Within a single stream `as-of t` is exact (the stream's own append order). A **cross-stream**
@@ -193,16 +195,15 @@ not a bug, until content addressing is load-bearing enough to derive a stream's 
 
 ```clojure
 ;; Sketch of the library, rebuild-per-query form (pedagogical; not today's path).
-;; `read-datoms` parses B-Tree
-;; segments pulled from dao.jing into datoms — storage has no datoms API of its own.
+;; The source names one root explicitly; storage has no datoms API of its own.
 (ns dao.space.query
   (:require [dao.jing :as store]))   ; the store handle namespace
 
-(defn- fold [store as-of]
-  (index (read-datoms store {:as-of as-of})))   ; build EAVT/AEVT/AVET
+(defn- fold [{:dao.space.query/keys [store root]} as-of]
+  (index (bound-datoms (read-datoms store root) as-of)))
 
-(defn q     [query-form store & {:keys [as-of]}] (run-datalog query-form (fold store as-of)))
-(defn match [store pattern    & {:keys [as-of]}] (scan-pattern  pattern    (fold store as-of)))
+(defn q     [query-form source & {:keys [as-of]}] (run-datalog query-form (fold source as-of)))
+(defn match [source pattern    & {:keys [as-of]}] (scan-pattern pattern (fold source as-of)))
 ```
 
 `dao.jing` holds only the index's immutable byte segments and a mutable root reference — the
@@ -218,8 +219,9 @@ owner-built/peers-merge) is a concern of the layers above storage, realized on
 Realization*. All variants answer identically.
 
 **Current status.** Two root shapes coexist at a stream's root (`:root/<name>`, one per
-stream, enumerated by the `:root/members` membership root; the old shared
-`:root/datoms` is removed). The
+stream). A reader names one root with `(query/root-source store :root/<name>)`; a
+collection of these descriptors is the explicit pool a query folds. No shared membership
+root exists. The
 baseline holds a stream's full datom vector wholesale (`{:datoms [...]}`) and folds it into a
 fresh in-memory index on every query — the "rebuild per query" strategy ("kept only as the
 conceptual baseline"; see [`dao.space.query.md`](dao.space.query.md), *Index Realization*),
@@ -243,9 +245,10 @@ dimensions are specified, not implemented — see *Lineage*); see *Index Realiza
 `q` and `match`'s second argument is a **source**, not narrowly a `dao.jing` handle. The
 library must accept, interchangeably:
 
-- **A single `dao.jing` handle** — the case above; `fold` pulls B-Tree segments through
-  `read-datoms` and indexes them.
-- **A collection of `dao.jing` handles** — a *federated* query over several stores at once,
+- **A single explicit root source** — `(query/root-source store :root/<name>)`; `fold`
+  pulls B-Tree segments from exactly that root through `read-datoms` and indexes them.
+- **A collection of root sources** — the explicit stream pool, and a *federated* query
+  when its descriptors name roots in several stores,
   e.g. a local file-backed handle plus a peer's DHT handle. This is not a new mechanism: ADR 0001's
   monoid-homomorphism proof (`index(S₁ ⊎ … ⊎ Sₙ) = merge(index(S₁), …, index(Sₙ))`) already
   establishes that folding N stores and merging is the same index as one store holding
@@ -275,9 +278,12 @@ is by definition not shared. Source polymorphism is an ergonomic property of the
 (defn- source->datoms
   [source as-of]
   (cond
-    (dao-jing-handle? source) (read-datoms source {:as-of as-of})
-    (and (coll? source) (every? dao-jing-handle? source))
-    (mapcat #(read-datoms % {:as-of as-of}) source)
+    (root-source? source) (read-datoms (:dao.space.query/store source)
+                                       (:dao.space.query/root source))
+    (and (coll? source) (every? root-source? source))
+    (mapcat #(read-datoms (:dao.space.query/store %)
+                          (:dao.space.query/root %))
+            source)
     (and (coll? source) (every? vector? source)) source          ; already datoms
     (and (coll? source) (every? map? source)) (entity-maps->datoms source)
     :else (throw (ex-info "unrecognized query source" {:source source}))))
@@ -285,18 +291,17 @@ is by definition not shared. Source polymorphism is an ergonomic property of the
 (defn- fold [source as-of] (index (source->datoms source as-of)))
 ```
 
-### Global match and scoping
+### Pool-wide match and scoping
 
-The library reads `dao.jing`, and `dao.jing` is the *global* repository, so any interpreter
-that embeds the library matches over **everything** by default — global, associative,
-addressed by content, never by producer. That global reach is the identity of a tuple space;
-the per-interpreter *embedding* of the library does not scope it, because the *storage* it
-reads is shared.
+The library reads an explicit pool of root sources. Within that pool it matches over
+**everything** by default: associative, addressed by content, never by producer. Pool
+construction is intake topology, expressed as data; matching remains content-addressed.
+There is no hidden global registry and no storage key whose mutation changes membership.
 
 Two different things hide under "scoping," and only one is a security mechanism.
 
-**Relevance / performance scoping** is a **predicate over content** inside the query — never
-an enumeration of producers. A scoped view is "the datoms matching `P`," where `P` names
+**Relevance / performance scoping within a pool** is a **predicate over content** inside the
+query. A scoped view is "the datoms matching `P`," where `P` names
 shapes (`[?e :work/* ?v]`), so the reader still surfaces tuples from writers it never heard
 of. This is a *trusted* reader choosing to look at less; it is **not** security — choosing to
 read less never stops you from reading more.
@@ -372,19 +377,20 @@ into a traversal-IR back-end) is a direction, not yet specified here.
 ## The Write Path
 
 The read side is matching; the write side is how datoms get into the shared medium. A datom
-enters by being appended to a `dao.stream` member log — an append-only file the writer owns
+enters by being appended to a writer-owned `dao.stream` — an append-only log the writer owns
 and never edits in place. Opening a log is what makes a writer a participant: it attaches a
 feeding stream to the space; closing it detaches. This is the mechanics behind the
 generative-communication move described in the intro (deposit by appending, name no
 recipient) and behind the decentralized Transactor of [Three Boundaries](#three-boundaries).
 
-### Membership is intake, not identity
+### Intake is explicit topology, not identity
 
-**Membership** names which streams currently feed the space at a given moment — a write-path
-concern, not the space's identity. The space is the shared, queryable medium of the datoms
-those streams have contributed, not "a set of streams": streams join and leave at runtime,
-while the medium persists. (Storage, [`dao.jing`](dao.jing.md), is the dumb store the streams
-feed; the read side never sees the streams, only the bytes in storage.)
+**Intake** names which stream roots a reader currently folds — topology, not the space's
+identity and not a mutable storage record. It is an explicit collection of
+`query/root-source` values. Pools may change at runtime by producing a new collection, while
+each root and its materialized history persist independently. Storage,
+[`dao.jing`](dao.jing.md), remains the dumb materialization; it never interprets or registers
+pool membership.
 
 Because each writer owns a single-writer log, two agents never write the same stream. If
 1,000 agents want to send messages to one recipient, they append to 1,000 distinct
@@ -404,9 +410,10 @@ but without a central transactor process:
 2. **Persistent indexes** — when the agent runs
    [`dao.space.index/publish-index!`](dao.space.index.md), the local indexes are serialized
    as immutable, content-addressed B-Tree segments and stored in `dao.jing`. The root
-   advances to the `{:indexes ...}` manifest. Other agents now see this data through
-   `dao.jing`; the local cache and the persisted segments cover the same datoms at
-   different lifecycle stages.
+   advances to the `{:indexes ...}` manifest. Other agents can now consume the
+   persisted covered indexes through `dao.jing`; the underlying datoms were already
+   visible there in wholesale form after append. The local cache and the persisted
+   segments cover the same datoms at different lifecycle stages.
 
 Publishing is an acceleration, never a semantic change for `q`/`match` — readers answer
 identically over a wholesale root, a local index, or a persisted index — and the stages
@@ -448,8 +455,8 @@ broker, no message-format negotiation, and no leader election.
 
 The worker loop below reads with `query/q` and writes with `ds/append!` — two different
 concurrency models. `append!` is a per-root CAS: an agent's own write is immediately durable
-and visible to any reader that re-folds. `q` folds every member root fresh on each call, so a
-claim becomes visible to *other* workers only once they re-query after the claim's `append!`
+and visible to any reader whose pool includes that root. `q` folds every root source fresh on
+each call, so a claim becomes visible to *other* workers only once they re-query after the claim's `append!`
 returns — there is no push, no shared read-your-writes guarantee across agents.
 
 **The example below is runnable.** Every former blocker is implemented: `match`/`q` mask
@@ -459,10 +466,9 @@ retracted datoms and supersede cardinality-one values at query time via `current
 clause executes as written; and `{:type :transactor :store store :name ...}` is a
 registered `dao.stream` type (`dao.space.transactor`) whose `ds/append!` deposits an entity map
 or datom vector into the stream's **own** root, `:root/<name>` — each stream a single-writer
-log, no shared write surface. `open!` registers the root in the store's membership root
-(`:root/members`, the intake record of *Membership is intake*, above), and the query library
-folds every member root and merges (the old shared `:root/datoms` is removed; a store seeded
-directly must register its root via `index/register-member!`). Entity-id namespace stamping
+log, no shared write surface. `open!` writes no registration record. The caller constructs an
+explicit pool of `query/root-source` values, and the query library folds those roots and
+merges them. Entity-id namespace stamping
 (`[stream-ns offset]`, Ruling 3 of `dao.space.query.md`) is still pending, so cross-stream
 `:db/id` collision remains the documented open gap until the kickoff-hash namespace lands.
 One layering note stands: `dao.jing`'s
@@ -473,18 +479,19 @@ though the write path now runs top-down:
 ```clojure
 (defn producer [store]
   (let [log (ds/open! {:type :transactor :store store :name "producer"})]
-    (ds/append! log {:db/id (random-id) :work/posted true :work/task "process payment"})))
+    (ds/append! log {:db/id (random-id) :work/posted true :work/task "process payment"})
+    (query/root-source store :root/producer)))
 
-(defn worker [store worker-id]
+(defn worker [store worker-id pool]
   (let [log (ds/open! {:type :transactor :store store :name worker-id})]
     (loop []
-      ;; "posted work nothing has claimed" — negation + join over the whole store,
+      ;; "posted work nothing has claimed" — negation + join over the explicit pool,
       ;; the query that justifies a tuple space (not a per-datom scan).
       (let [work (query/q '[:find ?w ?task
                             :where [?w :work/posted true]
                                    [?w :work/task ?task]
                                    (not [_ :work/claims ?w])]
-                   store)]
+                   pool)]
         (when-let [[?w task] (first work)]
           (ds/append! log {:db/id (random-id) :work/claims ?w :work/by worker-id})
           (ds/append! log {:db/id (random-id) :work/result (process task)})
@@ -527,8 +534,8 @@ Unlike Datomic, `dao.space.query/q` is specified to match over n-tuples of any d
 just the datom shape; the implementation today is still datom-shaped (`match` and `q` pad
 positional templates to `max-slot-arity` via `pad-slots` and unify against 5- and 6-tuples),
 so general n-tuple matching is spec, not yet implemented. Raising that ceiling is a one-constant
-change (`dao.space.query/max-slot-arity`), which is why the shape generalizes by appending. Matching stays global by default,
-because a coordination medium for strangers must let any reader match the whole store, not
+change (`dao.space.query/max-slot-arity`), which is why the shape generalizes by appending. Matching covers the supplied pool by default,
+because a coordination medium for strangers must let any reader match the whole pool, not
 only what it bound.
 
 The other two traditions live in the layers below and have their own docs:
@@ -541,5 +548,5 @@ The other two traditions live in the layers below and have their own docs:
 The synthesis: **`dao.space` is the tuple space that emerges when agents index their streams
 (via `dao.space.index`, persisting covered indexes in `dao.jing`) and match over the result
 (via the `dao.space.query` Peer library).** Indexing creates queryable structure from raw
-appends; matching finds content associatively across every agent's published data; the tuple
+appends; matching finds content associatively across every agent's visible data; the tuple
 space is the coordination these two moves compose.

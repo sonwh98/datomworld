@@ -3,11 +3,10 @@
   `{:type :transactor :store <jing> :name \"producer\"}` attaches a feeding
   stream to the space (docs/design/dao.space.md, The Write Path):
   the stream owns its own root, `:root/<name>` (an explicit `:key`
-  overrides), and `open!` registers that root in the store's membership
-  root (`index/members-key`) so readers can enumerate the space.
+  overrides). Readers name that root explicitly in their source pool.
   `ds/append!` deposits an entity map or datom vector as datoms into the
-  stream's root, where `dao.space.query`'s `q`/`match` — which fold every
-  member root — immediately see them. This is the generative-communication
+  stream's root, where `dao.space.query`'s `q`/`match` immediately see them
+  when given that root source. This is the generative-communication
   move: deposit, name no recipient; and the single-writer log: no shared
   write surface, no cross-agent contention.
 
@@ -234,7 +233,7 @@
           ":transactor descriptor requires a :name (or :key) — the stream's root is :root/<name>"
           {:descriptor descriptor})))
     (let [k (or datoms-key (keyword "root" (str stream-name)))]
-      (index/register-member! store k)
+      (index/validate-root-key! k ":transactor open!")
       (->DaoStreamLog store k stream-name (atom {:closed false})))))
 
 

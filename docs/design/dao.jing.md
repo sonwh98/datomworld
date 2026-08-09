@@ -292,7 +292,10 @@ In exchange for banning in-place updates, fine-grained retrieval, and storage-le
 While higher layers structure their keyspace into segments, roots, and index manifests, to `dao.jing` these are all just `:cas` records folded into the materialization target.
 
 - **Storage roots today:** Higher layers store one mutable key per stream and ship segments into the store. Each stream's semantic root holds either the stream's full datom vector wholesale or an owner-built index manifest whose values point at immutable, content-addressed B-Tree node segments.
-- **Member layout and discovery.** A stream owner publishes its semantic root by appending a `:cas` record to its stream via `ds/append!`. Discovery happens via a membership root, written once per stream at `open!`.
+- **Stream layout and intake.** A stream owner publishes its semantic root by appending a
+  `:cas` record to its stream via `ds/append!`. `dao.jing` performs no registration or
+  discovery. A reader supplies an explicit pool of `dao.space.query/root-source` values;
+  discovery mechanisms may produce such pools above the storage boundary.
 - **Querying (reader side).** A read resolves keys either directly from the materialization target (e.g. `clojure.core/get` on a map) or via `dao.stream.apply` request/response streams. Concurrent writes to the stream never disturb an in-flight read against a target with snapshot isolation.
 - **Compaction / GC.** In the file stream implementation, compaction is a local garbage-collection concern. Dead records in the append-only log are filtered out and a new log is written, reclaiming space.
 - **Encoding: canonical bytes are unbuilt.** Where a higher layer mints a content-derived segment key, today's implementation hashes an order-normalized `pr-str` print. Moving to a true canonical flat encoding (like Eve Flat) is a planned semantic follow-up.

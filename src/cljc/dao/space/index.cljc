@@ -11,10 +11,9 @@
 
   It owns the index *realization* both sides share:
 
-    - the root conventions: each stream owns `:root/<name>`, enumerated
-      through the membership root (`members-key`, written at open! by the
-      `:transactor` transport, read by `member-keys`). Every datom root
-      carries one of two shapes,
+    - the root conventions: each stream owns `:root/<name>`, named explicitly
+      by the query source that consumes it. Every datom root carries one of
+      two shapes,
       wholesale `{:datoms [...]}` or owner-built
       `{:indexes {:eavt <segment-key> :aevt ... :avet ... :vaet ...} :count n}`
     - the sort orders (`eavt-cmp`/`aevt-cmp`/`avet-cmp`/`vaet-cmp` over
@@ -36,18 +35,9 @@
             [dao.jing :as jing]))
 
 
-(def members-key
-  "The membership root: `{:members #{:root/<name> ...}}`, the set of stream
-  roots currently feeding this store's space. Written by the write path at
-  open! (membership is intake, docs/design/dao.space.md); read by
-  member-keys to enumerate the roots a query folds. The one shared cas!
-  cell left, touched only when a stream attaches — never per append."
-  :root/members)
-
-
 (defn validate-root-key!
   "Throw if `k` is not a valid stream root key. `context` is prepended to the
-  error message (e.g. \"open!\" or \"register-member!\")."
+  error message."
   [k context]
   (when-not (keyword? k)
     (throw (ex-info (str context " requires a keyword key") {:key k})))
@@ -55,35 +45,7 @@
     (throw (ex-info (str context " requires a :root/<name> key") {:key k})))
   (when (= "" (name k))
     (throw (ex-info (str context " requires a non-empty :root/<name> key")
-                    {:key k})))
-  (when (= members-key k)
-    (throw (ex-info
-             (str context " cannot target the membership root: " members-key)
-             {:key k}))))
-
-
-(defn register-member!
-  "Add a stream root key to the store's membership root. Idempotent;
-  retries a lost cas! (open!-time contention is rare and bounded)."
-  [store k]
-  (validate-root-key! k "register-member!")
-  (loop []
-    (let [root (jing/get store members-key jing/absent)
-          members (if (= jing/absent root) #{} (or (:members root) #{}))]
-      (or (contains? members k)
-          ;; guard on the whole root as read: the members set only ever
-          ;; grows, so it can never recur and the value is a sound CAS
-          ;; token
-          (jing/cas! store members-key root {:members (conj members k)})
-          (recur)))))
-
-
-(defn member-keys
-  "Every datom-bearing root in the store, sorted by name. This is the
-  enumeration a query folds — the handle has no scan, so reachability starts
-  from the membership root."
-  [store]
-  (sort (:members (jing/get store members-key nil))))
+                    {:key k}))))
 
 
 ;; =============================================================================
@@ -346,13 +308,6 @@
   [store datoms-key]
   (validate-root-key! datoms-key "read-datoms")
   (:datoms (read-root store datoms-key)))
-
-
-(defn store-datoms
-  "Every datom reachable in the store: read-datoms over each member root
-  (see member-keys), concatenated. The store-wide read a query folds."
-  [store]
-  (mapcat #(read-datoms store %) (member-keys store)))
 
 
 (defn restored-indexes

@@ -2,8 +2,8 @@
   "Contract tests for dao.space.query: the pure, stateless match/q/pull
   library specified in docs/design/dao.space.md and docs/datomic-pull.md.
   Exercises the four source shapes the design doc's Source Polymorphism
-  section requires — a single dao.jing handle, a collection of dao.jing
-  handles (federated query, justified by ADR 0001's monoid homomorphism),
+  section requires — an explicit dao.jing root source, a collection of root
+  sources (federated query, justified by ADR 0001's monoid homomorphism),
   a raw vector of datoms, and a raw vector of entity maps — plus mixes of
   them, and pull's schema-free entity-projection contract."
   (:require [clojure.test :refer [deftest is testing]]
@@ -93,35 +93,49 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; match / q over a single dao.jing handle
+;; match / q over an explicit dao.jing root source
 ;; ---------------------------------------------------------------------------
 
 (defn- seed!
-  "Write datoms into a dao.jing handle under dao.space.query's read
-  convention, as a stream owner would (dao.space.query itself never
-  writes; see its ns docstring)."
+  "Write datoms into an explicit root and return its query source."
   [store datoms]
-  (index/register-member! store :root/test)
-  (jing/cas! store :root/test jing/absent {:datoms datoms}))
+  (jing/cas! store :root/test jing/absent {:datoms datoms})
+  (query/root-source store :root/test))
 
 
-(deftest q-over-a-single-dao-jing-handle
-  (testing "a dao.jing handle is read through the :root/datoms convention"
+(deftest q-over-an-explicit-root-source
+  (testing "a root source names the jing materialization and root explicitly"
+    (let [store (mem/create-kv-mem)]
+      (let [source (seed! store sample-datoms)]
+        (is (= {:dao.space.query/store store, :dao.space.query/root :root/test}
+               source))
+        (is (= #{[1 "write tests"] [2 "ship it"]}
+               (query/q '[:find ?id ?task :where [?id :work/task ?task]]
+                        source)))))))
+
+
+(deftest bare-dao-jing-handle-has-no-implicit-membership
+  (testing "a bare jing handle cannot imply which roots belong to a query"
     (let [store (mem/create-kv-mem)]
       (seed! store sample-datoms)
       (is (= #{[1 "write tests"] [2 "ship it"]}
              (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                      store))))))
+                      (query/root-source store :root/test))))
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"explicit root source"
+            (query/q '[:find ?id :where [?id _ _]] store))))))
 
 
-(deftest match-over-a-single-dao-jing-handle
+(deftest match-over-an-explicit-root-source
   (let [store (mem/create-kv-mem)]
-    (seed! store sample-datoms)
-    (is (= 1 (count (query/match store [1 :work/status '_]))))
-    (is
-      (= [[1 :work/status :todo 0 1]] (query/match store ['_ '_ :todo]))
-      "v-only match exercises the in-memory VAET built from the
-        wholesale root's :datoms")))
+    (let [source (seed! store sample-datoms)]
+      (is (= 1 (count (query/match source [1 :work/status '_]))))
+      (is
+        (= [[1 :work/status :todo 0 1]] (query/match source ['_ '_ :todo]))
+        "v-only match exercises the in-memory VAET built from the
+        wholesale root's :datoms"))))
 
 
 ;; A v-only match against a wholesale root only exercises the in-memory
@@ -130,50 +144,54 @@
 ;; guard) — the only way to prove the persisted-VAET path works.
 #?(:cljd nil
    :clj (deftest v-only-match-reaches-the-published-vaet
-          (let [store (mem/create-kv-mem)]
-            (seed! store sample-datoms)
+          (let [store (mem/create-kv-mem)
+                source (seed! store sample-datoms)]
             (index/publish-index! store :root/test)
             (is (= #{[1 :work/status :todo 0 1]}
-                   (set (query/match store ['_ '_ :todo]))))
+                   (set (query/match source ['_ '_ :todo]))))
             (is (= 1
                    (count (query/q '[:find ?e :where [?e :work/status :todo]]
-                                   store)))))))
+                                   source)))))))
 
 
-(deftest empty-dao-jing-handle-yields-no-datoms
+(deftest empty-root-source-yields-no-datoms
   (testing "an unseeded store contributes nothing, not an error"
     (let [store (mem/create-kv-mem)]
-      (is (= [] (query/match store ['_ '_ '_])))
-      (is (= #{} (query/q '[:find ?e :where [?e _ _]] store))))))
+      (is (= [] (query/match (query/root-source store :root/empty) ['_ '_ '_])))
+      (is (= #{}
+             (query/q '[:find ?e :where [?e _ _]]
+                      (query/root-source store :root/empty)))))))
 
 
 ;; ---------------------------------------------------------------------------
-;; match / q over MULTIPLE dao.jing handles (federated)
+;; match / q over a pool of root sources (federated)
 ;; ---------------------------------------------------------------------------
 
-(deftest q-over-multiple-dao-jing-handles
+(deftest q-over-multiple-root-sources
   (testing
     "a collection of stores folds and merges, per ADR 0001's monoid
            homomorphism: index(S1 ⊎ S2) = merge(index(S1), index(S2))"
     (let [a (mem/create-kv-mem)
-          b (mem/create-kv-mem)]
-      (seed! a [[1 :work/status :todo 0 1] [1 :work/task "a" 0 1]])
-      (seed! b [[2 :work/status :done 0 1] [2 :work/task "b" 0 1]])
+          b (mem/create-kv-mem)
+          source-a (seed! a [[1 :work/status :todo 0 1] [1 :work/task "a" 0 1]])
+          source-b (seed! b
+                          [[2 :work/status :done 0 1] [2 :work/task "b" 0 1]])]
       (is (= #{[1 "a"] [2 "b"]}
-             (query/q '[:find ?id ?task :where [?id :work/task ?task]] [a b])))
+             (query/q '[:find ?id ?task :where [?id :work/task ?task]]
+                      [source-a source-b])))
       (testing "querying each store alone yields a strict subset"
         (is (= #{[1 "a"]}
                (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                        a)))))))
+                        source-a)))))))
 
 
-(deftest match-over-multiple-dao-jing-handles
+(deftest match-over-multiple-root-sources
   (let [a (mem/create-kv-mem)
-        b (mem/create-kv-mem)]
-    (seed! a [[1 :work/status :todo 0 1]])
-    (seed! b [[2 :work/status :todo 0 1]])
+        b (mem/create-kv-mem)
+        source-a (seed! a [[1 :work/status :todo 0 1]])
+        source-b (seed! b [[2 :work/status :todo 0 1]])]
     (is (= #{[1 :work/status :todo 0 1] [2 :work/status :todo 0 1]}
-           (set (query/match [a b] ['_ :work/status :todo]))))))
+           (set (query/match [source-a source-b] ['_ :work/status :todo]))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -272,12 +290,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest mixed-source-collection
-  (testing "a dao.jing handle and a raw datom vector fold together"
+  (testing "a root source and a raw datom vector fold together"
     (let [store (mem/create-kv-mem)]
-      (seed! store [[1 :work/status :todo 0 1]])
-      (is (= #{[1] [2]}
-             (query/q '[:find ?id :where [?id :work/status :todo]]
-                      [store [[2 :work/status :todo 0 1]]]))))))
+      (let [source (seed! store [[1 :work/status :todo 0 1]])]
+        (is (= #{[1] [2]}
+               (query/q '[:find ?id :where [?id :work/status :todo]]
+                        [source [[2 :work/status :todo 0 1]]])))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -317,15 +335,15 @@
 ;; Cross-backend: dao.jing.file (persistent, cross-platform)
 ;; ---------------------------------------------------------------------------
 
-(deftest q-over-a-file-backed-dao-jing-handle
+(deftest q-over-a-file-backed-root-source
   (testing
     "the query library is backend-agnostic: KVFile works exactly like KVMem"
     (let [path (str "target/query-test-" (random-uuid) ".db")
           store (file/create-kv-file path)]
-      (try (seed! store sample-datoms)
-           (is (= #{[1 "write tests"] [2 "ship it"]}
-                  (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                           store)))
+      (try (let [source (seed! store sample-datoms)]
+             (is (= #{[1 "write tests"] [2 "ship it"]}
+                    (query/q '[:find ?id ?task :where [?id :work/task ?task]]
+                             source))))
            (finally (jing/close! store)
                     #?(:clj (.delete (java.io.File. path))
                        :cljs (.unlinkSync (js/require "fs") path)
@@ -346,16 +364,19 @@
        "as-of and federated queries fall back to the eager walk and
               stay correct over an indexed root"
        (let [a (mem/create-kv-mem)
-             b (mem/create-kv-mem)]
-         (seed! a [[1 :work/status :todo 0 1] [1 :work/status :done 5 1]])
+             b (mem/create-kv-mem)
+             source-a (seed! a
+                             [[1 :work/status :todo 0 1]
+                              [1 :work/status :done 5 1]])
+             source-b (seed! b [[2 :work/status :todo 0 1]])]
          (index/publish-index! a :root/test)
-         (seed! b [[2 :work/status :todo 0 1]])
-         (is (=
-               #{[:todo]}
-               (query/q '[:find ?v :where [1 :work/status ?v]] a {:as-of 0})))
+         (is (= #{[:todo]}
+                (query/q '[:find ?v :where [1 :work/status ?v]]
+                         source-a
+                         {:as-of 0})))
          (is (= #{[1] [2]}
                 (query/q '[:find ?e :where [?e :work/status :todo]]
-                         [a b])))))))
+                         [source-a source-b])))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1424,16 +1445,16 @@
 ;; `:_attr` correctly, not just the eager in-memory one.
 #?(:cljd nil
    :clj (deftest pull-reverse-reaches-the-published-index
-          (let [store (mem/create-kv-mem)]
-            (seed! store pull-nested-datoms)
+          (let [store (mem/create-kv-mem)
+                source (seed! store pull-nested-datoms)]
             (index/publish-index! store :root/test)
-            (let [result (query/pull store 3 [:name {:_friend [:name]}])
+            (let [result (query/pull source 3 [:name {:_friend [:name]}])
                   friends (sort-by :db/id (:_friend result))]
               (is (= "Charlie" (:name result)))
               (is (= 2 (count friends)))
               (is (= "Alice" (:name (first friends))))
               (is (= "Bob" (:name (second friends)))))
-            (let [flat (query/pull store 2 [:name :_friend])]
+            (let [flat (query/pull source 2 [:name :_friend])]
               (is (= "Bob" (:name flat)))
               (is (= [{:db/id 1}]
                      (mapv #(select-keys % [:db/id]) (:_friend flat))))))))

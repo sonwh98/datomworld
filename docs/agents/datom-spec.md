@@ -348,7 +348,7 @@ finds no claim for an entity whose claim datom is a 5-tuple, and the negation pa
 produce uniform relations by construction; nothing enforces it for a hand-built source.
 
   Status. Three separate gaps, none of them blocking the others:
-    1. Stamping. dao.space.index/store-datoms folds every member root without attaching a
+    1. Stamping. dao.space.query folds an explicit pool of root sources without attaching a
        namespace, because a stream's kickoff hash is not yet derived (see
        docs/design/dao.jing.md, "Namespace stamping"). Until it lands, multi-root folds
        carry the collision described above.

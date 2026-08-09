@@ -28,7 +28,7 @@ The division of labor is strict: content addressing and storage semantics (`cont
 `dao.jing` itself is keyspace-ignorant (see `dao.jing.md`, *Keyspace Ignorance*). But the distributed backend routes on key namespaces because segments and roots require entirely different networking strategies.
 
 - **Segment keys** (`:segment/sha256-<hash>`) are content addresses. They hold immutable byte maps (e.g., B-Tree nodes). Identical content mints the same key. The DHT backend routes by `k`, and a fetching node can verify that received bytes hash to `k`, giving integrity checking against untrusted peers for free.
-- **Root keys** (`:root/<name>`) are stream-specific mutable references, updated via `[k :cas expected v]` append records in a stream. They point to the latest state (e.g., the root node of an index B-Tree). How a remote reader discovers which stream holds the root it wants is a `dao.space` membership concern (see `dao.jing.md`, Current Scope — membership root written at `open!`); not addressed here. 
+- **Root keys** (`:root/<name>`) are stream-specific mutable references, updated via `[k :cas expected v]` append records in a stream. They point to the latest state (e.g., the root node of an index B-Tree). A query names roots explicitly with `dao.space.query/root-source`; how a remote reader discovers which root sources belong in its pool remains a `dao.space` concern above this backend.
 
 ## Stream Replication (Roots)
 

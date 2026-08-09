@@ -17,21 +17,18 @@
   Query Library\" and \"Source Polymorphism\".
 
   A source is, interchangeably (and freely mixed in a collection):
-    - a single `dao.jing` storage handle
-    - a collection of `dao.jing` handles (a federated query — ADR 0001's
+    - an explicit `(root-source jing-handle :root/name)` descriptor
+    - a collection of root sources (a federated query — ADR 0001's
       monoid-homomorphism proof is why folding N stores and merging equals
       one store holding everything)
     - a raw vector of datoms, `[[e a v t m] ...]`
     - a raw vector of entity maps, `[{:attr val ...} ...]`
 
-  Reading a `dao.jing` handle folds every member root
-  (`index/member-keys`: each stream's own `:root/<name>` as registered in
-  `index/members-key`) and
-  supports both root shapes per member: the wholesale `{:datoms [...]}`
+  Reading a root source folds exactly the named `:root/<name>` and supports
+  both root shapes: the wholesale `{:datoms [...]}`
   baseline, folded into a fresh in-memory index per query, and the
-  owner-built `{:indexes ...}` manifest, restored lazily on the JVM when
-  it is the store's sole member and walked eagerly everywhere else (see
-  dao.space.index).
+  owner-built `{:indexes ...}` manifest, restored lazily when it is the sole
+  root source and walked eagerly for source pools (see dao.space.index).
 
   Current-state resolution (masking retracted datoms and superseding
   cardinality-one values) is resolved dynamically at query time using
@@ -72,12 +69,32 @@
   (and (map? x) (some #(contains? x %) [:stream :target :call-fn :get-fn])))
 
 
+(defn root-source
+  "Name one stream root in one dao.jing materialization. A collection of
+  these plain-data descriptors is the explicit pool a federated query folds."
+  [store root]
+  (when-not (dao-jing-handle? store)
+    (throw (ex-info "root-source requires a dao.jing handle" {:store store})))
+  (index/validate-root-key! root "root-source")
+  {::store store, ::root root})
+
+
+(defn- root-source?
+  [x]
+  (and (map? x) (contains? x ::store) (contains? x ::root)))
+
+
+(defn- root-source-datoms
+  [{::keys [store root]}]
+  (index/read-datoms store root))
+
+
 (declare source->datoms)
 
 
 (defn- coll-source->datoms
   [source]
-  (cond (every? dao-jing-handle? source) (mapcat index/store-datoms source)
+  (cond (every? root-source? source) (mapcat root-source-datoms source)
         (every? vector? source) source
         (every? map? source) (entity-maps->datoms source)
         :else (mapcat source->datoms source)))
@@ -85,10 +102,14 @@
 
 (defn source->datoms
   "Fold any source shape (see ns docstring) into a flat seq of datoms.
-  A dao.jing handle reads every member root (index/member-keys), so all
-  streams feeding the store are folded, never a single privileged root."
+  Root reachability is explicit: a root source reads exactly one named root,
+  and a collection of root sources is the pool to merge."
   [source]
-  (cond (dao-jing-handle? source) (index/store-datoms source)
+  (cond (root-source? source) (root-source-datoms source)
+        (dao-jing-handle? source)
+        (throw (ex-info "dao.jing handles require an explicit root source"
+                        {:source source,
+                         :example '(root-source store :root/name)}))
         (coll? source) (coll-source->datoms source)
         :else (throw (ex-info "unrecognized query source" {:source source}))))
 
@@ -102,20 +123,19 @@
 
 (defn fold
   "Fold a source into an index, optionally bounded to datoms with t <= as-of.
-  A single dao.jing handle whose root carries an owner-built manifest
+  A single root source whose root carries an owner-built manifest
   (`{:indexes {...} :count n}`) folds lazily on every platform (nothing
   loaded until traversal, dao.data.btree restore-tree); every other shape —
   as-of bounds, federated collections, raw vectors — takes the eager path
   (for `:indexes` roots, via walk-index-datoms)."
   ([source] (fold source nil))
   ([source as-of]
-   (or (when (dao-jing-handle? source)
-         ;; single-handle: when the store has exactly one member
-         ;; root holding a complete manifest, restore it lazily;
-         ;; multiple members take the eager merge (k-way lazy
+   (or (when (root-source? source)
+         ;; A single explicit root holding a complete manifest restores
+         ;; lazily; source pools take the eager merge (k-way lazy
          ;; merge is the documented gap, see dao.space.query.md)
-         (let [ks (index/member-keys source)
-               manifest (when (= 1 (count ks)) (jing/get source (first ks) nil))
+         (let [{::keys [store root]} source
+               manifest (jing/get store root nil)
                indexes (:indexes manifest)]
            (if (and (nil? as-of)
                     ;; a complete manifest only: an empty published
@@ -125,8 +145,8 @@
                     ;; §5.1), must not reach the lazy path
                     (int? (:count manifest))
                     (every? #(some? (get indexes %)) [:eavt :aevt :avet :vaet]))
-             (index/restored-indexes source manifest)
-             (-> (index/store-datoms source)
+             (index/restored-indexes store manifest)
+             (-> (index/read-datoms store root)
                  (bound-datoms as-of)
                  index/index-datoms))))
        (-> (source->datoms source)

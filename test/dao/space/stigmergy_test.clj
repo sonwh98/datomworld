@@ -11,9 +11,8 @@
   :transactor and q/match work over it unmodified. JVM-only (blocking rpc,
   file store, wall-clock).
 
-  The space persists after the run for inspection at target/stigmergy-space.db:
-    (query/q '[:find ?e ?a ?v :where [?e ?a ?v]]
-             (file/create-kv-file \"target/stigmergy-space.db\"))"
+  The space persists after the run for inspection at target/stigmergy-space.db;
+  query its agent roots through explicit query/root-source descriptors."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [dao.datom :as datom]
@@ -101,6 +100,11 @@
   (ds/open! {:type :transactor, :store store, :name agent-id}))
 
 
+(defn- source-pool
+  [store & agent-ids]
+  (mapv #(query/root-source store (keyword "root" %)) agent-ids))
+
+
 ;; ---------------------------------------------------------------------------
 ;; The read conventions, as plain query forms.
 ;; ---------------------------------------------------------------------------
@@ -159,6 +163,8 @@
       (let [producer (open-agent remote "producer")
             glm (open-agent remote "worker-glm")
             deepseek (open-agent remote "worker-deepseek")
+            source
+            (source-pool remote "producer" "worker-glm" "worker-deepseek")
             {t1 :e} (put-entity! producer
                                  "producer"
                                  {:task/posted true, :task/title "haiku"})
@@ -167,13 +173,13 @@
                                  {:task/posted true, :task/title "limerick"})
             now (System/currentTimeMillis)]
         (testing "workers discover posted work associatively"
-          (is (= #{[t1 "haiku"] [t2 "limerick"]} (available remote now))))
+          (is (= #{[t1 "haiku"] [t2 "limerick"]} (available source now))))
         (testing "a claim is a deposit on the claimant's own stream"
           (put-entity! glm
                        "worker-glm"
                        {:claim/task t1, :claim/by "worker-glm"})
           (is (= #{[t2 "limerick"]}
-                 (available remote (System/currentTimeMillis)))))
+                 (available source (System/currentTimeMillis)))))
         (testing
           "a racing claim is recorded as a fact, never rejected;
                   the [t agent] rule picks one winner for every reader"
@@ -181,9 +187,9 @@
           (put-entity! deepseek
                        "worker-deepseek"
                        {:claim/task t1, :claim/by "worker-deepseek"})
-          (is (= 2 (count (query/q claims-q remote t1)))
+          (is (= 2 (count (query/q claims-q source t1)))
               "both claims are durable facts")
-          (is (= "worker-glm" (winner remote t1 (System/currentTimeMillis)))))
+          (is (= "worker-glm" (winner source t1 (System/currentTimeMillis)))))
         (testing "the winner deposits the result; the task settles"
           (put-entity! glm
                        "worker-glm"
@@ -191,13 +197,13 @@
                         :result/by "worker-glm",
                         :result/output "tuples drift like leaves"})
           (is (= #{[t2 "limerick"]}
-                 (available remote (System/currentTimeMillis))))
+                 (available source (System/currentTimeMillis))))
           (is (= #{["tuples drift like leaves"]}
-                 (query/q results-q remote t1))))
+                 (query/q results-q source t1))))
         (testing "provenance: every entity carries its writer's stamp"
           (is (set/subset? #{["producer"] ["worker-glm"] ["worker-deepseek"]}
                            (query/q '[:find ?a :where [?e :dao/agent ?a]]
-                                    remote))))))))
+                                    source))))))))
 
 
 (deftest claim-leases
@@ -206,6 +212,8 @@
       (let [poster (open-agent remote "lease-poster")
             slow (open-agent remote "worker-slow")
             fresh (open-agent remote "worker-fresh")
+            source
+            (source-pool remote "lease-poster" "worker-slow" "worker-fresh")
             {task :e} (put-entity! poster
                                    "lease-poster"
                                    {:task/posted true,
@@ -216,17 +224,17 @@
                                        :claim/by "worker-slow"}
                                       {:lease-ms 150})]
         (testing "while the lease is live the task is claimed"
-          (is (= "worker-slow" (winner remote task (+ claim-t 100))))
+          (is (= "worker-slow" (winner source task (+ claim-t 100))))
           (is (not (contains?
-                     (into #{} (map first) (available remote (+ claim-t 100)))
+                     (into #{} (map first) (available source (+ claim-t 100)))
                      task))))
         (testing "past the lease, an unfulfilled claim counts for nothing"
           (let [later (+ claim-t 151)]
-            (is (nil? (winner remote task later)))
-            (is (contains? (into #{} (map first) (available remote later))
+            (is (nil? (winner source task later)))
+            (is (contains? (into #{} (map first) (available source later))
                            task))
             (is
-              (= 1 (count (query/q claims-q remote task)))
+              (= 1 (count (query/q claims-q source task)))
               "the dead claim is still a durable fact — only the
                  interpretation changed")))
         (testing
@@ -237,7 +245,7 @@
                                        "worker-fresh"
                                        {:claim/task task,
                                         :claim/by "worker-fresh"})]
-            (is (= "worker-fresh" (winner remote task (+ re-t 100))))))
+            (is (= "worker-fresh" (winner source task (+ re-t 100))))))
         (testing
           "a delivered result settles the task permanently, even after
                   every lease has lapsed"
@@ -248,7 +256,7 @@
                         :result/output "done"})
           (let [far-future (+ claim-t (* 1000 60 60))]
             (is (not (contains?
-                       (into #{} (map first) (available remote far-future))
+                       (into #{} (map first) (available source far-future))
                        task)))))))))
 
 
@@ -257,6 +265,7 @@
     (fn [remote]
       (let [poster (open-agent remote "retract-poster")
             worker (open-agent remote "worker-fickle")
+            source (source-pool remote "retract-poster" "worker-fickle")
             {task :e} (put-entity! poster
                                    "retract-poster"
                                    {:task/posted true,
@@ -266,7 +275,7 @@
                                                 {:claim/task task,
                                                  :claim/by "worker-fickle"})
             now (System/currentTimeMillis)]
-        (is (not (contains? (into #{} (map first) (available remote now))
+        (is (not (contains? (into #{} (map first) (available source now))
                             task)))
         (testing
           "an explicit retraction datom releases the claim
@@ -276,7 +285,7 @@
           (ds/append! worker
                       [claim :claim/task task (inc claim-t)
                        (:db/retract datom/reserved)])
-          (is (contains? (into #{} (map first) (available remote now))
+          (is (contains? (into #{} (map first) (available source now))
                          task)))))))
 
 
@@ -284,6 +293,7 @@
   (with-remote
     (fn [remote]
       (let [agent (open-agent remote "indexer")
+            source (first (source-pool remote "indexer"))
             {before :e} (put-entity! agent "indexer" {:marker/id "pre-index"})]
         ;; the owner publishes covered indexes on the server-side store;
         ;; the indexed root (segment keys and all) must survive the file
@@ -294,7 +304,7 @@
               (put-entity! agent "indexer" {:marker/id "post-index"})]
           (is (= #{[before "pre-index"] [after "post-index"]}
                  (query/q '[:find ?e ?id :where [?e :marker/id ?id]]
-                          remote))))))))
+                          source))))))))
 
 
 (deftest transport-transparency
@@ -307,7 +317,11 @@
         "q over the server-side store sees exactly what agents put!
                 through remote handles — the rpc is invisible above IKVStore,
                 and the datoms are durable in the file store"
-        (is (= (query/q '[:find ?e ?a ?v :where [?e ?a ?v]] *store*)
-               (query/q '[:find ?e ?a ?v :where [?e ?a ?v]] remote)))
-        (is (contains? (query/q '[:find ?id :where [_ :probe/id ?id]] *store*)
+        (is (= (query/q '[:find ?e ?a ?v :where [?e ?a ?v]]
+                        (first (source-pool *store* "transparency-probe")))
+               (query/q '[:find ?e ?a ?v :where [?e ?a ?v]]
+                        (first (source-pool remote "transparency-probe")))))
+        (is (contains? (query/q '[:find ?id :where [_ :probe/id ?id]]
+                                (first (source-pool *store*
+                                                    "transparency-probe")))
                        ["wire"]))))))

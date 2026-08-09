@@ -67,19 +67,21 @@ A `dao.jing` storage hosts many named logs, each exposed through the `dao.stream
 each log may hold tuples of a different fixed dimension. A query names the storage and the logs to
 fold; the engine folds them and joins by variable name.
 
-## Reality check: this is proposed, not current
+## Current realization
 
-The coordinate does **not** describe today's code:
+The nested coordinate sketch above is not a storage protocol, but its essential read-side
+property is implemented as plain data:
 
 - `dao.jing` is a flat KV — each key a single mutable root updated via `cas!`, holding an opaque
-  value. The query enumerates the store's member roots (`:root/members` → each stream's
-  `:root/<name>`; see [dao.space.index.md](dao.space.index.md), *The root conventions*) and folds them all.
+  value. `(query/root-source store :root/<name>)` names one root explicitly, and a collection
+  of root sources is the pool a query folds. Storage keeps no membership key or registry.
 - `dao.stream` is a separate abstraction (ringbuffer / append-log / file / http / ws / udp) that
   carries opaque **bytes** and does **not** persist into a jing store. The dependency is inverted —
   `dao.jing/file` *uses* `dao.stream.log` internally as its byte transport.
-- There is no per-log addressing, no log manifest, no coordinate notion anywhere yet.
+- The explicit root source is the coordinate at the query boundary. Richer discovery and
+  per-log arity metadata remain above storage.
 
-So the coordinate is the architecture the doc defers.
+Thus the coordinate is a caller-owned value, not state inferred from the KV.
 
 ## Why it coheres
 
@@ -88,15 +90,15 @@ It gives every part of the existing design a concrete home:
 - **Write side** (generative communication): a writer appends to its own named `dao.stream` log —
   the doc's "each writer owns a single-writer log."
 - **Read side** (associative matching): the query folds a *set of named logs*; the coordinate is
-  how a read says "these logs, please" — the doc's "membership is intake, not identity," made
+  how a read says "these logs, please" — the doc's "intake is explicit topology," made
   addressable.
 - **Per-log fixed arity, cross-log heterogeneity**: within a log, tuples are homogeneous; across
   logs they differ, and the n-tuple matcher folds and joins by name. So the **coordinate is the
   addressing layer; the n-tuple engine is the matching layer — they compose.**
 - **A coordinate is a pure value**: cacheable, replayable, sendable through a stream — "everything
   is data / streams are values" made literal.
-- It **generalizes federation**: today `[store1 store2]` federates *stores*; the model federates
-  *logs within a store* (and nests). One store is a small federation of its own single-writer logs.
+- It **generalizes federation**: today a collection of `root-source` values federates roots
+  across one or more stores. The same value shape covers local pools and remote composition.
 
 ## The structural-vs-semantic line
 
@@ -153,7 +155,7 @@ the same set of datoms (see ADR 0001's monoid homomorphism):
 
 - **Rebuild per query** — each read folds the store's datoms into a fresh index and discards
   it. Simple; O(total datoms) per read.
-- **Incremental index** — a long-lived reader keeps a cursor per member stream and folds
+- **Incremental index** — a long-lived reader keeps a cursor per source stream and folds
   only new frames as they arrive (Datomic-peer style). More machinery; amortized reads.
   Still no transactor and no global clock — each stream advances its own cursor.
 - **Owner-built, peers merge (Target Architecture)** — each stream's owner indexes its own
@@ -174,7 +176,7 @@ three covered indexes with **tonsky/persistent-sorted-set** (`from-sequential`, 
    `jing/segment-key`; Merkle by construction, since psset stores children before parents),
    then advances the stream root to `{:indexes {:eavt <segment-key> ...} :count n}` via
    `cas!`. Republishing unchanged data is idempotent: same content, same keys, same roots.
-2. On the JVM, a single-handle query restores those indexes lazily (`psset/restore-by`):
+2. On the JVM, a single-root-source query restores those indexes lazily (`psset/restore-by`):
    nothing is fetched until a traversal reaches it, and `slice`-based seeks load only the
    descent path plus the matching range — measured in the test suite as 2 segment fetches
    out of 26 for a bound-`e` match over 600 datoms at `:branching-factor 32`
@@ -244,20 +246,18 @@ decode at all, and that decode is already finished by the time `read-datoms` see
   round-trip (`KVFile`), a plain in-memory reference (`KVMem`), or a network fetch
   (`dao.jing.dht`) is backend-internal and invisible to `read-datoms`.
 - **Extract.** `read-datoms` pulls the `:datoms` vector out of that map, or eagerly walks the `:indexes` shape, and returns the flat datoms seq —
-  no parsing, no B-Tree traversal, no lazy pull, consistent with today's "rebuild per query"
+  no byte parsing and no lazy pull, consistent with today's "rebuild per query"
   strategy (*Index Realization*, above). (Where a backend does decode bytes, it
   uses safe deserializers — such as `clojure.edn/read-string` for `KVFile` or
   Transit for `dao.jing.dht` — never unsafe `read-string`/`eval`.)
 - **Namespace stamping: not yet applied.** `dao.space.md` describes each stream's datoms as
   stamped with the stream's namespace before indexing so that two streams' local id `1025`
-  stay distinct. `dao.jing.md`'s Current Scope defers this ("the reader's per-member namespace
-  is not yet derived from the canonical kickoff hash, because content addressing is not yet
-  load-bearing"). `read-datoms` today therefore returns datoms *unstamped*; cross-stream id
+  stay distinct. `read-datoms` today returns datoms *unstamped*; cross-stream id
   collision is a known, currently-open gap, not a `read-datoms` bug, until content addressing
   lands.
-- **`t`/`m` defaults.** Frames missing a transaction coordinate or metadata slot fall back to
-  `dao.datom/default-op`, the same convention `dao.space.md`'s entity-map normalization uses
-  (*Source Polymorphism*).
+- **Tuple preservation.** `read-datoms` returns stored vectors unchanged. Entity-map source
+  normalization is a separate query-boundary convenience that supplies `t = 0` and
+  `m = dao.datom/default-op` (*Source Polymorphism*).
 
 **Segmented roots** (implemented 2026-07-10; see *Index Realization*, above): `read-datoms`
 now also accepts the owner-built root shape `{:indexes {:eavt <segment-key> ...}}`, reading
@@ -265,7 +265,7 @@ it by eagerly walking the `:eavt` node graph with per-node `jing/get` calls
 (`walk-index-datoms`) and returning the collected datoms — same `(store)`/`(store datoms-key)`
 call shape, same datoms-out contract, both root shapes handled. Note where the *lazy* path
 ended up living: not in `read-datoms` (which is by definition the eager collect-everything
-read) but in `fold` — a single-handle JVM query bypasses `read-datoms` entirely and restores
+read) but in `fold` — a single-root-source JVM query bypasses `read-datoms` entirely and restores
 the persisted indexes lazily via psset `IStorage`, fetching nodes only as traversal reaches
 them. `read-datoms` remains the correctness path every platform and every fallback
 (as-of, federation) shares.

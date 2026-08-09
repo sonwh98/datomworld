@@ -3,7 +3,7 @@
   dao.stream whose appends persist as datoms into a dao.jing store, per
   docs/design/dao.space.md, The Write Path / Coordination: Stigmergy.
   Opening attaches a feeding stream to the space; ds/append! deposits datoms
-  that query/q over the same store immediately sees."
+  that query/q immediately sees through an explicit root source."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
@@ -11,6 +11,18 @@
             [dao.space.query :as query]
             [dao.space.transactor :as transactor]
             [dao.stream :as ds]))
+
+
+(defn- source
+  [store stream-name]
+  (query/root-source store (keyword "root" stream-name)))
+
+
+(deftest open-has-no-registration-effect
+  (testing "opening a source stream does not mutate the jing materialization"
+    (let [store (mem/create-kv-mem)]
+      (ds/open! {:type :transactor, :store store, :name "producer"})
+      (is (= {} @(:target store))))))
 
 
 (deftest open-put-query-roundtrip
@@ -24,7 +36,7 @@
       (is (= #{[100 "process payment"]}
              (query/q '[:find ?w ?task :where [?w :work/posted true]
                         [?w :work/task ?task]]
-                      store))))))
+                      (source store "producer")))))))
 
 
 (deftest raw-datom-put
@@ -33,19 +45,23 @@
           log (ds/open! {:type :transactor, :store store, :name "w"})]
       (ds/append! log [1 :work/status :todo])
       (is (= #{[:todo]}
-             (query/q '[:find ?v :where [1 :work/status ?v]] store)))))
+             (query/q '[:find ?v :where [1 :work/status ?v]]
+                      (source store "w"))))))
   (testing "an explicit 5-tuple keeps its m slot — retraction works"
     (let [store (mem/create-kv-mem)
           log (ds/open! {:type :transactor, :store store, :name "w"})]
       (ds/append! log {:db/id 1, :work/status :todo})
       (ds/append! log [1 :work/status :todo nil 0])
-      (is (= #{} (query/q '[:find ?v :where [1 :work/status ?v]] store)))))
+      (is (= #{}
+             (query/q '[:find ?v :where [1 :work/status ?v]]
+                      (source store "w"))))))
   (testing "a 4-tuple [e a v t] carries its own t, m defaults to assert"
     (let [store (mem/create-kv-mem)
           log (ds/open! {:type :transactor, :store store, :name "w"})]
       (ds/append! log [1 :work/status :todo 5])
       (is (= #{[5]}
-             (query/q '[:find ?t :where [1 :work/status :todo ?t]] store)))))
+             (query/q '[:find ?t :where [1 :work/status :todo ?t]]
+                      (source store "w"))))))
   (testing
     "a far-future explicit t on a retraction outranks a later,
           legitimate auto-t reassertion of the same value — the
@@ -58,7 +74,8 @@
       (ds/append! log {:db/id 1, :work/status :todo}) ; auto t=2, a later
       ;; reassert
       (is
-        (= #{} (query/q '[:find ?v :where [1 :work/status ?v]] store))
+        (= #{}
+           (query/q '[:find ?v :where [1 :work/status ?v]] (source store "w")))
         "the future-dated retraction sorts after every real datom by t,
            so it wins recency resolution and masks the legitimate
            reassert even though the reassert was appended after it"))))
@@ -71,6 +88,7 @@
           producer (ds/open!
                      {:type :transactor, :store store, :name "producer"})
           worker (ds/open! {:type :transactor, :store store, :name "worker-1"})
+          pool [(source store "producer") (source store "worker-1")]
           unclaimed '[:find ?w ?task :where [?w :work/posted true]
                       [?w :work/task ?task] (not [_ :work/claims ?w])]]
       (ds/append! producer
@@ -78,11 +96,11 @@
       (ds/append! producer
                   {:db/id 101, :work/posted true, :work/task "send invoice"})
       (is (= #{[100 "process payment"] [101 "send invoice"]}
-             (query/q unclaimed store)))
+             (query/q unclaimed pool)))
       (ds/append! worker {:db/id 200, :work/claims 100, :work/by "worker-1"})
-      (is (= #{[101 "send invoice"]} (query/q unclaimed store)))
+      (is (= #{[101 "send invoice"]} (query/q unclaimed pool)))
       (ds/append! worker {:db/id 201, :work/claims 101, :work/by "worker-1"})
-      (is (= #{} (query/q unclaimed store))))))
+      (is (= #{} (query/q unclaimed pool))))))
 
 
 (deftest cursor-reading
@@ -138,25 +156,27 @@
           "no global :root/datoms is ever written by the transport")
       (is (= 1 (count (:datoms (jing/get store :root/producer nil)))))
       (is (= 1 (count (:datoms (jing/get store :root/worker-1 nil)))))
-      (testing "open! registers each stream root as a member"
-        (is (= #{:root/producer :root/worker-1}
-               (:members (jing/get store index/members-key nil)))))
-      (testing "a query over the store merges all member roots"
-        (is (= #{[100] [200]} (query/q '[:find ?e :where [?e _ _]] store))))
-      (testing "match also folds all member roots"
+      (testing "a query merges the explicit root-source pool"
+        (is (= #{[100] [200]}
+               (query/q '[:find ?e :where [?e _ _]]
+                        [(source store "producer")
+                         (source store "worker-1")]))))
+      (testing "match also folds the explicit pool"
         (is (= [[200 :work/claims 100 0 1]]
-               (query/match store ['_ :work/claims '_])))
+               (query/match [(source store "producer")
+                             (source store "worker-1")]
+                 ['_ :work/claims '_])))
         (is (= [[100 :work/posted true 0 1]]
-               (query/match store ['_ :work/posted true]))))))
-  (testing "an explicit :key override is honored and registered"
+               (query/match [(source store "producer")
+                             (source store "worker-1")]
+                 ['_ :work/posted true]))))))
+  (testing "an explicit :key override is honored"
     (let [store (mem/create-kv-mem)
           log
           (ds/open!
             {:type :transactor, :store store, :name "a", :key :root/custom})]
       (ds/append! log {:db/id 1, :x true})
-      (is (some? (jing/get store :root/custom nil)))
-      (is (contains? (:members (jing/get store index/members-key nil))
-                     :root/custom))))
+      (is (some? (jing/get store :root/custom nil)))))
   (testing "a nameless, keyless descriptor throws"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
@@ -164,37 +184,19 @@
                           #"name"
           (ds/open! {:type :transactor,
                      :store (mem/create-kv-mem)}))))
-  (testing "a stream named members throws due to membership root collision"
+  (testing "a stream with empty name key throws with open! context"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
-                          #"cannot target the membership root"
-          (ds/open! {:type :transactor,
-                     :store (mem/create-kv-mem),
-                     :name "members"}))))
-  (testing
-    "a stream with custom key :root/members throws due to membership root collision"
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #"cannot target the membership root"
-          (ds/open! {:type :transactor,
-                     :store (mem/create-kv-mem),
-                     :name "a",
-                     :key :root/members}))))
-  (testing "a stream with empty name key throws with register-member! context"
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #"register-member! requires a non-empty"
+                          #":transactor open! requires a non-empty"
           (ds/open! {:type :transactor,
                      :store (mem/create-kv-mem),
                      :key (keyword "root" "")}))))
-  (testing "a stream with segment key throws with register-member! context"
+  (testing "a stream with segment key throws with open! context"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
-                          #"register-member! requires a :root"
+                          #":transactor open! requires a :root"
           (ds/open! {:type :transactor,
                      :store (mem/create-kv-mem),
                      :key :segment/foo})))))
@@ -217,22 +219,19 @@
             log2 (ds/open! {:type :transactor, :store store2, :name "w"})]
         (ds/append! log2 {:db/id 1, :a 1})
         (ds/close! log2)
-        (is (= #{[1]} (query/q '[:find ?e :where [?e :a 1]] store2)))))))
+        (is (= #{[1]}
+               (query/q '[:find ?e :where [?e :a 1]] (source store2 "w"))))))))
 
 
 (deftest append-throws-after-max-retries
   (testing
     "append! throws rather than spin forever when the root cas!
           never wins (the bound cas-append! exists to catch)"
-    ;; A wrapper store whose cas! always loses on the stream's own root,
-    ;; but still lets open!'s membership-root registration succeed.
+    ;; A wrapper store whose cas! always loses on the stream's own root.
     (let [real (mem/create-kv-mem)
           always-loses-cas {:stream nil,
                             :target (:target real),
-                            :cas-fn (fn [k expected v]
-                                      (if (= k index/members-key)
-                                        (jing/cas! real k expected v)
-                                        false))}
+                            :cas-fn (fn [_k _expected _v] false)}
           log (ds/open!
                 {:type :transactor, :store always-loses-cas, :name "w"})]
       (is (thrown-with-msg? #?(:cljs js/Error
@@ -270,7 +269,6 @@
 (deftest appends-compose-with-existing-roots
   (testing "a :transactor append preserves datoms already seeded wholesale"
     (let [store (mem/create-kv-mem)]
-      (index/register-member! store :root/w)
       (jing/cas! store
                  :root/w
                  jing/absent
@@ -278,7 +276,8 @@
       (let [log (ds/open! {:type :transactor, :store store, :name "w"})]
         (ds/append! log {:db/id 2, :work/status :todo})
         (is (= #{[1] [2]}
-               (query/q '[:find ?e :where [?e :work/status :todo]] store))))))
+               (query/q '[:find ?e :where [?e :work/status :todo]]
+                        (source store "w")))))))
   (testing "an append folds a published stream root back to wholesale"
     (let [store (mem/create-kv-mem)
           log (ds/open! {:type :transactor, :store store, :name "w"})]
@@ -289,7 +288,8 @@
       (is (nil? (:indexes (jing/get store :root/w nil)))
           "the append must fold the published root back to wholesale")
       (is (= #{[1] [2]}
-             (query/q '[:find ?e :where [?e :work/status :todo]] store))))))
+             (query/q '[:find ?e :where [?e :work/status :todo]]
+                      (source store "w")))))))
 
 
 (deftest publish!
@@ -298,7 +298,8 @@
           log (ds/open! {:type :transactor, :store store, :name "w"})]
       (ds/append! log {:db/id 1, :work/status :todo})
       (ds/append! log {:db/id 2, :work/status :done})
-      (let [before (query/q '[:find ?e ?v :where [?e :work/status ?v]] store)
+      (let [before (query/q '[:find ?e ?v :where [?e :work/status ?v]]
+                            (source store "w"))
             manifest (transactor/publish! log)
             root (jing/get store :root/w nil)]
         (is (= #{:eavt :aevt :avet :vaet} (set (keys manifest))))
@@ -306,7 +307,8 @@
         (is (= 2 (:count root)))
         (is (nil? (:datoms root)) "the wholesale vector is gone")
         (is (= before
-               (query/q '[:find ?e ?v :where [?e :work/status ?v]] store))
+               (query/q '[:find ?e ?v :where [?e :work/status ?v]]
+                        (source store "w")))
             "q answers identically before and after publish"))))
   (testing "opts pass through to publish-index!, :key cannot be overridden"
     (let [store (mem/create-kv-mem)
@@ -333,7 +335,7 @@
     (let [store (mem/create-kv-mem)
           log (ds/open! {:type :transactor, :store store, :name "w"})]
       (transactor/publish! log)
-      (is (= [] (query/match store ['_ '_ '_]))))))
+      (is (= [] (query/match (source store "w") ['_ '_ '_]))))))
 
 
 (deftest transact!
@@ -353,14 +355,17 @@
       (is (= #{[100 "process payment"] [101 "send invoice"]}
              (query/q '[:find ?w ?task :where [?w :work/posted true]
                         [?w :work/task ?task]]
-                      store)))))
+                      (source store "producer"))))))
   (testing "transact! accepts a mix of entity maps and raw datom vectors"
     (let [store (mem/create-kv-mem)
           log (ds/open! {:type :transactor, :store store, :name "w"})]
       (transactor/transact! log [{:db/id 1, :a 1} [2 :b 2]])
       (is (= #{[1 :a 1] [2 :b 2]}
-             (query/q '[:find ?e ?a ?v :where [?e ?a ?v]] store)))
-      (is (= #{0} (into #{} (map #(nth % 3)) (query/match store ['_ :b '_])))
+             (query/q '[:find ?e ?a ?v :where [?e ?a ?v]] (source store "w"))))
+      (is (= #{0}
+             (into #{}
+                   (map #(nth % 3))
+                   (query/match (source store "w") ['_ :b '_])))
           "raw datom [2 :b 2] gets t=0 from the batch")))
   (testing "a batch gets its own t, distinct from a prior append's"
     (let [store (mem/create-kv-mem)
@@ -368,7 +373,10 @@
       (ds/append! log {:db/id 1, :a 1})
       (transactor/transact! log [{:db/id 2, :a 2} {:db/id 3, :a 3}])
       (is
-        (= #{0 1} (into #{} (map #(nth % 3)) (query/match store ['_ :a '_])))
+        (= #{0 1}
+           (into #{}
+                 (map #(nth % 3))
+                 (query/match (source store "w") ['_ :a '_])))
         "the first append's datom keeps t=0; the batch's two datoms both land at t=1")))
   (testing "an empty tx-data throws"
     (let [store (mem/create-kv-mem)
@@ -392,10 +400,7 @@
     (let [real (mem/create-kv-mem)
           always-loses-cas {:stream nil,
                             :target (:target real),
-                            :cas-fn (fn [k expected v]
-                                      (if (= k index/members-key)
-                                        (jing/cas! real k expected v)
-                                        false))}
+                            :cas-fn (fn [_k _expected _v] false)}
           log (ds/open!
                 {:type :transactor, :store always-loses-cas, :name "w"})]
       (is (thrown-with-msg? #?(:cljs js/Error
@@ -495,7 +500,6 @@
           and the cas! — the lost-update race publish-index!'s :expected
           option exists to close"
     (let [store (mem/create-kv-mem)]
-      (index/register-member! store :root/w)
       (jing/cas! store :root/w jing/absent {:datoms [[1 :a 1 0 1]]})
       ;; simulate the exact window publish! races against: read the
       ;; datoms/expected/epoch snapshot, then a concurrent append commits,
@@ -526,7 +530,7 @@
                       e
                  (is (some? (:likely-cause (ex-data e)))))))
         (is
-          (= #{[2]} (query/q '[:find ?e :where [?e :a 2]] store))
+          (= #{[2]} (query/q '[:find ?e :where [?e :a 2]] (source store "w")))
           "the concurrent append survives — publish! did not overwrite it")))))
 
 
@@ -538,9 +542,9 @@
           s2 (ds/open! {:type :transactor, :store store, :name "s2"})]
       (ds/append! s1 {:db/id 100, :user/name "Alice-Stream1"})
       (ds/append! s2 {:db/id 100, :user/name "Alice-Stream2"})
-      ;; Document that current query/q folds both member roots without
-      ;; automatic namespace disambiguation
-      (let [res (query/q '[:find ?name :where [100 :user/name ?name]] store)]
+      ;; The explicit pool still has no automatic namespace disambiguation.
+      (let [res (query/q '[:find ?name :where [100 :user/name ?name]]
+                         [(source store "s1") (source store "s2")])]
         (is (= #{["Alice-Stream1"] ["Alice-Stream2"]} res))))))
 
 
