@@ -70,7 +70,20 @@
     (let [source [{:work/status :todo} {:work/status :todo}]
           ids (query/q '[:find ?id :where [?id :work/status :todo]] source)]
       (is (= 2 (count ids)))
-      (is (apply not= (map first ids))))))
+      (is (apply not= (map first ids)))))
+  (testing "explicit and generated :db/id values interleaved"
+    (let [source [{:work/status :todo} {:db/id :e1, :work/status :done}
+                  {:work/status :todo}]]
+      (let [datoms (query/source->datoms source)]
+        (is (= [[1 :work/status :todo 0 1] [:e1 :work/status :done 0 1]
+                [2 :work/status :todo 0 1]]
+               datoms)))))
+  (testing "empty input" (is (empty? (query/source->datoms []))))
+  (testing "generated-ID ordering is preserved"
+    (let [source [{:work/task "a"} {:work/task "b"}]]
+      (let [datoms (query/source->datoms source)]
+        (is (= 1 (nth (first datoms) 0)))
+        (is (= 2 (nth (second datoms) 0)))))))
 
 
 (deftest match-over-entity-maps

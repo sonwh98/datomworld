@@ -132,7 +132,8 @@
            (finally (cleanup-file path))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest file-kv-store-concurrency-test
      (testing "durability CAS result is serialized with memory CAS result"
        (let [path (temp-path "concurrency")

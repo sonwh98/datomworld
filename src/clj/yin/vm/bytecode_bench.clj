@@ -83,16 +83,15 @@
 (defn- track-opcodes
   "Runs the program once using the slow path and counts opcode occurrences."
   [program]
-  (let [counts (atom {})]
-    (loop [v program]
-      (if (and (not (vm/halted? v)) (not (vm/blocked? v)))
-        (let [pc (:control v)
-              bc (:bytecode v)
-              op (get bc pc)
-              op-name (get opcode->name op op)]
-          (swap! counts update op-name (fnil inc 0))
-          (recur (vm/step v)))
-        {:final-vm v, :opcode-counts @counts}))))
+  (loop [v program
+         counts {}]
+    (if (and (not (vm/halted? v)) (not (vm/blocked? v)))
+      (let [pc (:control v)
+            bc (:bytecode v)
+            op (get bc pc)
+            op-name (get opcode->name op op)]
+        (recur (vm/step v) (update counts op-name (fnil inc 0))))
+      {:final-vm v, :opcode-counts counts})))
 
 
 (defn- run-slow
@@ -139,13 +138,12 @@
 (defn- track-vm-steps
   "Runs the VM one step at a time, counting control node types."
   [vm-state]
-  (let [counts (atom {})]
-    (loop [v vm-state]
-      (if (and (not (vm/halted? v)) (not (vm/blocked? v)))
-        (let [node-type (get (vm/control v) :type :no-control)]
-          (swap! counts update node-type (fnil inc 0))
-          (recur (vm/step v)))
-        {:final-vm v, :step-counts @counts}))))
+  (loop [v vm-state
+         counts {}]
+    (if (and (not (vm/halted? v)) (not (vm/blocked? v)))
+      (let [node-type (get (vm/control v) :type :no-control)]
+        (recur (vm/step v) (update counts node-type (fnil inc 0))))
+      {:final-vm v, :step-counts counts})))
 
 
 (defn- bench-stepping-vm

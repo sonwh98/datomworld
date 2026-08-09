@@ -347,22 +347,25 @@
                                            :val v,
                                            :existing-eid existing-eid}))))))))))
         ;; Implicit card-one retractions
-        seen-card-one (atom #{})
         retractions
-        (mapcat (fn [{:keys [op e a]}]
-                  (if (and (= op :db/add)
-                           (not (contains? effective-card-many a)))
-                    (let [key [e a]]
-                      (if (contains? @seen-card-one key)
-                        []
-                        (do (swap! seen-card-one conj key)
-                            (let [existing (query/match base-datoms [e a '_])]
-                              (map (fn [d]
-                                     [e a (nth d 2) t
-                                      (:db/retract datom/reserved)])
-                                   existing)))))
-                    []))
-                added-ops)
+        (second
+          (reduce (fn [[seen retractions] {:keys [op e a]}]
+                    (if (and (= op :db/add)
+                             (not (contains? effective-card-many a)))
+                      (let [key [e a]]
+                        (if (contains? seen key)
+                          [seen retractions]
+                          (let [existing (query/match base-datoms [e a '_])
+                                new-retractions
+                                (map (fn [d]
+                                       [e a (nth d 2) t
+                                        (:db/retract datom/reserved)])
+                                     existing)]
+                            [(conj seen key)
+                             (into retractions new-retractions)])))
+                      [seen retractions]))
+                  [#{} []]
+                  added-ops))
         ops-datoms (mapv (fn [{:keys [e a v m-raw]}] [e a v t m-raw]) ops)
         all-datoms (vec (concat retractions ops-datoms extra-datoms))]
     {:datoms all-datoms,

@@ -50,18 +50,21 @@
   cardinality expansion — a collection value is stored verbatim as one
   datom's v, matching dao.db's map-form tx-data convention), `t` 0, `m`
   dao.datom/default-op. A map with no :db/id gets a fresh negative tempid."
-  [next-tmp m]
-  (let [e (if (contains? m :db/id) (:db/id m) (next-tmp))]
-    (into []
-          (keep (fn [[a v]] (when (not= a :db/id) [e a v 0 datom/default-op])))
-          m)))
+  [e m]
+  (into []
+        (keep (fn [[a v]] (when (not= a :db/id) [e a v 0 datom/default-op])))
+        m))
 
 
 (defn- entity-maps->datoms
   [maps]
-  (let [counter (atom 0)
-        next-tmp #(- (swap! counter dec))]
-    (into [] (mapcat #(entity-map->datoms next-tmp %)) maps)))
+  (second (reduce (fn [[counter acc] m]
+                    (let [needs-id? (not (contains? m :db/id))
+                          next-counter (if needs-id? (dec counter) counter)
+                          e (if needs-id? (- next-counter) (:db/id m))]
+                      [next-counter (into acc (entity-map->datoms e m))]))
+                  [0 []]
+                  maps)))
 
 
 (defn- dao-jing-handle?
