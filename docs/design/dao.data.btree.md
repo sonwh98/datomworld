@@ -104,7 +104,7 @@ consumer: Yin.VM).
 - **Unified lazy durability (`IStorage`):** maps B-tree nodes to
   content-addressed segments in `dao.jing`'s key-value store, deserializing
   a node only when traversal reaches it. Built entirely on the existing
-  `IKVStore` methods (Ruling 1, `dao.space.query.md`: no new storage
+  jing/{cas!,get,delete!,close!} (Ruling 1, `dao.space.query.md`: no new storage
   protocol).
 - **Bounded fault cache:** faulted children are held through
   host-appropriate references (§5.3), so a long-lived Peer over a large
@@ -495,7 +495,7 @@ lazily restored tree loads only the seek path plus the traversed range
 ### 5.1 IStorage, specified
 
 Modeled on psset's `IStorage.java` (`store`, `restore`, default no-op
-`accessed`), over `IKVStore`:
+`accessed`), over a `jing handle`:
 
 ```clojure
 (defprotocol IStorage
@@ -518,7 +518,7 @@ Modeled on psset's `IStorage.java` (`store`, `restore`, default no-op
 
 Node IDs are content addresses: `-store` mints keys with `jing/segment-key`
 over the EDN blob, exactly as `kv-storage` does today. Two adapters
-implement the protocol, both over the existing `IKVStore` methods — no new
+implement the protocol, both over the existing jing/{cas!,get,delete!,close!} — no new
 storage protocol (Ruling 1): the sync rule-1 `KVStorage` sketched below,
 and the hydration-cache storage of §5.4 (same shape, but any miss throws
 `"unhydrated segment"` rather than `"missing index segment"`, since it
@@ -1155,7 +1155,7 @@ clj -M:cljd test                                                     (Dart; requ
 
 ### Phase 4: Durability & integration
 
-- `IStorage` over `IKVStore`; `node->blob`/`blob->node` as the library-level
+- `IStorage` over a `jing handle`; `node->blob`/`blob->node` as the library-level
   pure serialization pair (§5.1; the Phase 1 fixture tests switch to it);
   `store-tree`/`restore-tree` (including the nil-address ⇒ empty-set rule
   and the settings-threading rule — restored nodes carry the manifest's
@@ -1218,7 +1218,7 @@ clj -M:cljd test                                                     (Dart; requ
   durability at all), so the no-regression intent holds by construction;
   the cljs leg vs psset.cljs remains an open measurement (§7).
 - Deferred, blocked on backend surface: `hydrate-async` and
-  `store-tree-async` — `dao.jing` has no async IKVStore variant yet, so
+  `store-tree-async` — `dao.jing` has no async jing handle variant yet, so
   there is nothing real to await; wrapping the sync paths in
   Promise/Future would be API theater. They land with the first async
   backend (dao.jing.remote / IndexedDB), same signatures as §5.4.
@@ -1232,7 +1232,7 @@ dao.space.transactor ──► dao.space.index ──requires──► dao.data.
                      thin adapter)                   nothing of datoms)
                           │                              │
                           ▼                              ▼
-                     dao.jing (IKVStore) ◄── IStorage over cas!/get
+                     dao.jing (jing handle) ◄── IStorage over cas!/get
                           │
                           ▼
                      dao.space.query (unchanged; btree-free)

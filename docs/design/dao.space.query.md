@@ -17,10 +17,10 @@ The query library reads `dao.jing` as an embeddable Peer, pulling byte segments 
 ```
    dao.space.query/q   …/match          ← the TUPLE SPACE reads (this doc)
         │  lazily pulls B-Tree segments from the
-        │  IKVStore, merges them, and runs Datalog
+        │  jing handle, merges them, and runs Datalog
         ▼
 ╔═══════════════════ dao.jing ═══════════════════╗   ← STORAGE boundary (dao.jing, separate doc)
-║             IKVStore (cas! / get)        ║
+║             jing/cas! / jing/get        ║
 ║                                                 ║
 ║   [Mutable Stream Roots]   [Immutable Chunks]   ║
 ╚════════╪══════════════════════════════╪═════════╝
@@ -166,7 +166,7 @@ the same set of datoms (see ADR 0001's monoid homomorphism):
 The owner builds the
 three covered indexes with **tonsky/persistent-sorted-set** (`from-sequential`, default
 `:branching-factor 512` — Datomic-style fat segments) and persists them through psset's
-`IStorage` hook implemented over `IKVStore`:
+`IStorage` hook implemented over a `jing handle`:
 
 1. `publish-index!` (the index builder — the decentralized transactor's duty, owned by
    `dao.space.index`) writes each
@@ -204,7 +204,7 @@ red-black tree), and index reads take the eager walk described above.
 
 ## The `read-datoms` Contract
 
-`dao.space.md`'s `fold` sketch calls a function, `read-datoms`, to turn what `IKVStore/get`
+`dao.space.md`'s `fold` sketch calls a function, `read-datoms`, to turn what `jing/get`
 returns into the `[e a v t m]` vectors the index is built from (`docs/design/dao.space.md`,
 *The Query Library*: "`read-datoms` parses B-Tree segments pulled from `dao.jing` into datoms —
 storage has no datoms API of its own"). That phrasing describes the Target Architecture this
@@ -215,7 +215,7 @@ building indexes from them — see `docs/datomic.md`. `dao.jing.md` correctly sa
 this: decoding bytes into datoms is meaning-making, and storage stays pure syntax
 (`dao.jing.md`, *What DaoJing Is*). The contract belongs here, at the Peer layer.
 
-**Where the byte decode actually happens: inside the `IKVStore` backend, not in
+**Where the byte decode actually happens: inside the dao.jing backend, not in
 `read-datoms` itself.** The real function (`src/cljc/dao/space/index.cljc`):
 
 ```clojure
@@ -228,9 +228,9 @@ this: decoding bytes into datoms is meaning-making, and storage stays pure synta
 ```
 
 is a pure data-structure walk or extraction over whatever `jing/get` returns — it never touches bytes or
-calls `edn/read-string` itself. `IKVStore/get`'s contract is "returns the v-map," already
+calls `edn/read-string` itself. `jing/get`'s contract is "returns the v-map," already
 decoded data, not bytes (`dao.jing.md`, *The Storage Interface*). The `pr-str`→`edn/read-string` round-trip is a `KVFile`-specific
-wire format, not something every `IKVStore` backend does: `KVFile.get`
+wire format, not something every dao.jing backend does: `KVFile.get`
 reads its on-disk bytes and calls
 `(edn/read-string payload)` before returning the v-map, while `KVMem.get` returns the map it
 already holds in an atom — no bytes, no decode, ever. So for `KVMem`, "`dao.jing` hands back
@@ -239,7 +239,7 @@ decode at all, and that decode is already finished by the time `read-datoms` see
 
 **Current contract** (matches `dao.jing.md`, *Current Scope*):
 
-- **Input.** A single `IKVStore` `get` of the stream's root key (`:root/<name>`), returning an
+- **Input.** A single `jing/get` of the stream's root key (`:root/<name>`), returning an
   already-decoded v-map shaped `{:datoms [...]}` or `{:indexes ...}`. Whether that map arrived via a `pr-str`/`edn`
   round-trip (`KVFile`), a plain in-memory reference (`KVMem`), or a network fetch
   (`dao.jing.dht`) is backend-internal and invisible to `read-datoms`.
@@ -357,9 +357,8 @@ document. Only Ruling 1 is a genuinely new call, and it is forced, not really co
 either: it follows directly from "storage never interprets," the one invariant repeated in
 every `dao.jing*` doc.
 
-**Ruling 1 — Expose how: no new protocol.** Not "opt-in capability protocol vs. grow
-`IKVStore`" — neither. Everything the Target Architecture needs is buildable on the existing
-four `IKVStore` methods (`cas!`/`get`/`delete!`/`close!`). Immutable B-Tree nodes are just more
+**Ruling 1 — Expose how: no new protocol.** Not "opt-in capability protocol vs. grow the jing API surface" — neither. Everything the Target Architecture needs is buildable on the existing
+jing/{cas!,get,delete!,close!}. Immutable B-Tree nodes are just more
 content-addressed blobs, written with `(cas! store segment-key absent blob)` (real as of this session — see
 `dao.jing.md`, *The Segment and Root Keyspace*). Lazy traversal is a **reader-side** property:
 `persistent-sorted-set`'s durable-storage API pulls a node only when the traversal reaches it,
@@ -370,7 +369,7 @@ stream's mutable root moves from `{:datoms [...]}` to `{:indexes {:eavt <segment
 head-on with storage-never-interprets — so this isn't a coin flip, it resolves by refusing to
 let storage get smarter, ever. A backend-private network shortcut (e.g. `dao.jing.dht`
 batching a segment range in one round trip) stays possible, but lives entirely inside that
-backend's own transport, invisible to `IKVStore` — never a protocol addition.
+backend's own transport, invisible to the jing API — never a protocol addition.
 
 **Ruling 2 — Coordinate semantics: reference at naming, snapshot at read.** Not actually
 either/or. A coordinate (a stream's `:root/<name>` key) is a **reference** —

@@ -59,7 +59,7 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
   that on a lazily-restored set loads only the seek path plus the matching
   range; linear fallback on ClojureDart).
 - **The persisted node-blob format, both directions** — a psset `IStorage`
-  over any `IKVStore`: nodes store as plain-EDN content-addressed segment
+  over any jing handle: nodes store as plain-EDN content-addressed segment
   blobs (leaf `{:keys [...]}`, branch `{:level n :keys [...] :addresses
   [...]}`), keys minted by `jing/segment-key` — Merkle by construction, since
   psset stores children before parents. `restored-indexes` re-attaches a
@@ -182,7 +182,7 @@ dao.space.transactor  ──►  dao.space.index  ◄──  dao.space.query
                           node-blob format)
                                │
                                ▼
-                           dao.jing (IKVStore)
+                           dao.jing (jing handle)
 ```
 
 - `dao.space.query` requires `dao.space.index` and sheds its
@@ -195,7 +195,7 @@ dao.space.transactor  ──►  dao.space.index  ◄──  dao.space.query
   above.
 
 Storage stays dumb throughout (Ruling 1, `dao.space.query.md`): everything
-here is built on the four `IKVStore` methods. Segments are ordinary
+here is built on jing/{cas!,get,delete!,close!}. Segments are ordinary
 content-addressed blobs; the root moves by ordinary `cas!`; storage never
 knows the segments form an index.
 

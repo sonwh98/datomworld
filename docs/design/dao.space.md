@@ -115,8 +115,8 @@ when agents index and match over shared storage. `dao.stream` is where an agent 
 
 Because the tuple space lives in the interpreters, the requirement that primary state be
 datoms is a **social contract**, not a limit the storage layer enforces. `dao.jing` is a dumb
-key-value store: it is **not strict about what it holds** and will accept any bytes you write —
-datoms, graphs, JSON blobs, binaries. Nothing about storage requires the datom shape.
+store of opaque bytes: it is **not strict about what it holds** and will accept any bytes you
+write — datoms, graphs, JSON blobs, binaries. Nothing about storage requires the datom shape.
 (Arbitrary structures are fine when an interpreter materializes them *over* the datoms — that
 is the interpreter's own responsibility, and `dao.jing` just holds the resulting bytes; see
 [A Family of Interpreters](#a-family-of-interpreters). This contract is only about what an
@@ -246,7 +246,7 @@ library must accept, interchangeably:
 - **A single `dao.jing` handle** — the case above; `fold` pulls B-Tree segments through
   `read-datoms` and indexes them.
 - **A collection of `dao.jing` handles** — a *federated* query over several stores at once,
-  e.g. a local `KVFile` plus a peer's `KVDht` node. This is not a new mechanism: ADR 0001's
+  e.g. a local file-backed handle plus a peer's DHT handle. This is not a new mechanism: ADR 0001's
   monoid-homomorphism proof (`index(S₁ ⊎ … ⊎ Sₙ) = merge(index(S₁), …, index(Sₙ))`) already
   establishes that folding N stores and merging is the same index as one store holding
   everything, so `fold` over a collection is `merge` over the per-store folds, not a
@@ -275,8 +275,8 @@ is by definition not shared. Source polymorphism is an ergonomic property of the
 (defn- source->datoms
   [source as-of]
   (cond
-    (satisfies? store/IKVStore source) (read-datoms source {:as-of as-of})
-    (and (coll? source) (every? #(satisfies? store/IKVStore %) source))
+    (dao-jing-handle? source) (read-datoms source {:as-of as-of})
+    (and (coll? source) (every? dao-jing-handle? source))
     (mapcat #(read-datoms % {:as-of as-of}) source)
     (and (coll? source) (every? vector? source)) source          ; already datoms
     (and (coll? source) (every? map? source)) (entity-maps->datoms source)
@@ -383,7 +383,7 @@ recipient) and behind the decentralized Transactor of [Three Boundaries](#three-
 **Membership** names which streams currently feed the space at a given moment — a write-path
 concern, not the space's identity. The space is the shared, queryable medium of the datoms
 those streams have contributed, not "a set of streams": streams join and leave at runtime,
-while the medium persists. (Storage, [`dao.jing`](dao.jing.md), is the dumb KV the streams
+while the medium persists. (Storage, [`dao.jing`](dao.jing.md), is the dumb store the streams
 feed; the read side never sees the streams, only the bytes in storage.)
 
 Because each writer owns a single-writer log, two agents never write the same stream. If
@@ -533,7 +533,7 @@ only what it bound.
 
 The other two traditions live in the layers below and have their own docs:
 
-- **Datomic** owns [`dao.jing`](dao.jing.md) — the dumb KV store of immutable segments and
+- **Datomic** owns [`dao.jing`](dao.jing.md) — the dumb store of immutable segments and
   the Peer-as-library read model.
 - **Plan 9** owns [`dao.stream`](dao.stream.md) — the independent, location-transparent,
   append-only log substrate.
