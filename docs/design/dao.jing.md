@@ -1,312 +1,276 @@
-# DaoJing: The Storage Boundary
+# DaoJing: The Content-Addressed Storage Observer
+
+Status: target architecture. The current implementation is transitional; see
+*Implementation status* below.
 
 **Related documents:**
-- `docs/design/dao.space.md` — the tuple space that emerges when interpreters match over `dao.jing`
-- `docs/design/dao.stream.md` — the append-only log primitive datoms are written through
-- `docs/design/dao.stream.apply.md` — the request/response protocol for stream-native function application and queries
-- `docs/design/dao.stream.file.md` — the file-backed byte stream member logs use
-- `docs/agents/datom-spec.md` — datoms, content-addressed identity, the gauge/base framing
-- `docs/datomic.md` — the deep dive on the Datomic storage architecture this design maps to
-- `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the decision this design records
-- `docs/postgres.md` — the deep dive on the PostgreSQL architecture this design defines itself against
-- `docs/design/dao.space.v0.md` — superseded framing; still the reference for resources, typed streams, and the geometry/gauge material
-- `docs/design/dao.space.locality.md`, `dao.space.metaphors.md`, `dao.space.discrete-to-continuous.md` — the geometry/locality cluster: theoretical justification (gauge, spectral, locality) the spec defers to, not required to read it
-- `docs/design/yin.vm.ffi.md` — Yin.VM's generic `dao.stream.apply` bridge (`yin/vm/ffi.cljc`, implemented)
-- `docs/design/dao.space.security.md`, `docs/design/adr/0002-share-governed-computation-not-data.md` — the controlled-mode model that motivates exposing storage through a mediated bridge rather than a direct binding
 
-## What DaoJing Is
+- `docs/design/dao.space.md` — the tuple space built by interpreters above
+  storage
+- `docs/design/dao.space.index.md` — the owner-side covered-index publisher
+- `docs/design/dao.space.query.md` — the reader-side index consumer
+- `docs/design/dao.stream.md` — the append-only stream primitive
+- `docs/design/dao.data.btree.md` — the covered-index node format
+- `docs/agents/datom-spec.md` — the datom and tuple specification
+- `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the storage-boundary
+  decision
+- `docs/datomic.md` — the Datomic storage architecture that informs the
+  separation of storage and interpretation
 
-`dao.jing` is a **stream observer**: a conceptual fold (`reduce`) over a single `dao.stream` that projects an append-only log into a materialization target you provide. It is **pure syntax** — it holds *form*, never *meaning*. It does not know the difference between a "segment" and a "root". That knowledge is entirely contained within the semantic layer above it (e.g., `dao.space.address`, planned extraction; currently in `dao.jing.cljc`).
+## Definition
 
-Here, **"fold" is the design concept** (the reduction of stream events into state), while **`reduce` is the function** used to execute it (or an incremental loop using `ds/next`).
+A `dao.jing` observes an explicit pool of intake `dao.stream` values and
+materializes their elements into content-addressed key-value storage.
 
-In code, `dao.jing` is not a protocol or object hierarchy; it is a namespace (`dao.jing`) providing:
-- The sentinel constant `absent` (`::absent`).
-- The pure step function `materialize-step` (for map targets) and `materialize-mutable-step!` (for external storage).
-- The query evaluator constructor `evaluator` (`(evaluator target)` or `(evaluator target read-fn)`).
-- The query service step `step-service!` (which connects `evaluator` to a `dao.stream.apply` stream pair).
+For every opaque payload `x` arriving through any stream in the pool, DaoJing
+performs the same storage operation:
 
-There is no fixed storage API protocol. Writers append events to `dao.stream` using `ds/append!`; `dao.jing` observes the stream and calls your step function to update the materialization target via `reduce`. Readers read from that target using either direct native lookups (e.g., `clojure.core/get`, SQL, S3) or a `dao.stream.apply` request/response stream pair.
-
-It leaves all interpretation — matching, querying, segment addressing, and root mutability — to the readers above it, and whatever structures those interpreters build are, to the observer, just more bytes. This is the Datomic discipline taken literally: **storage is a dumb log of blobs; all intelligence lives in the embeddable reader on top.** Keeping the boundary this thin is what lets storage scale and be swapped without touching query logic.
-
-## The Stream as Primitive
-
-The fundamental abstraction is the `dao.stream` append-only log. The role of key-value state depends on the backend:
-- For **durable backends** (like file or SQL), the append-only stream is the authoritative record and the materialized KV state is a projection.
-- For the **ephemeral `dao.jing.mem` backend**, the in-memory atom acts as the authority, while stream appends operate as a best-effort capture of state changes.
-
-By modeling storage as a stream, single-writer stream-local appends avoid consensus for ordinary local root advancement. However, distributed ownership, replication, failover, and writer handoff still require explicit coordination.
-- **Writes are local appends**: An agent only ever appends to its own stream via `ds/append!`. It never writes to a shared, global store. Single-writer is the distributed ownership invariant and removes cross-agent writer contention/consensus; local shared-handle calls may be serialized defensively by the implementation and are not a distributed protocol.
-- **Distribution is stream replication**: To distribute the database, we simply replicate the stream of appends. Readers subscribe to the stream (e.g., via TCP/WebSocket/QUIC) and process the ordered log of facts.
-- **Reads are local projections or stream queries**: Readers consume the replicated stream and fold it into a materialization target (in-memory map, file, SQL, S3) or issue queries over `dao.stream.apply`.
-
-### Multi-Stream Composition
-
-`dao.jing` is explicitly a **single-stream observer**: one `dao.stream` -> one target projection. 
-
-Multi-stream composition (such as `dao.space` folding multiple agent member logs into one unified tuple space) is a caller concern, not a `dao.jing` concern. Higher semantic layers accomplish multi-stream composition by either:
-1. Running an independent `dao.jing` fold per member stream and merging their local projections at query time, or
-2. Multiplexing multiple streams into a single composite fold using a multi-stream iterator.
-
-## Write Path: Stream Record Format & Step Functions
-
-`dao.jing`'s stream record format has a single, unified operation vocabulary: **`:cas`** (compare-and-swap). The append log records CAS attempts, including failed attempts; only matching CASes alter materialized state, and failed attempts replay as no-ops.
-
-```clojure
-[k :cas expected v]     ; write/assoc v at key k ONLY IF current value = expected
+```text
+bytes = canonical-encode(x)
+key   = content-hash(bytes)
+KV[key] = x                 ; insert if absent
 ```
 
-All storage operations — writing segment blobs, updating mutable roots, and deleting keys — are unified under this single `:cas` tuple shape:
-- **Minting an Immutable Segment:** `[k :cas absent v]` (write `v` only if `k` does not yet exist).
-- **Updating a Mutable Root:** `[k :cas expected-root-hash new-root-hash]` (advance pointer only if it matches expected).
-- **Deleting a Key:** `[k :cas current-v absent]` (remove entry by passing `absent` as `v`).
+DaoJing knows how to:
 
-Because every write is a `:cas`, **deleting a key requires the writer to supply the key's current value**. In a single-writer stream, this is a natural design constraint: the single writer tracks its own appends in local memory and knows the current state of any key it modifies.
+- observe the streams in its configured pool;
+- retain the operational cursor needed to continue reading each stream;
+- canonically encode an element;
+- derive its content address;
+- insert it idempotently into the materialization target; and
+- retrieve content by its address.
 
-### Serialization Boundary
+DaoJing does not know whether an element is a datom, B-tree node, covered
+index, manifest, program, image, or any other kind of value. Meaning belongs
+to the interpreter that produced or consumes the content.
 
-While `dao.jing` treats records conceptually as 4-element vectors `[k :cas expected v]`, `dao.stream` carries opaque byte arrays. Serialization between vectors and byte arrays is a boundary concern handled by `dao.stream` codecs (e.g. EDN or Transit for structured Clojure values, with Eve Flat planned for zero-copy canonical flat encoding).
+## The intake pool
 
-### The `absent` Sentinel
+The pool contains the streams through which content is submitted for
+materialization. It is supplied explicitly when the observer is constructed or
+run. DaoJing performs no stream registration or discovery and maintains no
+shared membership root such as `:root/members`.
 
-The sentinel `absent` (`::absent`) is a reserved namespaced keyword exported by `dao.jing`. 
+The pool is an intake topology, not a semantic namespace. DaoJing does not use
+the identity of the source stream when deriving an element's key, and it does
+not attach source identity to the stored value:
 
-- **Purpose:** It serves as the explicit sentinel representing key non-existence. Passing `absent` as `expected` requires that the key does not yet exist; passing `absent` as `v` unambiguously signals key deletion. Passing `absent` as the default value to `get` (e.g. `(get target k absent)`) distinguishes stored `nil` from true key non-existence.
-- **Restriction:** `absent` is reserved by the storage boundary and **must never be stored as a value**. If a caller attempts to store `absent` as a value (`[k :cas expected absent]`), the step function interprets the record as a deletion request.
-- **Edge Case (`[k :cas absent absent]`):** Attempting to delete a key only if it is already absent is a no-op that deletes nothing and leaves the target unchanged.
-
-### Error Handling & Corrupted Records
-
-- **Malformed Tuples:** If a stream record is not a 4-element vector matching `[k :cas expected v]`, the fold silently skips the malformed record and continues folding. (Logging a warning for malformed records is a future requirement.)
-- **`:cas` Mismatches:** If `current != expected`, the step function skips the mutation (noop) and returns the target unchanged. Under the distributed single-writer invariant, a mismatch indicates a stale caller, writer bug, out-of-order replay, or stream corruption rather than cross-agent contention. Shared local handles may still produce stale expectations, which the backend rejects safely.
-
-### Step Function Variants: Pure vs Mutable Targets
-
-The step function's implementation depends on whether the materialization target is an immutable Clojure value (e.g. an in-memory map) or a mutable external system (e.g. SQL, file storage). The `(= op :cas)` check is included for defensive validation and forward compatibility with potential future record tags:
-
-#### 1. Pure Step Function (In-Memory Map)
-For in-memory projections, the step function is a pure function `(f map record) -> new-map`:
-
-```clojure
-(defn materialize-step [m record]
-  (if (and (vector? record) (= (count record) 4) (= (second record) :cas))
-    (let [[k _ expected v] record
-          current (get m k absent)]
-      (if (= current expected)
-        (if (= v absent)
-          (dissoc m k)
-          (assoc m k v))
-        m))
-    m))
+```text
+stream A emits x ─┐
+                  ├── hash(canonical-encode(x)) ──► the same KV entry
+stream B emits x ─┘
 ```
 
-#### 2. Side-Effectful Step Function (External / Mutable Target)
-For mutable storage targets (SQL, disk log), the step function performs target-specific I/O helper calls (`read-target`, `write-target!`, `delete-target!`) and always returns the target reference:
+Identical content therefore converges on the same address regardless of which
+pool member carried it. Pool order, source identity, and arrival order do not
+change content identity.
 
-```clojure
-(defn materialize-mutable-step! [target record]
-  (if (and (vector? record) (= (count record) 4) (= (second record) :cas))
-    (let [[k _ expected v] record
-          current (read-target target k absent)]
-      (if (= current expected)
-        (do (if (= v absent)
-              (delete-target! target k)
-              (write-target! target k v))
-            target)
-        target))
-    target))
+DaoJing must distinguish pool members operationally long enough to maintain a
+cursor for each one. That association is observer/checkpoint state only. It is
+not written into the content address or materialized payload and has no
+semantic meaning.
+
+If a storage backend partitions content into physical buckets or shards, that
+placement is a backend concern, normally derived from the content hash. It is
+not derived from the source stream.
+
+## Publication from an agent
+
+An agent writes ordinary working data to its local `dao.stream`. That local
+stream is not automatically a member of DaoJing's intake pool.
+
+When the agent calls `dao.space.index/publish-index!`, the index publisher:
+
+1. reads the agent's local stream;
+2. constructs the covered indexes;
+3. selects an intake stream from the DaoJing pool;
+4. appends the immutable index payloads, including the top-level manifest, to
+   that intake stream; and
+5. returns the content addresses required by the publishing layer.
+
+```text
+agent-local dao.stream
+        │
+        │ dao.space.index/publish-index!
+        ▼
+selected DaoJing intake stream
+        │
+        │ opaque payloads
+        ▼
+DaoJing observer ── canonical encode + hash ──► content-addressed KV
 ```
 
-### In-Memory Example
+Selecting an intake stream is an operational routing decision. It does not
+become part of an index payload's identity. The same index payload published
+through a different intake stream receives the same address.
+
+Publication changes representation and access cost, not the meaning of the
+covered data. Consumers whose explicit sources include the published address
+can consume the persisted covered indexes.
+
+## Materialization rule
+
+The materialization is an idempotent union of content-addressed values. If
+`H(x)` is the address of the canonical encoding of `x`, observing `x` means:
 
 ```clojure
-;; The stream is the sole source of truth (except for the mem backend where the atom is authoritative)
-(ds/append! stream [k :cas expected v])
-
-;; dao.jing is a fold over the stream — executed via Clojure's reduce
-(def projection (reduce materialize-step {} (ds/->seq stream)))
-(get projection :root/my-db absent)
+(assoc-if-absent target (H x) x)
 ```
 
-*(Note: passing `(ds/->seq stream)` directly to `reduce` is a pedagogical shorthand for single-batch in-memory testing. Production long-lived materializers use the incremental `step-incremental!` loop below.)*
+Re-observing the same value is a no-op. Observing equal values through
+different pool streams is also a no-op after the first insertion. Consequently:
 
-For the in-memory case, the result is a plain Clojure map (or an atom holding one) that readers query with `clojure.core/get`.
+- replay is safe;
+- pool streams may be consumed in any interleaving;
+- duplicate publication is harmless;
+- immutable content writes do not require cross-stream coordination; and
+- a materialization can be reconstructed by replaying the available pool
+  streams.
 
-The storage distinction splits across two orthogonal concerns:
-- **Log storage** (where appends go): lives entirely in `dao.stream` — e.g. `:ringbuffer` (`dao.stream.ringbuffer`), `:file` (`dao.stream.file`), or `:websocket` (`dao.stream.ws`).
-- **Materialization target** (where the fold projects to): lives in the step function you provide to `dao.jing` — in-memory map, file, SQL, S3, etc.
+A collision in which an existing address contains different canonical bytes
+is an integrity failure, not an overwrite. DaoJing must report it loudly.
 
-`dao.jing` itself is the same fold regardless of either concern. It simply walks the stream and calls your step function.
+### Canonical encoding
 
-### Incremental Materialization & Cursor Tracking
+Content addressing is meaningful only when equal supported values produce the
+same bytes on every participating platform. The canonical encoder is therefore
+part of the storage contract even though the meaning of the encoded value is
+not.
 
-In production, long-lived observers do not re-fold from position 0 on every read. A materializer incrementally advances its projection by retaining a stream `cursor` and pulling batch updates via `(ds/next stream cursor)`.
+Canonicalization may understand representation-level structure such as maps,
+sets, numbers, strings, and byte arrays. It must not understand domain concepts
+such as datoms, index orders, roots, or manifests.
 
-`ds/next` returns one of four explicit stream signals (matching `dao.stream.md`'s canonical return contract):
-- `{:ok record, :cursor next-cursor}`: a valid record and updated cursor.
-- `:blocked`: an active stream with no new records currently available.
-- `:end`: the stream is closed.
-- `:daostream/gap`: the cursor fell behind the stream's retention boundary, requiring a resync.
+The target encoding is a canonical flat byte representation suitable for
+cross-platform hashing and in-place reading. The current implementation's
+order-normalized `pr-str` hashing is transitional and is not yet that final
+encoding.
 
-A production observer loop handles these stream signals explicitly:
+## Storage ignorance
 
-```clojure
-(defn step-incremental! [target-atom cursor-atom stream]
-  (let [res (ds/next stream @cursor-atom)]
-    (cond
-      (map? res)
-      (let [record (:ok res)]
-        ;; Loop-level fast-reject before swap!
-        (when (and (vector? record) (= (count record) 4) (= (second record) :cas))
-          (swap! target-atom materialize-step record))
-        (reset! cursor-atom (:cursor res))
-        :ok)
+DaoJing assigns identity to opaque content but does not interpret the data
+structure stored at that identity. In particular, it does not:
 
-      (= res :blocked)
-      :wait ; active stream, no new records available
+- traverse B-trees;
+- distinguish EAVT, AEVT, AVET, or VAET nodes;
+- merge indexes;
+- evaluate Datalog;
+- infer authorship or provenance from the intake stream;
+- discover which streams or published indexes a query should read; or
+- construct a tuple space.
 
-      (= res :end)
-      :complete ; stream closed
+Those responsibilities remain above the storage boundary. This allows a new
+immutable data structure to be introduced without changing DaoJing.
 
-      (= res :daostream/gap)
-      :resync))) ; cursor fell behind retention boundary, requires resync
-```
+## Physical intake versus semantic composition
 
-*(Note: Loop-level validation acts as a fast-reject before `swap!`, while `materialize-step` retains self-contained validation for standalone `reduce` calls.)*
+Two forms of multi-stream work must remain separate:
 
-**Handling `:resync`:** When `:resync` is returned due to a `:daostream/gap` signal, the caller re-initializes its target state from the last persisted checkpoint and resumes folding from the checkpoint cursor (or re-folds from position 0 if no checkpoint exists).
+- **Physical intake:** DaoJing observes every stream in its configured pool and
+  content-addresses their opaque elements into the KV materialization.
+- **Semantic composition:** `dao.space.query` receives an explicit collection
+  of published sources and decides how their covered datoms are folded and
+  interpreted.
 
-### Checkpointing, Crash Recovery & Replay Idempotency
+DaoJing owns the first operation. It has no knowledge of the second. Observing
+many intake streams does not mean that DaoJing semantically merges their
+contents.
 
-As a design target, if a materializer process crashes mid-fold, it should ideally resume without reprocessing the entire stream log from index 0. (Note: the current file backend replays from the beginning; persisting and resuming from checkpoints is a planned enhancement.)
+## Reads
 
-- **Atomic Checkpointing (Target):** For file/SQL targets, persistence and crash recovery are intended to be managed by storing `{:target target-state :cursor stream-cursor}` atomically in a single atom or transaction.
-- **Replay Idempotency:** Even if crash recovery resumes from an earlier cursor position and replays previously processed records, re-application is completely safe across all operation types:
-  - **Segments (`[k :cas absent v]`):** Minting content-addressed segments is idempotent. On replay, `current` equals `v`, so `current != absent` causes the CAS check to skip silently.
-  - **Roots (`[k :cas old-root new-root]`):** Advancing mutable roots is guarded by the expected root hash. On replay, `current` equals `new-root`, so `current != old-root` causes the CAS check to skip silently without clobbering state.
-  - **Deletions (`[k :cas current-v absent]`):** On replay, key is already absent (`current = absent`), so `current != current-v` causes the CAS check to skip silently without modifying state.
+The storage read operation resolves a content address to the exact opaque value
+stored at that address. A reader may access the target locally or through a
+remote transport. Location changes how bytes are obtained, not how their
+identity or meaning is determined.
 
-### Resource Lifecycle & Cleanup
+Higher layers may expose mutable names, explicit query roots, capabilities, or
+discovery services. Those mechanisms refer to published content, but they are
+not part of DaoJing's content materialization rule. In particular, DaoJing does
+not infer a mutable root from the stream that carried a payload.
 
-Resource management (closing SQL database connection pools, file handles, or network sockets) belongs entirely to the materialization target or stream object (`ds/close!`), not to `dao.jing`'s fold concept. The fold is a pure iteration loop that operates on whatever target handles the step function provides.
+## Cursor tracking and recovery
 
-### Target-Provided Snapshot Semantics
+An observer retains one cursor per active pool member and repeatedly calls
+`ds/next`:
 
-Isolation and concurrency guarantees belong to the materialization target, not the fold itself:
-- **In-Memory Atom Target**: Thread-safe snapshot isolation is provided by Clojure's `deref` (`@projection`), ensuring concurrent stream writes never disturb an in-flight read.
-- **External Database Target**: Snapshot isolation is guaranteed by the target's native concurrency controls (e.g. SQL MVCC transaction isolation levels or S3 object versioning).
+- `{:ok payload, :cursor next-cursor}`: materialize the payload and advance
+  that stream's cursor;
+- `:blocked`: no payload is currently available from that stream;
+- `:end`: that stream is closed; and
+- `:daostream/gap`: the cursor is behind the retention boundary and that
+  stream requires resynchronization.
 
-## Read Path: Direct Lookups & Stream-Native Queries (`dao.stream.apply`)
+The observer may poll pool members round-robin or use a multiplexed iterator.
+Scheduling does not affect the resulting content set because materialization
+is content-addressed, commutative, and idempotent.
 
-While readers can query projected targets directly via native APIs (e.g. `clojure.core/get` on an in-memory map or SQL `SELECT`), the read path can also be expressed natively as a stream via **`dao.stream.apply`** (`docs/design/dao.stream.apply.md`).
+A durable checkpoint records operational progress, for example a cursor per
+pool entry, separately from the content-addressed KV data. Source identity may
+be needed by the checkpoint mechanism to resume the correct transport, but it
+must not enter the materialized content identity.
 
-A `dao.stream.apply` read endpoint is created and owned by the **reader** (caller), consisting of a pair of stream descriptors:
-```clojure
-{:dao.stream.apply/request  <request-stream>
- :dao.stream.apply/response <response-stream>}
-```
+## Resource lifecycle
 
-The reader appends queries to `:request` and reads answers from `:response`. The query evaluator service consumes `:request` and appends answers to `:response`.
+The observer owns the lifecycle of its pool-reading loop. Individual stream
+and storage handles retain responsibility for releasing their transport,
+file, database, or network resources. Closing the observer stops intake and
+closes resources according to the ownership policy supplied at construction.
 
-### The Query Evaluator & Service Loop
+## Implementation status
 
-The `dao.jing/evaluator` function accepts a materialization target and an optional read function (`read-fn`, defaulting to `clojure.core/get`). It returns a packet handler `(fn [{:dao.stream.apply/keys [id op args]}] response-packet)` that processes incoming `dao.stream.apply` requests:
+The architecture above is not fully implemented by the current
+`src/cljc/dao/jing*.cljc` code.
 
-```clojure
-(defn evaluator
-  ([target] (evaluator target get))
-  ([target read-fn]
-   (fn [{:dao.stream.apply/keys [id op args]}]
-     (let [val (case op
-                 :op/get (let [[k] args] (read-fn target k absent))
-                 (throw (ex-info "Unknown query op" {:op op})))]
-       {:dao.stream.apply/id id
-        :dao.stream.apply/value val}))))
-```
+The current implementation is a transitional handle-map KV facade:
 
-A long-lived **query evaluator service** (`step-service!`) uses the same platform-agnostic `ds/next` cursor loop to process query requests. It receives the target state (or the atom wrapping it, e.g. `@target-atom` or `target-conn`):
+- `jing/cas!`, `jing/get`, `jing/delete!`, and `jing/close!` dispatch on
+  functions stored in a handle map;
+- the generic and file paths interpret `[k :cas expected value]` records;
+- memory and file handles each expose one `:stream` rather than an observer
+  over an explicit pool;
+- `segment-key` hashes a value only when a caller invokes it; observation does
+  not automatically hash every stream element;
+- the remote adapter delegates KV operations through RPC; and
+- the DHT adapter routes keys and mutable-root operations directly.
 
-```clojure
-(defn step-service! [target cursor-atom endpoint-descriptor]
-  (let [{:dao.stream.apply/keys [request response]} endpoint-descriptor
-        handler (evaluator target)
-        res (ds/next request @cursor-atom)]
-    (cond
-      (map? res)
-      (let [req (:ok res)
-            resp (handler req)]
-        ;; Best-effort response delivery: if response stream is full/closed, request is dropped
-        (ds/append! response resp)
-        (reset! cursor-atom (:cursor res))
-        :ok)
+Migration to the architecture specified here requires:
 
-      (= res :blocked) :wait
-      (= res :end) :complete
-      (= res :daostream/gap) :resync)))
-```
+1. an explicit pool observer with one operational cursor per pool member;
+2. automatic canonical encoding and content hashing for every observed
+   payload;
+3. an idempotent content insertion operation;
+4. publication through a selected intake stream rather than direct mutation
+   of a Jing KV handle; and
+5. removal of source-stream identity from materialized keys and values.
 
-*(Note: `step-incremental!` and `step-service!` are single-step functions. In a single-threaded process, a caller loop interleaves them `(step-incremental! ...) (step-service! ...)`. In multi-threaded runtimes, they run on separate caller worker loops sharing the target object/atom. Scheduling and async execution are platform-dependent caller concerns.)*
+The existing `absent`/CAS machinery may remain useful inside a concrete KV
+target as an implementation technique for insert-if-absent. It is not the
+semantic record language of the intake streams in the target architecture.
 
-1. **Request:** A reader creates the endpoint pair, appends a request packet to `:request`:
-   ```clojure
-   {:dao.stream.apply/id   :read-101
-    :dao.stream.apply/op   :op/get
-    :dao.stream.apply/args [:root/my-db]}
-   ```
-2. **Evaluation:** `step-service!` reads the request via `ds/next`, evaluates it via `(handler req)`, and appends a response packet to `:response`:
-   ```clojure
-   {:dao.stream.apply/id    :read-101
-    :dao.stream.apply/value :segment/sha256-a1b2c3d4...}
-   ```
-3. **Response:** The reader observes the matching `:read-101` response on `:response` and continues.
+## Current limitations and open decisions
 
-### Unified Capabilities & Stream Selection
-
-Expressing reads via `dao.stream.apply` unifies storage access across all runtime boundaries:
-- **Cross-Process / RPC:** Remote reads use `dao.stream.rpc` over WebSockets/TCP seamlessly without custom RPC protocol adapters.
-- **Confined VM / FFI (`yin.vm`):** Sandboxed VMs access storage through their existing FFI capability bridges (`yin.vm.ffi`), governed by capability tokens.
-- **Live Queries / Subscriptions (Future Enhancement):** Read streams can emit an initial query snapshot packet followed by continuous delta update packets as subsequent write-stream appends occur.
-
-**Stream Selection as an Implementation Detail:**
-Whether the request/response stream pair is an **ephemeral in-memory stream** (`:ringbuffer` via `dao.stream.ringbuffer` for zero-overhead, ultra-low latency) or a **durable, auditable log** (`:file` via `dao.stream.file` or `:websocket` via `dao.stream.ws` for auditable access and agent observation) is an orthogonal choice of `dao.stream` backend. `dao.jing` and `dao.stream.apply` remain identical across both.
-
-## Keyspace
-
-The stream records describe changes to a keyspace governed by a strict discipline. The fold itself is generic and does not enforce namespaces. It simply processes stream records via your step function, which updates the materialization target.
-
-While higher-level semantics (like `dao.space`) divide the keyspace into segment keys (immutable data) and root keys (mutable references), the current `dao.jing.cljc` implementation still defines `canonical`, `content-hash`, `segment-key`, and `key-class`. Furthermore, `dao.jing.dht` depends on key classification for routing.
-
-This is a current transitional ownership intended for extraction to `dao.space.address`. Rather than `dao.jing` being entirely keyspace-blind today, it temporarily holds this content addressing mechanism. Once extracted, the fold will treat all keys simply as opaque identifiers in a plain map.
-
-## Structural Ignorance: Format Stability Without the Engine
-
-The deliberate dumbness above has a cost question hanging over it: PostgreSQL couples its storage engine to its data structures precisely because that coupling makes it fast. The property doing the work there is **format stability** — the on-disk page layout *is* the in-memory layout, so reads of resident pages need no parse.
-
-`dao.jing` is built on the decoupling: **in-place readability is a property of the byte layout, not of the storage engine.** A flat, self-describing layout (like Eve slabs) can be traversed in place by the *reader* — the interpreters above this boundary — while the observer remains the dumb fold over opaque blobs specified above.
-
-In exchange for banning in-place updates, fine-grained retrieval, and storage-level MVCC, `dao.jing` buys what a structurally aware engine cannot offer: invent a new data structure without touching storage code, and swap a local disk for a peer-to-peer network without touching query code — because a fold that never knew your structures never needs to learn new ones.
-
-## Current Scope
-
-While higher layers structure their keyspace into segments, roots, and index manifests, to `dao.jing` these are all just `:cas` records folded into the materialization target.
-
-- **Storage roots today:** Higher layers store one mutable key per stream and ship segments into the store. Each stream's semantic root holds either the stream's full datom vector wholesale or an owner-built index manifest whose values point at immutable, content-addressed B-Tree node segments.
-- **Stream layout and intake.** A stream owner publishes its semantic root by appending a
-  `:cas` record to its stream via `ds/append!`. `dao.jing` performs no registration or
-  discovery. A reader supplies an explicit pool of `dao.space.query/root-source` values;
-  discovery mechanisms may produce such pools above the storage boundary.
-- **Querying (reader side).** A read resolves keys either directly from the materialization target (e.g. `clojure.core/get` on a map) or via `dao.stream.apply` request/response streams. Concurrent writes to the stream never disturb an in-flight read against a target with snapshot isolation.
-- **Compaction / GC.** In the file stream implementation, compaction is a local garbage-collection concern. Dead records in the append-only log are filtered out and a new log is written, reclaiming space.
-- **Encoding: canonical bytes are unbuilt.** Where a higher layer mints a content-derived segment key, today's implementation hashes an order-normalized `pr-str` print. Moving to a true canonical flat encoding (like Eve Flat) is a planned semantic follow-up.
+- **Canonical bytes:** order-normalized `pr-str` must be replaced by a pinned,
+  cross-platform canonical encoding.
+- **Pool lifecycle:** the construction, update, and checkpoint format of an
+  explicit intake pool remains to be implemented.
+- **Publication acknowledgement:** the mechanism by which a publisher observes
+  that submitted content has been materialized must be expressed explicitly,
+  potentially as a response stream.
+- **Garbage collection:** content reachability and reclamation belong to a
+  higher-level retention policy; immutable content otherwise accumulates.
+- **Remote hydration:** readers of remote B-tree content need an explicit
+  hydration or asynchronous retrieval boundary.
 
 ## Lineage
 
-`dao.jing` is the meeting point of two traditions, one for what it holds and one for what it is built from:
+DaoJing combines two constraints:
 
-- **Datomic** gives the storage discipline: a dumb log of immutable segments under a strict Transactor / Storage / Query separation, with content-addressed identity and the Peer-as-library read model.
-- **Plan 9** gives the *substrate*: the logs are independent, location-transparent, append-only streams.
+- **Datomic:** storage retains immutable content while an embeddable reader
+  interprets indexes and queries above it.
+- **Plan 9:** location and transport are properties of streams and handles,
+  not of the values carried through them.
 
-(The associative-matching, generative-communication behavior built on top of these bytes is **not** here; that lineage—Linda 1986—belongs to `dao.space` above this boundary.)
-
-The synthesis: **`dao.jing` is a generic fold over `dao.stream` — an observer concept that projects an append-only log of opaque bytes into a materialization target you provide.** The write path is a stream fold driven solely by `:cas` tuples using `reduce`; the read path is either direct target access or a `dao.stream.apply` request/response stream. Datoms, matching, querying, segment addressing, and roots are semantics an embeddable reader library projects onto the materialized state via the interpreters above.
+The result is a deliberately restricted observer: a pool of streams carries
+opaque values in, canonical content addresses identify them, and a KV
+materialization makes them retrievable. All semantic structure remains in the
+layers that publish and consume those values.
