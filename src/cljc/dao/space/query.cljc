@@ -1,55 +1,21 @@
 (ns dao.space.query
-  "The Query boundary of the tuple space: `match` (Linda-style positional
-  templates), `q` (Datalog: joins, `not`/`not-join` negation, `:find`
-  aggregates — count, count-distinct, sum, min, max, avg — with `:with`,
-  predicate/function clauses whose fns come from a caller-supplied
-  `{:fns {sym fn}}` option, and recursive rules bound to `%` via `:in`;
-  one merged index), and `pull` (declarative entity projection: entity →
-  tree, the third read verb alongside match/q — see the Pull section in
-  docs/design/dao.space.query.md for the schema-free design rulings)
-  over a **source**. The read side is pure and stateless — it owns no
-  durable state, never writes, and enforces no schema; any schema policy
-  belongs on the write side (each `dao.stream` writer is its own). This
-   library is the embeddable Peer: it consumes the covered-index
-   realization owned by `dao.space.index` (manifest shape, sort orders, the
-   persisted node-blob format, and the owner-side `publish-index!` — see
-   docs/design/dao.jing.md and docs/design/dao.space.index.md). See
-   docs/design/dao.space.md, \"The Query Library\" and \"Source
-   Polymorphism\".
+  "Pure positional matching, Datalog, and entity projection over immutable
+  db-values.
 
-  A source is, interchangeably (and freely mixed in a collection):
-    - an explicit `(published-source content-store manifest-address)`
-      descriptor naming one published manifest by its store+address
-      coordinate
-    - a collection of published sources (a federated query — ADR 0001's
-      monoid-homomorphism proof is why folding N stores and merging equals
-      one store holding everything)
-    - a raw vector of datoms, `[[e a v t m] ...]` (a folded datom appends the
-      namespace slot: `[e a v t m ns]`). A collection is classified as raw
-      datoms only when every element is a 5- or 6-slot vector; arity is the
-      discriminator that tells datoms apart from nested entity-map
-      collections.
-    - a raw vector of entity maps, `[{:db/id e, :attr val ...} ...]`
-      (identity is explicit: the read side never mints an id, so an
-      entity map without `:db/id` throws)
+  A bare collection of vectors is an identity relation. Rows may have any
+  arity and may mix arities. Plain patterns match exact arity; an explicit
+  final `& _` ignores a tail and `& ?tail` binds it. Arity never implies
+  semantics.
 
-  Arity classification is precedence, not full recognition: a nested
-  collection of exactly five or six maps is read as a single datom tuple
-  (its elements are the e/a/v/t/m[/ns] slots), not as an entity-map
-  collection.
+  Datom interpretation is explicit. `(history source)` exposes canonical
+  physical d5 rows `[e a v t m]`; `(current source)` resolves retractions and
+  as-of, then projects those rows to d3 facts `[e a v]`. Entity maps are an
+  explicit d3 projection keyed by `:db/id`. Published sources name one
+  immutable covered-index manifest in a DaoJing content store.
 
-  A bare content-store handle is not a source: source identity is the
-  explicit store+address coordinate and is never inferred from a DaoJing
-  intake stream, so a handle must be wrapped in `published-source`.
-
-  Reading a published source folds exactly the named manifest. When it is
-  the sole source and no as-of bound is given, its B-trees are restored
-  lazily (nothing loaded until traversal, dao.data.btree restore-tree); an
-  as-of bound, a federated pool, or a raw source folds into a fresh
-  in-memory index per query (see dao.space.index).
-
-  Current-state resolution masks assertions explicitly retracted for the
-  same `[e a v ns]` dynamically at query time using `current-state-seq`."
+  Source scope is interpreter context, never a tuple slot. Multiple `:in`
+  database inputs keep sources separate and let clauses state desired joins.
+  The library owns no durable or global state."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.space.index :as index]))
@@ -88,8 +54,8 @@
 
 (defn published-source
   "Name one published manifest by its explicit content-store + manifest
-  address coordinate. A collection of these plain-data descriptors is the
-  explicit pool a federated query folds.
+  address coordinate. Queries accept several descriptors as separate
+  database inputs.
 
   Source identity is this explicit coordinate alone: it is never inferred
   from a DaoJing intake stream, and a bare content-store handle carries no
@@ -118,41 +84,42 @@
   (index/read-datoms content-store manifest-address))
 
 
-(declare source->datoms)
+(declare source->datoms view-source?)
 
 
 (defn- entity-source-map?
   [x]
-  (and (map? x) (not (published-source? x)) (not (content-store-handle? x))))
+  (and (map? x)
+       (not (published-source? x))
+       (not (view-source? x))
+       (not (content-store-handle? x))))
 
 
-(defn- datom-tuple?
-  "A raw datom tuple is a vector of arity 5 (the canonical `[e a v t m]`) or
-  arity 6 (a cross-stream fold appends the namespace slot `[e a v t m ns]`),
-  per docs/agents/datom-spec.md. Arity is the whole discriminator: a map, a
-  scalar, or a wrong-arity vector is not a datom tuple."
+(defn- tuple?
+  "A raw tuple is any vector. Arity never selects an interpretation."
   [x]
-  (and (vector? x) (#{5 6} (count x))))
+  (vector? x))
 
 
-(defn- raw-datom-source?
-  "A raw datom source is a collection whose every element is a datom tuple
-  (arity 5 or 6). The arity check is what keeps a nested entity-map
-  collection from being misread as raw datoms: `[[{:a 1}]]` is a vector whose
-  element is a 1-slot vector, not a datom tuple, so it falls through to
-  recursive/entity-map classification instead of being returned as (malformed)
-  raw datoms. Precedence, not full recognition: a collection whose elements
-  are themselves 5- or 6-slot vectors is raw datoms, so a nested collection of
-  exactly five or six maps reads as a single datom tuple."
+(defn- physical-datom?
+  "The covered-index adapter persists canonical d5 rows. This predicate is
+   intentionally not used by the generic positional query evaluator."
+  [x]
+  (and (vector? x) (= 5 (count x))))
+
+
+(defn- raw-tuple-source?
+  "A bare collection of vectors is an identity relation. Empty collections
+   are valid empty relations; rows may have mixed arbitrary arities."
   [source]
-  (and (coll? source) (every? datom-tuple? source)))
+  (and (coll? source) (every? tuple? source)))
 
 
 (defn- coll-source->datoms
   [source]
   (cond (every? published-source? source) (mapcat published-source-datoms
                                                   source)
-        (raw-datom-source? source) source
+        (every? physical-datom? source) source
         (every? entity-source-map? source) (entity-maps->datoms source)
         :else (into []
                     (mapcat (fn [item]
@@ -163,12 +130,12 @@
 
 
 (defn source->datoms
-  "Fold any source shape (see ns docstring) into a flat seq of datoms.
-  Published-source reachability is explicit: a published source reads exactly
-  one named manifest, and a collection of published sources is the pool to
-  merge."
+  "Adapter from physical datom sources to canonical d5 rows. A published
+  source reads exactly one named manifest. Collections are supported here for
+  storage tooling, but q keeps independent sources as separate db-values."
   [source]
-  (cond (published-source? source) (published-source-datoms source)
+  (cond (view-source? source) (source->datoms (::view-source source))
+        (published-source? source) (published-source-datoms source)
         (content-store-handle? source)
         (throw
           (ex-info
@@ -180,6 +147,24 @@
         :else (throw (ex-info "unrecognized query source" {:source source}))))
 
 
+(defn current
+  "Return an immutable logical view that interprets a physical d5 source as
+   current d3 facts. Interpretation belongs to this value, not tuple arity."
+  [source]
+  {::view :current, ::view-source source})
+
+
+(defn history
+  "Return an immutable logical view over the exact physical d5 history."
+  [source]
+  {::view :history, ::view-source source})
+
+
+(defn- view-source?
+  [x]
+  (and (map? x) (contains? x ::view) (contains? x ::view-source)))
+
+
 (defn- bound-datoms
   [datoms as-of]
   (if as-of
@@ -188,7 +173,9 @@
 
 
 (defn fold
-  "Fold a source into an index, optionally bounded to datoms with t <= as-of.
+  "Fold one canonical d5 source into a covered index, optionally bounded to
+  datoms with t <= as-of. Generic tuple relations belong to q/match and are
+  not valid inputs here.
   A single published source with no as-of bound restores its manifest's
   B-trees lazily on every platform (nothing loaded until traversal,
   dao.data.btree restore-tree, via index/read-manifest +
@@ -197,14 +184,21 @@
   index/read-datoms, then index-datoms)."
   ([source] (fold source nil))
   ([source as-of]
+   (when (and (raw-tuple-source? source) (not (every? physical-datom? source)))
+     (throw (ex-info "fold requires a canonical d5 physical source"
+                     {:source source})))
    (if (and (published-source? source) (nil? as-of))
      (let [{::keys [content-store manifest-address]} source]
        (index/restored-indexes content-store
                                (index/read-manifest content-store
                                                     manifest-address)))
-     (-> (source->datoms source)
-         (bound-datoms as-of)
-         index/index-datoms))))
+     (let [datoms (source->datoms source)]
+       (when-not (every? physical-datom? datoms)
+         (throw (ex-info "fold requires a canonical d5 physical source"
+                         {:source source})))
+       (-> datoms
+           (bound-datoms as-of)
+           index/index-datoms)))))
 
 
 ;; =============================================================================
@@ -222,36 +216,48 @@
   (or (= x '_) (nil? x) (= x FREE)))
 
 
-(def ^:private max-slot-arity
-  "Longest datom shape the engine matches positionally: [e a v t m ns].
-   A datom is 5 slots locally and 6 in a cross-stream fold, where ns
-   carries the authoring stream (docs/agents/datom-spec.md). Patterns and
-   clauses are prefix templates, so a shorter one leaves the trailing
-   slots wildcard."
-  6)
+(defn- query-var-symbol?
+  [x]
+  (and (symbol? x) (= \? (first (name x)))))
+
+
+(defn- parse-tuple-pattern
+  "Parse exact positional syntax plus an optional final `& tail`."
+  [pattern]
+  (let [pattern (vec pattern)
+        amps (vec (keep-indexed #(when (= '& %2) %1) pattern))]
+    (cond
+      (empty? amps) {:fixed pattern, :rest nil}
+      (or (not= 1 (count amps)) (not= (first amps) (- (count pattern) 2)))
+      (throw
+        (ex-info
+          "Malformed tuple rest pattern: & must precede one final tail form"
+          {:pattern pattern}))
+      :else (let [tail (peek pattern)]
+              (when-not (or (= tail '_) (query-var-symbol? tail))
+                (throw (ex-info
+                         "Tuple rest pattern tail must be _ or a query variable"
+                         {:pattern pattern, :tail tail})))
+              {:fixed (subvec pattern 0 (first amps)), :rest tail}))))
+
+
+(defn- tuple-shape-matches?
+  [{:keys [fixed rest]} tuple]
+  (if rest (<= (count fixed) (count tuple)) (= (count fixed) (count tuple))))
 
 
 (defn- slots-match?
-  "Positional template test against a datom. A template slot past the
-   datom's own arity matches only when it is a wildcard: asking for the
-   namespace of a datom that carries none is a non-match, not a nil
-   comparison."
-  [tmpl d]
-  (let [n (count d)]
-    (every? (fn [i]
-              (let [t (nth tmpl i)]
-                (if (< i n) (or (wildcard? t) (= t (nth d i))) (wildcard? t))))
-            (range (count tmpl)))))
+  [parsed tuple]
+  (and (tuple-shape-matches? parsed tuple)
+       (every? (fn [[expected actual]]
+                 (or (wildcard? expected) (= expected actual)))
+               (map vector (:fixed parsed) tuple))))
 
 
 (defn- current-state-key
-  "The fact key current-state resolves on: [e a v ns]. ns is nil for a local
-   5-tuple, so d5 datoms all share the nil namespace and fold exactly as they
-   did before the slot existed. A cross-stream fold materializes the sixth
-   slot, so two streams that independently assert an identical [e a v t m]
-   stay distinct facts."
+  "The local d5 fact key. Stream scope is interpreter context, not a slot."
   [d]
-  [(index/datom-e d) (index/datom-a d) (index/datom-v d) (index/datom-ns d)])
+  [(index/datom-e d) (index/datom-a d) (index/datom-v d)])
 
 
 (defn current-state-seq
@@ -259,12 +265,11 @@
    `select-by-index` produces) and returns a sequence of currently asserted
    datoms. A retraction masks prior assertions of the same fact.
 
-   Facts are keyed by [e a v ns]: d5 datoms (ns absent) fold exactly as they
-   always did, while a d6 fold keeps two streams' otherwise-identical datoms
-   apart and never lets one stream's retraction mask another's assertion.
-   Input order is irrelevant: every fact is folded explicitly to its greatest
+   Facts are keyed by local [e a v]. Source/stream scope belongs to the
+   interpreter selecting this relation. Input order is irrelevant: every fact
+   is folded explicitly to its greatest
    datom under EAVT order, so transaction t (then metadata m as a deterministic
-   tie-break) decides the winner within that namespace. The retraction test is
+   tie-break) decides the winner within that source. The retraction test is
    dao.datom/retracted?, the public reserved-op predicate, never a bare
    comparison to 0."
   [s]
@@ -281,6 +286,84 @@
        (vals)
        (remove datom/retracted?)
        (sort index/eavt-cmp)))
+
+
+(defn- current-tuples
+  [source as-of]
+  (when (and (coll? source)
+             (seq source)
+             (not (published-source? source))
+             (not (entity-source-map? source))
+             (not (every? physical-datom? source))
+             (not (every? entity-source-map? source)))
+    (throw
+      (ex-info
+        "current interprets one physical d5 source; pass distinct sources as separate database inputs"
+        {:source source})))
+  (->> (bound-datoms (filter #(= 5 (count %)) (source->datoms source)) as-of)
+       current-state-seq
+       (mapv #(subvec (vec %) 0 3))))
+
+
+(defn- entity-source->tuples
+  [source]
+  (->> (if (map? source) [source] source)
+       entity-maps->datoms
+       (mapv #(subvec (vec %) 0 3))))
+
+
+(defn- source->relation
+  "Interpret a db-value into the immutable tuple relation q evaluates.
+   Bare vectors are identity relations; only explicit views add datom
+   semantics."
+  [source as-of]
+  (when (and as-of (not (view-source? source)))
+    (throw (ex-info "as-of requires an explicit current or history view"
+                    {:source source, :as-of as-of})))
+  (cond (view-source? source)
+        (case (::view source)
+          :current (current-tuples (::view-source source) as-of)
+          :history (vec (bound-datoms (filter #(= 5 (count %))
+                                              (source->datoms (::view-source
+                                                                source)))
+                                      as-of))
+          (throw (ex-info "Unknown query source view" {:source source})))
+        (entity-source-map? source) (entity-source->tuples source)
+        (and (coll? source) (every? entity-source-map? source))
+        (entity-source->tuples source)
+        (published-source? source) (vec (published-source-datoms source))
+        (and (coll? source) (every? published-source? source))
+        (mapv #(subvec (vec %) 0 3) (coll-source->datoms source))
+        (content-store-handle? source)
+        (throw
+          (ex-info
+            "bare content-store handles require an explicit published source"
+            {:source source,
+             :example '(published-source content-store manifest-address)}))
+        (raw-tuple-source? source) (vec source)
+        :else (throw (ex-info "unrecognized query source" {:source source}))))
+
+
+(defn- fact-view?
+  [source]
+  (or (and (view-source? source) (= :current (::view source)))
+      (entity-source-map? source)
+      (and (coll? source) (every? entity-source-map? source))))
+
+
+(defn- relation->fact-index
+  [relation]
+  (index/index-datoms (mapv (fn [tuple]
+                              [(nth tuple 0) (nth tuple 1)
+                               (nth tuple 2) 0 datom/default-op])
+                            relation)))
+
+
+(defn- source->db
+  [source as-of]
+  (let [relation (source->relation source as-of)]
+    {::relation relation,
+     ::fact-index (when (fact-view? source) (relation->fact-index relation))}))
 
 
 (defn- select-by-index
@@ -327,17 +410,12 @@
 
 
 (defn match
-  "Positional template match, Linda-style: [e a v] or [e a v t m], `_` or
-  nil as wildcard elsewhere. Returns the matching datoms (not bindings).
-  Options: {:as-of t}."
+  "Exact-arity positional matching over a logical source. An explicit final
+   `& _` ignores a tail. Returns the matched logical tuples."
   ([source pattern] (match source pattern nil))
   ([source pattern {:keys [as-of]}]
-   (let [tmpl (into (vec pattern)
-                    (repeat (- max-slot-arity (count pattern)) '_))
-         [te ta tv] tmpl
-         idx (fold source as-of)
-         candidates (select-by-index idx te ta tv)]
-     (vec (filter #(slots-match? tmpl %) candidates)))))
+   (let [parsed (parse-tuple-pattern pattern)]
+     (vec (filter #(slots-match? parsed %) (source->relation source as-of))))))
 
 
 ;; =============================================================================
@@ -583,14 +661,23 @@
     (pull source 123 [:name :age {:friend [:name]}])"
   ([source eid pattern] (pull source eid pattern nil))
   ([source eid pattern opts]
-   (pull-idx (fold source (:as-of opts)) eid pattern)))
+   (let [db (source->db source (:as-of opts))
+         idx (::fact-index db)]
+     (when-not idx
+       (throw (ex-info "pull requires a current fact-shaped source view"
+                       {:source source})))
+     (pull-idx idx eid pattern))))
 
 
 (defn pull-many
   "Pull multiple entities with a shared fold."
   ([source eids pattern] (pull-many source eids pattern nil))
   ([source eids pattern opts]
-   (let [idx (fold source (:as-of opts))
+   (let [idx (::fact-index (source->db source (:as-of opts)))
+         _ (when-not idx
+             (throw (ex-info
+                      "pull-many requires a current fact-shaped source view"
+                      {:source source})))
          parsed (parse-pattern pattern)]
      (mapv (fn [eid]
              (if (seq (datoms idx eid '_ '_))
@@ -600,7 +687,7 @@
 
 
 ;; =============================================================================
-;; q: Datalog (:find / :in / :where, one merged index)
+;; q: Datalog (:find / :in / :where over explicit db-values)
 ;; =============================================================================
 
 (def ^:private builtins
@@ -650,11 +737,6 @@
   (if (symbol? sym) (get binding sym FREE) sym))
 
 
-(defn- pad-slots
-  [clause]
-  (into (vec clause) (repeat (- max-slot-arity (count clause)) FREE)))
-
-
 (defn- unify
   [binding sym val]
   (cond (or (= sym FREE) (= sym '_)) binding
@@ -664,21 +746,17 @@
 
 
 (defn- unify-slots
-  "Unify a padded template against a datom, positionally. A template slot
-   past the datom's own arity matches only when it is a wildcard: asking
-   for the namespace of a datom that carries none is a non-match, not a
-   nil binding — otherwise ?ns would bind nil and entity ids from
-   different streams would unify, which is the collision the slot exists
-   to prevent."
-  [binding tmpl d]
-  (let [n (count d)]
-    (reduce (fn [b i]
-              (let [t (nth tmpl i)]
-                (if (< i n)
-                  (or (unify b t (nth d i)) (reduced nil))
-                  (if (wildcard? t) b (reduced nil)))))
-            binding
-            (range (count tmpl)))))
+  "Unify one parsed exact/rest pattern against one tuple."
+  [binding {:keys [fixed rest], :as parsed} tuple]
+  (when (tuple-shape-matches? parsed tuple)
+    (let [b (reduce (fn [b [term value]]
+                      (or (unify b term value) (reduced nil)))
+                    binding
+                    (map vector fixed tuple))]
+      (when b
+        (if (and rest (not= rest '_))
+          (unify b rest (subvec (vec tuple) (count fixed)))
+          b)))))
 
 
 (defn- and-then
@@ -709,7 +787,7 @@
 (defn- expand-in-binding
   [pattern value as-of]
   (case (classify-in-pattern pattern)
-    :db [{::dbs {pattern (fold value as-of)}}]
+    :db [{::dbs {pattern (source->db value as-of)}}]
     :scalar [{pattern value}]
     :coll (let [sym (first pattern)] (mapv (fn [elem] {sym elem}) value))
     :tuple [(zipmap pattern value)]
@@ -758,19 +836,32 @@
   (get (get binding ::dbs) db-sym))
 
 
+(defn- resolve-relation
+  [binding db-sym]
+  (::relation (resolve-db binding db-sym)))
+
+
+(defn- resolve-fact-index
+  [binding db-sym]
+  (::fact-index (resolve-db binding db-sym)))
+
+
 (defn- eval-pattern-clause
   [clause binding _ctx]
   (let [[db-sym pattern] (clause-db-and-pattern clause)
-        idx (resolve-db binding db-sym)]
-    (if-not idx
+        relation (resolve-relation binding db-sym)
+        fact-index (resolve-fact-index binding db-sym)]
+    (if-not relation
       []
-      (let [tmpl (pad-slots pattern)
-            [ce ca cv] tmpl
-            e-val (resolve-binding binding ce)
-            a-val (resolve-binding binding ca)
-            v-val (resolve-binding binding cv)
-            datoms (select-datoms idx e-val a-val v-val)]
-        (keep #(unify-slots binding tmpl %) datoms)))))
+      (let [parsed (parse-tuple-pattern pattern)]
+        (if (and fact-index (nil? (:rest parsed)) (= 3 (count (:fixed parsed))))
+          (let [[e a v] (mapv #(resolve-binding binding %) (:fixed parsed))]
+            (keep #(unify-slots binding
+                                parsed
+                                [(index/datom-e %) (index/datom-a %)
+                                 (index/datom-v %)])
+                  (select-datoms fact-index e a v)))
+          (keep #(unify-slots binding parsed %) relation))))))
 
 
 (defn- query-var?
@@ -1004,7 +1095,12 @@
   [fsym args binding]
   (case fsym
     get-else (let [[_src e a default] args
-                   idx (resolve-db binding _src)
+                   idx (resolve-fact-index binding _src)
+                   _ (when-not idx
+                       (throw
+                         (ex-info
+                           "get-else requires a current fact-shaped source view"
+                           {:source _src})))
                    e' (resolve-special-arg binding e)
                    a' (resolve-special-arg binding a)
                    d' (resolve-special-arg binding default)
@@ -1012,7 +1108,12 @@
                    vs (:v probe)]
                {:ret (if (seq vs) (first vs) d')})
     missing? (let [[_src e a] args
-                   idx (resolve-db binding _src)
+                   idx (resolve-fact-index binding _src)
+                   _ (when-not idx
+                       (throw
+                         (ex-info
+                           "missing? requires a current fact-shaped source view"
+                           {:source _src})))
                    e' (resolve-special-arg binding e)
                    a' (resolve-special-arg binding a)
                    probe (select-probe idx e' a' '_)]
@@ -1163,19 +1264,13 @@
 (defn- estimate-clause-cost
   [clause binding]
   (let [[db-sym pattern] (clause-db-and-pattern clause)
-        idx (resolve-db binding db-sym)]
-    (if-not idx
+        relation (resolve-relation binding db-sym)]
+    (if-not relation
       1000000
-      (let [[ce ca cv] (pad-slots pattern)
-            e-val (resolve-binding binding ce)
-            a-val (resolve-binding binding ca)
-            v-val (resolve-binding binding cv)]
-        (cond (and (not= e-val FREE) (not= a-val FREE) (not= v-val FREE)) 1
-              (not= e-val FREE) 2
-              (and (not= a-val FREE) (not= v-val FREE)) 4
-              (not= v-val FREE) 8
-              (not= a-val FREE) 16
-              :else 1024)))))
+      (let [{:keys [fixed]} (parse-tuple-pattern pattern)
+            bound-count (count (remove #(= FREE (resolve-binding binding %))
+                                       fixed))]
+        (- 1024 bound-count)))))
 
 
 (defn- plan-where
@@ -1309,7 +1404,7 @@
   [element b]
   (if (:pull-var element)
     (let [eid (get b (:pull-var element))
-          idx (resolve-db b '$)]
+          idx (resolve-fact-index b '$)]
       (when-not idx
         (throw (ex-info "pull find element requires a bound $ source"
                         {:element element})))
@@ -1411,9 +1506,20 @@
   [query & inputs]
   (let [{:keys [find in with where keys syms strs]} (normalize-query query)
         in-patterns (or in '[$])
-        [bind-inputs opts] (if (> (count inputs) (count in-patterns))
+        extra-count (- (count inputs) (count in-patterns))
+        _ (when (> extra-count 1)
+            (throw (ex-info "query input arity permits at most one options map"
+                            {:expected (count in-patterns),
+                             :actual (count inputs)})))
+        [bind-inputs opts] (if (= extra-count 1)
                              [(take (count in-patterns) inputs) (last inputs)]
                              [inputs nil])
+        _ (when (and opts (not (map? opts)))
+            (throw (ex-info "query options must be a map" {:options opts})))
+        _ (when (not= (count in-patterns) (count bind-inputs))
+            (throw (ex-info "query input arity must match :in"
+                            {:expected (count in-patterns),
+                             :actual (count bind-inputs)})))
         as-of (:as-of opts)
         init-bindings (build-init-bindings in-patterns bind-inputs as-of)
         ;; fn registry: builtins under caller's :fns (caller wins). Pass

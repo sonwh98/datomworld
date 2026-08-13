@@ -43,14 +43,15 @@
 (defn compile-and-run
   [ast]
   (let [datoms (vm/ast->datoms ast)]
-    (-> (vtu/queue-vm (semantic/create-vm) datoms)
+    (-> (vtu/queue-vm (semantic/create-vm {:primitives vm/primitives}) datoms)
         (vm/run)
         (vm/value))))
 
 
 (defn- load-ast
   [ast]
-  (vtu/queue-vm (semantic/create-vm) (vm/ast->datoms ast)))
+  (vtu/queue-vm (semantic/create-vm {:primitives vm/primitives})
+                (vm/ast->datoms ast)))
 
 
 (deftest cesk-state-test
@@ -75,7 +76,7 @@
       (is (contains? (vm/store vm) vm/call-out-stream-key))
       (is (= 42 (vm/value vm)))))
   (testing "Environment stores lexical bindings only"
-    (let [vm (semantic/create-vm {:env {'x 1}})]
+    (let [vm (semantic/create-vm {:env {'x 1}, :primitives vm/primitives})]
       (is (= 1 (get (vm/environment vm) 'x))))))
 
 
@@ -86,16 +87,20 @@
                :operands [{:type :literal, :value 1}
                           {:type :literal, :value 2}]}
           [_root-tempid datoms] (vm/ast->datoms-with-root ast)
-          loaded (-> (vtu/queue-vm (semantic/create-vm) datoms)
+          loaded (-> (vtu/queue-vm (semantic/create-vm {:primitives
+                                                        vm/primitives})
+                                   datoms)
                      (vm/run))
           ast-db (:db loaded)
           root-eid (ffirst (query/q '[:find ?e :where
                                       [?e :yin/type :application]]
-                                    ast-db))]
+                                    (query/current ast-db)))]
       (is (vector? ast-db))
-      (is (= :application (:yin/type (query/entity-attrs ast-db root-eid))))
+      (is (= :application
+             (:yin/type (query/entity-attrs (query/current ast-db) root-eid))))
       (is (= #{['+]}
-             (query/q '[:find ?name :where [_ :yin/name ?name]] ast-db)))
+             (query/q '[:find ?name :where [_ :yin/name ?name]]
+                      (query/current ast-db))))
       (is (= 3
              (-> loaded
                  vm/run
@@ -103,11 +108,13 @@
   (testing "nil literal values remain explicit AST facts after DaoDB load"
     (let [[_root-tempid datoms] (vm/ast->datoms-with-root {:type :literal,
                                                            :value nil})
-          loaded (-> (vtu/queue-vm (semantic/create-vm) datoms)
+          loaded (-> (vtu/queue-vm (semantic/create-vm {:primitives
+                                                        vm/primitives})
+                                   datoms)
                      (vm/run))
           root-eid (ffirst (query/q '[:find ?e :where [?e :yin/type :literal]]
-                                    (:db loaded)))
-          attrs (query/entity-attrs (:db loaded) root-eid)
+                                    (query/current (:db loaded))))
+          attrs (query/entity-attrs (query/current (:db loaded)) root-eid)
           result loaded]
       (is (contains? attrs :yin/value))
       (is (vm/halted? result))
@@ -120,7 +127,8 @@
 
 (deftest eval-literal-test
   (testing "vm/eval evaluates a literal AST directly"
-    (let [result (vm/eval (semantic/create-vm) {:type :literal, :value 42})]
+    (let [result (vm/eval (semantic/create-vm {:primitives vm/primitives})
+                          {:type :literal, :value 42})]
       (is (vm/halted? result))
       (is (= 42 (vm/value result))))))
 
@@ -131,7 +139,7 @@
                :operator {:type :variable, :name '+},
                :operands [{:type :literal, :value 10}
                           {:type :literal, :value 20}]}
-          result (vm/eval (semantic/create-vm) ast)]
+          result (vm/eval (semantic/create-vm {:primitives vm/primitives}) ast)]
       (is (= 30 (vm/value result))))))
 
 
@@ -141,7 +149,7 @@
     (let [ast {:type :dao.stream.apply/call,
                :op :op/echo,
                :operands [{:type :literal, :value 42}]}
-          vm (semantic/create-vm)
+          vm (semantic/create-vm {:primitives vm/primitives})
           result-parked (vm/eval vm ast)]
       (is (vm/blocked? result-parked))
       (let [[vm' _cursor']
@@ -253,7 +261,7 @@
 (defn- make-stream-vm
   "Create a Semantic VM with primitives, suitable for stream operations."
   []
-  (semantic/create-vm))
+  (semantic/create-vm {:primitives vm/primitives}))
 
 
 (deftest stream-make-test
@@ -344,7 +352,7 @@
 
 (deftest continuation-park-resume-test
   (testing "Semantic VM handles vm/resume nodes emitted from AST conversion"
-    (let [vm0 (semantic/create-vm)
+    (let [vm0 (semantic/create-vm {:primitives vm/primitives})
           vm1 (vm/eval vm0 {:type :vm/park})
           parked-cont (vm/value vm1)
           parked-id (:id parked-cont)
@@ -360,7 +368,7 @@
 (deftest semantic-multi-load-test
   (testing
     "SemanticVM should handle multiple program loads without ID collisions"
-    (let [vm (semantic/create-vm)
+    (let [vm (semantic/create-vm {:primitives vm/primitives})
           ;; First load: a simple literal
           vm-1 (vm/eval vm {:type :literal, :value 1})
           _ (is (= 1 (vm/value vm-1)))

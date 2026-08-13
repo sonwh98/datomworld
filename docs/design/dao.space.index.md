@@ -51,10 +51,9 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
   comparators also serve query-only db-values, whose ids may be caller-chosen;
   persisted local d5 datoms are stricter: non-negative integer e/t, integer
   m, and namespaced keyword a. The library also owns the datom slot accessors
-  (`datom-e/a/v/t/m/ns`) they read through. The trailing namespace slot is
-  the last tiebreaker in every order, never a leading component: it leaves
-  five-slot ordering unchanged and only separates datoms that agree on
-  `[e a v t m]` but differ in namespace, so a fold never silently drops one.
+  (`datom-e/a/v/t/m`) they read through. Covered indexes contain canonical
+  local d5 datoms only. Source scope belongs to the query interpreter and is
+  not appended to an indexed tuple.
 - **The in-memory index value** — `index-datoms` builds
   `{:eavt :aevt :avet :vaet}` `dao.data.btree` sorted sets. `subseq-from`
   delegates to `dao.data.btree/slice`: a log-n descent that, on a restored
@@ -137,7 +136,7 @@ trees therefore report the same O(1) count they actually contain.
 (index/compare-vals a b)
 (index/eavt-cmp) (index/aevt-cmp) (index/avet-cmp) (index/vaet-cmp)
 (index/datom-e d) (index/datom-a d) (index/datom-v d)
-(index/datom-t d) (index/datom-m d) (index/datom-ns d)
+(index/datom-t d) (index/datom-m d)
 ```
 
 `publish-index!` semantics worth pinning:

@@ -3,7 +3,6 @@
    Covers the spec from docs/macros.md."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.space.query :as query]
-            [dao.stream :as ds]
             [dao.stream.ringbuffer]
             [yang.clojure :as yang]
             [yin.vm :as vm]
@@ -688,5 +687,5 @@
       (is (= 1 (vm/value (vm/run vm-loaded))))
       ;; After append, new node is accessible in the index
       (is (seq (query/q '[:find ?e :where [?e :yin/value 99]]
-                        (:db vm-appended)))
+                        (query/current (:db vm-appended))))
           "Appended node is queryable through the DaoDB-backed AST"))))

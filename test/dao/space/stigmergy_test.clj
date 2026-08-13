@@ -147,10 +147,18 @@
 
 
 (defn- sources
-  "Publish the given agents and materialize them, then return a fresh pool
-   of published query sources over the queried content store."
+  "Publish the agents, then explicitly interpret their histories for this
+   simulation. Every current datom projects to d3; :claim/by additionally
+   projects to d4 so the domain's [t agent] winner rule can inspect t. The
+   union and projection are application decisions, not tuple conventions."
   [content-store agents]
-  (published-source-pool content-store (publish-and-materialize! agents)))
+  (into []
+        (mapcat (fn [source]
+                  (mapcat (fn [[e a v t _m]]
+                            (cond-> [[e a v]] (= a :claim/by) (conj [e a v t])))
+                          (query/current-state-seq (query/source->datoms source)))))
+        (published-source-pool content-store
+                               (publish-and-materialize! agents))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -343,18 +351,21 @@
     (testing "a published manifest is an immutable snapshot of its stream"
       (is (= #{[before "pre-index"]}
              (query/q '[:find ?e ?id :where [?e :marker/id ?id]]
-                      (query/published-source *store* addr-a)))))
+                      (query/current (query/published-source *store*
+                                                             addr-a))))))
     (let [{after :e} (put-entity! agent {:marker/id "post-index"})
           addr-b (first (publish-and-materialize! [agent]))]
       (testing "a fresh manifest after more appends folds old and new data"
         (is (not= addr-a addr-b))
         (is (= #{[before "pre-index"] [after "post-index"]}
                (query/q '[:find ?e ?id :where [?e :marker/id ?id]]
-                        (query/published-source *store* addr-b)))))
+                        (query/current (query/published-source *store*
+                                                               addr-b))))))
       (testing "the earlier snapshot is untouched"
         (is (= #{[before "pre-index"]}
                (query/q '[:find ?e ?id :where [?e :marker/id ?id]]
-                        (query/published-source *store* addr-a))))))))
+                        (query/current (query/published-source *store*
+                                                               addr-a)))))))))
 
 
 (deftest transport-transparency
@@ -369,9 +380,12 @@
                     client — the rpc is invisible, and the datoms are durable
                     in the file store"
             (is (= (query/q '[:find ?e ?a ?v :where [?e ?a ?v]]
-                            (query/published-source *store* address))
+                            (query/current (query/published-source *store*
+                                                                   address)))
                    (query/q '[:find ?e ?a ?v :where [?e ?a ?v]]
-                            (query/published-source remote address))))
+                            (query/current (query/published-source remote
+                                                                   address)))))
             (is (contains? (query/q '[:find ?id :where [_ :probe/id ?id]]
-                                    (query/published-source remote address))
+                                    (query/current
+                                      (query/published-source remote address)))
                            ["wire"]))))))))

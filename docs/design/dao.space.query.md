@@ -1,8 +1,10 @@
 # dao.space.query — The Reader-Side Index Consumer
 
 Status: implemented. The read coordinate is the explicit published source
-(`published-source`), the index realization is owned by `dao.space.index`,
-and `match` / `q` / `pull` run over one merged index on every platform. This
+(`published-source`), interpretation enters only through explicit immutable
+views (`current`, `history`) or raw sources, the index realization is owned
+by `dao.space.index`, and `match` / `q` / `pull` run over one evaluator on
+every platform. This
 document records the read model, the source model, the index-realization
 decision, the query surface, and the open items. The executable contract is
 `test/dao/space/query_test.cljc`.
@@ -47,8 +49,8 @@ manifest by its explicit store + address coordinate:
 ;; => {::content-store store, ::manifest-address :segment/sha256-…}
 ```
 
-A collection of these plain-data descriptors is the explicit pool a federated
-query folds. Source identity is this explicit coordinate alone. It is never
+A query may receive several descriptors as separate `:in` database values.
+Source identity is this explicit coordinate alone. It is never
 inferred from a DaoJing intake stream, and **a bare content-store handle
 carries no source**: it must be wrapped in `published-source` before
 `q`/`match`/`pull` will read it, and passing one unwrapped throws.
@@ -57,8 +59,8 @@ Two kinds of pools must not be confused:
 
 - **DaoJing intake pools** are physical ingestion topology — which streams an
   observer materializes into content storage.
-- **Published-source pools** are semantic query composition — which published
-  content a reader folds and merges.
+- **Query db-values** are semantic composition — which published content a
+  reader names independently in `:in`.
 
 They never need to coincide, and DaoJing never learns the latter. A manifest
 address is a content address like any other; it is a snapshot-at-read of an
@@ -67,34 +69,29 @@ as such.
 
 ## Source polymorphism
 
-`q` and `match`'s second argument is a **db-value**, not narrowly a content
-handle. The implementation calls this a source internally, but the public
-role is the immutable value a query reads. The library accepts, interchangeably (and freely mixed in a
-collection):
+`q` and `match` read immutable **db-values**, not narrowly content handles.
+Each database input is one logical relation:
 
 - **A single published source** — `(query/published-source store addr)`;
   `fold` reads exactly that one manifest.
-- **A collection of published sources** — the explicit semantic pool, and a
-  *federated* query when its descriptors name manifests in several stores. This
-  is not a new mechanism: ADR 0001's monoid-homomorphism proof
-  (`index(S₁ ⊎ … ⊎ Sₙ) = merge(index(S₁), …, index(Sₙ))`) already establishes
-  that folding N stores and merging is the same index as one store holding
-  everything, so `fold` over a collection is `merge` over the per-source folds,
-  not a different code path.
-- **A raw Clojure vector of datoms** — `[[e a v t m] ...]`, or
-  `[[e a v t m ns] ...]` after a cross-stream fold. A caller who already has
-  datoms in hand — a REPL scratch value, a test fixture, an in-memory
-  scratchpad never destined for storage — indexes them directly. A collection
-  is classified as raw datoms only when every element is a 5- or 6-slot
-  vector. That arity rule takes precedence, so a nested vector containing
-  exactly five or six maps is one datom tuple, not an entity-map collection.
+- **A raw relation** — a collection of vectors of arbitrary and mixed arities.
+  It is passed through unchanged. Arity never selects an interpretation.
+- **An explicit datom view** — `(current source)` resolves a canonical d5
+  history and projects it to d3; `(history source)` exposes exact d5. These
+  views accept a local d5 collection or one published source. Independent
+  physical sources stay separate database inputs.
 - **A raw Clojure vector of entity maps** — `[{:db/id e, :work/status :todo,
   ...} ...]`. Normalized to datoms first: each `k v` pair becomes an
-  `[e k v]` datom (`t` 0, `m` `dao.datom/default-op`). Identity is explicit:
+  `[e k v]` fact. Identity is explicit:
   the read side is pure and never mints an entity id, so every entity map must
   carry `:db/id`, and a map without one (top-level, or nested inside a mixed
   or nested collection) throws an informative `ex-info` rather than inventing
   a tempid.
+
+Several relations compose through `:in $a $b ...`; source-qualified clauses
+express union with `or` or deliberate joins with shared variables. A bare
+collection of physical sources is rejected, because flattening stream-local
+entity ids would fabricate identities.
 
 Source polymorphism is an ergonomic property of the query *function*, not a
 second medium — a raw in-memory vector is by definition not shared, and
@@ -107,12 +104,10 @@ coordination between agents still runs through shared content storage.
 - **A single published source with no `as-of` bound** restores its manifest's
   B-trees lazily — `index/restored-indexes` over `index/read-manifest`,
   `dao.data.btree/restore-tree` on every platform. Nothing is fetched until a
-  query traverses; a `subseq-from` slice then loads only the descent path plus
-  the matching range (pinned by `lazy-point-lookup-faults-only-the-seek-path`).
-- **Every other shape reads eagerly** into a fresh in-memory index per query:
-  an `as-of` bound (only datoms with `t ≤ as-of` are kept), a federated pool of
-  published sources, or a raw datom/entity-map source (`index/read-datoms` then
-  `index/index-datoms`).
+  index consumer traverses; a `subseq-from` slice then loads only the descent
+  path plus the matching range.
+- **Every other d5 adapter shape reads eagerly** into a fresh in-memory index:
+  an `as-of` bound, or a local canonical d5 source.
 
 `index/read-manifest` validates before reading: the value at the manifest
 address must be exactly `{:indexes {:eavt … :aevt … :avet … :vaet …} :count n
@@ -132,16 +127,16 @@ set of datoms (ADR 0001's monoid homomorphism):
 
 - **Rebuild per query** — each read folds the source's datoms into a fresh
   index and discards it. Simple; O(total datoms) per read. The permanent
-  fallback for small sources, pools, and `as-of` reads.
+  fallback for small sources and `as-of` reads.
 - **Incremental index** — a long-lived reader keeps a cursor per source
   stream and folds only new frames as they arrive (Datomic-peer style). More
   machinery; amortized reads. Still no transactor and no global clock — each
   stream advances its own cursor.
 - **Owner-built, peers compose (implemented)** — each stream's owner indexes
   its own stream (`dao.space.index/publish-index!`) and persists the segments;
-  readers compose the explicitly supplied manifests. A sole manifest can be
-  traversed lazily; the current federated path eagerly reads their datoms and
-  builds one merged in-memory index. Index-once, reuse-by-many, and available
+  readers consume explicitly supplied manifests as independent db-values. A
+  sole manifest can be traversed lazily through `fold`; query composition
+  stays in the interpreter. Index-once, reuse-by-many, and available
   when the author is offline — the decentralized analog of Datomic's
   transactor-built index. Implemented on JVM,
   ClojureScript, and ClojureDart on `dao.data.btree` (see
@@ -176,15 +171,9 @@ before building indexes from them — `dao.jing` itself never decodes meaning.
 - **Extract.** `walk-index-datoms` reads the `:eavt` node graph eagerly, one
   `jing/get` per node (plain EDN leaf/branch blobs), and returns the flat
   datoms seq in index order. A nil address (an empty index) walks to ().
-- **Namespace stamping: not applied.** Local streams store the canonical
-  five-slot datom, and publishing writes exactly what the stream held. The
-  sixth namespace slot is only materialized by a cross-stream fold per
-  `docs/agents/datom-spec.md`; the current pipeline does not stamp `ns`
-  automatically. `read-datoms` returns datoms *unstamped*, so cross-stream
-  local-id collision remains a documented open gap, not a `read-datoms` bug.
-  (The sort orders do treat the trailing `ns` slot as a tiebreaker, so a fold
-  never silently drops two datoms that agree on five slots but differ in
-  namespace.)
+- **Canonical d5 only.** Local streams and covered indexes store exactly
+  `[e a v t m]`. `read-datoms` preserves those vectors. Source scope is held
+  by the query interpreter and never stamped into a tuple.
 - **Tuple preservation.** `read-datoms` returns stored vectors unchanged.
   Entity-map source normalization is a separate query-boundary convenience
   that supplies `t = 0` and `m = dao.datom/default-op` (*Source
@@ -198,31 +187,27 @@ remains the correctness path every pool, raw source, and `as-of` read shares.
 
 ## Current-state resolution
 
-The log is append-only, so a retraction is another datom appended after the
-assertion it undoes; a raw fold would see the whole history, retractions
-included. `dao.space.query` resolves current state **at query time**:
-`current-state-seq` walks the candidate datoms `select-by-index` gathered for
-a clause and emits only those still asserted, masking an assertion when a
-later datom retracts the same `(e a v)` for d5 or `(e a v ns)` for d6 (the
-`m` slot, per `dao.datom`). Namespace histories are independent even when
-their five-slot prefixes agree. There
-is no implicit cardinality-one schema or automatic supersession: a writer
-that replaces a value must append the corresponding retraction explicitly.
+The log is append-only, so a retraction is another d5 datom. Interpretation
+is explicit:
 
-Because both `match` and `q` select through `select-by-index`, both return
-only currently asserted facts by default; a caller does not filter by
-`dao.datom/asserted?` by hand. `as-of` composes: it bounds the datoms
-considered first, so `as-of t` yields current state *as of* `t`. Historical
-reads (the raw log, retractions and all) remain available to a caller who
-bypasses the library.
+- `(current source)` bounds by `as-of`, resolves the greatest `(t,m)` for
+  each local `[e a v]`, removes retractions, and projects to d3.
+- `(history source)` exposes the exact d5 relation, optionally bounded by
+  `as-of`.
+- A bare vector relation has no temporal semantics, even when every row has
+  five positions.
+
+`as-of` is accepted only with an explicit datom view. There is no implicit
+cardinality-one schema or automatic supersession.
 
 ## Datalog surface
 
-`q` implements the Datomic surface over one merged index:
+`q` implements Datalog over one or more immutable relations:
 
-- **Positive-conjunction pattern clauses** — `[?e ?a ?v]` and longer prefixes
-  of `[e a v t m ns]`. `match` is the single-clause, Linda-style form of the
-  same matching.
+- **Positive-conjunction pattern clauses** — arbitrary mixed-dimensional
+  tuples. A plain clause matches exact arity. `[fixed ... & _]` explicitly
+  ignores the remaining positions; `[fixed ... & ?tail]` binds them as a
+  vector. `match` uses the same positional contract.
 - **Negation** — `(not clause ...)` and `(not-join [?join-var ...] clause
   ...)`. Stratified, evaluated as a failed sub-query per candidate binding
   over the already current-state-resolved index, so retractions and
@@ -349,14 +334,10 @@ force:
 
 ## Open items
 
-- **Namespace stamping** — stored datoms are the canonical five slots; the
-  sixth namespace slot is materialized only by a cross-stream fold, and the
-  pipeline does not stamp it today. Cross-stream local-id collision is the
-  documented gap until a stream-namespace derivation lands.
-- **K-way merge of lazy indexes** — a federated pool over several manifests
-  is answered by the eager walk rather than by merging N restored B-trees in
-  index order.
-- **General n-tuple matching** — `match`/`q` pad templates to the datom
-  shape (`max-slot-arity` 6); other tuple dimensions are specified in
-  `datom-spec.md`, not yet implemented here.
+- **K-way merge of lazy indexes** — several explicitly scoped manifests
+  could be exposed as an explicit derived relation without flattening source
+  identity, then answered by merging N restored B-trees in index order.
+- **Generic relation arrangements** — arbitrary tuples currently use a
+  relation scan. Current d3 facts retain the covered datom indexes; future
+  interpreters may supply positional arrangements for other dimensions.
 - **Segment GC and incremental indexing** — see `dao.space.index.md`.

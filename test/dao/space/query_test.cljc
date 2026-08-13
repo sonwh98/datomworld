@@ -115,6 +115,52 @@
      (query/published-source content-store manifest-address))))
 
 
+(defn- physical-datom-relation?
+  "True only for the old test suite's concrete d5 history fixtures.  Query
+   itself deliberately does not infer this interpretation from arity."
+  [x]
+  (and (sequential? x) (seq x) (every? #(and (vector? %) (= 5 (count %))) x)))
+
+
+(defn- published-coordinate?
+  [x]
+  (and (map? x)
+       (contains? x :dao.space.query/content-store)
+       (contains? x :dao.space.query/manifest-address)))
+
+
+(defn- interpreted-input
+  "Give historical Datomic-style tests an explicit current-state view.
+   Positional relation tests call query/q directly in positional_query_test."
+  [x]
+  (cond (and (map? x) (contains? x :dao.space.query/view)) x
+        (physical-datom-relation? x) (query/current x)
+        (published-coordinate? x) (query/current x)
+        (and (sequential? x) (seq x) (some published-coordinate? x))
+        (query/current x)
+        :else x))
+
+
+(defn- q-current
+  [query-form & inputs]
+  (apply query/q query-form (map interpreted-input inputs)))
+
+
+(defn- pull-current
+  [source eid pattern & [opts]]
+  (query/pull (interpreted-input source) eid pattern opts))
+
+
+(defn- pull-many-current
+  [source eids pattern & [opts]]
+  (query/pull-many (interpreted-input source) eids pattern opts))
+
+
+(defn- entity-attrs-current
+  [source eid & [opts]]
+  (query/entity-attrs (interpreted-input source) eid opts))
+
+
 ;; ---------------------------------------------------------------------------
 ;; match / q over a raw vector of datoms
 ;; ---------------------------------------------------------------------------
@@ -127,27 +173,30 @@
 (deftest match-over-raw-datoms
   (testing "a positional template with _ wildcards returns matching datoms"
     (is (= #{[1 :work/status :todo 0 1] [2 :work/status :done 0 1]}
-           (set (query/match sample-datoms ['_ :work/status '_]))))
+           (set (query/match (query/history sample-datoms)
+                  ['_ :work/status '_ '_ '_]))))
     (is (= #{[1 :work/status :todo 0 1]}
-           (set (query/match sample-datoms [1 :work/status '_]))))
-    (is (= [] (query/match sample-datoms [99 '_ '_])))))
+           (set (query/match (query/history sample-datoms)
+                  [1 :work/status '_ '_ '_]))))
+    (is (= [] (query/match (query/history sample-datoms) [99 '_ '_ '_ '_])))))
 
 
 (deftest q-over-raw-datoms
   (testing "find/where Datalog over a plain datom vector"
     (is (= #{[1 "write tests"] [2 "ship it"]}
-           (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                    sample-datoms)))
+           (q-current '[:find ?id ?task :where [?id :work/task ?task]]
+                      (query/current sample-datoms))))
     (is (= #{[1]}
-           (query/q '[:find ?id :where [?id :work/status :todo]
-                      [?id :work/task ?task]]
-                    sample-datoms)))))
+           (q-current '[:find ?id :where [?id :work/status :todo]
+                        [?id :work/task ?task]]
+                      (query/current sample-datoms))))))
 
 
 (deftest q-single-clause-is-match
   (testing "a single-clause q agrees with match, per dao.space.md's match ⊂ q"
     (is (= #{[1] [2]}
-           (query/q '[:find ?id :where [?id :work/status _]] sample-datoms)))))
+           (q-current '[:find ?id :where [?id :work/status _]]
+                      (query/current sample-datoms))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -159,7 +208,7 @@
     (let [source [{:db/id 1, :work/status :todo, :work/task "a"}
                   {:db/id 2, :work/status :done, :work/task "b"}]]
       (is (= #{["a"] ["b"]}
-             (query/q '[:find ?task :where [_ :work/task ?task]] source)))))
+             (q-current '[:find ?task :where [_ :work/task ?task]] source)))))
   (testing "a numeric :db/id is used verbatim"
     (let [source [{:db/id 42, :work/status :todo}]]
       (is (= [[42 :work/status :todo 0 1]] (query/source->datoms source)))))
@@ -167,9 +216,9 @@
     (let [source [{:db/id :e1, :work/status :todo}
                   {:db/id :e1, :work/task "a"}]]
       (is (= #{[:e1 "a"]}
-             (query/q '[:find ?id ?task :where [?id :work/status :todo]
-                        [?id :work/task ?task]]
-                      source)))))
+             (q-current '[:find ?id ?task :where [?id :work/status :todo]
+                          [?id :work/task ?task]]
+                        source)))))
   (testing "empty input" (is (empty? (query/source->datoms []))))
   (testing "explicit-ID ordering is preserved"
     (let [source [{:db/id :a, :work/task "a"} {:db/id :b, :work/task "b"}]
@@ -189,60 +238,25 @@
                              :cljd Object
                              :default Exception)
                           #"explicit :db/id"
-          (query/q '[:find ?task :where [_ :work/task ?task]]
-                   {:work/task "a"}))))
+          (q-current '[:find ?task :where [_ :work/task ?task]]
+                     {:work/task "a"}))))
   (testing "any :db/id-less map in a top-level collection throws"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"explicit :db/id"
-          (query/q '[:find ?task :where [_ :work/task ?task]]
-                   [{:db/id 1, :work/task "a"}
-                    {:work/task "b"}]))))
-  (testing "a :db/id-less map in a mixed collection throws"
-    (let [source-a (source [[1 :work/status :todo 0 1]])]
-      (is (thrown-with-msg? #?(:cljs js/Error
-                               :cljd Object
-                               :default Exception)
-                            #"explicit :db/id"
-            (query/q '[:find ?id :where
-                       [?id :work/status :todo]]
-                     [source-a {:work/status :todo}])))))
-  (testing "a :db/id-less map nested in a sub-collection throws"
-    (let [source-a (source [[1 :work/status :todo 0 1]])]
-      (is (thrown-with-msg? #?(:cljs js/Error
-                               :cljd Object
-                               :default Exception)
-                            #"explicit :db/id"
-            (query/q '[:find ?id :where
-                       [?id :work/status :todo]]
-                     [source-a [{:work/status :todo}]])))))
-  (testing "a purely nested entity-map collection without :db/id throws"
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #"explicit :db/id"
-          (query/source->datoms [[{:work/status :todo}]])))))
+          (q-current '[:find ?task :where [_ :work/task ?task]]
+                     [{:db/id 1, :work/task "a"}
+                      {:work/task "b"}])))))
 
 
-(deftest raw-datom-classification-is-arity-based
+(deftest physical-datom-adapter-is-d5-only
   (testing "nested d5 datom collections flatten in order"
     (is (= [[1 :work/status :todo 0 1] [2 :work/status :done 0 1]]
            (query/source->datoms [[[1 :work/status :todo 0 1]]
                                   [[2 :work/status :done 0 1]]]))))
-  (testing "nested d6 datom collections flatten in order"
-    (is (= [[1 :work/status :todo 0 1 :ns/a] [2 :work/status :done 0 1 :ns/b]]
-           (query/source->datoms [[[1 :work/status :todo 0 1 :ns/a]]
-                                  [[2 :work/status :done 0 1 :ns/b]]]))))
   (testing "a flat d5 datom vector is passed through unchanged"
-    (is (= sample-datoms (query/source->datoms sample-datoms))))
-  (testing "a nested collection of exactly five maps reads as one d5 datom"
-    ;; Precedence, not full recognition: arity 5 is a datom tuple, so five
-    ;; maps in a row are the e/a/v/t/m slots of a single datom, not an
-    ;; entity-map collection. Pinned here so the classifier's precedence is
-    ;; explicit rather than silently elided.
-    (is (= [[{:a 1} {:b 2} {:c 3} {:d 4} {:e 5}]]
-           (query/source->datoms [[{:a 1} {:b 2} {:c 3} {:d 4} {:e 5}]])))))
+    (is (= sample-datoms (query/source->datoms sample-datoms)))))
 
 
 (deftest match-over-entity-maps
@@ -306,8 +320,8 @@
     (let [{:keys [content-store manifest-address]} (publish! sample-datoms)
           source (query/published-source content-store manifest-address)]
       (is (= #{[1 "write tests"] [2 "ship it"]}
-             (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                      source))))))
+             (q-current '[:find ?id ?task :where [?id :work/task ?task]]
+                        (query/current source)))))))
 
 
 (deftest bare-content-store-handle-has-no-implicit-source
@@ -315,14 +329,16 @@
     "a bare content handle cannot imply which published manifest belongs to a query"
     (let [{:keys [content-store manifest-address]} (publish! sample-datoms)]
       (is (= #{[1 "write tests"] [2 "ship it"]}
-             (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                      (query/published-source content-store manifest-address))))
+             (q-current '[:find ?id ?task :where [?id :work/task ?task]]
+                        (query/current (query/published-source
+                                         content-store
+                                         manifest-address)))))
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
                                :default Exception)
                             #"explicit published source"
-            (query/q '[:find ?id :where [?id _ _]]
-                     content-store)))
+            (q-current '[:find ?id :where [?id _ _]]
+                       content-store)))
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
                                :default Exception)
@@ -331,9 +347,9 @@
 
 
 (deftest match-over-a-published-source
-  (let [source (source sample-datoms)]
+  (let [source (query/current (source sample-datoms))]
     (is (= 1 (count (query/match source [1 :work/status '_]))))
-    (is (= [[1 :work/status :todo 0 1]] (query/match source ['_ '_ :todo]))
+    (is (= [[1 :work/status :todo]] (query/match source ['_ '_ :todo]))
         "v-only match exercises the restored VAET of the published index")))
 
 
@@ -342,57 +358,63 @@
 ;; the lazily-restored VAET (fold's published-manifest guard) — the only way
 ;; to prove the persisted-VAET path works.
 (deftest v-only-match-reaches-the-restored-vaet
-  (let [source (source sample-datoms)]
-    (is (= #{[1 :work/status :todo 0 1]}
-           (set (query/match source ['_ '_ :todo]))))
+  (let [source (query/current (source sample-datoms))]
+    (is (= #{[1 :work/status :todo]} (set (query/match source ['_ '_ :todo]))))
     (is (= 1
-           (count (query/q '[:find ?e :where [?e :work/status :todo]]
-                           source))))))
+           (count (q-current '[:find ?e :where [?e :work/status :todo]]
+                             source))))))
 
 
 (deftest empty-published-source-yields-no-datoms
   (testing
     "an empty published manifest (nil roots) contributes nothing, not an error"
-    (let [source (source [])]
+    (let [source (query/current (source []))]
       (is (= [] (query/match source ['_ '_ '_])))
-      (is (= #{} (query/q '[:find ?e :where [?e _ _]] source)))
+      (is (= #{} (q-current '[:find ?e :where [?e _ _]] source)))
       (is (= [] (query/source->datoms source))))))
 
 
 (deftest pull-over-a-published-source
-  (let [source (source [[1 :person/name "Alice" 1 1] [1 :person/age 30 1 1]
-                        [2 :person/name "Bob" 1 1]])]
+  (let [source (query/current (source [[1 :person/name "Alice" 1 1]
+                                       [1 :person/age 30 1 1]
+                                       [2 :person/name "Bob" 1 1]]))]
     (is (= {:db/id 1, :person/name "Alice", :person/age 30}
-           (query/pull source 1 [:person/name :person/age])))
+           (pull-current source 1 [:person/name :person/age])))
     (is (= [{:db/id 1, :person/name "Alice"} {:db/id 2, :person/name "Bob"}
             {:db/id 999}]
-           (query/pull-many source [1 2 999] [:person/name])))))
+           (pull-many-current source [1 2 999] [:person/name])))))
 
 
 ;; ---------------------------------------------------------------------------
-;; match / q over a pool of published sources (federated)
+;; Explicit multi-source query context
 ;; ---------------------------------------------------------------------------
 
 (deftest q-over-multiple-published-sources
   (testing
-    "a collection of stores folds and merges, per ADR 0001's monoid
-           homomorphism: index(S1 ⊎ S2) = merge(index(S1), index(S2))"
+    "published manifests remain distinct db-values; or expresses their union"
     (let [source-a (source [[1 :work/status :todo 0 1] [1 :work/task "a" 0 1]])
           source-b (source [[2 :work/status :done 0 1] [2 :work/task "b" 0 1]])]
       (is (= #{[1 "a"] [2 "b"]}
-             (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                      [source-a source-b])))
+             (query/q
+               '[:find ?id ?task :in $a $b :where
+                 (or [$a ?id :work/task ?task] [$b ?id :work/task ?task])]
+               (query/current source-a)
+               (query/current source-b))))
       (testing "querying each source alone yields a strict subset"
         (is (= #{[1 "a"]}
-               (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                        source-a)))))))
+               (q-current '[:find ?id ?task :where [?id :work/task ?task]]
+                          (query/current source-a))))))))
 
 
-(deftest match-over-multiple-published-sources
+(deftest match-requires-one-logical-relation
   (let [source-a (source [[1 :work/status :todo 0 1]])
         source-b (source [[2 :work/status :todo 0 1]])]
-    (is (= #{[1 :work/status :todo 0 1] [2 :work/status :todo 0 1]}
-           (set (query/match [source-a source-b] ['_ :work/status :todo]))))))
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"separate database inputs"
+          (query/match (query/current [source-a source-b])
+            ['_ :work/status :todo])))))
 
 
 (deftest q-over-multiple-addresses-of-one-store
@@ -410,102 +432,14 @@
           source-b (query/published-source h addr-b)]
       (is (not= addr-a addr-b))
       (is (= #{[1 "a"]}
-             (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                      source-a)))
+             (q-current '[:find ?id ?task :where [?id :work/task ?task]]
+                        (query/current source-a))))
       (is (= #{[1 "a"] [2 "b"]}
-             (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                      [source-a source-b]))))))
-
-
-;; ---------------------------------------------------------------------------
-;; Namespace slot (d6): [e a v t m ns]
-;; ---------------------------------------------------------------------------
-;; ns goes last so [e a v t m] stays a literal prefix: existing accessors,
-;; comparators and datom literals are untouched, and eliding ns is plain
-;; truncation rather than an encoding convention.
-;;
-;; Both streams below independently assign entity 1025 — the collision the
-;; slot exists to prevent. Stream beta also knows Alice, under its own local
-;; id 1026.
-
-(def ^:private ns-a :ns/alpha)
-
-
-(def ^:private ns-b :ns/beta)
-
-
-(def cross-stream-datoms
-  [[1025 :person/email "alice@example.com" 0 1 ns-a]
-   [1025 :person/name "Alice" 0 1 ns-a]
-   [1025 :person/email "bob@example.com" 0 1 ns-b]
-   [1025 :person/name "Bob" 0 1 ns-b]
-   [1026 :person/email "alice@example.com" 0 1 ns-b]
-   [1026 :person/nick "Ali" 0 1 ns-b]])
-
-
-(deftest ns-slot-scopes-joins-within-one-stream
-  (testing "a repeated ?ns keeps the join inside a single stream"
-    ;; _ skips t and m to reach ns — the shape Datomic users already write
-    ;; to reach `added`: [?e :attr ?v _ ?op].
-    (is (= #{[ns-a 1025 "Alice"]}
-           (query/q '[:find ?ns ?e ?name :where
-                      [?e :person/email "alice@example.com" _ _ ?ns]
-                      [?e :person/name ?name _ _ ?ns]]
-                    cross-stream-datoms)))))
-
-
-(deftest ns-slot-permits-deliberate-cross-stream-joins
-  (testing "distinct ?ns vars join on a shared value, across streams"
-    (is (= #{[ns-a 1025 ns-b 1026] [ns-b 1026 ns-a 1025]}
-           (query/q '[:find ?ns1 ?e1 ?ns2 ?e2 :where
-                      [?e1 :person/email ?email _ _ ?ns1]
-                      [?e2 :person/email ?email _ _ ?ns2] [(not= ?ns1 ?ns2)]]
-                    cross-stream-datoms)))))
-
-
-(deftest unscoped-clauses-conflate-streams
-  (testing
-    "without ?ns, entity 1025 unifies across streams — a fabricated
-            person whose email came from one stream and name from another.
-            This asserts the WRONG result deliberately, pinning the hazard;
-            invert it once the multi-source validation rule lands."
-    (is (contains? (query/q '[:find ?e ?email ?name :where
-                              [?e :person/email ?email] [?e :person/name ?name]]
-                            cross-stream-datoms)
-                   [1025 "alice@example.com" "Bob"]))))
-
-
-(deftest ns-in-negation-assumes-arity-homogeneous-sources
-  (testing "a free ?ns inside not is caught by the existing bound-vars guard"
-    (is (thrown-with-msg?
-          #?(:cljs js/Error
-             :cljd Object
-             :default Exception)
-          #"inside not must be bound"
-          (query/q '[:find ?e :where [?e :name _] (not [?e :claim _ _ _ ?ns])]
-                   [[1 :name "Alice" 0 1] [1 :claim "c" 0 1]]))))
-  (testing
-    "a bound ?ns inside not silently ignores datoms that carry no ns —
-            entity 1 HAS a claim, but the claim datom is a 5-tuple, so the
-            slot-5 template exceeds its arity and cannot match. Correct only
-            when a source is arity-homogeneous, which nothing enforces: this
-            pins the assumption rather than endorsing the mixed case."
-    (let [mixed [[1 :name "Alice" 0 1 :ns/a] [2 :name "Bob" 0 1 :ns/a]
-                 [1 :claim "c" 0 1]] ; 5-tuple: no ns slot
-          homogeneous [[1 :name "Alice" 0 1 :ns/a] [2 :name "Bob" 0 1 :ns/a]
-                       [1 :claim "c" 0 1 :ns/a]]
-          q '[:find ?e :where [?e :name _ _ _ ?ns] (not [?e :claim _ _ _ ?ns])]]
-      (is (= #{[1] [2]} (query/q q mixed)) "false negative on mixed arity")
-      (is (= #{[2]} (query/q q homogeneous)) "correct when arity is uniform"))))
-
-
-(deftest local-queries-ignore-the-ns-slot
-  (testing
-    "5-tuple datoms and 3-element clauses are unaffected: [e a v t m]
-            is a literal prefix of [e a v t m ns]"
-    (is (= #{[1 "write tests"] [2 "ship it"]}
-           (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                    sample-datoms)))))
+             (query/q
+               '[:find ?id ?task :in $a $b :where
+                 (or [$a ?id :work/task ?task] [$b ?id :work/task ?task])]
+               (query/current source-a)
+               (query/current source-b)))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -513,17 +447,23 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest mixed-published-and-raw-collection
-  (testing "a published source and a raw datom vector fold together"
+  (testing "published and local relations compose as explicit db inputs"
     (let [source-a (source [[1 :work/status :todo 0 1]])]
       (is (= #{[1] [2]}
-             (query/q '[:find ?id :where [?id :work/status :todo]]
-                      [source-a [[2 :work/status :todo 0 1]]])))))
+             (query/q
+               '[:find ?id :in $a $b :where
+                 (or [$a ?id :work/status :todo] [$b ?id :work/status :todo])]
+               (query/current source-a)
+               (query/current [[2 :work/status :todo 0 1]]))))))
   (testing "published sources and raw entity maps remain distinct map shapes"
     (let [source-a (source [[1 :work/status :todo 0 1]])]
       (is (= #{[1] [2] [3]}
-             (query/q '[:find ?id :where [?id :work/status :todo]]
-                      [source-a {:db/id 2, :work/status :todo}
-                       {:db/id 3, :work/status :todo}]))))))
+             (query/q
+               '[:find ?id :in $a $b :where
+                 (or [$a ?id :work/status :todo] [$b ?id :work/status :todo])]
+               (query/current source-a)
+               [{:db/id 2, :work/status :todo}
+                {:db/id 3, :work/status :todo}]))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -533,19 +473,24 @@
 (deftest as-of-bounds-visible-datoms
   (testing "as-of excludes datoms with t greater than the bound"
     (let [datoms [[1 :work/status :todo 0 1] [1 :work/status :done 5 1]]]
-      (is (=
-            #{[:todo]}
-            (query/q '[:find ?v :where [1 :work/status ?v]] datoms {:as-of 0})))
+      (is (= #{[:todo]}
+             (q-current '[:find ?v :where [1 :work/status ?v]]
+                        (query/current datoms)
+                        {:as-of 0})))
       (is (= #{[:todo] [:done]}
-             (query/q '[:find ?v :where [1 :work/status ?v]]
-                      datoms
-                      {:as-of 5}))))))
+             (q-current '[:find ?v :where [1 :work/status ?v]]
+                        (query/current datoms)
+                        {:as-of 5}))))))
 
 
 (deftest match-respects-as-of
   (let [datoms [[1 :work/status :todo 0 1] [1 :work/status :done 5 1]]]
-    (is (= 1 (count (query/match datoms [1 :work/status '_] {:as-of 0}))))
-    (is (= 2 (count (query/match datoms [1 :work/status '_] {:as-of 5}))))))
+    (is (= 1
+           (count (query/match (query/current datoms)
+                    [1 :work/status '_] {:as-of 0}))))
+    (is (= 2
+           (count (query/match (query/current datoms)
+                    [1 :work/status '_] {:as-of 5}))))))
 
 
 (deftest published-source-as-of-takes-the-eager-path
@@ -554,21 +499,27 @@
           stays correct, bounded to t <= as-of"
     (let [source (source [[1 :work/status :todo 0 1]
                           [1 :work/status :done 5 1]])]
-      (is (=
-            #{[:todo]}
-            (query/q '[:find ?v :where [1 :work/status ?v]] source {:as-of 0})))
-      (is (=
-            #{[:todo] [:done]}
-            (query/q '[:find ?v :where [1 :work/status ?v]] source {:as-of 5})))
-      (is (= 1 (count (query/match source [1 :work/status '_] {:as-of 0}))))
-      (is (= 2 (count (query/match source [1 :work/status '_] {:as-of 5})))))))
+      (is (= #{[:todo]}
+             (q-current '[:find ?v :where [1 :work/status ?v]]
+                        (query/current source)
+                        {:as-of 0})))
+      (is (= #{[:todo] [:done]}
+             (q-current '[:find ?v :where [1 :work/status ?v]]
+                        (query/current source)
+                        {:as-of 5})))
+      (is (= 1
+             (count (query/match (query/current source)
+                      [1 :work/status '_] {:as-of 0}))))
+      (is (= 2
+             (count (query/match (query/current source)
+                      [1 :work/status '_] {:as-of 5})))))))
 
 
-(deftest lazy-point-lookup-faults-only-the-seek-path
+(deftest explicit-current-view-materializes-published-history
   (testing
-    "a single published source with no as-of restores lazily: a point
-          lookup reads only the seek path, never the whole graph; the same
-          lookup under an as-of bound takes the eager path and reads more"
+    "current-state interpretation reads the physical d5 relation before
+     projecting it to d3; an as-of bound changes visibility, not the source
+     representation"
     (let [datoms (mapv (fn [i] [i :work/status :todo 0 1]) (range 300))
           local (open-local datoms)
           intake (open-intake)
@@ -578,20 +529,21 @@
       (materialize! [intake] handle)
       (reset! (:reads handle) [])
       (let [source (query/published-source handle manifest-address)
-            lazy (query/match source [42 :work/status '_])]
-        (is (= 1 (count lazy)))
-        (is (= [42 :work/status :todo 0 1] (first lazy)))
+            current-result (query/match (query/current source)
+                             [42 :work/status '_])]
+        (is (= 1 (count current-result)))
+        (is (= [42 :work/status :todo] (first current-result)))
         (is (pos? (count @(:reads handle)))
-            "a lazy restore reads at least the seek path")
-        (is (< (count @(:reads handle)) (count @(:store handle)))
-            "a lazy restore never faults every stored segment")
-        (let [lazy-reads (count @(:reads handle))]
+            "the explicit view reads its persisted input")
+        (let [current-reads (count @(:reads handle))]
           (reset! (:reads handle) [])
-          (let [eager (query/match source [42 :work/status '_] {:as-of 1})]
+          (let [eager (query/match (query/current source)
+                        [42 :work/status '_] {:as-of 1})]
             (is (= 1 (count eager)))
-            (is (= [42 :work/status :todo 0 1] (first eager)))
-            (is (> (count @(:reads handle)) lazy-reads)
-                "as-of bounds read the EAVT graph eagerly")))))))
+            (is (= [42 :work/status :todo] (first eager)))
+            (is
+              (= (count @(:reads handle)) current-reads)
+              "as-of is an interpreter bound over the same physical input")))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -602,7 +554,7 @@
   (is (thrown? #?(:cljs js/Error
                   :cljd Object
                   :default Exception)
-        (query/q '[:find ?e :where [?e _ _]] 42))))
+        (q-current '[:find ?e :where [?e _ _]] 42))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -612,35 +564,35 @@
 (deftest in-bindings-test
   (testing "scalar binding"
     (is (= #{[1]}
-           (query/q '[:find ?e :in $ ?name :where [?e :name ?name]]
-                    [[1 :name "Alice" 0 1] [2 :name "Bob" 0 1]]
-                    "Alice"))))
+           (q-current '[:find ?e :in $ ?name :where [?e :name ?name]]
+                      [[1 :name "Alice" 0 1] [2 :name "Bob" 0 1]]
+                      "Alice"))))
   (testing "collection binding"
     (is (= #{["Alice"] ["Bob"]}
-           (query/q '[:find ?name :in $ [?id ...] :where [?id :name ?name]]
-                    [[1 :name "Alice" 0 1] [2 :name "Bob" 0 1]
-                     [3 :name "Charlie" 0 1]]
-                    [1 2]))))
+           (q-current '[:find ?name :in $ [?id ...] :where [?id :name ?name]]
+                      [[1 :name "Alice" 0 1] [2 :name "Bob" 0 1]
+                       [3 :name "Charlie" 0 1]]
+                      [1 2]))))
   (testing "tuple binding"
     (is (= #{[1]}
-           (query/q '[:find ?e :in $ [?name ?age] :where [?e :name ?name]
-                      [?e :age ?age]]
-                    [[1 :name "Alice" 0 1] [1 :age 30 0 1] [2 :name "Bob" 0 1]
-                     [2 :age 30 0 1]]
-                    ["Alice" 30]))))
+           (q-current '[:find ?e :in $ [?name ?age] :where [?e :name ?name]
+                        [?e :age ?age]]
+                      [[1 :name "Alice" 0 1] [1 :age 30 0 1] [2 :name "Bob" 0 1]
+                       [2 :age 30 0 1]]
+                      ["Alice" 30]))))
   (testing "relation binding"
     (is (= #{[1] [2]}
-           (query/q '[:find ?e :in $ [[?name ?age]] :where [?e :name ?name]
-                      [?e :age ?age]]
-                    [[1 :name "Alice" 0 1] [1 :age 30 0 1] [2 :name "Bob" 0 1]
-                     [2 :age 40 0 1] [3 :name "Charlie" 0 1] [3 :age 50 0 1]]
-                    [["Alice" 30] ["Bob" 40]]))))
+           (q-current '[:find ?e :in $ [[?name ?age]] :where [?e :name ?name]
+                        [?e :age ?age]]
+                      [[1 :name "Alice" 0 1] [1 :age 30 0 1] [2 :name "Bob" 0 1]
+                       [2 :age 40 0 1] [3 :name "Charlie" 0 1] [3 :age 50 0 1]]
+                      [["Alice" 30] ["Bob" 40]]))))
   (testing "multiple db sources"
     (is (= #{[1 "Alice" 30] [2 "Bob" 40]}
-           (query/q '[:find ?e ?name ?age :in $a $b :where [$a ?e :name ?name]
-                      [$b ?e :age ?age]]
-                    [[1 :name "Alice" 0 1] [2 :name "Bob" 0 1]]
-                    [[1 :age 30 0 1] [2 :age 40 0 1]])))))
+           (q-current '[:find ?e ?name ?age :in $a $b :where [$a ?e :name ?name]
+                        [$b ?e :age ?age]]
+                      [[1 :name "Alice" 0 1] [2 :name "Bob" 0 1]]
+                      [[1 :age 30 0 1] [2 :age 40 0 1]])))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -655,54 +607,23 @@
                   [2 :status "active" 1 1] ; asserted at t=1
                   [2 :status "active" 3 0]]]
       ;; For entity 1, "red" is retracted and "blue" is asserted
-      (is (= #{["blue"]} (query/q '[:find ?c :where [1 :color ?c]] datoms)))
+      (is (= #{["blue"]}
+             (q-current '[:find ?c :where [1 :color ?c]]
+                        (query/current datoms))))
       ;; For entity 2, "active" is retracted entirely
-      (is (= #{} (query/q '[:find ?s :where [2 :status ?s]] datoms)))
+      (is (= #{}
+             (q-current '[:find ?s :where [2 :status ?s]]
+                        (query/current datoms))))
       ;; With as-of 1, "red" is still asserted and "active" is still
       ;; asserted
       (is (= #{["red"]}
-             (query/q '[:find ?c :where [1 :color ?c]] datoms {:as-of 1})))
+             (q-current '[:find ?c :where [1 :color ?c]]
+                        (query/current datoms)
+                        {:as-of 1})))
       (is (= #{["active"]}
-             (query/q '[:find ?s :where [2 :status ?s]] datoms {:as-of 1}))))))
-
-
-(deftest current-state-resolves-namespaces-independently
-  (testing "identical [e a v t m] datoms from distinct namespaces both survive"
-    (let [datoms [[1025 :person/email "alice@example.com" 0 1 ns-a]
-                  [1025 :person/email "alice@example.com" 0 1 ns-b]]]
-      (is (= #{[ns-a] [ns-b]}
-             (query/q '[:find ?ns :where
-                        [1025 :person/email "alice@example.com" _ _ ?ns]]
-                      datoms)))
-      (is (= #{[1025 :person/email "alice@example.com" 0 1 ns-a]
-               [1025 :person/email "alice@example.com" 0 1 ns-b]}
-             (set (query/match datoms
-                    [1025 :person/email "alice@example.com"]))))
-      (is (= 2
-             (count (query/current-state-seq
-                      [[1025 :person/email "alice@example.com" 0 1 ns-a]
-                       [1025 :person/email "alice@example.com" 0 1 ns-b]]))))))
-  (testing "a retraction in ns/b does not mask an assertion in ns/a"
-    (let [datoms [[1025 :person/email "alice@example.com" 0 1 ns-a]
-                  [1025 :person/email "alice@example.com" 1 0 ns-b]]]
-      (is (= #{[ns-a]}
-             (query/q '[:find ?ns :where
-                        [1025 :person/email "alice@example.com" _ _ ?ns]]
-                      datoms)))
-      (is (= [[1025 :person/email "alice@example.com" 0 1 ns-a]]
-             (query/match datoms [1025 :person/email "alice@example.com"])))))
-  (testing "t is resolved within a namespace, never as one shared history"
-    (let [datoms [[1025 :person/email "a@x.com" 1 1 ns-a]
-                  [1025 :person/email "a@x.com" 2 1 ns-b]
-                  [1025 :person/email "a@x.com" 3 1 ns-a]]]
-      (is (= #{[ns-a] [ns-b]}
-             (query/q '[:find ?ns :where [1025 :person/email "a@x.com" _ _ ?ns]]
-                      datoms)))))
-  (testing "each namespace selects its greatest t independent of input order"
-    (is (= [[1025 :person/email "late@x.com" 3 1 ns-a]]
-           (query/current-state-seq [[1025 :person/email "late@x.com" 3 1 ns-a]
-                                     [1025 :person/email "late@x.com" 1 0
-                                      ns-a]])))))
+             (q-current '[:find ?s :where [2 :status ?s]]
+                        (query/current datoms)
+                        {:as-of 1}))))))
 
 
 (deftest current-state-d5-fold-unchanged
@@ -724,12 +645,12 @@
     (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1] [1 :hobby "reading" 1 1]
                   [1 :hobby "coding" 2 1]]]
       (is (= {:name "Alice", :age 30, :hobby ["coding" "reading"]}
-             (query/entity-attrs datoms 1)))))
+             (entity-attrs-current datoms 1)))))
   (testing
     "entity with no datoms returns {} — unlike pull, entity-attrs
             never includes :db/id, matching Datomic's entity/touch
             convention rather than pull's convention"
-    (is (= {} (query/entity-attrs [[1 :name "Alice" 1 1]] 999)))))
+    (is (= {} (entity-attrs-current [[1 :name "Alice" 1 1]] 999)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -742,16 +663,16 @@
                   [2 :work/posted true 1 1] [2 :work/task "Buy groceries" 1 1]
                   [2 :work/claims "user1" 1 1]]]
       (is (= #{[1 "Clean room"]}
-             (query/q '[:find ?w ?task :where [?w :work/posted true]
-                        [?w :work/task ?task] (not [?w :work/claims _])]
-                      datoms)))
+             (q-current '[:find ?w ?task :where [?w :work/posted true]
+                          [?w :work/task ?task] (not [?w :work/claims _])]
+                        datoms)))
       (testing
         "a retracted claim makes the item reappear (current-state interaction)"
         (let [datoms-retracted (conj datoms [2 :work/claims "user1" 2 0])]
           (is (= #{[1 "Clean room"] [2 "Buy groceries"]}
-                 (query/q '[:find ?w ?task :where [?w :work/posted true]
-                            [?w :work/task ?task] (not [?w :work/claims _])]
-                          datoms-retracted)))))
+                 (q-current '[:find ?w ?task :where [?w :work/posted true]
+                              [?w :work/task ?task] (not [?w :work/claims _])]
+                            datoms-retracted)))))
       (testing
         "claims modeled as [claim-entity :work/claims ?w] (wildcard e inside not)"
         (let [datoms [[1 :work/posted true 1 1] [1 :work/task "Clean room" 1 1]
@@ -759,9 +680,9 @@
                       [2 :work/task "Buy groceries" 1 1]
                       [100 :work/claims 2 1 1]]]
           (is (= #{[1 "Clean room"]}
-                 (query/q '[:find ?w ?task :where [?w :work/posted true]
-                            [?w :work/task ?task] (not [_ :work/claims ?w])]
-                          datoms)))))))
+                 (q-current '[:find ?w ?task :where [?w :work/posted true]
+                              [?w :work/task ?task] (not [_ :work/claims ?w])]
+                            datoms)))))))
   (testing
     "not-join specifies exactly which variables unify with the outer scope"
     (let [datoms [[1 :user/name "Alice" 1 1] [2 :user/name "Bob" 1 1]
@@ -775,7 +696,7 @@
       ;; means ?doc is free and local to the not clause.
       (is
         (= #{["Bob"]}
-           (query/q
+           (q-current
              '[:find ?name :where [?u :user/name ?name]
                (not-join [?u] [?doc :doc/author ?u] [?doc :doc/published true])]
              datoms)))))
@@ -787,22 +708,22 @@
       ;; the not-join it must be fresh: "?u authored ANY doc", not "?u
       ;; authored doc 5".
       (is (= #{["Bob"]}
-             (query/q '[:find ?name :where [?u :user/name ?name]
-                        [?d :doc/fav ?u] (not-join [?u] [?d :doc/author ?u])]
-                      datoms)))))
+             (q-current '[:find ?name :where [?u :user/name ?name]
+                          [?d :doc/fav ?u] (not-join [?u] [?d :doc/author ?u])]
+                        datoms)))))
   (testing "special-form clauses are recognized as seqs, not only literal lists"
     (let [datoms [[1 :work/posted true 1 1] [2 :work/posted true 1 1]
                   [2 :work/claims "user1" 1 1]]
           not-clause (cons 'not '([?w :work/claims _]))]
       (is (= #{[1]}
-             (query/q [:find '?w :where '[?w :work/posted true] not-clause]
-                      datoms)))))
+             (q-current [:find '?w :where '[?w :work/posted true] not-clause]
+                        datoms)))))
   (testing "planner barrier: var bound before use"
     (let [datoms [[1 :work/posted true 1 1] [1 :work/task "Clean room" 1 1]]]
       (is (= #{[1 "Clean room"]}
-             (query/q '[:find ?w ?task :where [?w :work/posted true]
-                        (not [?w :work/claims _]) [?w :work/task ?task]]
-                      datoms))))))
+             (q-current '[:find ?w ?task :where [?w :work/posted true]
+                          (not [?w :work/claims _]) [?w :work/task ?task]]
+                        datoms))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -814,36 +735,36 @@
     (let [datoms [[1 :task/status :open 1 1] [2 :task/status :open 1 1]
                   [3 :task/status :done 1 1]]]
       (is (= #{[:open 2] [:done 1]}
-             (query/q '[:find ?status (count ?e) :where
-                        [?e :task/status ?status]]
-                      datoms)))))
+             (q-current '[:find ?status (count ?e) :where
+                          [?e :task/status ?status]]
+                        datoms)))))
   (testing "sum/min/max/avg over numerics"
     (let [datoms [[1 :item/price 10 1 1] [2 :item/price 20 1 1]
                   [3 :item/price 30 1 1]]]
       (is (= #{[60]}
-             (query/q '[:find (sum ?p) :where [?e :item/price ?p]] datoms)))
+             (q-current '[:find (sum ?p) :where [?e :item/price ?p]] datoms)))
       (is (= #{[10]}
-             (query/q '[:find (min ?p) :where [?e :item/price ?p]] datoms)))
+             (q-current '[:find (min ?p) :where [?e :item/price ?p]] datoms)))
       (is (= #{[30]}
-             (query/q '[:find (max ?p) :where [?e :item/price ?p]] datoms)))
+             (q-current '[:find (max ?p) :where [?e :item/price ?p]] datoms)))
       (is (= #{[20.0]}
-             (query/q '[:find (avg ?p) :where [?e :item/price ?p]] datoms)))))
+             (q-current '[:find (avg ?p) :where [?e :item/price ?p]] datoms)))))
   (testing "count-distinct"
     (let [datoms [[1 :item/color :red 1 1] [2 :item/color :red 1 1]
                   [3 :item/color :blue 1 1]]]
       (is (= #{[2]}
-             (query/q '[:find (count-distinct ?c) :with ?e :where
-                        [?e :item/color ?c]]
-                      datoms)))))
+             (q-current '[:find (count-distinct ?c) :with ?e :where
+                          [?e :item/color ?c]]
+                        datoms)))))
   (testing ":with keeps intended duplicates without appearing in the result"
     ;; Two entities share the same price: projected tuples collapse to one
     ;; without :with, so the sum dedupes; :with ?e keeps them distinct.
     (let [datoms [[1 :item/price 10 1 1] [2 :item/price 10 1 1]]]
       (is (= #{[10]}
-             (query/q '[:find (sum ?p) :where [?e :item/price ?p]] datoms)))
+             (q-current '[:find (sum ?p) :where [?e :item/price ?p]] datoms)))
       (is (= #{[20]}
-             (query/q '[:find (sum ?p) :with ?e :where [?e :item/price ?p]]
-                      datoms)))))
+             (q-current '[:find (sum ?p) :with ?e :where [?e :item/price ?p]]
+                        datoms)))))
   (testing
     "dedupe-before-aggregate: an extra joined var must not inflate the sum"
     ;; Entity 1 has one price but two tags; the ?t join produces two raw
@@ -851,34 +772,35 @@
     (let [datoms [[1 :item/price 10 1 1] [1 :item/tag :a 1 1]
                   [1 :item/tag :b 1 1]]]
       (is (= #{[10]}
-             (query/q '[:find (sum ?p) :with ?e :where [?e :item/price ?p]
-                        [?e :item/tag ?t]]
-                      datoms)))
+             (q-current '[:find (sum ?p) :with ?e :where [?e :item/price ?p]
+                          [?e :item/tag ?t]]
+                        datoms)))
       (testing "putting the extra var in :with restores the duplicates"
         (is (= #{[20]}
-               (query/q '[:find (sum ?p) :with ?e ?t :where [?e :item/price ?p]
-                          [?e :item/tag ?t]]
-                        datoms))))))
+               (q-current '[:find (sum ?p) :with ?e ?t :where
+                            [?e :item/price ?p] [?e :item/tag ?t]]
+                          datoms))))))
   (testing "scalar aggregate with no grouping vars yields a single row"
     (let [datoms [[1 :task/status :open 1 1] [2 :task/status :open 1 1]]]
       (is (= #{[2]}
-             (query/q '[:find (count ?e) :where [?e :task/status ?s]] datoms)))
+             (q-current '[:find (count ?e) :where [?e :task/status ?s]]
+                        datoms)))
       (testing "and an empty result set stays empty"
         (is (= #{}
-               (query/q '[:find (count ?e) :where [?e :task/status :missing]]
-                        datoms))))))
+               (q-current '[:find (count ?e) :where [?e :task/status :missing]]
+                          datoms))))))
   (testing "unknown aggregate throws"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"Unknown aggregate"
-          (query/q '[:find (median ?p) :where
-                     [?e :item/price ?p]]
-                   [[1 :item/price 10 1 1]]))))
+          (q-current '[:find (median ?p) :where
+                       [?e :item/price ?p]]
+                     [[1 :item/price 10 1 1]]))))
   (testing "queries without aggregates are unchanged"
     (is (= #{[1 "write tests"] [2 "ship it"]}
-           (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                    sample-datoms)))))
+           (q-current '[:find ?id ?task :where [?id :work/task ?task]]
+                      sample-datoms)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -889,82 +811,80 @@
   (testing "predicate clause filters bindings"
     (let [datoms [[1 :item/qty 5 1 1] [2 :item/qty 15 1 1]]]
       (is (= #{[1]}
-             (query/q '[:find ?e :where [?e :item/qty ?n] [(< ?n 10)]]
-                      datoms
-                      {:fns {'< <}})))))
+             (q-current '[:find ?e :where [?e :item/qty ?n] [(< ?n 10)]]
+                        datoms
+                        {:fns {'< <}})))))
   (testing "function clause binds its result var"
     (let [datoms [[1 :item/price 10 1 1] [1 :item/qty 3 1 1]]]
       (is (= #{[1 30]}
-             (query/q '[:find ?e ?total :where [?e :item/price ?price]
-                        [?e :item/qty ?qty] [(* ?price ?qty) ?total]]
-                      datoms
-                      {:fns {'* *}})))))
+             (q-current '[:find ?e ?total :where [?e :item/price ?price]
+                          [?e :item/qty ?qty] [(* ?price ?qty) ?total]]
+                        datoms
+                        {:fns {'* *}})))))
   (testing "function clause result unifies (filters) an already-bound var"
     (let [datoms [[1 :item/price 10 1 1] [1 :item/total 30 1 1]
                   [1 :item/qty 3 1 1] [2 :item/price 10 1 1]
                   [2 :item/total 99 1 1] [2 :item/qty 3 1 1]]]
       (is (= #{[1]}
-             (query/q '[:find ?e :where [?e :item/price ?price]
-                        [?e :item/qty ?qty] [?e :item/total ?total]
-                        [(* ?price ?qty) ?total]]
-                      datoms
-                      {:fns {'* *}})))))
+             (q-current '[:find ?e :where [?e :item/price ?price]
+                          [?e :item/qty ?qty] [?e :item/total ?total]
+                          [(* ?price ?qty) ?total]]
+                        datoms
+                        {:fns {'* *}})))))
   (testing "multi-return vector destructuring"
     (let [datoms [[1 :item/n 7 1 1]]]
       (is (= #{[1 2 1]}
-             (query/q '[:find ?e ?q ?r :where [?e :item/n ?n]
-                        [(div-mod ?n 3) [?q ?r]]]
-                      datoms
-                      {:fns {'div-mod (fn [n d] [(quot n d) (rem n d)])}})))))
+             (q-current '[:find ?e ?q ?r :where [?e :item/n ?n]
+                          [(div-mod ?n 3) [?q ?r]]]
+                        datoms
+                        {:fns {'div-mod (fn [n d] [(quot n d) (rem n d)])}})))))
   (testing "unknown fn throws when not in the registry or builtins"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"Unknown query fn"
-          (query/q '[:find ?e :where [?e :item/qty ?n]
-                     [(unknown-fn ?n 10)]]
-                   [[1 :item/qty 5 1 1]]))))
+          (q-current '[:find ?e :where [?e :item/qty ?n]
+                       [(unknown-fn ?n 10)]]
+                     [[1 :item/qty 5 1 1]]))))
   (testing "unbound arg throws"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"Unbound variable in fn clause"
-          (query/q '[:find ?e :where [(< ?unbound 10)]
-                     [?e :item/qty ?n]]
-                   [[1 :item/qty 5 1 1]]
-                   {:fns {'< <}}))))
+          (q-current '[:find ?e :where [(< ?unbound 10)]
+                       [?e :item/qty ?n]]
+                     [[1 :item/qty 5 1 1]]
+                     {:fns {'< <}}))))
   (testing
     "multiple bare result vars throw (Datomic wants a tuple binding [?a ?b])"
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #"one binding form"
-          (query/q '[:find ?e ?q ?r :where [?e :item/n ?n]
-                     [(div-mod ?n 3) ?q ?r]]
-                   [[1 :item/n 7 1 1]]
-                   {:fns {'div-mod (fn [n d]
-                                     [(quot n d)
-                                      (rem n d)])}}))))
+    (is (thrown-with-msg?
+          #?(:cljs js/Error
+             :cljd Object
+             :default Exception)
+          #"one binding form"
+          (q-current '[:find ?e ?q ?r :where [?e :item/n ?n]
+                       [(div-mod ?n 3) ?q ?r]]
+                     [[1 :item/n 7 1 1]]
+                     {:fns {'div-mod (fn [n d] [(quot n d) (rem n d)])}}))))
   (testing "tuple binding arity mismatch throws instead of silently truncating"
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #"tuple binding arity"
-          (query/q '[:find ?e ?q ?r ?s :where [?e :item/n ?n]
-                     [(div-mod ?n 3) [?q ?r ?s]]]
-                   [[1 :item/n 7 1 1]]
-                   {:fns {'div-mod (fn [n d]
-                                     [(quot n d)
-                                      (rem n d)])}}))))
+    (is (thrown-with-msg?
+          #?(:cljs js/Error
+             :cljd Object
+             :default Exception)
+          #"tuple binding arity"
+          (q-current '[:find ?e ?q ?r ?s :where [?e :item/n ?n]
+                       [(div-mod ?n 3) [?q ?r ?s]]]
+                     [[1 :item/n 7 1 1]]
+                     {:fns {'div-mod (fn [n d] [(quot n d) (rem n d)])}}))))
   (testing "unsupported binding forms (collection/relation) throw"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"Unsupported binding form"
-          (query/q '[:find ?e ?y :where [?e :item/n ?n]
-                     [(seq-fn ?n) [?y ...]]]
-                   [[1 :item/n 7 1 1]]
-                   {:fns {'seq-fn (fn [n] [n n])}})))))
+          (q-current '[:find ?e ?y :where [?e :item/n ?n]
+                       [(seq-fn ?n) [?y ...]]]
+                     [[1 :item/n 7 1 1]]
+                     {:fns {'seq-fn (fn [n] [n n])}})))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -981,22 +901,23 @@
                              :cljd Object
                              :default Exception)
                           #"inside not must be bound"
-          (query/q '[:find ?w :where (not [?w :work/claims _])]
-                   [[1 :work/claims 2 1 1]]))))
+          (q-current '[:find ?w :where
+                       (not [?w :work/claims _])]
+                     [[1 :work/claims 2 1 1]]))))
   (testing "not with a var found only inside it throws (Datomic: use not-join)"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"inside not must be bound"
-          (query/q '[:find ?w :where [?w :work/posted true]
-                     (not [?c :work/claims ?w])]
-                   [[1 :work/posted true 1 1]]))))
+          (q-current '[:find ?w :where [?w :work/posted true]
+                       (not [?c :work/claims ?w])]
+                     [[1 :work/posted true 1 1]]))))
   (testing "not-join with an unbound join var throws"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"not-join variables must be bound"
-          (query/q
+          (q-current
             '[:find ?name :where
               (not-join [?unbound] [?doc :doc/author ?unbound])]
             [[1 :doc/author 2 1 1]])))))
@@ -1019,14 +940,14 @@
                   [10 :review/of 1 1 1]]] ; Alice is reviewed, Bob is not
       (testing "single negation: users with no reviews => Bob"
         (is (= #{["Bob"]}
-               (query/q '[:find ?name :where [?u :user/name ?name]
-                          (not-join [?u] [?r :review/of ?u])]
-                        datoms))))
+               (q-current '[:find ?name :where [?u :user/name ?name]
+                            (not-join [?u] [?r :review/of ?u])]
+                          datoms))))
       (testing "double negation: not(no review of ?u) = reviewed users => Alice"
         (is (= #{["Alice"]}
-               (query/q '[:find ?name :where [?u :user/name ?name]
-                          (not (not-join [?u] [?r :review/of ?u]))]
-                        datoms)))))))
+               (q-current '[:find ?name :where [?u :user/name ?name]
+                            (not (not-join [?u] [?r :review/of ?u]))]
+                          datoms)))))))
 
 
 (deftest nested-not-join-local-in-entity-slot-bug
@@ -1036,9 +957,9 @@
                   [10 :review/reviewer 1 1 1]]]
       ;; not(no review by ?u) = users who reviewed something => Alice.
       (is (= #{["Alice"]}
-             (query/q '[:find ?name :where [?u :user/name ?name]
-                        (not (not-join [?u] [?r :review/reviewer ?u]))]
-                      datoms))))))
+             (q-current '[:find ?name :where [?u :user/name ?name]
+                          (not (not-join [?u] [?r :review/reviewer ?u]))]
+                        datoms))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1062,51 +983,53 @@
           rules '[[(social ?e) [?e :user/friend _]]
                   [(social ?e) [?e :user/follows _]]]]
       (testing "multiple bodies for one head are a disjunction (OR)"
-        (is (=
-              #{[1] [3]}
-              (query/q '[:find ?e :in $ % :where (social ?e)] datoms rules))))))
+        (is (= #{[1] [3]}
+               (q-current '[:find ?e :in $ % :where (social ?e)]
+                          datoms
+                          rules))))))
   (testing "recursive rule computes the transitive closure"
     (is (= #{["beth"] ["cara"] ["dave"]}
-           (query/q '[:find ?d :in $ % :where (ancestor "adam" ?d)]
-                    family-datoms
-                    ancestor-rules))))
+           (q-current '[:find ?d :in $ % :where (ancestor "adam" ?d)]
+                      family-datoms
+                      ancestor-rules))))
   (testing "recursion with the value side bound works too"
     (is (= #{["adam"] ["beth"] ["cara"]}
-           (query/q '[:find ?a :in $ % :where (ancestor ?a "dave")]
-                    family-datoms
-                    ancestor-rules))))
+           (q-current '[:find ?a :in $ % :where (ancestor ?a "dave")]
+                      family-datoms
+                      ancestor-rules))))
   (testing "rule invocations join with ordinary clauses"
     ;; every ancestor of the one :active person
     (let [datoms (conj family-datoms ["dave" :status :active 1 1])]
       (is (= #{["adam" "dave"] ["beth" "dave"] ["cara" "dave"]}
-             (query/q '[:find ?a ?d :in $ % :where (ancestor ?a ?d)
-                        [?d :status :active]]
-                      datoms
-                      ancestor-rules)))))
+             (q-current '[:find ?a ?d :in $ % :where (ancestor ?a ?d)
+                          [?d :status :active]]
+                        datoms
+                        ancestor-rules)))))
   (testing "recursion terminates on cyclic data"
     (let [cycle [["a" :edge "b" 1 1] ["b" :edge "c" 1 1] ["c" :edge "a" 1 1]]
           rules '[[(reach ?x ?y) [?x :edge ?y]]
                   [(reach ?x ?y) [?x :edge ?z] (reach ?z ?y)]]]
-      (is (= #{["a"] ["b"] ["c"]}
-             (query/q '[:find ?y :in $ % :where (reach "a" ?y)] cycle rules)))))
+      (is
+        (= #{["a"] ["b"] ["c"]}
+           (q-current '[:find ?y :in $ % :where (reach "a" ?y)] cycle rules)))))
   (testing "rule body vars are locally scoped, even under colliding names"
     ;; ?c is bound to :blue outside AND is ancestor's internal chain var.
     ;; If the rule saw the outer ?c, its recursive body [?a :parent ?c]
     ;; would unify against :blue and recursion would die after "beth".
     (let [datoms (conj family-datoms ["adam" :color :blue 1 1])]
       (is (= #{[:blue "beth"] [:blue "cara"] [:blue "dave"]}
-             (query/q '[:find ?c ?d :in $ % :where ["adam" :color ?c]
-                        (ancestor "adam" ?d)]
-                      datoms
-                      ancestor-rules)))))
+             (q-current '[:find ?c ?d :in $ % :where ["adam" :color ?c]
+                          (ancestor "adam" ?d)]
+                        datoms
+                        ancestor-rules)))))
   (testing
     "rule head with repeated var yields no solutions for contradictory args"
     (let [datoms [[1 :val 1 1 1] [2 :val 2 1 1]]
           rules '[[(same ?x ?x)]]]
       (is (= #{}
-             (query/q '[:find ?e :in $ % :where [?e :val ?v] (same ?v 99)]
-                      datoms
-                      rules))))))
+             (q-current '[:find ?e :in $ % :where [?e :val ?v] (same ?v 99)]
+                        datoms
+                        rules))))))
 
 
 (deftest rules-error-paths
@@ -1115,17 +1038,17 @@
                              :cljd Object
                              :default Exception)
                           #"[Nn]o rules"
-          (query/q '[:find ?d :where (ancestor "adam" ?d)]
-                   family-datoms))))
+          (q-current '[:find ?d :where (ancestor "adam" ?d)]
+                     family-datoms))))
   (testing "invoking an undefined rule throws"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"Unknown rule"
-          (query/q '[:find ?d :in $ % :where
-                     (descendant "adam" ?d)]
-                   family-datoms
-                   ancestor-rules)))))
+          (q-current '[:find ?d :in $ % :where
+                       (descendant "adam" ?d)]
+                     family-datoms
+                     ancestor-rules)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1148,10 +1071,10 @@
     (let [datoms [[1 :val 1 1 1]]
           rules '[[(same ?x ?x) [(dao.space.query_test/do-something ?x) [?y]]]]]
       (reset! side-effect [])
-      (query/q '[:find ?e :in $ % :where [?e :val ?v] (same ?v 99)]
-               datoms
-               rules
-               {:fns {'dao.space.query_test/do-something do-something}})
+      (q-current '[:find ?e :in $ % :where [?e :val ?v] (same ?v 99)]
+                 datoms
+                 rules
+                 {:fns {'dao.space.query_test/do-something do-something}})
       (is (= [] @side-effect)))))
 
 
@@ -1163,24 +1086,25 @@
   (testing "or unifies bindings from any branch (set semantics across branches)"
     (let [datoms [[1 :type :dog 1 1] [2 :type :cat 1 1] [3 :type :fish 1 1]]]
       (is (= #{[1] [2]}
-             (query/q '[:find ?e :where (or [?e :type :dog] [?e :type :cat])]
-                      datoms)))))
+             (q-current '[:find ?e :where (or [?e :type :dog] [?e :type :cat])]
+                        datoms)))))
   (testing "an or branch with extra free vars must be detected (same-var rule)"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"[Ss]ame.*variable|branches"
-          (query/q '[:find ?e :where (or [?e :a ?x] [?e :b ?y])]
-                   [[1 :a 1 1 1] [1 :b 2 1 1]]))))
+          (q-current '[:find ?e :where
+                       (or [?e :a ?x] [?e :b ?y])]
+                     [[1 :a 1 1 1] [1 :b 2 1 1]]))))
   (testing "set semantics: identical bindings from two branches appear once"
     (let [datoms [[1 :kind :cat 1 1] [1 :pet true 1 1]]]
       (is (= #{[1]}
-             (query/q '[:find ?e :where (or [?e :kind :cat] [?e :pet true])]
-                      datoms)))))
+             (q-current '[:find ?e :where (or [?e :kind :cat] [?e :pet true])]
+                        datoms)))))
   (testing "or with no branch satisfied yields no bindings"
     (is (= #{}
-           (query/q '[:find ?e :where (or [?e :a 1] [?e :a 2])]
-                    [[1 :a 3 1 1]])))))
+           (q-current '[:find ?e :where (or [?e :a 1] [?e :a 2])]
+                      [[1 :a 3 1 1]])))))
 
 
 (deftest or-join-test
@@ -1193,31 +1117,31 @@
       (is
         (=
           #{[1 10] [2 20] [1 1]}
-          (query/q '[:find ?e ?x :where
-                     (or-join
-                       [?e ?x]
-                       [?e :x ?x]
-                       (and [?e :flag true] [(identity ?e) ?x]))]
-                   datoms
-                   {:fns {'identity identity}})))))
+          (q-current '[:find ?e ?x :where
+                       (or-join
+                         [?e ?x]
+                         [?e :x ?x]
+                         (and [?e :flag true] [(identity ?e) ?x]))]
+                     datoms
+                     {:fns {'identity identity}})))))
   (testing "branch-only vars do not escape the join declaration"
     ;; ?x is bound inside the branch but not declared in the join;
     ;; it must not appear in the outer result.
     (let [datoms [[1 :x 10 1 1] [2 :x 20 1 1]]]
       (is (= #{[1] [2]}
-             (query/q '[:find ?e :where (or-join [?e] [?e :x ?x])] datoms)))))
+             (q-current '[:find ?e :where (or-join [?e] [?e :x ?x])] datoms)))))
   (testing "or-join can introduce its own join var when unbound"
     (is (= #{[1] [2]}
-           (query/q '[:find ?e :where (or-join [?e] [?e :a 1] [?e :a 2])]
-                    [[1 :a 1 1 1] [2 :a 2 1 1] [3 :a 3 1 1]]))))
+           (q-current '[:find ?e :where (or-join [?e] [?e :a 1] [?e :a 2])]
+                      [[1 :a 1 1 1] [2 :a 2 1 1] [3 :a 3 1 1]]))))
   (testing "or-join preserves outer-scope vars (merge back into outer binding)"
     ;; ?n is bound by the top-level pattern; the or-join then adds
     ;; a join var (or introduces a new one). The merged binding must
     ;; carry ?n through — the engine should augment, not replace.
     (is (= #{["a" 1]}
-           (query/q '[:find ?n ?e :where [?e :name ?n]
-                      (or-join [?e] [?e :flag true])]
-                    [[1 :name "a" 1 1] [1 :flag true 1 1]]))))
+           (q-current '[:find ?n ?e :where [?e :name ?n]
+                        (or-join [?e] [?e :flag true])]
+                      [[1 :name "a" 1 1] [1 :flag true 1 1]]))))
   (testing "branches do not see non-join outer vars (isolation)"
     ;; ?v is bound to 99 in the outer scope but NOT declared as a join var.
     ;; Inside the branch, ?v should be a fresh local var that ranges
@@ -1226,9 +1150,9 @@
     ;; isolation, ?v matches the :tag value (1) and succeeds.
     (let [datoms [[1 :name "a" 1 1] [1 :val 99 1 1] [1 :tag 1 1 1]]]
       (is (= #{["a" 1]}
-             (query/q '[:find ?n ?e :where [?e :name ?n] [?e :val ?v]
-                        (or-join [?e] [?e :tag ?v])]
-                      datoms))))))
+             (q-current '[:find ?n ?e :where [?e :name ?n] [?e :val ?v]
+                          (or-join [?e] [?e :tag ?v])]
+                        datoms))))))
 
 
 (deftest and-test
@@ -1238,13 +1162,13 @@
       (is
         (=
           #{[1] [3]}
-          (query/q '[:find ?e :where
-                     (or-join
-                       [?e]
-                       (and [?e :x ?x] [?e :y ?y] [(= ?x ?y)])
-                       [?e :flag true])]
-                   datoms
-                   {:fns {'= =}}))))))
+          (q-current '[:find ?e :where
+                       (or-join
+                         [?e]
+                         (and [?e :x ?x] [?e :y ?y] [(= ?x ?y)])
+                         [?e :flag true])]
+                     datoms
+                     {:fns {'= =}}))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1254,13 +1178,13 @@
 (deftest find-scalar-test
   (testing "[:find ?x .] returns a single value, or nil for no results"
     (let [datoms [[1 :name "Alice" 1 1] [2 :name "Bob" 1 1]]]
-      (is (= "Alice" (query/q '[:find ?n . :where [1 :name ?n]] datoms)))
-      (is (nil? (query/q '[:find ?n . :where [99 :name ?n]] datoms)))))
+      (is (= "Alice" (q-current '[:find ?n . :where [1 :name ?n]] datoms)))
+      (is (nil? (q-current '[:find ?n . :where [99 :name ?n]] datoms)))))
   (testing "scalar find spec composes with aggregates"
     (is (= 3
-           (query/q '[:find (count ?e) . :where [?e :task/status :open]]
-                    [[1 :task/status :open 1 1] [2 :task/status :open 1 1]
-                     [3 :task/status :open 1 1]])))))
+           (q-current '[:find (count ?e) . :where [?e :task/status :open]]
+                      [[1 :task/status :open 1 1] [2 :task/status :open 1 1]
+                       [3 :task/status :open 1 1]])))))
 
 
 (deftest find-coll-test
@@ -1268,24 +1192,24 @@
     (let [datoms [[1 :name "Alice" 1 1] [2 :name "Bob" 1 1]
                   [3 :name "Charlie" 1 1]]]
       (is (= #{"Alice" "Bob" "Charlie"}
-             (set (query/q '[:find [?n ...] :where [_ :name ?n]] datoms))))))
+             (set (q-current '[:find [?n ...] :where [_ :name ?n]] datoms))))))
   (testing "collection find on empty results is an empty vector"
-    (is (= [] (query/q '[:find [?n ...] :where [_ :name ?n]] []))))
+    (is (= [] (q-current '[:find [?n ...] :where [_ :name ?n]] []))))
   (testing "multi-var coll returns vector of tuples"
     (let [datoms [[1 :name "Alice" 1 1] [2 :name "Bob" 1 1]]]
       (is (= #{[1 "Alice"] [2 "Bob"]}
-             (set (query/q '[:find [?e ?n ...] :where [?e :name ?n]]
-                           datoms)))))))
+             (set (q-current '[:find [?e ?n ...] :where [?e :name ?n]]
+                             datoms)))))))
 
 
 (deftest find-tuple-test
   (testing "[:find [?x ?y]] returns a single tuple (or nil)"
     (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1]]]
       (is (= ["Alice" 30]
-             (query/q '[:find [?n ?a] :where [1 :name ?n] [1 :age ?a]]
-                      datoms))))
+             (q-current '[:find [?n ?a] :where [1 :name ?n] [1 :age ?a]]
+                        datoms))))
     (testing "no results yields nil"
-      (is (nil? (query/q '[:find [?n ?a] :where [99 :name ?n]] []))))))
+      (is (nil? (q-current '[:find [?n ?a] :where [99 :name ?n]] []))))))
 
 
 (deftest return-maps-keys-test
@@ -1293,45 +1217,45 @@
     (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1] [2 :name "Bob" 1 1]
                   [2 :age 40 1 1]]]
       (is (= #{{:e 1, :n "Alice", :a 30} {:e 2, :n "Bob", :a 40}}
-             (set (query/q '[:find ?e ?n ?a :keys e n a :where [?e :name ?n]
-                             [?e :age ?a]]
-                           datoms))))))
+             (set (q-current '[:find ?e ?n ?a :keys e n a :where [?e :name ?n]
+                               [?e :age ?a]]
+                             datoms))))))
   (testing ":keys arity must match the find vars (throws otherwise)"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"[Rr]eturn map arity|arity must match"
-          (query/q '[:find ?e ?n :keys e :where [?e :name ?n]]
-                   [[1 :name "Alice" 1 1]]))))
+          (q-current '[:find ?e ?n :keys e :where [?e :name ?n]]
+                     [[1 :name "Alice" 1 1]]))))
   (testing ":keys is relation-only (no scalar/coll/tuple find specs)"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
                           #"[Rr]eturn map form.*relation"
-          (query/q '[:find ?e . :keys e :where [?e :name ?n]]
-                   [[1 :name "Alice" 1 1]])))))
+          (q-current '[:find ?e . :keys e :where [?e :name ?n]]
+                     [[1 :name "Alice" 1 1]])))))
 
 
 (deftest return-maps-syms-strs-test
   (testing ":syms returns a seq of maps with symbol keys"
     (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1] [2 :name "Bob" 1 1]
                   [2 :age 40 1 1]]
-          result (query/q '[:find ?e ?n :syms e n :where [?e :name ?n]
-                            [?e :age ?a]]
-                          datoms)]
+          result (q-current '[:find ?e ?n :syms e n :where [?e :name ?n]
+                              [?e :age ?a]]
+                            datoms)]
       (is (every? map? result))
       (is (= #{[1 "Alice"] [2 "Bob"]} (set (map (juxt 'e 'n) result))))))
   (testing ":syms keys are symbols (e n), not keywords (:e :n)"
     (let [datoms [[1 :name "Alice" 1 1]]
-          result (query/q '[:find ?e :syms e :where [?e :name _]] datoms)]
+          result (q-current '[:find ?e :syms e :where [?e :name _]] datoms)]
       (is (every? #(contains? % 'e) result))
       (is (not-any? #(contains? % :e) result))))
   (testing ":strs returns a seq of maps with string keys"
     (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1] [2 :name "Bob" 1 1]
                   [2 :age 40 1 1]]
-          result (query/q '[:find ?e ?n :strs e n :where [?e :name ?n]
-                            [?e :age ?a]]
-                          datoms)]
+          result (q-current '[:find ?e ?n :strs e n :where [?e :name ?n]
+                              [?e :age ?a]]
+                            datoms)]
       (is (every? map? result))
       (is (= #{[1 "Alice"] [2 "Bob"]}
              (set (map (juxt #(get % "e") #(get % "n")) result)))))))
@@ -1346,23 +1270,24 @@
     (let [datoms [[1 :item/category :fruit 1 1] [2 :item/category :fruit 1 1]
                   [3 :item/category :vegetable 1 1]]]
       (is (= #{[1 :item/category :fruit 1 1] [2 :item/category :fruit 1 1]}
-             (set (query/match datoms ['_ '_ :fruit]))))))
+             (set (query/match (query/history datoms) ['_ '_ :fruit '_ '_]))))))
   (testing "v-only q (who points at X?) over a raw datom vector"
     (let [datoms [[1 :doc/author 2 1 1] [3 :doc/author 2 1 1]
                   [4 :doc/author 5 1 1]]]
       (is (= #{[1] [3]}
-             (query/q '[:find ?e :where [?e :doc/author 2]] datoms)))))
+             (q-current '[:find ?e :where [?e :doc/author 2]] datoms)))))
   (testing "v-only with as-of bounds the index slice"
     (let [datoms [[1 :doc/author 2 1 1] [1 :doc/author 2 5 1]
                   [3 :doc/author 2 3 1]]]
       ;; as-of 1 excludes the t=3 and t=5 datoms
-      (is (= #{[1]}
-             (query/q '[:find ?e :where [?e :doc/author 2]] datoms {:as-of 1})))
+      (is
+        (= #{[1]}
+           (q-current '[:find ?e :where [?e :doc/author 2]] datoms {:as-of 1})))
       ;; as-of 4 includes t=1 and t=3
       (is (= #{[1] [3]}
-             (query/q '[:find ?e :where [?e :doc/author 2]]
-                      datoms
-                      {:as-of 4}))))))
+             (q-current '[:find ?e :where [?e :doc/author 2]]
+                        datoms
+                        {:as-of 4}))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1371,47 +1296,49 @@
   (testing "comparators are in the default registry (no :fns option needed)"
     (let [datoms [[1 :item/qty 5 1 1] [2 :item/qty 15 1 1]]]
       (is (= #{[1]}
-             (query/q '[:find ?e :where [?e :item/qty ?n] [(< ?n 10)]]
-                      datoms)))))
+             (q-current '[:find ?e :where [?e :item/qty ?n] [(< ?n 10)]]
+                        datoms)))))
   (testing "arithmetic fns are in the default registry"
     (let [datoms [[1 :item/price 10 1 1] [1 :item/qty 3 1 1]]]
       (is (= #{[1 30]}
-             (query/q '[:find ?e ?total :where [?e :item/price ?p]
-                        [?e :item/qty ?q] [(* ?p ?q) ?total]]
-                      datoms)))))
+             (q-current '[:find ?e ?total :where [?e :item/price ?p]
+                          [?e :item/qty ?q] [(* ?p ?q) ?total]]
+                        datoms)))))
   (testing "str / count / first / last / get / nth are builtins"
     (is (= #{["Alice"]}
-           (query/q '[:find ?u :where [1 :name ?n] [(str ?n) ?u]]
-                    [[1 :name "Alice" 1 1]])))
+           (q-current '[:find ?u :where [1 :name ?n] [(str ?n) ?u]]
+                      [[1 :name "Alice" 1 1]])))
     (let [datoms [[1 :name "Alice" 1 1] [2 :name "Bob" 1 1]]]
       (is (= #{["Alice!"] ["Bob!"]}
-             (query/q '[:find ?c :where [?e :name ?n] [(str ?n "!") ?c]]
-                      datoms))))
+             (q-current '[:find ?c :where [?e :name ?n] [(str ?n "!") ?c]]
+                        datoms))))
     (is (= #{[5]}
-           (query/q '[:find ?l :where [_ :name "Alice"] [(count "Alice") ?l]]
-                    [[1 :name "Alice" 1 1]]))))
+           (q-current '[:find ?l :where [_ :name "Alice"] [(count "Alice") ?l]]
+                      [[1 :name "Alice" 1 1]]))))
   (testing "ground binds a literal to a variable"
-    (is (= #{[42]} (query/q '[:find ?x :where [(ground 42) ?x]] [])))))
+    (is (= #{[42]} (q-current '[:find ?x :where [(ground 42) ?x]] [])))))
 
 
 (deftest get-else-test
   (testing "returns the attr value or the default when the entity lacks it"
     (is (= #{["Alice"]}
-           (query/q '[:find ?v :where [(get-else $ 1 :name "anon") ?v]]
-                    [[1 :name "Alice" 1 1]])))
+           (q-current '[:find ?v :where [(get-else $ 1 :name "anon") ?v]]
+                      [[1 :name "Alice" 1 1]])))
     (is (= #{["anon"]}
-           (query/q '[:find ?v :where [(get-else $ 2 :name "anon") ?v]]
-                    [[1 :name "Alice" 1 1]])))))
+           (q-current '[:find ?v :where [(get-else $ 2 :name "anon") ?v]]
+                      [[1 :name "Alice" 1 1]])))))
 
 
 (deftest missing?-test
   (testing "predicate is true when the entity lacks the attribute"
     (is (= #{[1]}
-           (query/q '[:find ?e :where [?e :name "Alice"] [(missing? $ 1 :age)]]
-                    [[1 :name "Alice" 1 1]])))
+           (q-current '[:find ?e :where [?e :name "Alice"]
+                        [(missing? $ 1 :age)]]
+                      [[1 :name "Alice" 1 1]])))
     (is (= #{}
-           (query/q '[:find ?e :where [?e :name "Alice"] [(missing? $ 1 :name)]]
-                    [[1 :name "Alice" 1 1]])))))
+           (q-current '[:find ?e :where [?e :name "Alice"]
+                        [(missing? $ 1 :name)]]
+                      [[1 :name "Alice" 1 1]])))))
 
 
 (deftest builtins-disable-test
@@ -1420,10 +1347,10 @@
                              :cljd Object
                              :default Exception)
                           #"Unknown query fn"
-          (query/q '[:find ?e :where [?e :item/qty ?n]
-                     [(< ?n 10)]]
-                   [[1 :item/qty 5 1 1]]
-                   {:builtins false})))))
+          (q-current '[:find ?e :where [?e :item/qty ?n]
+                       [(< ?n 10)]]
+                     [[1 :item/qty 5 1 1]]
+                     {:builtins false})))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1435,14 +1362,14 @@
     (let [datoms [[1 :name "Alice" 1 1] [2 :age 30 1 1]]]
       ;; ?e is bound by the pattern clause, then used in get-else
       (is (= #{[1 "Alice"]}
-             (query/q '[:find ?e ?v :where [?e :name _]
-                        [(get-else $ ?e :name "anon") ?v]]
-                      datoms)))
+             (q-current '[:find ?e ?v :where [?e :name _]
+                          [(get-else $ ?e :name "anon") ?v]]
+                        datoms)))
       ;; entity 2 lacks :name, should return default
       (is (= #{[2 "anon"]}
-             (query/q '[:find ?e ?v :where [?e :age _]
-                        [(get-else $ ?e :name "anon") ?v]]
-                      datoms))))))
+             (q-current '[:find ?e ?v :where [?e :age _]
+                          [(get-else $ ?e :name "anon") ?v]]
+                        datoms))))))
 
 
 (deftest missing?-with-query-var-test
@@ -1450,12 +1377,12 @@
     (let [datoms [[1 :name "Alice" 1 1] [2 :age 30 1 1]]]
       ;; entity 2 is missing :name -> predicate is true -> binding survives
       (is (= #{[2]}
-             (query/q '[:find ?e :where [?e :age _] [(missing? $ ?e :name)]]
-                      datoms)))
+             (q-current '[:find ?e :where [?e :age _] [(missing? $ ?e :name)]]
+                        datoms)))
       ;; entity 1 has :name -> predicate is false -> binding filtered out
       (is (= #{}
-             (query/q '[:find ?e :where [?e :name _] [(missing? $ ?e :name)]]
-                      datoms))))))
+             (q-current '[:find ?e :where [?e :name _] [(missing? $ ?e :name)]]
+                        datoms))))))
 
 
 (deftest or-with-not-local-vars-test
@@ -1470,7 +1397,7 @@
       ;; Branch 2 yields {?e 1, ?x 1} only (entity 2 lacks :b).
       ;; Union: {[1 1] [2 2]}.
       (is (= #{[1 1] [2 2]}
-             (query/q
+             (q-current
                '[:find ?e ?x :where
                  (or [?e :a ?x] (and [?e :b ?x] (not-join [?e ?x] [?e :c ?y])))]
                datoms))))))
@@ -1482,15 +1409,15 @@
           rules '[[(is-cat ?e) [?e :type :cat]]]]
       ;; test not-join with rule
       (is (= #{[1] [3]}
-             (query/q '[:find ?e :in $ % :where [?e :type _]
-                        (not-join [?e] (is-cat ?e))]
-                      datoms
-                      rules)))
+             (q-current '[:find ?e :in $ % :where [?e :type _]
+                          (not-join [?e] (is-cat ?e))]
+                        datoms
+                        rules)))
       ;; test or-join with rule
       (is (= #{[2]}
-             (query/q '[:find ?e :in $ % :where (or-join [?e] (is-cat ?e))]
-                      datoms
-                      rules))))))
+             (q-current '[:find ?e :in $ % :where (or-join [?e] (is-cat ?e))]
+                        datoms
+                        rules))))))
 
 
 (deftest or-join-branch-must-bind-join-vars-test
@@ -1505,9 +1432,9 @@
                              :cljd Object
                              :default Exception)
                           #"join var"
-          (query/q '[:find ?e ?x :where
-                     (or-join [?e ?x] [?e :a 1])]
-                   [[1 :a 1 1 1]]))))
+          (q-current '[:find ?e ?x :where
+                       (or-join [?e ?x] [?e :a 1])]
+                     [[1 :a 1 1 1]]))))
   (testing
     "the check is per branch: one conforming branch does not
             excuse another that misses a join var"
@@ -1515,9 +1442,9 @@
                              :cljd Object
                              :default Exception)
                           #"join var"
-          (query/q '[:find ?e ?x :where
-                     (or-join [?e ?x] [?e :a ?x] [?e :b 1])]
-                   [[1 :a 1 1 1] [1 :b 1 1 1]])))))
+          (q-current '[:find ?e ?x :where
+                       (or-join [?e ?x] [?e :a ?x] [?e :b 1])]
+                     [[1 :a 1 1 1] [1 :b 1 1 1]])))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1598,19 +1525,19 @@
 
 (deftest pull-flat-attrs-test
   (testing "simple attr list returns scalar for single-valued, vector for multi"
-    (let [result (query/pull pull-sample-datoms 1 [:name :age :tag])]
+    (let [result (pull-current pull-sample-datoms 1 [:name :age :tag])]
       (is (= 1 (:db/id result)))
       (is (= "Alice" (:name result)))
       (is (= 30 (:age result)))
       (is (= #{"dev" "admin"} (set (:tag result))))))
   (testing "missing attr is omitted"
     (is (= {:db/id 2, :name "Bob"}
-           (query/pull pull-sample-datoms 2 [:name :age])))))
+           (pull-current pull-sample-datoms 2 [:name :age])))))
 
 
 (deftest pull-flat-wildcard-test
   (testing "wildcard includes all attrs"
-    (let [result (query/pull pull-sample-datoms 1 '[*])]
+    (let [result (pull-current pull-sample-datoms 1 '[*])]
       (is (= 1 (:db/id result)))
       (is (= "Alice" (:name result)))
       (is (= 30 (:age result)))
@@ -1620,18 +1547,18 @@
 (deftest pull-flat-options-test
   (testing ":default for missing attr"
     (is (= {:db/id 2, :name "Bob", :age 0}
-           (query/pull pull-sample-datoms 2 [:name [:age :default 0]]))))
+           (pull-current pull-sample-datoms 2 [:name [:age :default 0]]))))
   (testing ":limit bounds multi-valued results"
-    (let [result (query/pull pull-sample-datoms 1 [[:tag :limit 1]])]
+    (let [result (pull-current pull-sample-datoms 1 [[:tag :limit 1]])]
       (is (= 1 (:db/id result)))
       (is (= 1 (count (:tag result))))
       (is (contains? #{"dev" "admin"} (first (:tag result))))))
   (testing ":limit on single-valued attribute does not force vector wrapping"
     (is (= {:db/id 1, :name "Alice"}
-           (query/pull pull-sample-datoms 1 [[:name :limit 5]]))))
+           (pull-current pull-sample-datoms 1 [[:name :limit 5]]))))
   (testing ":as renames output key"
     (is (= {:db/id 1, :label "Alice"}
-           (query/pull pull-sample-datoms 1 [[:name :as :label]])))))
+           (pull-current pull-sample-datoms 1 [[:name :as :label]])))))
 
 
 (deftest pull-flat-db-id-only-for-absent-test
@@ -1639,7 +1566,7 @@
     "entity with no datoms returns {:db/id eid}, matching Datomic —
             pull never returns nil at the top level, since entity ids
             are not existence-checked; it always echoes back :db/id"
-    (is (= {:db/id 999} (query/pull pull-sample-datoms 999 [:name])))))
+    (is (= {:db/id 999} (pull-current pull-sample-datoms 999 [:name])))))
 
 
 ;; Increment 3: Nested maps (forward navigation)
@@ -1652,16 +1579,18 @@
 (deftest pull-many-test
   (testing "pull-many folds once, maps over eids"
     (is (= [{:db/id 1, :name "Alice"} {:db/id 2, :name "Bob"} {:db/id 999}]
-           (query/pull-many pull-sample-datoms [1 2 999] [:name]))))
+           (pull-many-current pull-sample-datoms [1 2 999] [:name]))))
   (testing "pull-many supports nested and reverse specs"
-    (let [res
-          (query/pull-many pull-nested-datoms [1] [:name {:friend [:name]}])]
+    (let [res (pull-many-current pull-nested-datoms
+                                 [1]
+                                 [:name {:friend [:name]}])]
       (is (= [{:db/id 1,
                :name "Alice",
                :friend [{:db/id 2, :name "Bob"} {:db/id 3, :name "Charlie"}]}]
              (mapv (fn [item] (update item :friend #(sort-by :db/id %))) res))))
-    (let [res
-          (query/pull-many pull-nested-datoms [3] [:name {:_friend [:name]}])]
+    (let [res (pull-many-current pull-nested-datoms
+                                 [3]
+                                 [:name {:_friend [:name]}])]
       (is (= [{:db/id 3,
                :name "Charlie",
                :_friend [{:db/id 1, :name "Alice"} {:db/id 2, :name "Bob"}]}]
@@ -1674,16 +1603,17 @@
     (is (= {:db/id 1,
             :name "Alice",
             :friend [{:db/id 2, :name "Bob"} {:db/id 3, :name "Charlie"}]}
-           (let [result
-                 (query/pull pull-nested-datoms 1 [:name {:friend [:name]}])]
+           (let [result (pull-current pull-nested-datoms
+                                      1
+                                      [:name {:friend [:name]}])]
              (update result :friend #(sort-by :db/id %))))))
   (testing "value addressing no datoms is omitted"
     (is (= {:db/id 3, :name "Charlie"}
-           (query/pull pull-nested-datoms 3 [:name {:friend [:name]}]))))
+           (pull-current pull-nested-datoms 3 [:name {:friend [:name]}]))))
   (testing "nesting depth > 2"
-    (let [result (query/pull pull-nested-datoms
-                             1
-                             [:name {:friend [:name {:friend [:name]}]}])
+    (let [result (pull-current pull-nested-datoms
+                               1
+                               [:name {:friend [:name {:friend [:name]}]}])
           friends (sort-by :db/id (:friend result))]
       (is (= 2 (count friends)))
       (is (= "Bob" (:name (first friends))))
@@ -1696,20 +1626,21 @@
 
 (deftest pull-reverse-test
   (testing "reverse ref :_attr returns vector of entities pointing here"
-    (let [result (query/pull pull-nested-datoms 2 [:name :_friend])]
+    (let [result (pull-current pull-nested-datoms 2 [:name :_friend])]
       (is (= "Bob" (:name result)))
       ;; Entity 1 has friend 2, so :_friend should include entity 1
       (is (= [{:db/id 1}] (mapv #(select-keys % [:db/id]) (:_friend result))))))
   (testing "reverse ref with nested"
-    (let [result (query/pull pull-nested-datoms 3 [:name {:_friend [:name]}])
+    (let [result (pull-current pull-nested-datoms 3 [:name {:_friend [:name]}])
           friends (sort-by :db/id (:_friend result))]
       ;; Entities 1 and 2 both have friend 3
       (is (= 2 (count friends)))
       (is (= "Alice" (:name (first friends))))
       (is (= "Bob" (:name (second friends))))))
   (testing "reverse ref supports :default option"
-    (is (= {:db/id 1, :name "Alice", :_friend []}
-           (query/pull pull-nested-datoms 1 [:name [:_friend :default []]])))))
+    (is (=
+          {:db/id 1, :name "Alice", :_friend []}
+          (pull-current pull-nested-datoms 1 [:name [:_friend :default []]])))))
 
 
 ;; A reverse-ref pull against a raw datom vector only exercises the
@@ -1721,15 +1652,15 @@
   (let [published (mapv (fn [[e a v t m]] [e (keyword "person" (name a)) v t m])
                         pull-nested-datoms)
         source (source published)]
-    (let [result (query/pull source
-                             3
-                             [:person/name {:person/_friend [:person/name]}])
+    (let [result (pull-current source
+                               3
+                               [:person/name {:person/_friend [:person/name]}])
           friends (sort-by :db/id (:person/_friend result))]
       (is (= "Charlie" (:person/name result)))
       (is (= 2 (count friends)))
       (is (= "Alice" (:person/name (first friends))))
       (is (= "Bob" (:person/name (second friends)))))
-    (let [flat (query/pull source 2 [:person/name :person/_friend])]
+    (let [flat (pull-current source 2 [:person/name :person/_friend])]
       (is (= "Bob" (:person/name flat)))
       (is (= [{:db/id 1}]
              (mapv #(select-keys % [:db/id]) (:person/_friend flat)))))))
@@ -1749,13 +1680,13 @@
   (testing "(pull ?e pattern) as a find element projects each row through pull"
     (let [datoms [[1 :name "Alice" 1 1] [1 :age 30 1 1] [2 :name "Bob" 1 1]]]
       (is (= #{[{:db/id 1, :name "Alice", :age 30}] [{:db/id 2, :name "Bob"}]}
-             (set (query/q '[:find (pull ?e [:name :age]) :where [?e :name _]]
-                           datoms))))))
+             (set (q-current '[:find (pull ?e [:name :age]) :where [?e :name _]]
+                             datoms))))))
   (testing "pull find element composes with a plain var in the same relation"
     (let [datoms [[1 :name "Alice" 1 1]]]
       (is (= #{[1 {:db/id 1, :name "Alice"}]}
-             (set (query/q '[:find ?e (pull ?e [:name]) :where [?e :name _]]
-                           datoms)))))))
+             (set (q-current '[:find ?e (pull ?e [:name]) :where [?e :name _]]
+                             datoms)))))))
 
 
 (deftest pull-find-element-nested-and-reverse-test
@@ -1763,31 +1694,32 @@
     "pull find element pattern supports nested/reverse specs, same as direct pull"
     (let [datoms [[1 :name "Alice" 1 1] [1 :friend 2 1 1] [2 :name "Bob" 1 1]]]
       (is (= #{[{:db/id 1, :name "Alice", :friend {:db/id 2, :name "Bob"}}]}
-             (set (query/q '[:find (pull ?e [:name {:friend [:name]}]) :where
-                             [?e :name "Alice"]]
-                           datoms)))))))
+             (set (q-current '[:find (pull ?e [:name {:friend [:name]}]) :where
+                               [?e :name "Alice"]]
+                             datoms)))))))
 
 
 (deftest pull-find-element-scalar-spec-test
   (testing "pull composes with the scalar find spec"
     (is (= {:db/id 1, :name "Alice"}
-           (query/q '[:find (pull ?e [:name]) . :where [?e :name "Alice"]]
-                    [[1 :name "Alice" 1 1]])))))
+           (q-current '[:find (pull ?e [:name]) . :where [?e :name "Alice"]]
+                      [[1 :name "Alice" 1 1]])))))
 
 
 (deftest pull-find-element-coll-spec-test
   (testing "pull composes with the collection find spec"
     (let [datoms [[1 :name "Alice" 1 1] [2 :name "Bob" 1 1]]]
       (is (= #{{:db/id 1, :name "Alice"} {:db/id 2, :name "Bob"}}
-             (set (query/q '[:find [(pull ?e [:name]) ...] :where [?e :name _]]
-                           datoms)))))))
+             (set (q-current '[:find [(pull ?e [:name]) ...] :where
+                               [?e :name _]]
+                             datoms)))))))
 
 
 (deftest pull-find-element-tuple-spec-test
   (testing "pull composes with the tuple find spec, alongside a plain var"
     (is (= [1 {:db/id 1, :name "Alice"}]
-           (query/q '[:find [?e (pull ?e [:name])] :where [?e :name "Alice"]]
-                    [[1 :name "Alice" 1 1]])))))
+           (q-current '[:find [?e (pull ?e [:name])] :where [?e :name "Alice"]]
+                      [[1 :name "Alice" 1 1]])))))
 
 
 (deftest pull-find-element-rejects-aggregate-test
@@ -1796,9 +1728,9 @@
                              :cljd Object
                              :default Exception)
                           #"[Pp]ull"
-          (query/q '[:find (count (pull ?e [:name])) :where
-                     [?e :name _]]
-                   [[1 :name "Alice" 1 1]])))))
+          (q-current '[:find (count (pull ?e [:name])) :where
+                       [?e :name _]]
+                     [[1 :name "Alice" 1 1]])))))
 
 
 (deftest pull-find-element-no-dollar-source-test
@@ -1809,7 +1741,7 @@
                              :cljd Object
                              :default Exception)
                           #"\$ source"
-          (query/q '[:find (pull ?e [:name]) :in ?e] 1)))))
+          (q-current '[:find (pull ?e [:name]) :in ?e] 1)))))
 
 
 (deftest pull-find-element-with-aggregate-test
@@ -1817,6 +1749,6 @@
     (let [datoms [[1 :name "Alice" 1 1] [1 :friend 2 1 1] [1 :friend 3 1 1]
                   [2 :name "Bob" 1 1] [2 :friend 3 1 1]]]
       (is (= #{[{:db/id 1, :name "Alice"} 2] [{:db/id 2, :name "Bob"} 1]}
-             (set (query/q '[:find (pull ?e [:name]) (count ?friend) :where
-                             [?e :name _] [?e :friend ?friend]]
-                           datoms)))))))
+             (set (q-current '[:find (pull ?e [:name]) (count ?friend) :where
+                               [?e :name _] [?e :friend ?friend]]
+                             datoms)))))))

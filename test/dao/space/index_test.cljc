@@ -566,13 +566,10 @@
   (testing "index-datoms keeps every datom in every covered order"
     (let [d1 [1 :test/a "x" 0 1]
           d2 [2 :test/b "y" 0 1]
-          stamped [1 :test/a "x" 0 1 :ns/alpha]
-          idx (index/index-datoms [d2 d1 stamped])]
+          idx (index/index-datoms [d2 d1])]
       (doseq [order [:eavt :aevt :avet :vaet]]
-        (is (= #{d1 d2 stamped} (set (order idx)))
-            (str order " holds all three datoms")))
-      (is (not (zero? (index/eavt-cmp d1 stamped)))
-          "the ns tiebreaker separates otherwise-identical datoms")))
+        (is (= #{d1 d2} (set (order idx)))
+            (str order " holds both canonical d5 datoms")))))
   (testing "subseq-from slices a log-n descent from a sentinel"
     (let [d1 [1 :test/a "x" 0 1]
           d2 [2 :test/b "y" 0 1]

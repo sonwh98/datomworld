@@ -15,9 +15,9 @@
 
 (defn- datom-vms
   []
-  {:semantic semantic/create-vm,
-   :register register/create-vm,
-   :stack stack/create-vm})
+  {:semantic #(semantic/create-vm (merge {:primitives vm/primitives} %)),
+   :register #(register/create-vm (merge {:primitives vm/primitives} %)),
+   :stack #(stack/create-vm (merge {:primitives vm/primitives} %))})
 
 
 (def define-x-program

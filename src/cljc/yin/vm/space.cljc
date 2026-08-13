@@ -948,7 +948,9 @@
   "Find all AST entity IDs with the given :yin/type value."
   [vm t]
   (map first
-       (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]] (:space vm) t)))
+       (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]]
+                (query/current (:space vm))
+                t)))
 
 
 (comment
@@ -963,22 +965,26 @@
   (def space (machine-space r))
   ;; [1] C is datoms: the program answers AST-shaped queries, and is
   ;;     genesis — visible before the first step ran.
-  (query/q '[:find ?e :where [?e :yin/type :lambda]] space)
-  (query/q '[:find ?e :where [?e :yin/type :lambda]] space {:as-of 0})
+  (query/q '[:find ?e :where [?e :yin/type :lambda]] (query/current space))
+  (query/q '[:find ?e :where [?e :yin/type :lambda]]
+           (query/current space)
+           {:as-of 0})
   ;; [2] One q spans code AND state: variable nodes joined to live
   ;; bindings.
   (query/q '[:find ?v :where [?var :yin/type :variable] [?var :yin/name ?nm]
              [?b :bind/name ?nm] [?b :bind/addr ?a] [?a :cell/value ?v]]
-           space)
+           (query/current space))
   ;; [3] Provenance: why does a cell hold 5? The write names its config.
   (query/q '[:find ?s :where [?a :cell/value 5] [?a :cell/set-by ?cfg]
              [?cfg :cfg/step ?s]]
-           space)
+           (query/current space))
   ;; [4] Dead code = control-trace set difference, no instrumentation.
   (let [entered (set (map first
-                       (query/q '[:find ?n :where [_ :cfg/ctrl ?n]] space)))]
+                       (query/q '[:find ?n :where [_ :cfg/ctrl ?n]]
+                                (query/current space))))]
     (remove entered
-      (map first (query/q '[:find ?e :where [?e :yin/type _]] space))))
+      (map first
+        (query/q '[:find ?e :where [?e :yin/type _]] (query/current space)))))
   ;; [5] Ownership: every datom's m is the machine's reified owner entity.
   (set (map peek space))
-  (query/pull space 2048 [:agent/name]))
+  (query/pull (query/current space) 2048 [:agent/name]))

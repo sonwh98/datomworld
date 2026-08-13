@@ -103,15 +103,6 @@
   (nth d 4))
 
 
-(defn datom-ns
-  "The namespace slot of a datom, or nil for a local 5-tuple. `[e a v t m]`
-   is a literal prefix of `[e a v t m ns]`: a stream stores the short form
-   and only a cross-stream fold materializes the sixth slot, so absence is
-   ordinary, not an error (docs/agents/datom-spec.md)."
-  [d]
-  (nth d 5 nil))
-
-
 (defn- cmp-field
   "Nil-first, heterogeneous-safe field comparison. Entity ids are not
    guaranteed to be integers in query-only db-values, where a raw entity
@@ -123,13 +114,8 @@
         :else (compare-vals a b)))
 
 
-;; ns is the last tiebreaker in every order, never a leading component.
-;; These sets are *sets*: without it, two datoms from different streams
-;; that agree on [e a v t m] compare 0 and one is silently dropped at
-;; insert. As a trailing field it leaves 5-tuple ordering identical (nil
-;; vs nil is 0, exactly as before) and only separates what was previously
-;; conflated. Slot order is not index order — a fold that wants
-;; per-stream locality builds its own comparator.
+;; Covered indexes order canonical local d5 datoms only. Stream scope belongs
+;; to the interpreter selecting a source, not to an appended tuple slot.
 
 (defn eavt-cmp
   [d1 d2]
@@ -140,10 +126,7 @@
           (let [c (cmp-field (datom-v d1) (datom-v d2))]
             (if (zero? c)
               (let [c (cmp-field (datom-t d1) (datom-t d2))]
-                (if (zero? c)
-                  (let [c (cmp-field (datom-m d1) (datom-m d2))]
-                    (if (zero? c) (cmp-field (datom-ns d1) (datom-ns d2)) c))
-                  c))
+                (if (zero? c) (cmp-field (datom-m d1) (datom-m d2)) c))
               c))
           c))
       c)))
@@ -158,10 +141,7 @@
           (let [c (cmp-field (datom-v d1) (datom-v d2))]
             (if (zero? c)
               (let [c (cmp-field (datom-t d1) (datom-t d2))]
-                (if (zero? c)
-                  (let [c (cmp-field (datom-m d1) (datom-m d2))]
-                    (if (zero? c) (cmp-field (datom-ns d1) (datom-ns d2)) c))
-                  c))
+                (if (zero? c) (cmp-field (datom-m d1) (datom-m d2)) c))
               c))
           c))
       c)))
@@ -176,17 +156,14 @@
           (let [c (cmp-field (datom-e d1) (datom-e d2))]
             (if (zero? c)
               (let [c (cmp-field (datom-t d1) (datom-t d2))]
-                (if (zero? c)
-                  (let [c (cmp-field (datom-m d1) (datom-m d2))]
-                    (if (zero? c) (cmp-field (datom-ns d1) (datom-ns d2)) c))
-                  c))
+                (if (zero? c) (cmp-field (datom-m d1) (datom-m d2)) c))
               c))
           c))
       c)))
 
 
 (defn vaet-cmp
-  "VAET sort: v, a, e, t, m, ns. Reverse-reference lookup — 'which datoms
+  "VAET sort: v, a, e, t, m. Reverse-reference lookup — 'which datoms
    point to this value.' Heterogeneous-safe (the ref value is caller-chosen
    and can be any type, the same way entity ids are)."
   [d1 d2]
@@ -197,10 +174,7 @@
           (let [c (cmp-field (datom-e d1) (datom-e d2))]
             (if (zero? c)
               (let [c (cmp-field (datom-t d1) (datom-t d2))]
-                (if (zero? c)
-                  (let [c (cmp-field (datom-m d1) (datom-m d2))]
-                    (if (zero? c) (cmp-field (datom-ns d1) (datom-ns d2)) c))
-                  c))
+                (if (zero? c) (cmp-field (datom-m d1) (datom-m d2)) c))
               c))
           c))
       c)))

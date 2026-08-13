@@ -151,13 +151,13 @@ The library reads from **two layers**, reflecting where datoms live:
   that have not been published yet.
 - **Published sources in `dao.jing`** — every agent's published B-tree segments, named
   by an explicit `(query/published-source content-store manifest-address)` descriptor.
-  A single published source is restored lazily (only the seek path is fetched); pools,
-  mixed/raw sources, and `as-of` reads fold eagerly. This is the shared layer: other
+  A single published source can be restored lazily through the d5 index
+  adapter. This is the shared layer: other
   agents' data reaches you through the content store, never through their in-process
   state.
 
-A query folds exactly the sources the caller names; a collection of published sources is
-the explicit pool a federated query merges, including descriptors over multiple stores.
+A query reads exactly the db-values the caller names. Several published
+sources are separate inputs, including descriptors over multiple stores.
 DaoJing intake pools — which streams an observer materializes — are a separate physical
 topology and never imply what a query reads (`dao.jing.md`, *Physical intake versus
 semantic composition*).
@@ -187,8 +187,8 @@ semantic composition*).
 (query/pull source 1025 [:name :age {:friend [:name]}])
 
 ;; as-of — a read bound: index storage only up to `point`
-(query/q query-form source {:as-of t})
-(query/match source pattern {:as-of (instant "2026-01-01")})
+(query/q query-form (query/current source) {:as-of t})
+(query/match (query/history source) pattern {:as-of t})
 ```
 
 Within a single stream `as-of t` is exact (the stream's own transaction order). A
@@ -196,15 +196,11 @@ Within a single stream `as-of t` is exact (the stream's own transaction order). 
 instant (as shown) rather than per-stream `t` — and its precise semantics are deferred
 (see ADR 0001, Open Question 2).
 
-Internally the library folds the source into an index and queries it. The design calls
-for each stream's datoms to be stamped with the stream's namespace before indexing, so two
-streams' local id `1025` stay distinct; "same logical entity across streams" is meant to be
-a join on shared *values*, never on a stream-local id. The canonical datom carries five
-slots; the sixth namespace slot is materialized only by a cross-stream fold
-(`docs/agents/datom-spec.md`). **Not yet applied**: the pipeline does not stamp `ns`
-automatically — the transactor writes, and `publish-index!` stores, exactly the five-slot
-datoms — so cross-stream local-id collision is a known, currently-open gap, not a bug
-(`dao.space.query.md`, *The `read-datoms` contract* and *Open items*).
+Datom interpreters expose one physical d5 source through `(query/current
+source)` or `(query/history source)`. Several sources remain separate
+database inputs in `:in`; source-qualified clauses express deliberate unions
+or joins. Equal stream-local ids therefore never collide through an implicit
+flattening step, and source scope never becomes a tuple position.
 
 ```clojure
 ;; Sketch of the library (pedagogical). A source is either an explicit
@@ -236,8 +232,8 @@ on `dao.data.btree`; see [`dao.space.query.md`](dao.space.query.md), *Index Real
 All variants answer identically.
 
 **Current status.** A query reads exactly the manifests the caller names with
-`(query/published-source store manifest-address)`; a collection of these descriptors is
-the explicit semantic pool a query folds, and no shared membership record exists. The
+`(query/published-source store manifest-address)`; several descriptors remain
+separate semantic inputs, and no shared membership record exists. The
 owner-built architecture is implemented: `dao.space.index/publish-index!` (the
 transactor-side indexing library, `docs/design/dao.space.index.md`) snapshots the agent's
 local stream, builds the four covered indexes as immutable, content-addressed
@@ -249,44 +245,30 @@ tree that exceeds fifteen), while pools, mixed/raw sources, and the as-of path f
 same segments eagerly by walking the plain-EDN node graph. The raw-datoms source path
 remains the "rebuild per query" baseline for data that was never published. Remaining
 gaps: segment GC, k-way merge of multiple lazy indexes (federated queries fall back to
-the eager walk), namespace stamping, and general n-tuple matching (`match`/`q` pad
-templates to the datom shape; other dimensions are specified, not implemented — see
-*Lineage*); see [`dao.space.query.md`](dao.space.query.md), *Index Realization* and
-*Open items*.
+the eager walk) and generic positional arrangements; see
+[`dao.space.query.md`](dao.space.query.md), *Index Realization* and *Open
+items*.
 
 ### Source Polymorphism
 
-`q` and `match`'s second argument is a **source**, not narrowly a `dao.jing` handle. The
-library must accept, interchangeably:
+`q` and `match` consume immutable **db-values**, not narrowly a `dao.jing`
+handle. Each database input is one logical relation:
 
 - **A single published source** — `(query/published-source content-store
   manifest-address)`; `fold` reads exactly that one manifest, restoring its B-trees
   lazily when it is the sole source with no `as-of` bound.
-- **A collection of published sources** — the explicit semantic pool, and a *federated*
-  query when its descriptors name manifests in several stores,
-  e.g. a local file-backed handle plus a peer's DHT handle. This is not a new mechanism: ADR 0001's
-  monoid-homomorphism proof (`index(S₁ ⊎ … ⊎ Sₙ) = merge(index(S₁), …, index(Sₙ))`) already
-  establishes that folding N stores and merging is the same index as one store holding
-  everything, so `fold` over a collection is `merge` over the per-store folds, not a
-  different code path.
-- **A raw Clojure vector of datoms** — `[[e a v t m] ...]`, or `[[e a v t m ns] ...]` for a
-  folded datom. This skips storage entirely (`read-datoms` exists only to turn a published
-  manifest into this shape); a caller who already has datoms in hand — a REPL scratch value, a
-  test fixture, an in-memory scratchpad never destined for storage — indexes them directly. A
-  collection is classified as raw datoms only when every element is a 5- or 6-slot vector
-  (arity is the discriminator against nested entity-map collections).
+- **A raw relation** — a collection of vectors with arbitrary, mixed arities.
+  Rows are passed through unchanged; arity never selects an interpretation.
+- **An explicit datom view** — `(current source)` resolves d5 history and
+  projects it to d3; `(history source)` exposes exact d5.
 - **A raw Clojure vector of entity maps** — `[{:db/id e, :work/status :todo, ...} ...]`.
-  Normalized to datoms first: each `k v` pair becomes an `[e k v]` datom (`t`/`m` defaulted,
-  same as `dao.datom/default-op`). Identity is explicit — the read side never mints an entity
-  id, so every entity map must carry `:db/id`; a map without one throws. (Arity precedence: a
-  nested collection of exactly five or six maps reads as a single datom tuple, not as an
-  entity-map collection.)
+  Projected explicitly to `[e k v]` facts. Identity is explicit: every map
+  must carry `:db/id`.
 
-A mix is legal too — a collection argument may hold published sources and raw datom/entity
-vectors side by side; each element is folded by whichever rule matches its shape and the
-results are merged. This makes the library useful standalone, the same way Datomic's `d/q`
-takes db values and in-memory rel/collection inputs interchangeably — a caller should never
-need a throwaway `dao.jing.mem/create-content-mem` just to query a handful of test datoms. A
+A query composes several db-values through `:in $a $b ...`. An `or` over
+source-qualified clauses expresses union; shared variables express a
+deliberate join. A collection of physical sources is not an implicit merged
+database. A
 bare content-store handle is **not** a source: it must be wrapped in
 `published-source`, and passing one unwrapped throws (`bare-content-store-handle-has-no-implicit-source`).
 This preserves the line the tuple space depends on: coordination between agents still runs
@@ -294,32 +276,11 @@ through shared content storage (see *What Makes It a Tuple Space*, above), becau
 in-memory vector is by definition not shared. Source polymorphism is an ergonomic property of
 the query *function*, not a second medium.
 
-```clojure
-;; source dispatch: each shape folds to the same datom shape before indexing
-(defn- source->datoms
-  [source]
-  (cond
-    (published-source? source)
-    (read-datoms (::content-store source) (::manifest-address source))
-    (content-store-handle? source)
-    (throw (ex-info "bare content-store handles require an explicit published source"
-                    {:source source
-                     :example '(published-source content-store manifest-address)}))
-    ;; raw datoms: every element is a canonical d5 or folded d6 tuple
-    (and (coll? source) (every? datom-tuple? source)) source
-    ;; entity maps: every element is a map carrying an explicit :db/id
-    (and (coll? source) (every? entity-source-map? source)) (entity-maps->datoms source)
-    :else (throw (ex-info "unrecognized query source" {:source source}))))
+### Source-aware match and scoping
 
-(defn- fold [source as-of] (index (source->datoms source as-of)))
-```
-
-### Pool-wide match and scoping
-
-The library reads an explicit pool of published sources. Within that pool it matches over
-**everything** by default: associative, addressed by content, never by producer. Pool
-construction is semantic composition, expressed as data; matching remains content-addressed.
-There is no hidden global registry and no storage key whose mutation changes membership.
+The library reads exactly the db-values named by the query. Composition is
+explicit data, with no hidden registry and no storage key whose mutation
+changes membership.
 
 Two different things hide under "scoping," and only one is a security mechanism.
 
@@ -488,8 +449,9 @@ only once they re-query after republish — there is no push, no shared read-you
 guarantee across agents.
 
 **The example below is representative, not a shipped binary.** Every mechanism it names is
-implemented: `match`/`q` mask assertions explicitly retracted for the same `[e a v]` at query
-time via `current-state-seq` (see `dao.space.query.md`, *Current-state resolution*); `q`
+implemented: the explicit `current` view masks assertions retracted for the
+same `[e a v]` via `current-state-seq` (see `dao.space.query.md`,
+*Current-state resolution*); `q`
 implements `not`/`not-join` (stratified, over the current-state-resolved index), so the
 `(not [_ :work/claims ?w])` clause executes as written; `{:type :transactor :local-stream s
 :intake-pool [...]}` is a registered `dao.stream` type (`dao.space.transactor`) whose
@@ -498,10 +460,9 @@ calls through one wrapper serialize timestamp allocation and append, while each 
 a single-writer log with no shared write surface; and `publish!` delegates to
 `dao.space.index/publish-index!`, which snapshots the local stream and enqueues the covered
 indexes through the intake pool. `open!` writes no registration record. The caller
-constructs an explicit pool of `query/published-source` values, and the query library folds
-those manifests and merges them. Entity-id namespace stamping (`[stream-ns offset]`, see
-`dao.space.query.md`) is still pending, so cross-stream `:db/id` collision remains the
-documented open gap:
+constructs explicit `query/published-source` values and passes each as its own
+database input. The query states any union or cross-source join; no implicit
+merge can collide stream-local entity ids:
 
 ```clojure
 (require '[dao.jing :as jing]
@@ -544,7 +505,7 @@ documented open gap:
                             :where [?w :work/posted true]
                                    [?w :work/task ?task]
                                    (not [_ :work/claims ?w])]
-                   source)]
+                   (query/current source))]
         (when-let [[?w task] (first work)]
           (ds/append! log {:db/id (random-id) :work/claims ?w :work/by worker-id})
           (ds/append! log {:db/id (random-id) :work/result (process task)})
@@ -581,15 +542,10 @@ medium, don't address a receiver), spatial and temporal decoupling, non-destruct
 associative matching. The divergences are immutability (append, never `take`) and being an
 **n-tuple space**: tuples of any dimension (the moduli-space framing of
 `docs/agents/datom-spec.md`) in place of untyped positional arrays. The datom — the canonical
-persistent tuple `[e a v t m]`, or `[e a v t m ns]` once folded across streams — is the
-special case where `dao.space` behaves like Datomic.
-Unlike Datomic, `dao.space.query/q` is specified to match over n-tuples of any dimension, not
-just the datom shape; the implementation today is still datom-shaped (`match` and `q` pad
-positional templates to `max-slot-arity` via `pad-slots` and unify against 5- and 6-tuples),
-so general n-tuple matching is spec, not yet implemented. Raising that ceiling is a one-constant
-change (`dao.space.query/max-slot-arity`), which is why the shape generalizes by appending. Matching covers the supplied pool by default,
-because a coordination medium for strangers must let any reader match the whole pool, not
-only what it bound.
+persistent tuple `[e a v t m]` is the special case where `dao.space` behaves
+like Datomic. Unlike Datomic, `dao.space.query/q` matches arbitrary mixed
+n-tuples. Plain clauses are exact-arity; explicit rest syntax requests prefix
+matching. Meaning remains in the interpreter rather than in dimension.
 
 The other two traditions live in the layers below and have their own docs:
 
