@@ -500,9 +500,9 @@ Modeled on psset's `IStorage.java` (`store`, `restore`, default no-op
 ```clojure
 (defprotocol IStorage
   (-store   [storage node]
-    "Serialize node, write under jing/segment-key with cas!/absent, return
-     the address (a :segment/sha256-<hash> key). Called only after all of
-     the node's children have been stored and have addresses.")
+    "Serialize node, materialize it through the DaoJing content handle,
+     return its :segment/sha256-<hash> address. Called only after all of the
+     node's children have been stored and have addresses.")
   (-restore [storage address]
     "get + deserialize the node at address. Node type is determined by the
      *shape of the retrieved blob*, not by the address: a map carrying
@@ -518,22 +518,20 @@ Modeled on psset's `IStorage.java` (`store`, `restore`, default no-op
 
 Node IDs are content addresses: `-store` mints keys with `jing/segment-key`
 over the EDN blob, exactly as `kv-storage` does today. Two adapters
-implement the protocol, both over the existing jing/{cas!,get,delete!,close!} — no new
-storage protocol (Ruling 1): the sync rule-1 `KVStorage` sketched below,
+implement the protocol, both over the existing plain-data DaoJing content
+handle (`jing/materialize!` and `jing/get`) — no new storage protocol
+(Ruling 1): the sync rule-1 `KVStorage` sketched below,
 and the hydration-cache storage of §5.4 (same shape, but any miss throws
 `"unhydrated segment"` rather than `"missing index segment"`, since it
 cannot answer absence authoritatively). The sync seam is exactly this thin:
 
 ```clojure
-(def ^:private absent (Object.))              ;; identity sentinel, host-appropriate
+(def ^:private absent (Object.))              ;; host-appropriate identity sentinel
 
 (deftype KVStorage [store settings verify?]   ;; settings: §5.1 threading rule
   IStorage
   (-store [_ node]
-    (let [blob (node->blob node)              ;; §5.2 EDN shape
-          k    (jing/segment-key blob)]
-      (jing/cas! store k jing/absent blob)
-      k))
+    (jing/materialize! store (node->blob node))) ; §5.2 EDN shape
   (-restore [_ addr]
     (let [blob (jing/get store addr absent)]
       (when (identical? blob absent)

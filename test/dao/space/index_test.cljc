@@ -124,15 +124,33 @@
   (testing "a malformed transaction packet fails before intake emission"
     (doseq [packet [{:dao.space/transaction {:t 1, :datoms :not-a-vector}}
                     {:dao.space/transaction {:t 1, :datoms []}}
-                    {:dao.space/transaction {:t 1, :datoms [[1 :a :v 2 1]]}}
+                    {:dao.space/transaction {:t 1,
+                                             :datoms [[1 :test/a :v 2 1]]}}
                     {:dao.space/transaction
-                     {:t 1, :datoms [[1 :a :v 1 1 :source/forbidden]]}}]]
+                     {:t 1, :datoms [[1 :test/a :v 1 1 :source/forbidden]]}}]]
       (let [local (open-local [packet])
             intake (open-intake)]
         (is (thrown-with-msg? #?(:cljs js/Error
                                  :cljd Object
                                  :default Exception)
                               #"transaction"
+              (index/publish-index! local [intake])))
+        (is (empty? (ds/->seq nil intake)))))))
+
+
+(deftest publish-index-rejects-noncanonical-local-datom-slots
+  (testing
+    "persisted d5 datoms require integer entity/time/metadata coordinates and
+          a keyword attribute before any intake payload is emitted"
+    (doseq [bad-datom [[:entity :test/a :v 0 1] [-16 :test/a :v 0 1]
+                       [1 :unqualified :v 0 1] [1 "test/a" :v 0 1]
+                       [1 :test/a :v -1 1] [1 :test/a :v 0 :db/assert]]]
+      (let [local (open-local [bad-datom])
+            intake (open-intake)]
+        (is (thrown-with-msg? #?(:cljs js/Error
+                                 :cljd Object
+                                 :default Exception)
+                              #"datom"
               (index/publish-index! local [intake])))
         (is (empty? (ds/->seq nil intake)))))))
 
@@ -199,7 +217,7 @@
   (testing
     "the four single-leaf indexes over datoms that sort identically share one
           node blob: equal blobs are recorded and emitted once"
-    (let [local (open-local [[1 :a "x" 0 1] [2 :a "y" 0 1]])
+    (let [local (open-local [[1 :test/a "x" 0 1] [2 :test/a "y" 0 1]])
           intake (open-intake)
           {:keys [manifest]} (index/publish-index! local [intake])
           emitted (vec (ds/->seq nil intake))]
@@ -209,6 +227,24 @@
       (is (= #{:eavt :aevt :avet :vaet} (set (keys (:indexes manifest)))))
       (is (apply = (vals (:indexes manifest)))
           "all four indexes resolve to the same shared root blob"))))
+
+
+(deftest publish-index-counts-distinct-indexed-datoms
+  (testing
+    "the manifest count describes the set stored by every covered index,
+          not the number of duplicate stream occurrences presented to it"
+    (let [datom [1 :person/name "Ada" 0 1]
+          local (open-local [datom datom])
+          intake (open-intake)
+          {:keys [manifest-address manifest]} (index/publish-index! local
+                                                                    [intake])
+          store (materialize-through-observer [intake])
+          restored (index/restored-indexes store manifest)]
+      (is (= 1 (:count manifest)))
+      (is (= [datom] (index/read-datoms store manifest-address)))
+      (doseq [order [:eavt :aevt :avet :vaet]]
+        (is (= 1 (bt/count (get restored order))))
+        (is (= 1 (count (bt/seq (get restored order)))))))))
 
 
 (deftest publish-index-emits-children-before-parents-and-manifest-last
@@ -275,7 +311,7 @@
     (let [gap (ds/open! {:type :ringbuffer,
                          :capacity 2,
                          :eviction-policy :evict-oldest})
-          _ (doseq [i (range 3)] (ds/append! gap [i :a i 0 1]))
+          _ (doseq [i (range 3)] (ds/append! gap [i :test/a i 0 1]))
           intake (open-intake)]
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
@@ -288,7 +324,7 @@
 
 (deftest publish-index-malformed-local-stream-throws-before-emission
   (testing "a map without :cursor is malformed"
-    (let [bad (->MalformedResultStream {:ok [1 :a "x" 0 1]})
+    (let [bad (->MalformedResultStream {:ok [1 :test/a "x" 0 1]})
           intake (open-intake)]
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
@@ -525,12 +561,12 @@
   (testing "heterogeneous value comparison is type-ranked and total"
     (is (neg? (index/compare-vals nil 0)))
     (is (neg? (index/compare-vals 1 "a")))
-    (is (pos? (index/compare-vals :b "a")))
+    (is (pos? (index/compare-vals :test/b "a")))
     (is (zero? (index/compare-vals 1 1.0))))
   (testing "index-datoms keeps every datom in every covered order"
-    (let [d1 [1 :a "x" 0 1]
-          d2 [2 :b "y" 0 1]
-          stamped [1 :a "x" 0 1 :ns/alpha]
+    (let [d1 [1 :test/a "x" 0 1]
+          d2 [2 :test/b "y" 0 1]
+          stamped [1 :test/a "x" 0 1 :ns/alpha]
           idx (index/index-datoms [d2 d1 stamped])]
       (doseq [order [:eavt :aevt :avet :vaet]]
         (is (= #{d1 d2 stamped} (set (order idx)))
@@ -538,9 +574,9 @@
       (is (not (zero? (index/eavt-cmp d1 stamped)))
           "the ns tiebreaker separates otherwise-identical datoms")))
   (testing "subseq-from slices a log-n descent from a sentinel"
-    (let [d1 [1 :a "x" 0 1]
-          d2 [2 :b "y" 0 1]
-          d3 [3 :c "z" 0 1]
+    (let [d1 [1 :test/a "x" 0 1]
+          d2 [2 :test/b "y" 0 1]
+          d3 [3 :test/c "z" 0 1]
           idx (index/index-datoms [d1 d2 d3])]
       (is (= [d2 d3]
              (vec (index/subseq-from (:eavt idx) index/eavt-cmp d2)))))))

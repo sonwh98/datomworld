@@ -259,15 +259,15 @@
         intake (ds/open! {:type :ringbuffer})
         a (ds/open!
             {:type :transactor, :local-stream local, :intake-pool [intake]})]
-    (is (= {:result :ok, :t 0, :datoms [[1 :a 1 0 1]]}
-           (ds/append! a {:db/id 1, :a 1})))
-    (transactor/transact! a [{:db/id 2, :b 2} {:db/id 3, :c 3}])
+    (is (= {:result :ok, :t 0, :datoms [[1 :test/a 1 0 1]]}
+           (ds/append! a {:db/id 1, :test/a 1})))
+    (transactor/transact! a [{:db/id 2, :test/b 2} {:db/id 3, :test/c 3}])
     (testing "a reopened wrapper derives 1 + max retained datom t"
       (let [b (ds/open! {:type :transactor,
                          :local-stream local,
                          :intake-pool [intake]})]
-        (is (= {:result :ok, :t 2, :datoms [[4 :d 4 2 1]]}
-               (ds/append! b {:db/id 4, :d 4})))
+        (is (= {:result :ok, :t 2, :datoms [[4 :test/d 4 2 1]]}
+               (ds/append! b {:db/id 4, :test/d 4})))
         (is (= #{0 1 2} (set (tx-ts local)))
             "the scan read, and did not consume, the retained history")))
     (testing "an empty local stream derives 0"
@@ -275,8 +275,8 @@
             c (ds/open! {:type :transactor,
                          :local-stream fresh,
                          :intake-pool [intake]})]
-        (is (= {:result :ok, :t 0, :datoms [[1 :a 1 0 1]]}
-               (ds/append! c {:db/id 1, :a 1})))))))
+        (is (= {:result :ok, :t 0, :datoms [[1 :test/a 1 0 1]]}
+               (ds/append! c {:db/id 1, :test/a 1})))))))
 
 
 (deftest malformed-or-gapped-retained-history-throws
@@ -291,7 +291,8 @@
                              :eviction-policy :evict-oldest})]
         (doseq [i (range 3)]
           (ds/append! local
-                      {:dao.space/transaction {:t i, :datoms [[i :a i i 1]]}}))
+                      {:dao.space/transaction {:t i,
+                                               :datoms [[i :test/a i i 1]]}}))
         (is (thrown-with-msg? #?(:cljd Object
                                  :clj Exception
                                  :cljs js/Error)
@@ -315,7 +316,7 @@
               (open-on local)))))
     (testing "a non-integer datom t in the retained history throws on open"
       (let [local (ds/open! {:type :ringbuffer})]
-        (ds/append! local [1 :a :v :bogus 1])
+        (ds/append! local [1 :test/a :v :bogus 1])
         (is (thrown-with-msg? #?(:cljd Object
                                  :clj Exception
                                  :cljs js/Error)
@@ -331,12 +332,12 @@
   (let [local (ds/open! {:type :ringbuffer})
         recording (->RecordingAppendStream local (atom []))
         log (open-with-intake recording)]
-    (ds/append! log {:db/id 1, :a 1})
-    (transactor/transact! log [{:db/id 2, :b 2} {:db/id 3, :c 3}])
+    (ds/append! log {:db/id 1, :test/a 1})
+    (transactor/transact! log [{:db/id 2, :test/b 2} {:db/id 3, :test/c 3}])
     (is
-      (= [{:dao.space/transaction {:t 0, :datoms [[1 :a 1 0 1]]}}
-          {:dao.space/transaction {:t 1,
-                                   :datoms [[2 :b 2 1 1] [3 :c 3 1 1]]}}]
+      (= [{:dao.space/transaction {:t 0, :datoms [[1 :test/a 1 0 1]]}}
+          {:dao.space/transaction
+           {:t 1, :datoms [[2 :test/b 2 1 1] [3 :test/c 3 1 1]]}}]
          @(:records recording))
       "two transactions, exactly two underlying ds/append! calls — no torn
          packet, no extra calls")
@@ -346,15 +347,17 @@
 (deftest readers-observe-atomic-transaction-records
   (let [local (ds/open! {:type :ringbuffer})
         log (open-with-intake local)]
-    (ds/append! log {:db/id 1, :a 1})
-    (transactor/transact! log [{:db/id 2, :b 2}])
+    (ds/append! log {:db/id 1, :test/a 1})
+    (transactor/transact! log [{:db/id 2, :test/b 2}])
     (let [r1 (ds/next log {:position 0})
           r2 (ds/next log (:cursor r1))]
-      (is (= {:dao.space/transaction {:t 0, :datoms [[1 :a 1 0 1]]}} (:ok r1)))
-      (is (= {:dao.space/transaction {:t 1, :datoms [[2 :b 2 1 1]]}} (:ok r2)))
+      (is (= {:dao.space/transaction {:t 0, :datoms [[1 :test/a 1 0 1]]}}
+             (:ok r1)))
+      (is (= {:dao.space/transaction {:t 1, :datoms [[2 :test/b 2 1 1]]}}
+             (:ok r2)))
       (is (= :blocked (ds/next log (:cursor r2))))
-      (is (= [{:dao.space/transaction {:t 0, :datoms [[1 :a 1 0 1]]}}
-              {:dao.space/transaction {:t 1, :datoms [[2 :b 2 1 1]]}}]
+      (is (= [{:dao.space/transaction {:t 0, :datoms [[1 :test/a 1 0 1]]}}
+              {:dao.space/transaction {:t 1, :datoms [[2 :test/b 2 1 1]]}}]
              (vec (ds/->seq nil local)))
           "readers of the local stream see the same atomic records"))))
 
@@ -374,7 +377,9 @@
                 start (promise)
                 calls (mapv (fn [i]
                               (future @start
-                                      (ds/append! log {:db/id i, :value i})))
+                                      (ds/append! log
+                                                  {:db/id (+ 16 i),
+                                                   :test/value i})))
                             (range 32))]
             (deliver start true)
             (run! deref calls)
@@ -405,26 +410,39 @@
                                :cljs js/Error)
                             #":db/id"
             (ds/append! log {:work/posted true}))))
+    (testing "persistent datom coordinates and attributes are validated"
+      (doseq [invalid [{:db/id :entity, :work/posted true}
+                       {:db/id -16, :work/posted true}
+                       {:db/id 100, :unqualified true}
+                       {:db/id 100, "work/posted" true} [100 "work/posted" true]
+                       [100 :work/posted true nil :db/assert]]]
+        (is (thrown-with-msg? #?(:cljd Object
+                                 :clj Exception
+                                 :cljs js/Error)
+                              #"datom"
+              (ds/append! log invalid))))
+      (is (= 1 (count (ds/->seq nil local)))
+          "invalid inputs append nothing and do not advance transaction time"))
     (testing
       "a [e a v] datom vector is padded and stamped, m defaults to assert"
-      (is (= {:result :ok, :t 1, :datoms [[1 :a 1 1 1]]}
-             (ds/append! log [1 :a 1]))))
+      (is (= {:result :ok, :t 1, :datoms [[1 :test/a 1 1 1]]}
+             (ds/append! log [1 :test/a 1]))))
     (testing "an explicit m is preserved"
-      (is (= {:result :ok, :t 2, :datoms [[2 :b 2 2 0]]}
-             (ds/append! log [2 :b 2 nil 0]))))
+      (is (= {:result :ok, :t 2, :datoms [[2 :test/b 2 2 0]]}
+             (ds/append! log [2 :test/b 2 nil 0]))))
     (testing "an explicit datom t is rejected and does not advance t"
       (is (thrown-with-msg? #?(:cljd Object
                                :clj Exception
                                :cljs js/Error)
                             #"t"
-            (ds/append! log [4 :d 4 9])))
+            (ds/append! log [4 :test/d 4 9])))
       (is (thrown-with-msg? #?(:cljd Object
                                :clj Exception
                                :cljs js/Error)
                             #"t"
-            (ds/append! log [4 :d 4 9 1])))
-      (is (= {:result :ok, :t 3, :datoms [[5 :e 5 3 1]]}
-             (ds/append! log [5 :e 5]))))
+            (ds/append! log [4 :test/d 4 9 1])))
+      (is (= {:result :ok, :t 3, :datoms [[5 :test/e 5 3 1]]}
+             (ds/append! log [5 :test/e 5]))))
     (testing "a value that is neither entity map nor datom vector throws"
       (is (thrown-with-msg? #?(:cljd Object
                                :clj Exception
@@ -451,12 +469,12 @@
                              :clj Exception
                              :cljs js/Error)
                           #"failed"
-          (ds/append! log {:db/id 1, :a 1})))
-    (is (= {:result :ok, :t 0, :datoms [[1 :a 1 0 1]]}
-           (ds/append! log {:db/id 1, :a 1}))
+          (ds/append! log {:db/id 1, :test/a 1})))
+    (is (= {:result :ok, :t 0, :datoms [[1 :test/a 1 0 1]]}
+           (ds/append! log {:db/id 1, :test/a 1}))
         "retry lands at the same t: the failed append never advanced it")
-    (is (= {:result :ok, :t 1, :datoms [[2 :b 2 1 1]]}
-           (ds/append! log {:db/id 2, :b 2})))))
+    (is (= {:result :ok, :t 1, :datoms [[2 :test/b 2 1 1]]}
+           (ds/append! log {:db/id 2, :test/b 2})))))
 
 
 (deftest append-throw-does-not-advance-t-and-can-retry
@@ -466,9 +484,9 @@
     (is (thrown? #?(:cljd Object
                     :clj Exception
                     :cljs js/Error)
-          (ds/append! log {:db/id 1, :a 1})))
-    (is (= {:result :ok, :t 0, :datoms [[1 :a 1 0 1]]}
-           (ds/append! log {:db/id 1, :a 1}))
+          (ds/append! log {:db/id 1, :test/a 1})))
+    (is (= {:result :ok, :t 0, :datoms [[1 :test/a 1 0 1]]}
+           (ds/append! log {:db/id 1, :test/a 1}))
         "a thrown underlying error leaves the watermark unchanged")))
 
 
@@ -480,25 +498,27 @@
   (let [local (ds/open! {:type :ringbuffer})
         log (open-with-intake local)]
     (testing "several items commit under one t in one atomic record"
-      (let [{:keys [result t datoms]} (transactor/transact! log
-                                                            [{:db/id 100, :a 1}
-                                                             {:db/id 101, :b 2}
-                                                             [102 :c 3]])]
+      (let [{:keys [result t datoms]}
+            (transactor/transact! log
+                                  [{:db/id 100, :test/a 1}
+                                   {:db/id 101, :test/b 2} [102 :test/c 3]])]
         (is (= :ok result))
         (is (= 0 t))
         (is (= 3 (count datoms)))
         (is (apply = (map #(nth % 3) datoms))
             "every datom in the batch shares one t")
-        (is (= [[100 :a 1 0 1] [101 :b 2 0 1] [102 :c 3 0 1]] datoms)))
+        (is (= [[100 :test/a 1 0 1] [101 :test/b 2 0 1] [102 :test/c 3 0 1]]
+               datoms)))
       (is (= [{:dao.space/transaction {:t 0,
-                                       :datoms [[100 :a 1 0 1] [101 :b 2 0 1]
-                                                [102 :c 3 0 1]]}}]
+                                       :datoms [[100 :test/a 1 0 1]
+                                                [101 :test/b 2 0 1]
+                                                [102 :test/c 3 0 1]]}}]
              (vec (ds/->seq nil local)))
           "exactly one atomic packet on the stream"))
     (testing "a transact! after an append! gets a distinct t"
-      (ds/append! log {:db/id 1, :a 1})
-      (is (= {:result :ok, :t 2, :datoms [[2 :b 2 2 1]]}
-             (transactor/transact! log [{:db/id 2, :b 2}]))))
+      (ds/append! log {:db/id 1, :test/a 1})
+      (is (= {:result :ok, :t 2, :datoms [[2 :test/b 2 2 1]]}
+             (transactor/transact! log [{:db/id 2, :test/b 2}]))))
     (testing "an empty tx-data collection throws"
       (is (thrown-with-msg? #?(:cljd Object
                                :clj Exception
@@ -516,7 +536,8 @@
                                :clj Exception
                                :cljs js/Error)
                             #"entity map or datom"
-            (transactor/transact! log [{:db/id 1, :a 1} 42])))
+            (transactor/transact! log
+                                  [{:db/id 1, :test/a 1} 42])))
       (is (= 3 (count (ds/->seq nil local)))
           "the invalid batch appended nothing"))))
 
@@ -530,7 +551,7 @@
         intake (ds/open! {:type :ringbuffer})
         log (ds/open!
               {:type :transactor, :local-stream local, :intake-pool [intake]})]
-    (ds/append! log {:db/id 1, :a 1})
+    (ds/append! log {:db/id 1, :test/a 1})
     (is (false? (ds/closed? log)))
     (is (= {:woke []} (ds/close! log)))
     (is (true? (ds/closed? log)))
@@ -542,17 +563,52 @@
                              :clj Exception
                              :cljs js/Error)
                           #"closed"
-          (ds/append! log {:db/id 2, :a 2})))
+          (ds/append! log {:db/id 2, :test/a 2})))
     (is (thrown-with-msg? #?(:cljd Object
                              :clj Exception
                              :cljs js/Error)
                           #"closed"
-          (transactor/transact! log [{:db/id 2, :a 2}])))
+          (transactor/transact! log [{:db/id 2, :test/a 2}])))
     (is (map? (ds/next log {:position 0}))
         "the wrapper still delegates reads after close")
-    (is (= [{:dao.space/transaction {:t 0, :datoms [[1 :a 1 0 1]]}}]
+    (is (= [{:dao.space/transaction {:t 0, :datoms [[1 :test/a 1 0 1]]}}]
            (vec (ds/->seq nil local)))
         "closing neither closes nor erases the local stream")))
+
+
+(deftest close-linearizes-after-an-in-flight-append
+  #?(:clj (let [inner (ds/open! {:type :ringbuffer})
+                entered (promise)
+                release (promise)
+                slow-local (reify
+                             ds/IDaoStreamWriter
+                             (append!
+                               [_ packet]
+                               (deliver entered true)
+                               @release
+                               (ds/append! inner packet))
+
+
+                             ds/IDaoStreamReader
+
+                             (next [_ cursor] (ds/next inner cursor)))
+                log (open-with-intake slow-local)
+                writing (future (ds/append! log {:db/id 1, :test/a 1}))]
+            @entered
+            (let [closing (future (ds/close! log))]
+              (try (is (= ::timeout (deref closing 50 ::timeout))
+                       "close waits for the serialized write boundary")
+                   (finally (deliver release true)))
+              (is (= {:result :ok, :t 0, :datoms [[1 :test/a 1 0 1]]} @writing))
+              (is (= {:woke []} @closing))
+              (is (true? (ds/closed? log)))
+              (is (thrown-with-msg? Exception
+                                    #"closed"
+                    (ds/append! log {:db/id 2, :test/a 2})))
+              (is (= 1 (count (ds/->seq nil inner)))
+                  "no append crosses the point at which close returns")))
+     :default (is true
+                  "shared-memory close races are a JVM-only execution mode")))
 
 
 ;; ---------------------------------------------------------------------------
@@ -570,10 +626,10 @@
               {:type :transactor, :local-stream local, :intake-pool [intake]})
           b (ds/open!
               {:type :transactor, :local-stream local, :intake-pool [intake]})]
-      (is (= {:result :ok, :t 0, :datoms [[1 :a 1 0 1]]}
-             (ds/append! a {:db/id 1, :a 1})))
-      (is (= {:result :ok, :t 0, :datoms [[2 :b 2 0 1]]}
-             (ds/append! b {:db/id 2, :b 2}))
+      (is (= {:result :ok, :t 0, :datoms [[1 :test/a 1 0 1]]}
+             (ds/append! a {:db/id 1, :test/a 1})))
+      (is (= {:result :ok, :t 0, :datoms [[2 :test/b 2 0 1]]}
+             (ds/append! b {:db/id 2, :test/b 2}))
           "wrapper b independently derived t=0 from the same history")
       (is (= #{0} (set (tx-ts local)))
           "two colliding records at t=0, not a sequential log"))))

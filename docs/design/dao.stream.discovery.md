@@ -4,27 +4,28 @@
 agents find streams at internet scale. Nothing here is implemented; it exists to pin
 down the mechanisms worth building, the mechanisms explicitly rejected, and why. The
 implemented baseline it extends is an explicit collection of
-`dao.space.query/root-source` values. That collection is caller-owned intake topology:
-`open!` performs no registration write, and `dao.space.query` folds exactly the supplied
-pool.
+`dao.space.query/published-source` db-values. That collection is caller-owned query
+topology: `open!` performs no registration write, and `dao.space.query` folds exactly
+the supplied values. DaoJing's separate intake pool is supplied to its observer and is
+not a discovery registry either.
 
 **Related documents:**
 - `docs/design/dao.space.md` — the tuple space; *Membership is intake*
-- `docs/design/dao.jing.md` — the storage boundary; segment/root keyspace
+- `docs/design/dao.jing.md` — the content-addressed storage observer
 - `docs/design/dao.jing.dht.md` — Kademlia backend; sortition and Sybil open questions
 - `docs/dao.space.stigmergy.md` — coordination by traces, the founding thesis
 - `docs/ideas/agent-web.md` — ShiBi and pay-for-truth (critiqued below)
 
 ## The Problem
 
-An explicit root-source pool is the correct local primitive, but it is not itself an
+An explicit published-source pool is the correct local primitive, but it is not itself an
 internet-scale discovery mechanism. It hits three ceilings at scale:
 
 1. **The attention set grows O(N).** A reader cannot keep or fold an unbounded pool of
-   root-source descriptors.
-2. **Intake presupposes discovery.** Constructing a root source requires already knowing
-   the stream identity and location; the local primitive deliberately does not answer
-   how a stranger learns them.
+   published-source descriptors.
+2. **Query composition presupposes discovery.** Constructing a published source
+   requires already knowing a content-store handle and manifest address; the local
+   primitive deliberately does not answer how a stranger learns them.
 3. **Enumeration stops being meaningful.** "The list of all member streams" is not a
    thing any reader can fold at internet scale, and complete enumeration is only a
    sensible primitive when the space is small enough to fold.
@@ -209,8 +210,8 @@ stigmergy's formal core; the substrate was built for it):
   (SybilRank and kin are personalized-PageRank variants). An attacker no one you
   transitively weight references does not exist for you.
 - **Computation decentralizes.** Nobody needs the whole graph: indexer agents compute
-  rankings from their vantage and publish them as ordinary signed datoms under their
-  own roots. A ranking is just another published, reader-verifiable view; competing
+  rankings from their vantage and publish them as ordinary signed datoms through their
+  own streams. A ranking is just another published, reader-verifiable view; competing
   indexers with different seeds coexist like competing directories. (Google-the-company
   is what you get when the link graph is proprietary reconstruction; here the graph is
   a commons and ranking is a service anyone can render.)
@@ -219,8 +220,9 @@ stigmergy's formal core; the substrate was built for it):
 
 Everything above rests on prerequisites already tracked elsewhere:
 
-1. **Signed heads / kickoff-hash identity** (`dao.jing.md`, namespace stamping;
-   `dao.jing.dht.md`) — mechanism (1) *is* this discipline; (2)–(4) resolve to it.
+1. **Signed heads / kickoff-hash identity** (a stream-layer prerequisite, not
+   mutable DaoJing state; see `dao.jing.dht.md`) — mechanism (1) *is* this
+   discipline; (2)–(4) resolve to it.
 2. **Namespace stamping** (`dao.space.query.md`, Ruling 3) — sound cross-stream
    merges, prerequisite for folding strangers' directories.
 3. **Postage design** — what a deposit costs and who verifies it (proof-of-work vs.

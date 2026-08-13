@@ -39,6 +39,24 @@
   16)
 
 
+(defn local-datom?
+  "True for the runtime-enforced portion of a persisted local d5 datom:
+   `[e a v t m]`, with non-negative integer stream-local coordinates `e` and
+   `t`, integer `m`, and a namespaced keyword attribute. Negative tempids are
+   compilation values and must be resolved before commitment. Canonical value
+   encoding is a separate persistence concern and is not decided here."
+  [x]
+  (and (vector? x)
+       (= 5 (count x))
+       (integer? (nth x 0))
+       (not (neg? (nth x 0)))
+       (keyword? (nth x 1))
+       (some? (namespace (nth x 1)))
+       (integer? (nth x 3))
+       (not (neg? (nth x 3)))
+       (integer? (nth x 4))))
+
+
 (defn op
   "The m (metadata/op) slot of a datom (a [e a v t m] vector or a Datom record)."
   [datom]

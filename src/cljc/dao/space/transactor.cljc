@@ -53,9 +53,13 @@
   (when-not (contains? m :db/id)
     (throw (ex-info "entity map requires :db/id" {:entity m})))
   (let [e (:db/id m)]
-    (into []
-          (keep (fn [[a v]] (when (not= a :db/id) [e a v t datom/default-op])))
-          m)))
+    (mapv (fn [[a v]]
+            (let [d [e a v t datom/default-op]]
+              (when-not (datom/local-datom? d)
+                (throw (ex-info "invalid persistent local datom"
+                                {:datom d, :entity m})))
+              d))
+          (remove (fn [[a _v]] (= a :db/id)) m))))
 
 
 (defn- pad-datom
@@ -70,7 +74,11 @@
         (ex-info
           "the transactor owns transaction time: explicit datom t is rejected"
           {:datom d})))
-    [e a v t (if (nil? dm) datom/default-op dm)]))
+    (let [padded [e a v t (if (nil? dm) datom/default-op dm)]]
+      (when-not (datom/local-datom? padded)
+        (throw (ex-info "invalid persistent local datom"
+                        {:datom padded, :input d})))
+      padded)))
 
 
 (defn- val->datoms
@@ -136,11 +144,12 @@
 
   (append!
     [_this val]
-    (when (:closed @state)
-      (throw (ex-info "Cannot append to closed stream" {:name stream-name})))
     (with-write-lock
       next-t
       (fn []
+        (when (:closed @state)
+          (throw (ex-info "Cannot append to closed stream"
+                          {:name stream-name})))
         (let [t @next-t
               datoms (val->datoms val t)]
           (when (empty? datoms)
@@ -155,7 +164,10 @@
 
   ds/IDaoStreamBound
 
-  (close! [_this] (swap! state assoc :closed true) {:woke []})
+  (close!
+    [_this]
+    (with-write-lock next-t
+      (fn [] (swap! state assoc :closed true) {:woke []})))
 
 
   (closed? [_this] (:closed @state)))
@@ -210,14 +222,11 @@
 
 (defn transact!
   "Commits a non-empty collection of entity maps or datom vectors as a
-   single atomic transaction: every datom shares one allocated t and lands
+  single atomic transaction: every datom shares one allocated t and lands
    in one transaction record through exactly one ds/append!, so no partial
    prefix is possible. Throws when the stream is closed, the collection is
    empty, any item is invalid, or the expansion yields no datoms."
   [^DaoStreamLog log tx-data]
-  (when (ds/closed? log)
-    (throw (ex-info "Cannot transact! to closed stream"
-                    {:name (.-stream-name log)})))
   (when (empty? tx-data)
     (throw (ex-info "transact! requires at least one transaction item"
                     {:tx-data tx-data})))
@@ -225,6 +234,9 @@
     (with-write-lock
       next-t
       (fn []
+        (when (ds/closed? log)
+          (throw (ex-info "Cannot transact! to closed stream"
+                          {:name (.-stream-name log)})))
         (let [t @next-t
               datoms (into [] (mapcat #(val->datoms % t)) tx-data)]
           (when (empty? datoms)

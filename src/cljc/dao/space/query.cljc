@@ -49,7 +49,7 @@
   in-memory index per query (see dao.space.index).
 
   Current-state resolution masks assertions explicitly retracted for the
-  same `[e a v]` dynamically at query time using `current-state-seq`."
+  same `[e a v ns]` dynamically at query time using `current-state-seq`."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.space.index :as index]))
@@ -244,24 +244,43 @@
             (range (count tmpl)))))
 
 
+(defn- current-state-key
+  "The fact key current-state resolves on: [e a v ns]. ns is nil for a local
+   5-tuple, so d5 datoms all share the nil namespace and fold exactly as they
+   did before the slot existed. A cross-stream fold materializes the sixth
+   slot, so two streams that independently assert an identical [e a v t m]
+   stay distinct facts."
+  [d]
+  [(index/datom-e d) (index/datom-a d) (index/datom-v d) (index/datom-ns d)])
+
+
 (defn current-state-seq
-  "Takes a sequence of datoms (the log) and returns a sequence of currently asserted datoms.
-   If a datom is retracted, it masks prior assertions."
-  ([s] (current-state-seq s nil))
-  ([s pending]
-   (lazy-seq (if-let [s (seq s)]
-               (let [d (first s)]
-                 (if pending
-                   (if (and (= (index/datom-e pending) (index/datom-e d))
-                            (= (index/datom-a pending) (index/datom-a d))
-                            (= (index/datom-v pending) (index/datom-v d)))
-                     (current-state-seq (rest s) d)
-                     (if (not= (index/datom-m pending) 0)
-                       (cons pending (current-state-seq (rest s) d))
-                       (current-state-seq (rest s) d)))
-                   (current-state-seq (rest s) d)))
-               (when (and pending (not= (index/datom-m pending) 0))
-                 (list pending))))))
+  "Takes a sequence of datoms (the log, or the index-ordered candidate slice
+   `select-by-index` produces) and returns a sequence of currently asserted
+   datoms. A retraction masks prior assertions of the same fact.
+
+   Facts are keyed by [e a v ns]: d5 datoms (ns absent) fold exactly as they
+   always did, while a d6 fold keeps two streams' otherwise-identical datoms
+   apart and never lets one stream's retraction mask another's assertion.
+   Input order is irrelevant: every fact is folded explicitly to its greatest
+   datom under EAVT order, so transaction t (then metadata m as a deterministic
+   tie-break) decides the winner within that namespace. The retraction test is
+   dao.datom/retracted?, the public reserved-op predicate, never a bare
+   comparison to 0."
+  [s]
+  (->> (reduce (fn [acc d]
+                 (update acc
+                         (current-state-key d)
+                         (fn [winner]
+                           (if (or (nil? winner)
+                                   (pos? (index/eavt-cmp d winner)))
+                             d
+                             winner))))
+               {}
+               s)
+       (vals)
+       (remove datom/retracted?)
+       (sort index/eavt-cmp)))
 
 
 (defn- select-by-index

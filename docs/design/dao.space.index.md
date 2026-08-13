@@ -47,8 +47,10 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
 *realization*: the shared vocabulary a builder and a reader must agree on.
 
 - **Sort orders** — `eavt-cmp` / `aevt-cmp` / `avet-cmp` / `vaet-cmp` over
-  heterogeneous values (`compare-vals`: type-ranked, nil-first — entity ids
-  are caller-chosen and can be any type), plus the datom slot accessors
+  heterogeneous values (`compare-vals`: type-ranked, nil-first). The
+  comparators also serve query-only db-values, whose ids may be caller-chosen;
+  persisted local d5 datoms are stricter: non-negative integer e/t, integer
+  m, and namespaced keyword a. The library also owns the datom slot accessors
   (`datom-e/a/v/t/m/ns`) they read through. The trailing namespace slot is
   the last tiebreaker in every order, never a leading component: it leaves
   five-slot ordering unchanged and only separates datoms that agree on
@@ -101,7 +103,9 @@ an integer `:branching-factor` of at least two, index addresses all nil when
 the count is zero and all `:segment/sha256-...` addresses otherwise, and the
 manifest's content address matching the requested address. The manifest
 address is derived from the manifest alone and never depends on which intake
-stream carried it.
+stream carried it. `:count` is the cardinality of the covered index set, not
+the number of duplicate occurrences in the source stream; all four restored
+trees therefore report the same O(1) count they actually contain.
 
 ## Public surface
 

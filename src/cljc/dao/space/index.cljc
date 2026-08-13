@@ -34,6 +34,7 @@
    EDN either way."
   (:require [dao.data.btree :as bt]
             [dao.data.btree.storage :as bts]
+            [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.stream :as ds]))
 
@@ -113,9 +114,9 @@
 
 (defn- cmp-field
   "Nil-first, heterogeneous-safe field comparison. Entity ids are not
-   guaranteed to be integers here — a raw entity map's :db/id is
-   caller-chosen and can be any type — so every slot, not just v, needs
-   compare-vals."
+   guaranteed to be integers in query-only db-values, where a raw entity
+   map's :db/id is caller-chosen, so every slot, not just v, needs
+   compare-vals. Persisted local datoms are validated separately."
   [a b]
   (cond (nil? a) (if (nil? b) 0 -1)
         (nil? b) 1
@@ -346,11 +347,6 @@
 ;; publish-index! — build, record, append
 ;; =============================================================================
 
-(defn- local-datom?
-  [x]
-  (and (vector? x) (= 5 (count x))))
-
-
 (defn- stream-payload-datoms
   [payload]
   (if (and (map? payload) (contains? payload :dao.space/transaction))
@@ -363,13 +359,19 @@
                      (not (neg? t))
                      (vector? datoms)
                      (seq datoms)
-                     (every? local-datom? datoms)
+                     (every? datom/local-datom? datoms)
                      (every? #(= t (datom-t %)) datoms))
         (throw (ex-info "malformed dao.space transaction record"
                         {:payload payload})))
       datoms)
-    (if (local-datom? payload)
-      [payload]
+    (cond
+      (datom/local-datom? payload) [payload]
+      (and (vector? payload) (= 5 (count payload)))
+      (throw
+        (ex-info
+          "malformed local datom: e and t must be non-negative integers, m an integer, and a a namespaced keyword"
+          {:datom payload}))
+      :else
       (throw
         (ex-info
           "local stream payload must be a datom or dao.space transaction record"
@@ -514,18 +516,26 @@
          datoms (snapshot-datoms local-stream)
          handle (recording-content-handle)
          storage (bts/kv-storage handle {:branching-factor branching})
-         root-addr
+         build-tree
          (fn [cmp]
-           ;; an empty index has no root node; nil is the explicit
-           ;; "nothing here" (walk of nil => ())
-           (when (seq datoms)
-             (-> (bt/from-sequential cmp datoms {:branching-factor branching})
-                 (bt/store-tree storage))))
-         manifest {:indexes {:eavt (root-addr eavt-cmp),
-                             :aevt (root-addr aevt-cmp),
-                             :avet (root-addr avet-cmp),
-                             :vaet (root-addr vaet-cmp)},
-                   :count (count datoms),
+           (bt/from-sequential cmp datoms {:branching-factor branching}))
+         trees {:eavt (build-tree eavt-cmp),
+                :aevt (build-tree aevt-cmp),
+                :avet (build-tree avet-cmp),
+                :vaet (build-tree vaet-cmp)}
+         root-addr (fn [tree]
+                     ;; an empty index has no root node; nil is the
+                     ;; explicit
+                     ;; "nothing here" (walk of nil => ())
+                     (when (seq datoms) (bt/store-tree tree storage)))
+         manifest {:indexes {:eavt (root-addr (:eavt trees)),
+                             :aevt (root-addr (:aevt trees)),
+                             :avet (root-addr (:avet trees)),
+                             :vaet (root-addr (:vaet trees))},
+                   ;; Covered indexes are sets. Their count must describe
+                   ;; the distinct tuples actually stored, not duplicate
+                   ;; occurrences in the source stream.
+                   :count (bt/count (:eavt trees)),
                    :branching-factor branching}]
      (doseq [[_ payload] (:order @(:state handle))] (append-ok! intake payload))
      (append-ok! intake manifest)

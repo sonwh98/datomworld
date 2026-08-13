@@ -82,7 +82,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Agent-side write convention (test code, not API): one atomic transaction
 ;; per entity through the agent's own :transactor wrapper — the wrapper owns
-;; datom t. Fresh UUID entity id, :dao/agent self-stamp, and wall-clock
+;; datom t. Fresh stream-local integer entity id, :dao/agent self-stamp, and
+;; wall-clock
 ;; :claim/expires = now + lease-ms on claims are ordinary attributes.
 ;; ---------------------------------------------------------------------------
 
@@ -105,7 +106,7 @@
    for lease arithmetic, because the transactor owns datom t."
   ([agent entity] (put-entity! agent entity {}))
   ([agent entity {:keys [lease-ms], :or {lease-ms 300000}}]
-   (let [e (str (random-uuid))
+   (let [e (+ datom/first-user-id (count (ds/->seq nil (:local agent))))
          wall-t (System/currentTimeMillis)
          entity (cond-> (assoc entity
                                :db/id e

@@ -67,8 +67,9 @@ as such.
 
 ## Source polymorphism
 
-`q` and `match`'s second argument is a **source**, not narrowly a content
-handle. The library accepts, interchangeably (and freely mixed in a
+`q` and `match`'s second argument is a **db-value**, not narrowly a content
+handle. The implementation calls this a source internally, but the public
+role is the immutable value a query reads. The library accepts, interchangeably (and freely mixed in a
 collection):
 
 - **A single published source** — `(query/published-source store addr)`;
@@ -202,7 +203,9 @@ assertion it undoes; a raw fold would see the whole history, retractions
 included. `dao.space.query` resolves current state **at query time**:
 `current-state-seq` walks the candidate datoms `select-by-index` gathered for
 a clause and emits only those still asserted, masking an assertion when a
-later datom retracts the same `(e a v)` (the `m` slot, per `dao.datom`). There
+later datom retracts the same `(e a v)` for d5 or `(e a v ns)` for d6 (the
+`m` slot, per `dao.datom`). Namespace histories are independent even when
+their five-slot prefixes agree. There
 is no implicit cardinality-one schema or automatic supersession: a writer
 that replaces a value must append the corresponding retraction explicitly.
 

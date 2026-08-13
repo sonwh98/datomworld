@@ -360,12 +360,13 @@
 
 
 (deftest pull-over-a-published-source
-  (let [source (source [[1 :name "Alice" 1 1] [1 :age 30 1 1]
-                        [2 :name "Bob" 1 1]])]
-    (is (= {:db/id 1, :name "Alice", :age 30}
-           (query/pull source 1 [:name :age])))
-    (is (= [{:db/id 1, :name "Alice"} {:db/id 2, :name "Bob"} {:db/id 999}]
-           (query/pull-many source [1 2 999] [:name])))))
+  (let [source (source [[1 :person/name "Alice" 1 1] [1 :person/age 30 1 1]
+                        [2 :person/name "Bob" 1 1]])]
+    (is (= {:db/id 1, :person/name "Alice", :person/age 30}
+           (query/pull source 1 [:person/name :person/age])))
+    (is (= [{:db/id 1, :person/name "Alice"} {:db/id 2, :person/name "Bob"}
+            {:db/id 999}]
+           (query/pull-many source [1 2 999] [:person/name])))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -663,6 +664,55 @@
              (query/q '[:find ?c :where [1 :color ?c]] datoms {:as-of 1})))
       (is (= #{["active"]}
              (query/q '[:find ?s :where [2 :status ?s]] datoms {:as-of 1}))))))
+
+
+(deftest current-state-resolves-namespaces-independently
+  (testing "identical [e a v t m] datoms from distinct namespaces both survive"
+    (let [datoms [[1025 :person/email "alice@example.com" 0 1 ns-a]
+                  [1025 :person/email "alice@example.com" 0 1 ns-b]]]
+      (is (= #{[ns-a] [ns-b]}
+             (query/q '[:find ?ns :where
+                        [1025 :person/email "alice@example.com" _ _ ?ns]]
+                      datoms)))
+      (is (= #{[1025 :person/email "alice@example.com" 0 1 ns-a]
+               [1025 :person/email "alice@example.com" 0 1 ns-b]}
+             (set (query/match datoms
+                    [1025 :person/email "alice@example.com"]))))
+      (is (= 2
+             (count (query/current-state-seq
+                      [[1025 :person/email "alice@example.com" 0 1 ns-a]
+                       [1025 :person/email "alice@example.com" 0 1 ns-b]]))))))
+  (testing "a retraction in ns/b does not mask an assertion in ns/a"
+    (let [datoms [[1025 :person/email "alice@example.com" 0 1 ns-a]
+                  [1025 :person/email "alice@example.com" 1 0 ns-b]]]
+      (is (= #{[ns-a]}
+             (query/q '[:find ?ns :where
+                        [1025 :person/email "alice@example.com" _ _ ?ns]]
+                      datoms)))
+      (is (= [[1025 :person/email "alice@example.com" 0 1 ns-a]]
+             (query/match datoms [1025 :person/email "alice@example.com"])))))
+  (testing "t is resolved within a namespace, never as one shared history"
+    (let [datoms [[1025 :person/email "a@x.com" 1 1 ns-a]
+                  [1025 :person/email "a@x.com" 2 1 ns-b]
+                  [1025 :person/email "a@x.com" 3 1 ns-a]]]
+      (is (= #{[ns-a] [ns-b]}
+             (query/q '[:find ?ns :where [1025 :person/email "a@x.com" _ _ ?ns]]
+                      datoms)))))
+  (testing "each namespace selects its greatest t independent of input order"
+    (is (= [[1025 :person/email "late@x.com" 3 1 ns-a]]
+           (query/current-state-seq [[1025 :person/email "late@x.com" 3 1 ns-a]
+                                     [1025 :person/email "late@x.com" 1 0
+                                      ns-a]])))))
+
+
+(deftest current-state-d5-fold-unchanged
+  (testing "a 5-tuple history folds as before: one nil namespace, max-t wins"
+    (is (= [[1 :color "blue" 2 1]]
+           (query/current-state-seq [[1 :color "red" 1 1] [1 :color "red" 2 0]
+                                     [1 :color "blue" 2 1]])))
+    (is (= []
+           (query/current-state-seq [[2 :status "active" 1 1]
+                                     [2 :status "active" 3 0]])))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1668,16 +1718,21 @@
 ;; way to prove the persisted-index path answers `:_attr` correctly, not
 ;; just the eager in-memory one.
 (deftest pull-reverse-reaches-the-published-index
-  (let [source (source pull-nested-datoms)]
-    (let [result (query/pull source 3 [:name {:_friend [:name]}])
-          friends (sort-by :db/id (:_friend result))]
-      (is (= "Charlie" (:name result)))
+  (let [published (mapv (fn [[e a v t m]] [e (keyword "person" (name a)) v t m])
+                        pull-nested-datoms)
+        source (source published)]
+    (let [result (query/pull source
+                             3
+                             [:person/name {:person/_friend [:person/name]}])
+          friends (sort-by :db/id (:person/_friend result))]
+      (is (= "Charlie" (:person/name result)))
       (is (= 2 (count friends)))
-      (is (= "Alice" (:name (first friends))))
-      (is (= "Bob" (:name (second friends)))))
-    (let [flat (query/pull source 2 [:name :_friend])]
-      (is (= "Bob" (:name flat)))
-      (is (= [{:db/id 1}] (mapv #(select-keys % [:db/id]) (:_friend flat)))))))
+      (is (= "Alice" (:person/name (first friends))))
+      (is (= "Bob" (:person/name (second friends)))))
+    (let [flat (query/pull source 2 [:person/name :person/_friend])]
+      (is (= "Bob" (:person/name flat)))
+      (is (= [{:db/id 1}]
+             (mapv #(select-keys % [:db/id]) (:person/_friend flat)))))))
 
 
 ;; ---------------------------------------------------------------------------

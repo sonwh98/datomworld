@@ -5,8 +5,8 @@ day, then was **superseded (2026-07-12) by the streams-native model**: there is 
 coordinator. Stigmergy is writing datoms to the agent's own `dao.stream` via `ds/append!` and
 reading dao.space with `q`/`match` — nothing else. The living contract is
 `test/dao/space/stigmergy_test.clj`: agents coordinate over a network-accessible
-`dao.jing.file` store (served with `dao.stream.rpc` as plain `IKVStore` ops — the rpc is an
-implementation detail below the store handle), and the finished space persists at
+`dao.jing.file` content handle (served with `dao.jing.remote/default-handlers` as
+`:jing/put-content` and `:jing/get-content` RPC operations), and the finished space persists at
 `target/stigmergy-space.db` for inspection with `dao.space.query`.
 Describes how `dao.space` serves as a coordination medium for autonomous agents — LLM agents
 specifically — and enumerates what exists today versus what is still needed. Nothing here
@@ -139,27 +139,26 @@ into the prompt. This is ordinary datom data — no new mechanism, just a conven
 
 ### 4. Negation in `q`
 
-The canonical coordination query — "posted work nothing has claimed" — needs `(not ...)`,
-and today's `q` is joins-only. The interim workaround is two queries and a set difference
-in the agent runtime (cheap, correct), but the pattern is so central to work-claiming that
-negation is the single highest-value query feature for agent use.
+The canonical coordination query — "posted work nothing has claimed" — uses `(not ...)`
+or `(not-join ...)`. Both are implemented, including predicate clauses such as
+`[(< ?now ?exp)]`, so availability is one declarative query rather than a set difference
+in agent code.
 
 ### 5. Current-state resolution
 
-`match`/`q` answer over the full historical log, retractions and all; a caller wanting
-current state must filter by `dao.datom/asserted?` itself (deferred in ADR 0001). Agents
-overwhelmingly ask current-state questions ("what is unclaimed *now*"), and pushing the fold
-into every agent runtime is both duplicated effort and a prompt-injection-adjacent hazard —
-an agent that forgets to filter acts on retracted facts. Query-time resolution (an option
-flag on `q`) belongs in the library.
+`match`/`q` resolve current state: histories are grouped by fact identity, the greatest
+`t` wins, and `dao.datom/retracted?` removes a retracted winner. The complete append-only
+history remains available by reading below this query interpretation. For folded d6
+values, namespace is part of fact identity, so one stream's retraction cannot erase
+another stream's assertion.
 
 ### 6. Cross-stream identity (namespace stamping)
 
 Two agents' local entity id `1025` collide in a federated query today — namespace stamping
 from the kickoff hash is specified (`datom-spec.md`) but not implemented. Until it lands,
-the working convention for agents is: never join on bare entity ids across streams; mint
-globally unique ids (UUIDs) or join on shared *values* (`:task/id "uuid-..."`), which is the
-design's intent anyway. This convention has to be stated in the agents' prompts.
+the working convention for agents is: never join on bare entity ids across streams; use
+integer stream-local entity ids and join on shared *values* (`:task/id "uuid-..."`), which
+is the design's intent anyway. This convention has to be stated in the agents' prompts.
 
 ### 7. Comparable time for the claim tie-break
 
@@ -228,19 +227,20 @@ query rule, exactly as predicted.
 For a working multi-agent system on today's code, trusted agents only — no coordinator, no
 deposit API, no new namespaces:
 
-1. **One shared `dao.jing.file` store**, made network-accessible by registering its four
-   `IKVStore` ops as `dao.stream.rpc` handlers (`{:jing/get ... :jing/cas! ...}` — plain
-   call-site wiring; dao.stream.rpc makes any function remotely callable). A remote agent
-   holds a ~10-line `reify jing/IKVStore` over `rpc-client/call!`; everything above the
-   handle is unchanged.
-2. **Writes**: each agent opens its own `:transactor` on that handle
-   (`(ds/open! {:type :transactor :store handle :name agent-id})`) and deposits with
-   `ds/append!` — nothing else. The agent stamps its own conventions into the datoms it
-   builds: fresh UUID entity id, `:dao/agent` self-stamp, wall-clock `t` in the t slot,
-   `:claim/expires` on claims.
-3. **Reads**: `query/q` and `query/match` over the same handle. "Available work" is one
-   query (negation + lease predicate); claims and results are joins; the winner rule is
-   the documented `[t agent]` sort every reader applies identically.
+1. **One `dao.jing.file` content handle**, made network-accessible with
+   `dao.jing.remote/default-handlers`. A remote reader uses
+   `dao.jing.remote/connect-content!`; both handles expose the same plain-data content
+   effects.
+2. **Writes**: each agent owns a local `dao.stream` and opens one `:transactor` with that
+   stream plus an explicit DaoJing intake pool. It commits entity maps or datom vectors
+   through `ds/append!`/`transact!`, using integer stream-local entity ids; the wrapper
+   assigns transaction `t`. `publish!` appends covered-index blobs and a manifest to one
+   selected intake stream.
+3. **Materialization and reads**: a DaoJing observer consumes the supplied intake pool and
+   materializes its opaque payloads into the content handle. `query/q` and `query/match`
+   consume immutable `(query/published-source content-handle manifest-address)` db-values,
+   locally or remotely. "Available work" is one query (negation + lease predicate);
+   claims and results are joins; every reader applies the documented winner rule.
 4. A pinned attribute vocabulary and these conventions in every agent's system prompt
    (gap 3, manual version).
 
@@ -248,6 +248,6 @@ The contract is executable: `test/dao/space/stigmergy_test.clj` runs the full lo
 post, associative discovery, racing claims, leases, retraction, settle — over the wire,
 and leaves the space on disk for post-hoc inspection with `dao.space.query`.
 
-Everything else — namespace stamping, per-agent stream roots, controlled mode — makes
+Everything else — namespace stamping, discovery, controlled mode — makes
 the system better without changing what the agents already do: read the medium, decide,
 deposit a trace.

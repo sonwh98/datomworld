@@ -249,13 +249,15 @@ Reserved Entities (0-15):
   signed int8 stream is arithmetically impossible; at 0-15 it holds 112 user entities
   (16-127) with tempids in -16..-128, and an int16 stream holds ~32.7k. See Sizing.
 
-Validity fold (deferred):
+Validity fold (implemented for query db-values):
   Assert/retract is resolved at the index layer by folding m, exactly as Datomic folds
   `added`: storage stays append-only and immutable; "current vs history" is an
-  interpretation. The fold itself is not yet implemented. When it lands, any datom that
-  predates this convention and carries the old m=0 ("nil metadata") meaning must be
-  rewritten m:0->1 first, or it will read as a retraction. (There is currently no such
-  data: AST datoms are regenerated at runtime via ast->datoms.)
+  interpretation. dao.space.query resolves current state for `q` and `match`; callers
+  needing the historical relation read the raw log or published datoms below that
+  interpretation. Fact identity is `[e a v]` for d5 and `[e a v ns]` for d6, so
+  assertion/retraction histories from distinct namespaces cannot mask one another. The
+  greatest t wins within each identity, and `dao.datom/asserted?` / `retracted?`
+  interpret the winning m without bare marker literals.
 
 Datom-specific principles (d5):
   Content hashes for datoms are computed over [a v] pairs only (not e, t, or m).
@@ -348,9 +350,10 @@ finds no claim for an entity whose claim datom is a 5-tuple, and the negation pa
 produce uniform relations by construction; nothing enforces it for a hand-built source.
 
   Status. Three separate gaps, none of them blocking the others:
-    1. Stamping. dao.space.query folds an explicit pool of root sources without attaching a
-       namespace, because a stream's kickoff hash is not yet derived (see
-       docs/design/dao.jing.md, "Namespace stamping"). Until it lands, multi-root folds
+    1. Stamping. dao.space.query folds an explicit pool of published-source db-values
+       without attaching a namespace, because a stream's kickoff hash is not yet derived.
+       This is a stream/fold concern, not a DaoJing concern: DaoJing intentionally ignores
+       source identity. Until stamping lands, multi-source folds
        carry the collision described above.
     2. The per-clause rule above is stated, not enforced. Nothing in dao.space.query rejects
        an unqualified clause over a multi-source relation; it simply unifies across streams,

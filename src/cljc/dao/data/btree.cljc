@@ -144,9 +144,10 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; IStorage (§5.1, Phase 4). Modeled on psset's IStorage over dao.jing's
-;; IKVStore; the concrete adapters live in dao.data.btree.storage so this
-;; namespace stays storage-agnostic. `-settings` is the concrete form of
+;; IStorage (§5.1, Phase 4). Modeled on psset's IStorage over a plain-data
+;; dao.jing content handle; concrete adapters live in dao.data.btree.storage,
+;; so this namespace stays storage-agnostic. `-settings` is the concrete form
+;; of
 ;; the §5.1 settings-threading rule: the storage and the trees restored
 ;; through it share one Settings, so no restored node can ever carry
 ;; defaults.
@@ -155,7 +156,7 @@
 
   (-store
     [storage node]
-    "Serialize node, put! it content-addressed, return the address. Called
+    "Serialize node, materialize it content-addressed, return the address. Called
      only after all of the node's children have been stored and have
      addresses (§5.1).")
 
@@ -768,8 +769,7 @@
                     (as-> (StitchAt. 0) o
                           (stitch-all as1 o addresses 0 ins)
                           (stitch-all as1 o nil 0 2) ; two nil slots: no
-                          ;; source to copy, just
-                          ;; advance
+                          ;; source to copy, just advance
                           (stitch-all as1 o addresses (inc ins) (dec h1)))
                     (arr/acopy addresses (dec h1) as2 0 (- len (dec h1))))
                   (two (Branch. level h1 ks1 cs1 as1 sett)
@@ -795,8 +795,7 @@
                     (as-> (StitchAt. 0) o
                           (stitch-all as2 o addresses h1 ins)
                           (stitch-all as2 o nil 0 2) ; two nil slots: no
-                          ;; source to copy, just
-                          ;; advance
+                          ;; source to copy, just advance
                           (stitch-all as2 o addresses (inc ins) len)))
                   (two (Branch. level h1 ks1 cs1 as1 sett)
                        (Branch. level h2 ks2 cs2 as2 sett))))))))))
