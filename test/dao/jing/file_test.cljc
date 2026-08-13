@@ -1,169 +1,250 @@
 (ns dao.jing.file-test
-  "Unit and integration tests for dao.jing.file stream materializer."
-  (:require [clojure.test :refer [deftest is testing]]
+  "Tests for dao.jing.file persistent content files."
+  (:require #?@(:cljd [["dart:io" :as dart-io]])
+            [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.file :as jing-file]
             [dao.stream :as ds]
-            [dao.stream.file]))
+            [dao.stream.log]
+            [dao.stream.ringbuffer]))
 
 
 (defn- temp-path
   [prefix]
-  (str "target/test-jing-file-" prefix "-" (random-uuid) ".log"))
+  (str "target/test-jing-content-" prefix "-" (random-uuid) ".log"))
 
 
 (defn- cleanup-file
   [path]
-  #?(:clj (let [f (java.io.File. path)]
-            (when (.exists f) (.delete f))
-            (let [c (java.io.File. (str path ".compact"))]
-              (when (.exists c) (.delete c))))
+  #?(:clj (let [f (java.io.File. path)] (when (.exists f) (.delete f)))
      :cljs (try (.unlinkSync (js/require "fs") path) (catch :default _))
-     :cljd nil))
+     :cljd (try (let [f (dart-io/File path)]
+                  (when (.existsSync f) (.deleteSync f)))
+                (catch #?(:cljd Object
+                          :default Exception)
+                       _
+                  nil))))
 
 
-(deftest record-serialization-test
-  (testing "encode-record and decode-record round trip :cas tuples"
-    (let [rec [:my-key :cas jing/absent {:a 1, :b [2 3]}]]
-      (is (= rec (jing-file/decode-record (jing-file/encode-record rec)))))))
+(defn- count-records
+  [log]
+  (loop [cursor {:position 0}
+         n 0]
+    (let [res (ds/next log cursor)]
+      (if (and (map? res) (contains? res :ok))
+        (recur (:cursor res) (inc n))
+        n))))
 
 
-(deftest file-stream-reduction-test
-  (testing "reducing a file stream of :cas records projects into a target map"
-    (let [path (temp-path "reduce")
-          stream (ds/open! {:type :file, :path path})]
-      (try (ds/append! stream
-                       (jing-file/encode-record [:k1 :cas jing/absent "val1"]))
-           (ds/append! stream
-                       (jing-file/encode-record [:k2 :cas jing/absent "val2"]))
-           (ds/append! stream
-                       (jing-file/encode-record [:k1 :cas "val1"
-                                                 "val1-updated"]))
-           (ds/append! stream
-                       (jing-file/encode-record [:k2 :cas "val2" jing/absent]))
-           (let [target (jing-file/reduce-file-stream stream)]
-             (is (= "val1-updated" (get target :k1)))
-             (is (= jing/absent (get target :k2 jing/absent))))
-           (finally (ds/close! stream) (cleanup-file path))))))
+(deftest codec-test
+  (testing
+    "encode-record/decode-record round trip [address payload] including nil"
+    (let [cases [[(jing/segment-key {:a 1}) {:a 1}] [(jing/segment-key nil) nil]
+                 [(jing/segment-key "plain") "plain"]
+                 [(jing/segment-key [1 2 3]) [1 2 3]]]]
+      (doseq [[address payload] cases]
+        (is (= [address payload]
+               (jing-file/decode-record (jing-file/encode-record address
+                                                                 payload))))))))
 
 
-(deftest file-stream-incremental-step-test
-  (testing "step-incremental-file! advances cursor and updates target atom"
-    (let [path (temp-path "incremental")
-          stream (ds/open! {:type :file, :path path})
-          target-atom (atom {})
-          cursor-atom (atom {:position 0})]
-      (try
-        (ds/append! stream (jing-file/encode-record [:k1 :cas jing/absent 100]))
-        (is
-          (= :ok
-             (jing-file/step-incremental-file! target-atom cursor-atom stream)))
-        (is (= 100 (get @target-atom :k1)))
-        ;; Next read when blocked returns :wait
-        (is
-          (= :wait
-             (jing-file/step-incremental-file! target-atom cursor-atom stream)))
-        (finally (ds/close! stream) (cleanup-file path))))))
+(deftest handle-shape-test
+  (testing
+    "content file handle exposes log, state, lock and functions, no :stream"
+    (let [path (temp-path "shape")
+          handle (jing-file/create-content-file path)]
+      (try (is (not (contains? handle :stream)))
+           (is (= path (:path handle)))
+           (is (some? (:log handle)))
+           (is (= {:closed? false, :content {}} @(:state handle)))
+           (is (some? (:write-lock handle)))
+           (is (fn? (:put-content-fn handle)))
+           (is (fn? (:get-content-fn handle)))
+           (is (fn? (:close-fn handle)))
+           (finally (jing/close! handle) (cleanup-file path))))))
 
 
-(deftest file-stream-malformed-recovery-test
-  (testing "reduce-file-stream skips malformed EDN frames and recovers"
-    (let [path (temp-path "malformed")
-          stream (ds/open! {:type :file, :path path})]
-      (try (ds/append! stream
-                       (jing-file/encode-record [:k1 :cas jing/absent "val1"]))
-           ;; Append a malformed EDN frame
-           (ds/append! stream
-                       (jing-file/->bytes "[\"this is\" \"not a valid cas\"]"))
-           (ds/append! stream
-                       (jing-file/encode-record [:k2 :cas jing/absent "val2"]))
-           (let [target (jing-file/reduce-file-stream stream)]
-             (is (= "val1" (get target :k1)))
-             (is (= "val2" (get target :k2))))
-           (finally (ds/close! stream) (cleanup-file path))))))
-
-
-(deftest file-kv-store-contract-test
-  (testing "create-kv-file satisfies IKVStore over dao.stream.file"
-    (let [path (temp-path "kv")
-          store (jing-file/create-kv-file path)]
-      (try
-        ;; cas! minting
-        (is (true? (jing/cas! store :a jing/absent "hello")))
-        (is (= "hello" (jing/get store :a nil)))
-        ;; cas! update
-        (is (true? (jing/cas! store :a "hello" "world")))
-        (is (= "world" (jing/get store :a nil)))
-        ;; cas! losing race
-        (is (false? (jing/cas! store :a "stale" "new")))
-        (is (= "world" (jing/get store :a nil)))
-        ;; delete!
-        (is (true? (jing/delete! store :a)))
-        (is (= ::missing (jing/get store :a ::missing)))
-        (finally (jing/close! store) (cleanup-file path))))))
-
-
-(deftest file-kv-store-durability-recovery-test
-  (testing "reopening a file store recovers state from log replay"
-    (let [path (temp-path "durability")
-          s1 (jing-file/create-kv-file path)]
-      (jing/cas! s1 :x jing/absent {:data 42})
-      (jing/cas! s1 :y jing/absent "persist")
-      (jing/close! s1)
-      (let [s2 (jing-file/create-kv-file path)]
-        (try (is (= {:data 42} (jing/get s2 :x nil)))
-             (is (= "persist" (jing/get s2 :y nil)))
-             (finally (jing/close! s2) (cleanup-file path)))))))
-
-
-(deftest file-kv-store-compaction-test
-  (testing "compact-store! reclaims space and preserves live keys"
-    (let [path (temp-path "compact")
-          store (jing-file/create-kv-file path)]
-      (try (jing/cas! store :a jing/absent 1)
-           (jing/cas! store :b jing/absent 2)
-           (jing/cas! store :a 1 3)
-           (jing/delete! store :b)
-           (let [store (jing-file/compact-store! store)]
-             (is (some? store))
-             (is (= 3 (jing/get store :a nil)))
-             (is (= ::missing (jing/get store :b ::missing)))
-             (jing/close! store))
+(deftest materialize-idempotence-test
+  (testing "put/get idempotence and file length unchanged on :present"
+    (let [path (temp-path "idempotence")
+          address (jing/segment-key {:v 1})
+          payload {:v 1}
+          handle (jing-file/create-content-file path)]
+      (try (is (= address (jing/materialize! handle payload)))
+           (is (= payload (jing/get handle address ::missing)))
+           (is (= :present ((:put-content-fn handle) address payload)))
+           (is (= payload (jing/get handle address ::missing)))
+           (jing/close! handle)
+           (let [log (ds/open! {:type :append-log, :path path})]
+             (try (is (= 1 (count-records log))) (finally (ds/close! log))))
+           (let [h2 (jing-file/create-content-file path)]
+             (try (is (= payload (jing/get h2 address ::missing)))
+                  (finally (jing/close! h2))))
            (finally (cleanup-file path))))))
 
 
-#?(:cljd nil
-   :clj
-   (deftest file-kv-store-concurrency-test
-     (testing "durability CAS result is serialized with memory CAS result"
-       (let [path (temp-path "concurrency")
-             store (jing-file/create-kv-file path)
-             orig-materialize jing/materialize-step
-             first-append (promise)
-             unblock-f1 (promise)]
-         (try
-           (with-redefs [jing/materialize-step
-                         (fn [m rec]
-                           (when (= "A" (nth rec 3 nil))
-                             (deliver first-append true)
-                             (deref unblock-f1 3000 nil))
-                           (orig-materialize m rec))]
-             (let [f1 (future (jing/cas! store :race jing/absent "A"))
-                   _ (deref first-append 1000 nil)
-                   f2 (future (jing/cas! store :race jing/absent "B"))]
-               (try #?(:clj (Thread/sleep 50))
-                    (finally (deliver unblock-f1 true)))
-               (let [res-a (deref f1 3000 ::timeout)
-                     res-b (deref f2 3000 ::timeout)
-                     mem-val (jing/get store :race nil)]
-                 (is (not= ::timeout res-a) "f1 completed without timing out")
-                 (is (not= ::timeout res-b) "f2 completed without timing out")
-                 (jing/close! store)
-                 (let [store2 (jing-file/create-kv-file path)]
-                   (try (let [recovered-val (jing/get store2 :race nil)]
-                          (is (= mem-val recovered-val)
-                              "Execution state must match recovered state"))
-                        (finally (jing/close! store2)))))))
-           (finally (deliver first-append false)
-                    (deliver unblock-f1 true)
-                    (cleanup-file path)))))))
+(deftest close-reopen-durability-test
+  (testing "payloads survive close and reopen"
+    (let [path (temp-path "durability")
+          a1 (jing/segment-key "alpha")
+          a2 (jing/segment-key {:n 2})
+          handle (jing-file/create-content-file path)]
+      (jing/materialize! handle "alpha")
+      (jing/materialize! handle {:n 2})
+      (jing/close! handle)
+      (let [h2 (jing-file/create-content-file path)]
+        (try (is (= "alpha" (jing/get h2 a1 ::missing)))
+             (is (= {:n 2} (jing/get h2 a2 ::missing)))
+             (finally (jing/close! h2) (cleanup-file path)))))))
+
+
+(deftest nil-and-absence-test
+  (testing "nil payload is stored distinctly from an absent address"
+    (let [path (temp-path "nil")
+          address (jing/segment-key nil)
+          handle (jing-file/create-content-file path)]
+      (try (is (= ::missing (jing/get handle address ::missing)))
+           (jing/materialize! handle nil)
+           (is (nil? (jing/get handle address ::missing)))
+           (is (contains? (:content @(:state handle)) address))
+           (finally (jing/close! handle) (cleanup-file path))))))
+
+
+(deftest observer-convergence-test
+  (testing
+    "two ringbuffers carrying the same payload converge on one content address"
+    (let [path (temp-path "observe")
+          payload {:observed true}
+          handle (jing-file/create-content-file path)
+          rb1 (ds/open! {:type :ringbuffer, :capacity 8})
+          rb2 (ds/open! {:type :ringbuffer, :capacity 8})]
+      (try (ds/append! rb1 payload)
+           (ds/append! rb2 payload)
+           (let [observer (jing/observer-state [rb1 rb2])
+                 r1 (jing/observe-step! handle observer)
+                 r2 (jing/observe-step! handle (:state r1))]
+             (is (= :ok (:signal r1)))
+             (is (= :ok (:signal r2)))
+             (is (= (jing/segment-key payload) (:address r1)))
+             (is (= (jing/segment-key payload) (:address r2)))
+             (is (= 1 (count (:content @(:state handle))))))
+           (is (= 1 (count-records (:log handle))))
+           (finally (jing/close! handle)
+                    (ds/close! rb1)
+                    (ds/close! rb2)
+                    (cleanup-file path))))))
+
+
+(deftest raw-duplicate-recovery-test
+  (testing "equal duplicate raw records recover on replay"
+    (let [path (temp-path "rawdup")
+          address (jing/segment-key {:k 1})
+          payload {:k 1}
+          log (ds/open! {:type :append-log, :path path})]
+      (ds/append! log (jing-file/encode-record address payload))
+      (ds/append! log (jing-file/encode-record address payload))
+      (ds/close! log)
+      (let [log2 (ds/open! {:type :append-log, :path path})]
+        (try (is (= 2 (count-records log2))) (finally (ds/close! log2))))
+      (let [handle (jing-file/create-content-file path)]
+        (try (is (= payload (jing/get handle address ::missing)))
+             (is (= :present ((:put-content-fn handle) address payload)))
+             (finally (jing/close! handle) (cleanup-file path)))))))
+
+
+(deftest corrupt-record-categories-test
+  (testing "each corrupt raw record category throws on construction"
+    (let [good-address (jing/segment-key "ok")
+          categories
+          [{:name "malformed EDN", :record (jing-file/->bytes "[[[not edn")}
+           {:name "wrong shape",
+            :record (jing-file/->bytes (pr-str [good-address "ok" :extra]))}
+           {:name "invalid address",
+            :record (jing-file/->bytes (pr-str [:root/not-content "ok"]))}
+           {:name "hash mismatch",
+            :record (jing-file/->bytes (pr-str [good-address "different"]))}]]
+      (doseq [{:keys [name record]} categories]
+        (let [path (temp-path "corrupt")
+              log (ds/open! {:type :append-log, :path path})]
+          (ds/append! log record)
+          (ds/close! log)
+          (try (is (thrown? #?(:clj Exception
+                               :cljs :default
+                               :cljd Object)
+                     (jing-file/create-content-file path))
+                   name)
+               (finally (cleanup-file path))))))))
+
+
+(deftest collision-test
+  (testing "unequal payload for existing address throws and preserves existing"
+    (let [path (temp-path "collision")
+          address (jing/segment-key "original")
+          handle (jing-file/create-content-file path)]
+      (try (is (= :inserted ((:put-content-fn handle) address "original")))
+           (is (= :present ((:put-content-fn handle) address "original")))
+           (swap! (:state handle) assoc-in [:content address] "corrupted")
+           (is (thrown? #?(:clj Exception
+                           :cljs :default
+                           :cljd Object)
+                 ((:put-content-fn handle) address "original")))
+           (is (= "corrupted" (jing/get handle address nil)))
+           (finally (jing/close! handle) (cleanup-file path))))))
+
+
+(deftest close-semantics-test
+  (testing "close is idempotent and operations throw after close"
+    (let [path (temp-path "close")
+          payload "v"
+          address (jing/segment-key payload)
+          handle (jing-file/create-content-file path)]
+      (jing/materialize! handle payload)
+      (is (nil? (jing/close! handle)))
+      (is (nil? (jing/close! handle)))
+      (is (thrown? #?(:clj Exception
+                      :cljs :default
+                      :cljd Object)
+            (jing/materialize! handle payload)))
+      (is (thrown? #?(:clj Exception
+                      :cljs :default
+                      :cljd Object)
+            (jing/get handle address nil)))
+      (cleanup-file path))))
+
+
+(deftest acknowledged-insert-survives-close-test
+  (testing "acknowledged insert survives immediate close and reopen"
+    (let [path (temp-path "ack")
+          payload {:ack 1}
+          address (jing/segment-key payload)
+          handle (jing-file/create-content-file path)]
+      (jing/materialize! handle payload)
+      (jing/close! handle)
+      (let [h2 (jing-file/create-content-file path)]
+        (try (is (= payload (jing/get h2 address ::missing)))
+             (finally (jing/close! h2) (cleanup-file path)))))))
+
+
+(deftest file-content-contention-test
+  (testing "concurrent puts serialize through the write lock"
+    #?(:clj (let [path (temp-path "contention")
+                  payload {:contended true}
+                  address (jing/segment-key payload)
+                  handle (jing-file/create-content-file path)]
+              (try (let [results (mapv #(deref % 5000 ::timeout)
+                                       (doall (repeatedly
+                                                16
+                                                (fn []
+                                                  (future ((:put-content-fn handle)
+                                                           address
+                                                           payload))))))]
+                     (is (not-any? #{::timeout} results))
+                     (is (= 1 (count (filter #{:inserted} results))))
+                     (is (= 15 (count (filter #{:present} results))))
+                     (jing/close! handle)
+                     (let [log (ds/open! {:type :append-log, :path path})]
+                       (try (is (= 1 (count-records log)))
+                            (finally (ds/close! log)))))
+                   (finally (cleanup-file path))))
+       :cljs (is true)
+       :cljd (is true))))

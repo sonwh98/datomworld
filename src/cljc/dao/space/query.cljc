@@ -5,34 +5,51 @@
   predicate/function clauses whose fns come from a caller-supplied
   `{:fns {sym fn}}` option, and recursive rules bound to `%` via `:in`;
   one merged index), and `pull` (declarative entity projection: entity →
-  tree, the third read verb alongside match/q — see the Pull section,
-  below, and docs/datomic-pull.md for the schema-free design rulings)
+  tree, the third read verb alongside match/q — see the Pull section in
+  docs/design/dao.space.query.md for the schema-free design rulings)
   over a **source**. The read side is pure and stateless — it owns no
-  durable state, never writes, and enforces no schema; schema is the
-  write-side Transactor's job (each `dao.stream` writer is its own). This
-  library is the embeddable Peer: it consumes the covered-index
-  realization owned by `dao.space.index` (root shapes, sort orders, the
-  persisted node-blob format, and the owner-side `publish-index!` — see
-  docs/design/dao.space.index.md). See docs/design/dao.space.md, \"The
-  Query Library\" and \"Source Polymorphism\".
+  durable state, never writes, and enforces no schema; any schema policy
+  belongs on the write side (each `dao.stream` writer is its own). This
+   library is the embeddable Peer: it consumes the covered-index
+   realization owned by `dao.space.index` (manifest shape, sort orders, the
+   persisted node-blob format, and the owner-side `publish-index!` — see
+   docs/design/dao.jing.md and docs/design/dao.space.index.md). See
+   docs/design/dao.space.md, \"The Query Library\" and \"Source
+   Polymorphism\".
 
   A source is, interchangeably (and freely mixed in a collection):
-    - an explicit `(root-source jing-handle :root/name)` descriptor
-    - a collection of root sources (a federated query — ADR 0001's
+    - an explicit `(published-source content-store manifest-address)`
+      descriptor naming one published manifest by its store+address
+      coordinate
+    - a collection of published sources (a federated query — ADR 0001's
       monoid-homomorphism proof is why folding N stores and merging equals
       one store holding everything)
-    - a raw vector of datoms, `[[e a v t m] ...]`
-    - a raw vector of entity maps, `[{:attr val ...} ...]`
+    - a raw vector of datoms, `[[e a v t m] ...]` (a folded datom appends the
+      namespace slot: `[e a v t m ns]`). A collection is classified as raw
+      datoms only when every element is a 5- or 6-slot vector; arity is the
+      discriminator that tells datoms apart from nested entity-map
+      collections.
+    - a raw vector of entity maps, `[{:db/id e, :attr val ...} ...]`
+      (identity is explicit: the read side never mints an id, so an
+      entity map without `:db/id` throws)
 
-  Reading a root source folds exactly the named `:root/<name>` and supports
-  both root shapes: the wholesale `{:datoms [...]}`
-  baseline, folded into a fresh in-memory index per query, and the
-  owner-built `{:indexes ...}` manifest, restored lazily when it is the sole
-  root source and walked eagerly for source pools (see dao.space.index).
+  Arity classification is precedence, not full recognition: a nested
+  collection of exactly five or six maps is read as a single datom tuple
+  (its elements are the e/a/v/t/m[/ns] slots), not as an entity-map
+  collection.
 
-  Current-state resolution (masking retracted datoms and superseding
-  cardinality-one values) is resolved dynamically at query time using
-  `current-state-seq`."
+  A bare content-store handle is not a source: source identity is the
+  explicit store+address coordinate and is never inferred from a DaoJing
+  intake stream, so a handle must be wrapped in `published-source`.
+
+  Reading a published source folds exactly the named manifest. When it is
+  the sole source and no as-of bound is given, its B-trees are restored
+  lazily (nothing loaded until traversal, dao.data.btree restore-tree); an
+  as-of bound, a federated pool, or a raw source folds into a fresh
+  in-memory index per query (see dao.space.index).
+
+  Current-state resolution masks assertions explicitly retracted for the
+  same `[e a v]` dynamically at query time using `current-state-seq`."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.space.index :as index]))
@@ -46,70 +63,119 @@
   "Normalize one entity map into datoms: one datom per k/v pair (no
   cardinality expansion — a collection value is stored verbatim as one
   datom's v, matching dao.db's map-form tx-data convention), `t` 0, `m`
-  dao.datom/default-op. A map with no :db/id gets a fresh negative tempid."
-  [e m]
-  (into []
-        (keep (fn [[a v]] (when (not= a :db/id) [e a v 0 datom/default-op])))
-        m))
+  dao.datom/default-op. Identity is explicit: query is pure and never
+  mints an entity id, so the map must carry `:db/id` and a map without
+  one throws."
+  [m]
+  (when-not (contains? m :db/id)
+    (throw (ex-info "raw entity-map source requires an explicit :db/id"
+                    {:entity m})))
+  (let [e (:db/id m)]
+    (into []
+          (keep (fn [[a v]] (when (not= a :db/id) [e a v 0 datom/default-op])))
+          m)))
 
 
 (defn- entity-maps->datoms
   [maps]
-  (second (reduce (fn [[counter acc] m]
-                    (let [needs-id? (not (contains? m :db/id))
-                          next-counter (if needs-id? (dec counter) counter)
-                          e (if needs-id? (- next-counter) (:db/id m))]
-                      [next-counter (into acc (entity-map->datoms e m))]))
-                  [0 []]
-                  maps)))
+  (into [] (mapcat entity-map->datoms) maps))
 
 
-(defn- dao-jing-handle?
+(defn- content-store-handle?
   [x]
-  (and (map? x) (some #(contains? x %) [:stream :target :call-fn :get-fn])))
+  (and (map? x) (fn? (:get-content-fn x))))
 
 
-(defn root-source
-  "Name one stream root in one dao.jing materialization. A collection of
-  these plain-data descriptors is the explicit pool a federated query folds."
-  [store root]
-  (when-not (dao-jing-handle? store)
-    (throw (ex-info "root-source requires a dao.jing handle" {:store store})))
-  (index/validate-root-key! root "root-source")
-  {::store store, ::root root})
+(defn published-source
+  "Name one published manifest by its explicit content-store + manifest
+  address coordinate. A collection of these plain-data descriptors is the
+  explicit pool a federated query folds.
+
+  Source identity is this explicit coordinate alone: it is never inferred
+  from a DaoJing intake stream, and a bare content-store handle carries no
+  source (docs/design/dao.jing.md, Physical intake versus semantic
+  composition)."
+  [content-store manifest-address]
+  (when-not (content-store-handle? content-store)
+    (throw
+      (ex-info
+        "published-source requires a content-store handle with a function :get-content-fn"
+        {:content-store content-store})))
+  (when-not (jing/segment-address? manifest-address)
+    (throw (ex-info
+             "published-source requires a :segment/sha256-... manifest address"
+             {:manifest-address manifest-address})))
+  {::content-store content-store, ::manifest-address manifest-address})
 
 
-(defn- root-source?
+(defn- published-source?
   [x]
-  (and (map? x) (contains? x ::store) (contains? x ::root)))
+  (and (map? x) (contains? x ::content-store) (contains? x ::manifest-address)))
 
 
-(defn- root-source-datoms
-  [{::keys [store root]}]
-  (index/read-datoms store root))
+(defn- published-source-datoms
+  [{::keys [content-store manifest-address]}]
+  (index/read-datoms content-store manifest-address))
 
 
 (declare source->datoms)
 
 
+(defn- entity-source-map?
+  [x]
+  (and (map? x) (not (published-source? x)) (not (content-store-handle? x))))
+
+
+(defn- datom-tuple?
+  "A raw datom tuple is a vector of arity 5 (the canonical `[e a v t m]`) or
+  arity 6 (a cross-stream fold appends the namespace slot `[e a v t m ns]`),
+  per docs/agents/datom-spec.md. Arity is the whole discriminator: a map, a
+  scalar, or a wrong-arity vector is not a datom tuple."
+  [x]
+  (and (vector? x) (#{5 6} (count x))))
+
+
+(defn- raw-datom-source?
+  "A raw datom source is a collection whose every element is a datom tuple
+  (arity 5 or 6). The arity check is what keeps a nested entity-map
+  collection from being misread as raw datoms: `[[{:a 1}]]` is a vector whose
+  element is a 1-slot vector, not a datom tuple, so it falls through to
+  recursive/entity-map classification instead of being returned as (malformed)
+  raw datoms. Precedence, not full recognition: a collection whose elements
+  are themselves 5- or 6-slot vectors is raw datoms, so a nested collection of
+  exactly five or six maps reads as a single datom tuple."
+  [source]
+  (and (coll? source) (every? datom-tuple? source)))
+
+
 (defn- coll-source->datoms
   [source]
-  (cond (every? root-source? source) (mapcat root-source-datoms source)
-        (every? vector? source) source
-        (every? map? source) (entity-maps->datoms source)
-        :else (mapcat source->datoms source)))
+  (cond (every? published-source? source) (mapcat published-source-datoms
+                                                  source)
+        (raw-datom-source? source) source
+        (every? entity-source-map? source) (entity-maps->datoms source)
+        :else (into []
+                    (mapcat (fn [item]
+                              (if (entity-source-map? item)
+                                (entity-map->datoms item)
+                                (source->datoms item))))
+                    source)))
 
 
 (defn source->datoms
   "Fold any source shape (see ns docstring) into a flat seq of datoms.
-  Root reachability is explicit: a root source reads exactly one named root,
-  and a collection of root sources is the pool to merge."
+  Published-source reachability is explicit: a published source reads exactly
+  one named manifest, and a collection of published sources is the pool to
+  merge."
   [source]
-  (cond (root-source? source) (root-source-datoms source)
-        (dao-jing-handle? source)
-        (throw (ex-info "dao.jing handles require an explicit root source"
-                        {:source source,
-                         :example '(root-source store :root/name)}))
+  (cond (published-source? source) (published-source-datoms source)
+        (content-store-handle? source)
+        (throw
+          (ex-info
+            "bare content-store handles require an explicit published source"
+            {:source source,
+             :example '(published-source content-store manifest-address)}))
+        (entity-source-map? source) (entity-maps->datoms [source])
         (coll? source) (coll-source->datoms source)
         :else (throw (ex-info "unrecognized query source" {:source source}))))
 
@@ -123,35 +189,22 @@
 
 (defn fold
   "Fold a source into an index, optionally bounded to datoms with t <= as-of.
-  A single root source whose root carries an owner-built manifest
-  (`{:indexes {...} :count n}`) folds lazily on every platform (nothing
-  loaded until traversal, dao.data.btree restore-tree); every other shape —
-  as-of bounds, federated collections, raw vectors — takes the eager path
-  (for `:indexes` roots, via walk-index-datoms)."
+  A single published source with no as-of bound restores its manifest's
+  B-trees lazily on every platform (nothing loaded until traversal,
+  dao.data.btree restore-tree, via index/read-manifest +
+  index/restored-indexes); every other shape — as-of bounds, federated
+  collections, raw vectors — takes the eager path (published sources via
+  index/read-datoms, then index-datoms)."
   ([source] (fold source nil))
   ([source as-of]
-   (or (when (root-source? source)
-         ;; A single explicit root holding a complete manifest restores
-         ;; lazily; source pools take the eager merge (k-way lazy
-         ;; merge is the documented gap, see dao.space.query.md)
-         (let [{::keys [store root]} source
-               manifest (jing/get store root nil)
-               indexes (:indexes manifest)]
-           (if (and (nil? as-of)
-                    ;; a complete manifest only: an empty published
-                    ;; index has nil root addresses (walk of nil =>
-                    ;; ()); a partial hand-crafted one, or one without
-                    ;; the :count restore-tree requires (dao.data.btree.md
-                    ;; §5.1), must not reach the lazy path
-                    (int? (:count manifest))
-                    (every? #(some? (get indexes %)) [:eavt :aevt :avet :vaet]))
-             (index/restored-indexes store manifest)
-             (-> (index/read-datoms store root)
-                 (bound-datoms as-of)
-                 index/index-datoms))))
-       (-> (source->datoms source)
-           (bound-datoms as-of)
-           index/index-datoms))))
+   (if (and (published-source? source) (nil? as-of))
+     (let [{::keys [content-store manifest-address]} source]
+       (index/restored-indexes content-store
+                               (index/read-manifest content-store
+                                                    manifest-address)))
+     (-> (source->datoms source)
+         (bound-datoms as-of)
+         index/index-datoms))))
 
 
 ;; =============================================================================
@@ -272,7 +325,8 @@
 ;; Pull: declarative entity projection (entity -> tree)
 ;; =============================================================================
 ;; Third read verb next to match (template -> datoms) and q (Datalog ->
-;; relations). Design rulings, spelled out in full in docs/datomic-pull.md:
+;; relations). Design rulings are spelled out in the Pull section of
+;; docs/design/dao.space.query.md:
 ;;   - No schema: every attr is potentially multi-valued. Forward attrs
 ;;     follow the entity-attrs convention (one datom -> scalar, more ->
 ;;     vector). Reverse attrs (`:_attr`) always return a vector.

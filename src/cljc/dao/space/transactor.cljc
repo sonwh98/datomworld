@@ -1,82 +1,44 @@
 (ns dao.space.transactor
-  "The `:transactor` transport: the tuple space's write path. Opening
-  `{:type :transactor :store <jing> :name \"producer\"}` attaches a feeding
-  stream to the space (docs/design/dao.space.md, The Write Path):
-  the stream owns its own root, `:root/<name>` (an explicit `:key`
-  overrides). Readers name that root explicitly in their source pool.
-  `ds/append!` deposits an entity map or datom vector as datoms into the
-  stream's root, where `dao.space.query`'s `q`/`match` immediately see them
-  when given that root source. This is the generative-communication
-  move: deposit, name no recipient; and the single-writer log: no shared
-  write surface, no cross-agent contention.
+  "The `:transactor` stream: a single-writer wrapper over an explicit local
+   `dao.stream` plus an explicit DaoJing intake pool (docs/design/dao.jing.md,
+   Publication from an agent).
 
-  Appends go through a read-modify-`cas!` loop on the stream's own root;
-  with one writer per root the CAS is uncontended and exists only to
-  serialize same-name handles. Entity-id stamping across streams (the
-  `[stream-ns offset]` global form of dao.space.query.md, Ruling 3) is
-  still pending; until then cross-stream `:db/id` collision remains the
-  documented open gap. A datom vector's own `t` slot, if supplied
-  explicitly rather than left `nil` for auto-assignment, is trusted
-  uncritically — this transport has no Datomic-style `:db/txInstant`/tx
-  entity separate from `t`, so `t` is both the recency-resolution key
-  `dao.space.query`'s `current-state-seq` sorts by *and* the only write
-  identity there is. A far-future `t` on one datom permanently outranks
-  every later auto-`t` write to the same `[e a v]` (proven by
-  `raw-datom-put`'s far-future-`t` test). Callers should leave `t` `nil`
-  unless they specifically intend to backdate or pin recency, and should
-  not expect any auto-stamped write provenance — an agent that needs to
-  know who wrote a datom stamps that itself as an ordinary attribute
-  (e.g. `:work/by`, as `stigmergy-example-end-to-end` does). A root
-  already holding owner-built `{:indexes ...}`
-  is folded back to the wholesale `{:datoms [...]}` shape on first append,
-  so published indexes are never silently dropped.
+   Descriptor:
 
-  `publish!` is the other direction: an agent calls it explicitly, at
-  whatever cadence it chooses, to build the covered indexes over
-  everything appended so far and advance its root to `{:indexes ...
-  :count n}` (`dao.space.index/publish-index!` under the hood). There is
-  no automatic trigger — no hook fires it on append, no scheduler runs it
-  in the background; that would be exactly the implicit control flow this
-  design avoids. An agent that never calls it just keeps writing wholesale.
+     {:type :transactor
+      :local-stream s   ; must satisfy IDaoStreamReader and IDaoStreamWriter;
+                        ; supplied, never created, registered, or closed
+      :intake-pool [p]  ; non-empty; every member satisfies IDaoStreamWriter;
+                        ; supplied, never created, registered, or closed
+      :name n}          ; optional, diagnostic only
 
-  Reading (`ds/next` with a `{:position n}` cursor) walks the stream's own
-  datom log — the log, not current state; cross-stream reads and
-  current-state resolution stay query-time concerns of `dao.space.query`.
-  Order is append order only while the root stays wholesale; `publish!`
-  advances the root to an owner-built index, and index/read-datoms then
-  yields eavt order instead — the one event that changes what position
-  `n` refers to. `next` detects this with `dao.space.index/read-root`'s
-  `:reorder-epoch` and returns `:daostream/gap` rather than silently
-  handing a stale cursor a datom from a different position, but only when
-  there is still unread data at that position — a cursor already caught
-  up when the reorder happened has nothing to lose, so it keeps returning
-  `:blocked`/`:end` rather than gapping on a no-op. A same-data republish
-  (content-addressed: `publish-index!` compares against the existing
-  root and skips the cas!) never reorders anything and so never gaps
-  either. Fold-back on the next append does not re-gap, since it does
-  not reorder anything already minted (see cas-append!).
+   The transactor owns transaction time. Every append! or transact! writes
+   exactly ONE atomic transaction record to the local stream
 
-  `:daostream/gap` means something different here than on the
-  eviction-based transports (ringbuffer, udp, file): there the cursor's
-  position was evicted and the documented recovery is resync to tail
-  (dao.stream.file.md); here nothing was evicted, the log was reordered
-  in place, so resyncing to tail would silently skip data that is still
-  present. The `:daostream/gap` sentinel carries no cause, so a
-  transactor reader's gap handler must resync by re-reading from
-  `{:position 0}`, not from the tail. A checkpointed cursor must persist
-  the whole cursor map (`(:cursor result)`), including `:epoch` — a
-  restored `{:position n}` with `:epoch` dropped silently bypasses gap
-  detection and resumes into reordered data (dao.space.md, Fault
-  Tolerance).
+     {:dao.space/transaction {:t <nonnegative-integer> :datoms [...]}}
 
-  Cost: every `next` call re-reads and (on a published root) eagerly
-  walks the whole root — the full re-read is deliberate, it's what gives
-  a blocked cursor liveness across handles (`open-put-query-roundtrip`
-  and friends) without a separate wake channel — but it makes a cursor
-  walk of n datoms O(n^2) store reads on backends where a read isn't
-  free (file, DHT); invisible on dao.jing.mem."
+   through exactly one ds/append!, so no reader can ever observe a torn
+   transaction. t is allocated from a per-wrapper watermark: on open the
+   retained history is scanned from cursor zero (index/snapshot-datoms) and
+   the next t is derived as 0 for an empty history or 1 + the maximum
+   integer datom t otherwise. A retention gap or malformed history throws.
+   The scan is the causality boundary; a caller-supplied next-t is never
+   accepted.
+
+   Single-writer: calls through one wrapper are serialized around timestamp
+   allocation and append. The watermark is per-wrapper state, so two wrappers over
+   the same local stream each derive the same next-t and silently write
+   colliding records. That is invalid and cannot be silently coordinated
+   without shared mutable state. Use one wrapper per local stream.
+
+   publish! builds the covered indexes over the local stream and enqueues
+   them into the intake pool (dao.space.index/publish-index!). Publication
+   is explicit and acknowledges enqueuing only, never observer
+   materialization.
+
+   Closing a wrapper is per handle: it rejects further appends/transacts but
+   neither closes nor erases the local stream."
   (:require [dao.datom :as datom]
-            [dao.jing :as jing]
             [dao.space.index :as index]
             [dao.stream :as ds])
   #?(:cljs (:require-macros [dao.stream])))
@@ -84,12 +46,9 @@
 
 (defn- entity->datoms
   "One datom per k/v pair, all sharing transaction time `t`. `:db/id` is
-  required: a durable multi-writer log cannot mint per-batch tempids
-  without colliding across appends. Attribute order within one entity's
-  own datoms is whatever the host's map iteration yields — unspecified
-  across platforms (not stable past 8 entries on the JVM; insertion-ish
-  but not contractual on cljs/cljd). \"Append order\" (ns docstring) is a
-  per-append guarantee via `t`, not a per-attribute one."
+   required: a durable log cannot mint per-batch tempids without colliding
+   across appends. Attribute order within one entity's own datoms is
+   whatever the host's map iteration yields — unspecified across platforms."
   [m t]
   (when-not (contains? m :db/id)
     (throw (ex-info "entity map requires :db/id" {:entity m})))
@@ -100,176 +59,161 @@
 
 
 (defn- pad-datom
-  "Pad [e a v] / [e a v t m] to the canonical 5-tuple; a nil t takes the
-  log position, a nil m the default op (an explicit 0 stays a retraction).
-  An explicit t is trusted uncritically — a far-future t outranks later
-  auto-t writes under recency resolution; sibling gap to the pending
-  cross-stream entity-id stamping (ns docstring)."
+  "Pad [e a v] / [e a v t m] to the canonical 5-tuple. The transactor owns
+   transaction time: a non-nil explicit t is rejected, a nil t is stamped
+   with the allocated `t`. A nil m takes the default assertion op; an
+   explicit m (0, a retraction) is preserved."
   [d t]
   (let [[e a v dt dm] d]
-    [e a v (if (nil? dt) t dt) (if (nil? dm) datom/default-op dm)]))
+    (when-not (nil? dt)
+      (throw
+        (ex-info
+          "the transactor owns transaction time: explicit datom t is rejected"
+          {:datom d})))
+    [e a v t (if (nil? dm) datom/default-op dm)]))
 
 
 (defn- val->datoms
   [val t]
-  (cond (map? val) (entity->datoms val t)
-        (and (vector? val) (<= 3 (count val) 5)) [(pad-datom val t)]
-        :else
+  (cond
+    (map? val) (entity->datoms val t)
+    (and (vector? val) (<= 3 (count val) 5)) [(pad-datom val t)]
+    :else
+    (throw
+      (ex-info
+        "a value must be an entity map or datom vector [e a v] / [e a v nil m]"
+        {:val val}))))
+
+
+#_{:clj-kondo/ignore [:unused-binding]}
+
+
+(defn- with-write-lock
+  "Serialize timestamp allocation and append on hosts with shared-memory
+   threads. ClojureScript and ClojureDart calls are synchronous within one
+   isolate, so the direct call has the same single-writer semantics."
+  [lock f]
+  #?(:clj (locking lock (f))
+     :default (f)))
+
+
+(defn- append-packet!
+  "Append one atomic transaction record to the local stream. The watermark
+   advances only after the underlying ds/append! answers {:result :ok}; on
+   any other result or on a thrown error the wrapper keeps the same t and
+   the call can be retried. Returns {:result :ok, :t t, :datoms datoms}."
+  [local-stream next-t t datoms context]
+  (let [record {:dao.space/transaction {:t t, :datoms datoms}}
+        result (ds/append! local-stream record)]
+    (when-not (and (map? result) (= :ok (:result result)))
+      (throw (ex-info (str context " stream append failed: " (pr-str result))
+                      {:result result, :t t, :datoms datoms})))
+    (swap! next-t inc)
+    {:result :ok, :t t, :datoms datoms}))
+
+
+(defn- derive-next-t
+  "Derive the next transaction time from a flattened retained history: 0 for
+   an empty history, else 1 + the maximum datom t. A datom t that is not a
+   non-negative integer is a malformed history and throws — this scan is the
+   causality boundary of the wrapper."
+  [datoms]
+  (if (empty? datoms)
+    0
+    (let [ts (mapv index/datom-t datoms)]
+      (when-not (every? #(and (integer? %) (<= 0 %)) ts)
         (throw
           (ex-info
-            "put! takes an entity map or datom vector [e a v] / [e a v t m]"
-            {:val val}))))
-
-
-(def ^:private max-append-retries
-  "Bound on cas-append!'s CAS retry loop. With one writer per root,
-  every retry means a same-name handle raced us — expected to be rare,
-  but a busy-spin retry loop with no cap pegs a thread indefinitely if
-  that assumption is ever wrong (two runaway handles on one name, a
-  backend that fails CAS spuriously). 64 is generous headroom over the
-  expected \"basically never\" contention, not a tuned figure."
-  64)
-
-
-(defn- cas-append!
-  "Drives the read-modify-cas! loop shared by `append!` and `transact!`:
-  re-reads the root, calls `build-new-datoms` (a fn `[existing-datoms] ->
-  new-datoms`) for the datoms to add, then `cas!`s them on. Returns the
-  new-datoms on success, or throws once `attempt` reaches
-  `max-append-retries` (`attempt` counts lost `cas!` attempts only — it
-  advances in the failure branch below, not on every loop iteration; a
-  successful `cas!` returns directly and never reaches `recur`).
-
-  `cas-append!` has no `t` of its own — both callers derive their own `t`
-  from `(count existing-datoms)` inside their `build-new-datoms` closure,
-  which is why every datom added in one call, whether one (`append!`) or
-  many (`transact!`), shares a single `t`: the log position at append time
-  (a monotone per-root watermark). That `t` is a write-time identity, not a
-  live cursor position — a fold-back does not renumber old datoms to match
-  wherever they now sit in `next`'s order. `:reorder-epoch` is carried
-  forward unchanged (index/read-root, §ns docstring): folding an indexed
-  root back to wholesale does not reorder the positions already minted
-  against it, only a fresh publish! does. `read-root` gives
-  datoms/expected/epoch as one snapshot — reading them separately risked an
-  expected value that no longer matched the datoms a concurrent publish! had
-  already reshaped, costing a spurious lost-CAS retry."
-  [store datoms-key build-new-datoms error-msg]
-  (loop [attempt 0]
-    (when (>= attempt max-append-retries)
-      (throw (ex-info error-msg {:key datoms-key, :attempts attempt})))
-    (let [{:keys [datoms expected reorder-epoch]} (index/read-root store
-                                                                   datoms-key)
-          existing (vec datoms)
-          new-datoms (build-new-datoms existing)]
-      (if (jing/cas! store
-                     datoms-key
-                     expected
-                     {:datoms (into existing new-datoms),
-                      :reorder-epoch reorder-epoch})
-        new-datoms
-        (recur (inc attempt))))))
+            "malformed retained history: datom t must be a non-negative integer"
+            {:history datoms})))
+      (inc (reduce max ts)))))
 
 
 (deftype DaoStreamLog
-  [store datoms-key stream-name state]
+  [local-stream intake-pool stream-name next-t state]
 
   ds/IDaoStreamWriter
 
   (append!
     [_this val]
     (when (:closed @state)
-      (throw (ex-info "Cannot put to closed stream" {:name stream-name})))
-    (cas-append!
-      store
-      datoms-key
-      (fn [existing] (val->datoms val (count existing)))
-      "append! could not win the root cas! after max-append-retries attempts")
-    {:result :ok, :woke []})
+      (throw (ex-info "Cannot append to closed stream" {:name stream-name})))
+    (with-write-lock
+      next-t
+      (fn []
+        (let [t @next-t
+              datoms (val->datoms val t)]
+          (when (empty? datoms)
+            (throw (ex-info "append! produced no datoms" {:val val})))
+          (append-packet! local-stream next-t t datoms "append!")))))
 
 
   ds/IDaoStreamReader
 
-  (next
-    [_this cursor]
-    (let [{:keys [datoms reorder-epoch]} (index/read-root store datoms-key)
-          pos (:position cursor 0)
-          cursor-epoch (:epoch cursor reorder-epoch)
-          reordered? (and (pos? pos) (not= cursor-epoch reorder-epoch))]
-      (cond (and reordered? (< pos (count datoms))) :daostream/gap
-            (< pos (count datoms)) {:ok (nth datoms pos),
-                                    :cursor (assoc cursor
-                                                   :position (inc pos)
-                                                   :epoch reorder-epoch)}
-            (:closed @state) :end
-            :else :blocked)))
+  (next [_this cursor] (ds/next local-stream cursor))
 
 
   ds/IDaoStreamBound
-  ;; :closed is local to this handle's own `state` atom, not the shared
-  ;; root — a second handle on the same name keeps reading normally after
-  ;; this one closes (cursor-reading's ":closed is per-handle" test); it
-  ;; models "this client is done," not "the stream is done."
+
   (close! [_this] (swap! state assoc :closed true) {:woke []})
 
 
   (closed? [_this] (:closed @state)))
 
 
-(defn- dao-jing-handle?
-  [x]
-  (and (map? x) (some #(contains? x %) [:stream :target :call-fn :get-fn])))
-
-
 (ds/defopen
   :transactor
   [descriptor]
-  (let [{store :store, stream-name :name, datoms-key :key} descriptor]
-    (when-not (dao-jing-handle? store)
-      (throw (ex-info ":transactor descriptor requires a :store jing handle"
-                      {:descriptor descriptor})))
-    (when-not (or datoms-key stream-name)
+  (let [{:keys [local-stream intake-pool name]} descriptor
+        stream-name (or name "transactor")]
+    (when (contains? descriptor :next-t)
       (throw
         (ex-info
-          ":transactor descriptor requires a :name (or :key) — the stream's root is :root/<name>"
+          ":transactor derives transaction time from retained history; :next-t is not accepted"
           {:descriptor descriptor})))
-    (let [k (or datoms-key (keyword "root" (str stream-name)))]
-      (index/validate-root-key! k ":transactor open!")
-      (->DaoStreamLog store k stream-name (atom {:closed false})))))
+    (when-not (and (satisfies? ds/IDaoStreamReader local-stream)
+                   (satisfies? ds/IDaoStreamWriter local-stream))
+      (throw
+        (ex-info
+          ":transactor descriptor requires a :local-stream satisfying IDaoStreamReader and IDaoStreamWriter"
+          {:descriptor descriptor})))
+    (when-not (and (coll? intake-pool) (seq intake-pool))
+      (throw
+        (ex-info
+          ":transactor descriptor requires a non-empty :intake-pool of streams satisfying IDaoStreamWriter"
+          {:descriptor descriptor})))
+    (doseq [intake intake-pool]
+      (when-not (satisfies? ds/IDaoStreamWriter intake)
+        (throw
+          (ex-info
+            ":transactor :intake-pool members must satisfy IDaoStreamWriter"
+            {:intake-pool intake-pool}))))
+    (let [next-t (derive-next-t (index/snapshot-datoms local-stream))]
+      (->DaoStreamLog local-stream
+                      intake-pool
+                      stream-name
+                      (atom next-t)
+                      (atom {:closed false})))))
 
 
 (defn publish!
-  "Build and persist the covered indexes over everything appended to
-  `log` so far, advancing its root to `{:indexes ... :count n}`. Runs on
-  every platform (dao.data.btree, not psset — see
-  docs/design/dao.data.btree.md §6). opts: as `dao.space.index/publish-index!`
-  (e.g. `:branching-factor`); `:key`, `:expected`, and `:reorder-epoch` are
-  supplied from `log`'s own atomic read (`index/read-root`) and cannot be
-  overridden — the datoms this builds indexes from and the value the final
-  cas! guards on must be the same snapshot, or a same-root append landing
-  mid-build would be silently dropped instead of causing the loud cas!
-  failure `publish-index!` promises.
-
-  The next `ds/append!` on this (or any other handle sharing the same
-  root) folds the published root back to wholesale, per this ns's own
-  cas-append! — publishing is not sticky across writes, by design
-  (§ns docstring)."
+  "Build and enqueue the covered indexes over the local stream into the
+   intake pool (dao.space.index/publish-index!), returning its
+   {:manifest-address ... :manifest ...}. opts are passed through to
+   publish-index! (e.g. :branching-factor, :select-stream). Publication is
+   explicit and acknowledges enqueuing only, never observer
+   materialization."
   ([log] (publish! log nil))
   ([^DaoStreamLog log opts]
-   (let [store (.-store log)
-         datoms-key (.-datoms-key log)
-         {:keys [datoms expected reorder-epoch]} (index/read-root store
-                                                                  datoms-key)]
-     (index/publish-index! store
-                           datoms
-                           (assoc opts
-                                  :key datoms-key
-                                  :expected expected
-                                  :reorder-epoch reorder-epoch)))))
+   (index/publish-index! (.-local-stream log) (.-intake-pool log) opts)))
 
 
 (defn transact!
-  "Commits multiple entity maps or datoms as a single atomic batch under a single t.
-  Throws if log is closed or if tx-data is empty."
+  "Commits a non-empty collection of entity maps or datom vectors as a
+   single atomic transaction: every datom shares one allocated t and lands
+   in one transaction record through exactly one ds/append!, so no partial
+   prefix is possible. Throws when the stream is closed, the collection is
+   empty, any item is invalid, or the expansion yields no datoms."
   [^DaoStreamLog log tx-data]
   (when (ds/closed? log)
     (throw (ex-info "Cannot transact! to closed stream"
@@ -277,15 +221,12 @@
   (when (empty? tx-data)
     (throw (ex-info "transact! requires at least one transaction item"
                     {:tx-data tx-data})))
-  (let
-    [store (.-store log)
-     datoms-key (.-datoms-key log)
-     new-datoms
-     (cas-append!
-       store
-       datoms-key
-       (fn [existing]
-         (let [t (count existing)]
-           (into [] (mapcat #(val->datoms % t)) tx-data)))
-       "transact! could not win the root cas! after max-append-retries attempts")]
-    {:result :ok, :tx-datoms new-datoms}))
+  (let [next-t (.-next-t log)]
+    (with-write-lock
+      next-t
+      (fn []
+        (let [t @next-t
+              datoms (into [] (mapcat #(val->datoms % t)) tx-data)]
+          (when (empty? datoms)
+            (throw (ex-info "transact! produced no datoms" {:tx-data tx-data})))
+          (append-packet! (.-local-stream log) next-t t datoms "transact!"))))))

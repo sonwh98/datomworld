@@ -3,10 +3,12 @@
 
   Wire format: one Transit-JSON message map per datagram. Requests carry
   {:op ... :rpc n :from peer}; replies carry {:op :reply :rpc n :from peer
-  :value ...}. Request-response reliability is owned by the client as
-  timeouts and retries (design doc, Transport: chunk fetch is not gossip).
-  Every received :from is observed into the k-bucket table, so routing
-  knowledge accretes from traffic itself.
+  :value ...}. The wire ops are :ping, :find-node, :store-content, and
+  :fetch-content; there are no roots, no CAS records, and no deletes.
+  Request-response reliability is owned by the client as timeouts and
+  retries (design doc, Transport: chunk fetch is not gossip). Every
+  received :from is observed into the k-bucket table, so routing knowledge
+  accretes from traffic itself.
 
   Limits, all named in docs/design/dao.jing.dht.md:
   - JVM only today (java.net.DatagramSocket); no browser/Node peer. The
@@ -17,9 +19,10 @@
     send and dropped on reply, never torn. Segments that exceed the budget
     stay local-only until DRDS fragmentation exists (store degrades to
     best-effort, fetch times out).
-  - Peers are untrusted: incoming :store requests re-verify the content
-    hash before writing. No address validation or rate limiting yet
-    (Operational reality, UDP amplification)."
+  - Peers are untrusted: incoming :store-content requests re-verify the
+    content address against the payload before writing. No address
+    validation or rate limiting yet (Operational reality, UDP
+    amplification)."
   #?(:clj (:require [dao.jing :as jing]
                     [dao.jing.mem :as mem]
                     [dao.jing.dht :as dht]
@@ -83,36 +86,53 @@
 ;; =============================================================================
 
 #?(:cljd nil
-   :clj (defn- handle
-          "Serve one request against this node's local store."
-          [local table msg]
-          (case (:op msg)
-            :ping {:pong true}
-            :find-node {:peers (kad/nearest @table (:target msg) kad/k)}
-            ;; exact-key equality: (name k) would also accept bare strings
-            ;; and foreign namespaces (:root/<hash> — an unconditional put!
-            ;; over a cas!-managed key), bypassing the key-class discipline
-            :store (let [{:keys [k v]} msg]
-                     (if (= k (jing/segment-key v))
-                       {:ok (boolean (jing/cas! local k jing/absent v))}
-                       {:ok false, :error :bad-hash}))
-            ;; :found travels explicitly on both reads: values are opaque
-            ;; and nil is a legal one, so it cannot be inferred from :v
-            :fetch (let [v (jing/get local (:k msg) ::none)]
-                     (if (= ::none v) {:found false} {:found true, :v v}))
-            :root-get (let [v (jing/get local (:k msg) ::none)]
-                        (if (= ::none v) {:found false} {:found true, :v v}))
-            :root-cas {:ok (jing/cas! local (:k msg) (:expected msg) (:v msg))}
-            {:error :unknown-op})))
+   :clj
+   (def ^:private missing
+     "Internal not-found sentinel for served :fetch-content reads, never
+      exposed. An opaque per-host identity object, never a keyword: a
+      keyword sentinel could be confused with a genuinely stored payload,
+      and nil is a legal one."
+     (Object.)))
+
+
+#?(:cljd nil
+   :clj
+   (defn- handle
+     "Serve one request against this node's local content store."
+     [local table msg]
+     (case (:op msg)
+       :ping {:pong true}
+       :find-node {:peers (kad/nearest @table (:target msg) kad/k)}
+       ;; peers are untrusted: the address must be the exact strict
+       ;; segment address for the payload, never a bare hash, a
+       ;; foreign namespace, or a mismatched value, and the local
+       ;; backend's verdict must be an explicit :inserted/:present
+       :store-content
+       (let [{:keys [address v]} msg]
+         (try
+           (if (and (jing/segment-address? address)
+                    (= (jing/segment-hash address) (jing/content-hash v)))
+             (let [result ((:put-content-fn local) address v)]
+               (if (#{:inserted :present} result) {:ok true} {:ok false}))
+             {:ok false})
+           (catch Exception _ {:ok false})))
+       ;; :found travels explicitly on both reads: values are opaque
+       ;; and nil is a legal one, so it cannot be inferred from :v
+       :fetch-content
+       (let [v (jing/get local (:address msg) missing)]
+         (if (identical? v missing) {:found false} {:found true, :v v}))
+       ;; no root or CAS op exists on this wire; unknown ops are
+       ;; thrown and answered as {:error ...} by the receiver
+       (throw (ex-info "dao.jing.dht.node: unknown op" {:op (:op msg)})))))
 
 
 #?(:cljd nil
    :clj
    (defn- start-receiver!
      "One daemon thread per node: decodes datagrams, observes senders into
-     the routing table, delivers replies to pending requests, and serves
-     requests. Replies go to the datagram's source address, not the claimed
-     :from."
+      the routing table, delivers replies to pending requests, and serves
+      requests. Replies go to the datagram's source address, not the claimed
+      :from."
      [^DatagramSocket socket local table self ^ConcurrentHashMap pending]
      (doto
        (Thread.
@@ -197,8 +217,8 @@
    :clj
    (defn- request!
      "Request-response over fire-and-forget UDP: this client owns timeouts
-     and retries. Returns the reply value, or nil when the peer stays
-     unreachable."
+      and retries. Returns the reply value, or nil when the peer stays
+      unreachable."
      [node to msg]
      (let [{:keys [timeout-ms tries], :or {timeout-ms 500, tries 3}} (:opts
                                                                        node)]
@@ -236,31 +256,22 @@
                 found)))
 
 
-          (store-segment!
-            [this to k v]
-            (try (boolean (:ok (request! this to {:op :store, :k k, :v v})))
+          (store-content!
+            [this to address payload]
+            (try (boolean (:ok (request! this
+                                         to
+                                         {:op :store-content,
+                                          :address address,
+                                          :v payload})))
                  (catch Exception _ false)))
 
 
-          (fetch-segment
-            [this to k]
-            (when-let [res (request! this to {:op :fetch, :k k})]
+          (fetch-content
+            [this to address]
+            (when-let [res (request! this
+                                     to
+                                     {:op :fetch-content, :address address})]
               {:found? (boolean (:found res)), :value (:v res)}))
-
-
-          (root-get
-            [this to k]
-            (when-let [res (request! this to {:op :root-get, :k k})]
-              {:found? (boolean (:found res)), :value (:v res)}))
-
-
-          (root-cas!
-            [this to k expected v]
-            (when-let [res (request!
-                             this
-                             to
-                             {:op :root-cas, :k k, :expected expected, :v v})]
-              (boolean (:ok res))))
 
 
           (close-net!
@@ -273,17 +284,18 @@
    :clj
    (defn create-node
      "Open a UDP Kademlia peer implementing dht/IDhtNet. opts:
-       :host        bind/advertised address (default \"127.0.0.1\")
-       :port        listen port (default 0 = ephemeral)
-        :local       the storage handle this peer serves (default in-memory)
-       :bootstrap   seq of {:host :port} of existing peers
-       :timeout-ms  per-attempt reply timeout (default 500)
-       :tries       attempts per request (default 3)"
+        :host        bind/advertised address (default \"127.0.0.1\")
+        :port        listen port (default 0 = ephemeral)
+        :local       the content handle this peer serves (default
+                     dao.jing.mem/create-content-mem)
+        :bootstrap   seq of {:host :port} of existing peers
+        :timeout-ms  per-attempt reply timeout (default 500)
+        :tries       attempts per request (default 3)"
      [{:keys [host port local bootstrap], :as opts}]
      (let [host (or host "127.0.0.1")
            socket (DatagramSocket. (int (or port 0)))
            port (.getLocalPort socket)
-           local (or local (mem/create-kv-mem))
+           local (or local (mem/create-content-mem))
            peer {:id (dht/node-id host port), :host host, :port port}
            table (atom {})
            pending (ConcurrentHashMap.)
@@ -309,10 +321,11 @@
 
 #?(:cljd nil
    :clj
-   (defn create-kv-dht-udp
-     "Convenience: open a UDP node and wrap it as a DHT handle. The node and
-      the store share `local`, so this peer serves the same bytes it reads."
+   (defn create-content-dht-udp
+     "Convenience: open a UDP node and wrap it as a DHT content-store
+      handle. The node and the store share `local`, so this peer serves the
+      same bytes it reads."
      [opts]
-     (let [local (or (:local opts) (mem/create-kv-mem))
+     (let [local (or (:local opts) (mem/create-content-mem))
            node (create-node (assoc opts :local local))]
-       (dht/create-kv-dht {:net node, :local local}))))
+       (dht/create-content-dht {:net node, :local local}))))

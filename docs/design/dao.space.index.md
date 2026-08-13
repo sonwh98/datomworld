@@ -1,19 +1,22 @@
 # dao.space.index — The Transactor-Side Indexing Library
 
 Status: implemented. The mechanism (owner-built, content-addressed B-Tree
-segments) shipped 2026-07-10 inside `dao.space.query`; extracted 2026-07-12
-into its own namespace. This document records why the library exists, what it
-owns, its public surface, and the boundary between it and the query library.
-The executable contract is `test/dao/space/index_test.cljc`.
+segments) shipped 2026-07-10 and runs today on `dao.data.btree`; this document
+records why the library exists, what it owns, its public surface, and the
+boundary between it and the query library. The executable contract is
+`test/dao/space/index_test.cljc`.
 
 **Related documents:**
-- `docs/design/dao.space.query.md`, *Index Realization* — the design record
-  this library implements (rebuild / incremental / owner-built strategies,
-  Ruling 1: no new storage protocol, laziness is reader-side)
+- `docs/design/dao.space.query.md` — the reader-side consumer of the
+  realization this library owns
 - `docs/design/dao.space.md` — the tuple space; *Three Boundaries* maps
   Transactor/Storage/Query onto streams
-- `docs/design/dao.jing.md` — the storage boundary; *The Segment and Root
-  Keyspace* (`:segment/sha256-<hash>` / `:root/<name>`)
+- `docs/design/dao.jing.md` — the storage boundary; publication through an
+  explicit intake pool
+- `docs/design/dao.jing.dht.md` — the distributed backend the published blobs
+  can be stored into
+- `docs/design/dao.data.btree.md` — the cross-platform tree and its storage
+  adapter
 - `docs/datomic.md` — the architecture the analogy below leans on
 
 ## Why a separate library
@@ -25,56 +28,80 @@ transactor (`dao.space.md`, *Three Boundaries*) — so every agent also owns the
 transactor's other duty, **indexing its own datoms**. That duty needs a
 library the same way querying does:
 
-- `dao.space.index` — what a stream owner runs: build the covered indexes,
-  persist them as immutable content-addressed segments, advance the root.
-  The write-side counterpart of the pair.
-- `dao.space.query` — the embeddable Peer: fold sources, match, Datalog.
-  Reads what the index library realizes; owns no index format knowledge of
-  its own.
+- `dao.space.index` — what a stream owner runs: snapshot the local stream,
+  build the covered indexes, and enqueue them as immutable content-addressed
+  segments plus a manifest through a DaoJing intake stream. The write-side
+  counterpart of the pair.
+- `dao.space.query` — the embeddable Peer: fold published sources, match,
+  Datalog, pull. Reads what the index library realizes; owns no index format
+  knowledge of its own.
 
-Until 2026-07-12 the indexing code lived inside `dao.space.query`, whose own
-docstring apologized for it ("the one writing entry point here"). The
-extraction restores the boundary: **query never writes; index owns the
-realization both sides share.** It is the same move Datomic makes between
-transactor and peer — one party materializes, many parties consume — except
-here "the transactor" is not a process but a library duty every agent carries.
+The boundary is strict: **query never writes; index owns the realization both
+sides share.** It is the same move Datomic makes between transactor and peer —
+one party materializes, many parties consume — except here "the transactor"
+is not a process but a library duty every agent carries.
 
 ## What the library owns
 
 One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
 *realization*: the shared vocabulary a builder and a reader must agree on.
 
-- **The root conventions** — each stream owns its root, `:root/<name>`, named
-  explicitly by a `dao.space.query/root-source` descriptor. A collection of
-  root sources is the pool a query folds; no shared membership key is written.
-  The two root shapes every datom root carries are wholesale `{:datoms [...]}`
-  and owner-built `{:indexes {:eavt <segment-key> :aevt ... :avet ... :vaet ...}
-  :count n :branching-factor n :reorder-epoch n}`. Roots written by the
-  transactor carry `:reorder-epoch`; readers treat its absence as epoch zero
-  for compatibility with older or hand-built roots.
-- **Sort orders** — `eavt-cmp` / `aevt-cmp` / `avet-cmp` / `vaet-cmp`
-  over heterogeneous
-  values (`compare-vals`: type-ranked, nil-first — entity ids are
-  caller-chosen and can be any type), plus the datom slot accessors
-  (`datom-e/a/v/t/m`) they read through.
+- **Sort orders** — `eavt-cmp` / `aevt-cmp` / `avet-cmp` / `vaet-cmp` over
+  heterogeneous values (`compare-vals`: type-ranked, nil-first — entity ids
+  are caller-chosen and can be any type), plus the datom slot accessors
+  (`datom-e/a/v/t/m/ns`) they read through. The trailing namespace slot is
+  the last tiebreaker in every order, never a leading component: it leaves
+  five-slot ordering unchanged and only separates datoms that agree on
+  `[e a v t m]` but differ in namespace, so a fold never silently drops one.
 - **The in-memory index value** — `index-datoms` builds
   `{:eavt :aevt :avet :vaet}` `dao.data.btree` sorted sets. `subseq-from`
   delegates to `dao.data.btree/slice`: a log-n descent that, on a restored
   tree, loads only the seek path plus the matching range. The implementation
-  is the same on JVM, ClojureScript, and ClojureDart. This is a value built
-  when needed, not a separately maintained per-agent cache.
+  is the same on JVM, ClojureScript, and ClojureDart.
+- **The snapshot** — `snapshot-datoms` reads an agent-local stream from
+  cursor zero with `ds/next`. A stream element is either one canonical datom
+  vector `[e a v t m]` or one atomic transaction record
+  `{:dao.space/transaction {:t n :datoms [...]}}`; transaction records are
+  validated and flattened into their datoms. `:blocked` and `:end` finish the
+  snapshot at the current tail; `:daostream/gap` and malformed stream results,
+  datoms, or transaction records throw. Because the snapshot starts at
+  position zero, the local stream must retain its complete history — a
+  retention gap aborts publication before anything is emitted.
 - **The persisted node-blob format, both directions** — a
-  `dao.data.btree/IStorage` adapter over a jing handle: nodes store as
-  plain-EDN content-addressed segment blobs (leaf `{:keys [...]}`, branch
-  `{:level n :keys [...] :addresses
-  [...]}`), keys minted by `jing/segment-key` — Merkle by construction, since
-  `dao.data.btree` stores children before parents. `restored-indexes`
-  re-attaches a complete published manifest lazily on every platform;
-  `walk-index-datoms` reads the node graph eagerly using only `jing/get`;
-  `read-root` and `read-datoms` read either root shape.
-- **The transactor entry point** — `publish-index!`: build the four covered indexes
-  from the stream's datoms, persist the segments through
-  `dao.data.btree.storage/kv-storage`, then `cas!` the root to the manifest.
+  `dao.data.btree/IStorage` adapter over a DaoJing content-store handle
+  (`dao.data.btree.storage/kv-storage`): nodes store as plain-EDN
+  content-addressed segment blobs (leaf `{:keys [...]}`, branch
+  `{:level n :keys [...] :addresses [...]}`), addresses minted by
+  `dao.jing/materialize!` — Merkle by construction, since `dao.data.btree`
+  stores children before parents. `read-manifest` validates a manifest and its
+  content address; `read-datoms` walks the EAVT node graph eagerly using only
+  `jing/get`; `restored-indexes` re-attaches a published manifest's trees
+  lazily on every platform.
+- **The transactor entry point** — `publish-index!`: snapshot the stream,
+  build the four covered indexes, append the node blobs and the manifest to
+  one intake stream selected from an explicit pool. DaoJing itself is never
+  mutated directly.
+
+## The manifest
+
+The published manifest is exactly
+
+```clojure
+{:indexes {:eavt <segment-address-or-nil>
+           :aevt <segment-address-or-nil>
+           :avet <segment-address-or-nil>
+           :vaet <segment-address-or-nil>}
+ :count n
+ :branching-factor n}
+```
+
+with no source stream, no pool, no epoch, and no self-address. `read-manifest`
+accepts only this shape: the four index keys, a non-negative integer `:count`,
+an integer `:branching-factor` of at least two, index addresses all nil when
+the count is zero and all `:segment/sha256-...` addresses otherwise, and the
+manifest's content address matching the requested address. The manifest
+address is derived from the manifest alone and never depends on which intake
+stream carried it.
 
 ## Public surface
 
@@ -82,121 +109,133 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
 (require '[dao.space.index :as index])
 
 ;; the transactor's move (JVM, ClojureScript, and ClojureDart)
-(index/publish-index! store :root/w)            ; index the stream at that root
-(index/publish-index! store datoms {:key :root/w})  ; index an explicit datom seq
-(index/publish-index! store datoms
-                      {:key :root/w
-                       :branching-factor 512})  ; max keys per node (default 512,
-                                                ; Datomic-style fat segments)
-;; => {:eavt :segment/sha256-… :aevt … :avet … :vaet …}
+(index/publish-index! local-stream intake-pool)
+(index/publish-index! local-stream intake-pool
+                      {:branching-factor 512})    ; max keys per node,
+                                                  ; Datomic-style fat segments
+(index/publish-index! local-stream intake-pool
+                      {:select-stream f})         ; f receives the pool and
+                                                  ; returns one intake stream
+;; => {:manifest-address :segment/sha256-… :manifest {:indexes {...} :count n :branching-factor n}}
+
+;; the snapshot (reads and validates a local stream)
+(index/snapshot-datoms local-stream)              ; => flattened datom seq
 
 ;; the format's readers (every platform)
-(index/read-root store :root/w)                 ; atomic datoms/CAS snapshot
-(index/read-datoms store some-root-key)         ; either root shape -> datoms
-(index/walk-index-datoms store segment-key)     ; eager node-graph walk
-(index/restored-indexes store manifest)         ; lazy B-tree re-attach
+(index/read-manifest content-store manifest-address)     ; validated manifest
+(index/read-datoms content-store manifest-address)       ; eager EAVT walk
+(index/walk-index-datoms content-store segment-address)  ; eager node-graph walk
+(index/restored-indexes content-store manifest)          ; lazy B-tree re-attach
 
 ;; the shared vocabulary
-(index/validate-root-key! :root/w "context")    ; validate root key shape/name
 (index/index-datoms datoms)                     ; {:eavt :aevt :avet :vaet} trees
 (index/subseq-from sorted-set index/eavt-cmp sentinel)
 (index/compare-vals a b)
+(index/eavt-cmp) (index/aevt-cmp) (index/avet-cmp) (index/vaet-cmp)
+(index/datom-e d) (index/datom-a d) (index/datom-v d)
+(index/datom-t d) (index/datom-m d) (index/datom-ns d)
 ```
 
 `publish-index!` semantics worth pinning:
 
+- **Builds into a temporary recording content handle.** The four indexes are
+  stored through `dao.data.btree.storage/kv-storage` into a build-time
+  in-memory handle whose put records each unique blob on first insertion
+  (deduplicating equal blobs as `:present`), so the recorded order is exactly
+  the children-before-parent store-tree traversal.
+- **Exactly one intake stream.** `publish-index!` selects one stream from the
+  explicit pool — the first, or the stream returned by `:select-stream`, which
+  must be a member of the pool. It appends every unique node blob in recorded
+  order, then the manifest last.
+- **Append success means enqueued, not materialized.** Success acknowledges
+  that every payload was appended to the selected intake stream. A DaoJing
+  observer must still read the stream for the payloads to land in content
+  storage.
+- **Partial immutable prefix is retry-safe.** The manifest is always appended
+  last, so a full intake stream can only have left node blobs; the next
+  publish re-emits them and materialization deduplicates. No partial manifest
+  is ever observable.
+- **No direct DaoJing mutation.** Publication writes streams, never a content
+  store; DaoJing observes.
 - **Idempotent on unchanged data** — content addressing yields the same
-  segment keys, so the same root addresses; republishing costs writes that
-  are no-ops.
-- **Single-writer discipline** — throws if the root `cas!` is lost to a
-  concurrent writer, rather than silently retrying over someone else's
-  publish. The stream owner publishes; nobody else should be racing it.
-- **An empty stream publishes `nil` roots** — `{:indexes {:eavt nil …}}`
-  reads back as no datoms, not an error (walk of nil ⇒ ()).
+  segment keys, so the same manifest address; republishing costs writes that
+  are no-ops at materialization.
+- **An empty stream publishes nil index addresses** —
+  `{:indexes {:eavt nil …}}` reads back as no datoms, not an error (a walk of
+  nil ⇒ ()).
 - **Publication changes representation, not visibility** — append has already
-  written the datoms to the stream root in wholesale form. Publication replaces
-  that root value with addresses of covered indexes over the same datoms.
+  written the datoms to the local stream. Publication replaces no root; it
+  adds a persisted covered-index manifest over the same datoms.
 
 ## The agent-transactor loop
 
-How the pieces compose for a long-lived agent (the write path is
-`dao.space.transactor`'s `:transactor`; see `dao.space.md`, *The Write Path*):
+The write path runs through `dao.space.transactor`'s `:transactor` stream
+wrapper (see `dao.space.md`, *The Write Path*). Its descriptor is
+`{:type :transactor :local-stream s :intake-pool [...] optional :name}`; it
+owns neither stream lifecycle — the local stream and intake pool are
+supplied, never created, registered, or closed:
 
 ```clojure
 (require '[dao.stream :as ds]
          '[dao.space.transactor :as transactor])
 
-(def log (ds/open! {:type :transactor :store store :name "worker-7"}))
+(def local (ds/open! {:type :ringbuffer}))          ; the agent's own log
+(def intake-pool [(ds/open! {:type :ringbuffer})])  ; DaoJing intake streams
 
-(ds/append! log {:db/id id :work/claims task})   ; 1. deposit — appends datoms
-;; ... more appends ...
-(transactor/publish! log)                         ; 2. build and persist indexes
-;; readers whose explicit pool includes :root/worker-7 can consume them
+(def log (ds/open! {:type :transactor
+                    :local-stream local
+                    :intake-pool intake-pool
+                    :name "worker-7"}))             ; one wrapper per local stream
+
+(ds/append! log {:db/id id :work/claims task})      ; 1. deposit — one atomic
+;; ... more appends ...                             ;    transaction record
+(transactor/publish! log)                           ; 2. snapshot, build, enqueue
 ```
 
-The two root representations form a simple owner-controlled lifecycle:
+The wrapper's `ds/append!` / `transact!` write exactly one atomic transaction
+record to the local stream per call, so no reader observes a torn transaction.
+On open it scans the retained history from cursor zero and derives the next
+`t` (0 for an empty history, else 1 + the maximum datom t); full retention is
+therefore currently required. One wrapper per local stream is a hard
+single-writer invariant. Calls through one wrapper serialize timestamp
+allocation and append on shared-memory hosts; two wrappers over the same
+stream still each derive the same `t` and write colliding records, which
+cannot be silently coordinated without shared mutable state. `publish!` delegates explicitly to
+`index/publish-index!`, passing the wrapper's local stream, intake pool, and
+opts, and returning its `{:manifest-address ... :manifest ...}`.
 
-- **Wholesale root** — `ds/append!` stores the stream's datoms as
-  `{:datoms [...]}` in `dao.jing`. Queries can read this immediately; the eager
-  query path builds an ephemeral `dao.data.btree` index value from those datoms.
-- **Indexed root** — `publish-index!` builds four `dao.data.btree` sets,
-  persists their immutable nodes as content-addressed segments, and replaces
-  the wholesale root with a manifest. A query over one explicit root source can
-  restore a complete non-empty manifest lazily. The datoms and answers do not
-  change; only their representation and access cost do.
+Two lifecycle facts are deliberate:
 
-Two interactions are deliberate:
-
-- A `:transactor` append onto a published root **folds the indexed datoms
-  back to the wholesale shape** rather than dropping them — appends never
-  lose indexed datoms; they move the root back to wholesale until the owner
-  republishes. Old immutable segments remain until segment GC exists.
-- `dao.space.query/fold` prefers the lazy restored path only for a complete
-  non-empty manifest with no `as-of` bound; every other read (an empty or
-  incomplete manifest, federation, or `as-of`) takes the eager path.
-  Publishing is an acceleration, never a semantic change — q/match answer
-  identically before and after (pinned by
-  `publish-index-root-shape-and-parity`).
+- Publication is an acceleration, never a semantic change — `q`/`match`
+  answer identically before and after (pinned by
+  `publish-index-snapshot-reads-local-stream-and-reads-back` and the
+  observer-materialization parity tests).
+- `dao.space.query/fold` prefers the lazy restored path only for a single
+  published source with no `as-of` bound; every other read (a pool, a raw
+  source, or `as-of`) takes the eager path. Publishing changes access cost,
+  never the datoms.
 
 ## Dependency picture
 
 ```
-dao.space.transactor DaoStreamLog
-    │
-    ▼ append!
-dao.jing root {:datoms [...]}
-    │
-    ├── query: eagerly build ephemeral dao.data.btree indexes
-    │
-    └── publish-index!
-            │
-            ├── persist immutable dao.data.btree nodes as segments
-            └── CAS root to {:indexes {...} :count ...}
-                    │
-                    └── query: lazily restore one complete non-empty manifest,
-                               eagerly read other source shapes
-```
-
-There is no long-lived local index cache in the current implementation.
-`index-datoms` constructs an in-memory B-tree value for an eager fold;
-`publish-index!` independently constructs and stores covered B-trees from the
-root's complete datom sequence.
-
-```
 dao.space.transactor  ──►  dao.space.index  ◄──  dao.space.query
    (write path:          (realization:          (the Peer:
-    ds/append! appends;      B-tree values,          fold, match, q —
-    folds indexed         publish-index!,        reads wholesale or
-    roots back)           sort orders,           indexed roots)
-                          node blobs)
-                               │
-                               ▼
-                          dao.jing (jing handle)
+    append!/transact!      B-tree values,          published-source fold,
+    write transaction      publish-index!,         match, q, pull —
+    records; publish!      sort orders,            reads raw datom sources
+    delegates here)        node blobs)             or published manifests)
+                                │
+                                ▼
+                          dao.data.btree ◄── dao.data.btree.storage
+                          (the tree)            (IStorage over a content handle)
+                                │
+                                ▼
+                          dao.jing (content-store handle)
 ```
 
-- `dao.space.query` requires `dao.space.index` for root realization and
-  index traversal. It does not define or persist a second index format.
-- `dao.space.transactor` requires `dao.space.index` for root reading,
+- `dao.space.query` requires `dao.space.index` for manifest reading and index
+  traversal. It does not define or persist a second index format.
+- `dao.space.transactor` requires `dao.space.index` for snapshotting,
   validation, and publication. The write path does not depend on the Datalog
   engine.
 - `dao.space.index` requires `dao.data.btree`,
@@ -204,11 +243,10 @@ dao.space.transactor  ──►  dao.space.index  ◄──  dao.space.query
   `dao.space.query`. No cycle is possible: realization below, interpretation
   above.
 
-Storage stays dumb throughout (Ruling 1, `dao.space.query.md`): everything
-here is built from `jing/get`, `jing/cas!`, and `jing/segment-key`. The B-tree
-storage adapter writes immutable nodes with `cas!` against `jing/absent`;
-the stream root moves by ordinary `cas!`. Storage never knows the segment
-blobs form an index.
+Storage stays dumb throughout (Ruling 1 of `dao.space.query.md`): everything
+here is built from `dao.jing/materialize!` and `dao.jing/get` against strict
+segment addresses. Storage never knows the segment blobs form an index, and
+there is no mutable root for it to maintain.
 
 ## Platform status
 
@@ -220,18 +258,25 @@ The eager path uses `walk-index-datoms`, which understands the plain EDN node
 blobs using only `jing/get`. The lazy path uses
 `dao.data.btree/restore-tree` through
 `dao.data.btree.storage/kv-storage`; traversal faults only the required nodes.
-`publish-index-works-on-every-platform`, `publish-index-lazy-fetch`, and
-`index-root-readable-from-plain-node-blobs` pin these contracts.
+The manifest's `:count` and `:branching-factor` are threaded through
+`restore-tree` deliberately: count keeps O(1) `count` on restored trees
+without faulting the graph, and the branching factor reaches every restored
+node so mutation splits at the published thresholds. Tests in
+`test/dao/space/index_test.cljc` pin these contracts, including lazy
+point-lookup fetch counts.
 
 ## Open items
 
 - **Segment GC** — superseded index segments accumulate forever.
-- **K-way merge of lazy indexes** — federated queries over `{:indexes ...}`
-  roots fall back to the eager walk.
+- **K-way merge of lazy indexes** — federated queries over multiple published
+  manifests fall back to the eager walk.
 - **Incremental indexing** — the natural next increment for long-lived agent
-  transactors: today an owner republishes wholesale from the full datom seq,
-  and a `:transactor` append moves an indexed root back to wholesale. A future
-  builder could retain the previous manifest, insert only the appended datoms
-  into restored B-trees, and store their changed paths. Nothing in the node or
-  manifest format requires that strategy; the current implementation always
-  performs a full rebuild.
+  transactors: today an owner republishes wholesale from the full datom seq. A
+  future builder could retain the previous manifest, insert only the appended
+  datoms into restored B-trees, and store their changed paths. Nothing in the
+  node or manifest format requires that strategy; the current implementation
+  always performs a full rebuild.
+- **Async hydration** — remote reads over async backends use the hydration
+  adapter (`dao.data.btree.storage/hydration-storage`, `hydrate!`); the async
+  variants (`hydrate-async`, `store-tree-async`) are deferred until an async
+  DaoJing backend exists.

@@ -1,474 +1,66 @@
 (ns dao.jing-test
-  "Contract tests for the dao.jing storage boundary.
+  "Contract tests for the DaoJing content-addressed storage observer
+   (docs/design/dao.jing.md, target architecture).
 
-  Pins the IKVStore protocol's observable contract: values are opaque (stored
-  and returned verbatim, any value legal including nil), put! is an
-  unconditional replace, cas! guards on the expected previous value (jing/absent
-  meaning \"must not exist\") and leaves the entry untouched when it loses,
-  delete!, and, on the JVM only, cas! under contention with no lost updates."
+   Covers the plain-data handle API (materialize!/get/close!), the explicit
+   intake-pool observer (observer-state/observe-step!), and the
+   content-addressing discipline. The transitional CAS/root/evaluator/
+   file/mem compatibility contracts are gone: this namespace requires only
+   dao.jing plus the ringbuffer stream transport."
   (:require [clojure.test :refer [deftest is testing]]
             #?(:clj [clojure.edn])
+            [clojure.string :as str]
             [dao.jing :as jing]
-            [dao.jing.mem :as mem]
-            [dao.jing.file :as file]
             [dao.stream :as ds]
-            [dao.stream.apply :as dao-apply]
             [dao.stream.ringbuffer]))
 
 
-(defn run-with-stores
-  [f]
-  (doseq [make [(fn [] [(mem/create-kv-mem) nil])
-                (fn []
-                  (let [path (str "target/test-db-" (random-uuid) ".db")]
-                    [(file/create-kv-file path) path]))]]
-    (let [[store path] (make)]
-      (try (f store)
-           (finally (jing/close! store)
-                    (when path
-                      #?(:clj (.delete (java.io.File. path))
-                         :cljs (.unlinkSync (js/require "fs") path)
-                         :cljd nil)))))))
+(defn mem-handle
+  "In-memory content backend for tests: a map keyed by content address. The
+   store atom is exposed as :store so tests can assert on the exact contents
+   of the backend. The seed accepts an address->payload map, used to force
+   collisions."
+  ([] (mem-handle {}))
+  ([seed]
+   (let [store (atom seed)]
+     {:store store,
+      :put-content-fn (fn [address payload]
+                        (if (contains? @store address)
+                          :present
+                          (do (swap! store assoc address payload) :inserted))),
+      :get-content-fn (fn [address not-found] (get @store address not-found)),
+      :close-fn (fn [] (swap! store assoc ::closed true))})))
+
+
+(defn open-stream
+  "Open a ringbuffer transport pre-loaded with vals."
+  [& vals]
+  (let [s (ds/open! {:type :ringbuffer, :capacity 8})]
+    (doseq [v vals] (ds/append! s v))
+    s))
+
+
+(defrecord MalformedResultStream
+  [result]
+  ;; Test double: a reader whose every ds/next answer is the configured
+  ;; result, used to feed malformed maps into observe-step!.
+  ds/IDaoStreamReader
+
+  (next [_this _cursor] result))
 
 
 ;; ---------------------------------------------------------------------------
-;; cas! (creation) / get
+;; Content addressing
 ;; ---------------------------------------------------------------------------
-
-(deftest cas-absent-then-get-round-trips
-  (testing "cas! with absent stores the value and get returns it unchanged"
-    (run-with-stores (fn [store]
-                       (is (true?
-                             (jing/cas! store :a jing/absent {:bytes [1 2 3]})))
-                       (is (= {:bytes [1 2 3]} (jing/get store :a nil))))))
-  (testing
-    "the value is opaque: any value round-trips = to what was written, with
-    nothing added, removed, or reordered"
-    (run-with-stores (fn [store]
-                       (doseq [[k v] {:int 42,
-                                      :string "hello",
-                                      :keyword :kw,
-                                      :vector [1 2 3],
-                                      :nested {:a {:b [1 #{2} "3"]}},
-                                      :empty-map {},
-                                      :empty-vec [],
-                                      :list '(1 2 3),
-                                      :set #{:x :y}}]
-                         (is (true? (jing/cas! store k jing/absent v)))
-                         (is (= v (jing/get store k ::missing))
-                             (str (pr-str v) " must round-trip unchanged")))))))
-
-
-(deftest nil-is-a-legal-value-distinct-from-absence
-  (testing
-    "a stored nil is a value, not a hole: get must report it as present and
-    absence must be observable only through not-found"
-    (run-with-stores
-      (fn [store]
-        (is (true? (jing/cas! store :n jing/absent nil)))
-        (is (nil? (jing/get store :n ::missing))
-            "a stored nil comes back as nil, not as not-found")
-        (is (= ::missing (jing/get store :never-written ::missing))
-            "an absent key is distinguishable from a stored nil")
-        (is (= jing/absent (jing/get store :never-written jing/absent))
-            "jing/absent serves as the not-found sentinel")))))
-
-
-(deftest get-absent-returns-not-found
-  (testing "get returns the caller-supplied not-found value for an absent key"
-    (run-with-stores (fn [store]
-                       (is (= :sentinel (jing/get store :absent :sentinel)))
-                       (jing/cas! store :a jing/absent {:x 1})
-                       (is (= :sentinel (jing/get store :neighbor :sentinel))
-                           "a present key leaves every other key absent")))))
-
-
-(deftest cas-replaces-guarded
-  (testing "cas! replaces the value when expected matches"
-    (run-with-stores (fn [store]
-                       (jing/cas! store :k jing/absent {:v 1})
-                       (jing/cas! store :k {:v 1} {:v 2})
-                       (is (= {:v 2} (jing/get store :k nil)))))))
-
-
-;; ---------------------------------------------------------------------------
-;; cas!
-;; ---------------------------------------------------------------------------
-
-(deftest cas-succeeds-when-expected-matches
-  (testing
-    "cas! quoting the current value returns true and installs the new one"
-    (run-with-stores
-      (fn [store]
-        (jing/cas! store :root jing/absent {:pointer "a"})
-        (is (true? (jing/cas! store :root {:pointer "a"} {:pointer "b"})))
-        (is (= {:pointer "b"} (jing/get store :root nil)))))))
-
-
-(deftest cas-fails-on-stale-expected
-  (testing
-    "cas! quoting a value that is no longer current returns false and leaves
-    the entry untouched"
-    (run-with-stores
-      (fn [store]
-        (jing/cas! store :root jing/absent {:pointer "a"})
-        (is (false? (jing/cas! store :root {:pointer "stale"} {:pointer "b"})))
-        (is (= {:pointer "a"} (jing/get store :root nil)))))))
-
-
-(deftest cas-with-absent-creates-only-when-missing
-  (testing "cas! against jing/absent creates a key that does not yet exist"
-    (run-with-stores
-      (fn [store]
-        (is (true? (jing/cas! store :fresh jing/absent {:pointer "a"})))
-        (is (= {:pointer "a"} (jing/get store :fresh nil))))))
-  (testing "and is refused once the key exists"
-    (run-with-stores
-      (fn [store]
-        (jing/cas! store :taken jing/absent {:pointer "a"})
-        (is (false? (jing/cas! store :taken jing/absent {:pointer "b"})))
-        (is (= {:pointer "a"} (jing/get store :taken nil))))))
-  (testing "a present key whose value is nil is still present, not absent"
-    (run-with-stores (fn [store]
-                       (jing/cas! store :holds-nil jing/absent nil)
-                       (is (false?
-                             (jing/cas! store :holds-nil jing/absent {:v 1}))
-                           "absent must not match a stored nil")
-                       (is (true? (jing/cas! store :holds-nil nil {:v 1}))
-                           "nil is quotable as the expected value")))))
-
-
-(deftest cas-replaces-value-wholesale
-  (testing "cas! stores the new value wholesale (replace, not merge)"
-    (run-with-stores
-      (fn [store]
-        (jing/cas! store :k jing/absent {:keep "yes", :drop "yes"})
-        (is (true?
-              (jing/cas! store :k {:keep "yes", :drop "yes"} {:keep "yes"})))
-        (is (= {:keep "yes"} (jing/get store :k nil)))))))
-
-
-(deftest cas-chains-through-successive-values
-  (testing "each cas! quotes the value the previous one installed"
-    (run-with-stores (fn [store]
-                       (jing/cas! store :k jing/absent {:n 0})
-                       (doseq [n [1 2 3]]
-                         (is (true? (jing/cas! store :k {:n (dec n)} {:n n})))
-                         (is (= {:n n} (jing/get store :k nil))))))))
-
-
-(deftest cas-compares-by-value-not-identity
-  (testing
-    "the guard is =, so an equal-but-not-identical expected value still wins"
-    (run-with-stores
-      (fn [store]
-        (jing/cas! store :k jing/absent {:a [1 2 3]})
-        (is (true? (jing/cas! store :k {:a (vec (range 1 4))} {:a :done}))
-            "a freshly built equal value must match")))))
-
-
-(deftest cas-to-same-value-succeeds
-  (testing "CASing a key to its current value is a no-op that returns true"
-    (run-with-stores (fn [store]
-                       (jing/cas! store :k jing/absent 10)
-                       (is (true? (jing/cas! store :k 10 10))
-                           "CAS to current value must succeed")
-                       (jing/cas! store :m jing/absent {:n 1})
-                       (is (true? (jing/cas! store :m {:n 1} {:n 1}))
-                           "CAS to structurally-equal value must succeed")))))
-
-
-(deftest cas-sentinel-absent-never-stored
-  (testing "CAS with jing/absent as v deletes the key, never stores ::absent"
-    (run-with-stores (fn [store]
-                       (jing/cas! store :k jing/absent "hello")
-                       (is (true? (jing/cas! store :k "hello" jing/absent))
-                           "CAS deletion must succeed")
-                       (is (= ::missing (jing/get store :k ::missing))
-                           "key must be deleted, not hold the absent sentinel")
-                       ;; Verify the key can be re-created
-                       (is (true? (jing/cas! store :k jing/absent "world"))
-                           "re-creation after deletion must succeed")
-                       (is (= "world" (jing/get store :k nil)))))))
-
-
-;; ---------------------------------------------------------------------------
-;; delete! / close!
-;; ---------------------------------------------------------------------------
-
-(deftest delete-removes-key
-  (testing "delete! removes the entry, so a later get returns not-found"
-    (run-with-stores (fn [store]
-                       (jing/cas! store :a jing/absent {:x 1})
-                       (is (true? (jing/delete! store :a)))
-                       (is (= :gone (jing/get store :a :gone)))))))
-
-
-(deftest delete-absent-is-noop
-  (testing "delete! on an absent key returns true and leaves nothing behind"
-    (run-with-stores (fn [store]
-                       (is (true? (jing/delete! store :ghost)))
-                       (is (= :absent (jing/get store :ghost :absent)))))))
-
-
-(deftest close-releases-without-throwing
-  (testing "close! returns nil and does not throw"
-    (run-with-stores (fn [store] (is (nil? (jing/close! store)))))))
-
-
-(deftest close-is-idempotent
-  (testing "multiple close! calls do not throw or double-release"
-    (run-with-stores (fn [store]
-                       (jing/cas! store :k jing/absent 1)
-                       (jing/close! store)
-                       (jing/close! store)
-                       (is (true? true) "second close! must not throw")))))
-
-
-;; ---------------------------------------------------------------------------
-;; Crash Recovery (File Only)
-;; ---------------------------------------------------------------------------
-
-(deftest file-store-crash-recovery
-  (testing
-    "closing a file store and reopening it recovers the exact index and revisions"
-    (let [path (str "target/crash-test-" (random-uuid) ".db")
-          store1 (file/create-kv-file path)]
-      (jing/cas! store1 :a jing/absent {:x 1})
-      (jing/cas! store1 :root jing/absent {:pointer "p1"})
-      (jing/cas! store1 :root {:pointer "p1"} {:pointer "p2"})
-      (jing/delete! store1 :a)
-      (jing/close! store1)
-      (let [store2 (file/create-kv-file path)]
-        (is (= :absent (jing/get store2 :a :absent)))
-        (is (= {:pointer "p2"} (jing/get store2 :root nil)))
-        (jing/close! store2))
-      #?(:clj (.delete (java.io.File. path))
-         :cljs (.unlinkSync (js/require "fs") path)
-         :cljd nil))))
-
-
-(deftest file-store-recovers-from-torn-tail
-  #?(:clj
-     (testing
-       "a crash mid-append leaves a partial record; recovery skips it, keeps every complete record, and truncates the tail"
-       (let [path (str "target/torn-test-" (random-uuid) ".db")
-             store1 (file/create-kv-file path)]
-         (jing/cas! store1 :a jing/absent {:x 1})
-         (jing/cas! store1 :root jing/absent {:pointer "p1"})
-         (jing/close! store1)
-         (let [clean-len (.length (java.io.File. path))]
-           ;; Simulate a torn write: a length header claiming 999 bytes
-           ;; followed by only a few, exactly what a crash mid-append
-           ;; would leave behind.
-           (with-open [raf (java.io.RandomAccessFile. path "rw")]
-             (.seek raf (.length raf))
-             (.writeInt raf 999)
-             (.write raf (.getBytes "partial" "UTF-8")))
-           (is (> (.length (java.io.File. path)) clean-len)
-               "the torn tail is on disk before recovery")
-           (let [store2 (file/create-kv-file path)]
-             (is (= {:x 1} (jing/get store2 :a nil))
-                 "complete records before the tear survive")
-             (is (= {:pointer "p1"} (jing/get store2 :root nil)))
-             (jing/close! store2))
-           (is
-             (= clean-len (.length (java.io.File. path)))
-             "recovery truncates the torn tail, restoring a clean append boundary")
-           (.delete (java.io.File. path)))))))
-
-
-(deftest file-store-recovers-from-corrupt-payload
-  #?(:clj
-     (testing
-       "a length-consistent but unparseable record survives frame truncation; recovery stops the walk instead of crashing open"
-       (let [path (str "target/corrupt-test-" (random-uuid) ".db")
-             store1 (file/create-kv-file path)]
-         (jing/cas! store1 :a jing/absent {:x 1})
-         (jing/cas! store1 :root jing/absent {:pointer "p1"})
-         (jing/close! store1)
-         ;; Append a frame whose length header matches its payload
-         ;; exactly (so the transport's boundary scan keeps it) but whose
-         ;; bytes are not EDN, e.g. bit-rot on a complete record.
-         (let [garbage (.getBytes "}}}not-edn[[[" "UTF-8")]
-           (with-open [raf (java.io.RandomAccessFile. path "rw")]
-             (.seek raf (.length raf))
-             (.writeInt raf (alength garbage))
-             (.write raf garbage)))
-         (let [store2 (file/create-kv-file path)]
-           (is
-             (= {:x 1} (jing/get store2 :a nil))
-             "records before the corrupt frame are recovered, not crashed on")
-           (is (= {:pointer "p1"} (jing/get store2 :root nil)))
-           (jing/close! store2))
-         (.delete (java.io.File. path))))))
-
-
-;; ---------------------------------------------------------------------------
-;; Compaction (File Only)
-;; ---------------------------------------------------------------------------
-
-(deftest file-store-compaction
-  #?(:clj
-     (testing
-       "compaction removes dead keys, shrinks the file, and leaves live keys intact"
-       (let [path (str "target/compact-test-" (random-uuid) ".db")
-             store (file/create-kv-file path)]
-         ;; Write a mix of keys
-         (jing/cas! store :live jing/absent {:x 1})
-         (jing/cas! store :dead jing/absent {:x 2})
-         ;; Update a key multiple times (creates dead space)
-         (jing/cas! store :root jing/absent {:p "1"})
-         (jing/cas! store :root {:p "1"} {:p "2"})
-         (jing/cas! store :root {:p "2"} {:p "3"})
-         ;; Delete a key (creates dead space and a tombstone)
-         (jing/delete! store :dead)
-         (let [pre-size (.length (java.io.File. path))
-               store (file/compact-store! store)]
-           (is (some? store))
-           (let [post-size (.length (java.io.File. path))]
-             (is (< post-size pre-size)
-                 "the file size should shrink after compaction")
-             ;; Verify live keys are intact
-             (is (= {:x 1} (jing/get store :live nil)))
-             (is (= {:p "3"} (jing/get store :root nil)))
-             (is (= :gone (jing/get store :dead :gone)))
-             ;; Write after compact to verify the new stream is writable
-             (is (true? (jing/cas! store :post jing/absent {:x 3})))
-             (is (= {:x 3} (jing/get store :post nil)))
-             (jing/close! store)
-             (.delete (java.io.File. path))))))))
-
-
-;; ---------------------------------------------------------------------------
-;; Concurrency (JVM only; cljs is single-threaded, so real contention is clj)
-;; ---------------------------------------------------------------------------
-
-(deftest cas-contention-loses-no-updates
-  #?(:clj
-     (testing
-       "concurrent cas! retries apply exactly one increment per worker with no lost updates"
-       (run-with-stores
-         (fn [store]
-           (let [n 200
-                 _ (jing/cas! store :counter jing/absent {:n 0})
-                 wins (atom 0)
-                 workers (doall
-                           (for [_ (range n)]
-                             (future
-                               (loop []
-                                 ;; the value read *is* the guard:
-                                 ;; nothing of the store's to strip back
-                                 ;; out before proposing the successor,
-                                 ;; and no revision to carry alongside
-                                 (let [cur
-                                       (jing/get store :counter jing/absent)
-                                       proposed (update cur :n inc)]
-                                   (if (jing/cas! store :counter cur proposed)
-                                     (swap! wins inc)
-                                     (recur)))))))]
-             (run! deref workers)
-             (let [final (jing/get store :counter nil)]
-               (is (= n @wins) "every worker must win its cas exactly once")
-               (is
-                 (= n (:n final))
-                 "the counter must equal the number of applied updates"))))))))
-
-
-;; ---------------------------------------------------------------------------
-;; Read-after-close and read/compact races (JVM only)
-;; ---------------------------------------------------------------------------
-
-(deftest get-after-close-terminates
-  #?(:clj
-     (testing
-       "get on a closed store returns promptly instead of spinning in the ::closed retry loop"
-       ;; After close! the stream is closed, so ds/next throws and get
-       ;; catches it as ::closed. The retry re-reads the same closed
-       ;; stream and loops, because it never checks the store's :closed
-       ;; flag: the transient compaction-swap case and the
-       ;; permanent-close case are indistinguishable to the retry. The
-       ;; result is either an unbounded busy-wait (ds/next blocks) or a
-       ;; StackOverflowError (ds/next throws and get self-recurses
-       ;; without tail-call elimination). The deref timeout turns that
-       ;; hang into a deterministic failure rather than wedging the whole
-       ;; suite.
-       (let [path (str "target/closed-get-test-" (random-uuid) ".db")
-             store (file/create-kv-file path)]
-         (try
-           (jing/cas! store :k jing/absent {:x 1})
-           (jing/close! store)
-           (let [outcome (deref (future
-                                  (try {:value (jing/get store :k :not-found)}
-                                       (catch Throwable t
-                                         {:threw (str (type t))})))
-                                2000
-                                {:timeout true})]
-             (is
-               (= {:value :not-found} outcome)
-               (str
-                 "get on a closed store should return the not-found sentinel "
-                 "promptly; got "
-                 outcome)))
-           (finally (.delete (java.io.File. path))))))))
-
-
-(deftest get-during-compaction-stays-correct
-  #?(:clj
-     (testing
-       "a concurrent lock-free get never throws or observes a wrong/absent value for a live key while compact! swaps the stream"
-       (let [path (str "target/compact-race-test-" (random-uuid) ".db")
-             store (file/create-kv-file path)
-             store-atom (atom store)]
-         (try
-           ;; :root is written once and never changed, so every read must
-           ;; see exactly this value; :churn is rewritten to create dead
-           ;; space so each compact! actually rebuilds the log and swaps
-           ;; the stream.
-           (jing/cas! store :root jing/absent {:p "v"})
-           (let [expected {:p "v"}
-                 stop (atom false)
-                 seen-wrong (atom [])
-                 reader (future (while (not @stop)
-                                  (let [v (try (jing/get @store-atom
-                                                         :root
-                                                         :not-found)
-                                               (catch Throwable t
-                                                 {:threw (str (type t))}))]
-                                    (when (and (not= expected v)
-                                               (< (count @seen-wrong) 50))
-                                      (swap! seen-wrong conj v)))))]
-             (dotimes [_ 30]
-               (jing/cas! @store-atom :churn jing/absent {:n (rand-int 1000)})
-               (swap! store-atom file/compact-store!))
-             (reset! stop true)
-             (deref reader 2000 :reader-timeout)
-             (is (empty? @seen-wrong)
-                 (str
-                   "concurrent reads during compaction returned wrong/absent "
-                   "values for a live key: "
-                   (distinct @seen-wrong))))
-           (finally (jing/close! @store-atom)
-                    (.delete (java.io.File. path))))))))
-
-
-;; ---------------------------------------------------------------------------
-;; Content addressing (segment-key / content-hash / key-class)
-;; ---------------------------------------------------------------------------
-;; Pure-logic tests over dao.jing itself — no backend, no network. DHT-
-;; specific enforcement of this discipline (KVDht's cas!/get actually
-;; throwing on a violation) is tested separately in dao.jing.dht-test,
-;; key-discipline.
 
 (deftest sha256-known-answer
-  ;; Every other test here pins only that hashing is *deterministic*, which
-  ;; a wrong-but-consistent digest would satisfy. This one pins the actual
-  ;; function, and it is load-bearing across hosts: :clj delegates to
-  ;; MessageDigest and :cljs to goog.crypt, but :cljd runs a hand-rolled
+  ;; Pins the actual digest function; load-bearing across hosts: :clj
+  ;; delegates to MessageDigest, :cljs to goog.crypt, :cljd to the
+  ;; hand-rolled
   ;; SHA-256 in dao.jing. If that implementation drifts, cljd peers mint
   ;; different segment-keys than JVM/JS peers for identical values and
-  ;; content addressing silently fractures — with no other test failing.
-  ;; Vectors are the NIST/FIPS-180-4 published digests.
+  ;; content addressing silently fractures. Vectors are the NIST/FIPS-180-4
+  ;; digests.
   (testing "published vectors"
     (doseq
       [[in want]
@@ -481,11 +73,8 @@
         "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"}]
       (is (= want (jing/sha256 in)) (str "sha256 of " (pr-str in)))))
   (testing "a 65-byte input, which crosses the 64-byte block boundary"
-    ;; the multi-chunk path: exercises padding into a second block
     (is (= "635361c48bb9eab14198e76ea8ab7f1a41685d6ad62aa9146d301d4f17eb0ae0"
-           (jing/sha256 (apply str (repeat 65 "a"))))))
-  (testing "and content-hash is that digest over the canonical print"
-    (is (= (jing/sha256 (pr-str {:a 1})) (jing/content-hash {:a 1})))))
+           (jing/sha256 (apply str (repeat 65 "a")))))))
 
 
 (deftest segment-key-is-content-addressed
@@ -493,7 +82,7 @@
     (is (= (jing/segment-key {:a 1, :b 2}) (jing/segment-key {:b 2, :a 1})))
     (is (not= (jing/segment-key {:a 1}) (jing/segment-key {:a 2})))
     (is (= "segment" (namespace (jing/segment-key {:a 1})))))
-  (testing "and is total over non-map values, which are now legal payloads"
+  (testing "and is total over non-map values, which are legal payloads"
     (doseq [v [42 "hello" :kw [1 2 3] nil #{:a}]]
       (is (= (jing/segment-key v) (jing/segment-key v))
           (str (pr-str v) " must hash deterministically"))
@@ -505,8 +94,7 @@
 (deftest segment-keys-are-readable-edn
   ;; An EDN keyword name must not start with a digit, but a bare sha-256
   ;; hex often does. A key that cannot survive print -> read poisons every
-  ;; EDN boundary a root or segment crosses (the file backend's own
-  ;; persistence, first of all).
+  ;; EDN boundary content addresses cross.
   (testing "no minted key starts with a digit"
     (doseq [n (range 16)]
       (let [k (jing/segment-key {:n n})]
@@ -523,372 +111,449 @@
       (is (= (jing/content-hash v) (jing/segment-hash (jing/segment-key v)))))))
 
 
-(deftest key-class-dispatches-by-namespace
-  (testing "a key's class is recoverable from the key alone"
-    (is (= :segment (jing/key-class :segment/abc)))
-    (is (= :root (jing/key-class :root/pointer)))
-    (is (thrown? #?(:clj Exception
-                    :cljs js/Error
-                    :cljd Object)
-          (jing/key-class :plain))
-        "un-namespaced keys have no class")))
+(deftest segment-hash-rejects-invalid-keys
+  (testing
+    "segment-hash extracts the hash only from a valid
+            :segment/sha256-<64 lowercase hex> address; foreign namespaces,
+            malformed hashes, non-hex characters, and wrong lengths throw
+            instead of merely stripping a name prefix"
+    (let [h64 (jing/segment-hash (jing/segment-key {:a 1}))]
+      (is (= 64 (count h64)))
+      (is (re-matches #"[0-9a-f]{64}" h64))
+      (doseq [bad [(keyword "other" (str "sha256-" h64))
+                   (keyword "segment" "sha256-")
+                   (keyword "segment" (str "sha256-" (subs h64 0 63)))
+                   (keyword "segment" (str "sha256-" h64 "0"))
+                   (keyword "segment" (str "sha256-" (str/upper-case h64)))
+                   (keyword "segment"
+                            (str "sha256-" (str/replace h64 (first h64) \g)))
+                   :plain :segment/not-a-hash :segment/sha256-xyz 42 "abc" nil
+                   [1 2]]]
+        (is (thrown? #?(:clj Exception
+                        :cljs js/Error
+                        :cljd Object)
+              (jing/segment-hash bad))
+            (str "segment-hash must reject " (pr-str bad)))))))
 
 
-(deftest compaction-failure-leaves-store-usable
-  #?(:clj
-     (testing
-       "a compact! that fails in the swap tail (after the old stream is closed) restores a live stream instead of wedging get"
-       (let [path (str "target/compact-fail-test-" (random-uuid) ".db")
-             store (file/create-kv-file path)]
-         (try
-           (jing/cas! store :live jing/absent {:x 1})
-           (jing/cas! store :root jing/absent {:p "1"})
-           (jing/cas! store :root {:p "1"} {:p "2"}) ; dead space so
-           ;; compaction rewrites. Inject a failure in rename-file!,
-           ;; which runs
-           ;; AFTER compact! Has already closed the old stream — the
-           ;; exact window that used to leave state-atom pointing at a
-           ;; dead stream.
-           (let [restored (atom nil)]
-             (is (thrown?
-                   Exception
-                   (with-redefs [dao.jing.file/rename-file!
-                                 (fn [_ _]
-                                   (throw (ex-info "injected rename failure"
-                                                   {})))]
-                     (try (file/compact-store! store)
-                          (catch Exception e
-                            (reset! restored (:restored-handle (ex-data e)))
-                            (throw e))))))
-             ;; The store must stay readable, promptly (no ::closed retry
-             ;; hang), and no data may be lost by the aborted compaction.
-             (let [store @restored
-                   outcome (deref
-                             (future
-                               (try {:live (jing/get store :live :not-found),
-                                     :root (jing/get store :root :not-found)}
-                                    (catch Throwable t
-                                      {:threw (str (type t))})))
-                             2000
-                             {:timeout true})]
-               (is
-                 (= {:live {:x 1}, :root {:p "2"}} outcome)
-                 (str
-                   "store should stay readable after a failed compaction; got "
-                   outcome))
-               ;; And the restored stream must still accept writes.
-               (is (true? (jing/cas! store :post jing/absent {:y 9})))
-               (is (= {:y 9} (jing/get store :post nil)))
-               (jing/close! store)))
-           (finally (.delete (java.io.File. path))))))))
+(deftest content-hash-is-order-insensitive
+  (testing "equal maps print identically regardless of insertion order"
+    (is (= (jing/content-hash {:a 1, :b 2}) (jing/content-hash {:b 2, :a 1})))
+    (is (= (jing/content-hash #{:x :y}) (jing/content-hash #{:y :x}))))
+  (testing "distinct values differ"
+    (is (not= (jing/content-hash {:a 1}) (jing/content-hash {:a 2}))))
+  (testing "content-hash drives the segment key"
+    (is (= (jing/segment-hash (jing/segment-key {:a 1}))
+           (jing/content-hash {:a 1})))))
 
 
 ;; ---------------------------------------------------------------------------
-;; Stream Observer Functions (materialize-step, evaluator, step-incremental!)
+;; Handle API: materialize! / get / close!
 ;; ---------------------------------------------------------------------------
 
-(deftest materialize-step-minting
-  (testing "cas absent creates the key"
-    (is (= {:k "v"} (jing/materialize-step {} [:k :cas jing/absent "v"]))))
-  (testing "cas absent fails silently when key already exists"
-    (is (= {:k "old"}
-           (jing/materialize-step {:k "old"} [:k :cas jing/absent "new"])))))
+(deftest materialize-hashes-and-retrieves
+  (testing
+    "the address is derived automatically from the payload and the
+            value round-trips unchanged"
+    (let [h (mem-handle)
+          payload {:a 1, :b [1 2 3]}
+          address (jing/materialize! h payload)]
+      (is (= (jing/segment-key payload) address))
+      (is (= "segment" (namespace address)))
+      (is (str/starts-with? (name address) "sha256-"))
+      (is (= payload (jing/get h address ::missing))
+          "the stored value is exactly the payload: nothing stamped in"))))
 
 
-(deftest materialize-step-update
-  (testing "cas with matching expected replaces the value"
-    (is (= {:k "new"}
-           (jing/materialize-step {:k "old"} [:k :cas "old" "new"]))))
-  (testing "cas with mismatched expected leaves the map unchanged"
-    (is (= {:k "old"}
-           (jing/materialize-step {:k "old"} [:k :cas "stale" "new"])))))
+(deftest put-receives-the-derived-address-and-payload
+  (testing "the backend effect is invoked as (put-content-fn address payload)"
+    (let [seen (atom nil)
+          payload {:v 1}
+          h {:put-content-fn (fn [a p] (reset! seen [a p]) :inserted),
+             :get-content-fn (fn [_ _] nil)}]
+      (jing/materialize! h payload)
+      (is (= [(jing/segment-key payload) payload] @seen)))))
 
 
-(deftest materialize-step-deletion
-  (testing "cas with jing/absent as v dissocs the key"
-    (is (= {} (jing/materialize-step {:k "v"} [:k :cas "v" jing/absent]))))
-  (testing "deleting an already-absent key is a no-op"
-    (is (= {} (jing/materialize-step {} [:k :cas jing/absent jing/absent]))))
-  (testing "deletion fails when expected does not match current"
-    (is (= {:k "v"}
-           (jing/materialize-step {:k "v"} [:k :cas "wrong" jing/absent])))))
+(deftest materialize-is-idempotent
+  (testing
+    "duplicate materialization returns the same address, reports
+            :present on the second write, and never overwrites"
+    (let [results (atom [])
+          store (atom {})
+          payload {:x 42}
+          h {:put-content-fn
+             (fn [address p]
+               (let [r (if (contains? @store address) :present :inserted)]
+                 (swap! store assoc address p)
+                 (swap! results conj r)
+                 r)),
+             :get-content-fn (fn [address nf] (get @store address nf))}
+          a1 (jing/materialize! h payload)
+          a2 (jing/materialize! h payload)]
+      (is (= a1 a2))
+      (is (= payload (jing/get h a1 ::missing)))
+      (is (= [:inserted :present] @results)))))
 
 
-(deftest materialize-step-malformed-record
-  (testing "non-vector record returns map unchanged"
-    (is (= {:x 1} (jing/materialize-step {:x 1} "not-a-vector"))))
-  (testing "wrong-length vector returns map unchanged"
-    (is (= {:x 1} (jing/materialize-step {:x 1} [:k :cas "v"]))))
-  (testing "non-:cas op returns map unchanged"
-    (is (= {:x 1} (jing/materialize-step {:x 1} [:k :put jing/absent "v"])))))
+(deftest get-absent-returns-not-found
+  (testing
+    "get returns the caller-supplied not-found for an absent content
+            address and only for that address"
+    (let [h (mem-handle)
+          address (jing/segment-key {:never 1})]
+      (is (= ::missing (jing/get h address ::missing)))
+      (jing/materialize! h {:never 1})
+      (is (= {:never 1} (jing/get h address ::missing)))
+      (is (= ::missing (jing/get h (jing/segment-key {:other 2}) ::missing))
+          "a present address leaves other addresses absent"))))
 
 
-(deftest evaluator-construction
-  (testing "returns a function that dispatches on :op/get"
-    (let [target {:root/my-db :segment/sha256-abc}
-          handler (jing/evaluator target)]
-      (is (fn? handler))
-      (let [resp (handler {:dao.stream.apply/id :q1,
-                           :dao.stream.apply/op :op/get,
-                           :dao.stream.apply/args [:root/my-db]})]
-        (is (= :q1 (:dao.stream.apply/id resp)))
-        (is (= :segment/sha256-abc (:dao.stream.apply/value resp))))))
-  (testing "returns jing/absent for a missing key"
-    (let [handler (jing/evaluator {})
-          resp (handler {:dao.stream.apply/id :q2,
-                         :dao.stream.apply/op :op/get,
-                         :dao.stream.apply/args [:not-here]})]
-      (is (= jing/absent (:dao.stream.apply/value resp)))))
-  (testing "throws on unknown op"
-    (let [handler (jing/evaluator {})]
+(deftest get-rejects-arbitrary-addresses
+  (testing
+    "only :segment/sha256-... content addresses are valid reads;
+            arbitrary keys and mutable roots are outside DaoJing"
+    (let [h (mem-handle)
+          payload {:x 1}
+          _ (jing/materialize! h payload)]
+      (is (= payload (jing/get h (jing/segment-key payload) ::missing)))
+      (doseq [bad [:root/pointer :plain :segment/not-a-hash :segment/sha256-xyz
+                   42 "abc" nil [1 2] {:k :v}]]
+        (is (thrown? #?(:clj Exception
+                        :cljs js/Error
+                        :cljd Object)
+              (jing/get h bad ::missing))
+            (str "must reject " (pr-str bad)))))))
+
+
+(deftest get-rejects-arbitrary-addresses-before-touching-the-backend
+  (testing "validation happens before any backend call"
+    (let [h {:put-content-fn (fn [_ _] :inserted),
+             :get-content-fn
+             (fn [_ _] (throw (ex-info "backend must not be consulted" {})))}]
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
-            (handler {:dao.stream.apply/id :q3,
-                      :dao.stream.apply/op :op/unknown,
-                      :dao.stream.apply/args []}))))))
+            (jing/get h :root/pointer ::missing))))))
 
 
-(deftest evaluator-custom-read-fn
-  (testing "accepts a custom read-fn for non-map targets"
-    (let [target [[:k 42]]
-          handler (jing/evaluator target
-                                  (fn [coll k _]
-                                    (second (first (filter #(= k (first %))
-                                                           coll)))))
-          resp (handler {:dao.stream.apply/id :q1,
-                         :dao.stream.apply/op :op/get,
-                         :dao.stream.apply/args [:k]})]
-      (is (= 42 (:dao.stream.apply/value resp))))))
-
-
-(deftest step-incremental-minting
+(deftest forced-collision-is-an-integrity-failure
   (testing
-    "reads a [k :cas expected v] tuple from ringbuffer, applies it, advances cursor"
-    (let [stream (ds/open! {:type :ringbuffer, :capacity 10})
-          target-atom (atom {})
-          cursor-atom (atom {:position 0})]
-      (ds/append! stream [:k :cas jing/absent "hello"])
-      (is (= :ok (jing/step-incremental! target-atom cursor-atom stream)))
-      (is (= {:k "hello"} @target-atom))
-      (is (= {:position 1} @cursor-atom)))))
+    "a different value already seated at the address is never
+            overwritten and the mismatch is reported loudly"
+    (let [address (jing/segment-key {:b 1})
+          h (mem-handle {address {:a 1}})]
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/materialize! h {:b 1})))
+      (is (= {:a 1} (jing/get h address ::missing))
+          "the existing value is untouched"))))
 
 
-(deftest step-incremental-update
-  (testing "applies a sequence of tuples, updating target and cursor each step"
-    (let [stream (ds/open! {:type :ringbuffer, :capacity 10})
-          target-atom (atom {})
-          cursor-atom (atom {:position 0})]
-      (ds/append! stream [:k :cas jing/absent 1])
-      (ds/append! stream [:k :cas 1 2])
-      (is (= :ok (jing/step-incremental! target-atom cursor-atom stream)))
-      (is (= :ok (jing/step-incremental! target-atom cursor-atom stream)))
-      (is (= {:k 2} @target-atom))
-      (is (= {:position 2} @cursor-atom)))))
-
-
-(deftest step-incremental-blocked
-  (testing "returns :wait when the stream has no new records"
-    (let [stream (ds/open! {:type :ringbuffer, :capacity 10})
-          target-atom (atom {})
-          cursor-atom (atom {:position 0})]
-      (is (= :wait (jing/step-incremental! target-atom cursor-atom stream))))))
-
-
-(deftest step-incremental-end
-  (testing "returns :complete when the stream is closed"
-    (let [stream (ds/open! {:type :ringbuffer, :capacity 10})
-          target-atom (atom {})
-          cursor-atom (atom {:position 0})]
-      (ds/close! stream)
-      (is (= :complete
-             (jing/step-incremental! target-atom cursor-atom stream))))))
-
-
-(deftest step-incremental-gap
-  (testing "returns :resync when cursor is behind the eviction boundary"
-    (let [stream (ds/open! {:type :ringbuffer,
-                            :capacity 2,
-                            :eviction-policy :evict-oldest})
-          target-atom (atom {})
-          cursor-atom (atom {:position 0})]
-      (ds/append! stream [:a :cas jing/absent 1])
-      (ds/append! stream [:b :cas jing/absent 2])
-      (ds/append! stream [:c :cas jing/absent 3])
-      (is (= :resync
-             (jing/step-incremental! target-atom cursor-atom stream))))))
-
-
-;; ---------------------------------------------------------------------------
-;; materialize-mutable-step!
-;; ---------------------------------------------------------------------------
-
-(deftest materialize-mutable-step-minting
-  (testing "cas absent writes via write-fn! and returns target"
-    (let [target (atom {})
-          read-fn (fn [a k not-found] (clojure.core/get @a k not-found))
-          write-fn! (fn [a k v] (swap! a assoc k v))]
-      (is (= target
-             (jing/materialize-mutable-step! target
-                                             [:k :cas jing/absent "v"]
-                                             read-fn
-                                             write-fn!
-                                             nil)))
-      (is (= {:k "v"} @target)))))
-
-
-(deftest materialize-mutable-step-update
-  (testing "cas with matching expected writes via write-fn!"
-    (let [target (atom {:k "old"})
-          read-fn (fn [a k not-found] (clojure.core/get @a k not-found))
-          write-fn! (fn [a k v] (swap! a assoc k v))]
-      (jing/materialize-mutable-step! target
-                                      [:k :cas "old" "new"]
-                                      read-fn
-                                      write-fn!
-                                      nil)
-      (is (= {:k "new"} @target))))
-  (testing "cas with mismatched expected leaves target unchanged"
-    (let [target (atom {:k "old"})
-          read-fn (fn [a k not-found] (clojure.core/get @a k not-found))
-          write-fn! (fn [a k v] (swap! a assoc k v))]
-      (jing/materialize-mutable-step! target
-                                      [:k :cas "stale" "new"]
-                                      read-fn
-                                      write-fn!
-                                      nil)
-      (is (= {:k "old"} @target)))))
-
-
-(deftest materialize-mutable-step-deletion
-  (testing "cas with jing/absent as v calls delete-fn!"
-    (let [target (atom {:k "v"})
-          read-fn (fn [a k not-found] (clojure.core/get @a k not-found))
-          delete-fn! (fn [a k] (swap! a dissoc k))]
-      (jing/materialize-mutable-step! target
-                                      [:k :cas "v" jing/absent]
-                                      read-fn
-                                      nil
-                                      delete-fn!)
-      (is (= {} @target)))))
-
-
-(deftest materialize-mutable-step-malformed-record
-  (testing "non-vector record returns target unchanged without side effects"
-    (let [target (atom {:x 1})
-          read-fn (constantly ::unused)
-          write-fn! (fn [& _] (throw (ex-info "should not be called" {})))]
-      (is (= target
-             (jing/materialize-mutable-step! target
-                                             "not-a-vector"
-                                             read-fn
-                                             write-fn!
-                                             nil)))
-      (is (= {:x 1} @target)))))
-
-
-;; ---------------------------------------------------------------------------
-;; step-service!
-;; ---------------------------------------------------------------------------
-
-(deftest step-service-minting
+(deftest present-without-readable-content-is-an-integrity-failure
   (testing
-    "reads a request, evaluates via handler, appends response, advances cursor"
-    (let [req-stream (ds/open! {:type :ringbuffer, :capacity 10})
-          resp-stream (ds/open! {:type :ringbuffer, :capacity 10})
-          target {:k "hello"}
-          cursor-atom (atom {:position 0})
-          endpoint {:dao.stream.apply/request req-stream,
-                    :dao.stream.apply/response resp-stream}]
-      (ds/append! req-stream
-                  {:dao.stream.apply/id :q1,
-                   :dao.stream.apply/op :op/get,
-                   :dao.stream.apply/args [:k]})
-      (is (= :ok (jing/step-service! target cursor-atom endpoint)))
-      (is (= {:position 1} @cursor-atom))
-      (let [resp (ds/next resp-stream {:position 0})]
-        (is (= :q1 (get-in resp [:ok :dao.stream.apply/id])))
-        (is (= "hello" (get-in resp [:ok :dao.stream.apply/value])))))))
+    "a backend that reports :present but cannot read the value back
+            is inconsistent"
+    (let [h {:put-content-fn (fn [_ _] :present),
+             :get-content-fn (fn [_ _] ::missing)}]
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/materialize! h {:x 1}))))))
 
 
-(deftest step-service-absent
-  (testing "returns jing/absent for a missing key"
-    (let [req-stream (ds/open! {:type :ringbuffer, :capacity 10})
-          resp-stream (ds/open! {:type :ringbuffer, :capacity 10})
-          target {}
-          cursor-atom (atom {:position 0})
-          endpoint {:dao.stream.apply/request req-stream,
-                    :dao.stream.apply/response resp-stream}]
-      (ds/append! req-stream
-                  {:dao.stream.apply/id :q2,
-                   :dao.stream.apply/op :op/get,
-                   :dao.stream.apply/args [:not-here]})
-      (jing/step-service! target cursor-atom endpoint)
-      (let [resp (ds/next resp-stream {:position 0})]
-        (is (= jing/absent (get-in resp [:ok :dao.stream.apply/value])))))))
-
-
-(deftest step-service-blocked
-  (testing "returns :wait when no requests are available"
-    (let [req-stream (ds/open! {:type :ringbuffer, :capacity 10})
-          resp-stream (ds/open! {:type :ringbuffer, :capacity 10})
-          target {}
-          cursor-atom (atom {:position 0})
-          endpoint {:dao.stream.apply/request req-stream,
-                    :dao.stream.apply/response resp-stream}]
-      (is (= :wait (jing/step-service! target cursor-atom endpoint))))))
-
-
-(deftest step-service-end
-  (testing "returns :complete when request stream is closed"
-    (let [req-stream (ds/open! {:type :ringbuffer, :capacity 10})
-          resp-stream (ds/open! {:type :ringbuffer, :capacity 10})
-          target {}
-          cursor-atom (atom {:position 0})
-          endpoint {:dao.stream.apply/request req-stream,
-                    :dao.stream.apply/response resp-stream}]
-      (ds/close! req-stream)
-      (is (= :complete (jing/step-service! target cursor-atom endpoint))))))
-
-
-;; ---------------------------------------------------------------------------
-;; Generic cas! stream contract (no :cas-fn, raw {:stream :target} handle)
-;; ---------------------------------------------------------------------------
-
-(deftest generic-cas-only-appends-successful-records
+(deftest content-missing-keyword-is-a-legal-payload
   (testing
-    "the stream contains records for all CAS attempts (including dead records for failed CASes)"
-    (let [stream (ds/open! {:type :ringbuffer, :capacity 10})
-          handle {:stream stream, :target (atom {})}
-          ;; first CAS: absent→v1, should succeed
-          ok1 (jing/cas! handle :k jing/absent 1)
-          ;; second CAS: stale expected, should fail
-          ok2 (jing/cas! handle :k 999 2)
-          ;; third CAS: correct expected, should succeed
-          ok3 (jing/cas! handle :k 1 3)
-          ;; fourth CAS: delete
-          ok4 (jing/cas! handle :k 3 jing/absent)
-          records (loop [cursor {:position 0}
-                         acc []]
-                    (let [res (ds/next stream cursor)]
-                      (if (and (map? res) (contains? res :ok))
-                        (recur (:cursor res) (conj acc (:ok res)))
-                        acc)))]
-      (is (true? ok1))
-      (is (false? ok2) "stale expected must fail")
-      (is (true? ok3))
-      (is (true? ok4))
-      (is (= 4 (count records))
-          (str "stream contains records for all CAS attempts, got " records)))))
+    "the former sentinel keyword :dao.jing/content-missing is a legal
+            opaque payload: a backend that reports :present but then returns
+            not-found for the content address must throw, not fake success by
+            equating its not-found with the payload"
+    (let [h {:put-content-fn (fn [_ _] :present),
+             :get-content-fn (fn [_ not-found] not-found)}]
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/materialize! h :dao.jing/content-missing)))))
+  (testing
+    "a conforming backend stores the keyword as an ordinary payload,
+            idempotently"
+    (let [h (mem-handle)]
+      (is (= (jing/segment-key :dao.jing/content-missing)
+             (jing/materialize! h :dao.jing/content-missing)))
+      (is (= (jing/segment-key :dao.jing/content-missing)
+             (jing/materialize! h :dao.jing/content-missing)))
+      (is (= :dao.jing/content-missing
+             (jing/get h
+                       (jing/segment-key :dao.jing/content-missing)
+                       ::missing))))))
 
 
-(deftest generic-cas-preserves-target-value-semantics
-  (testing "target atom reflects only successful CASes, same as mem/file"
-    (let [handle {:stream (ds/open! {:type :ringbuffer, :capacity 10}),
-                  :target (atom {})}]
-      (jing/cas! handle :k jing/absent 1)
-      (jing/cas! handle :k 999 2)
-      (jing/cas! handle :k 1 3)
-      (jing/cas! handle :k 3 jing/absent)
-      (is (= jing/absent (jing/get handle :k jing/absent))
-          "deletion must be visible in target"))))
+(deftest invalid-backend-result-is-rejected
+  (testing "ambiguous truthiness is not a valid result vocabulary"
+    (doseq [bad [true nil :ok "inserted" 1 {:status :ok}]]
+      (let [h {:put-content-fn (fn [_ _] bad), :get-content-fn (fn [_ _] nil)}]
+        (is (thrown? #?(:clj Exception
+                        :cljs js/Error
+                        :cljd Object)
+              (jing/materialize! h {:x 1}))
+            (str "backend result " (pr-str bad) " must be rejected"))))))
+
+
+(deftest close-delegates-and-is-optional
+  (testing
+    "close! returns nil, delegates to :close-fn, and tolerates
+            repeated calls and handles without a close-fn"
+    (let [closed (atom 0)
+          h (assoc (mem-handle) :close-fn (fn [] (swap! closed inc)))]
+      (is (nil? (jing/close! h)))
+      (is (nil? (jing/close! h)))
+      (is (= 2 @closed) "close! delegates to :close-fn on every call"))
+    (is (nil? (jing/close! (assoc (mem-handle) :close-fn nil)))
+        "a handle without :close-fn has nothing to release")
+    (is (nil? (jing/close! {:put-content-fn (fn [_ _] :inserted),
+                            :get-content-fn (fn [_ _] nil)})))))
+
+
+;; ---------------------------------------------------------------------------
+;; Observer: observer-state / observe-step!
+;; ---------------------------------------------------------------------------
+
+(deftest observer-state-is-plain-data
+  (testing
+    "observer-state returns immutable data with one operational member
+            per pool stream, a fresh cursor, an explicit status, and the next
+            fair scheduling index"
+    (let [a (open-stream)
+          b (open-stream)
+          st (jing/observer-state [a b])]
+      (is (= [a b] (mapv :stream (:members st))))
+      (is (every? #(= {:position 0} (:cursor %)) (:members st)))
+      (is (every? #(= :pending (:status %)) (:members st)))
+      (is (= 0 (:next st))))))
+
+
+(deftest observer-empty-pool-is-blocked
+  (let [h (mem-handle)
+        state (jing/observer-state [])]
+    (is (= {:state state, :signal :blocked} (jing/observe-step! h state)))))
+
+
+(deftest observer-all-blocked
+  (let [h (mem-handle)
+        a (open-stream)
+        b (open-stream)
+        state (jing/observer-state [a b])
+        r (jing/observe-step! h state)]
+    (is (= :blocked (:signal r)))
+    (is (every? #(= :blocked (:status %)) (:members (:state r))))
+    (is (every? #(= {:position 0} (:cursor %)) (:members (:state r))))))
+
+
+(deftest observer-automatic-hashing-and-retrieval
+  (testing
+    "a payload arriving through a pool stream is content-addressed
+            without the caller minting any key"
+    (let [h (mem-handle)
+          payload {:hello "world"}
+          s (open-stream payload)
+          r (jing/observe-step! h (jing/observer-state [s]))]
+      (is (= :ok (:signal r)))
+      (is (= (jing/segment-key payload) (:address r)))
+      (is (= payload (jing/get h (:address r) ::missing))))))
+
+
+(deftest observer-equal-payloads-from-two-streams-converge
+  (testing
+    "identical content arriving through different pool streams lands
+            on exactly one KV entry, with no provenance stamp"
+    (let [h (mem-handle)
+          store (:store h)
+          payload {:nested {:v [1 2 3]}}
+          address (jing/segment-key payload)
+          a (open-stream payload payload)
+          b (open-stream payload)
+          state (jing/observer-state [a b])
+          r1 (jing/observe-step! h state)
+          r2 (jing/observe-step! h (:state r1))
+          r3 (jing/observe-step! h (:state r2))]
+      (doseq [r [r1 r2 r3]]
+        (is (= :ok (:signal r)))
+        (is (= address (:address r))
+            "both streams converge on the same content address"))
+      (is
+        (= {address payload} @store)
+        "exactly one KV entry exists, holding exactly the payload: no
+          duplicate entries, no source identity, no provenance stamp"))))
+
+
+(deftest observer-blocked-before-ready-does-not-prevent-later-members
+  (let [h (mem-handle)
+        a (open-stream)
+        b (open-stream {:payload 1})
+        r (jing/observe-step! h (jing/observer-state [a b]))]
+    (is (= :ok (:signal r)))
+    (is (= {:payload 1} (jing/get h (:address r) ::missing)))
+    (is (= :blocked (get-in (:state r) [:members 0 :status]))
+        "the blocked member is checked and marked, but does not block the scan")
+    (is (= :ok (get-in (:state r) [:members 1 :status])))))
+
+
+(deftest observer-ended-before-ready-does-not-starve-active-members
+  (let [h (mem-handle)
+        a (open-stream)
+        _ (ds/close! a)
+        b (open-stream {:payload 1})
+        r (jing/observe-step! h (jing/observer-state [a b]))]
+    (is (= :ok (:signal r)))
+    (is (= {:payload 1} (jing/get h (:address r) ::missing)))
+    (is (= :end (get-in (:state r) [:members 0 :status]))
+        "the closed member is explicitly :end and skipped")
+    (is (= :ok (get-in (:state r) [:members 1 :status])))))
+
+
+(deftest observer-all-ended
+  (let [h (mem-handle)
+        a (open-stream)
+        b (open-stream)]
+    (ds/close! a)
+    (ds/close! b)
+    (let [r (jing/observe-step! h (jing/observer-state [a b]))]
+      (is (= :end (:signal r)))
+      (is (every? #(= :end (:status %)) (:members (:state r)))))))
+
+
+(deftest observer-drains-then-reports-end
+  (testing "a closed stream still yields its buffered payloads, then :end"
+    (let [h (mem-handle)
+          s (open-stream {:last 1})
+          _ (ds/close! s)
+          state (jing/observer-state [s])
+          r1 (jing/observe-step! h state)
+          r2 (jing/observe-step! h (:state r1))]
+      (is (= :ok (:signal r1)))
+      (is (= {:last 1} (jing/get h (:address r1) ::missing)))
+      (is (= :end (:signal r2))))))
+
+
+(deftest observer-fair-round-robin-and-independent-cursors
+  (testing
+    "round-robin alternates members and a continuously ready member
+            cannot starve another"
+    (let [h (mem-handle)
+          a (open-stream {:who :a, :n 1} {:who :a, :n 2})
+          b (open-stream {:who :b, :n 1})
+          state (jing/observer-state [a b])
+          r1 (jing/observe-step! h state)
+          r2 (jing/observe-step! h (:state r1))
+          r3 (jing/observe-step! h (:state r2))]
+      (is (= {:who :a, :n 1} (jing/get h (:address r1) ::missing)))
+      (is (= {:who :b, :n 1} (jing/get h (:address r2) ::missing))
+          "A is continuously ready, yet B gets its turn before A's second item")
+      (is (= {:who :a, :n 2} (jing/get h (:address r3) ::missing)))
+      (is (= {:position 2} (get-in (:state r3) [:members 0 :cursor])))
+      (is (= {:position 1} (get-in (:state r3) [:members 1 :cursor]))))))
+
+
+(deftest observer-independent-cursors-interleave
+  (testing "two equal-length ready streams drain strictly A B A B"
+    (let [h (mem-handle)
+          a (open-stream :a1 :a2)
+          b (open-stream :b1 :b2)
+          state (jing/observer-state [a b])
+          [addrs final-state]
+          (loop [st state
+                 acc []
+                 i 0]
+            (if (= i 4)
+              [acc st]
+              (let [r (jing/observe-step! h st)]
+                (recur (:state r) (conj acc (:address r)) (inc i)))))]
+      (is (= [(jing/segment-key :a1) (jing/segment-key :b1)
+              (jing/segment-key :a2) (jing/segment-key :b2)]
+             addrs)
+          "round-robin alternates A B A B, cursors advancing independently")
+      (is (= :blocked (:signal (jing/observe-step! h final-state)))
+          "the pool is drained after four payloads"))))
+
+
+(deftest observer-gap-is-reported-and-never-auto-resynced
+  (testing
+    "a cursor behind the retention boundary reports :daostream/gap
+            immediately, leaves its cursor unchanged, is never resynced, and
+            does not starve the rest of the pool"
+    (let [h (mem-handle)
+          a (ds/open!
+              {:type :ringbuffer, :capacity 2, :eviction-policy :evict-oldest})
+          _ (ds/append! a {:evicted 1})
+          _ (ds/append! a {:evicted 2})
+          _ (ds/append! a {:live 3})
+          b (open-stream {:payload :ready})
+          state (jing/observer-state [a b])
+          r1 (jing/observe-step! h state)]
+      (is (= :daostream/gap (:signal r1)))
+      (is (= 0 (:member r1)))
+      (is (= {:position 0} (get-in (:state r1) [:members 0 :cursor]))
+          "the gap leaves the cursor unchanged")
+      (is (= :daostream/gap (get-in (:state r1) [:members 0 :status])))
+      (let [r2 (jing/observe-step! h (:state r1))]
+        (is (= :ok (:signal r2)))
+        (is (= {:payload :ready} (jing/get h (:address r2) ::missing)))
+        (let [r3 (jing/observe-step! h (:state r2))]
+          (is (= :daostream/gap (:signal r3)))
+          (is (= {:position 0} (get-in (:state r3) [:members 0 :cursor]))
+              "the gap persists: the cursor is never auto-resynchronized"))))))
+
+
+(deftest observer-rejects-malformed-stream-maps
+  (testing
+    "a map from ds/next is a successful read only when it explicitly
+            carries both :ok and :cursor; malformed maps throw instead of
+            content-addressing nil or installing a nil cursor"
+    (let [h (mem-handle)]
+      (doseq [bad [{} {:ok nil} {:ok :payload} {:cursor {:position 1}}]]
+        (let [s (->MalformedResultStream bad)]
+          (is (thrown? #?(:clj Exception
+                          :cljs js/Error
+                          :cljd Object)
+                (jing/observe-step! h (jing/observer-state [s])))
+              (str "must reject " (pr-str bad)))))))
+  (testing
+    "a well-formed {:ok ... :cursor ...} read through the same double
+            still materializes"
+    (let [h (mem-handle)
+          s (->MalformedResultStream {:ok :payload, :cursor {:position 1}})
+          r (jing/observe-step! h (jing/observer-state [s]))]
+      (is (= :ok (:signal r)))
+      (is (= (jing/segment-key :payload) (:address r)))
+      (is (= :payload (jing/get h (:address r) ::missing)))
+      (is (= {:position 1} (get-in (:state r) [:members 0 :cursor]))))))
+
+
+(deftest observer-cursor-advances-only-after-successful-materialization
+  (testing
+    "a failed materialization propagates and leaves the caller-owned
+            state untouched; the same payload is reprocessed from the same
+            cursor once the backend succeeds"
+    (let [good (mem-handle)
+          failing {:put-content-fn (fn [address payload]
+                                     (if (= payload :poison)
+                                       (throw (ex-info "injected failure"
+                                                       {:address address}))
+                                       :inserted)),
+                   :get-content-fn (fn [_ _] nil)}
+          s (open-stream {:a 1} :poison {:a 2})
+          state (jing/observer-state [s])
+          r1 (jing/observe-step! good state)]
+      (is (= :ok (:signal r1)))
+      (is (= {:position 1} (get-in (:state r1) [:members 0 :cursor])))
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/observe-step! failing (:state r1))))
+      (is (= {:position 1} (get-in (:state r1) [:members 0 :cursor]))
+          "the caller's state must not advance past the failed payload")
+      (let [r2 (jing/observe-step! good (:state r1))]
+        (is (= :ok (:signal r2)))
+        (is (= (jing/segment-key :poison) (:address r2)))
+        (is (= {:position 2} (get-in (:state r2) [:members 0 :cursor])))))))

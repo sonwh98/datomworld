@@ -4,10 +4,10 @@
 that emerges** when agents use two libraries over a shared [`dao.jing`](dao.jing.md):
 
 - **[`dao.space.index`](dao.space.index.md)** — the transactor side: each agent builds
-  covered indexes over its own [`dao.stream`](dao.stream.md) and persists them in `dao.jing`
-  as immutable, content-addressed B-Tree segments.
-- **[`dao.space.query`](#the-query-library)** — the Peer side: agents match over the
-  persisted indexes (and each other's local indexes) associatively — by content, never by
+  covered indexes over its own [`dao.stream`](dao.stream.md) and enqueues them through a
+  DaoJing intake pool into content storage as immutable, content-addressed B-Tree segments.
+- **[`dao.space.query`](#the-query-library)** — the Peer side: agents match over published
+  sources (and over in-process raw datom sources) associatively — by content, never by
   address.
 
 Storage holds facts at rest; the tuple space is those facts *under shared interpretation*.
@@ -52,8 +52,8 @@ facts; whatever else an interpreter materializes is its own, not the medium).
 
 **Related documents:**
 - `docs/design/dao.field.md` — the sibling point in the moduli space: the vector field made from the same n-tuples, matching by geometric proximity (cosine) rather than exact unification
-- `docs/design/dao.jing.md` — the storage boundary: the content-addressed store of opaque bytes this space reads as datoms
-- `docs/design/dao.space.query.md` — the query library's design record: index realization, the `read-datoms` contract, and the Target Architecture rulings
+- `docs/design/dao.jing.md` — the storage boundary: the content-addressed store of opaque payloads this space reads as datoms
+- `docs/design/dao.space.query.md` — the query library's design record: index realization, the `read-datoms` contract, and the decisions
 - `docs/design/dao.space.index.md` — the transactor-side indexing library: every agent indexes its own datoms; the covered-index realization both sides share
 - `docs/design/dao.stream.md` — the append-only log primitive datoms are written through
 - `docs/agents/datom-spec.md` — tuples and datoms, content-addressed identity, the gauge/base framing
@@ -72,20 +72,23 @@ co-located in a single process with zero network overhead, or split across machi
 changing the contracts. datom.world keeps that separation and maps it onto streams:
 
 - **Transactor (write + index)** — **decentralized.** Every agent appending to its own
-  `dao.stream` is its own transactor: it enforces local schema and appends datom frames,
-  with no global contention and no commit step. It also carries the transactor's other
-  Datomic duty — building the covered indexes over its own datoms — via the
-  [`dao.space.index`](dao.space.index.md) library: a local in-memory index over the
-  agent's stream, eventually persisted to `dao.jing` as content-addressed B-Tree segments
-  when `publish-index!` runs.
-- **Storage** — **[`dao.jing`](dao.jing.md).** The decentralized, content-addressed store
-  where indexes live persistently. It holds immutable segment blobs (the B-Tree nodes) and
-  mutable root references; it does **not** match or query.
+  `dao.stream` is its own transactor: it writes atomic transaction records to its local
+  stream, with no global contention and no commit step. It also carries the transactor's
+  other Datomic duty — building the covered indexes over its own datoms — via the
+  [`dao.space.index`](dao.space.index.md) library: `publish-index!` snapshots the stream,
+  builds the four B-tree indexes, and appends them (node blobs, then the manifest) to an
+  intake stream that a DaoJing observer materializes into content storage.
+- **Storage** — **[`dao.jing`](dao.jing.md).** The content-addressed store where indexes
+  live persistently. It observes an explicit pool of intake streams and materializes each
+  opaque payload insert-if-absent under its content address (`:segment/sha256-<hash>`).
+  It holds the B-tree node blobs and the top-level manifests; it maintains no membership,
+  no mutable roots, and no CAS surface, and it does **not** match or query.
 - **Query (read)** — **the [`dao.space.query`](#the-query-library) library any interpreter
-  embeds.** It reads from two layers — local indexes (the agent's own in-memory cache over
-  its stream) and persistent indexes in `dao.jing` (every agent's published segments) — and
-  runs pattern matching and Datalog. Pure, in-process, per-interpreter — Datomic's Peer
-  model, as a library rather than a service.
+  embeds.** It reads from two layers — in-process raw datom/entity-map sources, and
+  published sources (a content store plus a manifest address) resolved through the
+  covered-index realization — and runs pattern matching, Datalog, and pull. Pure,
+  in-process, per-interpreter — Datomic's Peer model, as a library rather than a
+  service.
 
 **`dao.space` is not one of the three boundaries; it is the coordination surface that spans
 all three.** The transactor writes and indexes; storage persists; the query matches. The
@@ -102,9 +105,10 @@ matched would collapse interpretation into storage, which datom.world's invarian
 So the "space-ness" lives above `dao.jing`, in the composition of index and query:
 
 - `dao.stream` — each agent's append-only log (the write path).
-- `dao.space.index` — builds local covered indexes over the stream's datoms, and persists
-  them in `dao.jing` when `publish-index!` runs.
-- `dao.space.query` — matches over both local indexes and persisted indexes, associatively.
+- `dao.space.index` — snapshots the stream's datoms and builds the covered indexes,
+  enqueuing them through a DaoJing intake pool when `publish-index!` runs.
+- `dao.space.query` — matches over published sources and in-process datom sources,
+  associatively.
 - Agents coordinate by what is there (stigmergy), never by addressing each other.
 
 A tuple space is therefore not an artifact you instantiate; it is the behavior that appears
@@ -115,10 +119,11 @@ when agents index and match over shared storage. `dao.stream` is where an agent 
 
 Because the tuple space lives in the interpreters, the requirement that primary state be
 datoms is a **social contract**, not a limit the storage layer enforces. `dao.jing` is a dumb
-store of opaque bytes: it is **not strict about what it holds** and will accept any bytes you
-write — datoms, graphs, JSON blobs, binaries. Nothing about storage requires the datom shape.
+store of opaque payloads: it is **not strict about what it holds** and will materialize
+anything an intake stream carries — datoms, graphs, JSON blobs, binaries. Nothing about
+storage requires the datom shape.
 (Arbitrary structures are fine when an interpreter materializes them *over* the datoms — that
-is the interpreter's own responsibility, and `dao.jing` just holds the resulting bytes; see
+is the interpreter's own responsibility, and `dao.jing` just holds the resulting payloads; see
 [A Family of Interpreters](#a-family-of-interpreters). This contract is only about what an
 interpreter writes as ground truth.)
 
@@ -136,31 +141,35 @@ The datom shape is the **price of admission** to the tuple space, freely chosen:
 ## The Query Library
 
 Pattern matching and Datalog are a **library** (`dao.space.query`) that any interpreter
-embeds and runs against `dao.jing` and local indexes. It is pure: pull datoms from the two
-layers below, build an in-memory index, answer. It owns no durable state.
+embeds and runs against content stores and in-process sources. It is pure: fold a source
+into an index, answer. It owns no durable state and never writes.
 
-The library reads from **two layers**, reflecting the index lifecycle:
+The library reads from **two layers**, reflecting where datoms live:
 
-- **Local indexes** — the agent's own in-memory sorted sets over its stream's datoms.
-  Built by `dao.space.index` as a local cache; `dao.space.query` can read these directly
-  for the agent's most recent writes, before `publish-index!` has run.
-- **Persistent indexes in `dao.jing`** — every agent's published B-Tree segments.
-  Restored lazily on the JVM (only the seek path is fetched), walked eagerly elsewhere.
-  This is the shared layer: other agents' data reaches you through `dao.jing`, never
-  through their local indexes.
+- **In-process sources** — a raw vector of datoms or entity maps. No storage involved;
+  the ergonomic path for a scratchpad, a test fixture, or the agent's own recent writes
+  that have not been published yet.
+- **Published sources in `dao.jing`** — every agent's published B-tree segments, named
+  by an explicit `(query/published-source content-store manifest-address)` descriptor.
+  A single published source is restored lazily (only the seek path is fetched); pools,
+  mixed/raw sources, and `as-of` reads fold eagerly. This is the shared layer: other
+  agents' data reaches you through the content store, never through their in-process
+  state.
 
-A query over one root source may hit either lifecycle representation (wholesale datoms or
-persisted segments). A query over a source pool merges the named roots, including roots from
-multiple stores.
+A query folds exactly the sources the caller names; a collection of published sources is
+the explicit pool a federated query merges, including descriptors over multiple stores.
+DaoJing intake pools — which streams an observer materializes — are a separate physical
+topology and never imply what a query reads (`dao.jing.md`, *Physical intake versus
+semantic composition*).
 
 ```clojure
 (require '[dao.space.query :as query])
 
-(def source (query/root-source store :root/worker-7))
+(def source (query/published-source store manifest-address))
 
 ;; q — Datalog over the supplied source pool. The design contract is full Datalog
-;; (joins, negation, aggregation, predicates, recursion); the
-;; implementation covers it: not/not-join, :find aggregates (count,
+;; (joins, negation, disjunction, aggregation, predicates, recursion); the
+;; implementation covers it: not/not-join, or/or-join, :find aggregates (count,
 ;; count-distinct, sum, min, max, avg) with :with, predicate/function
 ;; clauses via a caller-supplied {:fns {sym fn}} option, and recursive
 ;; rules bound to % via :in (Datomic syntax; multiple bodies = OR,
@@ -174,118 +183,132 @@ multiple stores.
 ;; match — a positional datom template (Linda-style), lighter than q
 (query/match source [_ :work/status :todo])   ; => matching datoms
 
+;; pull — declarative entity projection (entity → tree), the third read verb
+(query/pull source 1025 [:name :age {:friend [:name]}])
+
 ;; as-of — a read bound: index storage only up to `point`
 (query/q query-form source {:as-of t})
 (query/match source pattern {:as-of (instant "2026-01-01")})
 ```
 
-Within a single stream `as-of t` is exact (the stream's own append order). A **cross-stream**
-`as-of` needs a time coordinate comparable across streams — a wall-clock instant (as shown)
-rather than per-stream `t` — and its precise semantics are deferred (see ADR 0001, Open
-Question 2).
+Within a single stream `as-of t` is exact (the stream's own transaction order). A
+**cross-stream** `as-of` needs a time coordinate comparable across streams — a wall-clock
+instant (as shown) rather than per-stream `t` — and its precise semantics are deferred
+(see ADR 0001, Open Question 2).
 
-Internally the library folds the store's datoms into an index and queries it. The design calls
+Internally the library folds the source into an index and queries it. The design calls
 for each stream's datoms to be stamped with the stream's namespace before indexing, so two
-streams' local id `1025` stay distinct; "same logical entity across streams" is meant to be a
-join on shared *values*, never on a stream-local id. **Not yet implemented**: `dao.jing.md`'s
-Current Scope is explicit that this namespace stamping is not yet derived from the canonical
-kickoff hash, and `dao.space.query.md`'s `read-datoms` Contract confirms `read-datoms` today
-returns datoms *unstamped* — cross-stream local-id collision is a known, currently-open gap,
-not a bug, until content addressing is load-bearing enough to derive a stream's namespace.
+streams' local id `1025` stay distinct; "same logical entity across streams" is meant to be
+a join on shared *values*, never on a stream-local id. The canonical datom carries five
+slots; the sixth namespace slot is materialized only by a cross-stream fold
+(`docs/agents/datom-spec.md`). **Not yet applied**: the pipeline does not stamp `ns`
+automatically — the transactor writes, and `publish-index!` stores, exactly the five-slot
+datoms — so cross-stream local-id collision is a known, currently-open gap, not a bug
+(`dao.space.query.md`, *The `read-datoms` contract* and *Open items*).
 
 ```clojure
-;; Sketch of the library, rebuild-per-query form (pedagogical; not today's path).
-;; The source names one root explicitly; storage has no datoms API of its own.
+;; Sketch of the library (pedagogical). A source is either an explicit
+;; published-source descriptor or a raw datom/entity-map collection.
 (ns dao.space.query
-  (:require [dao.jing :as store]))   ; the store handle namespace
+  (:require [dao.space.index :as index]))
 
-(defn- fold [{:dao.space.query/keys [store root]} as-of]
-  (index (bound-datoms (read-datoms store root) as-of)))
+(defn- fold [source as-of]
+  (if (and (published-source? source) (nil? as-of))
+    (index/restored-indexes (::content-store source)
+                            (index/read-manifest (::content-store source)
+                                                 (::manifest-address source)))
+    (index/index-datoms (bound-datoms (source->datoms source) as-of))))
 
 (defn q     [query-form source & {:keys [as-of]}] (run-datalog query-form (fold source as-of)))
 (defn match [source pattern    & {:keys [as-of]}] (scan-pattern pattern (fold source as-of)))
 ```
 
-`dao.jing` holds only the index's immutable byte segments and a mutable root reference — the
-same substrate Datomic persists its covered indexes into (opaque segment blobs plus a root
-pointer; see [`dao.jing.md`](dao.jing.md), *The Segment and Root Keyspace*). The *index* itself — a
+`dao.jing` holds only opaque, content-addressed payloads — the index's immutable B-tree
+node blobs and the top-level manifest — and answers reads by strict segment address; it has
+no mutable root pointer and no datoms API (`dao.jing.md`, *Reads*). The *index* itself — a
 covered B-Tree (EAVT/AEVT/AVET/VAET) a reader can traverse and answer queries from — is an
-interpretation projected onto those bytes; storage never knows the segments form an index.
-That interpretation — the sort orders, the node-blob format, the root-manifest convention —
-is owned by [`dao.space.index`](dao.space.index.md), the transactor-side indexing library
-this Peer consumes. How the index is maintained (rebuild-per-query, incremental, or
-owner-built/peers-merge) is a concern of the layers above storage, realized on
-`tonsky/persistent-sorted-set`; see [`dao.space.query.md`](dao.space.query.md), *Index
-Realization*. All variants answer identically.
+interpretation projected onto those payloads; storage never knows the segments form an
+index. That interpretation — the sort orders, the node-blob format, the manifest
+convention — is owned by [`dao.space.index`](dao.space.index.md), the transactor-side
+indexing library this Peer consumes. How the index is maintained (rebuild-per-query,
+incremental, or owner-built/peers-merge) is a concern of the layers above storage, realized
+on `dao.data.btree`; see [`dao.space.query.md`](dao.space.query.md), *Index Realization*.
+All variants answer identically.
 
-**Current status.** Two root shapes coexist at a stream's root (`:root/<name>`, one per
-stream). A reader names one root with `(query/root-source store :root/<name>)`; a
-collection of these descriptors is the explicit pool a query folds. No shared membership
-root exists. The
-baseline holds a stream's full datom vector wholesale (`{:datoms [...]}`) and folds it into a
-fresh in-memory index on every query — the "rebuild per query" strategy ("kept only as the
-conceptual baseline"; see [`dao.space.query.md`](dao.space.query.md), *Index Realization*),
-with `tonsky/persistent-sorted-set` as the sorted-set implementation. Since 2026-07-10 the
-owner-built Target Architecture is also implemented: `dao.space.index/publish-index!`
-(the transactor-side indexing library, `docs/design/dao.space.index.md`)
-persists a stream's covered indexes as immutable, content-addressed B-Tree segments (`cas!`/`absent`
-under `segment-key`) and advances the root to `{:indexes {:eavt :segment/sha256-<hash> ...}}`; a
-JVM reader restores those indexes lazily (a bound-`e` lookup fetches only the seek path — 2
-segments of 26 in the test suite), while cljs/cljd readers, and the as-of/federated paths
-everywhere, read the same segments eagerly by walking the plain-EDN node graph. Laziness is
-JVM-only for now (psset durability is a Clojure-only feature); readability is universal. A
-read still resolves the stream's root with a single `get` targeting an immutable snapshot,
-so concurrent writes never disturb an in-flight read. Remaining gaps: segment GC, non-JVM
-laziness, k-way merge of multiple lazy indexes (federated queries fall back to the eager
-walk), and general n-tuple matching (`match`/`q` pad templates to the datom 5-tuple; other
-dimensions are specified, not implemented — see *Lineage*); see *Index Realization*.
+**Current status.** A query reads exactly the manifests the caller names with
+`(query/published-source store manifest-address)`; a collection of these descriptors is
+the explicit semantic pool a query folds, and no shared membership record exists. The
+owner-built architecture is implemented: `dao.space.index/publish-index!` (the
+transactor-side indexing library, `docs/design/dao.space.index.md`) snapshots the agent's
+local stream, builds the four covered indexes as immutable, content-addressed
+`dao.data.btree` segments, and appends the node blobs then the manifest to one intake
+stream selected from an explicit pool; a DaoJing observer materializes them into content
+storage. A single published source with no `as-of` restores those indexes lazily on every
+platform (a bound-`e` lookup fetches only the seek path — a handful of segments out of a
+tree that exceeds fifteen), while pools, mixed/raw sources, and the as-of path fold the
+same segments eagerly by walking the plain-EDN node graph. The raw-datoms source path
+remains the "rebuild per query" baseline for data that was never published. Remaining
+gaps: segment GC, k-way merge of multiple lazy indexes (federated queries fall back to
+the eager walk), namespace stamping, and general n-tuple matching (`match`/`q` pad
+templates to the datom shape; other dimensions are specified, not implemented — see
+*Lineage*); see [`dao.space.query.md`](dao.space.query.md), *Index Realization* and
+*Open items*.
 
 ### Source Polymorphism
 
 `q` and `match`'s second argument is a **source**, not narrowly a `dao.jing` handle. The
 library must accept, interchangeably:
 
-- **A single explicit root source** — `(query/root-source store :root/<name>)`; `fold`
-  pulls B-Tree segments from exactly that root through `read-datoms` and indexes them.
-- **A collection of root sources** — the explicit stream pool, and a *federated* query
-  when its descriptors name roots in several stores,
+- **A single published source** — `(query/published-source content-store
+  manifest-address)`; `fold` reads exactly that one manifest, restoring its B-trees
+  lazily when it is the sole source with no `as-of` bound.
+- **A collection of published sources** — the explicit semantic pool, and a *federated*
+  query when its descriptors name manifests in several stores,
   e.g. a local file-backed handle plus a peer's DHT handle. This is not a new mechanism: ADR 0001's
   monoid-homomorphism proof (`index(S₁ ⊎ … ⊎ Sₙ) = merge(index(S₁), …, index(Sₙ))`) already
   establishes that folding N stores and merging is the same index as one store holding
   everything, so `fold` over a collection is `merge` over the per-store folds, not a
   different code path.
-- **A raw Clojure vector of datoms** — `[[e a v t m] ...]`. This skips the byte-parsing step
-  entirely (`read-datoms` exists only to turn `dao.jing` bytes into this shape); a caller who
-  already has datoms in hand — a REPL scratch value, a test fixture, an in-memory scratchpad
-  never destined for storage — indexes them directly.
-- **A raw Clojure vector of entity maps** — `[{:work/status :todo, :work/task "x"} ...]`.
-  Normalized to datoms first: a map without `:db/id` gets a fresh tempid (mirroring
-  `dao.db.in_memory`'s existing map-form-entity convention), then each `k v` pair becomes an
-  `[e k v]` datom (`t`/`m` defaulted, same as `dao.datom/default-op`).
+- **A raw Clojure vector of datoms** — `[[e a v t m] ...]`, or `[[e a v t m ns] ...]` for a
+  folded datom. This skips storage entirely (`read-datoms` exists only to turn a published
+  manifest into this shape); a caller who already has datoms in hand — a REPL scratch value, a
+  test fixture, an in-memory scratchpad never destined for storage — indexes them directly. A
+  collection is classified as raw datoms only when every element is a 5- or 6-slot vector
+  (arity is the discriminator against nested entity-map collections).
+- **A raw Clojure vector of entity maps** — `[{:db/id e, :work/status :todo, ...} ...]`.
+  Normalized to datoms first: each `k v` pair becomes an `[e k v]` datom (`t`/`m` defaulted,
+  same as `dao.datom/default-op`). Identity is explicit — the read side never mints an entity
+  id, so every entity map must carry `:db/id`; a map without one throws. (Arity precedence: a
+  nested collection of exactly five or six maps reads as a single datom tuple, not as an
+  entity-map collection.)
 
-A mix is legal too — a collection argument may hold `dao.jing` handles and raw datom/entity
+A mix is legal too — a collection argument may hold published sources and raw datom/entity
 vectors side by side; each element is folded by whichever rule matches its shape and the
 results are merged. This makes the library useful standalone, the same way Datomic's `d/q`
 takes db values and in-memory rel/collection inputs interchangeably — a caller should never
-need a throwaway `dao.jing.mem/create-kv-mem` just to query a handful of test datoms. It does
-not change what the tuple space *is*: coordination between agents still runs through shared
-`dao.jing` storage (see *What Makes It a Tuple Space*, above), because a raw in-memory vector
-is by definition not shared. Source polymorphism is an ergonomic property of the query
-*function*, not a second medium.
+need a throwaway `dao.jing.mem/create-content-mem` just to query a handful of test datoms. A
+bare content-store handle is **not** a source: it must be wrapped in
+`published-source`, and passing one unwrapped throws (`bare-content-store-handle-has-no-implicit-source`).
+This preserves the line the tuple space depends on: coordination between agents still runs
+through shared content storage (see *What Makes It a Tuple Space*, above), because a raw
+in-memory vector is by definition not shared. Source polymorphism is an ergonomic property of
+the query *function*, not a second medium.
 
 ```clojure
 ;; source dispatch: each shape folds to the same datom shape before indexing
 (defn- source->datoms
-  [source as-of]
+  [source]
   (cond
-    (root-source? source) (read-datoms (:dao.space.query/store source)
-                                       (:dao.space.query/root source))
-    (and (coll? source) (every? root-source? source))
-    (mapcat #(read-datoms (:dao.space.query/store %)
-                          (:dao.space.query/root %))
-            source)
-    (and (coll? source) (every? vector? source)) source          ; already datoms
-    (and (coll? source) (every? map? source)) (entity-maps->datoms source)
+    (published-source? source)
+    (read-datoms (::content-store source) (::manifest-address source))
+    (content-store-handle? source)
+    (throw (ex-info "bare content-store handles require an explicit published source"
+                    {:source source
+                     :example '(published-source content-store manifest-address)}))
+    ;; raw datoms: every element is a canonical d5 or folded d6 tuple
+    (and (coll? source) (every? datom-tuple? source)) source
+    ;; entity maps: every element is a map carrying an explicit :db/id
+    (and (coll? source) (every? entity-source-map? source)) (entity-maps->datoms source)
     :else (throw (ex-info "unrecognized query source" {:source source}))))
 
 (defn- fold [source as-of] (index (source->datoms source as-of)))
@@ -293,9 +316,9 @@ is by definition not shared. Source polymorphism is an ergonomic property of the
 
 ### Pool-wide match and scoping
 
-The library reads an explicit pool of root sources. Within that pool it matches over
+The library reads an explicit pool of published sources. Within that pool it matches over
 **everything** by default: associative, addressed by content, never by producer. Pool
-construction is intake topology, expressed as data; matching remains content-addressed.
+construction is semantic composition, expressed as data; matching remains content-addressed.
 There is no hidden global registry and no storage key whose mutation changes membership.
 
 Two different things hide under "scoping," and only one is a security mechanism.
@@ -319,9 +342,9 @@ This yields two distinct access modes (see [dao.space.security.md](dao.space.sec
 [ADR 0002](adr/0002-share-governed-computation-not-data.md) for full details):
 
 - **Public (pull-to-reader):** the default mode. The reader embeds the library and pulls
-  datom streams from `dao.jing` directly. There is no fine-grained control; the only
-  security is coarse, per-stream access (POSIX-style filesystem permissions on the member
-  logs). Use this when it is safe to ship the datoms.
+  published datoms from content storage directly. There is no fine-grained control; the only
+  security is coarse, per-store access (e.g. POSIX-style filesystem permissions on the
+  content file). Use this when it is safe to ship the datoms.
 - **Controlled (push-interpreter-to-data / confined):** when fine-grained per-datom control
   is needed, the topology inverts and the data never leaves its owner's control. The reader
   submits a governed interpreter (a `yin.vm` AST) wrapped in a capability; it runs in a
@@ -349,8 +372,8 @@ the fixed substrate every member shares; a member is fixed by which **materializ
 constructs and which surface it exposes. One point looks relational (covered indexes plus
 Datalog); another document-oriented (entity-centric maps); others columnar, graph-oriented, or
 logic-oriented. The substrate stays the same; only the materialized construction laid over it
-changes — and `dao.jing` stores whatever an interpreter builds as ordinary bytes, since it is
-dumb storage that holds anything (see [`dao.jing.md`](dao.jing.md)).
+changes — and `dao.jing` stores whatever an interpreter builds as ordinary opaque payloads,
+since it is dumb storage that holds anything (see [`dao.jing.md`](dao.jing.md)).
 
 Two consequences follow, and both tighten the existing invariants rather than relax them:
 
@@ -385,12 +408,17 @@ recipient) and behind the decentralized Transactor of [Three Boundaries](#three-
 
 ### Intake is explicit topology, not identity
 
-**Intake** names which stream roots a reader currently folds — topology, not the space's
-identity and not a mutable storage record. It is an explicit collection of
-`query/root-source` values. Pools may change at runtime by producing a new collection, while
-each root and its materialized history persist independently. Storage,
-[`dao.jing`](dao.jing.md), remains the dumb materialization; it never interprets or registers
-pool membership.
+Two explicit topologies must stay distinct, because they sit on different sides of the
+storage boundary (`dao.jing.md`, *Physical intake versus semantic composition*):
+
+- **DaoJing intake pools** — the streams a DaoJing observer materializes into content
+  storage. Physical ingestion topology.
+- **Query pools** — the published sources a reader currently folds. Semantic composition:
+  an explicit collection of `query/published-source` values.
+
+Pools may change at runtime by producing a new collection, while each published manifest
+and its materialized history persist independently. Storage, [`dao.jing`](dao.jing.md),
+remains the dumb materialization; it never interprets or registers pool membership.
 
 Because each writer owns a single-writer log, two agents never write the same stream. If
 1,000 agents want to send messages to one recipient, they append to 1,000 distinct
@@ -404,28 +432,24 @@ indexes and saves them to storage; here that duty is decentralized with the rest
 Transactor. Indexing has two stages, mirroring Datomic's memory-index → disk-index pipeline
 but without a central transactor process:
 
-1. **Local indexes** — `dao.space.index` builds in-memory sorted sets over the agent's
-   stream datoms. This is the agent's own cache: `dao.space.query` reads it directly, so
-   the agent's recent writes are immediately queryable without publishing.
-2. **Persistent indexes** — when the agent runs
-   [`dao.space.index/publish-index!`](dao.space.index.md), the local indexes are serialized
-   as immutable, content-addressed B-Tree segments and stored in `dao.jing`. The root
-   advances to the `{:indexes ...}` manifest. Other agents can now consume the
-   persisted covered indexes through `dao.jing`; the underlying datoms were already
-   visible there in wholesale form after append. The local cache and the persisted
-   segments cover the same datoms at different lifecycle stages.
+1. **Append** — the agent's writes land in its own local `dao.stream` as atomic transaction
+   records (see `dao.space.transactor`). The local stream is the durable record; no
+   storage handle is touched.
+2. **Publish** — when the agent runs
+   [`dao.space.index/publish-index!`](dao.space.index.md), the local stream is snapshotted,
+   the four covered indexes are built as immutable, content-addressed `dao.data.btree`
+   segments, and the node blobs plus the manifest are appended to one intake stream
+   selected from an explicit pool. A DaoJing observer materializes them into content
+   storage; other agents consume the persisted covered indexes by naming the manifest
+   address with a published source. The datoms themselves were already readable by anyone
+   who folds the published manifest; publication changes access cost, not visibility.
 
 Publishing is an acceleration, never a semantic change for `q`/`match` — readers answer
-identically over a wholesale root, a local index, or a persisted index — and the stages
-interact safely: a later `ds/append!` folds a persisted root back to wholesale rather than
-dropping it, until the owner republishes. See `dao.space.index.md`, *The agent-transactor
-loop*.
-
-The same is not true for a `dao.stream` cursor reading a stream's own root directly
-(`ds/next`, not `q`/`match`): publishing reorders the datoms `next` walks from append order to
-index order, so a live cursor gaps (`:daostream/gap`) rather than silently landing on a
-different datom. See `dao.space.transactor`'s ns docstring for the mechanism
-(`:reorder-epoch`) and why this gap's recovery differs from the eviction-based transports.
+identically over a published manifest or a raw datom source. `publish-index!` returns the
+manifest and its address and never mutates DaoJing directly; append success means enqueued,
+not yet materialized. A partial immutable node prefix on a full intake stream is retry-safe
+because the manifest is always appended last. See `dao.space.index.md`, *The
+agent-transactor loop*.
 
 ### Fault Tolerance (Crash-Only Semantics)
 
@@ -439,11 +463,12 @@ crash-only semantics natively:
 - **Write recovery:** A restarted writer reopens its file in append mode; the next `ds/append!`
   lands safely after the last flushed datom.
 - **Read recovery:** A reader resumes from a checkpointed cursor, so an incremental index
-  rebuilds without reprocessing or skipping. Against `:transactor` a checkpoint must persist
-  the whole cursor map (`(:cursor result)`, not just the bare `:position` offset) — it carries
-  `:epoch`, which is what lets `ds/next` detect a publish! that reordered data since the
-  checkpoint was taken and gap instead of resuming into the wrong datom (see
-  `dao.space.transactor`).
+  rebuilds without reprocessing or skipping. A checkpoint persists the whole cursor map
+  (`(:cursor result)`, not just a bare `:position` offset when the transport's cursors carry
+  more); a cursor that has fallen behind a retention boundary returns `:daostream/gap`, and
+  resynchronization is the caller's decision. Because `publish-index!` never rewrites the
+  local stream — it appends to a separate intake stream — publishing cannot reorder what a
+  local-stream cursor walks.
 
 ## Coordination: Stigmergy
 
@@ -454,36 +479,64 @@ the accreted datoms. This is the tuple space working as designed — coordinatio
 broker, no message-format negotiation, and no leader election.
 
 The worker loop below reads with `query/q` and writes with `ds/append!` — two different
-concurrency models. `append!` is a per-root CAS: an agent's own write is immediately durable
-and visible to any reader whose pool includes that root. `q` folds every root source fresh on
-each call, so a claim becomes visible to *other* workers only once they re-query after the claim's `append!`
-returns — there is no push, no shared read-your-writes guarantee across agents.
+concurrency models. `append!` is a local append to the agent's own single-writer stream (one
+atomic transaction record); it is never a CAS over a shared surface. Visibility to other
+workers requires publication: `publish!` enqueues the indexes, a DaoJing observer
+materializes them, and a reader folding the new manifest address sees the claim. `q` folds
+the sources it is given fresh on each call, so a claim becomes visible to *other* workers
+only once they re-query after republish — there is no push, no shared read-your-writes
+guarantee across agents.
 
-**The example below is runnable.** Every former blocker is implemented: `match`/`q` mask
-retracted datoms and supersede cardinality-one values at query time via `current-state-seq`
-(see `dao.space.query.md`, *Current-state resolution*); `q` implements `not`/`not-join`
-(stratified, over the current-state-resolved index), so the `(not [_ :work/claims ?w])`
-clause executes as written; and `{:type :transactor :store store :name ...}` is a
-registered `dao.stream` type (`dao.space.transactor`) whose `ds/append!` deposits an entity map
-or datom vector into the stream's **own** root, `:root/<name>` — each stream a single-writer
-log, no shared write surface. `open!` writes no registration record. The caller constructs an
-explicit pool of `query/root-source` values, and the query library folds those roots and
-merges them. Entity-id namespace stamping
-(`[stream-ns offset]`, Ruling 3 of `dao.space.query.md`) is still pending, so cross-stream
-`:db/id` collision remains the documented open gap until the kickoff-hash namespace lands.
-One layering note stands: `dao.jing`'s
-file backend still uses `dao.stream.log` internally as its byte transport (see
-`dao.space.query.md`, *Reality check*), so the layers remain mutually acquainted even
-though the write path now runs top-down:
+**The example below is representative, not a shipped binary.** Every mechanism it names is
+implemented: `match`/`q` mask assertions explicitly retracted for the same `[e a v]` at query
+time via `current-state-seq` (see `dao.space.query.md`, *Current-state resolution*); `q`
+implements `not`/`not-join` (stratified, over the current-state-resolved index), so the
+`(not [_ :work/claims ?w])` clause executes as written; `{:type :transactor :local-stream s
+:intake-pool [...]}` is a registered `dao.stream` type (`dao.space.transactor`) whose
+`ds/append!` deposits one atomic transaction record into the wrapper's own local stream —
+calls through one wrapper serialize timestamp allocation and append, while each stream remains
+a single-writer log with no shared write surface; and `publish!` delegates to
+`dao.space.index/publish-index!`, which snapshots the local stream and enqueues the covered
+indexes through the intake pool. `open!` writes no registration record. The caller
+constructs an explicit pool of `query/published-source` values, and the query library folds
+those manifests and merges them. Entity-id namespace stamping (`[stream-ns offset]`, see
+`dao.space.query.md`) is still pending, so cross-stream `:db/id` collision remains the
+documented open gap:
 
 ```clojure
-(defn producer [store]
-  (let [log (ds/open! {:type :transactor :store store :name "producer"})]
-    (ds/append! log {:db/id (random-id) :work/posted true :work/task "process payment"})
-    (query/root-source store :root/producer)))
+(require '[dao.jing :as jing]
+         '[dao.jing.mem :as mem]
+         '[dao.stream :as ds]
+         '[dao.space.query :as query]
+         '[dao.space.transactor :as transactor])
 
-(defn worker [store worker-id pool]
-  (let [log (ds/open! {:type :transactor :store store :name worker-id})]
+;; shared physical substrate: one content store, one intake stream, and a DaoJing
+;; observer that materializes whatever the intake stream carries
+(def store (mem/create-content-mem))
+(def intake (ds/open! {:type :ringbuffer}))
+(def observer (jing/observer-state [intake]))
+
+(defn pump! []
+  (loop [obs observer]
+    (let [{:keys [state signal]} (jing/observe-step! store obs)]
+      (when (= :ok signal) (recur state)))))
+
+(defn agent-log [name]
+  ;; one wrapper over this agent's own local stream, sharing the intake pool
+  (ds/open! {:type :transactor
+             :local-stream (ds/open! {:type :ringbuffer})
+             :intake-pool [intake]
+             :name name}))
+
+(defn producer []
+  (let [log (agent-log "producer")]
+    (ds/append! log {:db/id (random-id) :work/posted true :work/task "process payment"})
+    (let [{:keys [manifest-address]} (transactor/publish! log)]  ; enqueue the indexes
+      (pump!)                                                    ; materialize them
+      (query/published-source store manifest-address))))         ; the read coordinate
+
+(defn worker [worker-id source]
+  (let [log (agent-log worker-id)]
     (loop []
       ;; "posted work nothing has claimed" — negation + join over the explicit pool,
       ;; the query that justifies a tuple space (not a per-datom scan).
@@ -491,7 +544,7 @@ though the write path now runs top-down:
                             :where [?w :work/posted true]
                                    [?w :work/task ?task]
                                    (not [_ :work/claims ?w])]
-                   pool)]
+                   source)]
         (when-let [[?w task] (first work)]
           (ds/append! log {:db/id (random-id) :work/claims ?w :work/by worker-id})
           (ds/append! log {:db/id (random-id) :work/result (process task)})
@@ -500,9 +553,9 @@ though the write path now runs top-down:
 
 The naive version hides a familiar race: two workers can run the claim query before either
 appends, and both then claim the same task. That is not a storage bug, and not a transactor
-bug either — `dao.jing` never sees "claims," only datoms, and each worker's `append!` is a
-local `cas!` over its own single-writer root; neither layer knows the other worker exists, so
-neither can prevent or even detect the race. There is no lock and no `cas!` over a shared
+bug either — `dao.jing` never sees "claims," only opaque payloads, and each worker's
+`append!` is a local append over its own single-writer stream; neither layer knows the other
+worker exists, so neither can prevent or even detect the race. There is no lock and no shared
 stream to force exclusion — both claims are simply recorded in their own owners' logs.
 
 Resolving the race, if resolution is wanted at all, is entirely an **interpreter-level policy
@@ -510,16 +563,16 @@ choice** — the same declared-materialized-view freedom [*A Family of
 Interpreters*](#a-family-of-interpreters) describes, applied to conflict resolution instead of
 read shape. One convention an interpreter could adopt: a downstream reader sees both claims,
 sorts by some rule, and picks a winner. But "sort by timestamp" is not free of a pitfall of its
-own — each claim's `t` is a per-root watermark (`(count existing)` at CAS-win time,
-`dao.space.transactor`'s ns docstring), not a shared clock, so ordering two *different*
-streams' claims by `t` is arbitrary, not meaningful, unless the interpreter's convention
-supplies its own comparable clock (a wall-clock stamp on the datom, an external sequencer) or
-sidesteps the ambiguity entirely (a single shared claims stream, entity-id ownership). Absent
-such a convention, both claims simply stay queryable, and it is up to whichever interpreter is
-asking whether "two claims" is a conflict to break or two valid answers to return. Exclusion is
-a query rule an interpreter can choose to implement, never a guarantee `dao.jing` or
-`dao.space.transactor` enforces — which is exactly why the tuple-space character belongs to
-`dao.space`, not the storage or write layers below it.
+own — each claim's `t` is a per-local-stream transaction counter (`dao.space.transactor`
+derives the next `t` from the retained history), not a shared clock, so ordering two
+*different* streams' claims by `t` is arbitrary, not meaningful, unless the interpreter's
+convention supplies its own comparable clock (a wall-clock stamp on the datom, an external
+sequencer) or sidesteps the ambiguity entirely (a single shared claims stream, entity-id
+ownership). Absent such a convention, both claims simply stay queryable, and it is up to
+whichever interpreter is asking whether "two claims" is a conflict to break or two valid
+answers to return. Exclusion is a query rule an interpreter can choose to implement, never a
+guarantee `dao.jing` or `dao.space.transactor` enforces — which is exactly why the
+tuple-space character belongs to `dao.space`, not the storage or write layers below it.
 
 ## Lineage
 
@@ -546,7 +599,7 @@ The other two traditions live in the layers below and have their own docs:
   append-only log substrate.
 
 The synthesis: **`dao.space` is the tuple space that emerges when agents index their streams
-(via `dao.space.index`, persisting covered indexes in `dao.jing`) and match over the result
-(via the `dao.space.query` Peer library).** Indexing creates queryable structure from raw
-appends; matching finds content associatively across every agent's visible data; the tuple
-space is the coordination these two moves compose.
+(via `dao.space.index`, enqueuing covered indexes through a DaoJing intake pool into content
+storage) and match over the result (via the `dao.space.query` Peer library).** Indexing
+creates queryable structure from raw appends; matching finds content associatively across
+every agent's visible data; the tuple space is the coordination these two moves compose.

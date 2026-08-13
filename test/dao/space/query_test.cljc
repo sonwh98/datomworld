@@ -1,17 +1,118 @@
 (ns dao.space.query-test
   "Contract tests for dao.space.query: the pure, stateless match/q/pull
-  library specified in docs/design/dao.space.md and docs/datomic-pull.md.
-  Exercises the four source shapes the design doc's Source Polymorphism
-  section requires — an explicit dao.jing root source, a collection of root
-  sources (federated query, justified by ADR 0001's monoid homomorphism),
-  a raw vector of datoms, and a raw vector of entity maps — plus mixes of
-  them, and pull's schema-free entity-projection contract."
+   library specified in docs/design/dao.space.md and docs/datomic-pull.md.
+   Exercises the source shapes the design doc's Source Polymorphism section
+   requires — an explicit published source (content store + manifest
+   address), a collection of published sources (federated query, justified
+   by ADR 0001's monoid homomorphism), a raw vector of datoms, and a raw
+   vector of entity maps — plus mixes of them, and pull's schema-free
+   entity-projection contract. Published fixtures are built with ringbuffer
+   local+intake streams and publish-index!, then a DaoJing observer
+   materializes the intake into a small test content handle before
+   querying."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
-            [dao.jing.mem :as mem]
-            [dao.jing.file :as file]
             [dao.space.index :as index]
-            [dao.space.query :as query]))
+            [dao.space.query :as query]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]))
+
+
+;; ---------------------------------------------------------------------------
+;; Published-source fixtures
+;; ---------------------------------------------------------------------------
+
+(defn- content-handle
+  "In-memory content store for tests: a map keyed by content address, the
+   shape a DaoJing observer materializes into."
+  []
+  (let [store (atom {})]
+    {:store store,
+     :put-content-fn (fn [address payload]
+                       (if (contains? @store address)
+                         :present
+                         (do (swap! store assoc address payload) :inserted))),
+     :get-content-fn (fn [address not-found] (get @store address not-found))}))
+
+
+(defn- recording-handle
+  "A content handle that records every :get-content-fn read, for asserting
+   lazy vs eager traversal."
+  []
+  (let [store (atom {})
+        reads (atom [])]
+    {:store store,
+     :reads reads,
+     :put-content-fn (fn [address payload]
+                       (if (contains? @store address)
+                         :present
+                         (do (swap! store assoc address payload) :inserted))),
+     :get-content-fn (fn [address not-found]
+                       (swap! reads conj address)
+                       (get @store address not-found))}))
+
+
+(defn- open-local
+  "Open a ringbuffer local (agent) stream pre-loaded with datoms."
+  [datoms]
+  (let [s (ds/open! {:type :ringbuffer})]
+    (doseq [d datoms] (ds/append! s d))
+    s))
+
+
+(defn- open-intake
+  "Open a ringbuffer intake stream with capacity large enough for the
+   multi-node tests."
+  []
+  (ds/open! {:type :ringbuffer, :capacity 4096}))
+
+
+(defn- materialize!
+  "Drain intake streams through a dao.jing observer into a content store;
+   publication only acknowledges intake append, so fixtures must run the
+   observer before querying. Returns the store."
+  ([intakes] (materialize! intakes (content-handle)))
+  ([intakes handle]
+   (loop [st (jing/observer-state intakes)]
+     (let [r (jing/observe-step! handle st)]
+       (case (:signal r)
+         :ok (recur (:state r))
+         :blocked handle
+         :end handle
+         :daostream/gap (throw (ex-info "test observer hit a gap"
+                                        {:result r})))))))
+
+
+(defn- publish!
+  "Publish datoms into a fresh content store and materialize them through
+   the DaoJing observer; returns {:content-store handle
+   :manifest-address addr}."
+  ([datoms] (publish! datoms nil))
+  ([datoms opts]
+   (let [local (open-local datoms)
+         intake (open-intake)
+         {:keys [manifest-address]} (index/publish-index! local [intake] opts)
+         handle (materialize! [intake])]
+     {:content-store handle, :manifest-address manifest-address})))
+
+
+(defn- publish-into!
+  "Publish datoms and materialize them into an existing content store;
+   returns the manifest address."
+  [handle datoms]
+  (let [local (open-local datoms)
+        intake (open-intake)
+        {:keys [manifest-address]} (index/publish-index! local [intake])]
+    (materialize! [intake] handle)
+    manifest-address))
+
+
+(defn- source
+  "A published query source over datoms."
+  ([datoms] (source datoms nil))
+  ([datoms opts]
+   (let [{:keys [content-store manifest-address]} (publish! datoms opts)]
+     (query/published-source content-store manifest-address))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -54,144 +155,265 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest entity-maps-normalize-to-datoms
-  (testing "each map becomes one datom per k/v pair; no :db/id gets a fresh id"
-    (let [source [{:work/status :todo, :work/task "a"}
-                  {:work/status :done, :work/task "b"}]]
+  (testing "each map becomes one datom per k/v pair, using its explicit :db/id"
+    (let [source [{:db/id 1, :work/status :todo, :work/task "a"}
+                  {:db/id 2, :work/status :done, :work/task "b"}]]
       (is (= #{["a"] ["b"]}
              (query/q '[:find ?task :where [_ :work/task ?task]] source)))))
-  (testing "an explicit :db/id is used verbatim and joins across maps"
+  (testing "a numeric :db/id is used verbatim"
+    (let [source [{:db/id 42, :work/status :todo}]]
+      (is (= [[42 :work/status :todo 0 1]] (query/source->datoms source)))))
+  (testing "a symbolic :db/id is used verbatim and joins across maps"
     (let [source [{:db/id :e1, :work/status :todo}
                   {:db/id :e1, :work/task "a"}]]
       (is (= #{[:e1 "a"]}
              (query/q '[:find ?id ?task :where [?id :work/status :todo]
                         [?id :work/task ?task]]
                       source)))))
-  (testing "two maps without :db/id get distinct synthetic ids"
-    (let [source [{:work/status :todo} {:work/status :todo}]
-          ids (query/q '[:find ?id :where [?id :work/status :todo]] source)]
-      (is (= 2 (count ids)))
-      (is (apply not= (map first ids)))))
-  (testing "explicit and generated :db/id values interleaved"
-    (let [source [{:work/status :todo} {:db/id :e1, :work/status :done}
-                  {:work/status :todo}]]
-      (let [datoms (query/source->datoms source)]
-        (is (= [[1 :work/status :todo 0 1] [:e1 :work/status :done 0 1]
-                [2 :work/status :todo 0 1]]
-               datoms)))))
   (testing "empty input" (is (empty? (query/source->datoms []))))
-  (testing "generated-ID ordering is preserved"
-    (let [source [{:work/task "a"} {:work/task "b"}]]
-      (let [datoms (query/source->datoms source)]
-        (is (= 1 (nth (first datoms) 0)))
-        (is (= 2 (nth (second datoms) 0)))))))
+  (testing "explicit-ID ordering is preserved"
+    (let [source [{:db/id :a, :work/task "a"} {:db/id :b, :work/task "b"}]
+          datoms (query/source->datoms source)]
+      (is (= :a (nth (first datoms) 0)))
+      (is (= :b (nth (second datoms) 0))))))
+
+
+(deftest entity-map-sources-require-explicit-db-id
+  (testing "a top-level entity map without :db/id throws"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"explicit :db/id"
+          (query/source->datoms {:work/status :todo})))
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"explicit :db/id"
+          (query/q '[:find ?task :where [_ :work/task ?task]]
+                   {:work/task "a"}))))
+  (testing "any :db/id-less map in a top-level collection throws"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"explicit :db/id"
+          (query/q '[:find ?task :where [_ :work/task ?task]]
+                   [{:db/id 1, :work/task "a"}
+                    {:work/task "b"}]))))
+  (testing "a :db/id-less map in a mixed collection throws"
+    (let [source-a (source [[1 :work/status :todo 0 1]])]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"explicit :db/id"
+            (query/q '[:find ?id :where
+                       [?id :work/status :todo]]
+                     [source-a {:work/status :todo}])))))
+  (testing "a :db/id-less map nested in a sub-collection throws"
+    (let [source-a (source [[1 :work/status :todo 0 1]])]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"explicit :db/id"
+            (query/q '[:find ?id :where
+                       [?id :work/status :todo]]
+                     [source-a [{:work/status :todo}]])))))
+  (testing "a purely nested entity-map collection without :db/id throws"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"explicit :db/id"
+          (query/source->datoms [[{:work/status :todo}]])))))
+
+
+(deftest raw-datom-classification-is-arity-based
+  (testing "nested d5 datom collections flatten in order"
+    (is (= [[1 :work/status :todo 0 1] [2 :work/status :done 0 1]]
+           (query/source->datoms [[[1 :work/status :todo 0 1]]
+                                  [[2 :work/status :done 0 1]]]))))
+  (testing "nested d6 datom collections flatten in order"
+    (is (= [[1 :work/status :todo 0 1 :ns/a] [2 :work/status :done 0 1 :ns/b]]
+           (query/source->datoms [[[1 :work/status :todo 0 1 :ns/a]]
+                                  [[2 :work/status :done 0 1 :ns/b]]]))))
+  (testing "a flat d5 datom vector is passed through unchanged"
+    (is (= sample-datoms (query/source->datoms sample-datoms))))
+  (testing "a nested collection of exactly five maps reads as one d5 datom"
+    ;; Precedence, not full recognition: arity 5 is a datom tuple, so five
+    ;; maps in a row are the e/a/v/t/m slots of a single datom, not an
+    ;; entity-map collection. Pinned here so the classifier's precedence is
+    ;; explicit rather than silently elided.
+    (is (= [[{:a 1} {:b 2} {:c 3} {:d 4} {:e 5}]]
+           (query/source->datoms [[{:a 1} {:b 2} {:c 3} {:d 4} {:e 5}]])))))
 
 
 (deftest match-over-entity-maps
-  (let [source [{:work/status :todo, :work/task "a"}]]
+  (let [source [{:db/id 1, :work/status :todo, :work/task "a"}]]
     (is (= 2 (count (query/match source ['_ '_ '_]))))
     (is (= 1 (count (query/match source ['_ :work/status :todo]))))))
 
 
 ;; ---------------------------------------------------------------------------
-;; match / q over an explicit dao.jing root source
+;; Source descriptor validation
 ;; ---------------------------------------------------------------------------
 
-(defn- seed!
-  "Write datoms into an explicit root and return its query source."
-  [store datoms]
-  (jing/cas! store :root/test jing/absent {:datoms datoms})
-  (query/root-source store :root/test))
+(deftest published-source-validates-its-coordinates
+  (testing "content-store must be a map with a function :get-content-fn"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"content-store handle"
+          (query/published-source :not-a-store
+                                  (jing/segment-key {:a 1}))))
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"content-store handle"
+          (query/published-source {:get-content-fn :not-fn}
+                                  (jing/segment-key {:a 1}))))
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"content-store handle"
+          (query/published-source {}
+                                  (jing/segment-key {:a 1})))))
+  (testing "manifest-address must be a :segment/sha256-... content address"
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"manifest address"
+          (query/published-source (content-handle)
+                                  :root/not-an-address)))
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #"manifest address"
+          (query/published-source (content-handle)
+                                  "not-a-keyword"))))
+  (testing "a valid coordinate returns a plain descriptor with private keys"
+    (let [h (content-handle)
+          address (jing/segment-key {:a 1})]
+      (is (= {:dao.space.query/content-store h,
+              :dao.space.query/manifest-address address}
+             (query/published-source h address))))))
 
 
-(deftest q-over-an-explicit-root-source
-  (testing "a root source names the jing materialization and root explicitly"
-    (let [store (mem/create-kv-mem)]
-      (let [source (seed! store sample-datoms)]
-        (is (= {:dao.space.query/store store, :dao.space.query/root :root/test}
-               source))
-        (is (= #{[1 "write tests"] [2 "ship it"]}
-               (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                        source)))))))
+;; ---------------------------------------------------------------------------
+;; match / q / pull over a published source
+;; ---------------------------------------------------------------------------
 
-
-(deftest bare-dao-jing-handle-has-no-implicit-membership
-  (testing "a bare jing handle cannot imply which roots belong to a query"
-    (let [store (mem/create-kv-mem)]
-      (seed! store sample-datoms)
+(deftest q-over-a-published-source
+  (testing
+    "a published source names the content store and manifest address explicitly"
+    (let [{:keys [content-store manifest-address]} (publish! sample-datoms)
+          source (query/published-source content-store manifest-address)]
       (is (= #{[1 "write tests"] [2 "ship it"]}
              (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                      (query/root-source store :root/test))))
+                      source))))))
+
+
+(deftest bare-content-store-handle-has-no-implicit-source
+  (testing
+    "a bare content handle cannot imply which published manifest belongs to a query"
+    (let [{:keys [content-store manifest-address]} (publish! sample-datoms)]
+      (is (= #{[1 "write tests"] [2 "ship it"]}
+             (query/q '[:find ?id ?task :where [?id :work/task ?task]]
+                      (query/published-source content-store manifest-address))))
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
                                :default Exception)
-                            #"explicit root source"
-            (query/q '[:find ?id :where [?id _ _]] store))))))
+                            #"explicit published source"
+            (query/q '[:find ?id :where [?id _ _]]
+                     content-store)))
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"explicit published source"
+            (query/match content-store ['_ '_ '_]))))))
 
 
-(deftest match-over-an-explicit-root-source
-  (let [store (mem/create-kv-mem)]
-    (let [source (seed! store sample-datoms)]
-      (is (= 1 (count (query/match source [1 :work/status '_]))))
-      (is
-        (= [[1 :work/status :todo 0 1]] (query/match source ['_ '_ :todo]))
-        "v-only match exercises the in-memory VAET built from the
-        wholesale root's :datoms"))))
+(deftest match-over-a-published-source
+  (let [source (source sample-datoms)]
+    (is (= 1 (count (query/match source [1 :work/status '_]))))
+    (is (= [[1 :work/status :todo 0 1]] (query/match source ['_ '_ :todo]))
+        "v-only match exercises the restored VAET of the published index")))
 
 
-;; A v-only match against a wholesale root only exercises the in-memory
-;; VAET that index-datoms builds. This test publishes first so the
-;; v-only branch reaches the lazy restored VAET (fold's complete-manifest
-;; guard) — the only way to prove the persisted-VAET path works.
-#?(:cljd nil
-   :clj (deftest v-only-match-reaches-the-published-vaet
-          (let [store (mem/create-kv-mem)
-                source (seed! store sample-datoms)]
-            (index/publish-index! store :root/test)
-            (is (= #{[1 :work/status :todo 0 1]}
-                   (set (query/match source ['_ '_ :todo]))))
-            (is (= 1
-                   (count (query/q '[:find ?e :where [?e :work/status :todo]]
-                                   source)))))))
+;; A v-only match against a raw vector only exercises the in-memory VAET
+;; that index-datoms builds. Publishing first makes the v-only branch reach
+;; the lazily-restored VAET (fold's published-manifest guard) — the only way
+;; to prove the persisted-VAET path works.
+(deftest v-only-match-reaches-the-restored-vaet
+  (let [source (source sample-datoms)]
+    (is (= #{[1 :work/status :todo 0 1]}
+           (set (query/match source ['_ '_ :todo]))))
+    (is (= 1
+           (count (query/q '[:find ?e :where [?e :work/status :todo]]
+                           source))))))
 
 
-(deftest empty-root-source-yields-no-datoms
-  (testing "an unseeded store contributes nothing, not an error"
-    (let [store (mem/create-kv-mem)]
-      (is (= [] (query/match (query/root-source store :root/empty) ['_ '_ '_])))
-      (is (= #{}
-             (query/q '[:find ?e :where [?e _ _]]
-                      (query/root-source store :root/empty)))))))
+(deftest empty-published-source-yields-no-datoms
+  (testing
+    "an empty published manifest (nil roots) contributes nothing, not an error"
+    (let [source (source [])]
+      (is (= [] (query/match source ['_ '_ '_])))
+      (is (= #{} (query/q '[:find ?e :where [?e _ _]] source)))
+      (is (= [] (query/source->datoms source))))))
+
+
+(deftest pull-over-a-published-source
+  (let [source (source [[1 :name "Alice" 1 1] [1 :age 30 1 1]
+                        [2 :name "Bob" 1 1]])]
+    (is (= {:db/id 1, :name "Alice", :age 30}
+           (query/pull source 1 [:name :age])))
+    (is (= [{:db/id 1, :name "Alice"} {:db/id 2, :name "Bob"} {:db/id 999}]
+           (query/pull-many source [1 2 999] [:name])))))
 
 
 ;; ---------------------------------------------------------------------------
-;; match / q over a pool of root sources (federated)
+;; match / q over a pool of published sources (federated)
 ;; ---------------------------------------------------------------------------
 
-(deftest q-over-multiple-root-sources
+(deftest q-over-multiple-published-sources
   (testing
     "a collection of stores folds and merges, per ADR 0001's monoid
            homomorphism: index(S1 ⊎ S2) = merge(index(S1), index(S2))"
-    (let [a (mem/create-kv-mem)
-          b (mem/create-kv-mem)
-          source-a (seed! a [[1 :work/status :todo 0 1] [1 :work/task "a" 0 1]])
-          source-b (seed! b
-                          [[2 :work/status :done 0 1] [2 :work/task "b" 0 1]])]
+    (let [source-a (source [[1 :work/status :todo 0 1] [1 :work/task "a" 0 1]])
+          source-b (source [[2 :work/status :done 0 1] [2 :work/task "b" 0 1]])]
       (is (= #{[1 "a"] [2 "b"]}
              (query/q '[:find ?id ?task :where [?id :work/task ?task]]
                       [source-a source-b])))
-      (testing "querying each store alone yields a strict subset"
+      (testing "querying each source alone yields a strict subset"
         (is (= #{[1 "a"]}
                (query/q '[:find ?id ?task :where [?id :work/task ?task]]
                         source-a)))))))
 
 
-(deftest match-over-multiple-root-sources
-  (let [a (mem/create-kv-mem)
-        b (mem/create-kv-mem)
-        source-a (seed! a [[1 :work/status :todo 0 1]])
-        source-b (seed! b [[2 :work/status :todo 0 1]])]
+(deftest match-over-multiple-published-sources
+  (let [source-a (source [[1 :work/status :todo 0 1]])
+        source-b (source [[2 :work/status :todo 0 1]])]
     (is (= #{[1 :work/status :todo 0 1] [2 :work/status :todo 0 1]}
            (set (query/match [source-a source-b] ['_ :work/status :todo]))))))
+
+
+(deftest q-over-multiple-addresses-of-one-store
+  (testing
+    "one materialized store may hold several manifests; each address is its
+           own source, because source identity is the store+address coordinate"
+    (let [h (content-handle)
+          addr-a (publish-into! h
+                                [[1 :work/status :todo 0 1]
+                                 [1 :work/task "a" 0 1]])
+          addr-b (publish-into! h
+                                [[2 :work/status :done 0 1]
+                                 [2 :work/task "b" 0 1]])
+          source-a (query/published-source h addr-a)
+          source-b (query/published-source h addr-b)]
+      (is (not= addr-a addr-b))
+      (is (= #{[1 "a"]}
+             (query/q '[:find ?id ?task :where [?id :work/task ?task]]
+                      source-a)))
+      (is (= #{[1 "a"] [2 "b"]}
+             (query/q '[:find ?id ?task :where [?id :work/task ?task]]
+                      [source-a source-b]))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -289,13 +511,18 @@
 ;; Mixed sources
 ;; ---------------------------------------------------------------------------
 
-(deftest mixed-source-collection
-  (testing "a root source and a raw datom vector fold together"
-    (let [store (mem/create-kv-mem)]
-      (let [source (seed! store [[1 :work/status :todo 0 1]])]
-        (is (= #{[1] [2]}
-               (query/q '[:find ?id :where [?id :work/status :todo]]
-                        [source [[2 :work/status :todo 0 1]]])))))))
+(deftest mixed-published-and-raw-collection
+  (testing "a published source and a raw datom vector fold together"
+    (let [source-a (source [[1 :work/status :todo 0 1]])]
+      (is (= #{[1] [2]}
+             (query/q '[:find ?id :where [?id :work/status :todo]]
+                      [source-a [[2 :work/status :todo 0 1]]])))))
+  (testing "published sources and raw entity maps remain distinct map shapes"
+    (let [source-a (source [[1 :work/status :todo 0 1]])]
+      (is (= #{[1] [2] [3]}
+             (query/q '[:find ?id :where [?id :work/status :todo]]
+                      [source-a {:db/id 2, :work/status :todo}
+                       {:db/id 3, :work/status :todo}]))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -320,6 +547,52 @@
     (is (= 2 (count (query/match datoms [1 :work/status '_] {:as-of 5}))))))
 
 
+(deftest published-source-as-of-takes-the-eager-path
+  (testing
+    "as-of over a published source falls back to the eager walk and
+          stays correct, bounded to t <= as-of"
+    (let [source (source [[1 :work/status :todo 0 1]
+                          [1 :work/status :done 5 1]])]
+      (is (=
+            #{[:todo]}
+            (query/q '[:find ?v :where [1 :work/status ?v]] source {:as-of 0})))
+      (is (=
+            #{[:todo] [:done]}
+            (query/q '[:find ?v :where [1 :work/status ?v]] source {:as-of 5})))
+      (is (= 1 (count (query/match source [1 :work/status '_] {:as-of 0}))))
+      (is (= 2 (count (query/match source [1 :work/status '_] {:as-of 5})))))))
+
+
+(deftest lazy-point-lookup-faults-only-the-seek-path
+  (testing
+    "a single published source with no as-of restores lazily: a point
+          lookup reads only the seek path, never the whole graph; the same
+          lookup under an as-of bound takes the eager path and reads more"
+    (let [datoms (mapv (fn [i] [i :work/status :todo 0 1]) (range 300))
+          local (open-local datoms)
+          intake (open-intake)
+          handle (recording-handle)
+          {:keys [manifest-address]}
+          (index/publish-index! local [intake] {:branching-factor 16})]
+      (materialize! [intake] handle)
+      (reset! (:reads handle) [])
+      (let [source (query/published-source handle manifest-address)
+            lazy (query/match source [42 :work/status '_])]
+        (is (= 1 (count lazy)))
+        (is (= [42 :work/status :todo 0 1] (first lazy)))
+        (is (pos? (count @(:reads handle)))
+            "a lazy restore reads at least the seek path")
+        (is (< (count @(:reads handle)) (count @(:store handle)))
+            "a lazy restore never faults every stored segment")
+        (let [lazy-reads (count @(:reads handle))]
+          (reset! (:reads handle) [])
+          (let [eager (query/match source [42 :work/status '_] {:as-of 1})]
+            (is (= 1 (count eager)))
+            (is (= [42 :work/status :todo 0 1] (first eager)))
+            (is (> (count @(:reads handle)) lazy-reads)
+                "as-of bounds read the EAVT graph eagerly")))))))
+
+
 ;; ---------------------------------------------------------------------------
 ;; Errors
 ;; ---------------------------------------------------------------------------
@@ -329,54 +602,6 @@
                   :cljd Object
                   :default Exception)
         (query/q '[:find ?e :where [?e _ _]] 42))))
-
-
-;; ---------------------------------------------------------------------------
-;; Cross-backend: dao.jing.file (persistent, cross-platform)
-;; ---------------------------------------------------------------------------
-
-(deftest q-over-a-file-backed-root-source
-  (testing
-    "the query library is backend-agnostic: KVFile works exactly like KVMem"
-    (let [path (str "target/query-test-" (random-uuid) ".db")
-          store (file/create-kv-file path)]
-      (try (let [source (seed! store sample-datoms)]
-             (is (= #{[1 "write tests"] [2 "ship it"]}
-                    (query/q '[:find ?id ?task :where [?id :work/task ?task]]
-                             source))))
-           (finally (jing/close! store)
-                    #?(:clj (.delete (java.io.File. path))
-                       :cljs (.unlinkSync (js/require "fs") path)
-                       :cljd nil))))))
-
-
-;; ---------------------------------------------------------------------------
-;; Querying over owner-built indexed roots
-;; ---------------------------------------------------------------------------
-;; The index realization itself (publish-index!, node-blob format, laziness)
-;; is dao.space.index's contract, tested in dao.space.index-test; here only
-;; the query-side behaviors over a published root.
-
-#?(:cljd nil
-   :clj
-   (deftest published-index-supports-as-of-and-federation
-     (testing
-       "as-of and federated queries fall back to the eager walk and
-              stay correct over an indexed root"
-       (let [a (mem/create-kv-mem)
-             b (mem/create-kv-mem)
-             source-a (seed! a
-                             [[1 :work/status :todo 0 1]
-                              [1 :work/status :done 5 1]])
-             source-b (seed! b [[2 :work/status :todo 0 1]])]
-         (index/publish-index! a :root/test)
-         (is (= #{[:todo]}
-                (query/q '[:find ?v :where [1 :work/status ?v]]
-                         source-a
-                         {:as-of 0})))
-         (is (= #{[1] [2]}
-                (query/q '[:find ?e :where [?e :work/status :todo]]
-                         [source-a source-b])))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1438,26 +1663,21 @@
 
 
 ;; A reverse-ref pull against a raw datom vector only exercises the
-;; in-memory index that `fold` builds fresh each call. This test
-;; publishes first (JVM-only: persistent-sorted-set durability) so the
-;; reverse probe reaches `restored-indexes`' lazily-restored AVET psset
-;; instead — the only way to prove the persisted-index path answers
-;; `:_attr` correctly, not just the eager in-memory one.
-#?(:cljd nil
-   :clj (deftest pull-reverse-reaches-the-published-index
-          (let [store (mem/create-kv-mem)
-                source (seed! store pull-nested-datoms)]
-            (index/publish-index! store :root/test)
-            (let [result (query/pull source 3 [:name {:_friend [:name]}])
-                  friends (sort-by :db/id (:_friend result))]
-              (is (= "Charlie" (:name result)))
-              (is (= 2 (count friends)))
-              (is (= "Alice" (:name (first friends))))
-              (is (= "Bob" (:name (second friends)))))
-            (let [flat (query/pull source 2 [:name :_friend])]
-              (is (= "Bob" (:name flat)))
-              (is (= [{:db/id 1}]
-                     (mapv #(select-keys % [:db/id]) (:_friend flat))))))))
+;; in-memory index that `fold` builds fresh each call. Publishing first
+;; makes the reverse probe reach the lazily-restored AVET instead — the only
+;; way to prove the persisted-index path answers `:_attr` correctly, not
+;; just the eager in-memory one.
+(deftest pull-reverse-reaches-the-published-index
+  (let [source (source pull-nested-datoms)]
+    (let [result (query/pull source 3 [:name {:_friend [:name]}])
+          friends (sort-by :db/id (:_friend result))]
+      (is (= "Charlie" (:name result)))
+      (is (= 2 (count friends)))
+      (is (= "Alice" (:name (first friends))))
+      (is (= "Bob" (:name (second friends)))))
+    (let [flat (query/pull source 2 [:name :_friend])]
+      (is (= "Bob" (:name flat)))
+      (is (= [{:db/id 1}] (mapv #(select-keys % [:db/id]) (:_friend flat)))))))
 
 
 ;; ---------------------------------------------------------------------------

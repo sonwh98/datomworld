@@ -1,7 +1,11 @@
 # DaoJing: The Content-Addressed Storage Observer
 
-Status: target architecture. The current implementation is transitional; see
-*Implementation status* below.
+Status: implemented. The observer (`observer-state` / `observe-step!`) and the
+plain-data content-store handles described here are the current
+`src/cljc/dao/jing*.cljc` code. What remains open — the final canonical
+encoding, durable observer checkpoints, explicit materialization
+acknowledgement, garbage collection, and async hydration — is listed under
+*Open items and current limitations*.
 
 **Related documents:**
 
@@ -9,6 +13,7 @@ Status: target architecture. The current implementation is transitional; see
   storage
 - `docs/design/dao.space.index.md` — the owner-side covered-index publisher
 - `docs/design/dao.space.query.md` — the reader-side index consumer
+- `docs/design/dao.jing.dht.md` — the DHT distribution backend
 - `docs/design/dao.stream.md` — the append-only stream primitive
 - `docs/design/dao.data.btree.md` — the covered-index node format
 - `docs/agents/datom-spec.md` — the datom and tuple specification
@@ -44,12 +49,17 @@ DaoJing does not know whether an element is a datom, B-tree node, covered
 index, manifest, program, image, or any other kind of value. Meaning belongs
 to the interpreter that produced or consumes the content.
 
+DaoJing maintains no membership registry, no mutable roots, no CAS records,
+and no delete operation. Its only object of discourse is the strict content
+address `:segment/sha256-<hash>`, and its only semantics are insert-if-absent
+materialization plus content reads.
+
 ## The intake pool
 
 The pool contains the streams through which content is submitted for
-materialization. It is supplied explicitly when the observer is constructed or
-run. DaoJing performs no stream registration or discovery and maintains no
-shared membership root such as `:root/members`.
+materialization. It is supplied explicitly when the observer state is
+constructed. DaoJing performs no stream registration or discovery and
+maintains no shared membership record.
 
 The pool is an intake topology, not a semantic namespace. DaoJing does not use
 the identity of the source stream when deriving an element's key, and it does
@@ -66,9 +76,11 @@ pool member carried it. Pool order, source identity, and arrival order do not
 change content identity.
 
 DaoJing must distinguish pool members operationally long enough to maintain a
-cursor for each one. That association is observer/checkpoint state only. It is
-not written into the content address or materialized payload and has no
-semantic meaning.
+cursor for each one. That association is observer state only. It is not
+written into the content address or materialized payload and has no semantic
+meaning. In the implemented observer each member entry is plain data —
+`{:stream <ref>, :cursor {:position n}, :status s}` — an operational record,
+nothing more.
 
 If a storage backend partitions content into physical buckets or shards, that
 placement is a backend concern, normally derived from the content hash. It is
@@ -86,7 +98,8 @@ When the agent calls `dao.space.index/publish-index!`, the index publisher:
 3. selects an intake stream from the DaoJing pool;
 4. appends the immutable index payloads, including the top-level manifest, to
    that intake stream; and
-5. returns the content addresses required by the publishing layer.
+5. returns the manifest and its content address required by the publishing
+   layer.
 
 ```text
 agent-local dao.stream
@@ -104,9 +117,13 @@ Selecting an intake stream is an operational routing decision. It does not
 become part of an index payload's identity. The same index payload published
 through a different intake stream receives the same address.
 
+Publication acknowledges that every payload was appended to the selected
+intake stream. It does not acknowledge that an asynchronous observer has yet
+materialized those payloads; see *Open items and current limitations*.
+
 Publication changes representation and access cost, not the meaning of the
-covered data. Consumers whose explicit sources include the published address
-can consume the persisted covered indexes.
+covered data. Consumers whose explicit read coordinates name the published
+manifest address can consume the persisted covered indexes.
 
 ## Materialization rule
 
@@ -127,8 +144,13 @@ different pool streams is also a no-op after the first insertion. Consequently:
 - a materialization can be reconstructed by replaying the available pool
   streams.
 
-A collision in which an existing address contains different canonical bytes
-is an integrity failure, not an overwrite. DaoJing must report it loudly.
+The implemented write is `dao.jing/materialize!`: it derives the address from
+the payload alone (`segment-key`) and asks the backend's `:put-content-fn`
+for an explicit verdict. `:inserted` means the value is durably stored now;
+`:present` means an equal value is already stored there, in which case the
+stored value is read back and verified. A collision in which an existing
+address contains different canonical bytes is an integrity failure, not an
+overwrite, and throws loudly.
 
 ### Canonical encoding
 
@@ -139,12 +161,13 @@ not.
 
 Canonicalization may understand representation-level structure such as maps,
 sets, numbers, strings, and byte arrays. It must not understand domain concepts
-such as datoms, index orders, roots, or manifests.
+such as datoms, index orders, manifests, or any notion of a root.
 
 The target encoding is a canonical flat byte representation suitable for
-cross-platform hashing and in-place reading. The current implementation's
-order-normalized `pr-str` hashing is transitional and is not yet that final
-encoding.
+cross-platform hashing and in-place reading. The current implementation uses
+an order-normalized `pr-str` as a transitional encoder — deterministic and
+order-insensitive, but not yet the pinned canonical byte encoding. This is the
+first open item under *Open items and current limitations*.
 
 ## Storage ignorance
 
@@ -156,8 +179,9 @@ structure stored at that identity. In particular, it does not:
 - merge indexes;
 - evaluate Datalog;
 - infer authorship or provenance from the intake stream;
-- discover which streams or published indexes a query should read; or
-- construct a tuple space.
+- discover which streams or published indexes a query should read;
+- construct a tuple space; or
+- maintain a root, CAS, or delete surface.
 
 Those responsibilities remain above the storage boundary. This allows a new
 immutable data structure to be introduced without changing DaoJing.
@@ -178,15 +202,21 @@ contents.
 
 ## Reads
 
-The storage read operation resolves a content address to the exact opaque value
-stored at that address. A reader may access the target locally or through a
-remote transport. Location changes how bytes are obtained, not how their
-identity or meaning is determined.
+The storage read operation resolves a strict content address to the exact
+opaque value stored at that address. `dao.jing/get` accepts only
+`:segment/sha256-<64 lowercase hex>` addresses; arbitrary keys and mutable
+roots are outside DaoJing and throw before a backend is consulted.
 
-Higher layers may expose mutable names, explicit query roots, capabilities, or
-discovery services. Those mechanisms refer to published content, but they are
-not part of DaoJing's content materialization rule. In particular, DaoJing does
-not infer a mutable root from the stream that carried a payload.
+A reader may access the target locally or through a remote transport
+(`dao.jing.remote`, `dao.jing.dht`). Location changes how bytes are obtained,
+not how their identity or meaning is determined.
+
+Higher layers expose explicit read coordinates over published content — for
+example `dao.space.query/published-source`, a content-store handle plus a
+manifest address. Those coordinates are caller-supplied values, not state
+inferred from storage. DaoJing does not infer a source or coordinate from the
+stream that carried a payload, and no content address is ever treated as a
+mutable root.
 
 ## Cursor tracking and recovery
 
@@ -200,66 +230,97 @@ An observer retains one cursor per active pool member and repeatedly calls
 - `:daostream/gap`: the cursor is behind the retention boundary and that
   stream requires resynchronization.
 
-The observer may poll pool members round-robin or use a multiplexed iterator.
-Scheduling does not affect the resulting content set because materialization
-is content-addressed, commutative, and idempotent.
+The implemented observer is `dao.jing/observer-state` (build the immutable
+state for an explicit pool, one entry per member) and
+`dao.jing/observe-step!` (poll the pool round-robin and process at most one
+payload; on success it materializes the payload before advancing the member
+cursor). The `:next` scheduling index keeps a continuously ready member from
+starving another. Scheduling does not affect the resulting content set,
+because materialization is content-addressed, commutative, and idempotent.
 
-A durable checkpoint records operational progress, for example a cursor per
-pool entry, separately from the content-addressed KV data. Source identity may
-be needed by the checkpoint mechanism to resume the correct transport, but it
-must not enter the materialized content identity.
+A durable checkpoint records operational progress — a cursor per pool entry —
+separately from the content-addressed KV data. Source identity may be needed
+by a checkpoint mechanism to resume the correct transport, but it must not
+enter the materialized content identity. Persisting such checkpoints and
+running the observer loop over time are open items (see below).
 
 ## Resource lifecycle
 
-The observer owns the lifecycle of its pool-reading loop. Individual stream
-and storage handles retain responsibility for releasing their transport,
-file, database, or network resources. Closing the observer stops intake and
-closes resources according to the ownership policy supplied at construction.
+The observer itself is a value: `observe-step!` owns no resources and has
+nothing to close — streams and storage handles retain responsibility for
+releasing their transport, file, database, or network resources.
+`dao.jing/close!` delegates to a handle's optional `:close-fn`; a handle
+without one has nothing to release. A long-running runner that drives the pool
+loop, and its resource policy, are open items (see below).
 
-## Implementation status
+## Implemented surface
 
-The architecture above is not fully implemented by the current
-`src/cljc/dao/jing*.cljc` code.
+The current `src/cljc/dao/jing*.cljc` code implements the architecture above
+directly.
 
-The current implementation is a transitional handle-map KV facade:
+**Content-store handles are plain data.** A handle is a map
+`{:put-content-fn f, :get-content-fn g, :close-fn c?}`; the backend effects
+are explicit functions, not a protocol or hidden state. `dao.jing/materialize!`
+and `dao.jing/get` dispatch through the handle, and `close!` through its
+optional `:close-fn`.
 
-- `jing/cas!`, `jing/get`, `jing/delete!`, and `jing/close!` dispatch on
-  functions stored in a handle map;
-- the generic and file paths interpret `[k :cas expected value]` records;
-- memory and file handles each expose one `:stream` rather than an observer
-  over an explicit pool;
-- `segment-key` hashes a value only when a caller invokes it; observation does
-  not automatically hash every stream element;
-- the remote adapter delegates KV operations through RPC; and
-- the DHT adapter routes keys and mutable-root operations directly.
+Implemented backends:
 
-Migration to the architecture specified here requires:
+- `dao.jing.mem/create-content-mem` — an ephemeral, thread-safe,
+  content-addressed in-memory store. Put is an atomic insert-if-absent; an
+  address already holding the same payload reports `:present` and is never
+  overwritten.
+- `dao.jing.file/create-content-file` — a content-addressed store backed by an
+  append-only log stream. Each log record is `[address payload]`, written
+  through a write lock, acknowledged only after the log is flushed, and
+  replayed on open to rebuild the in-memory content map. The framing layer
+  truncates an incomplete tail before replay; Jing then fails closed on any
+  complete record that cannot be decoded, validated, or matched to its content
+  address.
+- `dao.jing.remote` — exposes a local content handle as the `:jing/put-content`
+  and `:jing/get-content` RPC ops (`default-handlers`) and wraps an RPC client
+  as a content handle (`content-client`); `connect-content!` is the
+  synchronous WebSocket constructor, JVM-only. `:jing/get-content` returns the
+  exact wire envelope `{:found? boolean, :value value}`; caller-local
+  not-found sentinels never cross the RPC boundary.
+- `dao.jing.dht/create-content-dht` and
+  `dao.jing.dht.node/create-content-dht-udp` — the distributed backend over an
+  `IDhtNet` transport; see `docs/design/dao.jing.dht.md`.
 
-1. an explicit pool observer with one operational cursor per pool member;
-2. automatic canonical encoding and content hashing for every observed
-   payload;
-3. an idempotent content insertion operation;
-4. publication through a selected intake stream rather than direct mutation
-   of a Jing KV handle; and
-5. removal of source-stream identity from materialized keys and values.
+**The observer is implemented.** `observer-state` and `observe-step!` provide
+the explicit intake-pool walk described in *Cursor tracking and recovery*,
+with no atoms, globals, registration, or discovery. The source stream never
+enters an address or a stored value.
 
-The existing `absent`/CAS machinery may remain useful inside a concrete KV
-target as an implementation technique for insert-if-absent. It is not the
-semantic record language of the intake streams in the target architecture.
+**Content addressing is implemented, transitionally.** `content-hash` hashes
+the order-normalized print of a value; `segment-key` mints
+`:segment/sha256-<hash>` addresses; `segment-address?` is the strict address
+test the backend layer enforces. As recorded in *Canonical encoding*, the
+encoder is transitional until the pinned canonical byte encoding lands.
 
-## Current limitations and open decisions
+## Open items and current limitations
 
-- **Canonical bytes:** order-normalized `pr-str` must be replaced by a pinned,
-  cross-platform canonical encoding.
-- **Pool lifecycle:** the construction, update, and checkpoint format of an
-  explicit intake pool remains to be implemented.
-- **Publication acknowledgement:** the mechanism by which a publisher observes
-  that submitted content has been materialized must be expressed explicitly,
-  potentially as a response stream.
-- **Garbage collection:** content reachability and reclamation belong to a
-  higher-level retention policy; immutable content otherwise accumulates.
-- **Remote hydration:** readers of remote B-tree content need an explicit
-  hydration or asynchronous retrieval boundary.
+- **Canonical encoding.** The order-normalized `pr-str` encoder must be
+  replaced by a pinned, cross-platform canonical byte encoding. Until then,
+  content addresses are portable only between implementations sharing the
+  exact print rule; when the encoding lands, `content-hash`, `segment-key`,
+  and every minted address change together.
+- **Durable observer checkpoints / long-running runner.** `observer-state`
+  and `observe-step!` are single-step and in-process. The checkpoint format
+  for resuming pool cursors across restarts, and a runner that drives the
+  loop over time, remain to be built.
+- **Explicit materialization acknowledgement.** A publisher observes only
+  that its payloads were appended to an intake stream. The mechanism by which
+  it observes that those payloads have been materialized must be expressed
+  explicitly, potentially as a response stream.
+- **Garbage collection.** Content reachability and reclamation belong to a
+  higher-level retention policy; immutable content otherwise accumulates
+  forever.
+- **Async hydration.** Readers of remote or async B-tree content use the
+  hydration adapter (`dao.data.btree.storage/hydration-storage` and
+  `hydrate!`), but the async variants (`hydrate-async`, `store-tree-async`)
+  are deferred until an async DaoJing backend exists. See
+  `docs/design/dao.data.btree.md` §5.4.
 
 ## Lineage
 
