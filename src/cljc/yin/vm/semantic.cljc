@@ -1115,9 +1115,9 @@
   "Find all entity IDs with the given :yin/type value."
   [dao-db t]
   (map first
-       (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]]
-                (query/current (query/relation dao-db))
-                t)))
+       (query/collect (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]]
+                               (query/current (query/relation dao-db))
+                               t))))
 
 
 (defn find-lambdas

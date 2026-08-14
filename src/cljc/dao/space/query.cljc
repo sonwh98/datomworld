@@ -77,24 +77,9 @@
   (closed? [_] true))
 
 
-(defn- query-result-descriptor
-  [rows spec return-map-key return-map-keys]
-  (cond-> {:dao.stream/type :dao.space/query-result,
-           :rows rows,
-           :spec spec,
-           :dao.stream/bound (dsr/relation-bound rows)}
-    return-map-key (assoc :return-map-key
-                          return-map-key :return-map-keys
-                          return-map-keys)))
-
-
 (defn- make-query-result-stream
   [rows spec return-map-key return-map-keys]
-  (let [rows (vec rows)
-        descriptor
-        (query-result-descriptor rows spec return-map-key return-map-keys)]
-    (with-meta (->QueryResultStream rows spec return-map-key return-map-keys)
-      {:dao.stream/descriptor descriptor})))
+  (->QueryResultStream (vec rows) spec return-map-key return-map-keys))
 
 
 (defn- quiet-close!
@@ -391,14 +376,20 @@
       (if (#{:dao.space/current :dao.space/history} (:dao.stream/type d))
         (realize-datom-view! d)
         (let [r (ds/open! d)]
-          (when-not (realization? r)
-            (throw (ex-info "open! did not produce a reader realization"
-                            {:descriptor d})))
-          (let [relation (ds/strict-vec r)
-                fact? (fact-view-realization? r)]
-            {::relation relation,
-             ::fact-index (when fact? (relation->fact-index relation)),
-             ::owned [r]}))))))
+          (try (when-not (realization? r)
+                 (throw (ex-info "open! did not produce a reader realization"
+                                 {:descriptor d})))
+               (let [relation (ds/strict-vec r)
+                     fact? (fact-view-realization? r)]
+                 {::relation relation,
+                  ::fact-index (when fact? (relation->fact-index relation)),
+                  ::owned [r]})
+               (catch #?(:clj Throwable
+                         :cljs :default
+                         :cljd Object)
+                      error
+                 (quiet-close! r)
+                 (throw error))))))))
 
 
 ;; =============================================================================
@@ -840,18 +831,33 @@
 (defn- open-db-inputs!
   "Open every :db-classified :in input. Returns {:dbs {db-sym {::relation ::
    fact-index}} :owned [streams]}, accumulating owned realizations across the
-   whole query so `q` closes them eagerly when evaluation finishes or fails."
+   whole query so `q` closes them eagerly when evaluation finishes or fails.
+   Exception-safe: if a later db input fails to realize, the owned inputs
+   already opened are closed before the error propagates."
   [in-patterns bind-inputs]
-  (reduce
-    (fn [{:keys [dbs owned]} [pat val]]
-      (if (= :db (classify-in-pattern pat))
-        (let [{relation ::relation, fact-index ::fact-index, opened ::owned}
-              (realize-db-value! val)]
-          {:dbs (assoc dbs pat {::relation relation, ::fact-index fact-index}),
-           :owned (into owned opened)})
-        {:dbs dbs, :owned owned}))
-    {:dbs {}, :owned []}
-    (map vector in-patterns bind-inputs)))
+  (letfn
+    [(step
+       [pairs dbs owned]
+       (if (seq pairs)
+         (let [[pat val] (first pairs)]
+           (if (= :db (classify-in-pattern pat))
+             (try (let [{relation ::relation,
+                         fact-index ::fact-index,
+                         opened ::owned}
+                        (realize-db-value! val)]
+                    (step (rest pairs)
+                          (assoc dbs
+                                 pat {::relation relation, ::fact-index fact-index})
+                          (into owned opened)))
+                  (catch #?(:clj Throwable
+                            :cljs :default
+                            :cljd Object)
+                         error
+                    (close-owned! owned)
+                    (throw error)))
+             (step (rest pairs) dbs owned)))
+         {:dbs dbs, :owned owned}))]
+    (step (map vector in-patterns bind-inputs) {} [])))
 
 
 (defn- build-init-bindings

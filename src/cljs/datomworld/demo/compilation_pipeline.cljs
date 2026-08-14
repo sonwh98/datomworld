@@ -783,7 +783,9 @@
                               (let [input-text (or (:query-inputs @app-state)
                                                    "")]
                                 (reader/read-string (str "[" input-text "]"))))
-                 result (apply query/q query db (or extra-vals []))]
+                 source (query/current (query/relation db))
+                 result (query/collect
+                          (apply query/q query source (or extra-vals [])))]
              (swap! app-state assoc :query-result result :error nil))
            (catch js/Error e
              (swap! app-state assoc
@@ -1651,18 +1653,20 @@
                   (when (not (:halted? state))
                     (let [ctrl (:control state)
                           info (if (= :node (:type ctrl))
-                                 (let [attrs
-                                       (let [tx-data (vm/datoms->tx-data
-                                                       (:datoms state))
-                                             ast-db
-                                             (semantic/create-ast-db)
-                                             {:keys [datoms]}
-                                             (transact/prepare-tx
-                                               {:base-datoms ast-db,
-                                                :tx-data tx-data})
-                                             dao-db (into ast-db datoms)]
-                                         (query/entity-attrs dao-db
-                                                             (:id ctrl)))]
+                                 (let [attrs (let
+                                               [tx-data (vm/datoms->tx-data
+                                                          (:datoms state))
+                                                ast-db
+                                                (semantic/create-ast-db)
+                                                {:keys [datoms]}
+                                                (transact/prepare-tx
+                                                  {:base-datoms ast-db,
+                                                   :tx-data tx-data})
+                                                dao-db (into ast-db datoms)]
+                                               (query/entity-attrs
+                                                 (query/current
+                                                   (query/relation dao-db))
+                                                 (:id ctrl)))]
                                    (str (:yin/type attrs)))
                                  "Returning...")]
                       {:control ctrl, :info info}))),

@@ -105,6 +105,12 @@ positional matching/unification (with explicit `&` tail syntax) and returns a
 local closed bounded result DaoStream. `query/collect` materializes conventional
 Datalog shapes.
 
+The local result realization and derived realizations returned when a view is
+applied to an already-open source are intentionally not DaoStream descriptors:
+they are not serializable or reopenable transport identities. To transport a
+result, first materialize it with `query/collect`, then wrap the retained tuples
+explicitly with `query/relation`.
+
 Source polymorphism is an ergonomic property of the query *function*, not a
 second medium — a local realization is by definition not shared, and
 coordination between agents still runs through shared content storage.

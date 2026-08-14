@@ -248,8 +248,12 @@
   (let [result (query/q '[:find ?e :where [?e :work/status _]]
                         (query/current (rel sample-datoms)))]
     (is (ds/realization? result))
-    (is (ds/exact-bound? (ds/bound result)))
-    (is (= :dao.space/query-result (:dao.stream/type (ds/descriptor result))))))
+    (is (ds/closed? result) "the result is a closed bounded snapshot")
+    (is
+      (nil? (ds/descriptor result))
+      "the result advertises no descriptor; it is a local realization, not a reopenable transport")
+    (is (nil? (ds/bound result))
+        "no descriptor means no external bound claim")))
 
 
 (deftest collect-materializes-the-relation-shape
@@ -351,6 +355,64 @@
              (qq '[:find ?e :where [?e :work/status :todo]] (query/current s))))
       (is (ds/closed? s)
           "the borrowed stream is still the caller's to manage"))))
+
+
+(deftype BlockedOwnedSource
+  [closed?]
+
+  ds/IDaoStreamReader
+
+  (next [_ _cursor] :blocked)
+
+
+  ds/IDaoStreamBound
+
+  (close! [_] (reset! closed? true) {:woke []})
+
+
+  (closed? [_] @closed?))
+
+
+(def blocked-close-state (atom nil))
+
+
+(ds/defopen :test/blocked-source
+            [_]
+            (let [closed? (atom false)]
+              (reset! blocked-close-state closed?)
+              (->BlockedOwnedSource closed?)))
+
+
+(deftest descriptor-open-is-exception-safe
+  (testing "an owned realization opened by q is closed when strict-vec fails"
+    (reset! blocked-close-state nil)
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #":blocked"
+          (qq '[:find ?e :where [?e _ _]]
+              {:dao.stream/type :test/blocked-source,
+               :dao.stream/bound {:count 1}})))
+    (is (true? @@blocked-close-state)
+        "q closed the realization even though traversal threw :blocked")))
+
+
+(deftest open-db-inputs-is-exception-safe
+  (testing
+    "previously opened owned inputs are closed when a later db input fails"
+    (reset! owned-close-state nil)
+    (is (thrown-with-msg? #?(:cljs js/Error
+                             :cljd Object
+                             :default Exception)
+                          #":blocked"
+          (qq '[:find ?e :in $a $b :where [$a ?e _ _]]
+              {:dao.stream/type :test/owned-source,
+               :dao.stream/bound {:count 1},
+               :tuples [[1 :work/status :todo 0 1]]}
+              {:dao.stream/type :test/blocked-source,
+               :dao.stream/bound {:count 1}})))
+    (is (true? @@owned-close-state)
+        "the earlier opened input was closed when the later one failed")))
 
 
 ;; ---------------------------------------------------------------------------
