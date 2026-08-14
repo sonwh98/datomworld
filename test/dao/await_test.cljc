@@ -43,7 +43,7 @@
 
 (deftest read-prefilled-stream-test
   (testing "await/<! returns the value pre-written to the stream"
-    (let [s (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           _ (ds/append! s 42)
           proc (await/go {:env {'s s}} (let [c (await/cursor s)] (await/<! c)))
           {:keys [value blocked?]} (await/run proc)]
@@ -53,7 +53,7 @@
 
 (deftest write-to-stream-test
   (testing "await/>! appends to the stream and the program sees the value"
-    (let [out (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [out (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           proc (await/go {:env {'out out}} (await/>! out :hello))
           {:keys [value blocked?]} (await/run proc)]
       (is (false? blocked?))
@@ -66,8 +66,8 @@
 (deftest read-then-write-test
   (testing "a go body can read, transform, and write"
     (let
-      [in (ds/open! {:type :ringbuffer, :capacity 10})
-       out (ds/open! {:type :ringbuffer, :capacity 10})
+      [in (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+       out (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
        _ (ds/append! in 10)
        ;; go* with quoted body: arithmetic on the value read from the
        ;; stream is meaningful at runtime but trips kondo's type inference
@@ -87,7 +87,7 @@
 
 (deftest empty-read-blocks-test
   (testing "reading from an empty open stream blocks"
-    (let [s (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           proc (await/go {:env {'s s}} (let [c (await/cursor s)] (await/<! c)))
           result (await/run proc)]
       (is (true? (:blocked? result)))
@@ -96,7 +96,7 @@
 
 (deftest blocked-read-resumes-after-put-test
   (testing "a blocked read resumes after the host writes a value"
-    (let [s (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           proc (await/go {:env {'s s}} (let [c (await/cursor s)] (await/<! c)))
           blocked (await/run proc)
           _ (is (true? (:blocked? blocked)))
@@ -134,7 +134,7 @@
 
 (deftest process-descriptor-shape-test
   (testing "process value carries ast + datoms + env"
-    (let [s (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           proc (await/go {:env {'s s}} (await/cursor s))]
       (is (= :dao.await/process (:type proc)))
       (is (some? (:ast proc)))
@@ -150,7 +150,7 @@
 
 (deftest cursor-creates-cursor-ref-test
   (testing "await/cursor evaluates to a cursor-ref"
-    (let [s (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           proc (await/go {:env {'s s}} (await/cursor s))
           {:keys [value]} (await/run proc)]
       (is (= :cursor-ref (:type value)))
@@ -163,7 +163,7 @@
 
 (deftest cursor-advances-across-reads-test
   (testing "reads through the same cursor see successive values"
-    (let [s (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           _ (ds/append! s :a)
           _ (ds/append! s :b)
           proc (await/go {:env {'s s}}

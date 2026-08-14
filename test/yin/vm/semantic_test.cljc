@@ -92,15 +92,16 @@
                                    datoms)
                      (vm/run))
           ast-db (:db loaded)
-          root-eid (ffirst (query/q '[:find ?e :where
-                                      [?e :yin/type :application]]
-                                    (query/current ast-db)))]
+          source (query/current (query/relation ast-db))
+          root-eid (ffirst (query/collect (query/q '[:find ?e :where
+                                                     [?e :yin/type
+                                                      :application]]
+                                                   source)))]
       (is (vector? ast-db))
-      (is (= :application
-             (:yin/type (query/entity-attrs (query/current ast-db) root-eid))))
+      (is (= :application (:yin/type (query/entity-attrs source root-eid))))
       (is (= #{['+]}
-             (query/q '[:find ?name :where [_ :yin/name ?name]]
-                      (query/current ast-db))))
+             (query/collect (query/q '[:find ?name :where [_ :yin/name ?name]]
+                                     source))))
       (is (= 3
              (-> loaded
                  vm/run
@@ -112,9 +113,11 @@
                                                         vm/primitives})
                                    datoms)
                      (vm/run))
-          root-eid (ffirst (query/q '[:find ?e :where [?e :yin/type :literal]]
-                                    (query/current (:db loaded))))
-          attrs (query/entity-attrs (query/current (:db loaded)) root-eid)
+          source (query/current (query/relation (:db loaded)))
+          root-eid (ffirst (query/collect (query/q '[:find ?e :where
+                                                     [?e :yin/type :literal]]
+                                                   source)))
+          attrs (query/entity-attrs source root-eid)
           result loaded]
       (is (contains? attrs :yin/value))
       (is (vm/halted? result))

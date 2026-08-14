@@ -5,7 +5,7 @@
 
    Descriptor:
 
-     {:type :transactor
+     {:dao.stream/type :transactor
       :local-stream s   ; must satisfy IDaoStreamReader and IDaoStreamWriter;
                         ; supplied, never created, registered, or closed
       :intake-pool [p]  ; non-empty; every member satisfies IDaoStreamWriter;

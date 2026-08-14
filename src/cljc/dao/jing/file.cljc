@@ -187,7 +187,7 @@
    :state, :write-lock and :put-content-fn, :get-content-fn, :close-fn
    functions."
   [path]
-  (let [log (ds/open! {:type :append-log, :path path})]
+  (let [log (ds/open! {:dao.stream/type :append-log, :path path})]
     (try (let [recovered (replay-log log)
                state (atom {:closed? false, :content recovered})
                lock #?(:clj (Object.)

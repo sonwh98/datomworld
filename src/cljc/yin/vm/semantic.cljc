@@ -1116,7 +1116,7 @@
   [dao-db t]
   (map first
        (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]]
-                (query/current dao-db)
+                (query/current (query/relation dao-db))
                 t)))
 
 

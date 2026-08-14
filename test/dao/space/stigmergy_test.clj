@@ -2,7 +2,7 @@
   "Agents collaborating by stigmergy over dao.space: every write is one
   atomic transaction through transactor/transact! on the agent's own
   :transactor wrapper, every read is query/q or query/match over explicit
-  query/published-source descriptors. There is no coordinator and no
+  bounded covered-index DaoStream descriptors. There is no coordinator and no
   stigmergy API — the conventions (self-stamped provenance, wall-clock
   leases, the [t agent] winner rule) are expressed by the datoms agents
   build and the query forms below (docs/dao.space.stigmergy.md).
@@ -18,13 +18,14 @@
   wall-clock).
 
   The space persists after the run for inspection at target/stigmergy-space.db;
-  readers reach it through explicit query/published-source descriptors."
+  readers reach it through explicit bounded DaoStream descriptors."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.jing.file :as file]
             [dao.jing.remote :as remote]
+            [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.transactor :as transactor]
             [dao.stream :as ds]
@@ -58,7 +59,8 @@
     (.mkdirs (.getParentFile fl))
     (when (.exists fl) (.delete fl)))
   (let [store (file/create-content-file space-path)
-        intake (ds/open! {:type :ringbuffer}) ; unbounded: position 0 never
+        intake (ds/open! {:dao.stream/type :ringbuffer}) ; unbounded:
+        ;; position 0 never
         ;; evicts
         srv (rpc-ws/start! (remote/default-handlers store)
                            (+ 10000 (rand-int 50000)))]
@@ -91,10 +93,10 @@
   "One logical agent as plain data: its own local ringbuffer stream plus a
    single-writer :transactor wrapper publishing into the shared intake pool."
   [id]
-  (let [local (ds/open! {:type :ringbuffer})]
+  (let [local (ds/open! {:dao.stream/type :ringbuffer})]
     {:id id,
      :local local,
-     :log (ds/open! {:type :transactor,
+     :log (ds/open! {:dao.stream/type :transactor,
                      :local-stream local,
                      :intake-pool [*shared-intake*],
                      :name (str id)})}))
@@ -143,7 +145,10 @@
    snapshots: rebuild and republish after writes, never reuse one expecting
    it to advance."
   [content-store addresses]
-  (mapv #(query/published-source content-store %) addresses))
+  (let [coordinate (if (identical? content-store *store*)
+                     {:dao.jing/type :dao.jing/file, :path space-path}
+                     {:dao.jing/type :dao.jing/remote, :url *url*})]
+    (mapv #(index/published-index coordinate %) addresses)))
 
 
 (defn- sources
@@ -152,13 +157,21 @@
    projects to d4 so the domain's [t agent] winner rule can inspect t. The
    union and projection are application decisions, not tuple conventions."
   [content-store agents]
-  (into []
-        (mapcat (fn [source]
-                  (mapcat (fn [[e a v t _m]]
-                            (cond-> [[e a v]] (= a :claim/by) (conj [e a v t])))
-                          (query/current-state-seq (query/source->datoms source)))))
-        (published-source-pool content-store
-                               (publish-and-materialize! agents))))
+  (query/relation
+    (into
+      []
+      (mapcat (fn [source]
+                (mapcat (fn [[e a v t _m]]
+                          (cond-> [[e a v]] (= a :claim/by) (conj [e a v t])))
+                        (let [stream (ds/open! source)]
+                          (try (query/current-state-seq (ds/strict-vec stream))
+                               (finally (ds/close! stream)))))))
+      (published-source-pool content-store (publish-and-materialize! agents)))))
+
+
+(defn- qv
+  [query-form & inputs]
+  (query/collect (apply query/q query-form inputs)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -197,7 +210,7 @@
 
 (defn- available
   [source now]
-  (query/q available-q source now fns))
+  (qv available-q source now fns))
 
 
 (defn- winner
@@ -205,7 +218,7 @@
    among live claims. t is the transactor-owned per-agent counter, so an
    equal-t race falls through to the agent id."
   [source task now]
-  (->> (query/q live-claims-q source task now fns)
+  (->> (qv live-claims-q source task now fns)
        (sort-by (juxt second first))
        first
        first))
@@ -239,7 +252,7 @@
                   the [t agent] rule picks one winner for every reader"
           (put-entity! deepseek {:claim/task t1, :claim/by "worker-deepseek"})
           (let [source (sources remote [producer glm deepseek])]
-            (is (= 2 (count (query/q claims-q source t1)))
+            (is (= 2 (count (qv claims-q source t1)))
                 "both claims are durable facts")
             (is
               (= "worker-deepseek"
@@ -255,14 +268,11 @@
                  (available (sources remote [producer glm deepseek])
                             (System/currentTimeMillis))))
           (is (= #{["tuples drift like leaves"]}
-                 (query/q results-q
-                          (sources remote [producer glm deepseek])
-                          t1))))
+                 (qv results-q (sources remote [producer glm deepseek]) t1))))
         (testing "provenance: every entity carries its writer's stamp"
           (is (set/subset? #{["producer"] ["worker-glm"] ["worker-deepseek"]}
-                           (query/q '[:find ?a :where [?e :dao/agent ?a]]
-                                    (sources remote
-                                             [producer glm deepseek])))))))))
+                           (qv '[:find ?a :where [?e :dao/agent ?a]]
+                               (sources remote [producer glm deepseek])))))))))
 
 
 (deftest claim-leases
@@ -290,7 +300,7 @@
             (is (contains? (into #{} (map first) (available (source) later))
                            task))
             (is
-              (= 1 (count (query/q claims-q (source) task)))
+              (= 1 (count (qv claims-q (source) task)))
               "the dead claim is still a durable fact — only the
                  interpretation changed")))
         (testing
@@ -350,27 +360,33 @@
         addr-a (first (publish-and-materialize! [agent]))]
     (testing "a published manifest is an immutable snapshot of its stream"
       (is (= #{[before "pre-index"]}
-             (query/q '[:find ?e ?id :where [?e :marker/id ?id]]
-                      (query/current (query/published-source *store*
-                                                             addr-a))))))
+             (qv '[:find ?e ?id :where [?e :marker/id ?id]]
+                 (query/current (index/published-index {:dao.jing/type
+                                                        :dao.jing/file,
+                                                        :path space-path}
+                                                       addr-a))))))
     (let [{after :e} (put-entity! agent {:marker/id "post-index"})
           addr-b (first (publish-and-materialize! [agent]))]
       (testing "a fresh manifest after more appends folds old and new data"
         (is (not= addr-a addr-b))
         (is (= #{[before "pre-index"] [after "post-index"]}
-               (query/q '[:find ?e ?id :where [?e :marker/id ?id]]
-                        (query/current (query/published-source *store*
-                                                               addr-b))))))
+               (qv '[:find ?e ?id :where [?e :marker/id ?id]]
+                   (query/current (index/published-index {:dao.jing/type
+                                                          :dao.jing/file,
+                                                          :path space-path}
+                                                         addr-b))))))
       (testing "the earlier snapshot is untouched"
         (is (= #{[before "pre-index"]}
-               (query/q '[:find ?e ?id :where [?e :marker/id ?id]]
-                        (query/current (query/published-source *store*
-                                                               addr-a)))))))))
+               (qv '[:find ?e ?id :where [?e :marker/id ?id]]
+                   (query/current (index/published-index {:dao.jing/type
+                                                          :dao.jing/file,
+                                                          :path space-path}
+                                                         addr-a)))))))))
 
 
 (deftest transport-transparency
   (with-remote
-    (fn [remote]
+    (fn [_remote]
       (let [agent (open-agent "transparency-probe")]
         (put-entity! agent {:probe/id "wire"})
         (let [address (first (publish-and-materialize! [agent]))]
@@ -379,13 +395,19 @@
                     server-side file content handle and the remote content
                     client — the rpc is invisible, and the datoms are durable
                     in the file store"
-            (is (= (query/q '[:find ?e ?a ?v :where [?e ?a ?v]]
-                            (query/current (query/published-source *store*
-                                                                   address)))
-                   (query/q '[:find ?e ?a ?v :where [?e ?a ?v]]
-                            (query/current (query/published-source remote
-                                                                   address)))))
-            (is (contains? (query/q '[:find ?id :where [_ :probe/id ?id]]
-                                    (query/current
-                                      (query/published-source remote address)))
+            (is (= (qv '[:find ?e ?a ?v :where [?e ?a ?v]]
+                       (query/current (index/published-index {:dao.jing/type
+                                                              :dao.jing/file,
+                                                              :path space-path}
+                                                             address)))
+                   (qv '[:find ?e ?a ?v :where [?e ?a ?v]]
+                       (query/current (index/published-index
+                                        {:dao.jing/type :dao.jing/remote,
+                                         :url *url*}
+                                        address)))))
+            (is (contains? (qv '[:find ?id :where [_ :probe/id ?id]]
+                               (query/current
+                                 (index/published-index
+                                   {:dao.jing/type :dao.jing/remote, :url *url*}
+                                   address)))
                            ["wire"]))))))))

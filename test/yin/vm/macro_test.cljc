@@ -686,6 +686,7 @@
       ;; Original program still evaluates correctly
       (is (= 1 (vm/value (vm/run vm-loaded))))
       ;; After append, new node is accessible in the index
-      (is (seq (query/q '[:find ?e :where [?e :yin/value 99]]
-                        (query/current (:db vm-appended))))
+      (is (seq (query/collect (query/q '[:find ?e :where [?e :yin/value 99]]
+                                       (query/current (query/relation
+                                                        (:db vm-appended))))))
           "Appended node is queryable through the DaoDB-backed AST"))))

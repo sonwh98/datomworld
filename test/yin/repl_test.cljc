@@ -184,7 +184,7 @@
 (deftest telemetry-command-test
   #?(:clj (testing
             "telemetry wires a stream into the active VM and records snapshots"
-            (let [sink (ds/open! {:type :ringbuffer, :capacity nil})
+            (let [sink (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
                   [state-1 _msg] @(repl/eval-input (repl/create-state)
                                                    "(telemetry)")
                   state-1 (assoc state-1
@@ -197,7 +197,8 @@
               (is (fact? datoms :vm/phase :step))
               (is (fact? datoms :vm/phase :halt))))
      :cljs (async done
-                  (let [sink (ds/open! {:type :ringbuffer, :capacity nil})]
+                  (let [sink (ds/open! {:dao.stream/type :ringbuffer,
+                                        :capacity nil})]
                     (-> (repl/eval-input (repl/create-state) "(telemetry)")
                         (.then (fn [[state-1 _msg]]
                                  (let [state-1 (assoc state-1
@@ -587,12 +588,12 @@
              ;; wait for server to start
              _ (Thread/sleep 200)
              ;; Client A
-             client-a-stream (ds/open! {:type :websocket,
+             client-a-stream (ds/open! {:dao.stream/type :websocket,
                                         :mode :connect,
                                         :url (str "ws://localhost:" port)})
              client-a-req-id (atom 100)
              ;; Client B
-             client-b-stream (ds/open! {:type :websocket,
+             client-b-stream (ds/open! {:dao.stream/type :websocket,
                                         :mode :connect,
                                         :url (str "ws://localhost:" port)})
              client-b-req-id (atom 200)

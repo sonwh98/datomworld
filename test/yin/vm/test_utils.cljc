@@ -30,7 +30,7 @@
 (defn queue-vm
   "Convenience for 'pushing' a program into a VM's ingress stream."
   [vm-state datoms]
-  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})]
+  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
     (ds/append! in-stream (vec datoms))
     (assoc vm-state
            :in-stream in-stream

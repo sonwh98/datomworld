@@ -3,11 +3,10 @@
 **Status: proposal.** This document records a design conversation (2026-07) about how
 agents find streams at internet scale. Nothing here is implemented; it exists to pin
 down the mechanisms worth building, the mechanisms explicitly rejected, and why. The
-implemented baseline it extends is an explicit collection of
-`dao.space.query/published-source` db-values. That collection is caller-owned query
-topology: `open!` performs no registration write, and `dao.space.query` folds exactly
-the supplied values. DaoJing's separate intake pool is supplied to its observer and is
-not a discovery registry either.
+implemented baseline it extends is an explicit collection of bounded DaoStream descriptors.
+That collection is caller-owned query topology: `open!` performs no registration write,
+and `dao.space.query` opens exactly the supplied values. DaoJing's separate intake pool
+is supplied to its observer and is not a discovery registry either.
 
 **Related documents:**
 - `docs/design/dao.space.md` — the tuple space; *Membership is intake*
@@ -18,12 +17,12 @@ not a discovery registry either.
 
 ## The Problem
 
-An explicit published-source pool is the correct local primitive, but it is not itself an
+An explicit DaoStream descriptor pool is the correct local primitive, but it is not itself an
 internet-scale discovery mechanism. It hits three ceilings at scale:
 
-1. **The attention set grows O(N).** A reader cannot keep or fold an unbounded pool of
-   published-source descriptors.
-2. **Query composition presupposes discovery.** Constructing a published source
+1. **The attention set grows O(N).** A reader cannot keep or open an unbounded pool of
+   DaoStream descriptors.
+2. **Query composition presupposes discovery.** Constructing a descriptor
    requires already knowing a content-store handle and manifest address; the local
    primitive deliberately does not answer how a stranger learns them.
 3. **Enumeration stops being meaningful.** "The list of all member streams" is not a

@@ -104,7 +104,7 @@
 
 (defn- queue-vm
   [vm-state datoms]
-  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
+  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
         queued-vm (assoc vm-state
                          :in-stream in-stream
                          :in-cursor {:position 0})]

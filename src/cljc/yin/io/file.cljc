@@ -6,10 +6,9 @@
    handler is registered under :default — clj, cljd, and cljs — since the
    underlying FileStream supports every host. Lifting the older handlers to
    :default is tracked as future work in the design doc."
-  (:require
-    [dao.stream :as ds]
-    [dao.stream.file]
-    [yin.module :as module]))
+  (:require [dao.stream :as ds]
+            [dao.stream.file]
+            [yin.module :as module]))
 
 
 (defn file
@@ -24,7 +23,7 @@
 (defn- handle
   [state effect opts]
   (let [stream-id (:id opts)
-        stream (ds/open! (cond-> {:type :file, :path (:path effect)}
+        stream (ds/open! (cond-> {:dao.stream/type :file, :path (:path effect)}
                            (contains? effect :capacity) (assoc :capacity
                                                                (:capacity effect))
                            (:eviction-policy effect) (assoc :eviction-policy

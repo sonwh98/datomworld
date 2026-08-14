@@ -17,7 +17,7 @@
   (if (:in-stream vm-state)
     vm-state
     (assoc vm-state
-           :in-stream (ds/open! {:type :ringbuffer, :capacity nil})
+           :in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
            :in-cursor {:position 0})))
 
 

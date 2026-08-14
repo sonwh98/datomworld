@@ -8,7 +8,7 @@
 (deftest basic-scheduling-test
   (testing "reader on empty stream parks and is resumed after later put"
     (let [seen (atom [])
-          stream (ds/open! {:type :ringbuffer, :capacity 10})
+          stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           task {:resume (fn [rt _entry value] (swap! seen conj value) rt)}
           rt0 (rt/initial-state)
           ;; Attempt read -> should block
@@ -24,7 +24,7 @@
       (is (empty? (:wait-set rt-final)))))
   (testing "writer on full stream parks and is resumed after space is freed"
     (let [resumed-vals (atom [])
-          stream (ds/open! {:type :ringbuffer, :capacity 1})
+          stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})
           _ (ds/append! stream :first)
           task {:resume
                 (fn [rt _entry value] (swap! resumed-vals conj value) rt)}
@@ -42,7 +42,7 @@
       (is (empty? (:wait-set rt-final)))))
   (testing "taker on empty stream parks and is resumed after later write"
     (let [seen (atom [])
-          stream (ds/open! {:type :ringbuffer, :capacity 10})
+          stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           task {:resume (fn [rt _entry value] (swap! seen conj value) rt)}
           rt0 (rt/initial-state)
           ;; Attempt take -> should block
@@ -57,7 +57,7 @@
       (is (empty? (:wait-set rt-final)))))
   (testing "close wakes parked reader with nil"
     (let [seen (atom [])
-          stream (ds/open! {:type :ringbuffer, :capacity 10})
+          stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           task {:resume (fn [rt _entry value] (swap! seen conj value) rt)}
           rt0 (rt/initial-state)
           ;; Attempt read -> should block
@@ -69,7 +69,7 @@
       (is (= [nil] @seen))))
   (testing "close wakes parked writer with nil"
     (let [seen (atom [])
-          stream (ds/open! {:type :ringbuffer, :capacity 1})
+          stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})
           _ (ds/append! stream :full)
           task {:resume (fn [rt _entry value] (swap! seen conj value) rt)}
           rt0 (rt/initial-state)
@@ -85,7 +85,7 @@
 (deftest check-wait-set-closed-taker-does-not-corrupt-ready-queue-test
   (testing
     "closed takers wake without copying existing ready entries into the wait-set"
-    (let [stream (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           parked-task {:resume (fn [rt _entry value]
                                  (assoc rt :parked-value value))}
           existing-ready {:resume (fn [rt _entry _value] rt),

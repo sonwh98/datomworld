@@ -75,12 +75,18 @@
 
 (defn- q-current
   [query-form source & inputs]
-  (apply q/q query-form (q/current source) inputs))
+  (q/collect (apply q/q query-form (q/current (q/relation source)) inputs)))
+
+
+(defn- q-current-as-of
+  [query-form source as-of & inputs]
+  (q/collect
+    (apply q/q query-form (q/current (q/relation source) as-of) inputs)))
 
 
 (defn- pull-current
-  [source eid pattern & [opts]]
-  (q/pull (q/current source) eid pattern opts))
+  [source eid pattern]
+  (q/pull (q/current (q/relation source)) eid pattern))
 
 
 ;; =============================================================================
@@ -343,9 +349,8 @@
            and the two occurrences are not :eid-shared")
       (is (seq (q-current '[:find ?e :where [?e :yin/type :application]] space))
           "application nodes are entities")
-      (is (seq (q-current '[:find ?e :where [?e :yin/type :lambda]]
-                          space
-                          {:as-of 0}))
+      (is (seq
+            (q-current-as-of '[:find ?e :where [?e :yin/type :lambda]] space 0))
           "the program is genesis: visible as-of t=0, before any step ran"))))
 
 
@@ -446,14 +451,16 @@
                                               [?a :cell/value _]]
                                             space
                                             'n))))
-          set-t (nth (first (q/match (q/history space)
+          set-t (nth (first (q/match (q/history (q/relation space))
                               [cell :cell/value '_ '_ '_]))
                      3)]
-      (is (nil? (:cell/value
-                  (pull-current space cell [:cell/value] {:as-of (dec set-t)})))
+      (is (nil? (:cell/value (q/pull (q/current (q/relation space) (dec set-t))
+                                     cell
+                                     [:cell/value])))
           "as-of just before the set, the cell holds no value")
-      (is (some? (:cell/value
-                   (pull-current space cell [:cell/value] {:as-of set-t})))
+      (is (some? (:cell/value (q/pull (q/current (q/relation space) set-t)
+                                      cell
+                                      [:cell/value])))
           "as-of the set, the value is visible"))))
 
 
@@ -472,20 +479,23 @@
 (deftest seeded-space-stays-partitioned-by-writer
   (testing
     "a machine seeded from another's datoms keeps them distinguishable by m.
-     Note this is a value copy, not a shared medium: bob starts from a
-     snapshot of alice's space and neither sees the other's later writes.
-     What is under test is the `m` writer tag, not coordination."
+     The copy shares AST node ids across writers, so a current fold over the
+     flattened space now rejects that fabricated cross-writer [e a v t]
+     collision (docs/design/dao.space.query.md); the machine-state range is
+     disjoint by :eid-base and stays queryable."
     (let [alice (vm/eval (space/create-vm {:owner-name 'alice, :eid-base 2048})
                          {:type :literal, :value 1})
           bob (vm/eval (space/create-vm {:owner-name 'bob,
                                          :eid-base 65536,
                                          :space (space/machine-space alice)})
                        {:type :literal, :value 2})
-          shared (space/machine-space bob)]
+          shared (space/machine-space bob)
+          names (q/current (q/relation (filterv #(= :agent/name (nth % 1))
+                                                shared)))]
       (is (= #{2048 65536} (set (map peek shared)))
           "the shared space partitions by writer: m says who wrote what")
-      (is (= 'alice (:agent/name (pull-current shared 2048 [:agent/name]))))
-      (is (= 'bob (:agent/name (pull-current shared 65536 [:agent/name])))))))
+      (is (= 'alice (:agent/name (q/pull names 2048 [:agent/name]))))
+      (is (= 'bob (:agent/name (q/pull names 65536 [:agent/name])))))))
 
 
 (deftest trace-is-optional

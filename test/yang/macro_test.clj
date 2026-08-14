@@ -11,7 +11,7 @@
 
 (defn- queue-vm
   [vm-state datoms]
-  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
+  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
         queued-vm (assoc vm-state
                          :in-stream in-stream
                          :in-cursor {:position 0})]
@@ -144,9 +144,8 @@
                        y))))))
   (testing "user (defmacro defn ...) controls operand compilation too"
     ;; A user-defined defn macro should see its body operand as another
-    ;; macro call,
-    ;; not as a hard-coded application compiled with built-in defn
-    ;; assumptions.
+    ;; macro call, not as a hard-coded application compiled with built-in
+    ;; defn assumptions.
     (is (= :yin/macro-expand
            (compile-program-and-run-macros
              '((defmacro defn

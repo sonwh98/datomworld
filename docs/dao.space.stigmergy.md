@@ -18,7 +18,7 @@ proposes changing the tuple-space model; the model is the point.
 - `docs/design/dao.jing.md` — the storage boundary agents ultimately share
 - `docs/design/dao.space.security.md`, `docs/design/adr/0002-share-governed-computation-not-data.md` — the controlled-mode model for untrusted participants
 - `docs/design/yin.vm.ffi.md` — the confined-evaluation bridge governed agents would run through
-- `docs/agents/datom-spec.md` — datoms, namespaces, provenance (`m`), content addressing
+- `docs/agents/datom-spec.md` — tuples, canonical d5, provenance (`m`), content addressing
 
 ## Why a tuple space fits agents
 
@@ -81,12 +81,15 @@ The substrate is real and tested:
 - **Shared storage** — `dao.jing` with in-memory, file, WebSocket-remote
   (`dao.jing.remote`, `:clj` client), and DHT backends. Agents on different
   machines can share a store today.
-- **Associative read** — `dao.space.query/q` (Datalog joins) and `match` (positional
-  templates) over any store or federation of stores, with `as-of` bounds.
+- **Associative read** — `dao.space.query/q` (Datalog joins) and `match`
+  (positional templates) over exact-bounded DaoStream descriptors or closed
+  retained realizations. `current` and `history` add explicit d5 interpretation
+  and optional `as-of` bounds.
 - **Owner-built indexes** — `publish-index!` persists a stream's covered indexes as
-  content-addressed segments; JVM readers pull lazily (a point lookup fetches 2 of 26
-  segments in the test suite). An agent that publishes makes every other agent's reads
-  cheap.
+  content-addressed segments. `published-index` turns a resolvable DaoJing
+  coordinate plus manifest address into a transportable exact-bounded d5
+  descriptor. Its current stream adapter eagerly walks EAVT; lazy restored
+  B-tree traversal remains a lower-level index API.
 - **Provenance slots** — every datom carries `t` and `m`; the `m` entity is where
   assert/retract and authorship metadata live (`datom-spec.md`).
 
@@ -114,15 +117,15 @@ one side, `q`/`match`/append on the other), not new infrastructure. Most agent r
 Python or TypeScript, which is also why this must be a protocol bridge rather than an
 embedded library: the Peer stays in-process on the JVM; agents reach it over the wire.
 
-### 2. An agent write path
+### 2. The implemented agent write path
 
-Today a stream owner publishes by `cas!`-ing `{:datoms [...]}` wholesale or calling
-`publish-index!`. There is no incremental `append!` for "add these three datoms to my log,"
-and the jing-backed stream descriptor `dao.space.md` sketches (`{:type :transactor ...}`)
-is not a registered `dao.stream` type. Agents generate datoms one decision at a time; they
-need the incremental owner-append convenience — read-modify-`cas!` under the single-writer
-discipline, or the real `dao.stream`-fed path once it exists. Per-agent identity falls out
-of the existing convention: one agent, one single-writer log; readers federate.
+Each agent opens one `:transactor` stream wrapper over its own single-writer
+local stream and an explicit DaoJing intake pool. `ds/append!` / `transact!`
+append one atomic transaction record and allocate stream-local `t` values;
+`publish!` snapshots that retained history and enqueues covered-index payloads
+through one selected intake stream. The wrapper creates no registry, owns
+neither supplied stream, and cannot coordinate two writers over the same local
+stream. One wrapper per local stream is therefore a hard invariant.
 
 ### 3. A discoverable vocabulary (the schema is the prompt)
 
@@ -146,19 +149,20 @@ in agent code.
 
 ### 5. Current-state resolution
 
-`match`/`q` resolve current state: histories are grouped by fact identity, the greatest
-`t` wins, and `dao.datom/retracted?` removes a retracted winner. The complete append-only
-history remains available by reading below this query interpretation. For folded d6
-values, namespace is part of fact identity, so one stream's retraction cannot erase
-another stream's assertion.
+Current state is never inferred from tuple arity. `(query/current source)`
+explicitly interprets canonical d5: histories are grouped by local `[e a v]`,
+the greatest `t` wins, and `dao.datom/retracted?` removes a retracted winner.
+`(query/history source)` exposes the exact d5 relation. A bare relation,
+including one whose tuples happen to have five positions, has no temporal
+semantics.
 
-### 6. Cross-stream identity (namespace stamping)
+### 6. Cross-stream identity (interpreter context)
 
-Two agents' local entity id `1025` collide in a federated query today — namespace stamping
-from the kickoff hash is specified (`datom-spec.md`) but not implemented. Until it lands,
-the working convention for agents is: never join on bare entity ids across streams; use
-integer stream-local entity ids and join on shared *values* (`:task/id "uuid-..."`), which
-is the design's intent anyway. This convention has to be stated in the agents' prompts.
+Source identity is interpreter context, never a sixth tuple position. Separate
+`:in` database values keep equal stream-local entity ids separate unless a
+query deliberately unifies them. Cross-source correlation should use shared
+values such as `:task/id "uuid-..."`, or another explicit identity
+interpretation supplied by the query. Neither DaoJing nor `q` stamps tuples.
 
 ### 7. Comparable time for the claim tie-break
 
@@ -237,9 +241,9 @@ deposit API, no new namespaces:
    assigns transaction `t`. `publish!` appends covered-index blobs and a manifest to one
    selected intake stream.
 3. **Materialization and reads**: a DaoJing observer consumes the supplied intake pool and
-   materializes its opaque payloads into the content handle. `query/q` and `query/match`
-   consume immutable `(query/published-source content-handle manifest-address)` db-values,
-   locally or remotely. "Available work" is one query (negation + lease predicate);
+   materializes its opaque payloads into `dao.jing`. Readers query exactly the
+   inputs they care about: immutable DaoStream descriptor db-values that may
+   resolve content locally or remotely. "Available work" is one query (negation + lease predicate);
    claims and results are joins; every reader applies the documented winner rule.
 4. A pinned attribute vocabulary and these conventions in every agent's system prompt
    (gap 3, manual version).
@@ -248,6 +252,6 @@ The contract is executable: `test/dao/space/stigmergy_test.clj` runs the full lo
 post, associative discovery, racing claims, leases, retraction, settle — over the wire,
 and leaves the space on disk for post-hoc inspection with `dao.space.query`.
 
-Everything else — namespace stamping, discovery, controlled mode — makes
+Everything else — discovery, arranged streams, controlled mode — makes
 the system better without changing what the agents already do: read the medium, decide,
 deposit a trace.

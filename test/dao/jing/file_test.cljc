@@ -75,7 +75,7 @@
            (is (= :present ((:put-content-fn handle) address payload)))
            (is (= payload (jing/get handle address ::missing)))
            (jing/close! handle)
-           (let [log (ds/open! {:type :append-log, :path path})]
+           (let [log (ds/open! {:dao.stream/type :append-log, :path path})]
              (try (is (= 1 (count-records log))) (finally (ds/close! log))))
            (let [h2 (jing-file/create-content-file path)]
              (try (is (= payload (jing/get h2 address ::missing)))
@@ -116,8 +116,8 @@
     (let [path (temp-path "observe")
           payload {:observed true}
           handle (jing-file/create-content-file path)
-          rb1 (ds/open! {:type :ringbuffer, :capacity 8})
-          rb2 (ds/open! {:type :ringbuffer, :capacity 8})]
+          rb1 (ds/open! {:dao.stream/type :ringbuffer, :capacity 8})
+          rb2 (ds/open! {:dao.stream/type :ringbuffer, :capacity 8})]
       (try (ds/append! rb1 payload)
            (ds/append! rb2 payload)
            (let [observer (jing/observer-state [rb1 rb2])
@@ -140,11 +140,11 @@
     (let [path (temp-path "rawdup")
           address (jing/segment-key {:k 1})
           payload {:k 1}
-          log (ds/open! {:type :append-log, :path path})]
+          log (ds/open! {:dao.stream/type :append-log, :path path})]
       (ds/append! log (jing-file/encode-record address payload))
       (ds/append! log (jing-file/encode-record address payload))
       (ds/close! log)
-      (let [log2 (ds/open! {:type :append-log, :path path})]
+      (let [log2 (ds/open! {:dao.stream/type :append-log, :path path})]
         (try (is (= 2 (count-records log2))) (finally (ds/close! log2))))
       (let [handle (jing-file/create-content-file path)]
         (try (is (= payload (jing/get handle address ::missing)))
@@ -165,7 +165,7 @@
             :record (jing-file/->bytes (pr-str [good-address "different"]))}]]
       (doseq [{:keys [name record]} categories]
         (let [path (temp-path "corrupt")
-              log (ds/open! {:type :append-log, :path path})]
+              log (ds/open! {:dao.stream/type :append-log, :path path})]
           (ds/append! log record)
           (ds/close! log)
           (try (is (thrown? #?(:clj Exception
@@ -242,7 +242,8 @@
                      (is (= 1 (count (filter #{:inserted} results))))
                      (is (= 15 (count (filter #{:present} results))))
                      (jing/close! handle)
-                     (let [log (ds/open! {:type :append-log, :path path})]
+                     (let [log (ds/open! {:dao.stream/type :append-log,
+                                          :path path})]
                        (try (is (= 1 (count-records log)))
                             (finally (ds/close! log)))))
                    (finally (cleanup-file path))))

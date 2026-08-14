@@ -2,7 +2,7 @@
   "Uniform cross-platform HTTP client integrated with DaoStream.
    
    Descriptor:
-     {:type :http
+     {:dao.stream/type :http
       :url \"...\"
       :method :get | :post | :put | :delete
       :headers {...}

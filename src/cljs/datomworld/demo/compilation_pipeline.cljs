@@ -544,7 +544,7 @@
    transactions on it. Each element of `txns` is a vector of datoms
    representing a single program form / transaction."
   [vm-state txns]
-  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
+  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
         queued-state (assoc vm-state
                             :in-stream in-stream
                             :in-cursor {:position 0})]

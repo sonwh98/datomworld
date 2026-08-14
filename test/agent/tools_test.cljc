@@ -16,7 +16,7 @@
    :clj
    (deftest execute-tool-call-stream-write-test
      (testing "stream_write tool call invokes ds/append! on the right stream"
-       (let [s (ds/open! {:type :ringbuffer, :capacity 5})
+       (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
              registry {"target" s}
              tool-call {"id" "call_1",
                         "type" "function",
@@ -35,7 +35,7 @@
 #?(:cljd nil
    :clj (deftest execute-tool-call-stream-read-test
           (testing "stream_read tool call reads from the right stream"
-            (let [s (doto (ds/open! {:type :ringbuffer, :capacity 5})
+            (let [s (doto (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
                       (ds/append! :hello))
                   registry {"input" s}
                   tool-call {"id" "call_2",
@@ -54,7 +54,7 @@
 #?(:cljd nil
    :clj (deftest execute-tool-call-unknown-tool-test
           (testing "unknown tool returns error message"
-            (let [s (ds/open! {:type :ringbuffer, :capacity 1})
+            (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})
                   tool-call {"id" "call_3",
                              "type" "function",
                              "function" {"name" "nonexistent",
@@ -74,7 +74,7 @@
 #?(:cljd nil
    :clj (deftest execute-tool-call-stream-id-missing-test
           (testing "stream_id not in registry returns error message"
-            (let [s (ds/open! {:type :ringbuffer, :capacity 1})
+            (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})
                   tool-call
                   {"id" "call_4",
                    "type" "function",
@@ -91,7 +91,7 @@
 #?(:cljd nil
    :clj (deftest execute-tool-call-stream-read-blocked-test
           (testing "stream_read on empty open stream returns blocked message"
-            (let [s (ds/open! {:type :ringbuffer, :capacity 5})
+            (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
                   tool-call {"id" "call_5",
                              "type" "function",
                              "function"
@@ -108,7 +108,8 @@
 #?(:cljd nil
    :clj (deftest execute-tool-call-stream-read-end-test
           (testing "stream_read on closed empty stream returns end message"
-            (let [s (doto (ds/open! {:type :ringbuffer, :capacity 5}) ds/close!)
+            (let [s (doto (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
+                      ds/close!)
                   tool-call {"id" "call_6",
                              "type" "function",
                              "function"
@@ -125,7 +126,7 @@
 #?(:cljd nil
    :clj (deftest execute-tool-call-stream-read-gap-test
           (testing "stream_read on evicted position returns gap message"
-            (let [s (doto (ds/open! {:type :ringbuffer,
+            (let [s (doto (ds/open! {:dao.stream/type :ringbuffer,
                                      :capacity 1,
                                      :eviction-policy :evict-oldest})
                       (ds/append! :a)
@@ -146,7 +147,7 @@
 #?(:cljd nil
    :clj (deftest execute-tool-call-stream-write-full-test
           (testing "stream_write on a full stream returns full message"
-            (let [s (doto (ds/open! {:type :ringbuffer, :capacity 1})
+            (let [s (doto (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})
                       (ds/append! :a))
                   tool-call {"id" "call_8",
                              "type" "function",
@@ -164,7 +165,7 @@
 #?(:cljd nil
    :clj (deftest execute-tool-call-stream-write-malformed-edn-test
           (testing "stream_write with malformed EDN returns an error message"
-            (let [s (ds/open! {:type :ringbuffer, :capacity 5})
+            (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
                   tool-call
                   {"id" "call_9",
                    "type" "function",
@@ -183,8 +184,8 @@
    :clj
    (deftest execute-tool-call-stream-list-test
      (testing "stream_list returns the keys of the registry"
-       (let [s1 (ds/open! {:type :ringbuffer, :capacity 1})
-             s2 (ds/open! {:type :ringbuffer, :capacity 1})
+       (let [s1 (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})
+             s2 (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})
              tool-call {"id" "call_10",
                         "type" "function",
                         "function" {"name" "stream_list", "arguments" "{}"}}
@@ -213,14 +214,15 @@
                              "function" {"name" "http_fetch",
                                          "arguments"
                                          "{\"url\":\"https://example.com\"}"}}
-                  result (with-redefs [ds/open! (fn [desc]
-                                                  (if (= :http (:type desc))
-                                                    (doto (orig-open
-                                                            {:type :ringbuffer,
+                  result (with-redefs [ds/open!
+                                       (fn [desc]
+                                         (if (= :http (:dao.stream/type desc))
+                                           (doto (orig-open {:dao.stream/type
+                                                             :ringbuffer,
                                                              :capacity 1})
-                                                      (ds/append! fake-resp)
-                                                      ds/close!)
-                                                    (orig-open desc)))]
+                                             (ds/append! fake-resp)
+                                             ds/close!)
+                                           (orig-open desc)))]
                            (tools/execute-tool-call tool-call {}))]
               (is (= "call_http_1" (get result "tool_call_id")))
               (is (= "tool" (get result "role")))
@@ -248,15 +250,16 @@
               "\"method\":\"POST\","
               "\"headers\":\"{\\\"Content-Type\\\":\\\"application/json\\\"}\","
               "\"body\":\"{\\\"key\\\":\\\"val\\\"}\"}")}}
-          result (with-redefs [ds/open! (fn [desc]
-                                          (if (= :http (:type desc))
-                                            (do (reset! captured-desc desc)
-                                                (doto (orig-open
-                                                        {:type :ringbuffer,
+          result (with-redefs [ds/open!
+                               (fn [desc]
+                                 (if (= :http (:dao.stream/type desc))
+                                   (do (reset! captured-desc desc)
+                                       (doto (orig-open {:dao.stream/type
+                                                         :ringbuffer,
                                                          :capacity 1})
-                                                  (ds/append! fake-resp)
-                                                  ds/close!))
-                                            (orig-open desc)))]
+                                         (ds/append! fake-resp)
+                                         ds/close!))
+                                   (orig-open desc)))]
                    (tools/execute-tool-call tool-call {}))]
          (is (= :post (:method @captured-desc)))
          (is (= "https://api.example.com/data" (:url @captured-desc)))
@@ -279,14 +282,15 @@
                              {"name" "http_fetch",
                               "arguments"
                               "{\"url\":\"https://example.com/slow\"}"}}
-                  result (with-redefs [ds/open! (fn [desc]
-                                                  (if (= :http (:type desc))
-                                                    (doto (orig-open
-                                                            {:type :ringbuffer,
+                  result (with-redefs [ds/open!
+                                       (fn [desc]
+                                         (if (= :http (:dao.stream/type desc))
+                                           (doto (orig-open {:dao.stream/type
+                                                             :ringbuffer,
                                                              :capacity 1})
-                                                      (ds/append! fake-resp)
-                                                      ds/close!)
-                                                    (orig-open desc)))]
+                                             (ds/append! fake-resp)
+                                             ds/close!)
+                                           (orig-open desc)))]
                            (tools/execute-tool-call tool-call {}))]
               (let [content (get result "content")]
                 (is (.contains ^String content "timeout")))))))

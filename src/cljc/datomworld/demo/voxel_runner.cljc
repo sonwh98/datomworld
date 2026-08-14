@@ -3,15 +3,16 @@
    Flutter (CLJD) and browser (CLJS) wrappers own only their platform-
    specific timer, time source, keyboard mapping, and widget tree;
    everything else lives here so the two frontends stay in sync."
-  (:require
-    [dao.postgraphics.terminal :as terminal]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [datomworld.demo.voxel-scene :as scene]))
+  (:require [dao.postgraphics.terminal :as terminal]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [datomworld.demo.voxel-scene :as scene]))
 
 
 (defonce frame-stream
-  (ds/open! {:type :ringbuffer, :capacity 4, :eviction-policy :evict-oldest}))
+  (ds/open! {:dao.stream/type :ringbuffer,
+             :capacity 4,
+             :eviction-policy :evict-oldest}))
 
 
 (defonce ^:private player* (atom scene/default-player))

@@ -1,16 +1,17 @@
 (ns datomworld.demo.solar-system
-  (:require
-    [dao.postgraphics.terminal :as terminal]
-    [dao.postgraphics.web :as pg]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [datomworld.demo.responsive :as responsive]
-    [datomworld.demo.solar-system-scene :as scene]
-    [reagent.core :as r]))
+  (:require [dao.postgraphics.terminal :as terminal]
+            [dao.postgraphics.web :as pg]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [datomworld.demo.responsive :as responsive]
+            [datomworld.demo.solar-system-scene :as scene]
+            [reagent.core :as r]))
 
 
 (defonce frame-stream
-  (ds/open! {:type :ringbuffer, :capacity 4, :eviction-policy :evict-oldest}))
+  (ds/open! {:dao.stream/type :ringbuffer,
+             :capacity 4,
+             :eviction-policy :evict-oldest}))
 
 
 (defonce scene-state (r/atom scene/initial-state))

@@ -938,19 +938,29 @@
 (defn machine-space
   "The machine's datoms: program (C) plus the reified configuration trace.
 
-   A plain vector, suitable as a `dao.space.query` source. Folding it is
-   O(count), so hoist it out of loops rather than re-querying per result."
+   A plain vector of `[e a v t m]` tuples. It is not itself a query db-value:
+   wrap it with `dao.space.query/relation` (and interpret with
+   `dao.space.query/current`) before querying. Querying folds it O(count), so
+   hoist the wrapped source out of loops rather than re-querying per result."
   [vm]
   (:space vm))
+
+
+(defn machine-source
+  "The machine's space as a current d3 fact view over a bounded relation
+   descriptor: `(query/current (query/relation (:space vm)))`. This is the
+   db-value to pass to `dao.space.query/q` for introspection queries."
+  [vm]
+  (query/current (query/relation (:space vm))))
 
 
 (defn find-by-type
   "Find all AST entity IDs with the given :yin/type value."
   [vm t]
   (map first
-       (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]]
-                (query/current (:space vm))
-                t)))
+       (query/collect (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]]
+                               (machine-source vm)
+                               t))))
 
 
 (comment
@@ -965,26 +975,29 @@
   (def space (machine-space r))
   ;; [1] C is datoms: the program answers AST-shaped queries, and is
   ;;     genesis — visible before the first step ran.
-  (query/q '[:find ?e :where [?e :yin/type :lambda]] (query/current space))
-  (query/q '[:find ?e :where [?e :yin/type :lambda]]
-           (query/current space)
-           {:as-of 0})
+  (query/collect (query/q '[:find ?e :where [?e :yin/type :lambda]]
+                          (machine-source r)))
+  (query/collect (query/q '[:find ?e :where [?e :yin/type :lambda]]
+                          (query/current (query/relation space) 0)))
   ;; [2] One q spans code AND state: variable nodes joined to live
   ;; bindings.
-  (query/q '[:find ?v :where [?var :yin/type :variable] [?var :yin/name ?nm]
-             [?b :bind/name ?nm] [?b :bind/addr ?a] [?a :cell/value ?v]]
-           (query/current space))
+  (query/collect (query/q '[:find ?v :where [?var :yin/type :variable]
+                            [?var :yin/name ?nm] [?b :bind/name ?nm]
+                            [?b :bind/addr ?a] [?a :cell/value ?v]]
+                          (machine-source r)))
   ;; [3] Provenance: why does a cell hold 5? The write names its config.
-  (query/q '[:find ?s :where [?a :cell/value 5] [?a :cell/set-by ?cfg]
-             [?cfg :cfg/step ?s]]
-           (query/current space))
+  (query/collect (query/q '[:find ?s :where [?a :cell/value 5]
+                            [?a :cell/set-by ?cfg] [?cfg :cfg/step ?s]]
+                          (machine-source r)))
   ;; [4] Dead code = control-trace set difference, no instrumentation.
   (let [entered (set (map first
-                       (query/q '[:find ?n :where [_ :cfg/ctrl ?n]]
-                                (query/current space))))]
+                       (query/collect (query/q '[:find ?n :where
+                                                 [_ :cfg/ctrl ?n]]
+                                               (machine-source r)))))]
     (remove entered
       (map first
-        (query/q '[:find ?e :where [?e :yin/type _]] (query/current space)))))
+        (query/collect (query/q '[:find ?e :where [?e :yin/type _]]
+                                (machine-source r))))))
   ;; [5] Ownership: every datom's m is the machine's reified owner entity.
   (set (map peek space))
-  (query/pull (query/current space) 2048 [:agent/name]))
+  (query/pull (machine-source r) 2048 [:agent/name]))

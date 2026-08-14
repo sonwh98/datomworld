@@ -113,9 +113,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- open-with-intake
-  ([local] (open-with-intake local (ds/open! {:type :ringbuffer})))
+  ([local] (open-with-intake local (ds/open! {:dao.stream/type :ringbuffer})))
   ([local intake]
-   (ds/open! {:type :transactor, :local-stream local, :intake-pool [intake]})))
+   (ds/open! {:dao.stream/type :transactor,
+              :local-stream local,
+              :intake-pool [intake]})))
 
 
 (defn- content-handle
@@ -156,94 +158,96 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest descriptor-validation
-  (let [intake (ds/open! {:type :ringbuffer})]
+  (let [intake (ds/open! {:dao.stream/type :ringbuffer})]
     (testing "a missing or non-stream :local-stream throws"
       (is (thrown-with-msg? #?(:cljd Object
                                :clj Exception
                                :cljs js/Error)
                             #"local-stream"
-            (ds/open! {:type :transactor,
+            (ds/open! {:dao.stream/type :transactor,
                        :intake-pool [intake]})))
       (is (thrown-with-msg? #?(:cljd Object
                                :clj Exception
                                :cljs js/Error)
                             #"local-stream"
-            (ds/open! {:type :transactor,
+            (ds/open! {:dao.stream/type :transactor,
                        :local-stream 42,
                        :intake-pool [intake]})))
       (is (thrown-with-msg? #?(:cljd Object
                                :clj Exception
                                :cljs js/Error)
                             #"local-stream"
-            (ds/open! {:type :transactor,
+            (ds/open! {:dao.stream/type :transactor,
                        :local-stream (->ReaderOnlyStream),
                        :intake-pool [intake]})))
       (is (thrown-with-msg? #?(:cljd Object
                                :clj Exception
                                :cljs js/Error)
                             #"local-stream"
-            (ds/open! {:type :transactor,
+            (ds/open! {:dao.stream/type :transactor,
                        :local-stream (->WriterOnlyStream),
                        :intake-pool [intake]}))))
     (testing "the intake pool must be a non-empty collection of writers"
-      (let [local (ds/open! {:type :ringbuffer})]
+      (let [local (ds/open! {:dao.stream/type :ringbuffer})]
         (is (thrown-with-msg? #?(:cljd Object
                                  :clj Exception
                                  :cljs js/Error)
                               #"intake-pool"
-              (ds/open! {:type :transactor,
+              (ds/open! {:dao.stream/type :transactor,
                          :local-stream local})))
         (is (thrown-with-msg? #?(:cljd Object
                                  :clj Exception
                                  :cljs js/Error)
                               #"non-empty"
-              (ds/open! {:type :transactor,
+              (ds/open! {:dao.stream/type :transactor,
                          :local-stream local,
                          :intake-pool []})))
         (is (thrown-with-msg? #?(:cljd Object
                                  :clj Exception
                                  :cljs js/Error)
                               #"intake-pool"
-              (ds/open! {:type :transactor,
+              (ds/open! {:dao.stream/type :transactor,
                          :local-stream local,
                          :intake-pool :nope})))
         (is (thrown-with-msg? #?(:cljd Object
                                  :clj Exception
                                  :cljs js/Error)
                               #"IDaoStreamWriter"
-              (ds/open! {:type :transactor,
+              (ds/open! {:dao.stream/type :transactor,
                          :local-stream local,
                          :intake-pool [(->ReaderOnlyStream)]})))
         (is (thrown-with-msg? #?(:cljd Object
                                  :clj Exception
                                  :cljs js/Error)
                               #"IDaoStreamWriter"
-              (ds/open! {:type :transactor,
+              (ds/open! {:dao.stream/type :transactor,
                          :local-stream local,
                          :intake-pool [42]})))))
     (testing ":name is optional and diagnostic only"
-      (let [local (ds/open! {:type :ringbuffer})]
-        (is (some? (ds/open! {:type :transactor,
+      (let [local (ds/open! {:dao.stream/type :ringbuffer})]
+        (is (some? (ds/open! {:dao.stream/type :transactor,
                               :local-stream local,
                               :intake-pool [intake]})))
-        (is (some? (ds/open! {:type :transactor,
+        (is (some? (ds/open! {:dao.stream/type :transactor,
                               :local-stream local,
                               :intake-pool [intake],
                               :name "producer"})))))
     (testing ":next-t cannot override history-derived causality"
-      (let [local (ds/open! {:type :ringbuffer})]
+      (let [local (ds/open! {:dao.stream/type :ringbuffer})]
         (is (thrown-with-msg? #?(:cljd Object
                                  :clj Exception
                                  :cljs js/Error)
                               #"next-t"
-              (ds/open! {:type :transactor,
+              (ds/open! {:dao.stream/type :transactor,
                          :local-stream local,
                          :intake-pool [intake],
                          :next-t 99})))))
     (testing "opening creates, registers, or closes nothing"
-      (let [local (ds/open! {:type :ringbuffer})
-            pool (ds/open! {:type :ringbuffer})]
-        (ds/open! {:type :transactor, :local-stream local, :intake-pool [pool]})
+      (let [local (ds/open! {:dao.stream/type :ringbuffer})
+            pool (ds/open! {:dao.stream/type :ringbuffer})]
+        (ds/open! {:dao.stream/type :transactor,
+                   :local-stream local,
+                   :intake-pool [pool]})
         (is (false? (ds/closed? local)))
         (is (false? (ds/closed? pool)))
         (is (empty? (ds/->seq nil local)))
@@ -255,15 +259,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reopen-derives-next-t-from-retained-history
-  (let [local (ds/open! {:type :ringbuffer})
-        intake (ds/open! {:type :ringbuffer})
-        a (ds/open!
-            {:type :transactor, :local-stream local, :intake-pool [intake]})]
+  (let [local (ds/open! {:dao.stream/type :ringbuffer})
+        intake (ds/open! {:dao.stream/type :ringbuffer})
+        a (ds/open! {:dao.stream/type :transactor,
+                     :local-stream local,
+                     :intake-pool [intake]})]
     (is (= {:result :ok, :t 0, :datoms [[1 :test/a 1 0 1]]}
            (ds/append! a {:db/id 1, :test/a 1})))
     (transactor/transact! a [{:db/id 2, :test/b 2} {:db/id 3, :test/c 3}])
     (testing "a reopened wrapper derives 1 + max retained datom t"
-      (let [b (ds/open! {:type :transactor,
+      (let [b (ds/open! {:dao.stream/type :transactor,
                          :local-stream local,
                          :intake-pool [intake]})]
         (is (= {:result :ok, :t 2, :datoms [[4 :test/d 4 2 1]]}
@@ -271,8 +276,8 @@
         (is (= #{0 1 2} (set (tx-ts local)))
             "the scan read, and did not consume, the retained history")))
     (testing "an empty local stream derives 0"
-      (let [fresh (ds/open! {:type :ringbuffer})
-            c (ds/open! {:type :transactor,
+      (let [fresh (ds/open! {:dao.stream/type :ringbuffer})
+            c (ds/open! {:dao.stream/type :transactor,
                          :local-stream fresh,
                          :intake-pool [intake]})]
         (is (= {:result :ok, :t 0, :datoms [[1 :test/a 1 0 1]]}
@@ -280,13 +285,13 @@
 
 
 (deftest malformed-or-gapped-retained-history-throws
-  (let [intake (ds/open! {:type :ringbuffer})
+  (let [intake (ds/open! {:dao.stream/type :ringbuffer})
         open-on (fn [local]
-                  (ds/open! {:type :transactor,
+                  (ds/open! {:dao.stream/type :transactor,
                              :local-stream local,
                              :intake-pool [intake]}))]
     (testing "a retention gap at cursor zero throws on open"
-      (let [local (ds/open! {:type :ringbuffer,
+      (let [local (ds/open! {:dao.stream/type :ringbuffer,
                              :capacity 2,
                              :eviction-policy :evict-oldest})]
         (doseq [i (range 3)]
@@ -299,7 +304,7 @@
                               #"gap"
               (open-on local)))))
     (testing "a malformed payload in the retained history throws on open"
-      (let [local (ds/open! {:type :ringbuffer})]
+      (let [local (ds/open! {:dao.stream/type :ringbuffer})]
         (ds/append! local 42)
         (is (thrown-with-msg? #?(:cljd Object
                                  :clj Exception
@@ -307,7 +312,7 @@
                               #"payload"
               (open-on local)))))
     (testing "an out-of-shape transaction record throws on open"
-      (let [local (ds/open! {:type :ringbuffer})]
+      (let [local (ds/open! {:dao.stream/type :ringbuffer})]
         (ds/append! local {:dao.space/transaction {:t 1, :datoms :nope}})
         (is (thrown-with-msg? #?(:cljd Object
                                  :clj Exception
@@ -315,7 +320,7 @@
                               #"transaction"
               (open-on local)))))
     (testing "a non-integer datom t in the retained history throws on open"
-      (let [local (ds/open! {:type :ringbuffer})]
+      (let [local (ds/open! {:dao.stream/type :ringbuffer})]
         (ds/append! local [1 :test/a :v :bogus 1])
         (is (thrown-with-msg? #?(:cljd Object
                                  :clj Exception
@@ -329,7 +334,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest each-transaction-is-exactly-one-append
-  (let [local (ds/open! {:type :ringbuffer})
+  (let [local (ds/open! {:dao.stream/type :ringbuffer})
         recording (->RecordingAppendStream local (atom []))
         log (open-with-intake recording)]
     (ds/append! log {:db/id 1, :test/a 1})
@@ -345,7 +350,7 @@
 
 
 (deftest readers-observe-atomic-transaction-records
-  (let [local (ds/open! {:type :ringbuffer})
+  (let [local (ds/open! {:dao.stream/type :ringbuffer})
         log (open-with-intake local)]
     (ds/append! log {:db/id 1, :test/a 1})
     (transactor/transact! log [{:db/id 2, :test/b 2}])
@@ -363,7 +368,7 @@
 
 
 (deftest concurrent-calls-on-one-wrapper-serialize-transaction-time
-  #?(:clj (let [inner (ds/open! {:type :ringbuffer})
+  #?(:clj (let [inner (ds/open! {:dao.stream/type :ringbuffer})
                 slow-local
                 (reify
                   ds/IDaoStreamWriter
@@ -394,7 +399,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest append-expands-entities-and-datoms
-  (let [local (ds/open! {:type :ringbuffer})
+  (let [local (ds/open! {:dao.stream/type :ringbuffer})
         log (open-with-intake local)]
     (testing "an entity map with :db/id expands to one datom per attribute"
       (let [{:keys [result t datoms]}
@@ -462,7 +467,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest append-failure-does-not-advance-t-and-can-retry
-  (let [local (ds/open! {:type :ringbuffer})
+  (let [local (ds/open! {:dao.stream/type :ringbuffer})
         flaky (->FailingAppendStream local (atom 2))
         log (open-with-intake flaky)]
     (is (thrown-with-msg? #?(:cljd Object
@@ -478,7 +483,7 @@
 
 
 (deftest append-throw-does-not-advance-t-and-can-retry
-  (let [local (ds/open! {:type :ringbuffer})
+  (let [local (ds/open! {:dao.stream/type :ringbuffer})
         throwing (->ThrowingAppendStream local (atom true))
         log (open-with-intake throwing)]
     (is (thrown? #?(:cljd Object
@@ -495,7 +500,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest transact-commits-one-atomic-record
-  (let [local (ds/open! {:type :ringbuffer})
+  (let [local (ds/open! {:dao.stream/type :ringbuffer})
         log (open-with-intake local)]
     (testing "several items commit under one t in one atomic record"
       (let [{:keys [result t datoms]}
@@ -547,10 +552,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest close-is-per-handle-and-does-not-touch-local-stream
-  (let [local (ds/open! {:type :ringbuffer})
-        intake (ds/open! {:type :ringbuffer})
-        log (ds/open!
-              {:type :transactor, :local-stream local, :intake-pool [intake]})]
+  (let [local (ds/open! {:dao.stream/type :ringbuffer})
+        intake (ds/open! {:dao.stream/type :ringbuffer})
+        log (ds/open! {:dao.stream/type :transactor,
+                       :local-stream local,
+                       :intake-pool [intake]})]
     (ds/append! log {:db/id 1, :test/a 1})
     (is (false? (ds/closed? log)))
     (is (= {:woke []} (ds/close! log)))
@@ -577,7 +583,7 @@
 
 
 (deftest close-linearizes-after-an-in-flight-append
-  #?(:clj (let [inner (ds/open! {:type :ringbuffer})
+  #?(:clj (let [inner (ds/open! {:dao.stream/type :ringbuffer})
                 entered (promise)
                 release (promise)
                 slow-local (reify
@@ -620,12 +626,14 @@
     "two wrappers over the same local stream each derive the same
             next-t and silently write colliding records: documented hazard,
             no coordination is possible without shared mutable state"
-    (let [local (ds/open! {:type :ringbuffer})
-          intake (ds/open! {:type :ringbuffer})
-          a (ds/open!
-              {:type :transactor, :local-stream local, :intake-pool [intake]})
-          b (ds/open!
-              {:type :transactor, :local-stream local, :intake-pool [intake]})]
+    (let [local (ds/open! {:dao.stream/type :ringbuffer})
+          intake (ds/open! {:dao.stream/type :ringbuffer})
+          a (ds/open! {:dao.stream/type :transactor,
+                       :local-stream local,
+                       :intake-pool [intake]})
+          b (ds/open! {:dao.stream/type :transactor,
+                       :local-stream local,
+                       :intake-pool [intake]})]
       (is (= {:result :ok, :t 0, :datoms [[1 :test/a 1 0 1]]}
              (ds/append! a {:db/id 1, :test/a 1})))
       (is (= {:result :ok, :t 0, :datoms [[2 :test/b 2 0 1]]}
@@ -640,11 +648,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest publish-enqueues-indexes-into-the-pool
-  (let [local (ds/open! {:type :ringbuffer})
-        a (ds/open! {:type :ringbuffer, :capacity 1024})
-        b (ds/open! {:type :ringbuffer, :capacity 1024})
-        log (ds/open!
-              {:type :transactor, :local-stream local, :intake-pool [a b]})]
+  (let [local (ds/open! {:dao.stream/type :ringbuffer})
+        a (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
+        b (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
+        log (ds/open! {:dao.stream/type :transactor,
+                       :local-stream local,
+                       :intake-pool [a b]})]
     (ds/append! log {:db/id 1, :work/status :todo})
     (ds/append! log {:db/id 2, :work/status :done})
     (testing "publish! returns the manifest and its content address"
@@ -672,8 +681,8 @@
 
 
 (deftest publish-materializes-through-observer-and-reads-back
-  (let [local (ds/open! {:type :ringbuffer})
-        intake (ds/open! {:type :ringbuffer, :capacity 1024})
+  (let [local (ds/open! {:dao.stream/type :ringbuffer})
+        intake (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
         log (open-with-intake local intake)]
     (ds/append! log {:db/id 1, :work/status :todo})
     (ds/append! log {:db/id 2, :work/status :done})
@@ -684,8 +693,8 @@
              (set (index/read-datoms store manifest-address)))
           "observer materialization makes the published datoms readable"))
     (testing "an empty local stream publishes an empty manifest"
-      (let [local2 (ds/open! {:type :ringbuffer})
-            intake2 (ds/open! {:type :ringbuffer, :capacity 1024})
+      (let [local2 (ds/open! {:dao.stream/type :ringbuffer})
+            intake2 (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
             log2 (open-with-intake local2 intake2)
             {:keys [manifest-address manifest]} (transactor/publish! log2)
             store (materialize-through-observer [intake2])]

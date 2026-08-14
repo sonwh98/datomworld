@@ -33,7 +33,7 @@
 
 #?(:clj (defn- open-stream!
           [{:keys [peer-host peer-port listen-port mtu]}]
-          (ds/open! (cond-> {:type :udp,
+          (ds/open! (cond-> {:dao.stream/type :udp,
                              :host peer-host,
                              :port peer-port,
                              :listen-port listen-port}

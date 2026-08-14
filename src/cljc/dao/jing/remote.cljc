@@ -9,7 +9,8 @@
    constructor connect-content! is JVM-only."
   (:require [dao.jing :as jing]
             #?(:clj [dao.stream.rpc.client :as rpc-client])
-            #?(:clj [dao.stream.rpc.ws :as rpc-ws])))
+            #?(:clj [dao.stream.rpc.ws :as rpc-ws]))
+  #?(:cljs (:require-macros [dao.jing])))
 
 
 (defn- validate-address-payload!

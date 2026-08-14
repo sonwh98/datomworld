@@ -13,7 +13,7 @@
   "Create a fresh transport state. vm-keys is a collection of keywords
    identifying the consuming VMs (e.g. [:register-vm :stack-vm])."
   [vm-keys]
-  {:k-stream (ds/open! {:type :ringbuffer, :capacity nil}),
+  {:k-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}),
    :cursors (into {} (map (fn [k] [k {:position 0}])) vm-keys),
    :pending-ks {}})
 

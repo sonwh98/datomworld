@@ -12,7 +12,7 @@
 
 (defn- make-stream
   []
-  (ds/open! {:type :ringbuffer, :capacity nil}))
+  (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}))
 
 
 (defn- make-stream-with

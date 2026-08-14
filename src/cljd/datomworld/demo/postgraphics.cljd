@@ -1,12 +1,11 @@
 (ns datomworld.demo.postgraphics
-  (:require
-    ["dart:async" :as async]
-    ["dart:core" :as core]
-    ["dart:math" :as math]
-    ["package:flutter/material.dart" :as m]
-    [dao.postgraphics.flutter :as pg]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]))
+  (:require ["dart:async" :as async]
+            ["dart:core" :as core]
+            ["dart:math" :as math]
+            ["package:flutter/material.dart" :as m]
+            [dao.postgraphics.flutter :as pg]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]))
 
 
 ;; Fixed canvas size. The widget is placed inside a SizedBox of this size.
@@ -102,7 +101,7 @@
 
 (defn main
   []
-  (let [stream (ds/open! {:type :ringbuffer,
+  (let [stream (ds/open! {:dao.stream/type :ringbuffer,
                           :capacity 4,
                           :eviction-policy :evict-oldest})
         tick (atom 0)

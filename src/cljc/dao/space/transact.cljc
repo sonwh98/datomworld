@@ -57,7 +57,8 @@
   "Resolve an ident keyword to its entity id."
   [base-datoms same-tx-ident->eid ident]
   (or (get same-tx-ident->eid ident)
-      (let [res (query/match (query/current base-datoms) ['_ :db/ident ident])]
+      (let [res (query/match (query/current (query/relation base-datoms))
+                  ['_ :db/ident ident])]
         (when (seq res) (nth (first res) 0)))))
 
 
@@ -76,7 +77,8 @@
                          parsed-ops)
         existing-refs (into #{}
                             (keep (fn [d] (get eid->ident (nth d 0))))
-                            (query/match (query/current base-datoms)
+                            (query/match (query/current (query/relation
+                                                          base-datoms))
                               ['_ :db/valueType :db.type/ref]))
         gaining (into #{}
                       (keep (fn [{:keys [op e a v]}]
@@ -277,7 +279,8 @@
                          ops)
         existing-card-many (into #{}
                                  (keep (fn [d] (get eid->ident (nth d 0))))
-                                 (query/match (query/current base-datoms)
+                                 (query/match (query/current (query/relation
+                                                               base-datoms))
                                    ['_ :db/cardinality :db.cardinality/many]))
         gaining-card-many (into #{}
                                 (keep (fn [{:keys [op e a v]}]
@@ -298,7 +301,8 @@
                                 (#(apply disj % losing-card-many)))
         existing-unique (into #{}
                               (keep (fn [d] (get eid->ident (nth d 0))))
-                              (query/match (query/current base-datoms)
+                              (query/match (query/current (query/relation
+                                                            base-datoms))
                                 ['_ :db/unique '_]))
         gaining-unique (into #{}
                              (keep (fn [{:keys [op e a]}]
@@ -327,7 +331,9 @@
               (when (> (count eids) 1)
                 (throw (ex-info "Unique constraint violated"
                                 {:attr a, :val v})))
-              (let [existing (query/match (query/current base-datoms) ['_ a v])]
+              (let [existing (query/match (query/current (query/relation
+                                                           base-datoms))
+                               ['_ a v])]
                 (when (seq existing)
                   (let [existing-eid (nth (first existing) 0)]
                     ;; if it's the same entity, it's an update. If it's
@@ -356,7 +362,8 @@
                 (let [key [e a]]
                   (if (contains? seen key)
                     [seen retractions]
-                    (let [existing (query/match (query/current base-datoms)
+                    (let [existing (query/match (query/current (query/relation
+                                                                 base-datoms))
                                      [e a '_])
                           new-retractions (map (fn [d]
                                                  [e a (nth d 2) t

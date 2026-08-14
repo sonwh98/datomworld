@@ -211,12 +211,16 @@ A reader may access the target locally or through a remote transport
 (`dao.jing.remote`, `dao.jing.dht`). Location changes how bytes are obtained,
 not how their identity or meaning is determined.
 
-Higher layers expose explicit read coordinates over published content — for
-example `dao.space.query/published-source`, a content-store handle plus a
-manifest address. Those coordinates are caller-supplied values, not state
-inferred from storage. DaoJing does not infer a source or coordinate from the
-stream that carried a payload, and no content address is ever treated as a
-mutable root.
+Higher layers expose the semantic compositions the stream participates in. A
+query reads a published index descriptor containing a serializable
+content-store coordinate plus an immutable manifest address.
+`dao.jing.coordinate/open!` interprets coordinates such as
+`{:dao.jing/type :dao.jing/file :path ...}` or,
+on the JVM, `{:dao.jing/type :dao.jing/remote :url ...}` into local handles;
+unsupported coordinates fail closed. These coordinates are caller-supplied
+values, not state inferred from storage. DaoJing does not infer a source or
+coordinate from the stream that carried a payload, and no content address is
+ever treated as a mutable root.
 
 ## Cursor tracking and recovery
 
@@ -263,6 +267,13 @@ directly.
 are explicit functions, not a protocol or hidden state. `dao.jing/materialize!`
 and `dao.jing/get` dispatch through the handle, and `close!` through its
 optional `:close-fn`.
+
+**Content-store coordinates are transportable data.**
+`dao.jing.coordinate/open!` is the explicit interpretation boundary from a
+coordinate to a live handle. Its closed dispatch recognizes
+`:dao.jing/file` on every supported platform and `:dao.jing/remote` on the
+JVM. There is no name-to-handle registry; adding a backend is an explicit code
+change to the coordinate interpreter.
 
 Implemented backends:
 

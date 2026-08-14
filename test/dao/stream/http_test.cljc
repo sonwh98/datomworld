@@ -1,11 +1,10 @@
 (ns dao.stream.http-test
-  (:require
-    #?@(:cljd [["dart:io" :as io] ["dart:async" :as async]]
-        :cljs []
-        :clj [[org.httpkit.server :as http-server]])
-    [clojure.test :refer [deftest is testing #?(:cljs async)]]
-    [dao.stream :as ds]
-    [dao.stream.http]))
+  (:require #?@(:cljd [["dart:io" :as io] ["dart:async" :as async]]
+                :cljs []
+                :clj [[org.httpkit.server :as http-server]])
+            [clojure.test :refer [deftest is testing #?(:cljs async)]]
+            [dao.stream :as ds]
+            [dao.stream.http]))
 
 
 (deftest jvm-http-uniformity-test
@@ -25,26 +24,29 @@
                   {:port port})]
             (try
               (testing "GET request"
-                (let [stream (ds/open! {:type :http, :url url, :method :get})
+                (let [stream (ds/open!
+                               {:dao.stream/type :http, :url url, :method :get})
                       resp (ds/take!! stream)]
                   (is (= 200 (:status resp)) (pr-str resp))
                   (is (= "get" (get (:headers resp) "x-echo-method")))))
               (testing "POST request with body"
-                (let [stream
-                      (ds/open!
-                        {:type :http, :url url, :method :post, :body "hello"})
+                (let [stream (ds/open! {:dao.stream/type :http,
+                                        :url url,
+                                        :method :post,
+                                        :body "hello"})
                       resp (ds/take!! stream)]
                   (is (= 200 (:status resp)) (pr-str resp))
                   (is (= "hello" (:body resp)))
                   (is (= "post" (get (:headers resp) "x-echo-method")))))
               (testing "Header normalization (lowercase)"
-                (let [stream (ds/open! {:type :http, :url url, :method :get})
+                (let [stream (ds/open!
+                               {:dao.stream/type :http, :url url, :method :get})
                       resp (ds/take!! stream)]
                   (is (contains? (:headers resp) "content-type")
                       (pr-str (:headers resp)))
                   (is (not (contains? (:headers resp) "Content-Type")))))
               (testing "Timeout handling"
-                (let [stream (ds/open! {:type :http,
+                (let [stream (ds/open! {:dao.stream/type :http,
                                         :url (str url "/slow"),
                                         :timeout 100})
                       resp (ds/take!! stream)]
@@ -77,7 +79,8 @@
              (let [port 18998
                    server (start-node-server! port)
                    url (str "http://localhost:" port)
-                   stream (ds/open! {:type :http, :url url, :method :get})]
+                   stream (ds/open!
+                            {:dao.stream/type :http, :url url, :method :get})]
                (letfn
                  [(check
                     [cursor]
@@ -102,7 +105,7 @@
              (let [port 18996
                    server (start-node-server! port)
                    url (str "http://localhost:" port "/redirect")
-                   stream (ds/open! {:type :http,
+                   stream (ds/open! {:dao.stream/type :http,
                                      :url url,
                                      :method :get,
                                      :follow-redirects false})]
@@ -169,7 +172,7 @@
              (-> (async/Future.delayed (Duration .milliseconds 100)) ; Wait
                  ;; for server to bind
                  (.then (fn [_]
-                          (ds/open! {:type :http,
+                          (ds/open! {:dao.stream/type :http,
                                      :url url,
                                      :method :get,
                                      :headers {"X-Custom" "abc"}})))

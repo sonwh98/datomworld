@@ -57,11 +57,11 @@ Linda).
 
 A stream exists as a descriptor value.
 
-**Current implementation** is a flat map. The transport `:type` lives at the top
+**Current implementation** is a flat map. The transport `:dao.stream/type` lives at the top
 level (it is the `open!` dispatch key), alongside any transport-specific options:
 
 ```clojure
-{:type :ringbuffer
+{:dao.stream/type :ringbuffer
  :capacity 1024            ;; nil for unbounded
  :eviction-policy :reject} ;; :reject (default) or :evict-oldest
 ```
@@ -70,7 +70,7 @@ level (it is the `open!` dispatch key), alongside any transport-specific options
 
 ```clojure
 {:stream/id ...                ;; canonical stream identity (target)
- :type :ringbuffer
+ :dao.stream/type :ringbuffer
  :mode :create                 ;; (target)
  :capacity 1024
  :eviction-policy :reject
@@ -81,8 +81,12 @@ level (it is the `open!` dispatch key), alongside any transport-specific options
 
 Field semantics:
 
-- `:type` - transport kind such as `:ringbuffer`, `:http`, or `:file-input-stream`.
+- `:dao.stream/type` - transport kind such as `:ringbuffer`, `:http`, `:file-input-stream`, or `:dao.space.index/published`.
   This is the `open!` dispatch key.
+- `:dao.stream/bound` - an exact, deterministic finite prefix. Its shape is
+  transport-specific, for example a retained tuple vector plus count, a file
+  extent, or an immutable manifest address. An open descriptor omits it. A
+  boolean or the keyword `:closed` is not an exact bound.
 - `:capacity` - `nil` for unbounded, int for bounded (ringbuffer only)
 - `:eviction-policy` - `:reject` (default, returns `:full`) or `:evict-oldest`
   (drops the oldest value to make room) for capacity-bounded ringbuffers
@@ -107,10 +111,10 @@ multi-method, which dispatches on transport type:
 ```clojure
 (defmulti open!
   "Realize a descriptor into an operational IStream transport."
-  (fn [descriptor] (:type descriptor)))
+  (fn [descriptor] (:dao.stream/type descriptor)))
 ```
 
-The dispatcher reads the top-level `:type` from the descriptor (e.g.,
+The dispatcher reads the top-level `:dao.stream/type` from the descriptor (e.g.,
 `:ringbuffer`, `:http`, `:file-input-stream`). Each transport implementation
 registers via the `defopen` macro, which expands to a `defmethod` for its type
 on clj/cljs (and to an equivalent `contribute*` registration on ClojureDart,
@@ -275,7 +279,7 @@ DaoStream works as a pure message bus or event log without any VM, continuation,
 
 ```clojure
 ;; Create a queue
-(def queue (dao.stream/open! {:type :ringbuffer :capacity 1000}))
+(def queue (dao.stream/open! {:dao.stream/type :ringbuffer :capacity 1000}))
 
 ;; Producer: append messages
 (dao.stream/append! queue {:id 1 :msg "hello"})
@@ -296,7 +300,7 @@ DaoStream works as a pure message bus or event log without any VM, continuation,
 
 ```clojure
 ;; Immutable event log with multiple readers
-(def events (dao.stream/open! {:type :ringbuffer}))
+(def events (dao.stream/open! {:dao.stream/type :ringbuffer}))
 
 ;; Append events
 (dao.stream/append! events {:type :user-created :id 42 :name "Alice"})
@@ -317,8 +321,8 @@ DaoStream works as a pure message bus or event log without any VM, continuation,
 
 ```clojure
 ;; Separate streams for request and response
-(def request-stream (dao.stream/open! {:type :ringbuffer}))
-(def response-stream (dao.stream/open! {:type :ringbuffer}))
+(def request-stream (dao.stream/open! {:dao.stream/type :ringbuffer}))
+(def response-stream (dao.stream/open! {:dao.stream/type :ringbuffer}))
 
 ;; Client: emit request
 (dao.stream/append! request-stream
@@ -518,14 +522,14 @@ not depend on those indexes.
 
 ## Transport Examples
 
-DaoStream's `open!` multi-method is transport-agnostic. New transports are added by registering a `defopen` for a new `:type`.
+DaoStream's `open!` multi-method is transport-agnostic. New transports are added by registering a `defopen` for a new `:dao.stream/type`.
 
 ### RingBufferStream (Implemented — `dao.stream.ringbuffer`)
 
 In-process, bounded queue with absolute indexing.
 
 ```clojure
-{:type :ringbuffer
+{:dao.stream/type :ringbuffer
  :capacity 10000
  :eviction-policy :reject}  ;; or :evict-oldest
 
@@ -545,7 +549,7 @@ One-shot request/response realized as a 1-capacity ringbuffer that receives the
 response value and then closes.
 
 ```clojure
-{:type :http
+{:dao.stream/type :http
  :url "https://example.com/data"
  :method :get          ;; defaults to :get
  :headers {...}
@@ -562,12 +566,12 @@ Durable, file-backed transports.
 
 ```clojure
 ;; Read a file as a stream of chunks
-{:type :file-input-stream
+{:dao.stream/type :file-input-stream
  :path "/data/events.log"
  :chunk-size 65536}      ;; defaults to 65536
 
 ;; Append-only file sink
-{:type :file-output-stream
+{:dao.stream/type :file-output-stream
  :path "/data/events.log"}
 
 ;; Use case: durable audit log, cheap persistence, file ingestion
@@ -581,7 +585,7 @@ true `tail -f`), writes append to disk asynchronously, and durability is
 reconciled at `close!`.
 
 ```clojure
-{:type :file
+{:dao.stream/type :file
  :path "/data/events.log"
  :capacity 1024                  ;; segments retained in memory; nil = unbounded (opt-in)
  :eviction-policy :evict-oldest} ;; default
@@ -612,7 +616,7 @@ Networked, bidirectional transport. Realized via `defopen :websocket` on
 ClojureDart; a clj/cljs realization is still a target.
 
 ```clojure
-{:type :websocket
+{:dao.stream/type :websocket
  :mode :connect         ;; or :listen
  :url "ws://broker.example.com/stream"
  :port 8000             ;; for :listen
@@ -627,7 +631,7 @@ ClojureDart; a clj/cljs realization is still a target.
 A sketch of how a distributed event log would map onto the same contract.
 
 ```clojure
-{:type :kafka
+{:dao.stream/type :kafka
  :broker "localhost:9092"
  :topic "my-events"
  :consumer-group "my-app"
@@ -697,7 +701,7 @@ cursor, can be sent on another stream, and imposes no new API.
   - `IDaoStreamBound` with `close!` and `closed?` for lifecycle.
   - `IDaoStreamWaitable` (optional) for transport-local reader/writer waiter registration.
   - `IDaoStreamDrainable` (optional) backing the `drain-one!` utility.
-- `open!` multi-method dispatches on the top-level `(:type descriptor)`. Transports
+- `open!` multi-method dispatches on the top-level `(:dao.stream/type descriptor)`. Transports
   register via the `defopen` macro (`defmethod` on clj/cljs; `contribute*` on ClojureDart).
 - `RingBufferStream` reference implementation (`src/cljc/dao/stream/ringbuffer.cljc`):
   - Map-backed storage with memory reclamation via `dissoc` in `drain-one!`.
@@ -725,7 +729,7 @@ cursor, can be sent on another stream, and imposes no new API.
   - `drain-one!` destructively consumes one value AND wakes registered writers (returns `{:ok val, :woke [...]}`).
     When a writer is woken, its datom is atomically written to the stream. If a reader is waiting at the new position, both wake together.
   - `take!!` (JVM only) blocks until a head value is available; for CLI/REPL/test use.
-- Descriptor shape (current): flat, e.g. `{:type :ringbuffer :capacity nil-or-int :eviction-policy :reject}`.
+- Descriptor shape (current): flat, e.g. `{:dao.stream/type :ringbuffer :capacity nil-or-int :eviction-policy :reject}`.
 - `check-wait-set` remains the universal polling fallback for non-waitable streams,
   handling `:next`, `:put`, and `:take` in current runtimes. Waitable transports
   bypass it for normal reader and writer parking.

@@ -35,7 +35,7 @@
 (defn open-stream
   "Open a ringbuffer transport pre-loaded with vals."
   [& vals]
-  (let [s (ds/open! {:type :ringbuffer, :capacity 8})]
+  (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 8})]
     (doseq [v vals] (ds/append! s v))
     s))
 
@@ -483,8 +483,9 @@
             immediately, leaves its cursor unchanged, is never resynced, and
             does not starve the rest of the pool"
     (let [h (mem-handle)
-          a (ds/open!
-              {:type :ringbuffer, :capacity 2, :eviction-policy :evict-oldest})
+          a (ds/open! {:dao.stream/type :ringbuffer,
+                       :capacity 2,
+                       :eviction-policy :evict-oldest})
           _ (ds/append! a {:evicted 1})
           _ (ds/append! a {:evicted 2})
           _ (ds/append! a {:live 3})

@@ -246,11 +246,6 @@
   (subs (name k) 7))
 
 
-;; =============================================================================
-;; Content-store handle API — plain data, explicit backend effects
-;; (docs/design/dao.jing.md, Materialization rule and Reads)
-;; =============================================================================
-
 (defn materialize!
   "Content-address payload and store it through the handle's backend.
 

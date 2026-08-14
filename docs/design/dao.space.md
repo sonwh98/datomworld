@@ -146,18 +146,19 @@ into an index, answer. It owns no durable state and never writes.
 
 The library reads from **two layers**, reflecting where datoms live:
 
-- **In-process sources** — a raw vector of datoms or entity maps. No storage involved;
-  the ergonomic path for a scratchpad, a test fixture, or the agent's own recent writes
-  that have not been published yet.
-- **Published sources in `dao.jing`** — every agent's published B-tree segments, named
-  by an explicit `(query/published-source content-store manifest-address)` descriptor.
-  A single published source can be restored lazily through the d5 index
-  adapter. This is the shared layer: other
+- **In-process sources** — an exact-bounded descriptor made by
+  `query/relation` or `query/entity-map-relation`, or an already-opened closed
+  realization. No storage involved; this is the ergonomic path for a
+  scratchpad, a test fixture, or the agent's own recent writes.
+- **Published sources in `dao.jing`** — every agent's published B-tree segments, exposed
+  as a bounded DaoStream descriptor.
+  The implemented adapter validates and eagerly walks the manifest into a
+  retained logical d5 realization. This is the shared layer: other
   agents' data reaches you through the content store, never through their in-process
   state.
 
 A query reads exactly the db-values the caller names. Several published
-sources are separate inputs, including descriptors over multiple stores.
+index descriptors are separate inputs, including descriptors over multiple stores.
 DaoJing intake pools — which streams an observer materializes — are a separate physical
 topology and never imply what a query reads (`dao.jing.md`, *Physical intake versus
 semantic composition*).
@@ -165,7 +166,11 @@ semantic composition*).
 ```clojure
 (require '[dao.space.query :as query])
 
-(def source (query/published-source store manifest-address))
+(def source
+  (index/published-index
+    {:dao.jing/type :dao.jing/file
+     :path "/srv/datom-world/content.log"}
+    manifest-address))
 
 ;; q — Datalog over the supplied source pool. The design contract is full Datalog
 ;; (joins, negation, disjunction, aggregation, predicates, recursion); the
@@ -173,11 +178,13 @@ semantic composition*).
 ;; count-distinct, sum, min, max, avg) with :with, predicate/function
 ;; clauses via a caller-supplied {:fns {sym fn}} option, and recursive
 ;; rules bound to % via :in (Datomic syntax; multiple bodies = OR,
-;; terminates on cyclic data).
-(query/q '[:find ?id ?task
-           :where [?id :work/status :todo]
-                  [?id :work/task ?task]]
-  source)
+;; terminates on cyclic data). q returns a closed bounded result DaoStream.
+;; query/collect materializes conventional Datalog shapes.
+(query/collect
+  (query/q '[:find ?id ?task
+             :where [?id :work/status :todo]
+                    [?id :work/task ?task]]
+    source))
 ;; => #{[id task] ...}
 
 ;; match — a positional datom template (Linda-style), lighter than q
@@ -187,8 +194,8 @@ semantic composition*).
 (query/pull source 1025 [:name :age {:friend [:name]}])
 
 ;; as-of — a read bound: index storage only up to `point`
-(query/q query-form (query/current source) {:as-of t})
-(query/match (query/history source) pattern {:as-of t})
+(query/q query-form (query/current source t))
+(query/match (query/history source t) pattern)
 ```
 
 Within a single stream `as-of t` is exact (the stream's own transaction order). A
@@ -202,22 +209,9 @@ database inputs in `:in`; source-qualified clauses express deliberate unions
 or joins. Equal stream-local ids therefore never collide through an implicit
 flattening step, and source scope never becomes a tuple position.
 
-```clojure
-;; Sketch of the library (pedagogical). A source is either an explicit
-;; published-source descriptor or a raw datom/entity-map collection.
-(ns dao.space.query
-  (:require [dao.space.index :as index]))
-
-(defn- fold [source as-of]
-  (if (and (published-source? source) (nil? as-of))
-    (index/restored-indexes (::content-store source)
-                            (index/read-manifest (::content-store source)
-                                                 (::manifest-address source)))
-    (index/index-datoms (bound-datoms (source->datoms source) as-of))))
-
-(defn q     [query-form source & {:keys [as-of]}] (run-datalog query-form (fold source as-of)))
-(defn match [source pattern    & {:keys [as-of]}] (scan-pattern pattern (fold source as-of)))
-```
+Opening a descriptor is an ownership boundary: `q`, `match`, or `pull` drains
+and closes the realization it opened. If the caller supplies an already-opened
+closed realization, the query operation drains it but never closes it.
 
 `dao.jing` holds only opaque, content-addressed payloads — the index's immutable B-tree
 node blobs and the top-level manifest — and answers reads by strict segment address; it has
@@ -231,37 +225,37 @@ incremental, or owner-built/peers-merge) is a concern of the layers above storag
 on `dao.data.btree`; see [`dao.space.query.md`](dao.space.query.md), *Index Realization*.
 All variants answer identically.
 
-**Current status.** A query reads exactly the manifests the caller names with
-`(query/published-source store manifest-address)`; several descriptors remain
+**Current status.** A query reads exactly the descriptors the caller names;
+several descriptors remain
 separate semantic inputs, and no shared membership record exists. The
 owner-built architecture is implemented: `dao.space.index/publish-index!` (the
 transactor-side indexing library, `docs/design/dao.space.index.md`) snapshots the agent's
 local stream, builds the four covered indexes as immutable, content-addressed
 `dao.data.btree` segments, and appends the node blobs then the manifest to one intake
 stream selected from an explicit pool; a DaoJing observer materializes them into content
-storage. A single published source with no `as-of` restores those indexes lazily on every
-platform (a bound-`e` lookup fetches only the seek path — a handful of segments out of a
-tree that exceeds fifteen), while pools, mixed/raw sources, and the as-of path fold the
-same segments eagerly by walking the plain-EDN node graph. The raw-datoms source path
+storage. A published index descriptor opens through a DaoJing coordinate and
+eagerly walks EAVT into a retained canonical d5 stream on every platform. The
+explicitly wrapped raw-datoms source path
 remains the "rebuild per query" baseline for data that was never published. Remaining
-gaps: segment GC, k-way merge of multiple lazy indexes (federated queries fall back to
-the eager walk) and generic positional arrangements; see
+gaps: segment GC, arranged lazy published streams, k-way merge, and generic
+positional arrangements; see
 [`dao.space.query.md`](dao.space.query.md), *Index Realization* and *Open
 items*.
 
 ### Source Polymorphism
 
-`q` and `match` consume immutable **db-values**, not narrowly a `dao.jing`
-handle. Each database input is one logical relation:
+`dao.space.query/q` accepts database values only as:
+- A serializable exact-bounded DaoStream descriptor
+- An already-opened closed fully-retained realization
 
-- **A single published source** — `(query/published-source content-store
-  manifest-address)`; `fold` reads exactly that one manifest, restoring its B-trees
-  lazily when it is the sole source with no `as-of` bound.
-- **A raw relation** — a collection of vectors with arbitrary, mixed arities.
-  Rows are passed through unchanged; arity never selects an interpretation.
+Raw maps/vectors must be explicitly wrapped. Each database input is one logical relation:
+
+- **A published index descriptor** — `q` opens, owns, drains, and closes the realization.
+- **A wrapped raw relation** — a collection of vectors wrapped in `query/relation`.
+  Arity never selects an interpretation.
 - **An explicit datom view** — `(current source)` resolves d5 history and
   projects it to d3; `(history source)` exposes exact d5.
-- **A raw Clojure vector of entity maps** — `[{:db/id e, :work/status :todo, ...} ...]`.
+- **A wrapped entity-map collection** — `(query/entity-map-relation [{:db/id e, :work/status :todo, ...} ...])`.
   Projected explicitly to `[e k v]` facts. Identity is explicit: every map
   must carry `:db/id`.
 
@@ -269,12 +263,11 @@ A query composes several db-values through `:in $a $b ...`. An `or` over
 source-qualified clauses expresses union; shared variables express a
 deliberate join. A collection of physical sources is not an implicit merged
 database. A
-bare content-store handle is **not** a source: it must be wrapped in
-`published-source`, and passing one unwrapped throws (`bare-content-store-handle-has-no-implicit-source`).
+bare content-store handle is **not** a source: it must be wrapped in a valid
+DaoStream descriptor, and passing one unwrapped throws (`bare-content-store-handle-has-no-implicit-source`).
 This preserves the line the tuple space depends on: coordination between agents still runs
-through shared content storage (see *What Makes It a Tuple Space*, above), because a raw
-in-memory vector is by definition not shared. Source polymorphism is an ergonomic property of
-the query *function*, not a second medium.
+through shared content storage (see *What Makes It a Tuple Space*, above).
+Source polymorphism is an ergonomic property of the query *function*, not a second medium.
 
 ### Source-aware match and scoping
 
@@ -374,8 +367,8 @@ storage boundary (`dao.jing.md`, *Physical intake versus semantic composition*):
 
 - **DaoJing intake pools** — the streams a DaoJing observer materializes into content
   storage. Physical ingestion topology.
-- **Query pools** — the published sources a reader currently folds. Semantic composition:
-  an explicit collection of `query/published-source` values.
+- **Query pools** — the published index descriptors a reader currently opens. Semantic composition:
+  an explicit collection of DaoStream descriptors.
 
 Pools may change at runtime by producing a new collection, while each published manifest
 and its materialized history persist independently. Storage, [`dao.jing`](dao.jing.md),
@@ -453,28 +446,31 @@ implemented: the explicit `current` view masks assertions retracted for the
 same `[e a v]` via `current-state-seq` (see `dao.space.query.md`,
 *Current-state resolution*); `q`
 implements `not`/`not-join` (stratified, over the current-state-resolved index), so the
-`(not [_ :work/claims ?w])` clause executes as written; `{:type :transactor :local-stream s
+`(not [_ :work/claims ?w])` clause executes as written; `{:dao.stream/type :transactor :local-stream s
 :intake-pool [...]}` is a registered `dao.stream` type (`dao.space.transactor`) whose
 `ds/append!` deposits one atomic transaction record into the wrapper's own local stream —
 calls through one wrapper serialize timestamp allocation and append, while each stream remains
 a single-writer log with no shared write surface; and `publish!` delegates to
 `dao.space.index/publish-index!`, which snapshots the local stream and enqueues the covered
 indexes through the intake pool. `open!` writes no registration record. The caller
-constructs explicit `query/published-source` values and passes each as its own
+constructs explicit published index DaoStream descriptors and passes each as its own
 database input. The query states any union or cross-source join; no implicit
 merge can collide stream-local entity ids:
 
 ```clojure
 (require '[dao.jing :as jing]
-         '[dao.jing.mem :as mem]
+         '[dao.jing.file :as file]
          '[dao.stream :as ds]
+         '[dao.space.index :as index]
          '[dao.space.query :as query]
          '[dao.space.transactor :as transactor])
 
 ;; shared physical substrate: one content store, one intake stream, and a DaoJing
 ;; observer that materializes whatever the intake stream carries
-(def store (mem/create-content-mem))
-(def intake (ds/open! {:type :ringbuffer}))
+(def store-coordinate {:dao.jing/type :dao.jing/file
+                       :path "target/stigmergy-content.log"})
+(def store (file/create-content-file (:path store-coordinate)))
+(def intake (ds/open! {:dao.stream/type :ringbuffer}))
 (def observer (jing/observer-state [intake]))
 
 (defn pump! []
@@ -482,30 +478,30 @@ merge can collide stream-local entity ids:
     (let [{:keys [state signal]} (jing/observe-step! store obs)]
       (when (= :ok signal) (recur state)))))
 
-(defn agent-log [name]
-  ;; one wrapper over this agent's own local stream, sharing the intake pool
-  (ds/open! {:type :transactor
-             :local-stream (ds/open! {:type :ringbuffer})
+(defn agent-log [agent-id]
+  (ds/open! {:dao.stream/type :transactor
+             :local-stream (ds/open! {:dao.stream/type :ringbuffer})
              :intake-pool [intake]
-             :name name}))
+             :name agent-id}))
 
 (defn producer []
   (let [log (agent-log "producer")]
     (ds/append! log {:db/id (random-id) :work/posted true :work/task "process payment"})
     (let [{:keys [manifest-address]} (transactor/publish! log)]  ; enqueue the indexes
       (pump!)                                                    ; materialize them
-      (query/published-source store manifest-address))))         ; the read coordinate
+      (index/published-index store-coordinate manifest-address)))) ; read coordinate
 
 (defn worker [worker-id source]
   (let [log (agent-log worker-id)]
     (loop []
       ;; "posted work nothing has claimed" — negation + join over the explicit pool,
       ;; the query that justifies a tuple space (not a per-datom scan).
-      (let [work (query/q '[:find ?w ?task
-                            :where [?w :work/posted true]
-                                   [?w :work/task ?task]
-                                   (not [_ :work/claims ?w])]
-                   (query/current source))]
+      (let [work (query/collect
+                   (query/q '[:find ?w ?task
+                              :where [?w :work/posted true]
+                                     [?w :work/task ?task]
+                                     (not [_ :work/claims ?w])]
+                     (query/current source)))]
         (when-let [[?w task] (first work)]
           (ds/append! log {:db/id (random-id) :work/claims ?w :work/by worker-id})
           (ds/append! log {:db/id (random-id) :work/result (process task)})

@@ -13,20 +13,22 @@ Streams are values that can be sent through streams.
 
 Bounded vs Unbounded:
   Open stream: unbounded, still receiving datoms.
-  Bounded stream: closed at some t, finite, stable for reasoning.
+  Bounded stream: closed at an exact finite bound, stable for reasoning.
   A bounded stream IS the database value (no separate "value" type).
   Stability comes from bounding, not from a different abstraction.
 
 Stream Iteration:
-  Streams iterate in t-order (transaction/append order).
-  This is the canonical order regardless of any indexes.
+  A stream's order is declared by its descriptor or interpreter.
+  There is no universal tuple order and no position has intrinsic meaning.
+  An append log may expose append order; a covered index may expose EAVT order.
+  Consumers that depend on order require explicit comparator metadata.
 
 Streams and Indexes:
   Streams are the universal abstraction (datoms in t-order).
-  Indexes are optional optimizations built by interpreters (e.g., dao.space.query).
-  dao.space.query/q works on any bounded stream:
-    - Raw stream: no indexes, O(n) scan
-    - Indexed by dao.space.query: EAVT/AEVT/AVET/VAET indexes, O(log n) lookup
+  Indexes are optional optimizations built by publishers (e.g., dao.space.index).
+  dao.space.query/q works on any bounded DaoStream descriptor:
+    - Unindexed stream: O(n) scan
+    - Published index stream: EAVT/AEVT/AVET/VAET indexes, O(log n) lookup
   Same interface, same semantics, different performance.
   Indexes are a performance optimization, not a semantic requirement.
 

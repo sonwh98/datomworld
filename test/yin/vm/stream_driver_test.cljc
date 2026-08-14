@@ -23,7 +23,7 @@
 
 (deftest ingest-next-program-test
   (testing "ingest-next-program polls next item from stream and calls load-fn"
-    (let [in-stream (ds/open! {:type :ringbuffer, :capacity 5})
+    (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
           _ (ds/append! in-stream [:add 1 2])
           vm (ast-walker/create-vm)
           load-fn (fn [v program] (assoc v :loaded program))
@@ -33,7 +33,7 @@
       (is (= 1 (:position (:in-cursor (:state res)))))))
   (testing
     "ingest-next-program returns blocked or end when stream state warrants it"
-    (let [in-stream (ds/open! {:type :ringbuffer, :capacity 5})
+    (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
           vm (ast-walker/create-vm)
           load-fn (fn [v _] v)]
       (is (= :blocked
@@ -42,7 +42,7 @@
       (is (= :end
              (:status (driver/ingest-next-program vm in-stream load-fn))))))
   (testing "ingest-next-program throws when the cursor has fallen behind (gap)"
-    (let [in-stream (ds/open! {:type :ringbuffer, :capacity 5})
+    (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
           _ (ds/append! in-stream :a)
           _ (ds/append! in-stream :b)
           _ (ds/drain-one! in-stream)
@@ -72,7 +72,7 @@
 
 (deftest step-on-stream-test
   (testing "step-on-stream ingests and steps when idle"
-    (let [in-stream (ds/open! {:type :ringbuffer, :capacity 5})
+    (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
           _ (ds/append! in-stream [:step])
           vm (ast-walker/create-vm)
           load-fn (fn [v p] (assoc v :prog p))
@@ -83,7 +83,7 @@
   (testing
     "step-on-stream steps directly, without touching in-stream, when the VM
      is not ready for ingress (mid-evaluation)"
-    (let [in-stream (ds/open! {:type :ringbuffer, :capacity 5})
+    (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
           _ (ds/append! in-stream [:should-not-be-ingested])
           busy-vm (assoc (ast-walker/create-vm) :k {:next nil})
           load-fn (fn [_ _] (throw (ex-info "load-fn must not run" {})))
