@@ -9,15 +9,16 @@ Entity-ref v values are local gauge; they must be resolved for transport.
 
 Transport is not the cross-stream query fold. Both cross a stream boundary; they are
 different operations and use different mechanisms:
-  Fold (dao.space.query): no ingestion. Datoms stay where they are; the fold appends
-    the ns slot so two streams' offsets cannot collide (docs/agents/datom-spec.md,
-    d5: NAMESPACES). e is never rewritten, nothing is deduplicated, nothing is hashed.
-    A coordinate operation.
+  Fold (dao.space.query): no ingestion. Datoms stay where they are; sources remain
+    separate database inputs and each clause resolves against its named source, so
+    equal stream-local ids never collide or merge (docs/agents/datom-spec.md,
+    d5: SOURCE SCOPE). e is never rewritten, nothing is deduplicated, nothing is
+    hashed. A coordinate operation.
   Transport (this section): ingestion. The receiver ends up owning the datoms, mints
     its own e for them, and deduplicates structurally. An identity operation.
-Neither subsumes the other. ns does not travel: transported datoms land in the
-receiver's stream and carry the receiver's namespace. Migration is a third thing —
-it relocates a stream whole, so its namespace and offsets travel unchanged.
+Neither subsumes the other. Scope does not travel: transported datoms land in the
+receiver's stream and carry the receiver's scope. Migration is a third thing —
+it relocates a stream whole, so its scope and offsets travel unchanged.
 
 Transport is interpreter-level, and unimplemented.
   The content hash below is the *semantic* hash of docs/agents/datom-spec.md: an

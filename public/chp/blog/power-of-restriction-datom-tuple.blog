@@ -5,13 +5,18 @@
        [:p
         "Fixing all information into a "
         [:strong "five-element tuple"]
-        " seems limiting, but restriction becomes power: uniform structure eliminates negotiation, enables effortless composition, simplifies distribution, and frees interpretation—a smaller tuple opens a larger world."],
+        " seems limiting, but restriction becomes power: uniform structure eliminates negotiation, enables effortless composition, simplifies distribution, and frees interpretation, so a smaller tuple opens a larger world."],
        :content
        [:section.blog-article
         [:div.section-inner
          [:article
           :$blog-title
           :$blog-date
+          [:p
+           [:em
+            "Note added August 15, 2026: a later essay, "
+            [:a {:href "/blog/datalog-on-an-n-tuple-tuple-space.blog"} "Datalog on an n-tuple Tuple Space"]
+            ", retracts the central claim below that every piece of information should be a five-element datom. Openness belongs to the tuple space; the d5 restriction belongs to the interpreter. This essay is preserved unchanged as the record of the earlier reasoning."]]
           [:p
            "In software, freedom is usually assumed to come from adding more: more fields, more flexibility, more ways to shape data. A model that lets you define any structure you want feels powerful because it seems to remove all constraints."]
           [:p

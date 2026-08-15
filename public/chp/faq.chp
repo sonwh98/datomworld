@@ -99,11 +99,13 @@
            [:div
             [:p
              "Datom.World inherits the datom idea from Datomic and generalizes it. First, the transaction ID t is stream-scoped, not globally ordered. Cross-stream causality lives in the metadata slot m. "
-             "Second, datoms are used for everything (ASTs, bytecode, execution traces, schema, provenance), not just application data. "
-             "Third, while Datomic fixes the datom as a 5-tuple, Datom.World allows N-dimensional tuples for specialized streams, though the 5-tuple remains the canonical persistent format. "
+             "Second, the canonical d5 datom can represent persistent AST, bytecode, execution, schema, and provenance facts, while other tuple dimensions remain available when an interpreter needs them. "
+             "Third, while Datomic queries its fixed datom shape, Datom.World allows n-dimensional tuples and keeps their meaning in the interpreter. "
              [:a {:href "/dao-space.chp"} "DaoSpace"]
-             " is a family of stream interpreters that materialize whatever indexes the consumer needs. See "
-             [:a {:href "/blog/daospace-moduli-space-of-databases.blog"} "DaoSpace as a Moduli Space of Databases"]
+             " is the exact associative tuple-space point, not the whole family. See "
+             [:a {:href "/blog/daospace-moduli-space-of-databases.blog"} "DaoSpace Is a Tuple Space, Not a Moduli Space"]
+             " and "
+             [:a {:href "/blog/datomworld-moduli-space-of-databases.blog"} "Datom.world: A Moduli Space of Databases"]
              "."]]]
           [:details.faq
            [:summary "Is Yin a replacement for the JVM?"]

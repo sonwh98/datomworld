@@ -143,6 +143,11 @@ reader builds and maintains it is a pure performance choice made *above* the
 storage boundary; all strategies answer identically, the index being the same
 set of datoms (ADR 0001's monoid homomorphism):
 
+These indexes are access paths inside the DaoSpace tuple-space point. Changing
+their order, persistence, or realization changes query cost, not associative
+matching semantics and not DaoSpace's position in Datom.world's moduli space of
+database interpreters.
+
 - **Rebuild per query** — each read folds the source's datoms into a fresh
   index and discards it. Simple; O(total datoms) per read. The permanent
   fallback for small sources and `as-of` reads.

@@ -20,7 +20,7 @@
      copies the reachable blob graph from the source into the cache.
 
    dao.data.btree itself stays storage-agnostic; this namespace is the one
-   place the tree meets dao.jing (Ruling 1: no new storage protocol —
+   place the tree meets dao.jing (Decision 1: no new storage protocol —
    everything below is materialize!/get, plus segment-key for §5.2
    verification)."
   (:require [dao.data.btree :as bt]

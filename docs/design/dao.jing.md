@@ -49,6 +49,19 @@ DaoJing does not know whether an element is a datom, B-tree node, covered
 index, manifest, program, image, or any other kind of value. Meaning belongs
 to the interpreter that produced or consumes the content.
 
+This makes DaoJing suitable storage for **any point in Datom.world's moduli
+space of database interpreters**. DaoSpace can store covered indexes and
+indexed snapshots in it; DaoField can store metric indexes; another interpreter
+can store graph, document, columnar, model, or other materializations. All are
+opaque values at this boundary.
+
+DaoJing is itself an interpretation of DaoStream, but only at the
+representation level: it interprets each emitted value as content to encode,
+hash, and materialize in a key/value store. That operation assigns content
+identity and retrieval semantics while remaining devoid of domain semantics.
+DaoJing is therefore shared storage beneath the database moduli space, not a
+semantic database point within it.
+
 DaoJing maintains no membership registry, no mutable roots, no CAS records,
 and no delete operation. Its only object of discourse is the strict content
 address `:segment/sha256-<hash>`, and its only semantics are insert-if-absent

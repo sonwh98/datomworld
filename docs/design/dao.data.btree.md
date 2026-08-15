@@ -17,7 +17,7 @@ compatible (§5.2).
 - [dao.space.index.md](dao.space.index.md) — write-side index builder; owns
   every psset touchpoint today and is the future consumer of this library
 - [dao.space.query.md](dao.space.query.md) — read-side query engine (Peer),
-  lazy segment restoration, and Ruling 1 (no new storage protocol)
+  lazy segment restoration, and Decision 1 (no new storage protocol)
 - [dao.jing.md](dao.jing.md) — storage boundary (segment KV store)
 
 ---
@@ -104,7 +104,7 @@ consumer: Yin.VM).
 - **Unified lazy durability (`IStorage`):** maps B-tree nodes to
   content-addressed segments in `dao.jing`'s key-value store, deserializing
   a node only when traversal reaches it. Built entirely on the existing
-  jing/{cas!,get,delete!,close!} (Ruling 1, `dao.space.query.md`: no new storage
+  jing/{cas!,get,delete!,close!} (Decision 1, `dao.space.query.md`: no new storage
   protocol).
 - **Bounded fault cache:** faulted children are held through
   host-appropriate references (§5.3), so a long-lived Peer over a large
@@ -520,7 +520,7 @@ Node IDs are content addresses: `-store` mints keys with `jing/segment-key`
 over the EDN blob, exactly as `kv-storage` does today. Two adapters
 implement the protocol, both over the existing plain-data DaoJing content
 handle (`jing/materialize!` and `jing/get`) — no new storage protocol
-(Ruling 1): the sync rule-1 `KVStorage` sketched below,
+(Decision 1): the sync rule-1 `KVStorage` sketched below,
 and the hydration-cache storage of §5.4 (same shape, but any miss throws
 `"unhydrated segment"` rather than `"missing index segment"`, since it
 cannot answer absence authoritatively). The sync seam is exactly this thin:

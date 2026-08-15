@@ -21,13 +21,14 @@ If you bundle the two together, you have durable storage (`dao.jing`), an ingest
 
 ## Siblings in the moduli space
 
-`dao.space` and `dao.field` are **two points in the moduli space of databases** that
-`dao.space.md` names (see [A Family of Interpreters](dao.space.md#a-family-of-interpreters)):
-one canonical datom history in `dao.jing`, many interpreters over it, each fixed by which
-**materialized construction** it lays down and which surface it exposes. `dao.space` and
-`dao.field` are two such members — **siblings, not layers.** Neither sits under the other; both
-floor on `dao.jing`, and `dao.jing` privileges neither. The substrate stays the same n-tuples;
-only the construction laid over them changes.
+`dao.space` and `dao.field` are **two points in Datom.world's moduli space of
+database interpreters** (see [DaoSpace Is One Point](dao.space.md#daospace-is-one-point)):
+the same explicitly named bounded DaoStream sources may be observed through
+different semantics. `dao.space` and `dao.field` are two such points —
+**siblings, not layers.** Neither sits under the other. Both may persist opaque
+materializations in `dao.jing`, and `dao.jing` privileges neither. Exact
+unification versus metric proximity, not physical storage or index shape, is
+what distinguishes them.
 
 | | [`dao.space`](dao.space.md) — the tuple space | `dao.field` — the vector field |
 |---|---|---|
@@ -35,7 +36,7 @@ only the construction laid over them changes.
 | Locate a tuple by | its **form** (template) | its **position** (coordinates) |
 | Match operation | Exact unification (Linda match, `q`) | Cosine similarity, dot product, L2 distance (geometric matching, `near`) |
 | Coordination | template stigmergy | gradient stigmergy (follow the concentration) |
-| Formal home | EAVT/AEVT/AVET/VAET covered indexes | `H = ℓ²(E)`, inner-product geometry |
+| Formal home | the open n-tuple space, graded by dimension | `H = ℓ²(E)`, inner-product geometry |
 
 Both readings are **associative** in the sense `dao.space.md` requires of a coordination
 surface: an agent finds tuples by *describing content* (an exact template, or a query vector),
@@ -46,7 +47,7 @@ view.
 
 **Related documents:**
 - `docs/design/dao.space.md` — the sibling point: the tuple space, exact associative matching, and the moduli-space framing both share
-- `docs/design/dao.jing.md` — the storage boundary both read: the content-addressed store of opaque bytes served as datoms
+- `docs/design/dao.jing.md` — the storage boundary both read: the content-addressed store of opaque bytes served as content, never as datoms
 - `docs/agents/datom-spec.md` — tuples of any dimension/size in an open moduli space; the `d_k` dimension a vector inhabits
 - `docs/design/dao.space.discrete-to-continuous.md` — why the datom set carries a metric at all: `ℓ²(E)`, spectral decomposition, the discrete→continuous correspondence this doc rests on
 - `docs/design/dao.space.locality.md`, `dao.space.metaphors.md` — the geometry/locality cluster

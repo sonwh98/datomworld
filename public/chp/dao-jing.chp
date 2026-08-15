@@ -15,12 +15,16 @@
           "DaoJing is pure syntax. It holds " [:em "form"] ", never " [:em "meaning"] ". What a payload denotes, whether \"datom,\" \"view,\" or \"query,\" is semantics an interpreter projects onto it, never something storage knows. Concretely it is a content-addressed key-value boundary, the decentralized analog to Datomic's storage layer."]
          [:p
           "A store is defined by what it holds, not the pipe data arrived through. Opaque values enter through a caller-supplied pool of " [:a {:href "/dao-stream.chp"} "DaoStream"] " intake streams. Source stream identity never enters the content address or stored value."]
+         [:p
+          "DaoJing is therefore an interpretation of DaoStream as a content-addressed KV store, but one deliberately devoid of domain semantics. Any point in "
+          [:a {:href "/blog/datomworld-moduli-space-of-databases.blog"} "Datom.world's moduli space of databases"]
+          " may use it to persist opaque materializations. DaoSpace can store covered indexes, DaoField can store metric indexes, and neither meaning enters DaoJing itself."]
          [:div.principle-box
           [:p [:strong "Syntax"] " : storage holds bytes; it never knows what a datom is."]
           [:p [:strong "Content"] " : immutable payloads stored idempotently under addresses derived only from their bytes."]
           [:p [:strong "Observation"] " : cursors and pool membership remain explicit caller-owned data."]]
          [:p
-          "The physical store is deliberately dumb. It does not pattern-match and it does not run Datalog. Those belong to " [:a {:href "/dao-space.chp"} "DaoSpace"] ", the embeddable reader above it. This is the Datomic discipline taken literally: storage is a dumb KV blob store; all intelligence lives in the reader on top."]]]
+          "The physical store is deliberately dumb. It does not pattern-match, calculate metric proximity, or run Datalog. Those semantics belong to interpreters such as " [:a {:href "/dao-space.chp"} "DaoSpace"] " above it. This is the Datomic discipline taken literally: storage is a dumb KV blob store; intelligence lives in the reader on top."]]]
 
        [:section.section-light
         [:div.section-inner

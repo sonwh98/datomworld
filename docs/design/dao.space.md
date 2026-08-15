@@ -7,19 +7,20 @@ that emerges** when agents use two libraries over a shared [`dao.jing`](dao.jing
   covered indexes over its own [`dao.stream`](dao.stream.md) and enqueues them through a
   DaoJing intake pool into content storage as immutable, content-addressed B-Tree segments.
 - **[`dao.space.query`](#the-query-library)** — the Peer side: agents match over published
-  sources (and over in-process raw datom sources) associatively — by content, never by
+  sources (and over in-process tuple relations) associatively — by content, never by
   address.
 
-Storage holds facts at rest; the tuple space is those facts *under shared interpretation*.
-More precisely, "tuple space" names the **associative coordination surface** of a broader
-family of interpreters over those facts (see [A Family of Interpreters](#a-family-of-interpreters)).
+Storage holds facts at rest; the tuple space is those facts *under one specific
+interpretation*: exact associative tuple matching. DaoSpace is one point in
+Datom.world's broader moduli space of database interpreters (see
+[DaoSpace Is One Point](#daospace-is-one-point)).
 A tuple space is defined by two complementary moves: how agents **read** and how they
 **write**. Reading is **associative matching** — you locate a tuple by describing its
 *content*, never by naming its address. Writing is **generative communication** — you deposit
 a tuple into the shared medium and never address a receiver. Take the read side first; its
 surfaces form a spectrum along the by-content axis:
 
-- **`match`** — a single positional datom template, Linda-style. One template, matched by
+- **`match`** — a single positional tuple template, Linda-style. One template, matched by
   content, returns the tuples that fit. This is associative matching in its most basic form.
 - **`q` (Datalog)** — the *same* by-content matching **generalized to conjunctions**: many
   templates joined on shared logic variables, plus negation, recursion, and aggregation. A
@@ -31,31 +32,32 @@ surfaces form a spectrum along the by-content axis:
   *off* the associative axis.
 
 The write side is simpler but just as load-bearing. Generative communication means an agent
-**deposits** a datom and names no recipient — it appends to its own stream and is done.
+**deposits** a tuple and names no recipient — it appends to its own stream and is done.
 datom.world also drops Linda's one destructive operation: Linda pairs its non-destructive read
 (`rd`) with a consuming `take` (`in`) that *removes* a tuple from the medium; datom.world has
 no such removal. Writes are **append-only**, so to claim or update something an agent appends a
-*new* datom asserting the change, and current state is a read-side query over the accreted
-facts. Each writer owns a single-writer log, so there is no
+*new* tuple asserting the change. Under the canonical datom interpretation, current state is a
+read-side query over the accreted facts. Each writer owns a single-writer log, so there is no
 shared write surface and no contention — writers deposit, they never address. (This is the
 decentralized Transactor; see [Three Boundaries](#three-boundaries) and
 [Coordination: Stigmergy](#coordination-stigmergy).)
 
 `match` and `q` are the privileged default and the contract strangers coordinate through; it
 is associative matching over a shared medium that makes `dao.space` a tuple space. The
-traversal surfaces are admitted by the family but are not coordination modes. The label
+traversal surfaces are useful derived read conveniences but are not coordination modes. The label
 therefore holds as long as two things hold: **coordination stays associative** (agents find
 each other by matching content, never by addressing each other or navigating each other's
 views by reference — the moment cross-agent coordination runs through traversal, it has left
-the tuple space), and **the shared substrate stays datoms** (agents coordinate over matchable
-facts; whatever else an interpreter materializes is its own, not the medium).
+the tuple space), and **the shared substrate stays tuples** (agents coordinate over matchable
+immutable values; the d5 datom is the canonical persistent fact interpretation, not the only
+admissible tuple dimension).
 
 **Related documents:**
 - `docs/design/dao.field.md` — the sibling point in the moduli space: the vector field made from the same n-tuples, matching by geometric proximity (cosine) rather than exact unification
-- `docs/design/dao.jing.md` — the storage boundary: the content-addressed store of opaque payloads this space reads as datoms
+- `docs/design/dao.jing.md` — the storage boundary: the content-addressed store of opaque payloads. Today this space consumes published covered-index sources from it; explicitly requested positional indexed snapshots are the future extension
 - `docs/design/dao.space.query.md` — the query library's design record: index realization, the `read-datoms` contract, and the decisions
 - `docs/design/dao.space.index.md` — the transactor-side indexing library: every agent indexes its own datoms; the covered-index realization both sides share
-- `docs/design/dao.stream.md` — the append-only log primitive datoms are written through
+- `docs/design/dao.stream.md` — the append-only log primitive tuples and descriptors are written through
 - `docs/agents/datom-spec.md` — tuples and datoms, content-addressed identity, the gauge/base framing
 - `docs/datomic.md` — the Datomic architecture the Transactor/Storage/Query split maps to
 - `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the decision this design records
@@ -84,7 +86,7 @@ changing the contracts. datom.world keeps that separation and maps it onto strea
   It holds the B-tree node blobs and the top-level manifests; it maintains no membership,
   no mutable roots, and no CAS surface, and it does **not** match or query.
 - **Query (read)** — **the [`dao.space.query`](#the-query-library) library any interpreter
-  embeds.** It reads from two layers — in-process raw datom/entity-map sources, and
+  embeds.** It reads from two layers — in-process relation/entity-map sources, and
   published sources (a content store plus a manifest address) resolved through the
   covered-index realization — and runs pattern matching, Datalog, and pull. Pure,
   in-process, per-interpreter — Datomic's Peer model, as a library rather than a
@@ -107,7 +109,7 @@ So the "space-ness" lives above `dao.jing`, in the composition of index and quer
 - `dao.stream` — each agent's append-only log (the write path).
 - `dao.space.index` — snapshots the stream's datoms and builds the covered indexes,
   enqueuing them through a DaoJing intake pool when `publish-index!` runs.
-- `dao.space.query` — matches over published sources and in-process datom sources,
+- `dao.space.query` — matches over published sources and in-process tuple sources,
   associatively.
 - Agents coordinate by what is there (stigmergy), never by addressing each other.
 
@@ -115,28 +117,24 @@ A tuple space is therefore not an artifact you instantiate; it is the behavior t
 when agents index and match over shared storage. `dao.stream` is where an agent writes;
 `dao.jing` is where indexes persist; `dao.space` is what agents *do* across both.
 
-### The Convention of Datoms
+### Tuples and the Datom Convention
 
-Because the tuple space lives in the interpreters, the requirement that primary state be
-datoms is a **social contract**, not a limit the storage layer enforces. `dao.jing` is a dumb
-store of opaque payloads: it is **not strict about what it holds** and will materialize
-anything an intake stream carries — datoms, graphs, JSON blobs, binaries. Nothing about
-storage requires the datom shape.
-(Arbitrary structures are fine when an interpreter materializes them *over* the datoms — that
-is the interpreter's own responsibility, and `dao.jing` just holds the resulting payloads; see
-[A Family of Interpreters](#a-family-of-interpreters). This contract is only about what an
-interpreter writes as ground truth.)
+Because the tuple space lives in the interpreter, DaoSpace accepts immutable
+tuples of any finite dimension. A tuple's arity is structure, never an implicit
+interpretation. `dao.space.query` matches arbitrary and mixed dimensions with
+exact arity by default; explicit rest syntax requests prefix matching.
 
-The datom shape is the **price of admission** to the tuple space, freely chosen:
-- **Opting In:** If an interpreter formats its facts as `(e a v t m)` datoms, its data
-  "enters" the tuple space. Because it conforms to the universal substrate, `dao.space.query`
-  can match over it, and strangers can query it associatively.
-- **Opting Out:** If an interpreter writes arbitrary primary state to `dao.jing` instead, the
-  store accepts it without complaint — this is permitted, not forbidden. The cost is simply
-  that the data stays *outside* the tuple space: the query library cannot match over it,
-  strangers cannot discover it, and it inherits none of the guarantees the datom log confers
-  (immutability, replayability, provenance). The interpreter has chosen a private store over a
-  shared, queryable medium. Nothing breaks; that data just does not coordinate.
+The d5 datom `(e a v t m)` remains the canonical persistent fact protocol. An
+explicit datom view gives those positions entity, attribute, value,
+transaction, and metadata meaning and enables automatic covered indexes. A
+generic five-tuple does not become a datom merely because its count is five.
+
+`dao.jing` is even less restrictive: it materializes any opaque payload an
+intake stream carries. It is an interpretation of DaoStream as
+content-addressed key/value storage, but it assigns no domain semantics. Any
+point in Datom.world's database moduli space may use DaoJing for storage; the
+consumer above storage decides whether a payload is a tuple, index, graph,
+model, or something else.
 
 ## The Query Library
 
@@ -144,10 +142,10 @@ Pattern matching and Datalog are a **library** (`dao.space.query`) that any inte
 embeds and runs against content stores and in-process sources. It is pure: fold a source
 into an index, answer. It owns no durable state and never writes.
 
-The library reads from **two layers**, reflecting where datoms live:
+The library reads from **two layers**, reflecting where its tuple inputs live:
 
 - **In-process sources** — an exact-bounded descriptor made by
-  `query/relation` or `query/entity-map-relation`, or an already-opened closed
+  `query/relation` for arbitrary n-tuples or `query/entity-map-relation`, or an already-opened closed
   realization. No storage involved; this is the ergonomic path for a
   scratchpad, a test fixture, or the agent's own recent writes.
 - **Published sources in `dao.jing`** — every agent's published B-tree segments, exposed
@@ -187,8 +185,8 @@ semantic composition*).
     source))
 ;; => #{[id task] ...}
 
-;; match — a positional datom template (Linda-style), lighter than q
-(query/match source [_ :work/status :todo])   ; => matching datoms
+;; match — an exact positional tuple template (Linda-style), lighter than q
+(query/match source [_ :work/status :todo])   ; => matching tuples
 
 ;; pull — declarative entity projection (entity → tree), the third read verb
 (query/pull source 1025 [:name :age {:friend [:name]}])
@@ -316,40 +314,38 @@ of sharing is the governed interpreter, backed by an immutable accountability lo
 **Public mode only, today.** Controlled mode — the governed interpreter, capabilities,
 `m`-policy — is specified but not yet implemented (see the security doc and ADR 0002).
 
-## A Family of Interpreters
+## DaoSpace Is One Point
 
-The query library above presents one surface: Datalog over the covered-index view
-(EAVT/AEVT/AVET/VAET). That is the default and what's implemented today, but it is not the definition of
-`dao.space`. More generally, **`dao.space` is a family of interpreters over one canonical
-datom history** — a *moduli space* of databases. The datoms in [`dao.jing`](dao.jing.md) are
-the fixed substrate every member shares; a member is fixed by which **materialized views** it
-constructs and which surface it exposes. One point looks relational (covered indexes plus
-Datalog); another document-oriented (entity-centric maps); others columnar, graph-oriented, or
-logic-oriented. The substrate stays the same; only the materialized construction laid over it
-changes — and `dao.jing` stores whatever an interpreter builds as ordinary opaque payloads,
-since it is dumb storage that holds anything (see [`dao.jing.md`](dao.jing.md)).
+Datom.world admits a moduli space of databases because semantics belongs to
+the interpreter observing DaoStream. **DaoSpace is one point in that larger
+space, not the space itself.** It is fixed by tuple-space semantics:
 
-Two consequences follow, and both tighten the existing invariants rather than relax them:
+- writers communicate generatively by appending immutable tuples without
+  naming recipients;
+- readers discover tuples associatively by exact positional content;
+- `q` generalizes that matching through Datalog unification over shared
+  variables; and
+- explicitly supplied bounded sources remain independently scoped, with no
+  implicit global history or membership.
 
-- **Datalog is a capability, not the ontology.** It stays the relational front-end wherever
-  relational views exist, but it is one front-end among several, not the essence. The essence
-  is lower: datom streams plus *declared* structural interpretation.
-- **Views are named and declared, not infinite magic.** An interpreter does not navigate
-  every imaginable materialization; it exposes a sanctioned set and answers explicit
-  questions: which views exist, which can be built on demand, whether a view is
-  relational / graph / tree / associative / sequential, what its legal traversals are, and
-  what its `as-of`/`since` semantics are. A query may trigger on-demand derivation, but only
-  through a declared interpreter with known semantics — explicit causality and explicit
-  capability, nothing implicit. (*Do not assume graphs*: graph structure is one materialized
-  interpretation constructed from datoms, never an implicit truth.)
+`dao.field` is a sibling point whose defining observation is metric proximity.
+Graph, document, columnar, temporal, or other interpreters may define further
+points when they introduce distinct observation semantics. They are not
+alternative DaoSpace implementations merely because they can observe the same
+values.
 
-This reframes querying as **compilation** rather than handing a sentence to a fixed engine: a
-caller states intent, a planner inspects the declared view capabilities and rewrites that
-intent into an access plan, and an executor runs the plan against a materialized view or
-triggers a declared derivation. The same "find user by email" intent compiles to an indexed
-`AVET` lookup against one interpreter and an entity scan against another — same family,
-different database. The concrete compiler pipeline (a planner/optimizer front-end lowering
-into a traversal-IR back-end) is a direction, not yet specified here.
+Within DaoSpace, covered indexes, positional indexes, indexed snapshots,
+entity projections, and physical B-tree traversals are access paths or derived
+views. They may change cost and ergonomics but not tuple-space semantics. A
+planner may select among available indexes without moving the database to a
+different point. Traversal becomes a different point only when navigation,
+rather than associative matching, becomes the defining observation.
+
+DaoJing can store the materializations of DaoSpace or any sibling point. It
+observes a DaoStream pool and maps each opaque payload to a strict content
+address in a key/value store. That is a representation-level interpretation
+with no domain semantics: DaoJing never learns which database point produced
+or consumes the payload.
 
 ## The Write Path
 
@@ -516,8 +512,8 @@ worker exists, so neither can prevent or even detect the race. There is no lock 
 stream to force exclusion — both claims are simply recorded in their own owners' logs.
 
 Resolving the race, if resolution is wanted at all, is entirely an **interpreter-level policy
-choice** — the same declared-materialized-view freedom [*A Family of
-Interpreters*](#a-family-of-interpreters) describes, applied to conflict resolution instead of
+choice** — the same interpreter freedom [*DaoSpace Is One Point*](#daospace-is-one-point)
+describes, applied to conflict resolution instead of
 read shape. One convention an interpreter could adopt: a downstream reader sees both claims,
 sorts by some rule, and picks a winner. But "sort by timestamp" is not free of a pitfall of its
 own — each claim's `t` is a per-local-stream transaction counter (`dao.space.transactor`

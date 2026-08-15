@@ -222,8 +222,10 @@ Everything above rests on prerequisites already tracked elsewhere:
 1. **Signed heads / kickoff-hash identity** (a stream-layer prerequisite, not
    mutable DaoJing state; see `dao.jing.dht.md`) — mechanism (1) *is* this
    discipline; (2)–(4) resolve to it.
-2. **Namespace stamping** (`dao.space.query.md`, Ruling 3) — sound cross-stream
-   merges, prerequisite for folding strangers' directories.
+2. **Source-scoped query inputs** (`dao.space.query.md`; `datom-spec.md`, d5:
+   SOURCE SCOPE) — sources stay separate database inputs and equal stream-local
+   ids unify only when the query deliberately joins them; prerequisite for
+   folding strangers' directories.
 3. **Postage design** — what a deposit costs and who verifies it (proof-of-work vs.
    stamps) is unspecified.
 4. **Pool liveness** — explicit source pools need a refresh convention; the stigmergic

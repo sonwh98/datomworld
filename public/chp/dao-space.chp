@@ -9,8 +9,8 @@
          [:h1 "DaoSpace"]
          [:p.section-lead
           "DaoSpace is not a component you deploy or a store you instantiate. It is the " [:strong "tuple space that emerges"] " when agents use two libraries over shared storage: "
-          [:code "dao.space.index"] " builds covered indexes over each agent's own " [:a {:href "/dao-stream.chp"} "DaoStream"] " and persists them in DaoJing, the content-addressed store, and "
-          [:code "dao.space.query"] " matches over the persisted indexes associatively: by content, never by address."]
+          [:code "dao.space.index"] " builds covered indexes over each agent's own " [:a {:href "/dao-stream.chp"} "DaoStream"] " and publishes them through an intake stream for DaoJing to materialize, while "
+          [:code "dao.space.query"] " matches over explicitly supplied bounded sources associatively: by content, never by address."]
          [:p
           "A tuple space is defined by two complementary moves. Reading is " [:strong "associative matching"] ": you locate a tuple by describing its content, never by naming its address. "
           "Writing is " [:strong "generative communication"] ": you deposit a tuple into the shared medium and never address a receiver. "
@@ -21,27 +21,27 @@
            [:p "Agents describe what they need via positional match or Datalog, not who has it. A single-clause query is a match; Datalog generalizes the same by-content move to joins, negation, and aggregation."]]
           [:article.feature-card
            [:h3 "Generative writes"]
-           [:p "An agent deposits a datom by appending to its own single-writer log and is done. No recipient is named, no broker mediates, and no write surface is shared."]]
+           [:p "An agent deposits a tuple by appending to its own single-writer log and is done. No recipient is named, no broker mediates, and no write surface is shared."]]
           [:article.feature-card
            [:h3 "Append-only, no take"]
-           [:p "Linda paired its read with a destructive take. DaoSpace has no removal: to claim or update, an agent appends a new datom, and current state is a query over the accreted facts."]]]]]
+           [:p "Linda paired its read with a destructive take. DaoSpace has no removal: to claim or update, an agent appends a new tuple. Under the datom interpretation, current state is a query over the accreted facts."]]]]]
        [:section.section-light
         [:div.section-inner
          [:h2 "Three Boundaries"]
          [:p
           "DaoSpace keeps Datomic's strict separation of Transactor, Storage, and Query as abstraction boundaries, interfaces rather than deployment tiers, and maps them onto streams:"]
          [:ul.bulleted
-          [:li [:strong "Transactor (write + index), decentralized"] ": every agent appending to its own " [:a {:href "/dao-stream.chp"} "DaoStream"] " is its own transactor. It enforces local schema, appends datom frames, and builds the covered indexes over its own datoms via " [:code "dao.space.index"] ", with no global contention and no commit step."]
-          [:li [:strong "Storage: DaoJing"] ", the decentralized, content-addressed store where indexes live persistently. It holds immutable B-Tree segment blobs and mutable root references. It does not match and it does not query."]
-          [:li [:strong "Query (read): the " [:code "dao.space.query"] " library"] " any interpreter embeds. Pure and in-process, it reads the agent's local in-memory indexes and every agent's published segments in DaoJing, then runs pattern matching and Datalog. This is Datomic's Peer model as a library rather than a service."]]
+          [:li [:strong "Transactor (write + index), decentralized"] ": every agent appending to its own " [:a {:href "/dao-stream.chp"} "DaoStream"] " is its own transactor. The canonical datom path appends atomic transaction records and builds covered indexes over its own datoms via " [:code "dao.space.index"] ", with no global contention."]
+          [:li [:strong "Storage: DaoJing"] ", the decentralized, content-addressed KV materialization where opaque payloads may persist. It holds immutable B-Tree segment blobs and manifests, with no mutable roots, matching, or query semantics."]
+          [:li [:strong "Query (read): the " [:code "dao.space.query"] " library"] " any interpreter embeds. Pure and in-process, it consumes the exact-bounded DaoStream descriptors or closed realizations the caller names, then runs positional matching, Datalog, and pull. This is Datomic's Peer model as a library rather than a service."]]
          [:p
           "DaoSpace is not one of the three boundaries; it is the coordination surface that spans all three. "
           "Storage holds facts at rest; the tuple space is those facts " [:em "under shared interpretation"] ". "
           "A store that matched would collapse interpretation into storage, so the space-ness lives above DaoJing, in the composition of index and query."]
          [:p
-          "The datom shape is the price of admission, freely chosen. DaoJing is a dumb key-value store that accepts any bytes. "
-          "An interpreter that formats its facts as datoms enters the tuple space: strangers can match over its data associatively. "
-          "One that writes arbitrary primary state opts out: nothing breaks, but that data cannot coordinate."]]]
+          "DaoSpace is an n-tuple space: tuples of any finite dimension can be matched and unified, and arity never selects meaning. "
+          "The canonical d5 datom " [:code "[e a v t m]"] " is an explicit persistent fact interpretation with automatic covered indexes, not the admission price for every tuple. "
+          "DaoJing is more neutral still: it can materialize the opaque payloads of DaoSpace or any other database interpreter without learning their semantics."]]]
        [:section.section-dark
         [:div.section-inner
          [:h2 "Code Can Live in DaoSpace"]
@@ -60,41 +60,40 @@
          [:h2 "Coordination: Stigmergy"]
          [:p
           "Agents coordinate by leaving datoms in storage for others to query, decoupled in time and identity. "
-          "A producer appends a task to its own stream. A worker queries the whole store for posted work nothing has claimed, a negation-plus-join query that justifies a tuple space, then appends its claim to its own log. "
+          "A producer appends a task to its own stream. A worker queries the explicitly supplied sources for posted work nothing has claimed, a negation-plus-join query that justifies a tuple space, then appends its claim to its own log. "
           "No broker, no message-format negotiation, no leader election."]
          [:p
           "Even races resolve declaratively. Two workers can claim the same task; both claims are simply recorded in their owners' logs. "
-          "A downstream reader sees both, sorts by timestamp, breaks ties by worker id, and deterministically yields one winner. "
-          "Exclusion is a query rule in the interpreters, not a guarantee the store enforces. "
-          "One documented open gap remains: entity-id namespace stamping is still pending, so cross-stream " [:code ":db/id"] " collision is possible until the kickoff-hash namespace lands."]
+          "A downstream interpreter may apply an explicit winner rule using a genuinely comparable value or another deterministic convention. Per-stream transaction counters are not a shared clock. "
+          "Exclusion and conflict resolution are query policies, not guarantees the store enforces. Independent sources remain explicitly scoped, so equal stream-local ids are never merged implicitly."]
          [:div.feature-grid
           [:article.feature-card
            [:h3 "Distributed Work Queues"]
            [:p "Workers query for posted tasks, claim them by appending a claim datom to their own log, and emit results. Conflicting claims resolve on the read side."]]
           [:article.feature-card
            [:h3 "Single-writer logs"]
-           [:p "If 1,000 agents message one recipient, they append to 1,000 distinct streams and the recipient merges them on the read side. No shared write surface, no contention. Federated queries currently fall back to the eager walk on every host; lazy index re-attach is JVM-only."]]
+           [:p "If 1,000 agents message one recipient, they append to 1,000 distinct streams and the recipient composes explicitly named bounded sources on the read side. No shared write surface, no contention. Published descriptors currently use the eager logical walk; lower-level lazy B-Tree restoration is cross-platform but not yet used by query."]]
           [:article.feature-card
            [:h3 "Crash-only semantics"]
            [:p "Append-only files have no partial-update corruption window. A restarted writer reopens in append mode; a reader resumes from a checkpointed cursor offset."]]
           [:article.feature-card
            [:h3 "Time Travel"]
-           [:p "Queries accept an as-of bound, indexing storage only up to a point in time. The entire coordination log is available for replay, debugging, and audit."]]]]]
+           [:p "Explicit current and history datom views accept an as-of bound within one source's transaction order. Retained histories remain available for replay, debugging, and audit; cross-stream time requires an interpreter-supplied comparable coordinate."]]]]]
        [:section.section-light
         [:div.section-inner
-         [:h2 "A Family of Interpreters"]
+         [:h2 "One Point in a Larger Space"]
          [:p
-          "Datalog over covered indexes is the default surface, but it is a capability, not the ontology. "
-          "More generally, DaoSpace is a " [:strong "family of interpreters over one canonical datom history"] ": a moduli space of databases. "
-          "The datoms are the fixed substrate every member shares; a member is fixed by which materialized views it constructs. "
-          "One point looks relational, another document-oriented, others columnar, graph-oriented, or logic-oriented."]
+          "Datom.world admits a moduli space of databases because semantics belongs to the interpreter observing DaoStream. "
+          "DaoSpace is " [:strong "one point in that space"] ", selected by exact associative tuple matching and generative append-only communication. "
+          "DaoField is a sibling selected by metric proximity; graph, document, columnar, or temporal interpreters may define other points."]
          [:p
-          "Views are named and declared, never implicit: graph structure is one materialized interpretation constructed from datoms, not an assumed truth. "
-          "Associative matching remains the privileged default and the contract strangers coordinate through; the moment cross-agent coordination runs through reference-following traversal, it has left the tuple space."]
+          "Covered indexes, positional indexes, indexed snapshots, entity projections, and physical traversal are access paths inside DaoSpace. They change cost or ergonomics, not its semantics. "
+          "The moment reference-following traversal replaces associative matching as the defining observation, the interpreter has left DaoSpace and moved to another point."]
          [:p
-          "Sharing is governed the same way. The default mode is public: readers embed the query library and pull datom streams directly, with coarse per-stream access control. "
-          "When fine-grained control is needed, the topology inverts in principle: the reader submits a governed interpreter wrapped in a capability, it runs confined against the authorized datoms, and only the bounded answer returns. "
-          [:strong "Share governed computation, not data."]]]]
+          [:a {:href "/blog/daospace-moduli-space-of-databases.blog"} "DaoSpace Is a Tuple Space, Not a Moduli Space"]
+          " explains the correction. "
+          [:a {:href "/blog/datomworld-moduli-space-of-databases.blog"} "Datom.world: A Moduli Space of Databases"]
+          " describes the larger interpreter space and DaoJing's role as semantic-neutral storage."]]]
        [:section.section-dark
         [:div.section-inner
          [:h2 "Lineage"]
@@ -105,7 +104,7 @@
            [:strong "Linda"]]
           "'s contribution: generative communication, spatial and temporal decoupling, non-destructive associative matching. "
           "DaoSpace diverges by being immutable (append, never take) and by being an n-tuple space: tuples of any dimension, not untyped positional arrays. "
-          "The datom, the canonical persistent 5-tuple " [:code "[e a v t m]"] " of entity, attribute, value, transaction, and metadata, is the special case where DaoSpace behaves like Datomic. Unlike Datomic, " [:code "dao.space.query/q"] " is specified to query over n-tuples of any dimension, not just the 5-tuple datom shape. (Today's implementation still pads query templates to the datom 5-tuple; general n-tuple matching is specified, not yet implemented.)"]
+          "The datom, the canonical persistent 5-tuple " [:code "[e a v t m]"] " of entity, attribute, value, transaction, and metadata, is the special case where DaoSpace behaves like Datomic. Unlike Datomic, " [:code "dao.space.query/q"] " implements exact positional matching and unification over mixed n-tuples of arbitrary dimension, with explicit rest syntax for prefix matching."]
          [:p
           "The other two traditions live in the layers below. " [:strong "Datomic"] " owns DaoJing: the dumb store of immutable segments and the Peer-as-library read model. "
           [:strong "Plan 9"] " owns " [:a {:href "/dao-stream.chp"} "DaoStream"] ": the independent, location-transparent, append-only log substrate."]

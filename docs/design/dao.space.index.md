@@ -41,6 +41,11 @@ sides share.** It is the same move Datomic makes between transactor and peer —
 one party materializes, many parties consume — except here "the transactor"
 is not a process but a library duty every agent carries.
 
+Covered indexes are physical access paths within the DaoSpace tuple-space
+point. They change lookup cost, not tuple meaning. Replacing or supplementing
+them with explicitly requested positional indexes would still be DaoSpace as
+long as the logical operation remains exact associative tuple matching.
+
 ## What the library owns
 
 One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
@@ -253,7 +258,8 @@ dao.space.transactor  ──►  dao.space.index  ◄──  dao.space.query
   `dao.space.query`. No cycle is possible: realization below, interpretation
   above.
 
-Storage stays dumb throughout (Ruling 1 of `dao.space.query.md`): everything
+Storage stays dumb throughout (Decision 1 of `dao.space.query.md`, no new
+storage protocol): everything
 here is built from `dao.jing/materialize!` and `dao.jing/get` against strict
 segment addresses. Storage never knows the segment blobs form an index, and
 there is no mutable root for it to maintain.
