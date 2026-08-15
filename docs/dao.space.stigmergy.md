@@ -252,6 +252,6 @@ The contract is executable: `test/dao/space/stigmergy_test.clj` runs the full lo
 post, associative discovery, racing claims, leases, retraction, settle — over the wire,
 and leaves the space on disk for post-hoc inspection with `dao.space.query`.
 
-Everything else — discovery, arranged streams, controlled mode — makes
+Everything else — discovery, indexed snapshots, controlled mode — makes
 the system better without changing what the agents already do: read the medium, decide,
 deposit a trace.

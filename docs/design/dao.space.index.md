@@ -280,7 +280,7 @@ transport/eager logical d5 reads for the DaoStream adapter.
 ## Open items
 
 - **Segment GC** — superseded index segments accumulate forever.
-- **Arranged published streams and K-way merge** — queries currently consume
+- **Published indexed snapshots and K-way merge** — queries currently consume
   each published manifest through the eager logical stream adapter.
 - **Incremental indexing** — the natural next increment for long-lived agent
   transactors: today an owner republishes wholesale from the full datom seq. A

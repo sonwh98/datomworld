@@ -237,8 +237,8 @@ storage. A published index descriptor opens through a DaoJing coordinate and
 eagerly walks EAVT into a retained canonical d5 stream on every platform. The
 explicitly wrapped raw-datoms source path
 remains the "rebuild per query" baseline for data that was never published. Remaining
-gaps: segment GC, arranged lazy published streams, k-way merge, and generic
-positional arrangements; see
+gaps: segment GC, lazy published indexed snapshots, k-way merge, and generic
+positional indexes; see
 [`dao.space.query.md`](dao.space.query.md), *Index Realization* and *Open
 items*.
 

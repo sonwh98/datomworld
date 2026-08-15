@@ -125,7 +125,7 @@ A bounded DaoStream descriptor is opened into a realization.
   eager and gives `q` one uniform Reader+Bound surface.
 - **The lower-level index library also exposes lazy restoration** through
   `index/restored-indexes`. Query does not currently exploit that path; a
-  future arranged-stream interpreter may do so without changing `q`.
+  future positional-index interpreter may do so without changing `q`.
 
 `index/read-manifest` validates before reading: the value at the manifest
 address must be exactly `{:indexes {:eavt … :aevt … :avet … :vaet …} :count n
@@ -198,7 +198,7 @@ before building indexes from them — `dao.jing` itself never decodes meaning.
   polymorphism*).
 
 The published-index DaoStream adapter currently uses this eager path. Lazy
-`restored-indexes` remains available to a future arranged-stream interpreter,
+`restored-indexes` remains available to a future positional-index interpreter,
 but it is not hidden inside `q` and is not part of the current descriptor-open
 contract.
 
@@ -305,7 +305,7 @@ Calling the persisted indexes materialized views forces an explicit answer:
 
 - A fold of a raw source always reads canonical truth (the datoms directly).
 - A served manifest can lag the current tail of its stream — it is a
-  precomputed arrangement over a snapshot the owner published.
+  precomputed positional index naming an indexed snapshot the owner published.
 
 In an append-only world this is benign: indexes only *grow* as datoms are
 added (retractions are semantic, above storage), so lag is monotone and
@@ -350,10 +350,18 @@ force:
 
 ## Open items
 
-- **Arranged published streams and K-way merge** — several explicitly scoped manifests
+- **Published indexed snapshots and K-way merge** — several explicitly scoped manifests
   could be exposed as an explicit derived relation without flattening source
   identity, then answered by merging N restored B-trees in index order.
-- **Generic relation arrangements** — arbitrary tuples currently use a
-  relation scan. Current d3 facts retain the covered datom indexes; future
-  interpreters may supply positional arrangements for other dimensions.
+- **Generic relation positional indexes** — a positional index orders a
+  relation by explicitly selected tuple positions without assigning meaning to
+  those positions. The bounded tuples, their exact bound, and their explicitly
+  requested positional indexes form an **indexed snapshot**. Arbitrary tuples
+  currently use a relation scan. An explicit
+  datom interpreter automatically supplies the covered indexes for canonical
+  d5 facts; arity alone never selects that interpretation. Every other n-tuple
+  relation must explicitly request its positional indexes from the caller or
+  publisher. The planner may select only from those supplied indexes and falls
+  back to a relation scan when none fits; it never constructs every positional
+  permutation implicitly. This generic path remains future work.
 - **Segment GC and incremental indexing** — see `dao.space.index.md`.
