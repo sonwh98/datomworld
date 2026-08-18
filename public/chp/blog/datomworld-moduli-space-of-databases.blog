@@ -2,7 +2,7 @@
        :date #inst "2026-08-15T00:00:00.000-00:00",
        :abstract
        [:p
-        "Datom.world does not prescribe one universal database. It supplies a stream substrate and a core axiom: interpretation is external to the stream. By taking arbitrary byte streams and materializing them into tuples or any other data structure fit for context, each observation regime defines a point in a moduli space of possible databases."],
+        "Datom.world does not prescribe one universal database. It supplies a stream substrate and a core axiom: interpretation is external to the stream. An interpreter observes streams and materializes data structures; the observation fixes a point in the moduli space of possible databases."],
        :content
        [:section.blog-article
         [:div.section-inner
@@ -18,7 +18,7 @@
             "The core axiom: interpretation is external to the stream. Semantics lives in the interpreter, not in the data."]]
 
           [:p
-           "Because interpretation is external, an interpreter can take arbitrary byte streams and materialize them as tuples, key/value entries, document trees, vectors, or graph projections—whatever data structure is fit for its operational context. Datom.world does not contain one inevitable database; it contains a space of possible database interpreters. Each coherent choice of observation semantics and materialization is one point in that space."]
+           "Because interpretation is external, an interpreter can take arbitrary streams and materialize them as tuples, key/value entries, document trees, vectors, or graph projections: whatever data structure is fit for its operational context. Datom.world does not contain one inevitable database; it contains a space of possible database interpreters. Each coherent choice of observation semantics is one point in that space; the materialized structure follows from the observation rather than selecting the point."]
 
           [:h2 "What Defines a Point"]
 
@@ -41,7 +41,7 @@
            "DaoStream is the abstraction boundary underneath every point. A stream may be local or remote, open or exact-bounded, carrying raw bytes, tuples, descriptors, indexes, programs, or any other payloads a consumer needs."]
 
           [:p
-           "The stream supplies sequence, causal bounds, and provenance, but it remains pure syntax. It never decrees whether a byte sequence is intrinsically a datom, graph edge, vector embedding, document, or database row. Interpreters take these arbitrary byte streams and materialize them into whatever data structures and query capabilities fit their context."]
+           "The stream supplies sequence and bounds, but it remains pure syntax. It never decrees whether a stream element is intrinsically a datom, graph edge, vector embedding, document, or database row. Interpreters take these streams and materialize them into whatever data structures and query capabilities fit their context."]
 
           [:p
            "This keeps the substrate stable while database paradigms evolve. A new database point can be introduced by publishing a new interpreter over existing streams rather than changing DaoStream or rewriting stored values."]
@@ -57,7 +57,7 @@
             "bytes = canonical-encode(x)\nkey   = content-hash(bytes)\nKV[key] = x                 ; insert if absent"]]
 
           [:p
-           "DaoJing interprets enough structure to canonically encode a value, derive its address, insert it idempotently, and retrieve it. It assigns stable content identity. It does not assign domain meaning."]
+           "DaoJing interprets enough structure to canonically encode a value, derive its address, insert it idempotently, and retrieve it. It assigns content identity: the same content always resolves to the same address. It does not assign domain meaning."]
 
           [:p
            "DaoJing does not know whether "
@@ -84,7 +84,7 @@
            " generalizes matching into Datalog clauses joined through shared variables. Different tuple dimensions can meet in one query because unification depends on shared values rather than uniform width."]
 
           [:p
-           "A canonical d5 datom interpreter may automatically build EAVT, AEVT, AVET, and VAET. Other tuple relations may explicitly request positional indexes. Both choices remain inside DaoSpace because indexes change access cost, not exact-unification semantics."]
+           "A canonical d5 datom interpreter may automatically build EAVT, AEVT, AVET, and VAET. Other tuple relations will one day explicitly request positional indexes of their own, a specified future extension. Both choices remain inside DaoSpace because indexes change access cost, not exact-unification semantics."]
 
           [:h2 "DaoField: Metric Observation"]
 
@@ -110,7 +110,7 @@
            [:li "a logic interpreter with a different inference or constraint regime"]]
 
           [:p
-           "These examples become real points only when their operations and restrictions are explicit. Calling every derived map or traversal a new database would make the moduli-space claim empty. A new physical view is not enough. A distinct observation semantics is required."]
+           "These examples become real points only when their operations and restrictions are explicit. Calling every derived map or traversal a new database would make the moduli-space claim empty. A new physical view is not enough. A distinct observation semantics is required. DaoSpace itself already projects entities through its pull verb, so a document interpreter counts as a different point only if navigating nested views, rather than associative matching, becomes its defining observation."]
 
           [:h2 "Indexes Are Coordinates, Not Ontology"]
 
@@ -149,10 +149,10 @@
 
           [:pre
            [:code
-            "DaoStream (raw bytes / syntax) + content-addressed KV materialization -> DaoJing storage\nDaoStream (raw bytes / syntax) + exact positional unification       -> DaoSpace (tuples & Datalog)\nDaoStream (raw bytes / syntax) + metric proximity                   -> DaoField (vectors & distances)\nDaoStream (raw bytes / syntax) + another explicit observation       -> another database point"]]
+            "DaoStream (pure syntax) + content-addressed KV materialization             -> DaoJing storage\nDaoStream (pure syntax) + generative writes, exact positional unification  -> DaoSpace (tuples & Datalog)\nDaoStream (pure syntax) + metric proximity                                 -> DaoField (vectors & distances)\nDaoStream (pure syntax) + another explicit observation                     -> another database point"]]
 
           [:p
-           "The underlying byte streams can remain the same. The storage substrate can remain the same. What changes from point to point is the interpreter, how it materializes those bytes into context-specific data structures, and the questions it makes possible."]
+           "The underlying streams can remain the same. The storage substrate can remain the same. What changes from point to point is the interpreter's defining observation, the data structures that observation makes worth materializing, and the questions it makes possible."]
 
           [:p
            [:strong
