@@ -90,7 +90,7 @@
            ". These indexes exploit the datom contract, but they do not define DaoSpace."]
 
           [:p
-           "Generic n-tuples use relation scans today. The intended indexing rule is explicit: any non-datom relation must request positional indexes by position order. The bounded tuples, their exact bound, and those requested indexes form an indexed snapshot. A planner may choose among supplied indexes and otherwise scan."]
+           "Generic n-tuples use relation scans today. The intended rule: non-datom relations must explicitly request positional indexes by position order; the bounded tuples, their exact bound, and those requested indexes form an indexed snapshot; a future planner will choose among supplied indexes and otherwise scan."]
 
           [:p
            "A positional index changes access cost, not tuple meaning. Indexing positions "

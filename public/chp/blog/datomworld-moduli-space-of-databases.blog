@@ -2,7 +2,7 @@
        :date #inst "2026-08-15T00:00:00.000-00:00",
        :abstract
        [:p
-        "Datom.world does not prescribe one universal database. It supplies a stream substrate and a core axiom: interpretation is external to the stream. An interpreter observes streams and materializes data structures; the observation fixes a point in the moduli space of possible databases."],
+        "Datom.world does not prescribe one universal database. It supplies a stream substrate and a core axiom: semantics are external to the stream. An interpreter observes streams and materializes data structures; the observation fixes a point in the moduli space of possible databases."],
        :content
        [:section.blog-article
         [:div.section-inner
