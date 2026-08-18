@@ -72,7 +72,7 @@
            [:p "Workers query for posted tasks, claim them by appending a claim datom to their own log, and emit results. Conflicting claims resolve on the read side."]]
           [:article.feature-card
            [:h3 "Single-writer logs"]
-           [:p "If 1,000 agents message one recipient, they append to 1,000 distinct streams and the recipient composes explicitly named bounded sources on the read side. No shared write surface, no contention. Published descriptors currently use the eager logical walk; lower-level lazy B-Tree restoration is cross-platform but not yet used by query."]]
+           [:p "If 1,000 agents message one recipient, they append to 1,000 distinct streams and the recipient composes explicitly named bounded sources on the read side. No shared write surface, no contention. Current views over published indexes are answered lazily from restored B-Tree segments, fetching only the slices a query touches; history and time-bounded reads use the eager walk."]]
           [:article.feature-card
            [:h3 "Crash-only semantics"]
            [:p "Append-only files have no partial-update corruption window. A restarted writer reopens in append mode; a reader resumes from a checkpointed cursor offset."]]
