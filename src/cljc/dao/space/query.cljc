@@ -92,7 +92,7 @@
          nil)))
 
 
-(defn- close-owned!
+(defn ^:no-doc close-owned!
   [owned]
   (doseq [s owned] (quiet-close! s)))
 
@@ -334,6 +334,15 @@
   (and (map? r) (true? (:fact? r))))
 
 
+(defn- force-relation
+  "Force a relation if it is delayed (e.g. from a lazy covered-index
+   realization) or return it directly. Memoization belongs to the delay:
+   forcing is therefore at most one walk, but this function itself neither
+   creates nor guarantees non-nilness."
+  [relation]
+  (if (delay? relation) @relation relation))
+
+
 (declare realize-db-value!)
 
 
@@ -342,24 +351,31 @@
    is the DaoStream descriptor/realization; any transport opened while
    realizing it is returned to the outer query for closure."
   [d]
-  (let [{::keys [relation owned]} (realize-db-value! (:source d))]
-    (try (let [rows (case (:dao.stream/type d)
-                      :dao.space/current (d5->current-facts relation (:as-of d))
-                      :dao.space/history (d5->history-rows relation
-                                                           (:as-of d)))]
-           {::relation rows,
-            ::fact-index (when (= :dao.space/current (:dao.stream/type d))
-                           (relation->fact-index rows)),
-            ::owned owned})
-         (catch #?(:clj Throwable
-                   :cljs :default
-                   :cljd Object)
-                error
-           (close-owned! owned)
-           (throw error)))))
+  (let [{::keys [relation indexes owned]} (realize-db-value! (:source d))]
+    (try
+      (let [type (:dao.stream/type d)
+            as-of (:as-of d)]
+        (if (and (= :dao.space/current type) (nil? as-of) indexes)
+          {::relation (delay (d5->current-facts (force-relation relation) nil)),
+           ::fact-index indexes,
+           ::owned owned}
+          (let [forced-rel (force-relation relation)
+                rows (case type
+                       :dao.space/current (d5->current-facts forced-rel as-of)
+                       :dao.space/history (d5->history-rows forced-rel as-of))]
+            {::relation rows,
+             ::fact-index (when (= :dao.space/current type)
+                            (relation->fact-index rows)),
+             ::owned owned})))
+      (catch #?(:clj Throwable
+                :cljs :default
+                :cljd Object)
+             error
+        (close-owned! owned)
+        (throw error)))))
 
 
-(defn- realize-db-value!
+(defn ^:no-doc realize-db-value!
   "Turn one db-value (descriptor or borrowed realization) into an immutable
    tuple relation plus, for current fact views, an in-memory fact index. Owned
    streams (opened descriptors) are returned in ::owned for the caller to
@@ -379,11 +395,16 @@
           (try (when-not (realization? r)
                  (throw (ex-info "open! did not produce a reader realization"
                                  {:descriptor d})))
-               (let [relation (ds/strict-vec r)
-                     fact? (fact-view-realization? r)]
-                 {::relation relation,
-                  ::fact-index (when fact? (relation->fact-index relation)),
-                  ::owned [r]})
+               (if-let [indexes (index/covered-indexes r)]
+                 {::relation (delay (ds/strict-vec r)),
+                  ::indexes indexes,
+                  ::fact-index nil,
+                  ::owned [r]}
+                 (let [relation (ds/strict-vec r)
+                       fact? (fact-view-realization? r)]
+                   {::relation relation,
+                    ::fact-index (when fact? (relation->fact-index relation)),
+                    ::owned [r]}))
                (catch #?(:clj Throwable
                          :cljs :default
                          :cljd Object)
@@ -492,8 +513,9 @@
    sources without leaking."
   [source pattern]
   (let [{::keys [relation owned]} (realize-db-value! source)]
-    (try (let [parsed (parse-tuple-pattern pattern)]
-           (vec (filter #(slots-match? parsed %) relation)))
+    (try (let [parsed (parse-tuple-pattern pattern)
+               rel (force-relation relation)]
+           (vec (filter #(slots-match? parsed %) rel)))
          (finally (close-owned! owned)))))
 
 
@@ -887,7 +909,7 @@
 
 (defn- resolve-relation
   [binding db-sym]
-  (::relation (resolve-db binding db-sym)))
+  (force-relation (::relation (resolve-db binding db-sym))))
 
 
 (defn- resolve-fact-index
@@ -1215,7 +1237,11 @@
 (defn- estimate-clause-cost
   [clause binding]
   (let [[db-sym pattern] (clause-db-and-pattern clause)
-        relation (resolve-relation binding db-sym)]
+        ;; Truthiness only, never forced: planning must not drain a
+        ;; deferred (lazy published) relation. A delay is always truthy;
+        ;; forcing here would fully materialize the source for every
+        ;; multi-clause query before the first clause runs.
+        relation (::relation (resolve-db binding db-sym))]
     (if-not relation
       1000000
       (let [{:keys [fixed]} (parse-tuple-pattern pattern)

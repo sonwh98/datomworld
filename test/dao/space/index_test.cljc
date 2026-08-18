@@ -46,6 +46,21 @@
                         (get @store address not-found))})))
 
 
+(defn- counting-content-store
+  "Wrap a content-store handle so every :get-content-fn invocation is counted.
+   Returns {:store wrapped-handle, :gets (fn [] count)} — a minimal counting
+   harness for observing that the published open path fetches only the
+   manifest (one get) and faults no tree nodes."
+  [store]
+  (let [gets (atom 0)
+        get-fn (:get-content-fn store)]
+    {:store (assoc store
+                   :get-content-fn (fn [address not-found]
+                                     (swap! gets inc)
+                                     (get-fn address not-found))),
+     :gets (fn [] @gets)}))
+
+
 (defn- open-local
   "Open a ringbuffer local (agent) stream pre-loaded with datoms."
   [datoms]
@@ -628,6 +643,71 @@
          (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
 
 
+(deftest published-open-fetches-only-the-manifest
+  (let [fx (publish-into-file (datoms 64))]
+    (try
+      (let [counter (counting-content-store (:store fx))]
+        #?(:cljd
+           (is
+             true
+             "the counting harness needs with-redefs, unavailable on ClojureDart")
+           :default
+           (with-redefs [jing-coordinate/open! (fn [_] (:store counter))]
+             (let [published (ds/open! (:descriptor fx))]
+               (is
+                 (= 1 ((:gets counter)))
+                 "opening a published descriptor performs exactly one content fetch: the manifest, with zero tree nodes faulted")
+               (ds/close! published)))))
+      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+
+
+(deftest covered-indexes-returns-the-four-covered-sets
+  (let [fx (publish-into-file (datoms 8))]
+    (try (let [published (ds/open! (:descriptor fx))]
+           (try
+             (testing "an opened published realization carries the four sets"
+               (let [idx (index/covered-indexes published)]
+                 (is (map? idx))
+                 (is (= #{:eavt :aevt :avet :vaet} (set (keys idx))))
+                 (doseq [order [:eavt :aevt :avet :vaet]]
+                   (is (= (count (datoms 8)) (bt/count (order idx)))
+                       (str order " covers the snapshot")))))
+             (testing "nil when the realization carries no covered sets"
+               (is (nil? (index/covered-indexes nil)))
+               (is (nil? (index/covered-indexes {})))
+               (is (nil? (index/covered-indexes :not-a-realization)))
+               (is (nil? (index/covered-indexes {:indexes :not-a-map})))
+               (is (nil? (index/covered-indexes {:indexes {:eavt 1, :aevt 2}})))
+               (is (nil? (index/covered-indexes
+                           {:indexes {:eavt 1, :aevt 2, :avet 3}}))))
+             (testing "a structural check, never a type check"
+               (is (= {:eavt :a, :aevt :b, :avet :c, :vaet :d}
+                      (index/covered-indexes
+                        {:indexes {:eavt :a, :aevt :b, :avet :c, :vaet :d}}))
+                   "a plain map with the four keys passes, no instance check"))
+             (finally (ds/close! published))))
+         (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+
+
+(deftest published-next-yields-the-same-eavt-rows-as-the-eager-walk
+  (let [datoms (vec (reverse (datoms 24))) ; non-EAVT insertion order
+        fx (publish-into-file datoms)]
+    (try
+      (let [eager (index/read-datoms (:store fx) (:manifest-address fx))
+            published (ds/open! (:descriptor fx))]
+        (try
+          (is (= eager (stream-values published))
+              "strict-vec forces the deferred EAVT and yields the eager rows")
+          (is (= eager
+                 (loop [cursor {:position 0}
+                        acc []]
+                   (let [r (ds/next published cursor)]
+                     (if (map? r) (recur (:cursor r) (conj acc (:ok r))) acc))))
+              "stepwise next over the forced delay yields the eager rows")
+          (finally (ds/close! published))))
+      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+
+
 ;; ---------------------------------------------------------------------------
 ;; Observer materialization, then read / restore parity
 ;; ---------------------------------------------------------------------------
@@ -794,3 +874,117 @@
           idx (index/index-datoms [d1 d2 d3])]
       (is (= [d2 d3]
              (vec (index/subseq-from (:eavt idx) index/eavt-cmp d2)))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Laziness observation (Step 1 — tests only, no src changes)
+;; ---------------------------------------------------------------------------
+
+
+(defn- ceil-div
+  "Integer ceiling division: smallest integer >= n/d."
+  [n d]
+  (let [q (quot n d)] (if (zero? (mod n d)) q (inc q))))
+
+
+(defn- expected-tree-height
+  "Height of a B-tree (number of branch levels above the leaves).
+   height 0 means the root itself is a leaf."
+  [n bf]
+  (if (<= n bf)
+    0
+    (loop [leaves (ceil-div n bf)
+           h 1]
+      (if (<= leaves bf) h (recur (ceil-div leaves bf) (inc h))))))
+
+
+(defn- total-tree-nodes
+  "Total number of internal + leaf nodes in a B-tree with n elements and
+   branching factor bf."
+  [n bf]
+  (if (zero? n)
+    0
+    (loop [level-n (ceil-div n bf)
+           total 0]
+      (let [total' (+ total level-n)]
+        (if (<= level-n 1) total' (recur (ceil-div level-n bf) total'))))))
+
+
+(deftest restored-indexes-construction-fetches-nothing
+  (testing
+    "restored-indexes constructs four lazy BTSet trees without fetching
+     any nodes from the content store; bt/count stays O(1) via the
+     manifest-threaded cnt"
+    (let [n 300
+          datoms (datoms n)
+          local (open-local datoms)
+          intake (open-intake)
+          {:keys [manifest]} (index/publish-index! local [intake])
+          store (materialize-through-observer [intake])
+          counter (counting-content-store store)
+          restored (index/restored-indexes (:store counter) manifest)]
+      (is (zero? ((:gets counter))) "construction triggers zero gets")
+      (doseq [order [:eavt :aevt :avet :vaet]]
+        (is (= n (bt/count (get restored order)))
+            (str order " count is O(1) via manifest"))
+        (is (zero? ((:gets counter)))
+            (str order " bt/count does not fault any nodes"))))))
+
+
+(deftest subseq-from-loads-only-seek-path-plus-range
+  (testing
+    "subseq-from on a restored tree fetches only the seek path plus
+     consumed leaves; gets are strictly less than total node count and
+     bounded by height + matching leaves + 1"
+    (let [bf 4
+          n 100
+          datoms (datoms n)
+          local (open-local datoms)
+          intake (open-intake)
+          {:keys [manifest]}
+          (index/publish-index! local [intake] {:branching-factor bf})
+          store (materialize-through-observer [intake])
+          counter (counting-content-store store)
+          restored (index/restored-indexes (:store counter) manifest)
+          tree (:eavt restored)
+          ;; snapshot counter baseline before the seek-path observation
+          baseline ((:gets counter))
+          sentinel (nth (sort index/eavt-cmp datoms) 50)
+          result (vec (take 1 (index/subseq-from tree index/eavt-cmp sentinel)))
+          observed (- ((:gets counter)) baseline)
+          height (expected-tree-height n bf)
+          total-nodes (total-tree-nodes n bf)]
+      (is (= 1 (count result)) "take 1 returns exactly one datom")
+      (is (= (first result) sentinel) "returned datom matches the sentinel")
+      (is (<= observed (+ height 2))
+          (str "gets " observed " <= height " height " + matching leaves + 1"))
+      (is (< observed total-nodes)
+          (str "gets " observed " < total node count " total-nodes)))))
+
+
+(deftest lazy-eager-parity-per-order
+  (testing
+    "for each covered order, elements from subseq-from over a restored set
+     equal the corresponding slice over the eager in-memory index built by
+     index/index-datoms from index/read-datoms"
+    (let [datoms (datoms 200)
+          local (open-local datoms)
+          intake (open-intake)
+          {:keys [manifest-address manifest]} (index/publish-index! local
+                                                                    [intake])
+          store (materialize-through-observer [intake])
+          eager (index/index-datoms (index/read-datoms store manifest-address))
+          restored (index/restored-indexes store manifest)
+          cmps {:eavt index/eavt-cmp,
+                :aevt index/aevt-cmp,
+                :avet index/avet-cmp,
+                :vaet index/vaet-cmp}]
+      (doseq [order [:eavt :aevt :avet :vaet]]
+        (let [cmp (get cmps order)
+              sentinel [nil nil nil nil nil]
+              eager-seq (vec (index/subseq-from (order eager) cmp sentinel))
+              restored-seq (vec
+                             (index/subseq-from (order restored) cmp sentinel))]
+          (is (= (count datoms) (count eager-seq))
+              (str order " eager slice returns all datoms"))
+          (is (= eager-seq restored-seq) (str order " lazy-eager parity")))))))

@@ -113,29 +113,39 @@
      [dispatch-val argv & body]
      ;; This body is selected at macro-load time: the ClojureDart host
      ;; pass reads with :cljd active, every other host reads :default.
-     #?(:cljd (let [s (name dispatch-val)
-                    ;; PascalCase each hyphen-separated segment so
-                    ;; dispatch keywords like :file-input-stream yield a
-                    ;; valid Dart id.
-                    cap (fn [w] (str (.toUpperCase (subs w 0 1)) (subs w 1)))
-                    tname (symbol (str (apply str (map cap (.split s "-")))
-                                       "OpenMethod"))
-                    ;; contribute* needs a fully-qualified contributing
-                    ;; type; the compiling namespace is exposed on &env
-                    ;; by ClojureDart.
-                    qname (symbol (name (get-in &env [:nses :current-ns]))
-                                  (name tname))]
-                `(do (deftype ~tname
-                       []
-                       :type-only
-                       true
+     ;; The when-not guard is load-bearing, not dead code: during a
+     ;; ClojureDart host-eval pass the compiler evaluates macro bodies
+     ;; that are not compile-time constants (e.g. defopen forms whose
+     ;; bodies close over runtime values, as test fixtures do) and
+     ;; rejects them with "^{:const :required} but expression is not
+     ;; const". Returning nil under *host-eval* skips emission for that
+     ;; pass only; the real Dart compilation pass re-expands and emits.
+     #?(:cljd (when-not (some-> (resolve 'cljd.compiler/*host-eval*)
+                                deref)
+                (let [s (name dispatch-val)
+                      ;; PascalCase each hyphen-separated segment so
+                      ;; dispatch keywords like :file-input-stream yield
+                      ;; a valid Dart id.
+                      cap (fn [w]
+                            (str (.toUpperCase (subs w 0 1)) (subs w 1)))
+                      tname (symbol (str (apply str (map cap (.split s "-")))
+                                         "OpenMethod"))
+                      ;; contribute* needs a fully-qualified contributing
+                      ;; type; the compiling namespace is exposed on &env
+                      ;; by ClojureDart.
+                      qname (symbol (name (get-in &env [:nses :current-ns]))
+                                    (name tname))]
+                  `(do (deftype ~tname
+                         []
+                         :type-only
+                         true
 
-                       cljd.core/IFn
+                         cljd.core/IFn
 
-                       (~'-invoke
-                         [_# tm#]
-                         (assoc! tm# ~dispatch-val (fn ~argv ~@body))))
-                     (~'contribute* :multi-method open! ~qname ~qname)))
+                         (~'-invoke
+                           [_# tm#]
+                           (assoc! tm# ~dispatch-val (fn ~argv ~@body))))
+                       (~'contribute* :multi-method open! ~qname ~qname))))
         :default `(~'defmethod open! ~dispatch-val ~argv ~@body))))
 
 

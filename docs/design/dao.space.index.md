@@ -86,8 +86,10 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
 - **The transportable read coordinate** — `published-index` constructs a
   serializable exact-bounded descriptor from a DaoJing coordinate and an
   immutable manifest address. Opening it validates the descriptor, opens the
-  coordinate, eagerly walks EAVT into canonical d5, and returns a read-only
-  closed realization. Physical B-tree nodes never cross the stream boundary.
+  coordinate, fetches only the manifest, re-attaches the covered sets
+  lazily (restored-indexes), and returns a read-only closed realization whose
+  EAVT rows are deferred behind a delay. Physical B-tree nodes never cross
+  the stream boundary.
 - **The transactor entry point** — `publish-index!`: snapshot the stream,
   build the four covered indexes, append the node blobs and the manifest to
   one intake stream selected from an explicit pool. DaoJing itself is never
@@ -225,9 +227,11 @@ Two lifecycle facts are deliberate:
   answer identically before and after (pinned by
   `publish-index-snapshot-reads-local-stream-and-reads-back` and the
   observer-materialization parity tests).
-- The published-index DaoStream adapter currently walks EAVT eagerly and
-  retains canonical d5 elements. Query does not dispatch on
-  manifests, pools, or B-tree segments. Publishing changes access cost, never
+- The published-index DaoStream adapter opens lazily (manifest fetch plus
+  restored sets) and defers its EAVT rows; query consumes the restored sets
+  directly for selective current reads, forces the rows for rest-pattern and
+  4+-slot scans, and walks the restored tree for unselective 3-fixed scans.
+  Query does not dispatch on manifests, pools, or B-tree segments. Publishing changes access cost, never
   the datoms.
 
 ## Dependency picture

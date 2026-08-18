@@ -9,9 +9,14 @@
    into the legacy relation/scalar/tuple/coll/return-map shapes. `current` and
    `history` are the explicit d5 interpreters."
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
+            [dao.jing.coordinate :as jing-coordinate]
+            [dao.jing.file :as jing-file]
+            [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.stream :as ds]
-            [dao.stream.ringbuffer])
+            [dao.stream.ringbuffer]
+            #?@(:cljd [["dart:io" :as dart-io]]))
   #?(:cljs (:require-macros [dao.stream])))
 
 
@@ -594,3 +599,337 @@
     (is (= #{[:open 2] [:done 1]}
            (qcur '[:find ?status (count ?e) :where [?e :task/status ?status]]
                  datoms)))))
+
+
+;; ---------------------------------------------------------------------------
+;; Step 3: Lazy covered-index query pushdown tests
+;; ---------------------------------------------------------------------------
+
+(defn- counting-content-store
+  [store]
+  (let [gets (atom 0)
+        get-fn (:get-content-fn store)]
+    {:store (assoc store
+                   :get-content-fn (fn [address not-found]
+                                     (swap! gets inc)
+                                     (get-fn address not-found))),
+     :gets (fn [] @gets)}))
+
+
+(defn- temp-content-path
+  [prefix]
+  (str "target/test-query-stream-" prefix "-" (random-uuid) ".log"))
+
+
+(defn- cleanup-file
+  [path]
+  #?(:clj (let [f (java.io.File. path)] (when (.exists f) (.delete f)))
+     :cljs (try (.unlinkSync (js/require "fs") path) (catch :default _))
+     :cljd (try (let [f (dart-io/File path)]
+                  (when (.existsSync f) (.deleteSync f)))
+                (catch Object _ nil))))
+
+
+(defn- open-local
+  [datoms]
+  (let [s (ds/open! {:dao.stream/type :ringbuffer})]
+    (doseq [d datoms] (ds/append! s d))
+    s))
+
+
+(defn- open-intake
+  []
+  (ds/open! {:dao.stream/type :ringbuffer, :capacity 4096}))
+
+
+(defn- publish-into-file
+  ([datoms] (publish-into-file datoms "pub"))
+  ([datoms prefix] (publish-into-file datoms prefix nil))
+  ([datoms prefix opts]
+   (let [path (temp-content-path prefix)
+         store (jing-file/create-content-file path)]
+     (try (let [local (open-local datoms)
+                intake (open-intake)
+                {:keys [manifest-address]}
+                (index/publish-index! local [intake] opts)
+                drain (fn drain
+                        [state]
+                        (let [r (jing/observe-step! store state)]
+                          (when (= :ok (:signal r)) (drain (:state r)))))]
+            (drain (jing/observer-state [intake]))
+            {:store store,
+             :path path,
+             :manifest-address manifest-address,
+             :descriptor (index/published-index {:dao.jing/type :dao.jing/file,
+                                                 :path path}
+                                                manifest-address)})
+          (catch #?(:clj Throwable
+                    :cljs :default
+                    :cljd Object)
+                 e
+            (jing/close! store)
+            (cleanup-file path)
+            (throw e))))))
+
+
+(deftest lazy-published-point-clause-and-entity-projection-equivalence
+  (let [test-datoms
+        [[42 :user/email "ada@example.com" 1 1] [42 :user/name "Ada" 1 1]
+         [42 :user/role 100 1 1] [100 :role/name :admin 1 1]
+         [43 :user/email "grace@example.com" 1 1] [43 :user/name "Grace" 1 1]
+         ;; Add an asserted and then retracted datom (matching e a v)
+         [42 :user/status :active 1 1] [42 :user/status :active 2 0]]
+        fx (publish-into-file test-datoms)
+        eager-cur (query/current (rel test-datoms))
+        lazy-cur (query/current (:descriptor fx))]
+    (try (testing "q point-clause equivalence: lazy current matches eager"
+           (let [query-form '[:find ?v :where [$ 42 :user/email ?v]]]
+             (is (= (query/collect (query/q query-form eager-cur))
+                    (query/collect (query/q query-form lazy-cur))))
+             (is (= #{["ada@example.com"]}
+                    (query/collect (query/q query-form lazy-cur))))))
+         (testing "get-else / missing? equivalence over lazy current view"
+           (let [q-get-else '[:find ?name :where
+                              [(get-else $ 42 :user/name "default") ?name]]
+                 q-get-else-missing
+                 '[:find ?val :where
+                   [(get-else $ 42 :user/nonexistent "default") ?val]]
+                 q-missing-false '[:find ?e :where [$ ?e :user/name _]
+                                   [(missing? $ ?e :user/name)]]
+                 q-missing-true '[:find ?e :where [$ ?e :user/name _]
+                                  [(missing? $ ?e :user/status)]]]
+             (is (= (query/collect (query/q q-get-else eager-cur))
+                    (query/collect (query/q q-get-else lazy-cur))))
+             (is (= #{["Ada"]} (query/collect (query/q q-get-else lazy-cur))))
+             (is (= (query/collect (query/q q-get-else-missing eager-cur))
+                    (query/collect (query/q q-get-else-missing lazy-cur))))
+             (is (= #{["default"]}
+                    (query/collect (query/q q-get-else-missing lazy-cur))))
+             (is (= (query/collect (query/q q-missing-false eager-cur))
+                    (query/collect (query/q q-missing-false lazy-cur))))
+             (is (= #{} (query/collect (query/q q-missing-false lazy-cur))))
+             (is (= (query/collect (query/q q-missing-true eager-cur))
+                    (query/collect (query/q q-missing-true lazy-cur))))
+             (is (= #{[42] [43]}
+                    (query/collect (query/q q-missing-true lazy-cur))))))
+         (testing "pull and pull-many equivalence over lazy current view"
+           (let [pattern [:db/id :user/email :user/name
+                          {:user/role [:db/id :role/name]}]]
+             (is (= (query/pull eager-cur 42 pattern)
+                    (query/pull lazy-cur 42 pattern)))
+             (is (= {:db/id 42,
+                     :user/email "ada@example.com",
+                     :user/name "Ada",
+                     :user/role {:db/id 100, :role/name :admin}}
+                    (query/pull lazy-cur 42 pattern)))
+             (is (= (query/pull-many eager-cur [42 43 99] pattern)
+                    (query/pull-many lazy-cur [42 43 99] pattern)))))
+         (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+
+
+(deftest lazy-published-node-budget-is-strictly-bounded
+  (let [datoms (mapv (fn [i] [i :user/email (str "user-" i "@example.com") 0 1])
+                     (range 200))
+        fx (publish-into-file datoms)]
+    (try
+      (let [counter (counting-content-store (:store fx))]
+        #?(:cljd
+           (is
+             true
+             "counting harness requires with-redefs, unavailable on ClojureDart")
+           :default (with-redefs [jing-coordinate/open! (fn [_]
+                                                          (:store counter))]
+                      (let [query-form '[:find ?v :where [$ 42 :user/email ?v]]
+                            res (query/collect (query/q query-form
+                                                        (query/current
+                                                          (:descriptor fx))))
+                            total-gets ((:gets counter))]
+                        (is (= #{["user-42@example.com"]} res))
+                        ;; Total gets includes: 1 (manifest) + seek path to
+                        ;; leaf + 1 (take-while bound leaf). For 200
+                        ;; elements, tree height is <= 2. Max gets <= 4.
+                        ;; Eager read-datoms would have read all node
+                        ;; blobs.
+                        (is (<= total-gets 4)
+                            (str "lazy point query used "
+                                 total-gets
+                                 " gets, strictly bounded <= 4"))
+                        (is (< total-gets 10)
+                            "strictly fewer gets than reading full index")))))
+      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+
+
+(deftest lazy-published-multi-clause-budget-is-strictly-bounded
+  (let [datoms (mapcat (fn [i]
+                         [[i :user/email (str "user-" i "@example.com") 0
+                           1] [i :user/age i 0 1]])
+                       (range 200))
+        ;; branching-factor 4 makes a real multi-node tree (~135 nodes for
+        ;; 400 rows), so a full drain is distinguishable from a seek path.
+        ;; At the default 512 every row fits one leaf and even a drain
+        ;; looks lazy.
+        fx (publish-into-file datoms "pub-multi" {:branching-factor 4})]
+    (try
+      (let [counter (counting-content-store (:store fx))]
+        #?(:cljd
+           (is
+             true
+             "counting harness requires with-redefs, unavailable on ClojureDart")
+           :default
+           (with-redefs [jing-coordinate/open! (fn [_] (:store counter))]
+             ;; Two pattern clauses over one source: plan-where runs the
+             ;; clause-cost estimator on both. The estimator must not
+             ;; force the deferred relation, or planning alone would
+             ;; drain the whole source and the lazy path would exist only
+             ;; for single-clause queries.
+             (let [query-form '[:find ?v ?age :where [$ 42 :user/email ?v]
+                                [$ 42 :user/age ?age]]
+                   res (query/collect (query/q query-form
+                                               (query/current (:descriptor
+                                                                fx))))
+                   total-gets ((:gets counter))]
+               (is (= #{["user-42@example.com" 42]} res))
+               ;; 1 manifest + two seek paths (tree height ~5 at bf 4) +
+               ;; boundary leaves.
+               (is
+                 (<= total-gets 15)
+                 (str
+                   "two-clause lazy query used "
+                   total-gets
+                   " gets, bounded <= 15: the planner must not drain the source"))
+               (is
+                 (< total-gets 50)
+                 "a full drain of this ~135-node tree would exceed 50 gets")))))
+      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+
+
+(deftest lazy-published-rest-pattern-regression
+  (testing
+    "a non-3-fixed / rest pattern clause falls back to non-nil shared delay ::relation"
+    (let [test-datoms [[1 :person/name "Ada" 0 1] [2 :person/name "Grace" 0 1]]
+          fx (publish-into-file test-datoms)
+          lazy-cur (query/current (:descriptor fx))
+          eager-cur (query/current (rel test-datoms))]
+      (try
+        (let [query-form '[:find ?e ?name :where
+                           [?e :person/name ?name & ?rest]]]
+          (is
+            (= #{[1 "Ada"] [2 "Grace"]}
+               (query/collect (query/q query-form lazy-cur)))
+            "literal anchor: the lazy fallback returns real rows, not an empty parity")
+          (is (= (query/collect (query/q query-form eager-cur))
+                 (query/collect (query/q query-form lazy-cur)))))
+        (testing
+          "match over a lazy current view forces the shared relation and returns real tuples"
+          (let [pattern ['_ :person/name "Ada"]]
+            (is (= [[1 :person/name "Ada"]] (query/match lazy-cur pattern))
+                "literal anchor for match, not an eager/lazy-only parity")
+            (is (= (query/match eager-cur pattern)
+                   (query/match lazy-cur pattern)))))
+        (finally (jing/close! (:store fx)) (cleanup-file (:path fx)))))))
+
+
+(deftest lazy-published-mixed-multi-source-join
+  (testing
+    "one lazy published current + one eager query/relation in a single q with :in $ $2"
+    (let [users [[1 :user/name "Alice" 0 1] [2 :user/name "Bob" 0 1]]
+          roles [[1 :user/role :admin] [2 :user/role :member]]
+          fx (publish-into-file users)
+          lazy-users (query/current (:descriptor fx))
+          eager-roles (query/relation roles)]
+      (try (let [query-form '[:find ?name ?role :in $users $roles :where
+                              [$users ?e :user/name ?name]
+                              [$roles ?e :user/role ?role]]]
+             (is (= #{["Alice" :admin] ["Bob" :member]}
+                    (query/collect
+                      (query/q query-form lazy-users eager-roles)))))
+           (finally (jing/close! (:store fx)) (cleanup-file (:path fx)))))))
+
+
+(deftest lazy-published-history-and-as-of-stay-eager-and-correct
+  (let [test-datoms [[1 :item/status :draft 1 1] [1 :item/status :draft 2 0]
+                     [1 :item/status :published 2 1]
+                     [1 :item/status :archived 3 1]]
+        fx (publish-into-file test-datoms)
+        desc (:descriptor fx)
+        eager-source (rel test-datoms)]
+    (try
+      (testing "history view over published descriptor matches eager history"
+        (let [q-hist '[:find ?v ?t ?op :where [1 :item/status ?v ?t ?op]]]
+          (is (= (query/collect (query/q q-hist (query/history eager-source)))
+                 (query/collect (query/q q-hist (query/history desc)))))))
+      (testing
+        "as-of current view over published descriptor matches eager as-of"
+        (let [q-cur '[:find ?v :where [1 :item/status ?v]]]
+          (is (= (query/collect (query/q q-cur (query/current eager-source 2)))
+                 (query/collect (query/q q-cur (query/current desc 2)))))
+          (is (= #{[:published]}
+                 (query/collect (query/q q-cur (query/current desc 2)))))))
+      (testing
+        "as-of history view over published descriptor matches eager as-of history"
+        (let [q-hist '[:find ?v ?t ?op :where [1 :item/status ?v ?t ?op]]]
+          (is (= (query/collect (query/q q-hist (query/history eager-source 2)))
+                 (query/collect (query/q q-hist (query/history desc 2)))))))
+      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+
+
+(deftest lazy-published-datoms-projections-match-eager
+  (let [test-datoms [[1 :work/task "Code" 10 1] [1 :work/owner "Ada" 11 1]
+                     [2 :work/task "Review" 12 1]]
+        fx (publish-into-file test-datoms)
+        lazy-cur (query/current (:descriptor fx))
+        eager-cur (query/current (rel test-datoms))]
+    (try
+      (let [{lazy-idx ::query/fact-index, lazy-owned ::query/owned}
+            (query/realize-db-value! lazy-cur)
+            {eager-idx ::query/fact-index, eager-owned ::query/owned}
+            (query/realize-db-value! eager-cur)]
+        (try
+          (testing
+            "datoms [e a v] projections match eager (note: t/m differ by design: eager has synthetic t=0 m=1, lazy has real provenance t/m)"
+            (let [project-eav (fn [d-seq]
+                                (mapv (fn [d]
+                                        [(index/datom-e d)
+                                         (index/datom-a d)
+                                         (index/datom-v d)])
+                                      d-seq))]
+              (is (= (project-eav (query/datoms eager-idx 1 '_ '_))
+                     (project-eav (query/datoms lazy-idx 1 '_ '_))))
+              (is (= (project-eav (query/datoms eager-idx '_ :work/task '_))
+                     (project-eav (query/datoms lazy-idx '_ :work/task '_))))
+              (is (= (project-eav (query/datoms eager-idx '_ '_ "Ada"))
+                     (project-eav (query/datoms lazy-idx '_ '_ "Ada"))))))
+          (finally (query/close-owned! lazy-owned)
+                   (query/close-owned! eager-owned))))
+      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+
+
+(deftest lazy-published-current-closes-owned-store-once
+  (let [test-datoms [[1 :work/task "Code" 10 1]]
+        fx (publish-into-file test-datoms)]
+    (try
+      #?(:cljd
+         (is
+           true
+           "the close-once spy needs with-redefs, unavailable on ClojureDart; equivalence tests cover correctness there")
+         :default
+         (let [closes (atom 0)
+               orig-close jing/close!]
+           (with-redefs [jing/close! (fn [handle]
+                                       (swap! closes inc)
+                                       (orig-close handle))]
+             (is (= #{[1]}
+                    (query/collect (query/q
+                                     '[:find ?e :where [?e :work/task "Code"]]
+                                     (query/current (:descriptor fx))))))
+             (is
+               (= 1 @closes)
+               "index-routed query: one owned realization means exactly one store close")
+             (reset! closes 0)
+             (is (= #{[1 :work/task "Code"]}
+                    (query/collect (query/q
+                                     '[:find ?e ?a ?v :where [?e ?a ?v & _]]
+                                     (query/current (:descriptor fx))))))
+             (is (= 1 @closes)
+                 "scan query over the lazy view: also exactly one close"))))
+      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))

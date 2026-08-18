@@ -97,13 +97,17 @@ Each database input is one logical relation:
 - **A wrapped relation** — `(query/relation [[...] ...])` wrapping arbitrary and mixed arities. Arity never selects an interpretation.
 - **A wrapped entity-map collection** — `(query/entity-map-relation [{:db/id e, :work/status :todo, ...} ...])`. Normalized to datoms first: each `k v` pair becomes an `[e k v]` fact. Identity is explicit: the read side is pure and never mints an entity id, so every entity map must carry `:db/id`, and a map without one throws an informative `ex-info` rather than inventing a tempid.
 
-`q` eagerly consumes every input before returning. It interprets datom views,
-opens and closes descriptor-owned source realizations during evaluation, and
-directly opens ordinary stream descriptors. Already-opened realizations
-are borrowed and never closed. It performs arbitrary-dimensional exact
-positional matching/unification (with explicit `&` tail syntax) and returns a
-local closed bounded result DaoStream. `query/collect` materializes conventional
-Datalog shapes.
+`q` consumes each input exactly as far as evaluation requires. It interprets
+datom views, opens and closes descriptor-owned source realizations during
+evaluation, and directly opens ordinary stream descriptors. A `current` view
+(`as-of` nil) over a published covered index is realized **lazily**: the
+covered sets are re-attached as restored B-trees and only the slices the plan
+touches are fetched; every other input — history views, `as-of` bounds, raw
+streams, in-process relations — is consumed eagerly before returning.
+Already-opened realizations are borrowed and never closed. It performs
+arbitrary-dimensional exact positional matching/unification (with explicit `&`
+tail syntax) and returns a local closed bounded result DaoStream.
+`query/collect` materializes conventional Datalog shapes.
 
 The local result realization and derived realizations returned when a view is
 applied to an already-open source are intentionally not DaoStream descriptors:
@@ -120,12 +124,21 @@ coordination between agents still runs through shared content storage.
 A bounded DaoStream descriptor is opened into a realization.
 
 - **The implemented published-index DaoStream adapter** opens the declared
-  DaoJing coordinate, validates the manifest address, walks EAVT with
-  `index/read-datoms`, and retains the resulting canonical d5 vector. This is
-  eager and gives `q` one uniform Reader+Bound surface.
-- **The lower-level index library also exposes lazy restoration** through
-  `index/restored-indexes`. Query does not currently exploit that path; a
-  future positional-index interpreter may do so without changing `q`.
+  DaoJing coordinate, validates the manifest address, fetches only the
+  manifest, and re-attaches the four covered sets lazily through
+  `index/restored-indexes` (zero node fetches at open). The EAVT row vector is
+  deferred behind a delay in the realization and forced only by row consumers.
+  This gives `q` one uniform Reader+Bound surface.
+- **The engine consumes those sets directly for selective reads.** A `current`
+  view with `as-of` nil routes `::fact-index` to the restored sets, so
+  3-fixed clauses slice through `subseq-from` and fault only the seek path
+  plus the matching range. What falls back to the eager drain of the deferred
+  rows: history views, `as-of` bounds, and clauses the index route cannot
+  serve — rest patterns and 4+-slot patterns. An *unselective* 3-fixed
+  clause (no bound e/a/v) is a third path: it stays on the index route but
+  takes `select-by-index`'s `(seq (:eavt idx))` fallback, a full walk of the
+  restored tree resolved on the fly — same fetches as a drain, no
+  pre-resolution pass. `read-datoms` remains the explicit eager path.
 
 `index/read-manifest` validates before reading: the value at the manifest
 address must be exactly `{:indexes {:eavt … :aevt … :avet … :vaet …} :count n
@@ -163,8 +176,9 @@ database interpreters.
   when the author is offline — the decentralized analog of Datomic's
   transactor-built index. Implemented on JVM,
   ClojureScript, and ClojureDart on `dao.data.btree` (see
-  `dao.space.index.md`). The current stream adapter walks EAVT eagerly;
-  `restored-indexes` remains an explicit lower-level lazy API.
+  `dao.space.index.md`). The stream adapter opens lazily and `current`
+  (as-of nil) selective reads run on the restored trees; eager walks serve
+  `history`, `as-of`, and full scans.
 
 ## The `read-datoms` contract
 
@@ -202,10 +216,34 @@ before building indexes from them — `dao.jing` itself never decodes meaning.
   that supplies `t = 0` and `m = dao.datom/default-op` (*Source
   polymorphism*).
 
-The published-index DaoStream adapter currently uses this eager path. Lazy
-`restored-indexes` remains available to a future positional-index interpreter,
-but it is not hidden inside `q` and is not part of the current descriptor-open
-contract.
+The published-index DaoStream adapter opens lazily (manifest only) and the
+engine uses the restored sets directly for `current` (as-of nil) selective
+reads. This eager path remains the contract for `history`, for every `as-of`
+bound (the clause-level index route has no as-of plumbing; `bound-datoms`
+applies the bound at the relation level), and for any query whose clauses
+genuinely scan. Two observable consequences of the lazy route:
+
+- **t/m provenance.** The eager in-memory fact index rebuilds rows with
+  synthetic `t = 0` and `m = dao.datom/default-op`; the restored sets carry the
+  real `t`/`m`. The public `datoms` selector exposes the difference. Clause
+  evaluation projects `[e a v]`, so `q`/`pull`/`get-else` results are
+  unaffected; parity tests pin the `[e a v]` projections.
+- **Unselective scans do more CPU work lazily.** A clause with no bound
+  e/a/v walks the full d5 history through the `(seq (:eavt idx))` fallback and
+  resolves current state on the fly, where the eager path scans pre-resolved
+  current-only facts. Same fetches, more per-row work — a cost note, not a
+  correctness difference.
+- **After close, loudness is the backend's.** A deferred row seq faulted
+  after `close!` has run reads through the closed store: real backends throw
+  (`"missing index segment"` when a get returns the absent sentinel, or the
+  backend's own read error); a backend whose close is a no-op (an in-memory
+  test handle) keeps serving. Never silently empty. Exposure is limited to
+  manually forcing rows after `close!` — `q`/`match`/`pull` consume and close
+  inside one dynamic extent.
+- **Planning never forces.** The clause-cost estimator reads the relation's
+  truthiness without forcing it; a deferred relation is always truthy, so
+  multi-clause queries plan without draining the source and each clause
+  faults only the slices it touches (pinned by the multi-clause budget test).
 
 ## Current-state resolution
 

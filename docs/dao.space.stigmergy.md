@@ -88,8 +88,10 @@ The substrate is real and tested:
 - **Owner-built indexes** — `publish-index!` persists a stream's covered indexes as
   content-addressed segments. `published-index` turns a resolvable DaoJing
   coordinate plus manifest address into a transportable exact-bounded d5
-  descriptor. Its current stream adapter eagerly walks EAVT; lazy restored
-  B-tree traversal remains a lower-level index API.
+  descriptor. Opening it fetches only the manifest and re-attaches the
+  covered sets lazily; selective current reads fault only the slices they
+  touch, and history, `as-of`, and rest/4+-slot scans retain the eager EAVT
+  walk (an unselective 3-fixed clause walks the restored tree instead).
 - **Provenance slots** — every datom carries `t` and `m`; the `m` entity is where
   assert/retract and authorship metadata live (`datom-spec.md`).
 

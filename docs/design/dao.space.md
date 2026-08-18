@@ -150,8 +150,10 @@ The library reads from **two layers**, reflecting where its tuple inputs live:
   scratchpad, a test fixture, or the agent's own recent writes.
 - **Published sources in `dao.jing`** — every agent's published B-tree segments, exposed
   as a bounded DaoStream descriptor.
-  The implemented adapter validates and eagerly walks the manifest into a
-  retained logical d5 realization. This is the shared layer: other
+  The implemented adapter validates the manifest and re-attaches the covered
+  sets lazily; selective `current` reads fault only the slices they touch,
+  while history, `as-of`, and rest/4+-slot scans retain the eager walk (an
+  unselective 3-fixed clause walks the restored tree instead). This is the shared layer: other
   agents' data reaches you through the content store, never through their in-process
   state.
 
@@ -231,11 +233,13 @@ transactor-side indexing library, `docs/design/dao.space.index.md`) snapshots th
 local stream, builds the four covered indexes as immutable, content-addressed
 `dao.data.btree` segments, and appends the node blobs then the manifest to one intake
 stream selected from an explicit pool; a DaoJing observer materializes them into content
-storage. A published index descriptor opens through a DaoJing coordinate and
-eagerly walks EAVT into a retained canonical d5 stream on every platform. The
+storage. A published index descriptor opens through a DaoJing coordinate,
+fetches only the manifest, and re-attaches the covered sets lazily on every
+platform; selective `current` reads fault only the seek path plus the matching
+range. The
 explicitly wrapped raw-datoms source path
 remains the "rebuild per query" baseline for data that was never published. Remaining
-gaps: segment GC, lazy published indexed snapshots, k-way merge, and generic
+gaps: segment GC, k-way merge, and generic
 positional indexes; see
 [`dao.space.query.md`](dao.space.query.md), *Index Realization* and *Open
 items*.

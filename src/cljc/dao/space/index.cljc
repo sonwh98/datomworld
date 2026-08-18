@@ -341,15 +341,16 @@
 
 
 (defrecord PublishedIndexStream
-  [descriptor datoms store]
+  [descriptor datoms indexes store]
 
   ds/IDaoStreamReader
 
   (next
     [_ cursor]
-    (let [position (or (:position cursor) 0)]
-      (if (< position (count datoms))
-        {:ok (nth datoms position), :cursor {:position (inc position)}}
+    (let [rows (force datoms)
+          position (or (:position cursor) 0)]
+      (if (< position (count rows))
+        {:ok (nth rows position), :cursor {:position (inc position)}}
         :end)))
 
 
@@ -361,6 +362,23 @@
   (closed? [_] true))
 
 
+(defn covered-indexes
+  "Return the {:eavt :aevt :avet :vaet} covered d5 sets carried in a
+   realization's :indexes field, or nil when the realization carries none.
+   Structural check only: the realization must be a map whose :indexes field
+   is a map with exactly those four keys, so it is clj/cljs/cljd-portable and
+   never an instance/type check. It means the realization carries covered d5
+   sets, not that it is lazy: an in-memory index-datoms map is structurally
+   indistinguishable, and that is fine (resolution happens the same way
+   either way)."
+  [realization]
+  (when (map? realization)
+    (let [indexes (:indexes realization)]
+      (when (and (map? indexes)
+                 (= #{:eavt :aevt :avet :vaet} (set (keys indexes))))
+        indexes))))
+
+
 (ds/defopen :dao.space.index/published
             [descriptor]
             (let [{:keys [content-store manifest-address]} descriptor
@@ -369,11 +387,14 @@
                 (throw (ex-info "invalid published-index descriptor"
                                 {:descriptor descriptor, :expected expected})))
               (let [store (jing-coordinate/open! content-store)]
-                (try (with-meta (->PublishedIndexStream
-                                  descriptor
-                                  (read-datoms store manifest-address)
-                                  store)
-                       {:dao.stream/descriptor descriptor})
+                (try (let [manifest (read-manifest store manifest-address)
+                           indexes (restored-indexes store manifest)]
+                       (with-meta (->PublishedIndexStream
+                                    descriptor
+                                    (delay (vec (bt/seq (:eavt indexes))))
+                                    indexes
+                                    store)
+                         {:dao.stream/descriptor descriptor}))
                      (catch #?(:clj Throwable
                                :cljs :default
                                :cljd Object)
