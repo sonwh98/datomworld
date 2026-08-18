@@ -648,8 +648,8 @@ ones. Two obligations follow:
 - `dao.space.index` passes `(:count manifest)` and the manifest's
   `:branching-factor` (absent ⇒ 512) when restoring.
   `publish-index!` has always written `:count` alongside `:indexes`, so a
-  manifest without `:count` is not a legacy shape — it is foreign or
-  hand-built. Policy: such manifests are read by the eager path
+  manifest without `:count` did not come from this publisher — it is foreign
+  or hand-built. Policy: such manifests are read by the eager path
   (`walk-index-datoms`), never by `restore-tree`.
 - Node-level recursive `count` is **not ported** (§3.3.1, §3.3.3): `cnt` is
   maintained incrementally by `conj`/`disj` and bulk build, and a recursive

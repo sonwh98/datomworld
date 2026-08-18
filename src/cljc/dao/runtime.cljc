@@ -228,8 +228,8 @@
 (defn run-once
   "Fetch one ready task and resume it.
    Returns updated state or nil if no work.
-   If the next entry has no :resume function (raw legacy entry), returns nil
-   so the host can handle it via legacy dispatch."
+   If the next entry has no :resume function, it is not runnable by
+   run-once; returns nil so the host can handle the entry itself."
   [rt]
   (let [queue (:ready-queue rt)]
     (if (seq queue)

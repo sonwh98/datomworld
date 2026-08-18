@@ -201,8 +201,9 @@
    :empty if stream is open and no values available, or :end if stream is closed and drained.
 
    NOT part of the canonical model. Use (next stream cursor) with cursor-based
-   reading for reliable, non-destructive traversal. drain-one! is provided for
-   legacy compatibility and specific use cases requiring destructive consumption.
+   reading for reliable, non-destructive traversal. drain-one! exists for
+   consumers that need destructive consumption (dao.runtime's take, the
+   yin.vm engine, writer-waiter wakeup).
 
    When a writer-waiter is woken, its datom is atomically written to the stream
    and included in the :woke return value."

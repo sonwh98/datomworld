@@ -13,7 +13,7 @@
      IDaoStreamBound  — close! and closed? manage lifecycle
 
    Utilities (non-protocol):
-     drain-one!      — destructive read from remote-stream (legacy support)
+     drain-one!      — destructive read from remote-stream (consumers needing take semantics)
      await-connected — poll a stream's connection-status until :connected or timeout"
   (:require #?(:cljd ["dart:async" :as async])
             #?(:cljd ["dart:core" :as core])

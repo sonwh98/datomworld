@@ -7,7 +7,7 @@
    realization. Structural dispatch checks realization first, then
    descriptor; raw vectors and maps are rejected. `q` returns a local,
    closed, distinct-result DaoStream realization and `collect` materializes
-   it into the legacy relation/scalar/tuple/collection/return-map shapes.
+   it into the relation/scalar/tuple/collection/return-map shapes.
 
    `current` and `history` are the explicit d5 interpreters: pure semantic
    view values interpreted by q/match/pull for descriptor input, and read-only
@@ -1430,7 +1430,7 @@
    input is a bounded DaoStream (an exact-bound descriptor or an opened,
    closed realization); scalar/tuple/coll/relation :in bindings are plain data.
    Returns a local bounded distinct-result DaoStream realization; `collect`
-   materializes it into the legacy find shapes."
+   materializes it into the find shapes."
   [query & inputs]
   (let [{:keys [find in with where keys syms strs]} (normalize-query query)
         in-patterns (or in '[$])

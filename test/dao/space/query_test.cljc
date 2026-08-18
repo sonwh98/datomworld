@@ -6,7 +6,7 @@
    descriptor (`:dao.stream/type` + `:dao.stream/bound`) or an already-opened,
    closed realization. Raw vectors and maps are rejected. `q` returns a local
    bounded distinct-result DaoStream realization and `collect` materializes it
-   into the legacy relation/scalar/tuple/coll/return-map shapes. `current` and
+   into the relation/scalar/tuple/coll/return-map shapes. `current` and
    `history` are the explicit d5 interpreters."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
@@ -556,10 +556,10 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; Full evaluator behaviors survive the stream migration
+;; :in bindings and the full evaluator surface
 ;; ---------------------------------------------------------------------------
 
-(deftest in-bindings-still-work
+(deftest in-bindings-scalar-and-relation
   (testing "scalar binding"
     (is (= #{[1]}
            (qcur '[:find ?e :in $ ?name :where [?e :name ?name]]
@@ -586,7 +586,7 @@
                b)))))
 
 
-(deftest negation-and-aggregation-still-work
+(deftest negation-and-aggregation
   (let [datoms [[1 :work/posted true 1 1] [1 :work/task "Clean" 1 1]
                 [2 :work/posted true 1 1] [2 :work/task "Buy" 1 1]
                 [2 :work/claims "u1" 1 1]]]
