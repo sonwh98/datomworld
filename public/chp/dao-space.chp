@@ -83,17 +83,20 @@
         [:div.section-inner
          [:h2 "One Point in a Larger Space"]
          [:p
-          "Datom.world admits a moduli space of databases because semantics belongs to the interpreter observing DaoStream. "
-          "DaoSpace is " [:strong "one point in that space"] ", selected by exact associative tuple matching and generative append-only communication. "
-          "DaoField is a sibling selected by metric proximity; graph, document, columnar, or temporal interpreters may define other points."]
+          "Datom.world admits a moduli space of databases because of its core axiom: " [:strong "interpretation is external to the stream"] ". "
+          "Streams carry uncommitted byte syntax, while external interpreters materialize those bytes into tuples, vector fields, document trees, or graph projections as fit for their context."]
          [:p
-          "Covered indexes, positional indexes, indexed snapshots, entity projections, and physical traversal are access paths inside DaoSpace. They change cost or ergonomics, not its semantics. "
-          "The moment reference-following traversal replaces associative matching as the defining observation, the interpreter has left DaoSpace and moved to another point."]
+          "DaoSpace is " [:strong "the tuple space point in that moduli space"] ", selected by exact positional matching and generative append-only communication. "
+          "DaoField is a metric sibling selected by distance; graph, document, columnar, or temporal interpreters define other observation regimes."]
          [:p
-          [:a {:href "/blog/daospace-moduli-space-of-databases.blog"} "DaoSpace Is a Tuple Space, Not a Moduli Space"]
-          " explains the correction. "
+          "Covered indexes, positional indexes, indexed snapshots, and entity projections are access coordinates inside DaoSpace—they alter access cost and ergonomics, not logical semantics. "
+          "The moment a different observation algebra (such as metric distance or declared graph traversal) replaces associative matching, the system moves to another point in the space."]
+         [:p
+          "To understand how externalized interpretation generates this landscape, read "
           [:a {:href "/blog/datomworld-moduli-space-of-databases.blog"} "Datom.world: A Moduli Space of Databases"]
-          " describes the larger interpreter space and DaoJing's role as semantic-neutral storage."]]]
+          ", or see "
+          [:a {:href "/blog/daospace-moduli-space-of-databases.blog"} "DaoSpace Is a Tuple Space, Not a Moduli Space"]
+          " for the precise distinction between the tuple space and the broader moduli space."]]]
        [:section.section-dark
         [:div.section-inner
          [:h2 "Lineage"]

@@ -2,7 +2,7 @@
        :date #inst "2026-08-15T00:00:00.000-00:00",
        :abstract
        [:p
-        "Datom.world does not prescribe one universal database. It supplies a stream substrate and a discipline: semantics belongs to the interpreter. Each observation regime defines a point in a moduli space of possible databases."],
+        "Datom.world does not prescribe one universal database. It supplies a stream substrate and a core axiom: interpretation is external to the stream. By taking arbitrary byte streams and materializing them into tuples or any other data structure fit for context, each observation regime defines a point in a moduli space of possible databases."],
        :content
        [:section.blog-article
         [:div.section-inner
@@ -15,10 +15,10 @@
 
           [:blockquote
            [:p
-            "Semantics is in the interpreter observing DaoStream, not in the stream."]]
+            "The core axiom: interpretation is external to the stream. Semantics lives in the interpreter, not in the data."]]
 
           [:p
-           "Once that principle is taken seriously, Datom.world does not contain one inevitable database. It contains a space of possible database interpreters. Each coherent choice of observation semantics is one point in that space."]
+           "Because interpretation is external, an interpreter can take arbitrary byte streams and materialize them as tuples, key/value entries, document trees, vectors, or graph projections—whatever data structure is fit for its operational context. Datom.world does not contain one inevitable database; it contains a space of possible database interpreters. Each coherent choice of observation semantics and materialization is one point in that space."]
 
           [:h2 "What Defines a Point"]
 
@@ -38,13 +38,13 @@
           [:h2 "DaoStream Is the Substrate"]
 
           [:p
-           "DaoStream is the abstraction boundary underneath every point. A stream may be local or remote, open or exact-bounded, and it may carry tuples, descriptors, indexes, programs, or any other values a consumer needs."]
+           "DaoStream is the abstraction boundary underneath every point. A stream may be local or remote, open or exact-bounded, carrying raw bytes, tuples, descriptors, indexes, programs, or any other payloads a consumer needs."]
 
           [:p
-           "The stream supplies sequence, bounds, and explicit causality. It does not decree that a value is a datom, graph edge, vector, document, or database row. Those are interpretations applied by observers."]
+           "The stream supplies sequence, causal bounds, and provenance, but it remains pure syntax. It never decrees whether a byte sequence is intrinsically a datom, graph edge, vector embedding, document, or database row. Interpreters take these arbitrary byte streams and materialize them into whatever data structures and query capabilities fit their context."]
 
           [:p
-           "This keeps the substrate stable while database ideas evolve. A new database point can be introduced by publishing a new interpreter rather than changing DaoStream or rewriting every stored value."]
+           "This keeps the substrate stable while database paradigms evolve. A new database point can be introduced by publishing a new interpreter over existing streams rather than changing DaoStream or rewriting stored values."]
 
           [:h2 "DaoJing: Shared Storage Without Shared Semantics"]
 
@@ -149,10 +149,10 @@
 
           [:pre
            [:code
-            "DaoStream + content-addressed KV materialization -> DaoJing storage\nDaoStream + exact positional unification       -> DaoSpace\nDaoStream + metric proximity                   -> DaoField\nDaoStream + another explicit observation       -> another database point"]]
+            "DaoStream (raw bytes / syntax) + content-addressed KV materialization -> DaoJing storage\nDaoStream (raw bytes / syntax) + exact positional unification       -> DaoSpace (tuples & Datalog)\nDaoStream (raw bytes / syntax) + metric proximity                   -> DaoField (vectors & distances)\nDaoStream (raw bytes / syntax) + another explicit observation       -> another database point"]]
 
           [:p
-           "The values can remain the same. The storage can remain the same. What changes from point to point is the interpreter and the questions it makes possible."]
+           "The underlying byte streams can remain the same. The storage substrate can remain the same. What changes from point to point is the interpreter, how it materializes those bytes into context-specific data structures, and the questions it makes possible."]
 
           [:p
            [:strong
