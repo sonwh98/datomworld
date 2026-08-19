@@ -23,7 +23,7 @@
                    "file-output-stream"
                    (make-array java.nio.file.attribute.FileAttribute 0))
         path (str (.resolve temp-dir "out.bin"))]
-    (let [stream (ds/open! {:type :file-output-stream, :path path})]
+    (let [stream (ds/open! {:dao.stream/type :file-output-stream, :path path})]
       (testing "writes append in order and create the file if needed"
         (is (= :ok (:result (ds/append! stream (byte-array [1 2 3])))))
         (is (= :ok (:result (ds/append! stream (byte-array [4 5])))))

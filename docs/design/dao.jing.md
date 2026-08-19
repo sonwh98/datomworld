@@ -1,348 +1,361 @@
-# DaoJing: The Storage Boundary
+# DaoJing: The Content-Addressed Storage Observer
+
+Status: implemented. The observer (`observer-state` / `observe-step!`) and the
+plain-data content-store handles described here are the current
+`src/cljc/dao/jing*.cljc` code. What remains open — the final canonical
+encoding, durable observer checkpoints, explicit materialization
+acknowledgement, garbage collection, and async hydration — is listed under
+*Open items and current limitations*.
 
 **Related documents:**
-- `docs/design/dao.space.md` — the tuple space that emerges when interpreters match over `dao.jing`
-- `docs/design/dao.stream.md` — the append-only log primitive datoms are written through
-- `docs/design/dao.stream.file.md` — the file-backed byte stream member logs use
-- `docs/agents/datom-spec.md` — datoms, content-addressed identity, the gauge/base framing
-- `docs/datomic.md` — the deep dive on the Datomic storage architecture this design maps to
-- `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the decision this design records
-- `docs/postgres.md` — the deep dive on the PostgreSQL architecture this design defines itself against
-- `docs/design/dao.space.v0.md` — superseded framing; still the reference for resources, typed streams, and the geometry/gauge material
-- `docs/design/dao.space.locality.md`, `dao.space.metaphors.md`, `dao.space.discrete-to-continuous.md` — the geometry/locality cluster: theoretical justification (gauge, spectral, locality) the spec defers to, not required to read it
-- `docs/design/yin.vm.ffi.md` — Yin.VM's generic `dao.stream.apply` bridge (`yin/vm/ffi.cljc`, implemented), one consumer `IKVStore` could be exposed through; registering `IKVStore` as handlers there is designed, not built (see Reaching `IKVStore`, below)
-- `docs/design/dao.space.security.md`, `docs/design/adr/0002-share-governed-computation-not-data.md` — the controlled-mode model that motivates exposing storage through a mediated bridge rather than a direct binding
 
-## What DaoJing Is
+- `docs/design/dao.space.md` — the tuple space built by interpreters above
+  storage
+- `docs/design/dao.space.index.md` — the owner-side covered-index publisher
+- `docs/design/dao.space.query.md` — the reader-side index consumer
+- `docs/design/dao.jing.dht.md` — the DHT distribution backend
+- `docs/design/dao.stream.md` — the append-only stream primitive
+- `docs/design/dao.data.btree.md` — the covered-index node format
+- `docs/agents/datom-spec.md` — the datom and tuple specification
+- `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the storage-boundary
+  decision
+- `docs/datomic.md` — the Datomic storage architecture that informs the
+  separation of storage and interpretation
 
-`dao.jing` is the **storage boundary**: a decentralized key-value store of **opaque bytes**,
-designed to hold immutable, content-addressed segments plus mutable stream-root references. It
-is **pure syntax** — it holds *form*, never *meaning*. That design intent is a discipline
-callers observe, not a guarantee the protocol enforces: the `IKVStore` contract itself (`put!` /
-`cas!` / `get` over caller-supplied keys) does not require keys to be content-derived or values
-to be immutable — a `put!` can overwrite any key with anything (see The Segment and Root
-Keyspace, below, and `dao.jing.dht.md`, "Key classes"). What any byte *denotes* — "datom,"
-"view," "query" — is **semantics an interpreter projects onto it**, never something storage
-knows. Concretely it is a dumb key-value store (the `IKVStore` protocol), the decentralized
-analog to Datomic's storage layer. It is therefore **not strict about what it holds**: it
-leaves all interpretation — materialization, matching, querying — to the readers above it,
-and whatever structures those interpreters build are, to the store, just more bytes. Datom
-segments are what it is built to hold, though storage knows them only as bytes.
+## Definition
 
-A store is defined by **what it holds, not the pipe data arrived through.** `dao.jing` holds
-opaque bytes — read as datoms by the layers above, never known as datoms by storage; it is
-*not* "a set of streams." Datoms enter through `dao.stream` member logs (the write path,
-specified above this boundary), exactly as a transaction log feeds Datomic's storage, but the
-streams are upstream of the store, not its identity.
+A `dao.jing` observes an explicit pool of intake `dao.stream` values and
+materializes their elements into content-addressed key-value storage.
 
-The physical `IKVStore` is deliberately dumb. It does not know what a datom is, it does not
-pattern-match, and it does not run Datalog. Those belong to the embeddable reader above it.
-This is the Datomic discipline taken literally: **storage is a dumb KV blob store; all
-intelligence lives in the embeddable reader on top.** Keeping the boundary this thin is what
-lets storage scale and be swapped without touching query logic.
+For every opaque payload `x` arriving through any stream in the pool, DaoJing
+performs the same storage operation:
 
-## The Storage Interface (writer ↔ storage ↔ reader)
-
-`dao.jing/IKVStore` is the single interface a writer publishes bytes through and a reader
-reads them back from; it does not interpret what passes through it. This is the storage API
-both sides share — **not** a query API.
-
-```clojure
-;; The dumb storage API (see src/cljc/dao/jing.cljc) — all five IKVStore methods
-(kv/put! store :segment-id v-map)      ; write a fresh immutable segment chunk
-(kv/cas! store :root old-rev v-map)    ; advance a mutable root reference
-(kv/get store :root nil)               ; read a mutable root reference
-(kv/get store :segment-id nil)         ; read an immutable segment chunk
-(kv/delete! store :segment-id)         ; remove an entry by key
-(kv/close! store)                      ; release the backend's resources
+```text
+bytes = canonical-encode(x)
+key   = content-hash(bytes)
+KV[key] = x                 ; insert if absent
 ```
 
-An agent accumulates datoms by appending to its own `dao.stream` log before anything reaches
-`dao.jing`; which streams currently count as members of the space is tracked there too.
-`dao.jing` never sees that log or its membership — only the eventual `put!`/`cas!` call that
-lands a byte blob at a key, as shown above.
+DaoJing knows how to:
 
-## The Segment and Root Keyspace
+- observe the streams in its configured pool;
+- retain the operational cursor needed to continue reading each stream;
+- canonically encode an element;
+- derive its content address;
+- insert it idempotently into the materialization target; and
+- retrieve content by its address.
 
-The two write paths shown above share one keyspace under a discipline the store does not
-enforce: immutable segments are written with `put!` under fresh, content-derived keys and are
-never rewritten; the mutable root reference is written with `cas!` under optimistic
-concurrency. Keep these keyspaces disjoint — `put!` re-stamps `:rev` to 0 unconditionally, so
-a `put!` over a `cas!`-governed key resets its revision and breaks the optimistic-concurrency
-guard.
+DaoJing does not know whether an element is a datom, B-tree node, covered
+index, manifest, program, image, or any other kind of value. Meaning belongs
+to the interpreter that produced or consumes the content.
 
-The content-derived key half of that discipline has a concrete mechanism: `dao.jing` itself
-(not any one backend) owns `canonical` (order-normalize a value so equal values print
-identical bytes, `defn-`, private), `content-hash` (sha256 of the canonical print, excluding
-`:rev`), `segment-key` (mint `:segment/sha256-<hash>` from a v-map; the prefix keeps the keyword readable EDN), and `key-class` (dispatch a key
-to `:segment` or `:root`) — see `src/cljc/dao/jing.cljc`. `dao.jing.dht` (`dao.jing.dht.cljc`)
-consumes these (`jing/segment-key`, `jing/key-class`, `jing/content-hash`) for its own routing
-and key-discipline enforcement rather than defining its own copies — see `dao.jing.dht.md`,
-*Key classes*. Every backend (Mem, File, DHT alike) can now mint content-addressed keys the
-same way, and `put!`'s "fresh, content-derived keys" wording above is something any caller can
-actually invoke, not a convention only the DHT backend happened to honor. This also fixes the
-dependency direction: `dao.jing.dht` is built *on top of* core `dao.jing`
-(`dao.jing.dht.cljc` requires `dao.jing`, implementing the `IKVStore` protocol `dao.jing`
-defines) — a downstream backend was never the right place for a property of the storage
-boundary itself.
+This makes DaoJing suitable storage for **any point in Datom.world's moduli
+space of database interpreters**. DaoSpace can store covered indexes and
+indexed snapshots in it; DaoField can store metric indexes; another interpreter
+can store graph, document, columnar, model, or other materializations. All are
+opaque values at this boundary.
 
-This is not a networking feature that happens to be implemented in the networking backend —
-content addressing is a property of what an immutable segment *is* ("What DaoJing Is," above:
-"designed to hold immutable, content-addressed segments"), independent of whether that segment
-is ever exposed to a peer. A single-process `KVMem` with no network connection at all still
-benefits: identical content mints the same key regardless of which caller wrote it first
-(dedup for free, no coordination needed), and a segment's identity is stable *before* it is
-ever replicated — so a store can be swapped from `KVMem` to `KVFile` to `dao.jing.dht` later
-without re-keying anything, because the keys were never a networking artifact to begin with.
-A `dao.jing.dht`-only placement would have gotten this backwards: it would make content
-addressing look like something that starts mattering once peers exist, when it is actually a
-local identity guarantee the network backend merely goes on to *rely on* (hash-verified fetch
-against untrusted peers), not one it invents. **Status: done** — the mechanism lives in
-`dao.jing.cljc`; `dao.jing.dht.cljc` consumes it. See *Current Scope*, Encoding, below for what
-it does and does not buy.
+DaoJing is itself an interpretation of DaoStream, but only at the
+representation level: it interprets each emitted value as content to encode,
+hash, and materialize in a key/value store. That operation assigns content
+identity and retrieval semantics while remaining devoid of domain semantics.
+DaoJing is therefore shared storage beneath the database moduli space, not a
+semantic database point within it.
 
-## Structural Ignorance: Format Stability Without the Engine
+DaoJing maintains no membership registry, no mutable roots, no CAS records,
+and no delete operation. Its only object of discourse is the strict content
+address `:segment/sha256-<hash>`, and its only semantics are insert-if-absent
+materialization plus content reads.
 
-The deliberate dumbness above has a cost question hanging over it: PostgreSQL couples its
-storage engine to its data structures precisely because that coupling makes it fast. The
-property doing the work there is **format stability** — the on-disk page layout *is* the
-in-memory layout, so reads of resident pages need no parse (see [`../postgres.md`](../postgres.md),
-§2, for the precise statement and its caveats). PostgreSQL obtains that property by making
-the storage engine structurally aware, and the rest of that deep dive (§§3–8) is the bill:
-vacuum, WAL record types per structure, a lock manager, and a storage format that admits new
-structures only through years of C.
+## The intake pool
 
-`dao.jing` is built on the decoupling: **in-place readability is a property of the byte
-layout, not of the storage engine.** A flat, self-describing layout (Eve slabs; the same move
-as FlatBuffers or Cap'n Proto) can be traversed in place by the *reader* — the interpreters
-above this boundary — while the store remains the dumb `IKVStore` of opaque blobs specified
-above. Structural awareness is one way to obtain format stability; it is not the only way,
-and it is the expensive way — it welds the layout to the engine.
+The pool contains the streams through which content is submitted for
+materialization. It is supplied explicitly when the observer state is
+constructed. DaoJing performs no stream registration or discovery and
+maintains no shared membership record.
 
-This resolves the storage-complexity argument from the Datomic lineage (see Lineage, below).
-Rich Hickey's case for delegating storage to commercial databases assumed storage engines are
-necessarily complex — true only of *structurally aware* engines managing B-trees, MVCC, and
-locks. Strip the awareness and the storage layer becomes a hash table of blobs, simple enough
-to own. What remains is supplying format stability in the application layer (the Eve bet — a
-research program, not yet integrated; see [`dao.jing.dht.md`](dao.jing.dht.md), Zero-copy)
-and, for the distributed backend, the open problems the DHT document records.
+The pool is an intake topology, not a semantic namespace. DaoJing does not use
+the identity of the source stream when deriving an element's key, and it does
+not attach source identity to the stored value:
 
-In exchange for banning in-place updates, fine-grained retrieval, and storage-level MVCC,
-`dao.jing` buys what a structurally aware engine cannot offer: invent a new data structure
-without touching storage code, and swap a local disk for a peer-to-peer network without
-touching query code — because a store that never knew your structures never needs to learn
-new ones.
+```text
+stream A emits x ─┐
+                  ├── hash(canonical-encode(x)) ──► the same KV entry
+stream B emits x ─┘
+```
 
-## Current Scope
+Identical content therefore converges on the same address regardless of which
+pool member carried it. Pool order, source identity, and arrival order do not
+change content identity.
 
-This is one evolving spec, not a series of frozen releases — "not yet" below means exactly
-that, work still to land in this same document, not a v2 to be written later. What's
-implemented at the storage boundary today, and the contracts already pinned down.
+DaoJing must distinguish pool members operationally long enough to maintain a
+cursor for each one. That association is observer state only. It is not
+written into the content address or materialized payload and has no semantic
+meaning. In the implemented observer each member entry is plain data —
+`{:stream <ref>, :cursor {:position n}, :status s}` — an operational record,
+nothing more.
 
-- **Storage roots today: one mutable key per stream; segments shipped.** Each stream's
-  root (`:root/<name>`) holds either the stream's full datom vector wholesale
-  (`{:datoms [...]}`) or, since 2026-07-10, an owner-built index manifest
-  (`{:indexes {:eavt :segment/sha256-<hash> ...}
-  :count n}`) whose values point at immutable, content-addressed B-Tree node segments written
-  with `put!` under `segment-key` — published by `dao.space.index/publish-index!`. The
-  root-naming conventions (per-stream `:root/<name>`, the `:root/members` membership root)
-  and both root shapes are reader-owned conventions
-  defined in `src/cljc/dao/space/index.cljc`, not `dao.jing` constants — storage only ever
-  sees the keywords and blobs its caller hands it, and never knows the segments form an index.
-- **Member layout and discovery.** A stream owner performs an atomic `cas!` on its own
-  mutable root reference (`:root/<name>`) to publish either shape: the wholesale
-  `{:datoms [...]}` blob, or the `{:indexes ...}` manifest after `put!`-ing the segments it
-  references. Republishing unchanged data is idempotent — content-derived keys make the same
-  segments land at the same addresses. Discovery is the membership root (`:root/members`),
-  written once per stream at `open!` and enumerated by readers — `IKVStore` has no scan, so
-  reachability starts there.
-- **Querying (reader side).** A read resolves the stream's root reference from the `IKVStore`
-  with a single `get`, which targets an immutable snapshot of that root's value at the time
-  of the call — concurrent writes never disturb an in-flight read. For an `{:indexes ...}`
-  root the reader then `get`s the immutable segments that root references (all of them on an
-  eager walk; only the traversal path on the JVM's lazy path). What a reader builds from the
-  resulting bytes is outside this boundary.
-- **Namespace stamping.** Not yet: the reader's per-member namespace is not yet derived from
-  the canonical kickoff hash, because content addressing is not yet load-bearing (below).
-- **Compaction / GC.** The `KVFile` backend implements Bitcask-style file compaction via the
-  storage backend (e.g., via `dao.jing.file/compact-store!`). Overwritten stream roots and deleted tombstones create dead space 
-  in the append-only log; compaction sweeps the live keyset, rewrites all live values to a 
-  new log, and atomically swaps the file beneath the `IKVStore` interface, reclaiming disk space.
-- **Encoding: canonical bytes are unbuilt in both layers; what separates `dao.jing` from
-  `yin.content` is the shape of the hash, not the byte encoding.** `dao.jing` hashes a whole
-  opaque v-map blob for key-minting (no entity structure, no `[a v]` pairs, no `:db/derived`
-  bookkeeping); `yin.content` computes an AST/entity-level Merkle hash over sorted `[a v]`
-  pairs with ref-resolution and a dependency-ordered hash cache (`compute-content-hashes`).
-  That structural difference — not "one is canonical, the other isn't" — is why `dao.jing`
-  must not depend on `yin/content.cljc`: it would be pulling in a higher-layer, entity-shaped
-  mechanism to solve a lower-layer, blob-shaped problem.
+If a storage backend partitions content into physical buckets or shards, that
+placement is a backend concern, normally derived from the content hash. It is
+not derived from the source stream.
 
-  The evidence for "unbuilt in both": where `dao.jing` mints a content-derived segment key
-  (`segment-key`, above), today's implementation hashes an order-normalized `pr-str` print of
-  the v-map (sort map keys and set members so equal values print identical bytes, then sha256)
-  — the same stand-in `dao.jing.dht.md` names for the pinned Eve Flat encoding, not the
-  canonical byte encoding `datom-spec.md` mandates (little-endian ints, IEEE754 floats,
-  per-type length-prefixing, the inline-or-hash-over-32-bytes threshold). `yin/content.cljc` is
-  in the same position: its `sha256` is also computed over a plain `pr-str`
-  (`(dw/sha256 (pr-str resolved))`, not per-type canonical bytes), despite its own docstring
-  calling the result "gauge-invariant" — that claim holds only up to this codebase's one
-  `pr-str` printer, not across languages/platforms with a different printer, the same narrower
-  gap `dao.jing`'s own hash has. Both currently share that non-canonical printer underneath;
-  neither is a solved problem the other is missing.
+## Publication from an agent
 
-  Making `dao.jing`'s segment-key hash canonical (Eve Flat encoding, per `dao.jing.dht.md`) is
-  a `dao.jing`-internal follow-up, orthogonal to whatever `yin.content` eventually does about
-  its own encoding, and does not change this document's API. Whether entity-level namespace
-  stamping (above) ever needs `datom-spec.md`'s per-type canonical encoding is a separate
-  question for the reader layer, out of scope here.
+An agent writes ordinary working data to its local `dao.stream`. That local
+stream is not automatically a member of DaoJing's intake pool.
 
-## Implementation Platform
+When the agent calls `dao.space.index/publish-index!`, the index publisher:
 
-`dao.jing` is implemented as cross-platform `.cljc` — its storage logic (the `IKVStore`
-contract and the in-memory, file, and DHT backends) operates identically across Clojure
-(`clj`), ClojureScript (`cljs`), and ClojureDart (`cljd`).
+1. reads the agent's local stream;
+2. constructs the covered indexes;
+3. selects an intake stream from the DaoJing pool;
+4. appends the immutable index payloads, including the top-level manifest, to
+   that intake stream; and
+5. returns the manifest and its content address required by the publishing
+   layer.
 
-## Reaching `IKVStore`: `dao.stream.apply` and `dao.stream.rpc`
+```text
+agent-local dao.stream
+        │
+        │ dao.space.index/publish-index!
+        ▼
+selected DaoJing intake stream
+        │
+        │ opaque payloads
+        ▼
+DaoJing observer ── canonical encode + hash ──► content-addressed KV
+```
 
-**Status: implemented** for the cross-process case via `dao.jing.remote`
-(`src/cljc/dao/jing/remote.cljc`; tests in `test/dao/jing/remote_test.cljc`),
-which is a thin `dao.jing`-specific adapter over `dao.stream.rpc.ws`, the
-WebSocket convenience layer built on the transport-agnostic
-`dao.stream.rpc.{client,server}` primitives. Exposing a local `IKVStore` over
-the network and reading it back as an `IKVStore` from another process both
-work today. The other two cases below — a direct in-process `dao.stream.apply`
-exposure of `IKVStore`, and controlled-mode confinement through `yin.vm.ffi` —
-are patterns this document names as the right shape, not code that exists yet:
-nothing in `src/` currently registers `:jing/*` handlers against an in-process
-`dao.stream.apply` pair or against `yin.vm.ffi`; the only `:jing/*` handlers
-map in the codebase is `dao.jing.remote/default-handlers`, built for
-`dao.stream.rpc`.
+Selecting an intake stream is an operational routing decision. It does not
+become part of an index payload's identity. The same index payload published
+through a different intake stream receives the same address.
 
-`dao.stream.apply` and `dao.stream.rpc` are not two interchangeable ways to reach `IKVStore`
-— they are two different interface shapes, and the choice follows directly from whether a
-network is actually involved:
+Publication acknowledges that every payload was appended to the selected
+intake stream. It does not acknowledge that an asynchronous observer has yet
+materialized those payloads; see *Open items and current limitations*.
 
-- **`dao.stream.apply` directly, in-process (pattern, not yet built for `IKVStore`).** An
-  in-memory `IKVStore` should never cross a network to reach itself. It could be modeled as a
-  request/response stream pair over an in-process ring buffer (`dao.stream.apply/put-request!`
-  + `next-response` on the caller side, `dispatch-request`/`serve-once!` on the callee side) —
-  no WebSocket, no RPC framing, no serialization. This is the same primitive-level shape
-  `yin.vm.ffi`'s confined-host bridge already uses for other ops (below) — but no `:jing/*`
-  handlers are registered there yet, for this or the in-process case.
-- **`dao.stream.rpc`, only when a network is involved.** `dao.stream.rpc` is a *request/response
-  call* abstraction, not a *stream* abstraction. `dao.stream.rpc.{client,server}` are
-  transport-agnostic: `init-client`/`call!`/`close!` (client) and `serve-connection!` (server)
-  operate over any already-connected `IDaoStream`, where `call!` sends one `(op args)` and
-  returns one result (blocking on `:clj`; a Promise/Future on `:cljs`/`:cljd`). `dao.stream.rpc.ws`
-  adds `connect!`/`start!`/`stop!`, the WebSocket-specific convenience built on those primitives.
-  It does not hand the caller a `dao.stream` to read or write: `connect!` opens a `dao.stream.ws`
-  WebSocket stream and wraps it via `init-client`, and `call!` drives it through
-  `dao.stream.apply/put-request!` (`dao/stream/rpc/client.cljc:153`) followed by a poll loop that
-  calls `next-response` (`dao/stream/rpc/client.cljc:80`, inside `wait-for-response`,
-  `client.cljc:45-109`) — but that stream is private framing plumbing the RPC layer owns, never
-  exposed for general stream use.
+Publication changes representation and access cost, not the meaning of the
+covered data. Consumers whose explicit read coordinates name the published
+manifest address can consume the persisted covered indexes.
 
-The layering, bottom to top:
+## Materialization rule
 
-- **`dao.stream.apply`** (`src/cljc/dao/stream/apply.cljc`; `docs/design/dao.stream.md`,
-  *"dao.stream.apply Pattern"*) is the primitive: it reifies function application as
-  request/response datoms over a stream pair, independently of any particular caller.
-- **`dao.stream.rpc.{client,server}`** (`src/cljc/dao/stream/rpc/`) is the transport-agnostic
-  layer built directly on `dao.stream.apply` (both require `dao.stream.apply`; `rpc.server`'s
-  docstring: "exposes a caller-supplied handlers map over any IDaoStream via `dao.stream.apply`").
-  It knows nothing about `dao.jing` or WebSockets — `rpc.server/serve-connection!` drives any
-  `{op-keyword fn}` handlers map over a caller-supplied stream, and `rpc.client/call!` sends
-  `(op args)` and waits for the matching response.
-- **`dao.stream.rpc.ws`** (`src/cljc/dao/stream/rpc/ws.cljc`) is the WebSocket convenience layer
-  over that transport-agnostic pair: `start!` opens a WebSocket listener and hands each
-  connection's stream to `rpc.server/serve-connection!`; `connect!` opens a WebSocket stream and
-  wraps it via `rpc.client/init-client`, waiting for the handshake to reach `:connected` first.
-- **`dao.jing.remote`** (`src/cljc/dao/jing/remote.cljc`) is the `dao.jing`-specific adapter on
-  top of `dao.stream.rpc.ws`: `default-handlers` builds
-  `{:jing/put! ..., :jing/cas! ..., :jing/get ..., :jing/delete! ...}` from a local store and
-  hands it to `rpc.ws/start!`; `connect-kv!` returns a `RemoteKVStore` whose every
-  `IKVStore` method calls `rpc.client/call!` against the matching `:jing/*` op. This is a
-  third way to reach `IKVStore`, alongside a plain in-process handle and the `dao.jing.dht`
-  network backend (see The Storage Interface, above) — a WebSocket instead of
-  `dao.jing.dht`'s purpose-built `IDhtNet`/Kademlia transport.
-  (`RemoteKVStore` is cross-platform; `connect-kv!` is `:clj`-only today:
-  reconciling `IKVStore`'s synchronous-return contract with `rpc.client/call!`'s Promise/Future
-  return on `:cljs`/`:cljd` is unscoped; the `dao.stream.rpc` layer underneath is portable
-  regardless.)
+The materialization is an idempotent union of content-addressed values. If
+`H(x)` is the address of the canonical encoding of `x`, observing `x` means:
 
-Not yet built: **controlled-mode confinement**, the more load-bearing case. A governed
-interpreter — per the "share governed computation, not data" model (`dao.space.security.md`,
-ADR 0002), specifically a `yin.vm` AST evaluated in a confined runtime — is denied any direct
-binding to storage by construction: its Environment/Store is scoped to only the datoms its
-capability authorizes, with no I/O or exfiltration primitives. Yin.VM already has a generic
-`dao.stream.apply` bridge for exactly this kind of confined host access (`yin.vm.ffi`; see
-`docs/design/yin.vm.ffi.md`), one consumer of the protocol among others, not a dependency
-that `dao.jing` or `dao.stream.apply` has on `yin.vm`. Registering `IKVStore` as
-capability-gated handlers there — present but refused when the capability doesn't cover the
-call, an empty allow-set equivalent to no handler at all — would be exactly the mediator the
-security model requires: one instance of the "effect handlers that securely honor capability
-tokens" the security doc names as not yet built. Unlike the plain
-`dao.jing.remote/default-handlers` exposed today (which trust every caller
-unconditionally), this capability-gated variant does not exist yet.
+```clojure
+(assoc-if-absent target (H x) x)
+```
 
-## The Block Storage Metaphor (Hardware Analogies)
+Re-observing the same value is a no-op. Observing equal values through
+different pool streams is also a no-op after the first insertion. Consequently:
 
-Because the `IKVStore` protocol is so primitive — a handful of operations, dominated by
-`put!`/`get`/`cas!` (`delete!`/`close!` are housekeeping, not part of the analogy below) — it
-behaves almost exactly like a hardware block storage device. This means proven hardware patterns map
-directly onto it as software abstractions. **Status: illustrative, not implemented.** Only
-the first bullet below (`compact-store!`) exists in `src/`; `CachingKVStore`, `RaidKVStore`,
-and `NetworkKVStore` are unbuilt middleware named here to show what the thin `IKVStore`
-boundary affords, not existing extension points:
+- replay is safe;
+- pool streams may be consumed in any interleaving;
+- duplicate publication is harmless;
+- immutable content writes do not require cross-stream coordination; and
+- a materialization can be reconstructed by replaying the available pool
+  streams.
 
-- **SSD Flash Translation Layer & Garbage Collection.** Solid State Drives cannot overwrite
-  in place; they write to fresh blocks and orphan the old ones, leaving reclamation to a
-  Garbage Collector. Because `put!` is meant to write immutable, content-addressed chunks
-  (a discipline the caller observes, not the protocol enforces — see What DaoJing Is),
-  `dao.jing` updates are naturally out-of-place. As mutable stream roots advance (`cas!`),
-  old byte segments are orphaned. The local file backend solves this via `compact-store!`
-  (a Bitcask fold that filters out dead records and replaces the log), perfectly mirroring
-  an SSD's garbage collection. Implemented today.
-- **NVMe Parallel Queues (Zero-Contention Writes).** NVMe solved the SATA bottleneck by
-  giving every CPU core its own submission queue to the disk, avoiding locks. `dao.jing` gets
-  the same zero-contention property for free: every writer's log lands at a distinct key, so
-  no two agents ever contend for the same storage location. The single-writer-log discipline
-  that guarantees this is enforced above this boundary, not by storage itself.
-- **Storage Tiering (L1/L2 Caches), hypothetical.** Hardware uses fast/expensive caches
-  (L1/L2/NVMe) in front of slow/cheap storage (spinning disks). In `dao.jing`, this would be
-  a Decorator: a `CachingKVStore` wrapping a `NetworkKVStore` and a `MemKVStore` — a caller
-  calls `get`; the caching store checks memory, faults from the network on a miss, and
-  returns the chunk — leaving the interpreters above oblivious to the hierarchy. Neither
-  store exists yet.
-- **RAID and Erasure Coding, hypothetical.** RAID mirrors or stripes blocks across physical
-  disks for redundancy. A `RaidKVStore` middleware could do this for bytes: when a caller
-  calls `put!`, the store mirrors the chunk to three underlying `IKVStore` instances
-  (e.g., local disk + two remote buckets), and `get` fails over to a surviving copy if one
-  is lost. Erasure coding refines this: instead of full copies, the store splits each chunk
-  into `k` data fragments plus `m` parity fragments (Reed-Solomon), recovering the original
-  from any
-  `k` of the `k+m` pieces. This buys the same fault tolerance at a fraction of the storage
-  cost, all with zero changes to the query logic above.
+The implemented write is `dao.jing/materialize!`: it derives the address from
+the payload alone (`segment-key`) and asks the backend's `:put-content-fn`
+for an explicit verdict. `:inserted` means the value is durably stored now;
+`:present` means an equal value is already stored there, in which case the
+stored value is read back and verified. A collision in which an existing
+address contains different canonical bytes is an integrity failure, not an
+overwrite, and throws loudly.
+
+### Canonical encoding
+
+Content addressing is meaningful only when equal supported values produce the
+same bytes on every participating platform. The canonical encoder is therefore
+part of the storage contract even though the meaning of the encoded value is
+not.
+
+Canonicalization may understand representation-level structure such as maps,
+sets, numbers, strings, and byte arrays. It must not understand domain concepts
+such as datoms, index orders, manifests, or any notion of a root.
+
+The target encoding is a canonical flat byte representation suitable for
+cross-platform hashing and in-place reading. The current implementation uses
+an order-normalized `pr-str` as a transitional encoder — deterministic and
+order-insensitive, but not yet the pinned canonical byte encoding. This is the
+first open item under *Open items and current limitations*.
+
+## Storage ignorance
+
+DaoJing assigns identity to opaque content but does not interpret the data
+structure stored at that identity. In particular, it does not:
+
+- traverse B-trees;
+- distinguish EAVT, AEVT, AVET, or VAET nodes;
+- merge indexes;
+- evaluate Datalog;
+- infer authorship or provenance from the intake stream;
+- discover which streams or published indexes a query should read;
+- construct a tuple space; or
+- maintain a root, CAS, or delete surface.
+
+Those responsibilities remain above the storage boundary. This allows a new
+immutable data structure to be introduced without changing DaoJing.
+
+## Physical intake versus semantic composition
+
+Two forms of multi-stream work must remain separate:
+
+- **Physical intake:** DaoJing observes every stream in its configured pool and
+  content-addresses their opaque elements into the KV materialization.
+- **Semantic composition:** `dao.space.query` receives an explicit collection
+  of published sources and decides how their covered datoms are folded and
+  interpreted.
+
+DaoJing owns the first operation. It has no knowledge of the second. Observing
+many intake streams does not mean that DaoJing semantically merges their
+contents.
+
+## Reads
+
+The storage read operation resolves a strict content address to the exact
+opaque value stored at that address. `dao.jing/get` accepts only
+`:segment/sha256-<64 lowercase hex>` addresses; arbitrary keys and mutable
+roots are outside DaoJing and throw before a backend is consulted.
+
+A reader may access the target locally or through a remote transport
+(`dao.jing.remote`, `dao.jing.dht`). Location changes how bytes are obtained,
+not how their identity or meaning is determined.
+
+Higher layers expose the semantic compositions the stream participates in. A
+query reads a published index descriptor containing a serializable
+content-store coordinate plus an immutable manifest address.
+`dao.jing.coordinate/open!` interprets coordinates such as
+`{:dao.jing/type :dao.jing/file :path ...}` or,
+on the JVM, `{:dao.jing/type :dao.jing/remote :url ...}` into local handles;
+unsupported coordinates fail closed. These coordinates are caller-supplied
+values, not state inferred from storage. DaoJing does not infer a source or
+coordinate from the stream that carried a payload, and no content address is
+ever treated as a mutable root.
+
+## Cursor tracking and recovery
+
+An observer retains one cursor per active pool member and repeatedly calls
+`ds/next`:
+
+- `{:ok payload, :cursor next-cursor}`: materialize the payload and advance
+  that stream's cursor;
+- `:blocked`: no payload is currently available from that stream;
+- `:end`: that stream is closed; and
+- `:daostream/gap`: the cursor is behind the retention boundary and that
+  stream requires resynchronization.
+
+The implemented observer is `dao.jing/observer-state` (build the immutable
+state for an explicit pool, one entry per member) and
+`dao.jing/observe-step!` (poll the pool round-robin and process at most one
+payload; on success it materializes the payload before advancing the member
+cursor). The `:next` scheduling index keeps a continuously ready member from
+starving another. Scheduling does not affect the resulting content set,
+because materialization is content-addressed, commutative, and idempotent.
+
+A durable checkpoint records operational progress — a cursor per pool entry —
+separately from the content-addressed KV data. Source identity may be needed
+by a checkpoint mechanism to resume the correct transport, but it must not
+enter the materialized content identity. Persisting such checkpoints and
+running the observer loop over time are open items (see below).
+
+## Resource lifecycle
+
+The observer itself is a value: `observe-step!` owns no resources and has
+nothing to close — streams and storage handles retain responsibility for
+releasing their transport, file, database, or network resources.
+`dao.jing/close!` delegates to a handle's optional `:close-fn`; a handle
+without one has nothing to release. A long-running runner that drives the pool
+loop, and its resource policy, are open items (see below).
+
+## Implemented surface
+
+The current `src/cljc/dao/jing*.cljc` code implements the architecture above
+directly.
+
+**Content-store handles are plain data.** A handle is a map
+`{:put-content-fn f, :get-content-fn g, :close-fn c?}`; the backend effects
+are explicit functions, not a protocol or hidden state. `dao.jing/materialize!`
+and `dao.jing/get` dispatch through the handle, and `close!` through its
+optional `:close-fn`.
+
+**Content-store coordinates are transportable data.**
+`dao.jing.coordinate/open!` is the explicit interpretation boundary from a
+coordinate to a live handle. Its closed dispatch recognizes
+`:dao.jing/file` on every supported platform and `:dao.jing/remote` on the
+JVM. There is no name-to-handle registry; adding a backend is an explicit code
+change to the coordinate interpreter.
+
+Implemented backends:
+
+- `dao.jing.mem/create-content-mem` — an ephemeral, thread-safe,
+  content-addressed in-memory store. Put is an atomic insert-if-absent; an
+  address already holding the same payload reports `:present` and is never
+  overwritten.
+- `dao.jing.file/create-content-file` — a content-addressed store backed by an
+  append-only log stream. Each log record is `[address payload]`, written
+  through a write lock, acknowledged only after the log is flushed, and
+  replayed on open to rebuild the in-memory content map. The framing layer
+  truncates an incomplete tail before replay; Jing then fails closed on any
+  complete record that cannot be decoded, validated, or matched to its content
+  address.
+- `dao.jing.remote` — exposes a local content handle as the `:jing/put-content`
+  and `:jing/get-content` RPC ops (`default-handlers`) and wraps an RPC client
+  as a content handle (`content-client`); `connect-content!` is the
+  synchronous WebSocket constructor, JVM-only. `:jing/get-content` returns the
+  exact wire envelope `{:found? boolean, :value value}`; caller-local
+  not-found sentinels never cross the RPC boundary.
+- `dao.jing.dht/create-content-dht` and
+  `dao.jing.dht.node/create-content-dht-udp` — the distributed backend over an
+  `IDhtNet` transport; see `docs/design/dao.jing.dht.md`.
+
+**The observer is implemented.** `observer-state` and `observe-step!` provide
+the explicit intake-pool walk described in *Cursor tracking and recovery*,
+with no atoms, globals, registration, or discovery. The source stream never
+enters an address or a stored value.
+
+**Content addressing is implemented, transitionally.** `content-hash` hashes
+the order-normalized print of a value; `segment-key` mints
+`:segment/sha256-<hash>` addresses; `segment-address?` is the strict address
+test the backend layer enforces. As recorded in *Canonical encoding*, the
+encoder is transitional until the pinned canonical byte encoding lands.
+
+## Open items and current limitations
+
+- **Canonical encoding.** The order-normalized `pr-str` encoder must be
+  replaced by a pinned, cross-platform canonical byte encoding. Until then,
+  content addresses are portable only between implementations sharing the
+  exact print rule; when the encoding lands, `content-hash`, `segment-key`,
+  and every minted address change together.
+- **Durable observer checkpoints / long-running runner.** `observer-state`
+  and `observe-step!` are single-step and in-process. The checkpoint format
+  for resuming pool cursors across restarts, and a runner that drives the
+  loop over time, remain to be built.
+- **Explicit materialization acknowledgement.** A publisher observes only
+  that its payloads were appended to an intake stream. The mechanism by which
+  it observes that those payloads have been materialized must be expressed
+  explicitly, potentially as a response stream.
+- **Garbage collection.** Content reachability and reclamation belong to a
+  higher-level retention policy; immutable content otherwise accumulates
+  forever.
+- **Async hydration.** Readers of remote or async B-tree content use the
+  hydration adapter (`dao.data.btree.storage/hydration-storage` and
+  `hydrate!`), but the async variants (`hydrate-async`, `store-tree-async`)
+  are deferred until an async DaoJing backend exists. See
+  `docs/design/dao.data.btree.md` §5.4.
 
 ## Lineage
 
-`dao.jing` is the meeting point of two traditions, one for what it holds and one for what
-it is built from:
+DaoJing combines two constraints:
 
-- **Datomic** gives the storage discipline: a dumb KV store of immutable segments under a
-  strict Transactor / Storage / Query separation, with content-addressed identity and the
-  Peer-as-library read model. `dao.jing` is the decentralized Storage; the Peer is the reader
-  library above it.
-- **Plan 9** gives the *substrate*, one level down in `dao.stream`: the member logs the store
-  is fed through are independent, location-transparent, append-only streams (see
-  `dao.stream.md`, *Lineage: Plan 9*). The store inherits this only because its intake is
-  `dao.stream`s.
+- **Datomic:** storage retains immutable content while an embeddable reader
+  interprets indexes and queries above it.
+- **Plan 9:** location and transport are properties of streams and handles,
+  not of the values carried through them.
 
-The associative-matching, generative-communication *behavior* built on top of these bytes is
-**not** here; that lineage (Linda) belongs to the reader above this boundary.
-
-The synthesis: **`dao.jing` is a decentralized store of opaque bytes, designed to hold
-immutable, content-addressed segments plus mutable stream-root references — pure syntax.**
-Datoms, matching, and querying are semantics an embeddable reader library projects onto it.
-(Immutability and content addressing are a discipline callers observe over the `IKVStore`
-contract, not a guarantee the protocol enforces; see What DaoJing Is, above.)
+The result is a deliberately restricted observer: a pool of streams carries
+opaque values in, canonical content addresses identify them, and a KV
+materialization makes them retrievable. All semantic structure remains in the
+layers that publish and consume those values.

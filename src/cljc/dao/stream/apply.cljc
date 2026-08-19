@@ -32,8 +32,8 @@
      :dao.stream.apply/response <response-desc>}
 
   Example:
-    (make-endpoint {:type :ringbuffer :capacity nil}
-                   {:type :ringbuffer :capacity nil})"
+    (make-endpoint {:dao.stream/type :ringbuffer :capacity nil}
+                   {:dao.stream/type :ringbuffer :capacity nil})"
   [request-descriptor response-descriptor]
   {:dao.stream.apply/request request-descriptor,
    :dao.stream.apply/response response-descriptor})

@@ -27,9 +27,9 @@
       the transaction axis *is* the step counter and `:as-of` recovers any
       past configuration.
     - Ownership — every datom the machine writes carries its reified owner
-      entity in the `m` slot (see `dao.datom`: ids >= 1025 are metadata
-      entity refs), so a space shared by several machines partitions by
-      writer.
+      entity in the `m` slot (see `dao.datom`: ids at `first-user-id` and
+      above are metadata entity refs), so a space shared by several machines
+      partitions by writer.
 
   The heap that holds host objects (streams, cursors, FFI plumbing) stays a
   Clojure map in `:store` — a `RingBufferStream` is not a tuple. The datom
@@ -59,7 +59,8 @@
       by value; it does not join a shared medium. `m` still partitions the
       result by writer, but neither machine sees the other's later writes.
       Real coordination belongs at the `dao.jing` layer, not here."
-  (:require [dao.space.query :as query]
+  (:require [dao.datom :as datom]
+            [dao.space.query :as query]
             [dao.stream :as ds]
             [dao.stream.apply :as dao.stream.apply]
             [yin.module :as module]
@@ -886,8 +887,9 @@
               of those datoms and nothing either machine writes afterward.
    :eid-base  start of this machine's machine-state entity range (default
               2048; keep ranges disjoint when seeding one machine from
-              another so `m` stays an unambiguous writer tag, and >= 1025 so
-              `m` refs a metadata entity — see dao.datom).
+              another so `m` stays an unambiguous writer tag, and at or above
+              `dao.datom/first-user-id` so `m` refs a metadata entity rather
+              than a reserved marker).
    :trace?    deposit the machine-state trace (default true)."
   ([] (create-vm {}))
   ([opts]
@@ -922,7 +924,7 @@
                       :halted? true,
                       :value nil,
                       :blocked? false,
-                      :node-id-counter -1024,
+                      :node-id-counter (- datom/first-user-id),
                       :macro-registry (or (:macro-registry opts) {})}))]
      (-> (space-add vm [owner :agent/name owner-name])
          (telemetry/install :space)
@@ -936,17 +938,29 @@
 (defn machine-space
   "The machine's datoms: program (C) plus the reified configuration trace.
 
-   A plain vector, suitable as a `dao.space.query` source. Folding it is
-   O(count), so hoist it out of loops rather than re-querying per result."
+   A plain vector of `[e a v t m]` tuples. It is not itself a query db-value:
+   wrap it with `dao.space.query/relation` (and interpret with
+   `dao.space.query/current`) before querying. Querying folds it O(count), so
+   hoist the wrapped source out of loops rather than re-querying per result."
   [vm]
   (:space vm))
+
+
+(defn machine-source
+  "The machine's space as a current d3 fact view over a bounded relation
+   descriptor: `(query/current (query/relation (:space vm)))`. This is the
+   db-value to pass to `dao.space.query/q` for introspection queries."
+  [vm]
+  (query/current (query/relation (:space vm))))
 
 
 (defn find-by-type
   "Find all AST entity IDs with the given :yin/type value."
   [vm t]
   (map first
-       (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]] (:space vm) t)))
+       (query/collect (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]]
+                               (machine-source vm)
+                               t))))
 
 
 (comment
@@ -961,22 +975,29 @@
   (def space (machine-space r))
   ;; [1] C is datoms: the program answers AST-shaped queries, and is
   ;;     genesis — visible before the first step ran.
-  (query/q '[:find ?e :where [?e :yin/type :lambda]] space)
-  (query/q '[:find ?e :where [?e :yin/type :lambda]] space {:as-of 0})
+  (query/collect (query/q '[:find ?e :where [?e :yin/type :lambda]]
+                          (machine-source r)))
+  (query/collect (query/q '[:find ?e :where [?e :yin/type :lambda]]
+                          (query/current (query/relation space) 0)))
   ;; [2] One q spans code AND state: variable nodes joined to live
   ;; bindings.
-  (query/q '[:find ?v :where [?var :yin/type :variable] [?var :yin/name ?nm]
-             [?b :bind/name ?nm] [?b :bind/addr ?a] [?a :cell/value ?v]]
-           space)
+  (query/collect (query/q '[:find ?v :where [?var :yin/type :variable]
+                            [?var :yin/name ?nm] [?b :bind/name ?nm]
+                            [?b :bind/addr ?a] [?a :cell/value ?v]]
+                          (machine-source r)))
   ;; [3] Provenance: why does a cell hold 5? The write names its config.
-  (query/q '[:find ?s :where [?a :cell/value 5] [?a :cell/set-by ?cfg]
-             [?cfg :cfg/step ?s]]
-           space)
+  (query/collect (query/q '[:find ?s :where [?a :cell/value 5]
+                            [?a :cell/set-by ?cfg] [?cfg :cfg/step ?s]]
+                          (machine-source r)))
   ;; [4] Dead code = control-trace set difference, no instrumentation.
   (let [entered (set (map first
-                       (query/q '[:find ?n :where [_ :cfg/ctrl ?n]] space)))]
+                       (query/collect (query/q '[:find ?n :where
+                                                 [_ :cfg/ctrl ?n]]
+                                               (machine-source r)))))]
     (remove entered
-      (map first (query/q '[:find ?e :where [?e :yin/type _]] space))))
+      (map first
+        (query/collect (query/q '[:find ?e :where [?e :yin/type _]]
+                                (machine-source r))))))
   ;; [5] Ownership: every datom's m is the machine's reified owner entity.
   (set (map peek space))
-  (query/pull space 2048 [:agent/name]))
+  (query/pull (machine-source r) 2048 [:agent/name]))

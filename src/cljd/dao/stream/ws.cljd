@@ -150,7 +150,7 @@
     (when (io/WebSocketTransformer.isUpgradeRequest request)
       (.then (io/WebSocketTransformer.upgrade request)
              (fn [ws]
-               (let [local (ds/open! {:type :ringbuffer,
+               (let [local (ds/open! {:dao.stream/type :ringbuffer,
                                       :capacity (:capacity opts),
                                       :eviction-policy (:eviction-policy opts)})
                      stream (make-ws-stream local)]
@@ -181,7 +181,7 @@
   "Connect to a WebSocket server at url. Returns WebSocketStream."
   ([url] (connect! url nil))
   ([url opts]
-   (let [local (ds/open! {:type :ringbuffer,
+   (let [local (ds/open! {:dao.stream/type :ringbuffer,
                           :capacity (:capacity opts),
                           :eviction-policy (:eviction-policy opts)})
          stream (make-ws-stream local)]

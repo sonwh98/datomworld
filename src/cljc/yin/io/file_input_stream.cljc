@@ -1,10 +1,9 @@
 (ns yin.io.file-input-stream
   "Effect descriptor and handler for file input streams.
    Self-registers into the 'io module and effect registry on require."
-  (:require
-    #?(:clj [dao.stream :as ds])
-    #?(:clj [dao.stream.file-input-stream])
-    [yin.module :as module]))
+  (:require #?(:clj [dao.stream :as ds])
+            #?(:clj [dao.stream.file-input-stream])
+            [yin.module :as module]))
 
 
 (defn file-input-stream
@@ -22,7 +21,7 @@
 #?(:clj (do (defn- handle
               [state effect opts]
               (let [stream-id (:id opts)
-                    descriptor (cond-> {:type :file-input-stream,
+                    descriptor (cond-> {:dao.stream/type :file-input-stream,
                                         :path (:path effect)}
                                  (:chunk-size effect) (assoc :chunk-size
                                                              (:chunk-size effect)))

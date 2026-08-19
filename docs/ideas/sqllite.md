@@ -3,7 +3,8 @@
 Status: discussion record, 2026-07-10. This captures a design conversation and the
 conclusions reached. Nothing described here is implemented; where the conversation
 touched already-specified mechanisms, those are cited by name so the record connects
-back to the docs that own them.
+back to the docs that own them. Storage terminology in this record has been updated to
+the current content-handle design; DaoJing has no mutable root keyspace.
 
 ## The Question
 
@@ -80,14 +81,14 @@ functions calling `dao.space.query`'s own index code, not as something reaching 
 ## The Peer/Storage Network Boundary
 
 `dao.space.query` and `dao.jing` are a logical boundary, not a physical one:
-`dao.jing.dht` is an `IKVStore` backend that puts real network distance between a peer
+`dao.jing.dht` is a content-handle backend that puts real network distance between a peer
 running `dao.space.query` and the storage it reads, exactly Datomic's Peer/Storage
 split. Initial instinct was that this would require `dao.stream.apply` to cross the
-network boundary generally. That's not quite right, and the correction matters: `IKVStore`'s
-`get`/`put!`/`cas!` are uniform across local and remote backends by construction.
+network boundary generally. That's not quite right: `jing/get` is uniform across local
+and remote content handles by construction.
 `dao.jing.dht.md` states the intent outright: "the engine will simply ask `dao.jing`
 for nodes; it will not know the index was fetched from a peer." The network transport
-lives entirely inside the DHT backend's own implementation of `get`, not as a different
+lives entirely inside the DHT backend's own `:get-content-fn`, not as a different
 calling convention exposed to `dao.space.query`.
 
 The real hazard is narrower: a remote `get` can block synchronously for an unbounded
@@ -96,10 +97,9 @@ network round trip (the DHT doc: "the client must own timeouts and retries"), an
 that duration, undermining the whole point of the mobile-continuation model. But the
 same doc gives the seam: segment reads are cache-forever ("any node may cache any
 segment forever, with no invalidation protocol") because segments are immutable and
-content-addressed, so most traversal steps hit local cache and stay fast. Root reads
-are the opposite, never cacheable, always requiring a fresh read. So the network-aware
-path is narrow: the root read at the start of a query, and any cold segment fetch
-during descent, not the traversal loop as a whole.
+content-addressed, so most traversal steps hit local cache and stay fast. The
+network-aware path is therefore any cold content fetch during descent, not the
+traversal loop as a whole.
 
 ## Mobile Continuations: Push the Computation, Not the Bytes
 
@@ -151,9 +151,8 @@ confinement story and the locality story.
   vs. Controlled access modes
 - `docs/design/dao.space.query.md` — index realization, the deferred
   planner/traversal-IR compiler direction
-- `docs/design/dao.jing.md` — the storage boundary, the segment/root keyspace
-- `docs/design/dao.jing.dht.md` — the distributed `IKVStore` backend, cache-forever
-  segments vs. non-cacheable roots
+- `docs/design/dao.jing.md` — the content-addressed storage observer
+- `docs/design/dao.jing.dht.md` — the distributed content-handle backend
 - `docs/design/dao.space.security.md` — Controlled mode, capabilities, the
   bounded-output sub-language
 - `docs/design/dao.stream.apply.md` — the standalone async request/response protocol

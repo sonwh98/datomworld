@@ -8,7 +8,9 @@
 
 
 (def ^:private frame-stream
-  (ds/open! {:type :ringbuffer, :capacity 8, :eviction-policy :evict-oldest}))
+  (ds/open! {:dao.stream/type :ringbuffer,
+             :capacity 8,
+             :eviction-policy :evict-oldest}))
 
 
 (def ^:private design-width 420.0)

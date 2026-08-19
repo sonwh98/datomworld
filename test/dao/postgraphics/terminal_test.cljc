@@ -6,9 +6,9 @@
 
 
 (defn- make-stream
-  ([] (ds/open! {:type :ringbuffer, :capacity nil}))
+  ([] (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}))
   ([capacity eviction-policy]
-   (ds/open! {:type :ringbuffer,
+   (ds/open! {:dao.stream/type :ringbuffer,
               :capacity capacity,
               :eviction-policy eviction-policy})))
 

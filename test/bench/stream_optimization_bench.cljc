@@ -1,8 +1,7 @@
 (ns bench.stream-optimization-bench
-  (:require
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]
-    [yin.vm.engine :as engine]))
+  (:require [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [yin.vm.engine :as engine]))
 
 
 ;; =============================================================================
@@ -21,7 +20,7 @@
         ;; 1. Create N streams
         streams (mapv (fn [i]
                         (let [id (+ 1000 i)
-                              stream (ds/open! {:type :ringbuffer,
+                              stream (ds/open! {:dao.stream/type :ringbuffer,
                                                 :capacity capacity})]
                           [id stream]))
                       (range n))

@@ -7,13 +7,13 @@
 
 (defn- make-stream
   []
-  (ds/open! {:type :ringbuffer, :capacity nil}))
+  (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}))
 
 
 (deftest endpoint-construction-test
   (testing "make-endpoint stores request and response descriptors verbatim"
-    (let [request-desc {:type :ringbuffer, :capacity nil}
-          response-desc {:type :ringbuffer, :capacity 8}
+    (let [request-desc {:dao.stream/type :ringbuffer, :capacity nil}
+          response-desc {:dao.stream/type :ringbuffer, :capacity 8}
           endpoint (dao-apply/make-endpoint request-desc response-desc)]
       (is (= request-desc (dao-apply/endpoint-request endpoint)))
       (is (= response-desc (dao-apply/endpoint-response endpoint))))))

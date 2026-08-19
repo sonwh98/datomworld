@@ -45,8 +45,8 @@
 (deftest bridge-step-and-run-test
   (testing
     "bridge-step handles call-in requests and dispatches to registered handlers"
-    (let [call-in (ds/open! {:type :ringbuffer, :capacity 10})
-          call-out (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [call-in (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+          call-out (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           req-id "req-1"
           req (dao.stream.apply/request req-id :math/add [10 20])
           _ (ds/append! call-in req)
@@ -65,8 +65,8 @@
         (is (= 30 (:dao.stream.apply/value out-datom))))))
   (testing
     "bridge-step returns handled? false when no call-in requests are pending"
-    (let [call-in (ds/open! {:type :ringbuffer, :capacity 10})
-          call-out (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [call-in (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+          call-out (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           vm (-> (ast-walker/create-vm)
                  (assoc :store {vm/call-in-stream-key call-in,
                                 vm/call-out-stream-key call-out,
@@ -76,8 +76,8 @@
       (is (false? (:handled? step-res)))
       (is (= :blocked (:stream-result step-res)))))
   (testing "bridge-step throws when dispatching an unregistered op"
-    (let [call-in (ds/open! {:type :ringbuffer, :capacity 10})
-          call-out (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [call-in (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+          call-out (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           req (dao.stream.apply/request "req-2" :unknown/op [])
           _ (ds/append! call-in req)
           vm (-> (ast-walker/create-vm)
@@ -93,8 +93,8 @@
   (testing
     "bridge-step throws synthesizing a resume entry for a call-id with no
      parked continuation and no natural stream wake"
-    (let [call-in (ds/open! {:type :ringbuffer, :capacity 10})
-          call-out (ds/open! {:type :ringbuffer, :capacity 10})
+    (let [call-in (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+          call-out (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
           req-id "req-3"
           req (dao.stream.apply/request req-id :math/add [1 2])
           _ (ds/append! call-in req)

@@ -17,7 +17,7 @@ compatible (§5.2).
 - [dao.space.index.md](dao.space.index.md) — write-side index builder; owns
   every psset touchpoint today and is the future consumer of this library
 - [dao.space.query.md](dao.space.query.md) — read-side query engine (Peer),
-  lazy segment restoration, and Ruling 1 (no new storage protocol)
+  lazy segment restoration, and Decision 1 (no new storage protocol)
 - [dao.jing.md](dao.jing.md) — storage boundary (segment KV store)
 
 ---
@@ -104,7 +104,7 @@ consumer: Yin.VM).
 - **Unified lazy durability (`IStorage`):** maps B-tree nodes to
   content-addressed segments in `dao.jing`'s key-value store, deserializing
   a node only when traversal reaches it. Built entirely on the existing
-  `IKVStore` methods (Ruling 1, `dao.space.query.md`: no new storage
+  jing/{cas!,get,delete!,close!} (Decision 1, `dao.space.query.md`: no new storage
   protocol).
 - **Bounded fault cache:** faulted children are held through
   host-appropriate references (§5.3), so a long-lived Peer over a large
@@ -495,14 +495,14 @@ lazily restored tree loads only the seek path plus the traversed range
 ### 5.1 IStorage, specified
 
 Modeled on psset's `IStorage.java` (`store`, `restore`, default no-op
-`accessed`), over `IKVStore`:
+`accessed`), over a `jing handle`:
 
 ```clojure
 (defprotocol IStorage
   (-store   [storage node]
-    "Serialize node, put! under jing/segment-key, return the address
-     (a :segment/sha256-<hash> key). Called only after all of the node's
-     children have been stored and have addresses.")
+    "Serialize node, materialize it through the DaoJing content handle,
+     return its :segment/sha256-<hash> address. Called only after all of the
+     node's children have been stored and have addresses.")
   (-restore [storage address]
     "get + deserialize the node at address. Node type is determined by the
      *shape of the retrieved blob*, not by the address: a map carrying
@@ -518,22 +518,20 @@ Modeled on psset's `IStorage.java` (`store`, `restore`, default no-op
 
 Node IDs are content addresses: `-store` mints keys with `jing/segment-key`
 over the EDN blob, exactly as `kv-storage` does today. Two adapters
-implement the protocol, both over the existing `IKVStore` methods — no new
-storage protocol (Ruling 1): the sync rule-1 `KVStorage` sketched below,
+implement the protocol, both over the existing plain-data DaoJing content
+handle (`jing/materialize!` and `jing/get`) — no new storage protocol
+(Decision 1): the sync rule-1 `KVStorage` sketched below,
 and the hydration-cache storage of §5.4 (same shape, but any miss throws
 `"unhydrated segment"` rather than `"missing index segment"`, since it
 cannot answer absence authoritatively). The sync seam is exactly this thin:
 
 ```clojure
-(def ^:private absent (Object.))              ;; identity sentinel, host-appropriate
+(def ^:private absent (Object.))              ;; host-appropriate identity sentinel
 
 (deftype KVStorage [store settings verify?]   ;; settings: §5.1 threading rule
   IStorage
   (-store [_ node]
-    (let [blob (node->blob node)              ;; §5.2 EDN shape
-          k    (jing/segment-key blob)]
-      (jing/put! store k blob)
-      k))
+    (jing/materialize! store (node->blob node))) ; §5.2 EDN shape
   (-restore [_ addr]
     (let [blob (jing/get store addr absent)]
       (when (identical? blob absent)
@@ -650,8 +648,8 @@ ones. Two obligations follow:
 - `dao.space.index` passes `(:count manifest)` and the manifest's
   `:branching-factor` (absent ⇒ 512) when restoring.
   `publish-index!` has always written `:count` alongside `:indexes`, so a
-  manifest without `:count` is not a legacy shape — it is foreign or
-  hand-built. Policy: such manifests are read by the eager path
+  manifest without `:count` did not come from this publisher — it is foreign
+  or hand-built. Policy: such manifests are read by the eager path
   (`walk-index-datoms`), never by `restore-tree`.
 - Node-level recursive `count` is **not ported** (§3.3.1, §3.3.3): `cnt` is
   maintained incrementally by `conj`/`disj` and bulk build, and a recursive
@@ -850,20 +848,19 @@ worker; and rule 1 on Flutter Web is vacuous — there is no local file
 backend to be sync over.
 
 **Durability ordering:** the root only advances by `cas!` after
-`store-tree` completes (§3.1) — and "completes" means every `put!` has
-returned a **durable acknowledgment**, not merely been issued. On sync
-backends this is automatic: `store-tree` returns after its last synchronous
-`put!`. On async backends the ordering needs a home in the API, and it is
-`store-tree-async` — the write-side sibling of `hydrate-async`, returning a
-Promise (cljs) / Future (cljd) that resolves to the root address only after
-every `put!` in the dirty subgraph has durably acknowledged; the caller
-chains `cas!` on that resolution. The sync `store-tree` against an async
-backend throws (it cannot block for acknowledgments), exactly parallel to
-the read path's `"unhydrated segment"` discipline. Without this, a root
-that advances while segments are in flight can point at an address whose
-transitive closure is incomplete — the one ordering failure content
-addressing does not absorb. `store-tree-async` is a Phase 4 deliverable
-alongside `hydrate-async`.
+`store-tree` completes (§3.1) — and "completes" means every segment `cas!`
+has durably acknowledged, not merely been issued. On sync backends this is
+automatic: `store-tree` returns after its last synchronous write. On async
+backends the ordering needs a home in the API, and it is `store-tree-async`
+— the write-side sibling of `hydrate-async`, returning a Promise (cljs) /
+Future (cljd) that resolves to the root address only after every segment
+write in the dirty subgraph has durably acknowledged; the caller chains
+`cas!` on that resolution. The sync `store-tree` against an async backend
+throws (it cannot block for acknowledgments), exactly parallel to the read
+path's `"unhydrated segment"` discipline. Without this, a root that advances
+while segments are in flight can point at an address whose transitive closure
+is incomplete — the one ordering failure content addressing does not absorb.
+`store-tree-async` is a Phase 4 deliverable alongside `hydrate-async`.
 
 **Write path under laziness:** `conj`/`disj` on a lazily restored set forces
 synchronous loads along the modification path, and `store-tree` re-stores
@@ -1156,7 +1153,7 @@ clj -M:cljd test                                                     (Dart; requ
 
 ### Phase 4: Durability & integration
 
-- `IStorage` over `IKVStore`; `node->blob`/`blob->node` as the library-level
+- `IStorage` over a `jing handle`; `node->blob`/`blob->node` as the library-level
   pure serialization pair (§5.1; the Phase 1 fixture tests switch to it);
   `store-tree`/`restore-tree` (including the nil-address ⇒ empty-set rule
   and the settings-threading rule — restored nodes carry the manifest's
@@ -1219,7 +1216,7 @@ clj -M:cljd test                                                     (Dart; requ
   durability at all), so the no-regression intent holds by construction;
   the cljs leg vs psset.cljs remains an open measurement (§7).
 - Deferred, blocked on backend surface: `hydrate-async` and
-  `store-tree-async` — `dao.jing` has no async IKVStore variant yet, so
+  `store-tree-async` — `dao.jing` has no async jing handle variant yet, so
   there is nothing real to await; wrapping the sync paths in
   Promise/Future would be API theater. They land with the first async
   backend (dao.jing.remote / IndexedDB), same signatures as §5.4.
@@ -1233,7 +1230,7 @@ dao.space.transactor ──► dao.space.index ──requires──► dao.data.
                      thin adapter)                   nothing of datoms)
                           │                              │
                           ▼                              ▼
-                     dao.jing (IKVStore) ◄── IStorage over put!/get
+                     dao.jing (jing handle) ◄── IStorage over cas!/get
                           │
                           ▼
                      dao.space.query (unchanged; btree-free)

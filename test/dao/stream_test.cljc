@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as ds]
             [dao.stream.link :as link]
+            [dao.stream.relation :as relation]
             [dao.stream.ringbuffer]))
 
 
@@ -10,8 +11,8 @@
 ;; =============================================================================
 
 (defn- make-stream
-  ([] (ds/open! {:type :ringbuffer, :capacity nil}))
-  ([capacity] (ds/open! {:type :ringbuffer, :capacity capacity})))
+  ([] (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}))
+  ([capacity] (ds/open! {:dao.stream/type :ringbuffer, :capacity capacity})))
 
 
 (defn- ringbuffer-state-atom
@@ -29,7 +30,7 @@
   ([] (ringbuffer-descriptor nil))
   ([capacity] (ringbuffer-descriptor capacity nil))
   ([capacity eviction-policy]
-   {:type :ringbuffer,
+   {:dao.stream/type :ringbuffer,
     :mode :create,
     :capacity capacity,
     :eviction-policy eviction-policy}))
@@ -51,7 +52,8 @@
     (is (thrown? #?(:clj Exception
                     :cljs js/Error
                     :cljd Object)
-          (ds/open! {:transport {:type :ringbuffer, :capacity 1}})))))
+          (ds/open! {:transport {:dao.stream/type :ringbuffer,
+                                 :capacity 1}})))))
 
 
 (deftest ringbuffer-constructor-position-contract-test
@@ -174,8 +176,9 @@
 
 (deftest eviction-policy-evict-oldest-test
   (testing ":evict-oldest keeps accepting writes and advances head"
-    (let [s (ds/open!
-              {:type :ringbuffer, :capacity 2, :eviction-policy :evict-oldest})]
+    (let [s (ds/open! {:dao.stream/type :ringbuffer,
+                       :capacity 2,
+                       :eviction-policy :evict-oldest})]
       (is (= :ok (:result (ds/append! s :a))))
       (is (= :ok (:result (ds/append! s :b))))
       (is (= :ok (:result (ds/append! s :c))))
@@ -192,7 +195,7 @@
     (is (thrown? #?(:clj Exception
                     :cljs js/Error
                     :cljd Object)
-          (ds/open! {:type :ringbuffer,
+          (ds/open! {:dao.stream/type :ringbuffer,
                      :capacity 2,
                      :eviction-policy :bogus})))))
 
@@ -273,7 +276,7 @@
 
 (deftest memory-reclamation-test
   (testing "take! removes consumed entries from the buffer map"
-    (let [s (ds/open! {:type :ringbuffer, :capacity nil})]
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
       (ds/append! s :a)
       (ds/append! s :b)
       (ds/drain-one! s)
@@ -286,17 +289,18 @@
 
 (deftest zero-capacity-test
   (testing "capacity=0 rejects every put!"
-    (let [s (ds/open! {:type :ringbuffer, :capacity 0})]
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 0})]
       (is (= :full (:result (ds/append! s :a))))))
   (testing "capacity=0 with :evict-oldest still rejects every put!"
-    (let [s (ds/open!
-              {:type :ringbuffer, :capacity 0, :eviction-policy :evict-oldest})]
+    (let [s (ds/open! {:dao.stream/type :ringbuffer,
+                       :capacity 0,
+                       :eviction-policy :evict-oldest})]
       (is (= :full (:result (ds/append! s :a)))))))
 
 
 (deftest capacity-one-boundary-test
   (testing "capacity=1: full after one put!, freed after take!"
-    (let [s (ds/open! {:type :ringbuffer, :capacity 1})]
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})]
       (is (= :ok (:result (ds/append! s :a))))
       (is (= :full (:result (ds/append! s :b))))
       (is (= :a (:ok (ds/drain-one! s))))
@@ -307,7 +311,7 @@
 (deftest put-take-cycle-index-continuity-test
   (testing
     "absolute indices advance monotonically across multiple put!/take! cycles"
-    (let [s (ds/open! {:type :ringbuffer, :capacity nil})]
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
       (ds/append! s :a)
       (ds/drain-one! s)
       (ds/append! s :b)
@@ -342,7 +346,8 @@
 
 (deftest open-descriptor-nil-capacity-is-unbounded-test
   (testing "open! with nil :capacity is unbounded"
-    (let [s (ds/open! {:type :ringbuffer, :mode :create, :capacity nil})]
+    (let [s (ds/open!
+              {:dao.stream/type :ringbuffer, :mode :create, :capacity nil})]
       (dotimes [i 1000] (ds/append! s i))
       (is (= 1000 (count s))))))
 
@@ -353,7 +358,7 @@
 
 (deftest writer-waiter-woken-by-drain-test
   (testing "drain-one! wakes a registered writer-waiter and writes its datom"
-    (let [s (ds/open! {:type :ringbuffer, :capacity 1})]
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})]
       ;; Fill the stream
       (is (= :ok (:result (ds/append! s :value1))))
       ;; Try to put another but it's full
@@ -377,7 +382,7 @@
 
 (deftest drain-one-no-writer-waiters-test
   (testing "drain-one! returns empty :woke when no writers are registered"
-    (let [s (ds/open! {:type :ringbuffer, :capacity nil})]
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
       (ds/append! s :x)
       (let [result (ds/drain-one! s)]
         (is (= :x (:ok result)))
@@ -386,7 +391,7 @@
 
 (deftest close-wakes-writer-waiters-test
   (testing "close! wakes both reader-waiters and writer-waiters with :value nil"
-    (let [s (ds/open! {:type :ringbuffer, :capacity nil})]
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
       ;; Register a reader-waiter
       (ds/register-reader-waiter! s
                                   0
@@ -407,7 +412,7 @@
 (deftest close-does-not-append-writer-datom-test
   (testing
     "close! resolves parked writers without letting drain-one! append them later"
-    (let [s (ds/open! {:type :ringbuffer, :capacity 1})]
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})]
       (is (= :ok (:result (ds/append! s :value1))))
       (ds/register-writer-waiter!
         s
@@ -458,9 +463,97 @@
            (is (= :delayed (ds/take!! s)))
            @writer))
        (testing "take!! throws when the head position has been evicted (gap)"
-         (let [s (ds/open! {:type :ringbuffer,
+         (let [s (ds/open! {:dao.stream/type :ringbuffer,
                             :capacity 1,
                             :eviction-policy :evict-oldest})]
            (ds/append! s :a)
            (ds/append! s :b)
            (is (thrown? Exception (ds/take!! s))))))))
+
+
+(deftest open-dispatch-type-contract-test
+  (testing
+    "ds/open! dispatches only :dao.stream/type, rejecting :type compatibility"
+    (is (thrown? #?(:clj Exception
+                    :cljs js/Error
+                    :cljd Object)
+          (ds/open! {:type :ringbuffer, :capacity nil})))
+    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
+      (is (some? s))
+      (is (ds/realization? s)))))
+
+
+(deftest descriptor-realization-predicates-test
+  (testing "explicit predicates and functions for descriptor vs realization"
+    (let [desc {:dao.stream/type :ringbuffer, :capacity 10}
+          stream (ds/open! desc)]
+      (is (true? (ds/descriptor? desc)))
+      (is (false? (ds/descriptor? {:type :ringbuffer})))
+      (is (false? (ds/descriptor? "not a map")))
+      (is (false? (ds/realization? desc)))
+      (is (true? (ds/realization? stream)))
+      (is (= desc (ds/descriptor stream)))
+      (is (= desc (ds/descriptor desc))))))
+
+
+(deftest relation-descriptor-contract-test
+  (testing "read-only closed exact-bound inline relation descriptor"
+    (let [tuples [[1 "a"] [2 "b"] [3 "c"]]
+          bound (relation/relation-bound tuples)
+          desc {:dao.stream/type :dao.stream/relation,
+                :tuples tuples,
+                :dao.stream/bound bound}
+          stream (ds/open! desc)]
+      (is (ds/realization? stream))
+      (is (ds/closed? stream))
+      (is (= {:woke []} (ds/close! stream)))
+      (is (false? (satisfies? ds/IDaoStreamWriter stream)))
+      (is (= desc (ds/descriptor stream)))
+      (is (= bound (ds/bound stream)))
+      (is (= {:dao.stream/descriptor desc} (meta stream)))
+      (is (= {:ok [1 "a"], :cursor {:position 1}}
+             (ds/next stream {:position 0})))
+      (is (= {:ok [2 "b"], :cursor {:position 2}}
+             (ds/next stream {:position 1})))
+      (is (= {:ok [3 "c"], :cursor {:position 3}}
+             (ds/next stream {:position 2})))
+      (is (= :end (ds/next stream {:position 3})))
+      (is (= tuples (ds/strict-vec stream)))))
+  (testing "supports arbitrary mixed-dimensional :tuples"
+    (let [tuples [[] [1] ["a" "b"] [1 2 3 4]]
+          desc (relation/relation-descriptor tuples)
+          stream (ds/open! desc)]
+      (is (= tuples (ds/strict-vec stream)))))
+  (testing "rejects missing :dao.stream/bound"
+    (is (thrown? #?(:clj Exception
+                    :cljs js/Error
+                    :cljd Object)
+          (ds/open! {:dao.stream/type :dao.stream/relation,
+                     :tuples [[1 2]]}))))
+  (testing "rejects bound mismatch"
+    (is (thrown? #?(:clj Exception
+                    :cljs js/Error
+                    :cljd Object)
+          (ds/open! {:dao.stream/type :dao.stream/relation,
+                     :tuples [[1 2]],
+                     :dao.stream/bound (relation/relation-bound
+                                         [[9 9]])})))))
+
+
+(deftest strict-vec-utility-contract-test
+  (testing "strict-vec throws on :blocked signal"
+    (let [open-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (ds/strict-vec open-stream)))))
+  (testing "strict-vec throws on :daostream/gap signal"
+    (let [ring (ds/open! {:dao.stream/type :ringbuffer,
+                          :capacity 1,
+                          :eviction-policy :evict-oldest})]
+      (ds/append! ring :v1)
+      (ds/append! ring :v2)
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (ds/strict-vec ring))))))

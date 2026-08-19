@@ -332,7 +332,7 @@
    defaults to :evict-oldest."
   ([path] (make-file-stream path default-capacity :evict-oldest))
   ([path capacity eviction-policy]
-   (let [ring (ds/open! {:type :ringbuffer,
+   (let [ring (ds/open! {:dao.stream/type :ringbuffer,
                          :capacity capacity,
                          :eviction-policy (or eviction-policy :evict-oldest)})]
      (->FileStream path ring (open-writer! path) (atom 0) (atom nil)))))

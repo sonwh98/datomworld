@@ -1,0 +1,174 @@
+#:blog{:title "Datom.world: A Moduli Space of Databases",
+       :date #inst "2026-08-15T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "Datom.world does not prescribe one universal database. It supplies a stream substrate and a core axiom: semantics are external to the stream. An interpreter observes streams and materializes data structures; the observation fixes a point in the moduli space of possible databases."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "A database is often defined by the shape it stores: rows, documents, triples, vectors, or graph edges. Datom.world starts one level lower. Values move through DaoStreams, and no stream element interprets itself. Meaning appears only when an interpreter observes the stream and decides what operations are valid."]
+
+          [:blockquote
+           [:p
+            "The core axiom: interpretation is external to the stream. Semantics lives in the interpreter, not in the data."]]
+
+          [:p
+           "Because interpretation is external, an interpreter can take arbitrary streams and materialize them as tuples, key/value entries, document trees, vectors, or graph projections: whatever data structure is fit for its operational context. Datom.world does not contain one inevitable database; it contains a space of possible database interpreters. Each coherent choice of observation semantics is one point in that space; the materialized structure follows from the observation rather than selecting the point."]
+
+          [:h2 "What Defines a Point"]
+
+          [:p
+           "A point in this moduli space is not selected by a file format or index layout. It is selected by restrictions on observation:"]
+
+          [:ul.bulleted
+           [:li "What values count as admissible facts?"]
+           [:li "How are facts matched, compared, or traversed?"]
+           [:li "Which operations compose observations?"]
+           [:li "What bounds make an observation immutable and repeatable?"]
+           [:li "Which causal or historical rules does the interpreter impose?"]]
+
+          [:p
+           "Two systems may use identical storage and still occupy different points because their interpreters ask different questions. Two systems may use different physical indexes and still occupy the same point because their logical answers are identical."]
+
+          [:h2 "DaoStream Is the Substrate"]
+
+          [:p
+           "DaoStream is the abstraction boundary underneath every point. A stream may be local or remote, open or exact-bounded, carrying raw bytes, tuples, descriptors, indexes, programs, or any other payloads a consumer needs."]
+
+          [:p
+           "The stream supplies sequence and bounds, but it remains pure syntax. It never decrees whether a stream element is intrinsically a datom, graph edge, vector embedding, document, or database row. Interpreters take these streams and materialize them into whatever data structures and query capabilities fit their context."]
+
+          [:p
+           "This keeps the substrate stable while database paradigms evolve. A new database point can be introduced by publishing a new interpreter over existing streams rather than changing DaoStream or rewriting stored values."]
+
+          [:h2 "DaoJing: Shared Storage Without Shared Semantics"]
+
+          [:p
+           [:a {:href "/dao-jing.chp"} "DaoJing"]
+           " is an interpretation of DaoStream, but an intentionally restricted one. It observes an explicit pool of intake streams and materializes every opaque payload as a content-addressed key/value entry:"]
+
+          [:pre
+           [:code
+            "bytes = canonical-encode(x)\nkey   = content-hash(bytes)\nKV[key] = x                 ; insert if absent"]]
+
+          [:p
+           "DaoJing interprets enough structure to canonically encode a value, derive its address, insert it idempotently, and retrieve it. It assigns content identity: the same content always resolves to the same address. It does not assign domain meaning."]
+
+          [:p
+           "DaoJing does not know whether "
+           [:code "x"]
+           " is a datom, B-tree node, positional index, indexed-snapshot manifest, vector embedding, graph projection, program, or image. Source-stream identity is operational cursor state and never becomes the stored value's semantic namespace."]
+
+          [:blockquote
+           [:p
+            "DaoJing is a semantic-neutral KV materialization that any database point may use as storage."]]
+
+          [:p
+           "DaoJing is therefore not another semantic point beside DaoSpace or DaoField. It is a reusable storage boundary beneath them. A point may use DaoJing, another content store, or no durable storage at all without changing its observation semantics."]
+
+          [:h2 "DaoSpace: Exact Associative Matching"]
+
+          [:p
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
+           " is the point selected by tuple-space semantics. Writers append immutable n-tuples generatively, naming no recipient. Readers find tuples associatively by describing their content."]
+
+          [:p
+           [:code "match"]
+           " performs one exact positional template match. "
+           [:code "q"]
+           " generalizes matching into Datalog clauses joined through shared variables. Different tuple dimensions can meet in one query because unification depends on shared values rather than uniform width."]
+
+          [:p
+           "A canonical d5 datom interpreter may automatically build EAVT, AEVT, AVET, and VAET. Other tuple relations will one day explicitly request positional indexes of their own, a specified future extension. Both choices remain inside DaoSpace because indexes change access cost, not exact-unification semantics."]
+
+          [:h2 "DaoField: Metric Observation"]
+
+          [:p
+           "DaoField observes tuples through distance rather than exact equality. Its natural question is not, "
+           [:em "Which tuples unify with this pattern?"]
+           ", but, "
+           [:em "Which tuples are nearest under this metric?"]]
+
+          [:p
+           "DaoSpace and DaoField may observe the same underlying values and persist their derived structures in the same DaoJing. They remain different points because exact unification and metric proximity define different observation algebras."]
+
+          [:h2 "Other Points"]
+
+          [:p
+           "The same discipline admits other database points without forcing them into DaoSpace:"]
+
+          [:ul.bulleted
+           [:li "a graph interpreter whose defining operation follows declared edges"]
+           [:li "a document interpreter that projects and navigates nested entity views"]
+           [:li "a columnar interpreter organized around vectorized operations over selected positions"]
+           [:li "a temporal interpreter whose primitive observations are windows and causal relations"]
+           [:li "a logic interpreter with a different inference or constraint regime"]]
+
+          [:p
+           "These examples become real points only when their operations and restrictions are explicit. Calling every derived map or traversal a new database would make the moduli-space claim empty. A new physical view is not enough. A distinct observation semantics is required. DaoSpace itself already projects entities through its pull verb, so a document interpreter counts as a different point only if navigating nested views, rather than associative matching, becomes its defining observation."]
+
+          [:h2 "Indexes Are Coordinates, Not Ontology"]
+
+          [:p
+           "Within any point, the same facts may be organized through several access paths. DaoSpace may have covered indexes or explicit positional indexes. DaoField may have approximate-nearest-neighbor structures. A graph interpreter may maintain adjacency projections."]
+
+          [:p
+           "These structures are coordinates chosen for efficient observation. They can be rebuilt, replaced, or persisted as indexed snapshots without changing the logical database point, provided they return the same answers under that point's semantics."]
+
+          [:p
+           "This distinction prevents optimization from becoming ontology. The interpreter defines truth. The index only helps the interpreter reach it faster."]
+
+          [:h2 "No Universal Query Language"]
+
+          [:p
+           "A moduli space of databases does not need one query language that pretends every observation is the same. Datalog is native to DaoSpace because it generalizes associative matching. Nearest-neighbor search is native to DaoField. Traversal is native where references define the observation."]
+
+          [:p
+           "Front ends may compile into several interpreters, and results may flow from one point into another through DaoStream. That composition does not erase their boundaries. Each interpreter remains explicit about the semantics it contributes."]
+
+          [:h2 "Restrictions Give Each Point Shape"]
+
+          [:p
+           "The moduli space is open, but each point must be restricted. DaoSpace requires exact positional rules. DaoField requires a declared metric. Without those restrictions, behavior becomes implicit and a database point loses its identity."]
+
+          [:p
+           "The substrate boundaries must be restricted too. DaoJing requires canonical content addressing and insert-if-absent materialization. That contract makes it dependable shared storage without turning it into a semantic database point."]
+
+          [:p
+           "This is how Datom.world remains extensible without becoming vague: the space of interpreters is open, while every admitted interpreter has a small, explicit contract."]
+
+          [:h2 "The Larger Picture"]
+
+          [:p
+           "Datom.world's database architecture is not one structure that understands everything. It is a composition of narrow interpreters over streams:"]
+
+          [:pre
+           [:code
+            "DaoStream (pure syntax) + content-addressed KV materialization             -> DaoJing storage\nDaoStream (pure syntax) + generative writes, exact positional unification  -> DaoSpace (tuples & Datalog)\nDaoStream (pure syntax) + metric proximity                                 -> DaoField (vectors & distances)\nDaoStream (pure syntax) + another explicit observation                     -> another database point"]]
+
+          [:p
+           "The underlying streams can remain the same. The storage substrate can remain the same. What changes from point to point is the interpreter's defining observation, the data structures that observation makes worth materializing, and the questions it makes possible."]
+
+          [:p
+           [:strong
+            "Datom.world is the moduli space. DaoSpace is the tuple-space point. DaoJing is semantic-neutral storage available to them all."]]
+
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/daospace-moduli-space-of-databases.blog"}
+             "DaoSpace Is a Tuple Space, Not a Moduli Space"]
+            " (the correction that locates DaoSpace precisely)"]
+           [:li
+            [:a {:href "/blog/datalog-on-an-n-tuple-tuple-space.blog"}
+             "Datalog on an n-tuple Tuple Space"]
+            " (why mixed-dimensional relations belong in DaoSpace)"]
+           [:li
+            [:a {:href "/blog/structure-vs-interpretation.blog"}
+             "Structure vs Interpretation"]
+            " (why data does not carry its own meaning)"]]]]]}

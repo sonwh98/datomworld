@@ -167,7 +167,8 @@
                  "content" (pr-str result)}))))
         "file_read"
         #?(:clj (let [path (get args "path")
-                      s (ds/open! {:type :file-input-stream, :path path})
+                      s (ds/open! {:dao.stream/type :file-input-stream,
+                                   :path path})
                       chunks (loop [acc []
                                     pos 0]
                                (let [res (ds/next s {:position pos})]
@@ -194,7 +195,8 @@
         "file_write"
         #?(:clj (let [path (get args "path")
                       content (get args "content")
-                      s (ds/open! {:type :file-output-stream, :path path})
+                      s (ds/open! {:dao.stream/type :file-output-stream,
+                                   :path path})
                       res (ds/append! s (.getBytes ^String content "UTF-8"))]
                   (ds/close! s)
                   {"role" "tool",
@@ -210,7 +212,7 @@
                            hdrs (when-let [h (get args "headers")]
                                   (json-decode h))
                            body (get args "body")
-                           descriptor (cond-> {:type :http, :url url}
+                           descriptor (cond-> {:dao.stream/type :http, :url url}
                                         method (assoc :method method)
                                         hdrs (assoc :headers hdrs)
                                         body (assoc :body body))

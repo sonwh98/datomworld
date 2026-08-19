@@ -9,6 +9,7 @@
             ["codemirror" :refer [basicSetup]]
             [cljs.reader :as reader]
             [clojure.walk :as walk]
+            [dao.datom :as datom]
             [dao.space.query :as query]
             [dao.space.transact :as transact]
             [dao.stream :as ds]
@@ -543,7 +544,7 @@
    transactions on it. Each element of `txns` is a vector of datoms
    representing a single program form / transaction."
   [vm-state txns]
-  (let [in-stream (ds/open! {:type :ringbuffer, :capacity nil})
+  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
         queued-state (assoc vm-state
                             :in-stream in-stream
                             :in-cursor {:position 0})]
@@ -707,7 +708,8 @@
           max-schema-eid (apply max (map first ast-db))
           {:keys [tempids datoms]} (transact/prepare-tx
                                      {:base-datoms ast-db,
-                                      :next-eid (max 1025 (inc max-schema-eid)),
+                                      :next-eid (max datom/first-user-id
+                                                     (inc max-schema-eid)),
                                       :tx-data tx-data})
           dao-db (into ast-db datoms)
           all-datoms (vec (query/current-state-seq dao-db))
@@ -781,7 +783,9 @@
                               (let [input-text (or (:query-inputs @app-state)
                                                    "")]
                                 (reader/read-string (str "[" input-text "]"))))
-                 result (apply query/q query db (or extra-vals []))]
+                 source (query/current (query/relation db))
+                 result (query/collect
+                          (apply query/q query source (or extra-vals [])))]
              (swap! app-state assoc :query-result result :error nil))
            (catch js/Error e
              (swap! app-state assoc
@@ -1649,18 +1653,20 @@
                   (when (not (:halted? state))
                     (let [ctrl (:control state)
                           info (if (= :node (:type ctrl))
-                                 (let [attrs
-                                       (let [tx-data (vm/datoms->tx-data
-                                                       (:datoms state))
-                                             ast-db
-                                             (semantic/create-ast-db)
-                                             {:keys [datoms]}
-                                             (transact/prepare-tx
-                                               {:base-datoms ast-db,
-                                                :tx-data tx-data})
-                                             dao-db (into ast-db datoms)]
-                                         (query/entity-attrs dao-db
-                                                             (:id ctrl)))]
+                                 (let [attrs (let
+                                               [tx-data (vm/datoms->tx-data
+                                                          (:datoms state))
+                                                ast-db
+                                                (semantic/create-ast-db)
+                                                {:keys [datoms]}
+                                                (transact/prepare-tx
+                                                  {:base-datoms ast-db,
+                                                   :tx-data tx-data})
+                                                dao-db (into ast-db datoms)]
+                                               (query/entity-attrs
+                                                 (query/current
+                                                   (query/relation dao-db))
+                                                 (:id ctrl)))]
                                    (str (:yin/type attrs)))
                                  "Returning...")]
                       {:control ctrl, :info info}))),

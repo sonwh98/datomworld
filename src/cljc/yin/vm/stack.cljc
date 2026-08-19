@@ -116,82 +116,115 @@
   ([ast-as-datoms {:keys [root-id by-entity]}]
    (let [{:keys [get-attr root-id]} (vm/index-datoms ast-as-datoms
                                                      {:root-id root-id,
-                                                      :by-entity by-entity})
-         instructions (atom [])
-         emit! (fn [instr] (swap! instructions conj instr))
-         label-counter (atom 0)
-         gen-label! (fn [prefix]
-                      (keyword (str prefix "-" (swap! label-counter inc))))]
+                                                      :by-entity by-entity})]
      (letfn
        [(compile-node
-          ([e] (compile-node e false))
-          ([e tail?]
+          ([state e] (compile-node state e false))
+          ([state e tail?]
            (case (get-attr e :yin/type)
-             :literal (emit! [:push (get-attr e :yin/value)])
-             :variable (emit! [:load (get-attr e :yin/name)])
+             :literal
+             (update state :instructions conj [:push (get-attr e :yin/value)])
+             :variable
+             (update state :instructions conj [:load (get-attr e :yin/name)])
              :lambda (let [params (get-attr e :yin/params)
                            body-node (get-attr e :yin/body)
-                           skip-label (gen-label! "after-lambda")]
-                       (emit! [:lambda params skip-label])
-                       (compile-node body-node true)
-                       (emit! [:return])
-                       (emit! [:label skip-label]))
+                           skip-label (keyword (str "after-lambda-"
+                                                    (inc (:label-counter
+                                                           state))))
+                           state1 (-> state
+                                      (update :label-counter inc)
+                                      (update :instructions
+                                              conj
+                                              [:lambda params skip-label]))
+                           state2 (compile-node state1 body-node true)
+                           state3 (update state2 :instructions conj [:return])]
+                       (update state3 :instructions conj [:label skip-label]))
              :application
              (let [op-node (get-attr e :yin/operator)
-                   operand-nodes (get-attr e :yin/operands)]
-               (compile-node op-node)
-               (doseq [arg-node operand-nodes] (compile-node arg-node))
-               (emit! [(if tail? :tailcall :call) (count operand-nodes)]))
+                   operand-nodes (get-attr e :yin/operands)
+                   state1 (compile-node state op-node)
+                   state2 (reduce compile-node state1 operand-nodes)]
+               (update state2
+                       :instructions
+                       conj
+                       [(if tail? :tailcall :call) (count operand-nodes)]))
              :dao.stream.apply/call
              (let [operand-nodes (or (get-attr e :yin/operands) [])
-                   op (get-attr e :yin/op)]
-               (doseq [arg-node operand-nodes] (compile-node arg-node))
-               (emit! [:dao.stream.apply/call op (count operand-nodes)]))
+                   op (get-attr e :yin/op)
+                   state1 (reduce compile-node state operand-nodes)]
+               (update state1
+                       :instructions
+                       conj
+                       [:dao.stream.apply/call op (count operand-nodes)]))
              :if (let [test-node (get-attr e :yin/test)
                        cons-node (get-attr e :yin/consequent)
                        alt-node (get-attr e :yin/alternate)
-                       cons-label (gen-label! "then")
-                       end-label (gen-label! "end")]
-                   (compile-node test-node)
-                   (emit! [:branch cons-label])
-                   (compile-node alt-node tail?)
-                   (emit! [:jump end-label])
-                   (emit! [:label cons-label])
-                   (compile-node cons-node tail?)
-                   (emit! [:label end-label]))
+                       cons-label (keyword (str "then-"
+                                                (inc (:label-counter state))))
+                       end-label (keyword (str "end-"
+                                               (+ 2 (:label-counter state))))
+                       state1 (-> state
+                                  (update :label-counter + 2)
+                                  (compile-node test-node))
+                       state2 (->
+                                state1
+                                (update :instructions conj [:branch cons-label])
+                                (compile-node alt-node tail?)
+                                (update :instructions conj [:jump end-label])
+                                (update :instructions conj [:label cons-label])
+                                (compile-node cons-node tail?))]
+                   (update state2 :instructions conj [:label end-label]))
              ;; VM primitives
-             :vm/gensym (emit! [:gensym (or (get-attr e :yin/prefix) "id")])
-             :vm/store-get (emit! [:store-get (get-attr e :yin/key)])
+             :vm/gensym (update state
+                                :instructions
+                                conj
+                                [:gensym (or (get-attr e :yin/prefix) "id")])
+             :vm/store-get (update state
+                                   :instructions
+                                   conj
+                                   [:store-get (get-attr e :yin/key)])
              :vm/store-put (let [val (get-attr e :yin/value)]
-                             (emit! [:push val])
-                             (emit! [:store-put (get-attr e :yin/key)])
-                             val)
+                             (-> state
+                                 (update :instructions conj [:push val])
+                                 (update :instructions
+                                         conj
+                                         [:store-put (get-attr e :yin/key)])))
              ;; Stream operations
-             :stream/make (emit! [:stream-make
-                                  (or (get-attr e :yin/buffer) 1024)])
+             :stream/make (update state
+                                  :instructions
+                                  conj
+                                  [:stream-make
+                                   (or (get-attr e :yin/buffer) 1024)])
              :stream/put (let [target-node (get-attr e :yin/target)
-                               val-node (get-attr e :yin/val-node)]
-                           (compile-node val-node)
-                           (compile-node target-node)
-                           (emit! [:stream-put]))
-             :stream/cursor (let [source-node (get-attr e :yin/source)]
-                              (compile-node source-node)
-                              (emit! [:stream-cursor]))
-             :stream/next (let [source-node (get-attr e :yin/source)]
-                            (compile-node source-node)
-                            (emit! [:stream-next]))
-             :stream/close (let [source-node (get-attr e :yin/source)]
-                             (compile-node source-node)
-                             (emit! [:stream-close]))
+                               val-node (get-attr e :yin/val-node)
+                               state1 (compile-node state val-node)
+                               state2 (compile-node state1 target-node)]
+                           (update state2 :instructions conj [:stream-put]))
+             :stream/cursor
+             (let [source-node (get-attr e :yin/source)
+                   state1 (compile-node state source-node)]
+               (update state1 :instructions conj [:stream-cursor]))
+             :stream/next (let [source-node (get-attr e :yin/source)
+                                state1 (compile-node state source-node)]
+                            (update state1 :instructions conj [:stream-next]))
+             :stream/close (let [source-node (get-attr e :yin/source)
+                                 state1 (compile-node state source-node)]
+                             (update state1 :instructions conj [:stream-close]))
              ;; Continuation primitives
-             :vm/park (emit! [:park])
-             :vm/resume (do (emit! [:push (get-attr e :yin/parked-id)])
-                            (compile-node (get-attr e :yin/val-node))
-                            (emit! [:resume]))
-             :vm/current-continuation (emit! [:current-cont])
+             :vm/park (update state :instructions conj [:park])
+             :vm/resume
+             (let [state1 (update state
+                                  :instructions
+                                  conj
+                                  [:push (get-attr e :yin/parked-id)])
+                   state2 (compile-node state1 (get-attr e :yin/val-node))]
+               (update state2 :instructions conj [:resume]))
+             :vm/current-continuation
+             (update state :instructions conj [:current-cont])
              (throw (ex-info "Unknown node type in stack assembly compilation"
                              {:type (get-attr e :yin/type), :entity e})))))]
-       (compile-node root-id true) @instructions))))
+       (:instructions
+         (compile-node {:instructions [], :label-counter 0} root-id true))))))
 
 
 (defn assemble
@@ -199,20 +232,7 @@
 
    Returns {:bytecode [int...] :pool [value...] :source-map {byte-offset instr-index}}"
   [instructions]
-  (let [pool (atom [])
-        pool-index (atom {})
-        add-constant (fn [val]
-                       (if-let [idx (get @pool-index val)]
-                         idx
-                         (let [idx (count @pool)]
-                           (swap! pool conj val)
-                           (swap! pool-index assoc val idx)
-                           idx)))
-        ;; Pass 1: Measure sizes and record label positions.
-        label-offsets (atom {})
-        current-offset (atom 0)
-        ;; Helper to size instruction
-        instr-size (fn [instr]
+  (let [instr-size (fn [instr]
                      (case (first instr)
                        :push 2
                        :load 2
@@ -235,107 +255,132 @@
                        :park 1
                        :resume 1
                        :current-cont 1
-                       0))]
-    ;; Pass 1: Calculate label offsets
-    (doseq [instr instructions]
-      (if (= :label (first instr))
-        (swap! label-offsets assoc (second instr) @current-offset)
-        (swap! current-offset + (instr-size instr))))
-    ;; Pass 2: Emit bytes
-    (let [bytes (atom [])
-          source-map (atom {})
-          emit-byte! (fn [b] (swap! bytes conj b))
-          emit-short! (fn [s]
-                        (emit-byte! (bit-shift-right (bit-and s 0xFF00) 8))
-                        (emit-byte! (bit-and s 0xFF)))
-          ;; Re-calculate current offset during emission for relative jumps
-          emit-offset (atom 0)]
-      (doseq [[idx instr] (map-indexed vector instructions)]
-        (let [op (first instr)
-              arg1 (second instr)
-              arg2 (nth instr 2 nil)
-              start-offset @emit-offset]
-          ;; Record source map
-          (when (not= :label op) (swap! source-map assoc start-offset idx))
-          (case op
-            :push (let [idx (add-constant arg1)]
-                    (emit-byte! (vm/opcode-table :literal))
-                    (emit-byte! idx)
-                    (swap! emit-offset + 2))
-            :load (let [idx (add-constant arg1)]
-                    (emit-byte! (vm/opcode-table :load-var))
-                    (emit-byte! idx)
-                    (swap! emit-offset + 2))
-            :lambda (let [params-idx (add-constant arg1)
-                          target-label arg2
-                          target-offset (get @label-offsets target-label)
-                          ;; Body length = target-offset - (current-offset
-                          ;; + 4)
-                          body-len (- target-offset (+ @emit-offset 4))]
-                      (emit-byte! (vm/opcode-table :lambda))
-                      (emit-byte! params-idx)
-                      (emit-short! body-len)
-                      (swap! emit-offset + 4))
-            :call (do (emit-byte! (vm/opcode-table :call))
-                      (emit-byte! arg1)
-                      (swap! emit-offset + 2))
-            :tailcall (do (emit-byte! (vm/opcode-table :tailcall))
-                          (emit-byte! arg1)
-                          (swap! emit-offset + 2))
-            :branch (let [target-label arg1
-                          target-offset (get @label-offsets target-label)
-                          ;; Relative offset = target-offset -
-                          ;; (current-offset + 3)
-                          rel-offset (- target-offset (+ @emit-offset 3))]
-                      (emit-byte! (vm/opcode-table :branch))
-                      (emit-short! rel-offset)
-                      (swap! emit-offset + 3))
-            :jump (let [target-label arg1
-                        target-offset (get @label-offsets target-label)
-                        rel-offset (- target-offset (+ @emit-offset 3))]
-                    (emit-byte! (vm/opcode-table :jump))
-                    (emit-short! rel-offset)
-                    (swap! emit-offset + 3))
-            :return (do (emit-byte! (vm/opcode-table :return))
-                        (swap! emit-offset + 1))
-            :label nil ; No code emitted
-            :gensym (let [idx (add-constant arg1)]
-                      (emit-byte! (vm/opcode-table :gensym))
-                      (emit-byte! idx)
-                      (swap! emit-offset + 2))
-            :store-get (let [idx (add-constant arg1)]
-                         (emit-byte! (vm/opcode-table :store-get))
-                         (emit-byte! idx)
-                         (swap! emit-offset + 2))
-            :store-put (let [idx (add-constant arg1)]
-                         (emit-byte! (vm/opcode-table :store-put))
-                         (emit-byte! idx)
-                         (swap! emit-offset + 2))
-            :stream-make (let [idx (add-constant arg1)]
-                           (emit-byte! (vm/opcode-table :stream-make))
-                           (emit-byte! idx)
-                           (swap! emit-offset + 2))
-            :stream-put (do (emit-byte! (vm/opcode-table :stream-put))
-                            (swap! emit-offset + 1))
-            :stream-cursor (do (emit-byte! (vm/opcode-table :stream-cursor))
-                               (swap! emit-offset + 1))
-            :stream-next (do (emit-byte! (vm/opcode-table :stream-next))
-                             (swap! emit-offset + 1))
-            :stream-close (do (emit-byte! (vm/opcode-table :stream-close))
-                              (swap! emit-offset + 1))
-            :dao.stream.apply/call (let [idx (add-constant arg1)]
-                                     (emit-byte! (vm/opcode-table
-                                                   :dao.stream.apply/call))
-                                     (emit-byte! idx)
-                                     (emit-byte! arg2)
-                                     (swap! emit-offset + 3))
-            :park (do (emit-byte! (vm/opcode-table :park))
-                      (swap! emit-offset + 1))
-            :resume (do (emit-byte! (vm/opcode-table :resume))
-                        (swap! emit-offset + 1))
-            :current-cont (do (emit-byte! (vm/opcode-table :current-cont))
-                              (swap! emit-offset + 1)))))
-      {:bytecode @bytes, :pool @pool, :source-map @source-map})))
+                       0))
+        pass1 (reduce (fn [state instr]
+                        (if (= :label (first instr))
+                          (assoc-in state
+                                    [:label-offsets (second instr)]
+                                    (:current-offset state))
+                          (update state :current-offset + (instr-size instr))))
+                      {:label-offsets {}, :current-offset 0}
+                      instructions)
+        label-offsets (:label-offsets pass1)]
+    (letfn [(add-constant
+              [state val]
+              (if-let [idx (get (:pool-index state) val)]
+                [state idx]
+                (let [idx (count (:pool state))]
+                  [(-> state
+                       (update :pool conj val)
+                       (update :pool-index assoc val idx)) idx])))
+            (emit-byte
+              [state b]
+              (-> state
+                  (update :bytes conj b)
+                  (update :emit-offset inc)))
+            (emit-short
+              [state s]
+              (-> state
+                  (update :bytes conj (bit-shift-right (bit-and s 0xFF00) 8))
+                  (update :bytes conj (bit-and s 0xFF))
+                  (update :emit-offset + 2)))]
+      (let [final-state
+            (reduce
+              (fn [state [idx instr]]
+                (let [op (first instr)
+                      arg1 (second instr)
+                      arg2 (nth instr 2 nil)
+                      start-offset (:emit-offset state)
+                      state (if (not= :label op)
+                              (assoc-in state [:source-map start-offset] idx)
+                              state)]
+                  (case op
+                    :push (let [[state' cidx] (add-constant state arg1)]
+                            (-> state'
+                                (emit-byte (vm/opcode-table :literal))
+                                (emit-byte cidx)))
+                    :load (let [[state' cidx] (add-constant state arg1)]
+                            (-> state'
+                                (emit-byte (vm/opcode-table :load-var))
+                                (emit-byte cidx)))
+                    :lambda (let [[state' pidx] (add-constant state arg1)
+                                  target-label arg2
+                                  target-offset (get label-offsets
+                                                     target-label)
+                                  body-len (- target-offset
+                                              (+ (:emit-offset state') 4))]
+                              (-> state'
+                                  (emit-byte (vm/opcode-table :lambda))
+                                  (emit-byte pidx)
+                                  (emit-short body-len)))
+                    :call (-> state
+                              (emit-byte (vm/opcode-table :call))
+                              (emit-byte arg1))
+                    :tailcall (-> state
+                                  (emit-byte (vm/opcode-table :tailcall))
+                                  (emit-byte arg1))
+                    :branch (let [target-label arg1
+                                  target-offset (get label-offsets
+                                                     target-label)
+                                  rel-offset (- target-offset
+                                                (+ (:emit-offset state) 3))]
+                              (-> state
+                                  (emit-byte (vm/opcode-table :branch))
+                                  (emit-short rel-offset)))
+                    :jump (let [target-label arg1
+                                target-offset (get label-offsets target-label)
+                                rel-offset (- target-offset
+                                              (+ (:emit-offset state) 3))]
+                            (-> state
+                                (emit-byte (vm/opcode-table :jump))
+                                (emit-short rel-offset)))
+                    :return (emit-byte state (vm/opcode-table :return))
+                    :label state ; No code emitted
+                    :gensym (let [[state' cidx] (add-constant state arg1)]
+                              (-> state'
+                                  (emit-byte (vm/opcode-table :gensym))
+                                  (emit-byte cidx)))
+                    :store-get (let [[state' cidx] (add-constant state arg1)]
+                                 (-> state'
+                                     (emit-byte (vm/opcode-table :store-get))
+                                     (emit-byte cidx)))
+                    :store-put (let [[state' cidx] (add-constant state arg1)]
+                                 (-> state'
+                                     (emit-byte (vm/opcode-table :store-put))
+                                     (emit-byte cidx)))
+                    :stream-make
+                    (let [[state' cidx] (add-constant state arg1)]
+                      (-> state'
+                          (emit-byte (vm/opcode-table :stream-make))
+                          (emit-byte cidx)))
+                    :stream-put (emit-byte state
+                                           (vm/opcode-table :stream-put))
+                    :stream-cursor
+                    (emit-byte state (vm/opcode-table :stream-cursor))
+                    :stream-next (emit-byte state
+                                            (vm/opcode-table :stream-next))
+                    :stream-close (emit-byte state
+                                             (vm/opcode-table :stream-close))
+                    :dao.stream.apply/call
+                    (let [[state' cidx] (add-constant state arg1)]
+                      (-> state'
+                          (emit-byte (vm/opcode-table
+                                       :dao.stream.apply/call))
+                          (emit-byte cidx)
+                          (emit-byte arg2)))
+                    :park (emit-byte state (vm/opcode-table :park))
+                    :resume (emit-byte state (vm/opcode-table :resume))
+                    :current-cont
+                    (emit-byte state (vm/opcode-table :current-cont)))))
+              {:pool [],
+               :pool-index {},
+               :bytes [],
+               :source-map {},
+               :emit-offset 0}
+              (map-indexed vector instructions))]
+        {:bytecode (:bytes final-state),
+         :pool (:pool final-state),
+         :source-map (:source-map final-state)}))))
 
 
 (defn- compile-stack-artifact

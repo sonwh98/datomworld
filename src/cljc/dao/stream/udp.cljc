@@ -2,7 +2,7 @@
   "UDP‑based transport for DaoStream, treating each datom as a UDP datagram.
    
    Descriptor:
-     {:type :udp
+     {:dao.stream/type :udp
                   :mode :create
                   :host \"192.168.1.100\"
                   :port 9000
@@ -60,46 +60,31 @@
 ;; =============================================================================
 
 #?(:clj (defrecord UdpTransport
-          [socket remote-addr remote-port mtu reliable?
-           descriptor ^ConcurrentHashMap buffer   ; position
+          [socket remote-addr remote-port mtu reliable? descriptor
+           ^ConcurrentHashMap buffer ; position
            ;; ->
            ;; {:seq
-           ;; long
-           ;; :data
+           ;; long :data
            ;; bytes}
            ;; (DRDS)
-           ;; or
-           ;; raw
-           ;; value
+           ;; or raw value
            ;; (non‑DRDS)
-           ^AtomicLong send-tail                  ; next
-           ;; local
-           ;; write
-           ;; position
+           ^AtomicLong send-tail ; next
+           ;; local write position
            ;; (sequence
            ;; number)
-           ^AtomicLong rcv-tail                   ; highest
-           ;; received
-           ;; position
-           ;; + 1
+           ^AtomicLong rcv-tail ; highest
+           ;; received position + 1
            ;; (max
            ;; seq +
            ;; 1)
-           ^AtomicLong head                       ; oldest
-           ;; retained
-           ;; position
+           ^AtomicLong head ; oldest
+           ;; retained position
            ;; (for
            ;; gap
            ;; detection)
            ^AtomicBoolean closed receiver-thread] ; thread
-          ;; that
-          ;; receives
-          ;; datagrams
-          ;; and
-          ;; stores
-          ;; them
-          ;; in
-          ;; buffer
+          ;; that receives datagrams and stores them in buffer
           ;; ---------------------------------------------------------------------------
           ;; IDaoStreamWriter
           ;; ---------------------------------------------------------------------------

@@ -38,7 +38,7 @@
 (deftest log-round-trip-test
   (testing "put! returns a cursor and next reads that exact framed payload"
     (let [path (temp-path "dsl-rt-")
-          s (ds/open! {:type :append-log, :path path})]
+          s (ds/open! {:dao.stream/type :append-log, :path path})]
       (is (= :blocked (ds/next s {:position 0})))
       (let [payload (->bytes [1 2 3 4])
             {res :result, cursor :cursor} (ds/append! s payload)]
@@ -54,7 +54,7 @@
 (deftest log-positional-read-test
   (testing "next at a stored cursor re-reads that exact record (get path)"
     (let [path (temp-path "dsl-pos-")
-          s (ds/open! {:type :append-log, :path path})
+          s (ds/open! {:dao.stream/type :append-log, :path path})
           c1 (:cursor (ds/append! s (->bytes [1])))
           c2 (:cursor (ds/append! s (->bytes [2])))
           c3 (:cursor (ds/append! s (->bytes [3])))]
@@ -67,7 +67,7 @@
 (deftest multi-cursor-test
   (testing "Multiple independent cursors advance without consuming"
     (let [path (temp-path "dsl-mc-")
-          s (ds/open! {:type :append-log, :path path})
+          s (ds/open! {:dao.stream/type :append-log, :path path})
           _ (ds/append! s (->bytes [10]))
           _ (ds/append! s (->bytes [20]))
           a0 {:position 0}
@@ -84,11 +84,11 @@
 (deftest reopen-replay-test
   (testing "Reopen replays persisted records from 0"
     (let [path (temp-path "dsl-ro-")
-          s1 (ds/open! {:type :append-log, :path path})
+          s1 (ds/open! {:dao.stream/type :append-log, :path path})
           _ (ds/append! s1 (->bytes [55]))
           _ (ds/append! s1 (->bytes [66]))]
       (ds/close! s1)
-      (let [s2 (ds/open! {:type :append-log, :path path})
+      (let [s2 (ds/open! {:dao.stream/type :append-log, :path path})
             r1 (ds/next s2 {:position 0})
             r2 (ds/next s2 (:cursor r1))]
         (is (= [55] (b->vec (:ok r1))))
@@ -100,7 +100,7 @@
 (deftest torn-tail-test
   (testing "Torn-tail truncation cleans up partial writes"
     (let [path (temp-path "dsl-torn-")]
-      (let [s (ds/open! {:type :append-log, :path path})]
+      (let [s (ds/open! {:dao.stream/type :append-log, :path path})]
         (ds/append! s (->bytes [11 22]))
         (ds/close! s))
       ;; Hand-write a torn record (int32 length 999, but only 2 bytes
@@ -125,7 +125,7 @@
                  (.closeSync raf)))
       ;; Reopen and assert we only see the first record, and we can append
       ;; safely
-      (let [s2 (ds/open! {:type :append-log, :path path})
+      (let [s2 (ds/open! {:dao.stream/type :append-log, :path path})
             r1 (ds/next s2 {:position 0})]
         (is (= [11 22] (b->vec (:ok r1))))
         (is (= :blocked (ds/next s2 (:cursor r1))))
@@ -138,7 +138,7 @@
 (deftest close-test
   (testing "close!/closed? behave; next on closed returns :end"
     (let [path (temp-path "dsl-close-")
-          s (ds/open! {:type :append-log, :path path})]
+          s (ds/open! {:dao.stream/type :append-log, :path path})]
       (is (not (ds/closed? s)))
       (ds/close! s)
       (is (ds/closed? s))
@@ -150,7 +150,7 @@
      (testing
        "JVM transport fd lock: concurrent positional reads and appends stay consistent"
        (let [path (temp-path "dsl-conc-")
-             s (ds/open! {:type :append-log, :path path})
+             s (ds/open! {:dao.stream/type :append-log, :path path})
              ;; pre-populate some data
              cursors (vec (for [i (range 50)]
                             (:cursor (ds/append! s (->bytes [i])))))]

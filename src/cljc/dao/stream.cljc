@@ -20,13 +20,13 @@
     (register-writer-waiter! [stream entry])
 
   Descriptor (serializable):
-    {:type :ringbuffer
+    {:dao.stream/type :ringbuffer
      :capacity nil-or-int
      :eviction-policy nil-or-:reject-or-:evict-oldest}
 
   Cursor (plain map, constructed inline by caller):
     {:position n}"
-  (:refer-clojure :exclude [next]))
+  (:refer-clojure :exclude [next comparator]))
 
 
 ;; =============================================================================
@@ -94,12 +94,12 @@
 
 (defmulti open!
   "Realize a descriptor into an operational IStream transport."
-  (fn [descriptor] (:type descriptor)))
+  (fn [descriptor] (:dao.stream/type descriptor)))
 
 
 #?(:clj
    (defmacro defopen
-     "Register an `open!` implementation for descriptors of `{:type dispatch-val}`.
+     "Register an `open!` implementation for descriptors of `{:dao.stream/type dispatch-val}`.
 
       Reads like `defmethod`:
 
@@ -113,29 +113,39 @@
      [dispatch-val argv & body]
      ;; This body is selected at macro-load time: the ClojureDart host
      ;; pass reads with :cljd active, every other host reads :default.
-     #?(:cljd (let [s (name dispatch-val)
-                    ;; PascalCase each hyphen-separated segment so
-                    ;; dispatch keywords like :file-input-stream yield a
-                    ;; valid Dart id.
-                    cap (fn [w] (str (.toUpperCase (subs w 0 1)) (subs w 1)))
-                    tname (symbol (str (apply str (map cap (.split s "-")))
-                                       "OpenMethod"))
-                    ;; contribute* needs a fully-qualified contributing
-                    ;; type; the compiling namespace is exposed on &env
-                    ;; by ClojureDart.
-                    qname (symbol (name (get-in &env [:nses :current-ns]))
-                                  (name tname))]
-                `(do (deftype ~tname
-                       []
-                       :type-only
-                       true
+     ;; The when-not guard is load-bearing, not dead code: during a
+     ;; ClojureDart host-eval pass the compiler evaluates macro bodies
+     ;; that are not compile-time constants (e.g. defopen forms whose
+     ;; bodies close over runtime values, as test fixtures do) and
+     ;; rejects them with "^{:const :required} but expression is not
+     ;; const". Returning nil under *host-eval* skips emission for that
+     ;; pass only; the real Dart compilation pass re-expands and emits.
+     #?(:cljd (when-not (some-> (resolve 'cljd.compiler/*host-eval*)
+                                deref)
+                (let [s (name dispatch-val)
+                      ;; PascalCase each hyphen-separated segment so
+                      ;; dispatch keywords like :file-input-stream yield
+                      ;; a valid Dart id.
+                      cap (fn [w]
+                            (str (.toUpperCase (subs w 0 1)) (subs w 1)))
+                      tname (symbol (str (apply str (map cap (.split s "-")))
+                                         "OpenMethod"))
+                      ;; contribute* needs a fully-qualified contributing
+                      ;; type; the compiling namespace is exposed on &env
+                      ;; by ClojureDart.
+                      qname (symbol (name (get-in &env [:nses :current-ns]))
+                                    (name tname))]
+                  `(do (deftype ~tname
+                         []
+                         :type-only
+                         true
 
-                       cljd.core/IFn
+                         cljd.core/IFn
 
-                       (~'-invoke
-                         [_# tm#]
-                         (assoc! tm# ~dispatch-val (fn ~argv ~@body))))
-                     (~'contribute* :multi-method open! ~qname ~qname)))
+                         (~'-invoke
+                           [_# tm#]
+                           (assoc! tm# ~dispatch-val (fn ~argv ~@body))))
+                       (~'contribute* :multi-method open! ~qname ~qname))))
         :default `(~'defmethod open! ~dispatch-val ~argv ~@body))))
 
 
@@ -143,14 +153,57 @@
 ;; Utilities (Non-Protocol)
 ;; =============================================================================
 
+(defn descriptor?
+  "Returns true if x is a DaoStream descriptor map."
+  [x]
+  (and (map? x) (contains? x :dao.stream/type) (keyword? (:dao.stream/type x))))
+
+
+(defn realization?
+  "Returns true if x is a realized DaoStream transport (satisfies IDaoStreamReader)."
+  [x]
+  (satisfies? IDaoStreamReader x))
+
+
+(defn descriptor
+  "Returns the descriptor map of a stream realization x, or x itself if x is a descriptor."
+  [x]
+  (cond (descriptor? x) x
+        (realization? x) (:dao.stream/descriptor (meta x))
+        :else nil))
+
+
+(defn exact-bound?
+  "True when bound is an explicit finite coordinate rather than a lifecycle
+   flag. The concrete shape belongs to the stream interpreter."
+  [bound]
+  (and (some? bound)
+       (not (boolean? bound))
+       (not= :open bound)
+       (not= :closed bound)))
+
+
+(defn bound
+  "Returns the bound of descriptor or stream realization x."
+  [x]
+  (when-let [d (descriptor x)] (:dao.stream/bound d)))
+
+
+(defn comparator
+  "Returns the comparator of descriptor or stream realization x."
+  [x]
+  (when-let [d (descriptor x)] (or (:dao.stream/comparator d) (:comparator d))))
+
+
 (defn drain-one!
   "Destructively consume one value from stream.
    Returns {:ok val, :woke [...]} if a value exists (including any woken writers),
    :empty if stream is open and no values available, or :end if stream is closed and drained.
 
    NOT part of the canonical model. Use (next stream cursor) with cursor-based
-   reading for reliable, non-destructive traversal. drain-one! is provided for
-   legacy compatibility and specific use cases requiring destructive consumption.
+   reading for reliable, non-destructive traversal. drain-one! exists for
+   consumers that need destructive consumption (dao.runtime's take, the
+   yin.vm engine, writer-waiter wakeup).
 
    When a writer-waiter is woken, its datom is atomically written to the stream
    and included in the :woke return value."
@@ -183,6 +236,37 @@
                                 (#{:blocked :end :daostream/gap} result) nil
                                 :else nil))))]
       (walk {:position 0}))))
+
+
+(defn strict-vec
+  "Traverses a finite stream snapshot from position 0 using cursor-based reading.
+   Returns a vector of all values until `:end`.
+   Throws ex-info if `:blocked`, `:daostream/gap`, or any unexpected signal is encountered."
+  [stream]
+  (loop [cursor {:position 0}
+         acc []]
+    (let [result (next stream cursor)]
+      (cond
+        (map? result)
+        (if (and (contains? result :ok) (contains? result :cursor))
+          (recur (:cursor result) (conj acc (:ok result)))
+          (throw (ex-info
+                   "Malformed stream read result: missing :ok or :cursor"
+                   {:stream stream, :result result})))
+        (= result :end) acc
+        (= result :blocked)
+        (throw (ex-info
+                 "Unexpected :blocked signal during finite snapshot traversal"
+                 {:stream stream, :cursor cursor}))
+        (= result :daostream/gap)
+        (throw
+          (ex-info
+            "Unexpected :daostream/gap signal during finite snapshot traversal"
+            {:stream stream, :cursor cursor}))
+        :else (throw
+                (ex-info
+                  "Malformed stream signal during finite snapshot traversal"
+                  {:stream stream, :signal result}))))))
 
 
 (defn take!!

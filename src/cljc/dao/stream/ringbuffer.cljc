@@ -189,7 +189,19 @@
 
 #?(:cljd
    (deftype RingBufferStream
-     [capacity eviction-policy state-atom]
+     [meta-map capacity eviction-policy state-atom]
+
+     cljd.core/IMeta
+
+     (-meta [_] meta-map)
+
+
+     cljd.core/IWithMeta
+
+     (-with-meta
+       [_ m]
+       (RingBufferStream. m capacity eviction-policy state-atom))
+
 
      cljd.core/ICounted
 
@@ -241,7 +253,19 @@
        (let [result (swap! state-atom drain-one-state)]
          (drain-one-outcome result))))
    :clj (deftype RingBufferStream
-          [capacity eviction-policy state-atom]
+          [meta-map capacity eviction-policy state-atom]
+
+          clojure.lang.IMeta
+
+          (meta [_] meta-map)
+
+
+          clojure.lang.IObj
+
+          (withMeta
+            [_ m]
+            (RingBufferStream. m capacity eviction-policy state-atom))
+
 
           clojure.lang.Counted
 
@@ -294,7 +318,19 @@
               (drain-one-outcome result))))
    :default
    (deftype RingBufferStream
-     [capacity eviction-policy state-atom]
+     [meta-map capacity eviction-policy state-atom]
+
+     IMeta
+
+     (-meta [_] meta-map)
+
+
+     IWithMeta
+
+     (-with-meta
+       [_ m]
+       (RingBufferStream. m capacity eviction-policy state-atom))
+
 
      ICounted
 
@@ -348,11 +384,14 @@
 
 
 (defn- make-ring-buffer-stream*
-  [capacity eviction-policy position]
-  @init-module!
-  (->RingBufferStream capacity
-                      (normalize-eviction-policy eviction-policy)
-                      (atom (initial-state position))))
+  ([capacity eviction-policy position]
+   (make-ring-buffer-stream* nil capacity eviction-policy position))
+  ([meta-map capacity eviction-policy position]
+   @init-module!
+   (->RingBufferStream meta-map
+                       capacity
+                       (normalize-eviction-policy eviction-policy)
+                       (atom (initial-state position)))))
 
 
 (defn make-ring-buffer-stream
@@ -363,7 +402,10 @@
 (ds/defopen :ringbuffer
             [descriptor]
             (let [{:keys [capacity eviction-policy]} descriptor]
-              (make-ring-buffer-stream* capacity eviction-policy 0)))
+              (make-ring-buffer-stream* {:dao.stream/descriptor descriptor}
+                                        capacity
+                                        eviction-policy
+                                        0)))
 
 
 ;; ============================================================

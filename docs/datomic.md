@@ -51,7 +51,7 @@ Datomic's central architectural bet is that this bundling is not a law of nature
 
 **Transactor — the single writer.** The transactor is the *only* component allowed to write. It serializes transactions one at a time: receive a tx from a Peer, durable-append it to the **log**, fold new datoms into its **memory index** (novelty), then **CAS-swing the root pointer** to publish the new database value. Because it is the sole writer, there are **no locks, no lock manager, no deadlock detection** — concurrency control collapses to a single conditional write on the root pointer. The trade-off is accepted by design: **write throughput is bounded by one process.** Datomic bets that most applications are read-heavy and that single-writer throughput is enough, and in return eliminates an entire class of distributed-coordination problems.
 
-**Storage — the "dumb store."** Storage is treated as a **dumb key-value store of opaque blobs**. All intelligence — indexing, query planning, transaction processing — lives *outside* storage. The store sees only opaque keyed bytes and need only support `put` (with CAS folded in, gated on a `rev` counter), `get`, `delete`, and `close`. It does not know what a "table" or an "index" or a "join" is, which is why **storage is swappable**: the same Datomic code runs against Postgres, DynamoDB, Cassandra, or a local directory of files. Only the small set of `meta` keys (root pointer, lease) needs strong consistency; the bulk of data — immutable index and log segments written once under never-reused keys — can sit in an eventually-consistent store without harm. A property Postgres cannot exploit, because its data pages are mutable. See §1–§3 for the full contract and realizations.
+**Storage — the "dumb store."** Storage is treated as a **dumb key-value store of opaque blobs**. All intelligence — indexing, query planning, transaction processing — lives *outside* storage. The store sees only opaque keyed bytes and need only support `put` (with the conditional write folded in: creates are unconditional, overwrites are gated on an `:ensure` map carrying the expected `:rev`), `get`, `delete`, and `close`. It does not know what a "table" or an "index" or a "join" is, which is why **storage is swappable**: the same Datomic code runs against Postgres, DynamoDB, Cassandra, or a local directory of files. Only the small set of `meta` keys (root pointer, lease) needs strong consistency; the bulk of data — immutable index and log segments written once under never-reused keys — can sit in an eventually-consistent store without harm. A property Postgres cannot exploit, because its data pages are mutable. See §1–§3 for the full contract and realizations.
 
 **Peers — the query engine runs in your app.** There is **no query server.** Queries execute **inside the application process** as a library. Each Peer holds a direct connection to storage and resolves queries by pulling only the index segments it needs. A Peer holds two things: a **persistent index**, fetched lazily into a bounded LRU object cache (a query pulls only the few B-tree segments it traverses); and **novelty**, recent datoms pushed to it by the transactor on every commit. A `db` value is thus a cheap immutable snapshot — a root pointer (a basis-t) plus current novelty — so a Peer's footprint is only `novelty + hot working set`, letting it query a database far larger than its heap. See §4–§5.
 
@@ -146,46 +146,190 @@ The rest of this document is the storage deep dive: **§1** the `KVStore` contra
 The Overview's "dumb store" is reached through one small, pluggable storage protocol: every backend — DynamoDB, Cassandra, a JDBC SQL database, a local directory of files — sits behind the same narrow contract. This section specifies that contract (the `KVStore` protocol) and the properties a backend must satisfy to support it. The store holds mostly-immutable segments plus a small mutable root (the `meta` keys updated by CAS); all indexing, query, and transaction intelligence lives above it, in the Peers and Transactor.
 
 ### Storage Abstraction
-At the JVM code level, Datomic interacts with storage through the `KVStore` protocol in the `datomic.kv-store` namespace (these are internal, not public API; the binaries have been Apache 2.0 since 1.0.6726, April 2023, so this inspection is unambiguously permitted). The method *names and arities* below are disassembled with `javap` from `peer-1.0.7482.jar` (`datomic/kv_store/KVStore.class`, compiled from `kv_store.clj`); the *parameter names* are illustrative, since `javap` recovers arity but not argument names. `get` and `delete` genuinely take **two** arguments (confirmed: `get(Object, Object)` / `delete(Object, Object)` in the bytecode). The trailing argument's role is recovered from the DynamoDB backend: it is a **consistent-read flag**. `KVDynamo.get` branches on it and, when truthy, adds `:consistentRead` to the `datomic.ddb/get-item` request (the keyword is visible in the class's constant pool and static initializer). `KVMem` ignores it (bytecode references only `this.m` and the key) and `KVSql` binds only the key in its `WHERE id = ?` — both are read-your-writes by construction. This is how the "strong consistency for `meta` keys" requirement below is actually implemented: per-read, on the backends that need it, not per-store. The protocol is deliberately tiny — just four operations over opaque keyed blobs:
+At the JVM code level, Datomic interacts with storage through the `KVStore` protocol in the `datomic.kv-store` namespace (these are internal, not public API; the binaries have been Apache 2.0 since 1.0.6726, April 2023, so this inspection is unambiguously permitted).
+
+**Provenance of everything in §1–§2.** Three techniques against
+`~/app/datomic/peer-1.0.7482.jar` and `~/app/datomic/datomic-transactor-pro-1.0.7482.jar`:
+
+1. `javap -cp peer-1.0.7482.jar datomic.kv_store.KVStore` — gives method names and arities from `datomic/kv_store/KVStore.class` (compiled from `kv_store.clj`).
+2. Loading the namespace and reading the protocol map — `:sigs` gives **`:arglists` and `:doc` verbatim** (parameter names and docstrings survive compilation in the protocol var's metadata even though `javap` cannot see them), and `:on-interface` / `:method-map` / `:impls` give the rest of its shape. `ns-publics` gives everything else in the namespace. The signature blocks below are quoted, not reconstructed:
+   ```sh
+   java -cp "peer-1.0.7482.jar:lib/*" clojure.main -e "
+   (require 'datomic.kv-store)
+   (doseq [[_ s] (:sigs datomic.kv-store/KVStore)]
+     (println (:name s) (pr-str (:arglists s)) (pr-str (:doc s))))"
+   ```
+3. Constant-pool string extraction (`javap -v`, or `strings` over the class bytes) — recovers the literal SQL of §2 and the keyword names each backend references.
+4. **Running the thing.** `KVMem` is directly constructible — `(KVMem. (ConcurrentHashMap.))` from the transactor jar — so `put`/`get` semantics can be exercised rather than inferred. The `:ensure` rules below were established this way; the docstring alone does not disclose that overwrites specifically require `:rev`.
+
+`get` and `delete` genuinely take **two** arguments (confirmed: `get(Object, Object)` / `delete(Object, Object)` in the bytecode), and both trailing parameters are named `consistent?` in the arglists. The trailing argument's role is recovered from the DynamoDB backend: it is a **consistent-read flag**. `KVDynamo.get` branches on it and, when truthy, adds `:consistentRead` to the `datomic.ddb/get-item` request (the keyword is visible in the class's constant pool and static initializer). `KVMem` ignores it (bytecode references only `this.m` and the key) and `KVSql` binds only the key in its `WHERE id = ?` — both are read-your-writes by construction. This is how the "strong consistency for `meta` keys" requirement below is actually implemented: per-read, on the backends that need it, not per-store.
+
+The whole namespace is **four methods, one predicate, and one dynamic var.** Reconstructed exactly from the protocol's `:sigs` — arglists and docstrings verbatim, including the ragged indentation inside `put`'s docstring, which is the original source formatting:
 
 ```clojure
 ;; datomic.kv-store — the actual storage protocol (decompiled from datomic-pro)
 (defprotocol KVStore
-  (put    [this val-map])         ;; Write an entry (id, rev, map, val); also does the CAS — see below
-  (get    [this k consistent?])   ;; Read an entry's bytes by key; consistent? requests a strongly
-                                  ;;   consistent read (honored by KVDynamo, no-op for KVMem/KVSql)
-  (delete [this k arg2])          ;; Remove an entry by key; trailing arg mirrors get's, disregarded
-                                  ;;   in the inspected backends
-  (close  [this]))                ;; Release the backend connection
+  (put [_ val-map]
+    "(put {:id key :v buf :ensure check-map :other-keys ...}) -> :ok or nil
+          optional :ensure {:akey aval ...}
+          special treatment of {:id nil} == exists false")
+  (get [_ key consistent?]
+    "returns {:id key :v buf :other keys} or nil")
+  (delete [_ key consistent?]
+    "returns :ok")
+  (close [_]
+    "Closes resources opened for KVStore"))
 
 ;; Sibling protocol used to classify transient backend failures for retry
 (defprotocol Retryable
-  (retryable? [this]))
+  (retryable? [_]))          ; no docstring
+
+(def ^:dynamic *retry*)      ; no docstring, and unbound by default
 ```
 
-Concrete implementations that directly `implement datomic.kv_store.KVStore` (confirmed in disassembled bytecode): `KVSql`, `KVMem`, `KVDynamo`, `KVHotRod`, and the Cassandra drivers `KVCassandra`, `KVCassandra2`, `KVCassandra3` — all seven present in the peer jar (the Cassandra v2/v3 classes also ship in the transactor jar). `KVCluster` is a layer *above* raw KV: it implements `datomic.cluster.ClusteredStore` (the value/reference layer, next subsection) and composes shards — it is **not** itself a `KVStore`. The peer jar also carries a second-generation storage SPI, `datomic.core2.*` — a val-store SPI (`Get`/`Put`/`Delete`) with fs, S3, and DynamoDB implementations, a log SPI (`Append`/`Scan`/`Delete`), and durable/logged atoms — the Cloud-style architecture living alongside, not inside, the `KVStore` stack described here.
+`*retry*` being unbound rather than defaulted means any caller reading it must bind it first — consistent with it being a retry policy the calling layer installs per call, paired with `Retryable/retryable?` deciding which backend failures are worth retrying.
 
-Note there is **no separate compare-and-swap method**: CAS is folded into `put`. Each backend realizes it with whatever conditional-write primitive it has, gated on the entry's `rev`. In the SQL store that is literally `update datomic_kvs set rev=?, map=?, val=? where id=? and rev=?` (the `UPDATE ... WHERE id = ? AND rev = ?` shown in §2 below), so the conditional compares the revision, not the old payload bytes; a `put` that updates zero rows lost the race.
+The generated JVM interface, for comparison:
+
+```
+public interface datomic.kv_store.KVStore {
+  public abstract java.lang.Object put(java.lang.Object);
+  public abstract java.lang.Object get(java.lang.Object, java.lang.Object);
+  public abstract java.lang.Object delete(java.lang.Object, java.lang.Object);
+  public abstract java.lang.Object close();
+}
+
+public interface datomic.kv_store.Retryable {
+  public abstract java.lang.Object retryable_QMARK_();
+}
+```
+
+Everything is `Object` in and out — every `:tag` in `:sigs` is `nil`, so there are no type hints to erase. Protocol metadata:
+
+| field | value |
+| :--- | :--- |
+| protocol var `:doc` | `nil` — the protocol itself carries no docstring |
+| `:on` / `:on-interface` | `datomic.kv_store.KVStore` |
+| `:method-map` | `{:put :put, :get :get, :delete :delete, :close :close}` |
+| `:sigs` `:tag`, all four | `nil` |
+| `:impls` | `()` — **empty** |
+
+The empty `:impls` is worth knowing: every backend implements the *interface* directly via `deftype`, not through `extend-protocol`, so none of them register in the protocol's impl map. You cannot enumerate backends by interrogating the protocol at runtime; you have to scan the jar for classes implementing `datomic.kv_store.KVStore` (which is how the list below was obtained).
+
+Three things the docstrings pin down that the arities alone do not. **`put` takes
+a single argument** — there is no separate key parameter; the key is the `:id`
+field *inside* `val-map`, which makes `put` asymmetric with `get`. **The payload
+key is `:v`**, holding an opaque buffer (`:val` is the SQL *column* name of §2,
+not the map key). And **the entry map is open**: `:other-keys` on write and
+`:other keys` on read, so a backend round-trips fields the protocol does not
+name.
+
+Concrete implementations that directly `implement datomic.kv_store.KVStore` (confirmed in disassembled bytecode): `KVSql`, `KVMem`, `KVDynamo`, `KVHotRod`, and the Cassandra drivers `KVCassandra`, `KVCassandra2`, `KVCassandra3` — all seven present in the peer jar (the Cassandra v2/v3 classes also ship in the transactor jar). `KVCluster` is a layer *above* raw KV: it implements `datomic.cluster.ClusteredStore` (the value/reference layer, next subsection) and composes shards — it is **not** itself a `KVStore`. The peer jar also carries a second-generation storage SPI, `datomic.core2.*` — the Cloud-style architecture living alongside, not inside, the `KVStore` stack described here. It is a substantially simpler contract and is specified in full below (*The second generation*).
+
+Note there is **no separate compare-and-swap method**: the conditional write is folded into `put`, which returns `:ok` on success and `nil` when the condition fails.
+
+**The guard is `:ensure`, and `:rev` is privileged inside it.** The behaviour below was established by exercising `KVMem` directly (construct it over a `ConcurrentHashMap` and call `put`/`get`), not inferred from the docstring:
+
+* **Create is unconditional.** `put` on an *absent* key succeeds with or without `:ensure`. Only `:id` is structurally required — a `val-map` without it throws `NullPointerException`. `:v` is optional; `{:id "b"}` alone stores fine.
+* **Overwrite requires `:ensure` carrying a matching `:rev`.** `put` on a *present* key is refused (returns `nil`, stored entry untouched) unless `:ensure` contains a `:rev` equal to the stored entry's `:rev`. No `:ensure` at all is refused; `:ensure {}` is refused; an `:ensure` naming only non-`:rev` fields is refused **even when those fields match**. `:rev` is not one guard field among equals — it is the one that licenses an overwrite.
+* **Extra `:ensure` keys are conjunctive.** Alongside a matching `:rev`, additional caller-defined keys are checked by equality and can veto the write: `{:rev 0, :mine 42}` succeeds where `{:rev 0, :mine 99}` fails.
+* **`{:id nil}` is the exists-false assertion** the docstring mentions. `:ensure {:id nil}` succeeds on an absent key and fails on a present one — compare-and-create.
+* **No monotonicity at this layer.** The *new* `:rev` is unconstrained: writing rev 1 over stored rev 5 succeeds as long as `:ensure {:rev 5}` matches, and so does rewriting the same rev. "Must be higher" is `set-ref`'s rule (next subsection), layered on top.
+
+`KVMem` realizes this in `put-when` (`datomic/kv_mem/KVMem$put_when__30075.class`, constant pool: `select-keys`, `keys`, `ensure`, `dissoc`, `ok`) — the `:ensure` map is compared against the stored entry and then `dissoc`ed before storing, so it never persists. `KVSql` has the same shape at the SQL level, which is why §2 emits two distinct statements: a plain `insert` for the create case and the rev-gated `update datomic_kvs set rev=?, map=?, val=? where id=? and rev=?` for the overwrite case, where zero rows updated means the write lost the race.
+
+#### What `:rev` is for
+
+The `:rev` field in a stored entry is **not consumed by the write that puts it there**. It is published for whoever writes *next*: an overwrite must quote it back in `:ensure`. Each entry therefore carries the precondition for its own replacement, and that is the whole of its job.
+
+```clojure
+(put s {:id "a" :v "v1" :rev 0})                    ; publishes token 0
+(put s {:id "a" :v "v2" :rev 1 :ensure {:rev 0}})   ; quotes 0, publishes 1
+(put s {:id "a" :v "v3" :rev 2 :ensure {:rev 1}})   ; quotes 1, publishes 2
+```
+
+Four properties fix what `:rev` is, all established by exercising `KVMem`:
+
+* **The store never mints, increments, or validates it — the caller owns it end to end.** `put` compares the value the caller *claims* is current against the stored one, then stores whatever new `:rev` the caller supplies, unexamined. Hence the absence of any monotonicity check noted above: rev 1 over stored rev 5 is accepted. Contrast `ClusteredStore/set-ref`, whose docstring makes the caller's ownership explicit ("You must have obtained rev from a prior read and incremented it") and adds the "must be higher" rule the store itself does not enforce.
+* **The key name is hardcoded, not a convention.** An entry holding both `:rev 7` and a twin field `:myrev 7` accepts `:ensure {:rev 7}` and refuses `:ensure {:myrev 7}` — an identical value under a different name will not license the write. Other `:ensure` keys can only add further conditions on top of `:rev`; none can substitute for it.
+* **Publishing `:rev` is what makes an entry replaceable in place.** An entry stored without one cannot be overwritten by any `put`: no `:ensure` matches a missing revision, and `:ensure {:rev nil}` is refused too. (`delete` followed by a fresh `put` does succeed — so a rev-less entry is not immutable in the absolute sense, it is *unreplaceable atomically*. Destroying and recreating it is a two-step sequence during which the key is observably absent, which is exactly what a CAS exists to avoid.) The freeze can also be applied mid-life: because `put` is a wholesale replace, an overwrite whose *new* map omits `:rev` succeeds and leaves the entry unreplaceable thereafter:
+  ```clojure
+  (put s {:id "a" :v "v1" :rev 0})                    ; => :ok,  {:id "a" :v "v1" :rev 0}
+  (put s {:id "a" :v "v2" :ensure {:rev 0}})          ; => :ok,  {:id "a" :v "v2"}   <- no :rev
+  (put s {:id "a" :v "v3" :rev 1 :ensure {:rev 0}})   ; => nil
+  (put s {:id "a" :v "v3" :rev 1 :ensure {:rev nil}}) ; => nil
+  (put s {:id "a" :v "v3" :rev 1})                    ; => nil   no put can replace it
+  (delete s "a" nil)                                  ; => :ok   ...but delete can remove it,
+  (put s {:id "a" :v "v3"})                           ; => :ok   and a fresh put recreates it
+  ```
+* **It does not survive a rewrite unless re-supplied.** `put` replaces the entry wholesale rather than merging, so `:rev` (like any other field) persists only because the caller wrote it into the new map.
+
+**`:rev` is therefore never mandatory — it is what you supply when you need compare-and-swap.** Create, read and delete all work without it; only atomic in-place replacement requires it. Presence or absence of `:rev` *is* an entry's in-place mutability: not a versioning scheme bolted onto a mutable cell, but the thing that makes the cell replaceable at all. This is what the val/ref split of the next subsection rests on — `create-val` writes segments with no rev, because content-addressed data is written once and never updated, while `set-ref [cs ref-key rev vkey]` writes refs with one, because a root pointer is precisely the thing that must be swung under contention. Datomic never "stamps" a revision onto anything; the caller supplies `:rev` exactly when it wants a cell to remain atomically writable.
 
 A thin stack sits **above** this raw byte store. `datomic.cluster/ClusteredStore` adds value/reference semantics on top of `KVStore` — `create-val`/`get-val` for immutable, content-keyed segments and `set-ref`/`get-ref` for the small set of mutable named references (the "root pointer") — with `datomic.cluster-stack/ValStoreOnKvCache` providing an in-process value/reference cache over the raw KV store. This is the concrete realization of the "mostly-immutable segments + a small mutable root" model: *segments* are vals, the *root* is a ref. (This caching layer is distinct from the Peer's L1/L2/L3 *object-cache* stack in §4, which is what "L1/L2/L3" refers to throughout this document.)
 
-The full `ClusteredStore` surface (recovered from the interface bytecode and its surviving docstrings) is richer than val/ref:
+The full surface, with arglists and docstrings verbatim from `(:sigs datomic.cluster/ClusteredStore)`:
 
-* **Refs are indirections, and the CAS contract is rev-monotonic.** A ref read returns `{:rev nnn, :key k}` — the *key* of an immutable val, not bytes. `set-ref`'s docstring: *"Makes vkey the new value of ref, iff rev is **higher** than existing rev. You must have obtained rev from a prior read and incremented it. Returns a reference to :ok or :conflict. set-ref with a rev of 0 can create a ref."* The caller increments; rev 0 creates. (The SQL `... WHERE id=? AND rev=?` in §2 is the backend realization of the same guard, phrased against the expected prior rev.)
-* **Pods.** Alongside vals and refs there is a third kind: `get-pod` / `get-pod-meta` / `update-pod*` operate on **pods**, mutable byte containers returning `{:rev nnn, :etag xxx, :buf buf}` plus metadata; the docstrings imply pods can chain ("without walking entire linked list a la get-pod"). The database **catalog** — the name→id map behind `create-database` / `rename-database` / `delete-database` — is stored in pods (`datomic.catalog`, `pod->catalog`).
+```clojure
+(create-val [cs val-key buf] [cs priority val-key buf])
+  ;; "Creates a new value in the store. Returns a reference to :created or nil"
+(get-val    [cs val-key])
+  ;; "Gets the value at a key. Returns a reference to {:buf buf} or nil if not found"
+(set-ref    [cs ref-key rev vkey])
+  ;; "Makes vkey the new value of ref, iff rev is higher than existing
+  ;;  rev. You must have obtained rev from a prior read and incremented
+  ;;  it. Returns a reference to :ok or :conflict. set-ref with a rev of 0
+  ;;  can create a ref."
+(get-ref    [cs ref-key])
+  ;; "Returns a reference to {:rev nnn, :key k} or nil if not found"
+(get-pod      [cs pod-key])
+  ;; "Gets the value in a pod. Returns a reference to {:rev nnn, :etag xxx, :buf buf}
+  ;;  and any metadata keys. or nil if not found."
+(get-pod-meta [cs pod-key])
+  ;; "Returns reference to pod-meta, without walking entire linked list a la get-pod."
+(update-pod*  [cs pod-key rev etag buf metamap])
+  ;; "With nil etag, creates or resets pod to be supplied value. When
+  ;;  etag is non-nil, appends a non-nil buf to the current value of the
+  ;;  pod (a nil buf just 'touches' the pod, incrementing rev and leaving
+  ;;  the value intact), iff etag matches.  In all cases rev must be one
+  ;;  higher than existing rev. You must obtain rev and etag from a prior
+  ;;  get/update, and increment rev. Keys in metamap must be
+  ;;  namespaced. Returns a reference to {:rev nnn, :etag xxx, :buf buf}
+  ;;  or {:failed :conflict}."
+(delete           [cs key])   ;; "Soft delete. Returns a reference to :ok"
+(delete-reference [cs key])   ;; "Delete a reference (pod or ref).  Returns a reference to :ok"
+```
+
+Note that `ClusteredStore/delete` is a **soft** delete, unlike the raw `KVStore/delete` (which §2 realizes as an unconditional `delete from datomic_kvs where id = ?`). Note also that pods carry a *stricter* guard than refs: `set-ref` accepts any rev "higher than existing", while `update-pod*` requires rev to be "one higher than existing" and additionally matches an `etag`.
+
+Two structural facts fall straight out of those signatures, and they are the reason this layer — not the raw SPI — is what Datomic's own engine calls:
+
+* **The val write path takes a key and a bare buffer.** `(create-val cs val-key buf)` — no map, no envelope, no revision. The `{:id ... :v ... :ensure ...}` envelope exists only at the raw `KVStore` boundary *below* this, where it is the store's own bookkeeping row. Symmetrically, `get-val` returns `{:buf buf}`, a one-field wrapper with no revision in it. Immutable content-keyed values never touch a rev at any layer.
+* **A ref cannot hold data.** `set-ref`'s third parameter is `vkey` — *the key of a val*, not bytes. The signature itself forbids inline payloads in the mutable cell, so the entire mutable surface of a Datomic database is a set of two-field `{:rev nnn, :key k}` pointers.
+
+The rest of the surface is richer than val/ref:
+
+* **The ref CAS contract is caller-driven and rev-monotonic.** Per the `set-ref` docstring above, the *caller* obtains the rev from a prior read and increments it — the store does not mint it — and a rev of 0 creates the ref. Note the guard is "higher than existing", not equality, so it tolerates a caller that skips ahead. (The SQL `... WHERE id=? AND rev=?` in §2 is `KVSql` realizing the same idea against an expected *prior* rev, via `:ensure`.)
+* **Pods are the third kind, alongside vals and refs.** Mutable byte containers with an append mode and their own `etag`+rev guard (docstrings above); `get-pod-meta` exists to avoid walking the chain, confirming pods link. The database **catalog** — the name→id map behind `create-database` / `rename-database` / `delete-database` — is stored in pods (`datomic.catalog`, `pod->catalog`).
 * **Consistency plumbing.** `datomic.cluster.Get2/get-val2` is "like ClusteredStore/get-val, but takes an opts map that flows to underlying implementations" — the path by which a consistent read request reaches `KVStore/get`'s trailing argument. The interface docstring also notes that any operation "might throw an exception on deref if no quorum is available."
-* **Key naming is class-prefixed and shard-prefixed.** Keys are minted by `new-val-key` / `new-ref-key` / `new-pod-key` as UUIDs under literal `"ref-"` / `"pod-"` prefixes, so an entry's kind is recoverable from its key. Storage paths are built by `datomic.cluster/path` as `tenant/db/%03X/key` — a three-hex-digit (4096-bucket) partition prefix that spreads keys across backend key space. This is the concrete form of §2's "category is a convention encoded into the key."
+* **Key naming differs by kind, and only refs are nameable.** Keys are minted by `new-val-key` / `new-ref-key` / `new-pod-key`, verified by calling them:
+  ```clojure
+  (new-val-key)        ;=> "6a69c633-bb7f-441f-902e-d7014411c5a4"   bare squuid, no prefix
+  (new-ref-key "root") ;=> "ref-root"                               prefix + caller-supplied name
+  (new-pod-key)        ;=> "pod-6a69c633-92b6-4d9d-81b1-2bb613f57d17"
+  ```
+  Vals and pods get random keys (the shared leading hex is the squuid time component); **only `new-ref-key` takes an argument**, producing `"ref-" + name` rather than a UUID. That asymmetry is load-bearing: a val key is never known in advance, only discovered by traversing a pointer that holds it (§5), whereas refs must be nameable without having been found first — which is what makes `ref-root` a well-known bootstrap key. An entry's kind is recoverable from its key only in the weak sense that vals are the ones carrying *no* prefix. Storage paths are built by `datomic.cluster/path` as `tenant/db/%03X/key` — a three-hex-digit (4096-bucket) partition prefix that spreads keys across backend key space. This is the concrete form of §2's "category is a convention encoded into the key."
 
 By keeping the bottom contract this narrow, Datomic remains entirely backend-agnostic. The query engine and indexing system function the same way regardless of the underlying driver.
 
 ### The minimal implementation: `KVMem`
-The contract is small enough that an in-memory map satisfies it — which is exactly what the `mem://` backend is. In the jar, `datomic.kv-mem/KVMem` holds a single field `m` and implements all four methods:
+The contract is small enough that an in-memory map satisfies it — which is exactly what the `mem://` backend is. `datomic.kv-mem/KVMem` (in the **transactor** jar, `datomic/kv_mem/KVMem.class`; it is not in the peer jar) holds a single field `m` and implements all four methods:
 
 ```clojure
 ;; datomic.kv-mem (sketch) — the whole store is one mutable map
-(deftype KVMem [m]            ; m: a java.util.concurrent.ConcurrentMap of id -> {id rev map val}
+(deftype KVMem [m]            ; m: a java.util.concurrent.ConcurrentMap of id -> {:id key :v buf ...}
   KVStore
-  (put    [_ v]   (put-when m v))   ; conditional insert/replace gated on rev (the CAS)
+  (put    [_ v]   (put-when m v))   ; conditional insert/replace gated on :ensure
   (get    [_ k _] (.get m k))
   (delete [_ k _] (.remove m k))
   (close  [_]     nil))
@@ -193,8 +337,8 @@ The contract is small enough that an in-memory map satisfies it — which is exa
 
 Two things make this work — and they are the same two everywhere:
 
-* **A mutable, shared cell.** The *values* are plain Clojure maps (`{id rev map val}`), but the *store* must be a map inside a mutable, atomic container so a `put` is observable by a later `get`. `KVMem` uses a `ConcurrentMap`; an `atom` wrapping a persistent map would do equally well. A bare immutable map cannot be a `KVStore` — it has no identity-preserving mutation.
-* **CAS folded into `put`.** The `put-when` helper conditionally writes only if the stored `rev` still matches — the in-memory analog of `... WHERE id=? AND rev=?`, provided by `ConcurrentMap.replace` (or `compare-and-set!` on an atom).
+* **A mutable, shared cell.** The *values* are plain Clojure maps (`{:id key :v buf ...}`), but the *store* must be a map inside a mutable, atomic container so a `put` is observable by a later `get`. `KVMem` uses a `ConcurrentMap`; an `atom` wrapping a persistent map would do equally well. A bare immutable map cannot be a `KVStore` — it has no identity-preserving mutation.
+* **The conditional write folded into `put`.** The `put-when` helper creates unconditionally on an absent key, and on a present key writes only if `:ensure` carries a `:rev` matching the stored one (plus any additional `:ensure` fields), then strips `:ensure` before storing. Its constant pool (`select-keys`, `keys`, `ensure`, `dissoc`, `ok`) spells out the comparison; `ConcurrentMap.replace` (or `compare-and-set!` on an atom) supplies the atomicity. This is the in-memory analog of `... WHERE id=? AND rev=?`.
 
 `KVMem` clears §1's CAS, strong-consistency, and linearizability requirements **trivially**, because a single in-process container is linearizable for free. What it cannot provide is *sharing across JVMs* or *durability* — so it backs testing and ephemeral in-memory databases, not production peer clusters (the same single-process trade-off discussed in §3).
 
@@ -214,6 +358,98 @@ This list is a synthesis of what a backend must provide, not a verbatim Datomic 
 5. **High Point-Lookup Throughput**:
    * The engine relies on high-speed point reads (`get`) to fetch index segments. Low point-lookup latency is crucial to keep peers responsive when local caches are cold.
 
+### The second generation: `datomic.core2.*`
+
+The same peer jar ships a later storage SPI for the Cloud-style architecture. It is worth reading against §1 above, because it is the same team's second attempt at the same problem and it discards nearly every complication the original `KVStore` accumulated. Recovered the same way (`:sigs` reflection plus `javap`); arglists and docstrings verbatim.
+
+**It is not one protocol.** Where v1 had a single four-method `KVStore`, core2 has three separate concerns, each split into **one protocol per operation** — nine in total:
+
+```clojure
+;; datomic.core2.val-store.spi — immutable, content-keyed values
+(defprotocol Put    (-put    [_ k v opts]))  ;; "SPI for datomic.core2.val-store/put."
+(defprotocol Get    (-get    [_ k opts]))    ;; "SPI for datomic.core2.val-store/get."
+(defprotocol Delete (-delete [_ k opts]))    ;; "SPI for datomic.core2.val-store/delete."
+
+;; datomic.core2.log.spi — the append-only log
+(defprotocol Append (-append [_ header body]))
+(defprotocol Scan   (-scan   [_ opts]))      ;; "SPI for datomc.core2.log/scan. Return value ignored."
+(defprotocol Delete (-delete [_ t]))
+(defprotocol Item   (-item-header [_ item])
+                    (-item-body   [_ item]))
+
+;; datomic.core2.atom.spi — the mutable cell
+(defprotocol DurableAtom
+  (-swap-vals! [_ f ch])   ;; "Like atom swap-vals! but puts result on channel"
+  (-sync       [_ ch]))    ;; "Puts latest value from server on channel"
+```
+
+The public layers over them:
+
+```clojure
+;; datomic.core2.val-store
+(put    [val-store k v] [val-store k v opts])
+(get    [val-store k]   [val-store k opts])
+(delete [val-store k]   [val-store k opts])
+
+;; datomic.core2.log
+(append [log header] [log {:keys [t next-t] :as header} body])
+(scan   [log opts])                ;; opts: {:keys [direction t ch limit]}
+(ensure-tombstone [log tombstone])
+
+;; datomic.core2.atom — Clojure's own atom API, made durable
+(swap!      [a f & args])
+(swap-vals! [a f & args])
+(reset!     [a v])
+(sync       [a])
+
+;; datomic.core2.atom.logged — the implementation: an atom on top of a log
+(create [{:keys [log header value serialize]}])
+(load   [args])
+```
+
+Supporting fns: `partition-key [s]`, `splice-partition-key [k pk]`, `val-op-succeeded? [store-api-result]`, `no-val-error [k v]` (val-store); `normalize-scan-opts`, `result` (log); `-read-latest`, `-validated-v` (logged atom).
+
+#### Backends, and why the two SPIs take different ones
+
+The complete set shipped in the jars. The transactor jar carries no `core2` at all, so this is everything:
+
+| SPI | implementations |
+| :--- | :--- |
+| val-store | `fs`, `s3` (both an aws-api and an sdkv1 client), `double-store` |
+| log | `ddb`, `mem` |
+
+**The sets are disjoint, and that is the design.** The val store has no DynamoDB implementation; the log has no S3 implementation. `mem` is the log's testing backend, the way `KVMem` is for v1 — which leaves DynamoDB as the only production log.
+
+The asymmetry follows from what each SPI asks of a backend:
+
+* **A val store needs no coordination at all.** Keys are content-derived, so every write goes to a fresh, never-reused key and two writers racing on the same key are writing *identical bytes*. The write is idempotent by construction. Plain `put`/`get`/`delete` suffices, which is why object storage fits — and why the 10KB–1MB segments of §1's property 3 can sit on the cheapest durable tier available.
+* **A log must totally order appends.** Its public arity is `(append [log {:keys [t next-t] :as header} body])` — the *caller* supplies `t`, so the backend must reject an append at a `t` already taken. Otherwise two writers claim the same position and one transaction vanishes with no error raised. That is a conditional write, and the DynamoDB backend's constant pool contains exactly that: `conditional-put-request`. It is the only conditional-write vocabulary anywhere in the `core2` tree.
+
+So S3 was not merely a slower log — before it gained conditional writes it could not implement `append` *correctly* at all, because last-write-wins on a contended `t` loses data silently. This is the same argument as §1's property 1, but confined: instead of demanding conditional writes from **every** backend, `core2` demands them from **one component**, and lets everything else run on storage that has never had them.
+
+Note why the obvious cheaper fix does not work. Keeping v1's protocol and giving an S3 backend a **no-op `:ensure`** would be a silent lie: the transactor's commit is a single conditional root swing (§2), so under a fake guard both writers succeed, both believe they committed, and the loser is never told — no exception, no `nil`, no zero row count. Nothing in the protocol lets a caller detect this, either; `datomic.kv-store` exposes only `KVStore`, `Retryable`, and `*retry*`, with no capability query. It is worse than it sounds because the conditional write is *folded into* `put`: ignoring `:ensure` also disables the `{:id nil}` exists-false assertion, turning create-if-absent into unconditional overwrite. Throwing instead of ignoring is honest but makes `put` partial — legal on some backends, fatal on others, discoverable only at runtime. And neither variant removes the need for real coordination somewhere, so the split exists either way; the only question is whether it is explicit in the contract or implicit and unchecked. `core2` makes the invalid state unrepresentable: there is no conditional write in the val store to fake, because there is no replace operation at all.
+
+Two notes on the current state:
+
+* **The capability constraint has since lifted, and the split survived it.** S3 gained conditional writes (`If-None-Match`) in late 2024; this jar was built 2025-10-31, a year later, and still ships no S3 log. The likely reason is workload rather than capability — the log is the hot path on every commit, where a single-digit-millisecond conditional put beats an S3 PUT by an order of magnitude, and `scan` wants cheap indexed range reads; the val store is the opposite profile, large and cold and read-mostly. That reading is inference, not something the artifact states.
+* **Tiering is a val-store-only luxury.** `double-store` takes `{:keys [near-store far-store repair-metric get-fallback-msec]}` (fallback default 20ms): a fast near tier over a durable far tier, with read fallback and self-repair. That composition is only available because the value store has no coordination duties to preserve across the tiers.
+
+#### What changed, point by point
+
+| | v1 `KVStore` (§1) | core2 |
+| :--- | :--- | :--- |
+| Write signature | `(put val-map)` — key buried in the map | `(put store k v opts)` — positional |
+| Conditional write | `:ensure` map, with `:rev` privileged inside it | none: values are immutable |
+| Revision | `:rev`, required for any overwrite | absent from the value path entirely |
+| Mutation | folded into `put` | its own `DurableAtom`; `swap!` takes a **function** |
+| Log | shares one keyspace with segments, by key convention | its own SPI |
+| Granularity | one protocol, four methods | nine single-method protocols |
+| Async | synchronous return | core.async channels throughout (`ch`) |
+
+Three of those are the substantive ones. **The envelope is gone** — `put` takes `k` and `v` positionally, so v1's asymmetry (a `put` taking one map while `get` takes a key) disappears, and with it the `{:id nil}` exists-false overload. **The revision is gone from the value path**, because content-keyed immutable values have no replace operation for a guard to protect; §1's whole `:ensure`/`:rev` mechanism exists only to make *overwriting* safe, and core2 removes overwriting instead. **Mutation moved from a guard to a function**: `swap!` takes `f` and retries internally, so the read-modify-CAS loop that every v1 caller had to write correctly now lives inside the abstraction.
+
+The per-operation split is the remaining move. `:impls` is empty on all nine protocols — backends implement the generated interfaces directly via `deftype`, exactly as in §1 — but the segregation means a read-only store implements `Get` alone rather than stubbing a `put` it cannot honor.
+
 ---
 
 ## 2. Using Relational Databases as a "Dumb Store"
@@ -223,28 +459,28 @@ A SQL database is one concrete backend for the contract in §1. Datomic uses it 
 ### SQL Schema
 Instead of mapping domain models to tables, Datomic creates a single key-value table (Postgres types shown; other backends use equivalents such as `CLOB`/`BLOB`):
 
+This is the literal DDL `datomic.sql` emits (recovered from the class constant pool), not a reconstruction — hence lowercase, `varchar` rather than `TEXT`, and an inline primary key:
+
 ```sql
-CREATE TABLE datomic_kvs (
-  id   TEXT NOT NULL,   -- segment key
-  rev  INTEGER,         -- revision counter, used for optimistic concurrency (CAS)
-  map  TEXT,            -- metadata
-  val  BYTEA,           -- compressed, serialized segment payload
-  PRIMARY KEY (id)
-);
+create table if not exists datomic_kvs (id varchar primary key, rev integer, map varchar, val bytea)
 ```
 
-* **`id`**: The unique segment identifier and sole primary key. Datomic generates these (UUID-style opaque strings); the data category (`"index"` for B-tree nodes, `"log"` for transaction logs, `"meta"` for database metadata) is a convention encoded into the key, not a separate column.
-* **`rev`**: A revision counter used as the basis for atomic compare-and-swap on a key.
-* **`map`**: Metadata associated with the entry.
-* **`val`**: Compressed, serialized binary payload of the segment (encoded in Fressian, Datomic's internal serialization format).
+Other backends substitute equivalents such as `CLOB`/`BLOB`. Column by column:
+
+* **`id`**: The unique segment identifier and sole primary key. Datomic generates these (UUID-style opaque strings); the data category (`"index"` for B-tree nodes, `"log"` for transaction logs, `"meta"` for database metadata) is a convention encoded into the key, not a separate column. Corresponds to the `:id` field of §1's `val-map`.
+* **`rev`**: A revision counter, and `KVSql`'s conditional-write guard. It is the caller-supplied token a *later* writer must quote to overwrite the row — see §1, *What `:rev` is for*, for the full semantics; note in particular that the store never increments it, and that a row written with `rev` null can never be updated.
+* **`map`**: Metadata associated with the entry. The protocol's entry map is open (`:other-keys`/`:other keys`, §1), so the natural reading is that non-`:id`/`:v` fields serialize into this varchar — **but that is inference, not verified**; the surviving docstrings say nothing about this column.
+* **`val`**: Compressed, serialized binary payload of the segment (encoded in Fressian, Datomic's internal serialization format). **Note the naming mismatch:** the SQL column is `val`, but the corresponding Clojure entry key is `:v`.
 
 ### Key-Value Operations
-The `KVStore` operations from §1 map directly onto SQL, all keyed by the single `id` column (these are the literal statements emitted by `datomic.sql`):
-* **`put`** (new key): `INSERT INTO datomic_kvs (id, rev, map, val) VALUES (?, ?, ?, ?);`
-* **`put`** (CAS update): `UPDATE datomic_kvs SET rev=?, map=?, val=? WHERE id=? AND rev=?;` — see *Concurrency* below.
-* **`get`**: `SELECT id, rev, map, val FROM datomic_kvs WHERE id = ?;`
-* **`delete`**: `DELETE FROM datomic_kvs WHERE id = ?;`
+The `KVStore` operations from §1 map directly onto SQL, all keyed by the single `id` column. These are the literal statements emitted by `datomic.sql`, quoted as they appear in the constant pool:
+* **`put`** (new key): `insert into datomic_kvs (id, rev, map, val) values (?, ?, ?, ?)`
+* **`put`** (conditional update): `update datomic_kvs set rev=?, map=?, val=? where id=? and rev=?` — see *Concurrency* below.
+* **`get`**: `select id, rev, map, val from datomic_kvs where id = ?` — all four columns, so the whole entry map is reconstructed on read.
+* **`delete`**: `delete from datomic_kvs where id = ?`
 * **`close`**: releases the JDBC connection (no statement).
+
+Two more statements ship alongside these: `grant all on datomic_kvs to datomic` / `to public` for provisioning, and `select 1 from dual` as the connection-validation query (`datomic.kv-sql-ext/validation-query`).
 
 `datomic.sql` emits the `insert` and `update` as two *distinct* statements (there is no `ON CONFLICT` upsert); a given `put` issues just one of them — `insert` to create a key, the rev-gated `update` to overwrite one. No read-before-write is needed to choose: the caller already knows which case it is, because immutable segments are always written under a fresh, content-derived key (§1's `create-val`) while only the small set of mutable references is ever overwritten (`set-ref`).
 
@@ -423,13 +659,13 @@ The persistent index structure that organizes datoms into B-tree segments:
 The path from index traversal to actual storage read:
 
 * **`datomic.kv_store.KVStore`** — Protocol/interface for storage backends
-  - `get(key, consistent?)` — Read entry by key; `consistent?` flag for strong consistency
-  - `put(val-map)` — Write with CAS
-  - `delete(key, arg2)` — Remove entry
+  - `get(key, consistent?)` — Read entry by key, returning `{:id key :v buf ...}`; `consistent?` flag for strong consistency
+  - `put(val-map)` — Write `{:id key :v buf :ensure check-map ...}`; the optional `:ensure` map is the conditional-write guard (§1), returns `:ok` or `nil`
+  - `delete(key, consistent?)` — Remove entry, returns `:ok`
   - Implementations: `KVSql`, `KVMem`, `KVDynamo`, `KVHotRod`, `KVCassandra`/`KVCassandra2`/`KVCassandra3`
 
-* **`datomic.core2.val_store.spi.Get`** — Second-gen value store protocol
-  - `_get(store, key)` — Fetch segment from storage
+* **`datomic.core2.val_store.spi.Get`** — Second-gen value store protocol (full SPI in §1, *The second generation*)
+  - `_get(k, opts)` — Fetch a value by key; `Put`/`Delete` are separate protocols, one per operation
 
 * **`datomic.cluster_stack.ValStoreOnKvCache`** — L1 cache layer over KV store
 * **`datomic.cluster_stack.ValStoreOnCluster`** — Cluster storage implementation

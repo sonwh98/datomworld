@@ -343,7 +343,7 @@
 
 (defn- make-local-stream
   []
-  (ds/open! {:type :ringbuffer, :capacity nil}))
+  (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}))
 
 
 (defn- open-telemetry-sink

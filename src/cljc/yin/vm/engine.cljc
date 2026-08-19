@@ -133,7 +133,8 @@
    Returns [stream-ref updated-state]."
   [state effect id]
   (let [capacity (:capacity effect)
-        descriptor {:type :ringbuffer, :mode :create, :capacity capacity}
+        descriptor
+        {:dao.stream/type :ringbuffer, :mode :create, :capacity capacity}
         stream (ds/open! descriptor)
         new-store (assoc (:store state) id stream)
         stream-ref {:type :stream-ref, :id id}]

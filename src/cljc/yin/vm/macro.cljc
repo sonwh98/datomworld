@@ -9,9 +9,8 @@
    - Compile-time: fixpoint expansion on bounded stream before bytecode compilation
    - Runtime: semantic VM expands :yin/macro-expand nodes inline
    - Guard limits: max depth 100, max datoms 10,000"
-  (:require
-    [dao.datom :as datom]
-    [yin.vm :as vm]))
+  (:require [dao.datom :as datom]
+            [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -42,9 +41,11 @@
 ;; =============================================================================
 
 (defn- min-datom-eid
-  "Find the minimum entity ID across all datoms. Returns -1025 if datoms is empty."
+  "Find the minimum entity ID across all datoms. Returns (- (inc datom/first-user-id)) if datoms is empty."
   [datoms]
-  (if (empty? datoms) -1025 (transduce (map first) (completing min) 0 datoms)))
+  (if (empty? datoms)
+    (- (inc datom/first-user-id))
+    (transduce (map first) (completing min) 0 datoms)))
 
 
 (defn make-eid-counter!

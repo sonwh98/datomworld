@@ -9,7 +9,7 @@
 
 (defn- make-stream
   []
-  (ds/open! {:type :ringbuffer, :capacity nil}))
+  (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}))
 
 
 (deftest reconnect-reopens-remote-stream-at-current-position-test

@@ -5,8 +5,8 @@
 This document defines a UDP-based transport for DaoStream, enabling datom streams over unreliable, connectionless network links. The design follows the principle that **a datom is a natural UDP datagram**: each datom `[e a v t m]` is a self‑contained, immutable fact that maps directly to a UDP payload. The transport adds a minimal reliability layer (DRDS—Datom Reliable Datagram Streams) that is **optional and interpreter‑directed**, preserving the axiom that semantics are external.
 
 The UDP transport integrates with the existing DaoStream descriptor/realization model:
-- Descriptor: `{:transport {:type :udp …}}`
-- Realization: `open!` multimethod dispatches on `:type :udp`
+- Descriptor: `{:dao.stream/type :udp …}`
+- Realization: `open!` multimethod dispatches on `:dao.stream/type :udp`
 - Transport implementation: `UdpTransport` satisfying `IDaoStreamReader`, `IDaoStreamWriter`, `IDaoStreamBound`
 - Waitability: Not `IDaoStreamWaitable` (network‑transparent waiters are impractical); fallback to `check‑wait‑set` polling.
 
@@ -19,25 +19,25 @@ The UDP transport integrates with the existing DaoStream descriptor/realization 
 
 ## Descriptor Schema
 
-A UDP stream descriptor follows the DaoStream descriptor pattern with a `:transport` section of type `:udp`.
+A UDP stream descriptor follows the flat DaoStream descriptor pattern.
 
 ### Basic UDP Descriptor
 
 ```clojure
-{:transport {:type :udp
-             :mode :create          ;; or :attach (future)
-             :host "192.168.1.100"  ;; target address for writes
-             :port 9000             ;; target port for writes
-             :listen-port 9000      ;; local port to bind (optional, defaults to :port)
-             :mtu 1450              ;; maximum transmission unit (optional, default 1450)
-             :reliable? false       ;; enable DRDS layer (optional, default false)
-             :ack-timeout-ms 2000   ;; DRDS ACK timeout (optional)
-             :max-retries 5}}       ;; DRDS retry limit (optional)
+{:dao.stream/type :udp
+ :mode :create          ;; or :attach (future)
+ :host "192.168.1.100"  ;; target address for writes
+ :port 9000             ;; target port for writes
+ :listen-port 9000      ;; local port to bind (optional, defaults to :port)
+ :mtu 1450              ;; maximum transmission unit (optional, default 1450)
+ :reliable? false       ;; enable DRDS layer (optional, default false)
+ :ack-timeout-ms 2000   ;; DRDS ACK timeout (optional)
+ :max-retries 5}        ;; DRDS retry limit (optional)
 ```
 
 **Fields**:
 
-- `:type` – must be `:udp`.
+- `:dao.stream/type` – must be `:udp`.
 - `:mode` – `:create` (initiate a new stream) or `:attach` (attach to an existing stream). Currently only `:create` is required.
 - `:host` – IP address or hostname of the remote endpoint where datagrams are sent.
 - `:port` – remote port for writes.
@@ -52,15 +52,15 @@ A UDP stream descriptor follows the DaoStream descriptor pattern with a `:transp
 When `:reliable? true`, the descriptor may include additional DRDS‑specific options:
 
 ```clojure
-{:transport {:type :udp
-             :mode :create
-             :host "10.0.0.2"
-             :port 9000
-             :reliable? true
-             :drds {:stream-id 0x12345678   ;; 32‑bit stream identifier
-                    :window-size 64         ;; sliding‑window size in datagrams
-                    :fec? false             ;; forward error correction (future)
-                    :encryption :none}}}    ;; :none, :noise, :dtls (future)
+{:dao.stream/type :udp
+ :mode :create
+ :host "10.0.0.2"
+ :port 9000
+ :reliable? true
+ :drds {:stream-id 0x12345678   ;; 32‑bit stream identifier
+        :window-size 64         ;; sliding‑window size in datagrams
+        :fec? false             ;; forward error correction (future)
+        :encryption :none}}     ;; :none, :noise, :dtls (future)
 ```
 
 **DRDS fields**:
@@ -72,14 +72,14 @@ When `:reliable? true`, the descriptor may include additional DRDS‑specific op
 
 ## Transport Realization
 
-The `open!` multimethod dispatches on `:type :udp` and returns an instance of `UdpTransport`.
+The `open!` multimethod dispatches on `:dao.stream/type :udp` and returns an instance of `UdpTransport`.
 
 ### `open!` Implementation
 
 ```clojure
 (defmethod dao.stream/open! :udp
   [descriptor]
-  (let [{:keys [host port listen-port mtu reliable?]} (:transport descriptor)
+  (let [{:keys [host port listen-port mtu reliable?]} descriptor
         socket (java.net.DatagramSocket. (or listen-port port))]  ;; Clojure JVM
     (->UdpTransport socket host port mtu reliable? descriptor)))
 ```
@@ -330,7 +330,7 @@ The UDP transport’s buffer can be bounded by the descriptor’s `:capacity` fi
 
 **Capacity descriptor example**:
 ```clojure
-{:transport {:type :udp, :host "...", :port 9000, :capacity 1000}}
+{:dao.stream/type :udp, :host "...", :port 9000, :capacity 1000}
 ```
 
 ## Security Considerations
@@ -375,12 +375,12 @@ dao.stream.apply uses two streams: `call‑in` (requests) and `call‑out` (resp
 
 ```clojure
 (create-vm
-  {:call-in  {:transport {:type :udp
-                          :host "10.0.0.2" :port 9000
-                          :reliable? true}}
-   :call-out {:transport {:type :udp
-                          :host "10.0.0.2" :port 9001
-                          :reliable? true}}})
+  {:call-in  {:dao.stream/type :udp
+              :host "10.0.0.2" :port 9000
+              :reliable? true}
+   :call-out {:dao.stream/type :udp
+              :host "10.0.0.2" :port 9001
+              :reliable? true}})
 ```
 
 **Bridge side**:

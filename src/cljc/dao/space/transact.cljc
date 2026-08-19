@@ -57,7 +57,8 @@
   "Resolve an ident keyword to its entity id."
   [base-datoms same-tx-ident->eid ident]
   (or (get same-tx-ident->eid ident)
-      (let [res (query/match base-datoms ['_ :db/ident ident])]
+      (let [res (query/match (query/current (query/relation base-datoms))
+                  ['_ :db/ident ident])]
         (when (seq res) (nth (first res) 0)))))
 
 
@@ -76,7 +77,8 @@
                          parsed-ops)
         existing-refs (into #{}
                             (keep (fn [d] (get eid->ident (nth d 0))))
-                            (query/match base-datoms
+                            (query/match (query/current (query/relation
+                                                          base-datoms))
                               ['_ :db/valueType :db.type/ref]))
         gaining (into #{}
                       (keep (fn [{:keys [op e a v]}]
@@ -201,7 +203,7 @@
                                                    (not= (nth d 1) :db/ident))
                                             (inc v)
                                             0)))))
-                             1025
+                             datom/first-user-id
                              base-datoms))
         parsed-ops (parse-tx-data tx-data)
         same-tx-ident->eid
@@ -211,25 +213,27 @@
               parsed-ops)
         effective-ref-attrs
         (effective-ref-attrs-for-tx base-datoms parsed-ops same-tx-ident->eid)
-        alloc-base-eid
-        (reduce (fn [eid {:keys [op e a v m-raw]}]
-                  (let [mx (if (and (= op :db/add) (number? e) (>= e 1025))
-                             (max eid (inc e))
-                             eid)
-                        mx (if (and (= op :db/add)
-                                    (contains? effective-ref-attrs a)
-                                    (number? v)
-                                    (>= v 1025))
-                             (max mx (inc v))
-                             mx)
-                        mx (if (and (= op :db/add)
-                                    (number? m-raw)
-                                    (>= m-raw 1025))
-                             (max mx (inc m-raw))
-                             mx)]
-                    mx))
-                base-eid
-                parsed-ops)
+        alloc-base-eid (reduce
+                         (fn [eid {:keys [op e a v m-raw]}]
+                           (let [mx (if (and (= op :db/add)
+                                             (number? e)
+                                             (>= e datom/first-user-id))
+                                      (max eid (inc e))
+                                      eid)
+                                 mx (if (and (= op :db/add)
+                                             (contains? effective-ref-attrs a)
+                                             (number? v)
+                                             (>= v datom/first-user-id))
+                                      (max mx (inc v))
+                                      mx)
+                                 mx (if (and (= op :db/add)
+                                             (number? m-raw)
+                                             (>= m-raw datom/first-user-id))
+                                      (max mx (inc m-raw))
+                                      mx)]
+                             mx))
+                         base-eid
+                         parsed-ops)
         ops (mapv (fn [op]
                     (let [resolve (fn [id]
                                     (if (keyword? id)
@@ -275,7 +279,8 @@
                          ops)
         existing-card-many (into #{}
                                  (keep (fn [d] (get eid->ident (nth d 0))))
-                                 (query/match base-datoms
+                                 (query/match (query/current (query/relation
+                                                               base-datoms))
                                    ['_ :db/cardinality :db.cardinality/many]))
         gaining-card-many (into #{}
                                 (keep (fn [{:keys [op e a v]}]
@@ -296,7 +301,9 @@
                                 (#(apply disj % losing-card-many)))
         existing-unique (into #{}
                               (keep (fn [d] (get eid->ident (nth d 0))))
-                              (query/match base-datoms ['_ :db/unique '_]))
+                              (query/match (query/current (query/relation
+                                                            base-datoms))
+                                ['_ :db/unique '_]))
         gaining-unique (into #{}
                              (keep (fn [{:keys [op e a]}]
                                      (when (and (= op :db/add) (= a :db/unique))
@@ -324,7 +331,9 @@
               (when (> (count eids) 1)
                 (throw (ex-info "Unique constraint violated"
                                 {:attr a, :val v})))
-              (let [existing (query/match base-datoms ['_ a v])]
+              (let [existing (query/match (query/current (query/relation
+                                                           base-datoms))
+                               ['_ a v])]
                 (when (seq existing)
                   (let [existing-eid (nth (first existing) 0)]
                     ;; if it's the same entity, it's an update. If it's
@@ -345,22 +354,26 @@
                                            :val v,
                                            :existing-eid existing-eid}))))))))))
         ;; Implicit card-one retractions
-        seen-card-one (atom #{})
         retractions
-        (mapcat (fn [{:keys [op e a]}]
-                  (if (and (= op :db/add)
-                           (not (contains? effective-card-many a)))
-                    (let [key [e a]]
-                      (if (contains? @seen-card-one key)
-                        []
-                        (do (swap! seen-card-one conj key)
-                            (let [existing (query/match base-datoms [e a '_])]
-                              (map (fn [d]
-                                     [e a (nth d 2) t
-                                      (:db/retract datom/reserved)])
-                                   existing)))))
-                    []))
-                added-ops)
+        (second
+          (reduce
+            (fn [[seen retractions] {:keys [op e a]}]
+              (if (and (= op :db/add) (not (contains? effective-card-many a)))
+                (let [key [e a]]
+                  (if (contains? seen key)
+                    [seen retractions]
+                    (let [existing (query/match (query/current (query/relation
+                                                                 base-datoms))
+                                     [e a '_])
+                          new-retractions (map (fn [d]
+                                                 [e a (nth d 2) t
+                                                  (:db/retract
+                                                    datom/reserved)])
+                                               existing)]
+                      [(conj seen key) (into retractions new-retractions)])))
+                [seen retractions]))
+            [#{} []]
+            added-ops))
         ops-datoms (mapv (fn [{:keys [e a v m-raw]}] [e a v t m-raw]) ops)
         all-datoms (vec (concat retractions ops-datoms extra-datoms))]
     {:datoms all-datoms,

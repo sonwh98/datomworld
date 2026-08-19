@@ -108,159 +108,166 @@
   ([ast-as-datoms {:keys [root-id by-entity]}]
    (let [{:keys [get-attr root-id]} (vm/index-datoms ast-as-datoms
                                                      {:root-id root-id,
-                                                      :by-entity by-entity})
-         ;; Assembly accumulator
-         bytecode (atom [])
-         emit! (fn [instr] (swap! bytecode conj instr))
-         current-addr #(count @bytecode)
-         ;; Register allocator (simple linear allocation, unbounded)
-         reg-counter (atom 0)
-         alloc-reg! (fn []
-                      (let [r @reg-counter]
-                        (swap! reg-counter inc)
-                        r))
-         reset-regs! (fn [] (reset! reg-counter 0))]
-     ;; Compile entity to assembly, returns the register holding the result
+                                                      :by-entity by-entity})]
      (letfn
-       [(compile-node
-          ([e] (compile-node e false))
-          ([e tail?]
+       [(alloc-reg
+          [state]
+          [(update state :reg-counter inc)
+           (:reg-counter state)])
+        (emit [state instr] (update state :bytecode conj instr))
+        (compile-node
+          ([state e] (compile-node state e false))
+          ([state e tail?]
            (let [node-type (get-attr e :yin/type)]
              (case node-type
-               :literal (let [rd (alloc-reg!)]
-                          (emit! [:literal rd (get-attr e :yin/value)])
-                          rd)
-               :variable (let [rd (alloc-reg!)]
-                           (emit! [:load-var rd (get-attr e :yin/name)])
-                           rd)
+               :literal (let [[state rd] (alloc-reg state)]
+                          [(emit state [:literal rd (get-attr e :yin/value)])
+                           rd])
+               :variable (let [[state rd] (alloc-reg state)]
+                           [(emit state [:load-var rd (get-attr e :yin/name)])
+                            rd])
                :lambda
                (let [params (get-attr e :yin/params)
                      body-ref (get-attr e :yin/body)
-                     rd (alloc-reg!)
-                     closure-idx (current-addr)]
-                 ;; Emit closure with placeholder for address and
-                 ;; reg-count
-                 (emit! [:lambda rd params :placeholder :placeholder])
-                 ;; Jump over body
-                 (let [jump-idx (current-addr)]
-                   (emit! [:jump :placeholder])
-                   ;; Body starts here - fresh register scope
-                   (let [body-addr (current-addr)
-                         saved-reg-counter @reg-counter]
-                     (reset-regs!)
-                     (let [result-reg (compile-node body-ref true)
-                           max-regs @reg-counter]
-                       (emit! [:return result-reg])
-                       ;; Restore register counter
-                       (reset! reg-counter saved-reg-counter)
-                       ;; Patch addresses and register count
-                       (let [after-body (current-addr)]
-                         (swap! bytecode assoc-in [closure-idx 3] body-addr)
-                         (swap! bytecode assoc-in [closure-idx 4] max-regs)
-                         (swap! bytecode assoc-in [jump-idx 1] after-body)))))
-                 rd)
+                     [state rd] (alloc-reg state)
+                     closure-idx (count (:bytecode state))
+                     state (emit state
+                                 [:lambda rd params :placeholder
+                                  :placeholder])
+                     jump-idx (count (:bytecode state))
+                     state (emit state [:jump :placeholder])
+                     body-addr (count (:bytecode state))
+                     saved-reg-counter (:reg-counter state)
+                     state (assoc state :reg-counter 0)
+                     [state result-reg] (compile-node state body-ref true)
+                     max-regs (:reg-counter state)
+                     state (emit state [:return result-reg])
+                     state (assoc state :reg-counter saved-reg-counter)
+                     after-body (count (:bytecode state))
+                     state (-> state
+                               (assoc-in [:bytecode closure-idx 3] body-addr)
+                               (assoc-in [:bytecode closure-idx 4] max-regs)
+                               (assoc-in [:bytecode jump-idx 1] after-body))]
+                 [state rd])
                :application
                (let [op-ref (get-attr e :yin/operator)
                      operand-refs (get-attr e :yin/operands)
-                     ;; Compile operands first (never in tail position)
-                     arg-regs (mapv #(compile-node % false) operand-refs)
-                     ;; Compile operator (never in tail position)
-                     fn-reg (compile-node op-ref false)
-                     ;; Result register
-                     rd (alloc-reg!)]
-                 (emit! [(if tail? :tailcall :call) rd fn-reg arg-regs])
-                 rd)
+                     [state arg-regs]
+                     (reduce (fn [[st regs] ref]
+                               (let [[st' r] (compile-node st ref false)]
+                                 [st' (conj regs r)]))
+                             [state []]
+                             operand-refs)
+                     [state fn-reg] (compile-node state op-ref false)
+                     [state rd] (alloc-reg state)
+                     state (emit state
+                                 [(if tail? :tailcall :call) rd fn-reg
+                                  arg-regs])]
+                 [state rd])
                :dao.stream.apply/call
                (let [operand-refs (or (get-attr e :yin/operands) [])
-                     arg-regs (mapv #(compile-node % false) operand-refs)
+                     [state arg-regs]
+                     (reduce (fn [[st regs] ref]
+                               (let [[st' r] (compile-node st ref false)]
+                                 [st' (conj regs r)]))
+                             [state []]
+                             operand-refs)
                      op (get-attr e :yin/op)
-                     rd (alloc-reg!)]
-                 (emit! [:dao.stream.apply/call rd op arg-regs])
-                 rd)
+                     [state rd] (alloc-reg state)
+                     state (emit state
+                                 [:dao.stream.apply/call rd op arg-regs])]
+                 [state rd])
                :if (let [test-ref (get-attr e :yin/test)
                          cons-ref (get-attr e :yin/consequent)
                          alt-ref (get-attr e :yin/alternate)
-                         ;; Compile test (never in tail position)
-                         test-reg (compile-node test-ref false)
-                         ;; Result register (shared by both branches)
-                         rd (alloc-reg!)
-                         branch-idx (current-addr)]
-                     ;; Emit branch with placeholders
-                     (emit! [:branch test-reg :then :else])
-                     ;; Consequent (propagate tail?)
-                     (let [then-addr (current-addr)
-                           cons-reg (compile-node cons-ref tail?)]
-                       (emit! [:move rd cons-reg])
-                       (let [jump-idx (current-addr)]
-                         (emit! [:jump :end])
-                         ;; Alternate (propagate tail?)
-                         (let [else-addr (current-addr)
-                               alt-reg (compile-node alt-ref tail?)]
-                           (emit! [:move rd alt-reg])
-                           ;; Patch addresses
-                           (let [end-addr (current-addr)]
-                             (swap! bytecode assoc-in [branch-idx 2] then-addr)
-                             (swap! bytecode assoc-in [branch-idx 3] else-addr)
-                             (swap! bytecode assoc-in [jump-idx 1] end-addr)))))
-                     rd)
+                         [state test-reg] (compile-node state test-ref false)
+                         [state rd] (alloc-reg state)
+                         branch-idx (count (:bytecode state))
+                         state (emit state [:branch test-reg :then :else])
+                         then-addr (count (:bytecode state))
+                         [state cons-reg] (compile-node state cons-ref tail?)
+                         state (emit state [:move rd cons-reg])
+                         jump-idx (count (:bytecode state))
+                         state (emit state [:jump :end])
+                         else-addr (count (:bytecode state))
+                         [state alt-reg] (compile-node state alt-ref tail?)
+                         state (emit state [:move rd alt-reg])
+                         end-addr (count (:bytecode state))
+                         state (-> state
+                                   (assoc-in [:bytecode branch-idx 2] then-addr)
+                                   (assoc-in [:bytecode branch-idx 3] else-addr)
+                                   (assoc-in [:bytecode jump-idx 1] end-addr))]
+                     [state rd])
                ;; VM primitives
-               :vm/gensym (let [rd (alloc-reg!)]
-                            (emit! [:gensym rd (get-attr e :yin/prefix)])
-                            rd)
-               :vm/store-get (let [rd (alloc-reg!)]
-                               (emit! [:store-get rd (get-attr e :yin/key)])
-                               rd)
-               :vm/store-put (let [rd (alloc-reg!)]
-                               (emit! [:literal rd (get-attr e :yin/value)])
-                               (emit! [:store-put rd (get-attr e :yin/key)])
-                               rd)
+               :vm/gensym
+               (let [[state rd] (alloc-reg state)
+                     state (emit state [:gensym rd (get-attr e :yin/prefix)])]
+                 [state rd])
+               :vm/store-get
+               (let [[state rd] (alloc-reg state)
+                     state (emit state [:store-get rd (get-attr e :yin/key)])]
+                 [state rd])
+               :vm/store-put
+               (let [[state rd] (alloc-reg state)
+                     state (-> state
+                               (emit [:literal rd (get-attr e :yin/value)])
+                               (emit [:store-put rd (get-attr e :yin/key)]))]
+                 [state rd])
                ;; Stream operations
-               :stream/make (let [rd (alloc-reg!)]
-                              (emit! [:stream-make rd (get-attr e :yin/buffer)])
-                              rd)
-               :stream/put (let [target-ref (get-attr e :yin/target)
-                                 val-ref (get-attr e :yin/val-node)
-                                 val-reg (compile-node val-ref)
-                                 target-reg (compile-node target-ref)]
-                             (emit! [:stream-put val-reg target-reg])
-                             val-reg)
-               :stream/cursor (let [source-ref (get-attr e :yin/source)
-                                    source-reg (compile-node source-ref)
-                                    rd (alloc-reg!)]
-                                (emit! [:stream-cursor rd source-reg])
-                                rd)
-               :stream/next (let [source-ref (get-attr e :yin/source)
-                                  source-reg (compile-node source-ref)
-                                  rd (alloc-reg!)]
-                              (emit! [:stream-next rd source-reg])
-                              rd)
-               :stream/close (let [source-ref (get-attr e :yin/source)
-                                   source-reg (compile-node source-ref)
-                                   rd (alloc-reg!)]
-                               (emit! [:stream-close rd source-reg])
-                               rd)
+               :stream/make (let [[state rd] (alloc-reg state)
+                                  state (emit state
+                                              [:stream-make rd
+                                               (get-attr e :yin/buffer)])]
+                              [state rd])
+               :stream/put
+               (let [target-ref (get-attr e :yin/target)
+                     val-ref (get-attr e :yin/val-node)
+                     [state val-reg] (compile-node state val-ref)
+                     [state target-reg] (compile-node state target-ref)
+                     state (emit state [:stream-put val-reg target-reg])]
+                 [state val-reg])
+               :stream/cursor
+               (let [source-ref (get-attr e :yin/source)
+                     [state source-reg] (compile-node state source-ref)
+                     [state rd] (alloc-reg state)
+                     state (emit state [:stream-cursor rd source-reg])]
+                 [state rd])
+               :stream/next
+               (let [source-ref (get-attr e :yin/source)
+                     [state source-reg] (compile-node state source-ref)
+                     [state rd] (alloc-reg state)
+                     state (emit state [:stream-next rd source-reg])]
+                 [state rd])
+               :stream/close
+               (let [source-ref (get-attr e :yin/source)
+                     [state source-reg] (compile-node state source-ref)
+                     [state rd] (alloc-reg state)
+                     state (emit state [:stream-close rd source-reg])]
+                 [state rd])
                ;; Continuation primitives
-               :vm/park (let [rd (alloc-reg!)]
-                          (emit! [:park rd])
-                          rd)
+               :vm/park (let [[state rd] (alloc-reg state)
+                              state (emit state [:park rd])]
+                          [state rd])
                :vm/resume (let [parked-id (get-attr e :yin/parked-id)
                                 val-ref (get-attr e :yin/val-node)
-                                rd (alloc-reg!)]
-                            (emit! [:literal rd parked-id])
-                            (let [rv (compile-node val-ref)]
-                              (emit! [:resume rd rv])
-                              rv))
-               :vm/current-continuation (let [rd (alloc-reg!)]
-                                          (emit! [:current-cont rd])
-                                          rd)
+                                [state rd] (alloc-reg state)
+                                state (emit state [:literal rd parked-id])
+                                [state rv] (compile-node state val-ref)
+                                state (emit state [:resume rd rv])]
+                            [state rv])
+               :vm/current-continuation (let [[state rd] (alloc-reg state)
+                                              state (emit state
+                                                          [:current-cont rd])]
+                                          [state rd])
                ;; Unknown type
                (throw (ex-info
                         "Unknown node type in register assembly compilation"
                         {:type node-type, :entity e}))))))]
-       (let [result-reg (compile-node root-id true)
-             max-regs @reg-counter]
-         (emit! [:return result-reg])
-         {:asm @bytecode, :reg-count max-regs})))))
+       (let [[state result-reg]
+             (compile-node {:bytecode [], :reg-counter 0} root-id true)
+             max-regs (:reg-counter state)
+             state (emit state [:return result-reg])]
+         {:asm (:bytecode state), :reg-count max-regs})))))
 
 
 (defn assemble
@@ -275,92 +282,120 @@
    (instruction 0, 1, 2...). Bytecode addresses index into the flat
    int vector (byte offset 0, 3, 6...). All jump targets are rewritten."
   [asm-instructions]
-  (let [;; Build pool while emitting bytecode
-        pool (atom [])
-        pool-index (atom {})
-        intern! (fn [v]
-                  (if-let [idx (get @pool-index v)]
-                    idx
-                    (let [idx (count @pool)]
-                      (swap! pool conj v)
-                      (swap! pool-index assoc v idx)
-                      idx)))
-        bytecode (atom [])
-        ;; instruction index -> byte offset
-        instr-offsets (atom {})
-        ;; [byte-position assembly-address] pairs needing fixup
-        fixups (atom [])
-        emit! (fn [& ints] (swap! bytecode into ints))
-        current-offset #(count @bytecode)
-        emit-fixup! (fn [asm-addr]
-                      (swap! fixups conj [(current-offset) asm-addr])
-                      (swap! bytecode conj asm-addr))]
-    ;; Emit bytecode
-    (doseq [[idx instr] (map-indexed vector asm-instructions)]
-      (swap! instr-offsets assoc idx (current-offset))
-      (let [[op & args] instr]
-        (case op
-          :literal (let [[rd v] args]
-                     (emit! (vm/opcode-table :literal) rd (intern! v)))
-          :load-var (let [[rd name] args]
-                      (emit! (vm/opcode-table :load-var) rd (intern! name)))
-          :move (let [[rd rs] args] (emit! (vm/opcode-table :move) rd rs))
-          :lambda (let [[rd params addr reg-count] args]
-                    (emit! (vm/opcode-table :lambda)
-                           rd
-                           (intern! (vec params))
-                           reg-count)
-                    (emit-fixup! addr))
-          :call (let [[rd rf arg-regs] args]
-                  (emit! (vm/opcode-table :call) rd rf (count arg-regs))
-                  (doseq [ar arg-regs] (emit! ar)))
-          :tailcall (let [[rd rf arg-regs] args]
-                      (emit! (vm/opcode-table :tailcall) rd rf (count arg-regs))
-                      (doseq [ar arg-regs] (emit! ar)))
-          :dao.stream.apply/call (let [[rd op arg-regs] args]
-                                   (emit! (vm/opcode-table
-                                            :dao.stream.apply/call)
-                                          rd
-                                          (intern! op)
-                                          (count arg-regs))
-                                   (doseq [ar arg-regs] (emit! ar)))
-          :return (let [[rs] args] (emit! (vm/opcode-table :return) rs))
-          :branch (let [[rt then-addr else-addr] args]
-                    (emit! (vm/opcode-table :branch) rt)
-                    (emit-fixup! then-addr)
-                    (emit-fixup! else-addr))
-          :jump (let [[addr] args]
-                  (emit! (vm/opcode-table :jump))
-                  (emit-fixup! addr))
-          :gensym (let [[rd prefix] args]
-                    (emit! (vm/opcode-table :gensym) rd (intern! prefix)))
-          :store-get (let [[rd key] args]
-                       (emit! (vm/opcode-table :store-get) rd (intern! key)))
-          :store-put (let [[rs key] args]
-                       (emit! (vm/opcode-table :store-put) rs (intern! key)))
-          :stream-make
-          (let [[rd buf] args]
-            (emit! (vm/opcode-table :stream-make) rd (intern! buf)))
-          :stream-put (let [[rs rt] args]
-                        (emit! (vm/opcode-table :stream-put) rs rt))
-          :stream-cursor (let [[rd rs] args]
-                           (emit! (vm/opcode-table :stream-cursor) rd rs))
-          :stream-next (let [[rd rs] args]
-                         (emit! (vm/opcode-table :stream-next) rd rs))
-          :stream-close (let [[rd rs] args]
-                          (emit! (vm/opcode-table :stream-close) rd rs))
-          :park (let [[rd] args] (emit! (vm/opcode-table :park) rd))
-          :resume (let [[rd rs] args] (emit! (vm/opcode-table :resume) rd rs))
-          :current-cont (let [[rd] args]
-                          (emit! (vm/opcode-table :current-cont) rd)))))
-    ;; Fix addresses
-    (let [offsets @instr-offsets
+  (letfn [(intern-val
+            [state v]
+            (if-let [idx (get (:pool-index state) v)]
+              [state idx]
+              (let [idx (count (:pool state))]
+                [(-> state
+                     (update :pool conj v)
+                     (update :pool-index assoc v idx)) idx])))
+          (emit [state ints] (update state :bytecode into ints))
+          (emit-fixup
+            [state asm-addr]
+            (let [pos (count (:bytecode state))]
+              (-> state
+                  (update :fixups conj [pos asm-addr])
+                  (update :bytecode conj asm-addr))))]
+    (let [final-state
+          (reduce
+            (fn [state [idx instr]]
+              (let [state (assoc-in state
+                                    [:instr-offsets idx]
+                                    (count (:bytecode state)))
+                    [op & args] instr]
+                (case op
+                  :literal (let [[rd v] args
+                                 [state' pidx] (intern-val state v)]
+                             (emit state'
+                                   [(vm/opcode-table :literal) rd pidx]))
+                  :load-var (let [[rd name] args
+                                  [state' pidx] (intern-val state name)]
+                              (emit state'
+                                    [(vm/opcode-table :load-var) rd pidx]))
+                  :move (let [[rd rs] args]
+                          (emit state [(vm/opcode-table :move) rd rs]))
+                  :lambda (let [[rd params addr reg-count] args
+                                [state' pidx] (intern-val state (vec params))
+                                state'' (emit state'
+                                              [(vm/opcode-table :lambda) rd
+                                               pidx reg-count])]
+                            (emit-fixup state'' addr))
+                  :call (let [[rd rf arg-regs] args]
+                          (emit state
+                                (into [(vm/opcode-table :call) rd rf
+                                       (count arg-regs)]
+                                      arg-regs)))
+                  :tailcall (let [[rd rf arg-regs] args]
+                              (emit state
+                                    (into [(vm/opcode-table :tailcall) rd rf
+                                           (count arg-regs)]
+                                          arg-regs)))
+                  :dao.stream.apply/call
+                  (let [[rd op arg-regs] args
+                        [state' pidx] (intern-val state op)]
+                    (emit state'
+                          (into [(vm/opcode-table :dao.stream.apply/call) rd
+                                 pidx (count arg-regs)]
+                                arg-regs)))
+                  :return (let [[rs] args]
+                            (emit state [(vm/opcode-table :return) rs]))
+                  :branch (let [[rt then-addr else-addr] args]
+                            (-> state
+                                (emit [(vm/opcode-table :branch) rt])
+                                (emit-fixup then-addr)
+                                (emit-fixup else-addr)))
+                  :jump (let [[addr] args]
+                          (-> state
+                              (emit [(vm/opcode-table :jump)])
+                              (emit-fixup addr)))
+                  :gensym (let [[rd prefix] args
+                                [state' pidx] (intern-val state prefix)]
+                            (emit state' [(vm/opcode-table :gensym) rd pidx]))
+                  :store-get (let [[rd key] args
+                                   [state' pidx] (intern-val state key)]
+                               (emit state'
+                                     [(vm/opcode-table :store-get) rd pidx]))
+                  :store-put (let [[rs key] args
+                                   [state' pidx] (intern-val state key)]
+                               (emit state'
+                                     [(vm/opcode-table :store-put) rs pidx]))
+                  :stream-make
+                  (let [[rd buf] args
+                        [state' pidx] (intern-val state buf)]
+                    (emit state' [(vm/opcode-table :stream-make) rd pidx]))
+                  :stream-put (let [[rs rt] args]
+                                (emit state
+                                      [(vm/opcode-table :stream-put) rs rt]))
+                  :stream-cursor
+                  (let [[rd rs] args]
+                    (emit state [(vm/opcode-table :stream-cursor) rd rs]))
+                  :stream-next
+                  (let [[rd rs] args]
+                    (emit state [(vm/opcode-table :stream-next) rd rs]))
+                  :stream-close
+                  (let [[rd rs] args]
+                    (emit state [(vm/opcode-table :stream-close) rd rs]))
+                  :park (let [[rd] args]
+                          (emit state [(vm/opcode-table :park) rd]))
+                  :resume (let [[rd rs] args]
+                            (emit state [(vm/opcode-table :resume) rd rs]))
+                  :current-cont
+                  (let [[rd] args]
+                    (emit state [(vm/opcode-table :current-cont) rd])))))
+            {:pool [],
+             :pool-index {},
+             :bytecode [],
+             :instr-offsets {},
+             :fixups []}
+            (map-indexed vector asm-instructions))
+          offsets (:instr-offsets final-state)
           fixed (reduce (fn [bc [pos asm-addr]]
                           (assoc bc pos (get offsets asm-addr asm-addr)))
-                        @bytecode
-                        @fixups)
+                        (:bytecode final-state)
+                        (:fixups final-state))
           source-map (into {} (map (fn [[k v]] [v k]) offsets))]
-      {:bytecode fixed, :pool @pool, :source-map source-map})))
+      {:bytecode fixed, :pool (:pool final-state), :source-map source-map})))
 
 
 (defn- compile-register-artifact

@@ -84,7 +84,7 @@
     (doseq [[vm-type create-vm] (vtu/vm-factories)]
       (let [stream-key :test-stream
             cursor-key :test-cursor
-            stream (ds/open! {:type :ringbuffer, :capacity nil})
+            stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
             block-next (fn [cursor] {:effect :stream/next, :cursor cursor})
             vm0 (-> (create-vm {:env {'block-next block-next}})
                     (assoc-in [:store stream-key] stream)
@@ -121,7 +121,7 @@
     (doseq [[vm-type create-vm] (vtu/vm-factories)]
       (let [stream-key :test-stream
             cursor-key :test-cursor
-            stream (ds/open! {:type :ringbuffer, :capacity nil})
+            stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
             block-next (fn [cursor] {:effect :stream/next, :cursor cursor})
             vm0 (-> (create-vm {:env {'block-next block-next}})
                     (assoc-in [:store stream-key] stream)

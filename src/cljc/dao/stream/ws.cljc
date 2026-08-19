@@ -13,7 +13,7 @@
      IDaoStreamBound  — close! and closed? manage lifecycle
 
    Utilities (non-protocol):
-     drain-one!      — destructive read from remote-stream (legacy support)
+     drain-one!      — destructive read from remote-stream (consumers needing take semantics)
      await-connected — poll a stream's connection-status until :connected or timeout"
   (:require #?(:cljd ["dart:async" :as async])
             #?(:cljd ["dart:core" :as core])
@@ -174,7 +174,7 @@
               (fn [req]
                 (http-server/as-channel
                   req
-                  (let [local (ds/open! {:type :ringbuffer,
+                  (let [local (ds/open! {:dao.stream/type :ringbuffer,
                                          :capacity (:capacity opts),
                                          :eviction-policy (:eviction-policy
                                                             opts)})
@@ -206,7 +206,7 @@
           "Connect to a WebSocket server at url. Returns WebSocketStream."
           ([url] (connect! url nil))
           ([url opts]
-           (let [local (ds/open! {:type :ringbuffer,
+           (let [local (ds/open! {:dao.stream/type :ringbuffer,
                                   :capacity (:capacity opts),
                                   :eviction-policy (:eviction-policy opts)})
                  stream (make-ws-stream local)
@@ -272,31 +272,32 @@
 ;; CLJS: connect! (browser WebSocket)
 ;; =============================================================================
 
-#?(:cljs
-   (defn connect!
-     "Connect to a WebSocket server at url. Returns WebSocketStream."
-     ([url] (connect! url nil))
-     ([url opts]
-      (let [local (ds/open! {:type :ringbuffer, :capacity (:capacity opts)})
-            stream (make-ws-stream local)
-            ws (js/WebSocket. url)]
-        (set! (.-onopen ws)
-              #(do (swap! (:link-state-atom stream) assoc
-                          :socket-close-fn
-                          (fn [] (.close ws)))
-                   (on-open! stream (fn [msg] (.send ws msg)))
-                   (when-let [callback (:on-open opts)] (callback stream %))))
-        (set! (.-onmessage ws)
-              #(do (on-message! stream (.-data %))
-                   (when-let [callback (:on-message opts)]
-                     (callback stream %))))
-        (set! (.-onerror ws)
-              #(when-let [callback (:on-error opts)] (callback stream %)))
-        (set! (.-onclose ws)
-              #(do (on-close! stream)
-                   (when-let [callback (:on-close opts)]
-                     (callback stream %))))
-        stream))))
+#?(:cljs (defn connect!
+           "Connect to a WebSocket server at url. Returns WebSocketStream."
+           ([url] (connect! url nil))
+           ([url opts]
+            (let [local (ds/open! {:dao.stream/type :ringbuffer,
+                                   :capacity (:capacity opts)})
+                  stream (make-ws-stream local)
+                  ws (js/WebSocket. url)]
+              (set! (.-onopen ws)
+                    #(do (swap! (:link-state-atom stream) assoc
+                                :socket-close-fn
+                                (fn [] (.close ws)))
+                         (on-open! stream (fn [msg] (.send ws msg)))
+                         (when-let [callback (:on-open opts)]
+                           (callback stream %))))
+              (set! (.-onmessage ws)
+                    #(do (on-message! stream (.-data %))
+                         (when-let [callback (:on-message opts)]
+                           (callback stream %))))
+              (set! (.-onerror ws)
+                    #(when-let [callback (:on-error opts)] (callback stream %)))
+              (set! (.-onclose ws)
+                    #(do (on-close! stream)
+                         (when-let [callback (:on-close opts)]
+                           (callback stream %))))
+              stream))))
 
 
 ;; =============================================================================
@@ -330,7 +331,7 @@
         (.on ^js wss
              "connection"
              (fn [ws]
-               (let [local (ds/open! {:type :ringbuffer,
+               (let [local (ds/open! {:dao.stream/type :ringbuffer,
                                       :capacity (:capacity opts),
                                       :eviction-policy (:eviction-policy
                                                          opts)})
@@ -388,9 +389,9 @@
                             (.then
                               (fn [ws]
                                 (let [ws ^io/WebSocket ws
-                                      local (ds/open! {:type :ringbuffer,
-                                                       :capacity (:capacity
-                                                                   opts)})
+                                      local (ds/open!
+                                              {:dao.stream/type :ringbuffer,
+                                               :capacity (:capacity opts)})
                                       stream (make-ws-stream local)]
                                   (on-open! stream (fn [msg] (.add ws msg)))
                                   (swap! conns conj stream)
@@ -417,7 +418,7 @@
            "Connect to a WebSocket server at url. Returns WebSocketStream."
            ([url] (connect! url nil))
            ([url opts]
-            (let [local (ds/open! {:type :ringbuffer,
+            (let [local (ds/open! {:dao.stream/type :ringbuffer,
                                    :capacity (:capacity opts)})
                   stream (make-ws-stream local)]
               (-> (io/WebSocket.connect url)

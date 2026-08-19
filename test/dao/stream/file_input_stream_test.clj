@@ -20,8 +20,9 @@
         path (.getAbsolutePath temp-file)]
     (.deleteOnExit temp-file)
     (write-bytes! path (byte-array (range 10)))
-    (let [stream (ds/open!
-                   {:type :file-input-stream, :path path, :chunk-size 4})]
+    (let [stream (ds/open! {:dao.stream/type :file-input-stream,
+                            :path path,
+                            :chunk-size 4})]
       (testing "chunks are returned in order and rereads are non-destructive"
         (let [r0 (ds/next stream {:position 0})
               r1 (ds/next stream {:position 1})
@@ -48,8 +49,9 @@
         path (.getAbsolutePath temp-file)]
     (.deleteOnExit temp-file)
     (write-bytes! path (byte-array [10 20 30 40]))
-    (let [stream (ds/open!
-                   {:type :file-input-stream, :path path, :chunk-size 4})]
+    (let [stream (ds/open! {:dao.stream/type :file-input-stream,
+                            :path path,
+                            :chunk-size 4})]
       (write-bytes! path (byte-array [99 99 99 99]))
       (is (= [10 20 30 40] (bytes->vec (:ok (ds/next stream {:position 0}))))
           "snapshot bytes are unaffected by post-open file mutation")
@@ -61,6 +63,6 @@
         path (.getAbsolutePath temp-file)]
     (.deleteOnExit temp-file)
     (write-bytes! path (byte-array 0))
-    (let [stream (ds/open! {:type :file-input-stream, :path path})]
+    (let [stream (ds/open! {:dao.stream/type :file-input-stream, :path path})]
       (is (= :end (ds/next stream {:position 0})))
       (ds/close! stream))))

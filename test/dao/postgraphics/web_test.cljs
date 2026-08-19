@@ -1,15 +1,14 @@
 (ns dao.postgraphics.web-test
-  (:require
-    [cljs.test :refer-macros [deftest is testing]]
-    [dao.postgraphics.terminal :as terminal]
-    [dao.postgraphics.web :as web]
-    [dao.stream :as ds]
-    [dao.stream.ringbuffer]))
+  (:require [cljs.test :refer-macros [deftest is testing]]
+            [dao.postgraphics.terminal :as terminal]
+            [dao.postgraphics.web :as web]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]))
 
 
 (defn- make-stream
   []
-  (ds/open! {:type :ringbuffer, :capacity nil}))
+  (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}))
 
 
 (defn- fake-canvas

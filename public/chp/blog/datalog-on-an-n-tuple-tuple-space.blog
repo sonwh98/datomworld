@@ -1,0 +1,247 @@
+#:blog{:title "Datalog on an n-tuple Tuple Space",
+       :date #inst "2026-08-14T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "I once argued that every piece of information should be a five-slot datom. Mixed-dimensional Datalog changed my mind: over an open "
+        [:strong "n-tuple tuple space"]
+        ", relations of different dimensions can meet through shared variables, while the five-slot datom remains a powerful local contract."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:h2 "The Argument I Made"]
+
+          [:p
+           "In "
+           [:a {:href "/blog/power-of-restriction-datom-tuple.blog"}
+            "The Power of Restriction: Why a Smaller Tuple Opens a Larger World"]
+           ", I argued that Datom.world should fix all information into one five-element tuple, the datom "
+           [:code "[e a v t m]"]
+           ". Every event, fact, and piece of computation would cross the same narrow structural boundary."]
+
+          [:p
+           "The argument was that uniformity removes negotiation. If every component reads and writes the same five positions, streams compose without adapters, distributed nodes share one structural invariant, and interpreters are free to evolve semantics without changing stored data. Restriction was not a compromise. It was the source of expressive power."]
+
+          [:p
+           "I still believe the central insight: "
+           [:strong "a well-placed restriction creates capability"]
+           ". But I no longer believe that d5 is the right restriction for every tuple in the system. I had taken a powerful local contract and promoted it into a universal structure."]
+
+          [:h2 "Why I Changed My Mind"]
+
+          [:p
+           "The contradiction became clear while treating Datalog as an interpreter over a tuple space. Datalog joins values through variables. It does not require every participating relation to have the same width. A two-tuple and a three-tuple can meet on one shared value without either pretending to be a five-tuple."]
+
+          [:p
+           "Forcing both into d5 would require invented coordinates: a fake transaction, placeholder metadata, a dimension tag, or some other value whose only purpose is satisfying the substrate. Those positions would look structural, but an interpreter would still have to decide whether they were meaningful. The universal shape would not eliminate interpretation. It would hide interpretation inside padding conventions."]
+
+          [:p
+           "That conflicts with a deeper Datom.world principle: "
+           [:strong "interpretation belongs in the interpreter, not in the structure"]
+           ". If structure must be universally d5 before an interpreter can observe it, then the substrate has already decided which facts are admissible and how they must look."]
+
+          [:p
+           "The better boundary is an open n-tuple space. It can contain unary values, pairs, triples, canonical five-slot datoms, and larger domain-specific tuples. Datalog can query all of them because a join depends on shared variables, not on every tuple having the same number of positions."]
+
+          [:p
+           "This does not reject the earlier argument. It corrects its scope. I have left the earlier essay intact because it records the reasoning that led here. The new conclusion is:"]
+
+          [:blockquote
+           [:p
+            "A datom is always a five-tuple. Not every tuple is a datom. Openness belongs to the tuple space; restriction belongs to the interpreter."]]
+
+          [:h2 "The Join Does Not Care About Width"]
+
+          [:p
+           "Consider a relation containing both three-tuples and two-tuples:"]
+
+          [:pre
+           [:code
+            "[[:person/alice :person/first-name \"Alice\"]\n [:person/bob   :person/first-name \"Bob\"]\n [:person/alice 42]\n [:person/bob   37]]"]]
+
+          [:p
+           "The first two tuples associate an entity with an attribute and a value. The last two associate an entity directly with an age. One Datalog query can join them on the entity position:"]
+
+          [:pre
+           [:code
+            "[:find ?e ?first-name ?age\n :where\n [?e :person/first-name ?first-name]\n [?e ?age]]"]]
+
+          [:p
+           "The variable " [:code "?e"] " is the point of contact. The first clause matches exactly three positions. The second matches exactly two. Datalog unifies the value bound to " [:code "?e"] " across both clauses and returns the joined result."]
+
+          [:p
+           "Nothing needs to be padded to five positions. Nothing needs a null transaction, fake metadata, dimension tag, or namespace slot. The relation says only what it has to say."]
+
+          [:h2 "Why n-tuples Are a Better Universal Boundary"]
+
+          [:p
+           "A fixed-width representation is useful when one protocol truly has fixed coordinates. It is less useful as the boundary for every possible protocol. Making the tuple space open-dimensional has several advantages."]
+
+          [:h3 "Facts Keep Their Natural Arity"]
+
+          [:p
+           "A pair can remain a pair. A subject-attribute-value fact can remain a triple. A temporal fact with provenance can use five positions. A signature, vector clock, sensor frame, capability, or compiler relation can use the coordinates its interpreter requires."]
+
+          [:p
+           "This is more than convenience. Synthetic padding pretends that absent coordinates carry information. Removing that padding makes absence honest and keeps each protocol's restrictions visible."]
+
+          [:h3 "Derived Relations Stay Small"]
+
+          [:p
+           "Datalog continually projects new relations from existing ones. A query might derive " [:code "[?person ?age]"] " from a five-slot history, or " [:code "[?caller ?callee]"] " from a larger AST relation. Those derived tuples should not be inflated back into the source representation merely to remain queryable."]
+
+          [:p
+           "With n-tuples, the output of one interpretation can become the input of another without inventing meaningless coordinates. Projection is a first-class operation rather than a lossy escape hatch."]
+
+          [:h3 "Relations Can Meet Without Sharing an Ontology"]
+
+          [:p
+           "Two producers do not need to agree on one global record shape before their facts can compose. They need only expose positions that an interpreter can relate. A query can join an entity from a d3 fact to the same entity in a d2 relation, or connect a content hash in a d1 address relation to a slot in a larger provenance tuple."]
+
+          [:p
+           "The query declares the correspondence. The data does not secretly carry a universal ontology."]
+
+          [:h3 "New Dimensions Do Not Require Changing the Substrate"]
+
+          [:p
+           "An open tuple space can admit a new dimension without changing DaoStream, rewriting old tuples, or reserving another universal slot. A new interpreter can begin recognizing a useful shape while older interpreters continue observing exactly what they understand."]
+
+          [:p
+           "This is structural evolution without a global schema migration."]
+
+          [:h2 "Exact Arity Is Still a Restriction"]
+
+          [:p
+           "Supporting arbitrary dimensions does not mean every pattern loosely matches every tuple. In DaoSpace, an ordinary tuple clause matches exact arity. The pattern " [:code "[?e ?age]"] " matches a two-tuple, not the first two positions of a three-tuple."]
+
+          [:p
+           "When an interpreter intentionally wants a prefix, it says so:"]
+
+          [:pre
+           [:code
+            "[?e :person/first-name ?name & _]      ;; ignore the tail\n[?e :person/first-name ?name & ?tail]  ;; bind the tail"]]
+
+          [:p
+           "This preserves a useful restriction: accidental shape changes do not silently alter query results. Exactness is the default; openness is explicit. The system gains mixed dimensions without gaining implicit interpretation."]
+
+          [:h2 "Arity Is Shape, Not Meaning"]
+
+          [:p
+           "A subtle rule protects the whole design: a tuple's size does not select its interpreter. A five-tuple is not automatically a datom merely because it has five elements. It becomes a datom when a datom interpreter reads those positions as " [:code "[e a v t m]"] ". Another interpreter may assign an entirely different meaning to another five-tuple."]
+
+          [:p
+           "Likewise, a three-tuple is not intrinsically an RDF statement, and a two-tuple is not intrinsically a key-value entry. Those are interpretations imposed at a boundary."]
+
+          [:p
+           "This separates two questions that conventional data systems often collapse:"]
+
+          [:ul.bulleted
+           [:li [:strong "What is its shape?"] " The tuple answers this by its dimension."]
+           [:li [:strong "What does it mean?"] " An interpreter answers this through an explicit protocol."]]
+
+          [:h2 "Where the Five-Slot Datom Still Wins"]
+
+          [:p
+           "The canonical datom " [:code "[e a v t m]"] " remains a powerful restriction for persistent temporal facts. Its positions establish a stable contract for entity, attribute, value, transaction, and metadata. Datom-specific interpreters can validate that contract, resolve assertions and retractions, construct current and historical views, and maintain indexes such as " [:code "EAVT"] ", " [:code "AEVT"] ", " [:code "AVET"] ", and " [:code "VAET"] "."]
+
+          [:p
+           "That regularity has real engineering value. It enables predictable storage layouts, replay, temporal reasoning, and specialized access paths. The mistake is not the restriction. The mistake is applying the restriction outside the protocol that benefits from it."]
+
+          [:p
+           "This is the resolution to "
+           [:a {:href "/blog/power-of-restriction-datom-tuple.blog"}
+            "The Power of Restriction: Why a Smaller Tuple Opens a Larger World"]
+           ". Its central insight survives when its scope is made precise:"]
+
+          [:blockquote
+           [:p
+            "Within the datom protocol, fixed d5 shape eliminates structural negotiation. At the tuple-space boundary, open dimension prevents that useful local contract from becoming a global ontology."]]
+
+          [:p
+           "The two ideas are complementary. A universal n-tuple space supplies freedom to construct relations. Each interpreter then earns reliability by restricting the slice it understands."]
+
+          [:h2 "Restriction Belongs to the Interpreter"]
+
+          [:p
+           "The general principle is not that fewer coordinates are always better, or that more coordinates are always better. It is that restrictions should appear where their invariants can be enforced and exploited."]
+
+          [:ul.bulleted
+           [:li
+            [:strong "DaoStream"]
+            " transports values and tuples without imposing one semantic shape."]
+           [:li
+            [:strong "The relation interpreter"]
+            " exposes mixed-dimensional tuples to positional matching and unification."]
+           [:li
+            [:strong "The datom interpreter"]
+            " accepts canonical d5 history and gives its five positions temporal meaning."]
+           [:li
+            [:strong "An index interpreter"]
+            " may exploit a known dimension to arrange tuples for fast access."]]
+
+          [:p
+           "No layer needs hidden global state or an embedded type marker. Causality and interpretation remain explicit."]
+
+          [:h2 "Can It Be Fast?"]
+
+          [:p
+           "Mixed dimensions do not require every query to scan every tuple forever. The semantic contract and the physical access path are separate. Today, generic tuple relations use exact positional scans. An explicit datom interpreter automatically builds the standard covered indexes for canonical d5 facts; arity alone never activates that path, so an uninterpreted five-tuple remains generic data."]
+
+          [:p
+           "For every other n-tuple relation, indexing must be explicitly requested. A caller or publisher selects position orders, such as " [:code "[0 1]"] " or " [:code "[1 0]"] ", and the system derives positional indexes over the same bounded tuples. Those tuples, their exact bound, and the requested positional indexes form an " [:strong "indexed snapshot"] ". A future query planner can choose among the indexes supplied by that snapshot and fall back to a relation scan when none fits. It does not invent every possible permutation."]
+
+          [:p
+           "A d2 edge relation might request positional indexes on either endpoint. A high-dimensional sensor relation might request one over its time and device positions. The position numbers carry no meaning by themselves. Their meaning belongs entirely to the interpreter that requested the index."]
+
+          [:p
+           "This is another benefit of keeping interpretation outside structure: optimization can specialize aggressively without turning one physical layout into the ontology of the system."]
+
+          [:h2 "What Becomes Possible"]
+
+          [:p
+           "Once Datalog ranges over an n-tuple space, one query can compose relations produced at different stages and levels of a system:"]
+
+          [:ul.bulleted
+           [:li "persistent d5 history with projected d3 current facts"]
+           [:li "AST relations with compiler analysis results"]
+           [:li "agent capability tuples with resource observations"]
+           [:li "content addresses with provenance or signature relations"]
+           [:li "temporal facts with compact derived pairs and scalar relations"]
+           [:li "local relations with indexed snapshots consumed from remote DaoStreams"]]
+
+          [:p
+           "Datalog supplies the common operation: variables unify wherever an interpreter places them in correspondence. The tuples do not need a common width, only a relation the query can state."]
+
+          [:h2 "A Larger World of Local Restrictions"]
+
+          [:p
+           "The deepest advantage of the n-tuple model is not permissiveness. It is the ability to have many precise restrictions without pretending that one of them governs every kind of information."]
+
+          [:p
+           "The tuple space stays small in concept: immutable ordered values of finite dimension. Datalog stays small in concept: patterns, variables, unification, and relations. Interpreters supply the domain-specific meaning. Datoms remain exact d5 values wherever temporal fact semantics are required."]
+
+          [:p
+           [:strong
+            "Openness belongs to the space. Restriction belongs to the interpreter. Power comes from keeping both boundaries explicit."]]
+
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/power-of-restriction-datom-tuple.blog"}
+             "The Power of Restriction"]
+            " (why the canonical datom benefits from a fixed shape)"]
+           [:li
+            [:a {:href "/blog/structure-vs-interpretation.blog"}
+             "Structure vs Interpretation"]
+            " (why meaning belongs to interpreters)"]
+           [:li
+            [:a {:href "/blog/what-makes-datalog-datalog.blog"}
+             "What Makes Datalog Datalog"]
+            " (the semantics underneath Datalog syntax)"]
+           [:li
+            [:a {:href "/blog/datomworld-moduli-space-of-databases.blog"}
+             "Datom.world: A Moduli Space of Databases"]
+            " (how different observation semantics define different database points)"]]]]]}

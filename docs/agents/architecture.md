@@ -13,20 +13,22 @@ Streams are values that can be sent through streams.
 
 Bounded vs Unbounded:
   Open stream: unbounded, still receiving datoms.
-  Bounded stream: closed at some t, finite, stable for reasoning.
+  Bounded stream: closed at an exact finite bound, stable for reasoning.
   A bounded stream IS the database value (no separate "value" type).
   Stability comes from bounding, not from a different abstraction.
 
 Stream Iteration:
-  Streams iterate in t-order (transaction/append order).
-  This is the canonical order regardless of any indexes.
+  A stream's order is declared by its descriptor or interpreter.
+  There is no universal tuple order and no position has intrinsic meaning.
+  An append log may expose append order; a covered index may expose EAVT order.
+  Consumers that depend on order require explicit comparator metadata.
 
 Streams and Indexes:
   Streams are the universal abstraction (datoms in t-order).
-  Indexes are optional optimizations built by interpreters (e.g., dao.space.query).
-  dao.space.query/q works on any bounded stream:
-    - Raw stream: no indexes, O(n) scan
-    - Indexed by dao.space.query: EAVT/AEVT/AVET/VAET indexes, O(log n) lookup
+  Indexes are optional optimizations built by publishers (e.g., dao.space.index).
+  dao.space.query/q works on any bounded DaoStream descriptor:
+    - Unindexed stream: O(n) scan
+    - Published index stream: EAVT/AEVT/AVET/VAET indexes, O(log n) lookup
   Same interface, same semantics, different performance.
   Indexes are a performance optimization, not a semantic requirement.
 
@@ -63,8 +65,7 @@ Runtime State:
     Joins across $code (dao.jing) and $runtime (in-memory stream) in a single dao.space.query/q:
       [:find ?node-type ?frame-type
        :in $code $runtime
-       :where [$runtime ?frame :cont/pending-arg [0 ?node-hash]]
-              [$code ?node :yin/content-hash ?node-hash]
+       :where [$runtime ?frame :cont/pending-arg [0 ?node]]
               [$code ?node :yin/type ?node-type]
               [$runtime ?frame :cont/type ?frame-type]]
   Persistence boundary: park/migrate promotes ephemeral state to persistent datoms in dao.jing.
@@ -152,15 +153,15 @@ Datom stream at the AST boundary (concrete example, (+ 1 2)):
   [-4 :yin/value 2 0 0]
 
 Semantic projection of the same expression:
-  [-1028 :op/type :apply]
-  [-1028 :op/operator-node -1025]
-  [-1028 :op/operand-nodes [-1026 -1027]]
-  [-1025 :op/type :load-var]
-  [-1025 :op/var-name +]
-  [-1026 :op/type :literal]
-  [-1026 :op/value 1]
-  [-1027 :op/type :literal]
-  [-1027 :op/value 2]
+  [-19 :op/type :apply]
+  [-19 :op/operator-node -16]
+  [-19 :op/operand-nodes [-17 -18]]
+  [-16 :op/type :load-var]
+  [-16 :op/var-name +]
+  [-17 :op/type :literal]
+  [-17 :op/value 1]
+  [-18 :op/type :literal]
+  [-18 :op/value 2]
 
 Invariant: every stage is a pure function from stream to stream.
 No stage mutates its input. Intermediate representations coexist.

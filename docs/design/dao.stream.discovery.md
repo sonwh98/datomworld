@@ -3,29 +3,28 @@
 **Status: proposal.** This document records a design conversation (2026-07) about how
 agents find streams at internet scale. Nothing here is implemented; it exists to pin
 down the mechanisms worth building, the mechanisms explicitly rejected, and why. The
-implemented baseline it extends is the membership root (`:root/members`,
-`src/cljc/dao/space/index.cljc`) — within-store enumeration, written at `open!` by the
-`:transactor` transport and folded by `dao.space.query`.
+implemented baseline it extends is an explicit collection of bounded DaoStream descriptors.
+That collection is caller-owned query topology: `open!` performs no registration write,
+and `dao.space.query` opens exactly the supplied values. DaoJing's separate intake pool
+is supplied to its observer and is not a discovery registry either.
 
 **Related documents:**
 - `docs/design/dao.space.md` — the tuple space; *Membership is intake*
-- `docs/design/dao.jing.md` — the storage boundary; segment/root keyspace
+- `docs/design/dao.jing.md` — the content-addressed storage observer
 - `docs/design/dao.jing.dht.md` — Kademlia backend; sortition and Sybil open questions
 - `docs/dao.space.stigmergy.md` — coordination by traces, the founding thesis
 - `docs/ideas/agent-web.md` — ShiBi and pay-for-truth (critiqued below)
 
 ## The Problem
 
-`:root/members` is the degenerate single-store case of discovery, exactly as the old
-shared `:root/datoms` was the degenerate single-stream case of storage. It hits three
-ceilings at scale:
+An explicit DaoStream descriptor pool is the correct local primitive, but it is not itself an
+internet-scale discovery mechanism. It hits three ceilings at scale:
 
-1. **The value grows O(N).** The member set lives inline in one v-map, rewritten
-   wholesale per registration — an unbounded value traveling through `cas!`, the same
-   disease the wholesale datoms root had.
-2. **One cell = one write authority.** Over a DHT, one key means one neighborhood owns
-   it and every join is a consensus round through it: the global transactor,
-   reintroduced at the membership layer.
+1. **The attention set grows O(N).** A reader cannot keep or open an unbounded pool of
+   DaoStream descriptors.
+2. **Query composition presupposes discovery.** Constructing a descriptor
+   requires already knowing a content-store handle and manifest address; the local
+   primitive deliberately does not answer how a stranger learns them.
 3. **Enumeration stops being meaningful.** "The list of all member streams" is not a
    thing any reader can fold at internet scale, and complete enumeration is only a
    sensible primitive when the space is small enough to fold.
@@ -111,9 +110,9 @@ own stream — `[me :stream/exists true]`, `[me :stream/follows <hash>]`,
 read-side transitive closure of announce/follow datoms from wherever a reader starts.
 Announcements form a grow-set CRDT (datoms merge by union — convergent with no
 coordination, by construction). Reach is bounded by the social graph, which doubles as
-spam defense: an unfollowed announcer is not in anyone's closure. This is the endpoint
-`:root/members` evolves toward: the cell dissolves into datoms, and discovery becomes
-a query.
+spam defense: an unfollowed announcer is not in anyone's closure. This is what can
+produce a reader's explicit source pool: discovery becomes a query over single-writer
+facts rather than mutation of a privileged registry.
 
 ### 4. Rendezvous topics (discovery by interest)
 
@@ -210,8 +209,8 @@ stigmergy's formal core; the substrate was built for it):
   (SybilRank and kin are personalized-PageRank variants). An attacker no one you
   transitively weight references does not exist for you.
 - **Computation decentralizes.** Nobody needs the whole graph: indexer agents compute
-  rankings from their vantage and publish them as ordinary signed datoms under their
-  own roots. A ranking is just another published, reader-verifiable view; competing
+  rankings from their vantage and publish them as ordinary signed datoms through their
+  own streams. A ranking is just another published, reader-verifiable view; competing
   indexers with different seeds coexist like competing directories. (Google-the-company
   is what you get when the link graph is proprietary reconstruction; here the graph is
   a commons and ranking is a service anyone can render.)
@@ -220,14 +219,17 @@ stigmergy's formal core; the substrate was built for it):
 
 Everything above rests on prerequisites already tracked elsewhere:
 
-1. **Signed heads / kickoff-hash identity** (`dao.jing.md`, namespace stamping;
-   `dao.jing.dht.md`) — mechanism (1) *is* this discipline; (2)–(4) resolve to it.
-2. **Namespace stamping** (`dao.space.query.md`, Ruling 3) — sound cross-stream
-   merges, prerequisite for folding strangers' directories.
+1. **Signed heads / kickoff-hash identity** (a stream-layer prerequisite, not
+   mutable DaoJing state; see `dao.jing.dht.md`) — mechanism (1) *is* this
+   discipline; (2)–(4) resolve to it.
+2. **Source-scoped query inputs** (`dao.space.query.md`; `datom-spec.md`, d5:
+   SOURCE SCOPE) — sources stay separate database inputs and equal stream-local
+   ids unify only when the query deliberately joins them; prerequisite for
+   folding strangers' directories.
 3. **Postage design** — what a deposit costs and who verifies it (proof-of-work vs.
    stamps) is unspecified.
-4. **`unregister-member!` / liveness** — even the interim membership root has no
-   eviction story; the stigmergic mechanism (3) needs a liveness convention
+4. **Pool liveness** — explicit source pools need a refresh convention; the stigmergic
+   mechanism (3) needs a liveness convention
    (e.g., announce TTLs as datoms) so dead streams fall out of closures.
 5. **The `:dir/*` and `:stream/*` vocabularies** above are sketches; a resolver-walk
    spec (path syntax, delegation semantics, cycle handling) is unwritten.

@@ -4,6 +4,17 @@
 
 
 (def ^:private component-width 1000)
+
+
+(def ^:private snapshot-id-base
+  "Positive base for telemetry snapshot entity IDs, well above any
+   VM-allocated entity range. Each step occupies `component-width` ids.
+   Snapshot IDs are local to the telemetry stream and never enter the
+   VM datom space, but positive values avoid confusion with tempids
+   (which are negative by spec convention)."
+  1000000)
+
+
 (def ^:private max-coll-items 8)
 (def ^:private max-summary-depth 3)
 
@@ -134,7 +145,7 @@
 
 (defn- snapshot-base-id
   [step]
-  (- (+ 1025 (* step component-width))))
+  (+ snapshot-id-base (* step component-width)))
 
 
 (defn- append-datom

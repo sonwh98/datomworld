@@ -1,58 +1,48 @@
 (ns dao.jing.dht
-  "DHT backend for the dao.jing storage boundary: IKVStore over a peer grid.
-  Specification: docs/design/dao.jing.dht.md.
+  "DHT content-store backend for the dao.jing storage boundary
+   (docs/design/dao.jing.md).
 
-  The backend tightens the IKVStore contract with two key classes, each
-  recoverable from the key alone (get sees only the key):
+   create-content-dht wraps an IDhtNet transport and a local content handle
+   (e.g. dao.jing.mem/create-content-mem) into a content-store handle map:
 
-    :segment/sha256-<hash>  content-addressed immutable segments, put!-only.
-                       k = hash(v-map), so fetched bytes verify against the
-                       key and any node may cache any segment forever.
-    :root/<name>       caller-named mutable references, cas!-only, never
-                       cached (a stale :rev would feed the caller's cas!
-                       retry loop a wrong old-rev).
+     {:net net, :local local, :closed-atom a,
+      :put-content-fn f, :get-content-fn g, :close-fn c}
 
-  Un-namespaced keys are rejected. delete! is advisory unpin (option 1 of
-  the design doc): it drops this node's copy only; replicas elsewhere age
-  out on their own, so a deleted segment may remain retrievable.
+   consumed by dao.jing/materialize!, dao.jing/get, and dao.jing/close!.
 
-  cas! and get on a root are forwarded to the root's owner: the live peer
-  nearest the key, which serializes writers through its local store. This
-  is a deliberate placeholder for the sortition consensus (design doc,
-  `cas!` over the network): it is not partition-safe and the owner is a
-  single point of failure per root.
+   Put validates the address-payload pair, writes the local backend, then
+   best-effort replicates to the k nearest non-self peers. Get reads the
+   local backend first and falls back to the grid, verifying every fetched
+   payload against its requested content address and caching verified values
+   through the local backend.
 
-  Transport is behind the IDhtNet protocol below; dao.jing.dht.node is the
-  UDP Kademlia implementation."
+   There are no roots, no CAS records, no deletes, and no intake streams
+   here: the DHT routes only :segment/sha256-... content addresses, derives
+   its routing target solely from the content hash, and never records which
+   stream or peer carried a payload."
   (:require [dao.jing :as jing]
-            [dao.jing.dht.kad :as kad]
-            [datomworld :as dw]))
+            [dao.jing.dht.kad :as kad]))
 
 
 ;; =============================================================================
-;; Key discipline
+;; Routing identity
 ;; =============================================================================
-;; canonical/content-hash/segment-key/key-class are dao.jing's own
-;; content-addressing discipline, not DHT-specific; they live in dao.jing
-;; itself (see docs/design/dao.jing.md, "The Segment and Root Keyspace").
-;; This backend just consumes them, the way any backend could.
-
 
 (defn node-id
-  "Deterministic node id: SHA-256 of host:port. Node ids share the key
-  space with content hashes, so XOR routing treats peers and keys uniformly."
+  "Deterministic node id: SHA-256 of host:port."
   [host port]
-  (dw/sha256 (str host ":" port)))
+  (jing/sha256 (str host ":" port)))
 
 
-(defn- key->target
-  "The routing target for a key: segment keys carry their content hash
-  (behind the algorithm prefix); root names are hashed into the same id
-  space."
-  [k]
-  (case (jing/key-class k)
-    :segment (jing/segment-hash k)
-    :root (dw/sha256 (str k))))
+(defn- content-target
+  "The routing target for a strict :segment/sha256-... content address: its
+   content hash. Non-segment addresses are outside the DHT and throw; there
+   is no root class, so nothing is ever hashed by key name."
+  [address]
+  (when-not (jing/segment-address? address)
+    (throw (ex-info "dao.jing.dht: not a sha256 segment content address"
+                    {:address address})))
+  (jing/segment-hash address))
 
 
 ;; =============================================================================
@@ -60,9 +50,7 @@
 ;; =============================================================================
 
 (defprotocol IDhtNet
-  "The per-peer RPC surface dao.jing.dht requires of a transport. All
-  methods that cross the network return nil when the peer is unreachable;
-  the caller decides what unreachability means per key class."
+  "The per-peer RPC surface dao.jing.dht requires of a transport."
 
   (self-peer
     [net]
@@ -75,28 +63,35 @@
   (find-closer
     [net peer target-id]
     "Ask peer for the peers it knows nearest target-id.
-     Returns a seq of peer maps, or nil when the peer is unreachable.")
+     Returns a seq of peer maps, or nil when unreachable.")
 
-  (store-segment!
-    [net peer k v-map]
-    "Ask peer to hold immutable segment k. Best-effort; returns a boolean.")
+  (store-content!
+    [net peer address payload]
+    "Ask peer to hold content address under payload. Best effort; returns a
+     boolean acknowledgement (false or nil when the peer is unreachable or
+     refuses).
+     Implementations must own bounded transport timeouts and return false/nil
+     when unreachable.")
 
-  (fetch-segment
-    [net peer k]
-    "Ask peer for segment k. Returns the v-map, or nil.")
-
-  (root-get
-    [net peer k]
-    "Read mutable root k from peer. Returns {:value v-map-or-nil}, or nil
-     when the peer is unreachable.")
-
-  (root-cas!
-    [net peer k old-rev v-map]
-    "CAS root k at peer. Returns a boolean, or nil when unreachable.")
+  (fetch-content
+    [net peer address]
+    "Ask peer for the content stored at address. Returns
+     {:found? bool :value v} when reachable, or nil when unreachable.
+     Implementations must own bounded transport timeouts and return nil
+     when unreachable.")
 
   (close-net!
     [net]
     "Release the transport's local resources (socket, threads)."))
+
+
+(def ^:private content-missing
+  "Internal not-found sentinel for local read-backs, never exposed. An
+   opaque per-host identity object, never a keyword: a keyword sentinel
+   could be confused with a genuinely stored payload."
+  #?(:cljd (Object.)
+     :clj (Object.)
+     :cljs (js-obj)))
 
 
 ;; =============================================================================
@@ -104,164 +99,203 @@
 ;; =============================================================================
 
 (def ^:private alpha
-  "Lookup concurrency width (queried per round, though rounds run
-  sequentially today)."
+  "Lookup concurrency width."
   3)
 
 
 (defn lookup
-  "Iteratively converge on the kad/k known peers nearest target-id, self
-  included, nearest first. Queries unvisited candidates in distance order
-  until none remain: exhaustive on small networks; the classic
-  no-closer-result early termination can layer on later."
+  "Iteratively converge on the kad/k known non-self peers nearest target-id. Queried
+   peer ids are deduplicated, so a peer is never asked twice in the same
+   lookup even when different routes return it with different metadata."
   [net target-id]
   (let [self (self-peer net)]
-    ;; the shortlist is keyed by :id, so the same node seen with
-    ;; differing metadata (another advertised :host, an extra field)
-    ;; occupies one slot and is queried at most once per lookup
-    (loop [shortlist (into {(:id self) self}
-                           (map (juxt :id identity))
-                           (known-peers net target-id kad/k))
+    (loop [discovered (into {}
+                            (comp (remove #(= (:id self) (:id %)))
+                                  (map (juxt :id identity)))
+                            (known-peers net target-id kad/k))
            queried-ids #{(:id self)}]
-      (let [candidates (->> (vals shortlist)
-                            (remove #(queried-ids (:id %)))
-                            (sort-by #(kad/distance (:id %) target-id))
+      (let [closest-k (->> (vals discovered)
+                           (sort-by #(kad/distance (:id %) target-id))
+                           (take kad/k))
+            candidates (->> closest-k
+                            (remove #(contains? queried-ids (:id %)))
                             (take alpha))]
         (if (empty? candidates)
-          (->> (vals shortlist)
-               (sort-by #(kad/distance (:id %) target-id))
-               (take kad/k)
-               vec)
-          (recur (into shortlist
+          (vec closest-k)
+          (recur (into discovered
                        (comp (mapcat #(find-closer net % target-id))
+                             (remove #(= (:id self) (:id %)))
                              (map (juxt :id identity)))
                        candidates)
                  (into queried-ids (map :id) candidates)))))))
 
 
-(defn- owner
-  "The live peer nearest a root's key: the serialization point for cas!
-  until a real consensus mechanism exists."
-  [net k]
-  (first (lookup net (key->target k))))
+;; =============================================================================
+;; Content-store effects
+;; =============================================================================
+
+#_{:clj-kondo/ignore [:unused-binding]}
 
 
-(defn- owner-here?
-  "Is this node the root's owner? The one place the single-owner
-  placeholder decision lives; the sortition swap replaces owner and this."
-  [net own]
-  (= (:id own) (:id (self-peer net))))
+(defn- with-lock
+  "Run f under lock on hosts with a monitor primitive; direct call elsewhere."
+  [lock f]
+  #?(:clj (locking lock (f))
+     :default (f)))
+
+
+(defn- ensure-open
+  [{:keys [closed-atom]}]
+  (when @closed-atom
+    (throw (ex-info "dao.jing.dht: DHT content store is closed"
+                    {:closed true}))))
+
+
+(defn- validate-address-payload!
+  "Reject a put before any local or network action: the address must be a
+   strict :segment/sha256-... content address and must hash to the exact
+   payload."
+  [address payload]
+  (when-not (jing/segment-address? address)
+    (throw (ex-info "dao.jing.dht: not a sha256 segment content address"
+                    {:address address, :payload payload})))
+  (when-not (= (jing/segment-hash address) (jing/content-hash payload))
+    (throw (ex-info "dao.jing.dht: content address does not hash to the payload"
+                    {:address address, :payload payload}))))
+
+
+(defn- safe-store-content!
+  [net peer address payload]
+  (try (store-content! net peer address payload)
+       (catch #?(:clj Throwable
+                 :cljs :default
+                 :cljd Object)
+              _
+         false)))
+
+
+(defn- safe-fetch-content
+  [net peer address]
+  (try (fetch-content net peer address)
+       (catch #?(:clj Throwable
+                 :cljs :default
+                 :cljd Object)
+              _
+         nil)))
+
+
+(defn- make-put
+  [{:keys [net local], :as handle}]
+  (fn [address payload]
+    (validate-address-payload! address payload)
+    (ensure-open handle)
+    (let [result ((:put-content-fn local) address payload)]
+      (when-not (#{:inserted :present} result)
+        (throw (ex-info "dao.jing.dht: invalid local put result"
+                        {:result result, :address address, :payload payload})))
+      (let [self-id (:id (self-peer net))
+            peers (remove #(= self-id (:id %))
+                          (lookup net (content-target address)))]
+        #?(:clj (run! deref
+                      (mapv (fn [peer]
+                              (future
+                                (safe-store-content! net peer address payload)))
+                            peers))
+           :default (run! (fn [peer]
+                            (safe-store-content! net peer address payload))
+                          peers)))
+      result)))
+
+
+(defn- make-get
+  [{:keys [net local], :as handle}]
+  (fn [address not-found]
+    (ensure-open handle)
+    (let [v (jing/get local address content-missing)]
+      (if (not (identical? v content-missing))
+        v
+        (let [self-id (:id (self-peer net))
+              fetched
+              (some (fn [peer]
+                      (when (not= self-id (:id peer))
+                        (when-let [res (safe-fetch-content net peer address)]
+                          (when (and (:found? res)
+                                     (= address
+                                        (jing/segment-key (:value res))))
+                            [(:value res)]))))
+                    (lookup net (content-target address)))]
+          (if fetched
+            (let [value (first fetched)
+                  cached (jing/materialize! local value)]
+              (when-not (= address cached)
+                (throw
+                  (ex-info
+                    "dao.jing.dht: fetched content cached under the wrong address"
+                    {:address address, :cached cached})))
+              value)
+            not-found))))))
+
+
+(defn- make-close
+  [{:keys [net local closed-atom]}]
+  (fn []
+    (with-lock closed-atom
+      (fn []
+        (when-not @closed-atom
+          (let [err-net (try (close-net! net)
+                             nil
+                             (catch #?(:clj Throwable
+                                       :cljs :default
+                                       :cljd Object)
+                                    e
+                               e))
+                err-local (try (jing/close! local)
+                               nil
+                               (catch #?(:clj Throwable
+                                         :cljs :default
+                                         :cljd Object)
+                                      e
+                                 e))]
+            (if (or err-net err-local)
+              (throw (or err-net err-local))
+              (reset! closed-atom true))))
+        nil))))
 
 
 ;; =============================================================================
-;; The backend
+;; Handle constructor
 ;; =============================================================================
 
-(defrecord KVDht
-  [net local]
+(defn create-content-dht
+  "Wrap an IDhtNet transport and a local content handle as a DHT
+   content-store handle.
 
-  jing/IKVStore
+   The returned handle is plain data:
+     {:net net, :local local, :closed-atom a,
+      :put-content-fn f, :get-content-fn g, :close-fn c}
 
-  (put!
-    [_ k v-map]
-    (when (not= :segment (jing/key-class k))
-      (throw (ex-info
-               "put! is for immutable segments only; roots are cas!-managed"
-               {:k k})))
-    (let [expected (jing/segment-key v-map)]
-      (when (not= k expected)
-        (throw (ex-info "a segment key must be the content hash of its value"
-                        {:k k, :expected expected}))))
-    (jing/put! local k v-map)
-    (let [self-id (:id (self-peer net))
-          peers (remove #(= self-id (:id %)) (lookup net (key->target k)))]
-      ;; replication is best-effort and, on the JVM, concurrent: the call
-      ;; blocks until the slowest peer answers or times out, not for the
-      ;; sum of every peer's timeout. future's shared unbounded pool is
-      ;; acceptable because deref bounds each put! to at most kad/k
-      ;; in-flight threads; sustained write fan-out would deserve a
-      ;; dedicated bounded executor instead
-      #?(:clj (run! deref
-                    (mapv (fn [peer]
-                            (future (store-segment! net peer k v-map)))
-                          peers))
-         :default (run! (fn [peer] (store-segment! net peer k v-map)) peers)))
-    true)
+   and works with dao.jing/materialize!, dao.jing/get, and dao.jing/close!.
+   :net is an IDhtNet transport; :local is a content handle carrying
+   :put-content-fn and :get-content-fn (dao.jing.mem/create-content-mem or
+   equivalent); :closed-atom is the store's explicit private state and close
+   lock.
 
-
-  (cas!
-    [_ k old-rev v-map]
-    (when (not= :root (jing/key-class k))
-      (throw (ex-info "cas! is for mutable roots only; segments are immutable"
-                      {:k k})))
-    (let [own (owner net k)]
-      (if (owner-here? net own)
-        (jing/cas! local k old-rev v-map)
-        (let [res (root-cas! net own k old-rev v-map)]
-          (when (nil? res)
-            ;; unreachable is not the same fact as a lost CAS: returning
-            ;; false would send the caller's retry loop chasing a rev it
-            ;; can never read
-            (throw (ex-info "root owner unreachable" {:k k, :owner own})))
-          (boolean res)))))
-
-
-  (get
-    [_ k not-found]
-    (case (jing/key-class k)
-      :segment (let [v (jing/get local k ::none)]
-                 (if (not= ::none v)
-                   v
-                   (let [self-id (:id (self-peer net))
-                         ;; sequential and nearest-first by design: stop
-                         ;; at the first peer whose bytes verify,
-                         ;; spending no traffic on the rest
-                         fetched
-                         (some (fn [peer]
-                                 (when (not= self-id (:id peer))
-                                   (when-let [v (fetch-segment net peer k)]
-                                     ;; integrity: received bytes must
-                                     ;; hash back to k (peers are
-                                     ;; untrusted); exact-key equality,
-                                     ;; same as node.cljc's :store
-                                     ;; check
-                                     (when (= k (jing/segment-key v)) v))))
-                               (lookup net (key->target k)))]
-                     (if (some? fetched)
-                       (do
-                         ;; immutable, so cache forever
-                         (jing/put! local k fetched)
-                         ;; normalize the stamp: the remote :rev is that
-                         ;; store's artifact, not content, and local put!
-                         ;; stamped 0
-                         (assoc fetched :rev 0))
-                       not-found))))
-      :root
-      ;; never cached: a root read must be fresh or fail loudly
-      (let [own (owner net k)]
-        (if (owner-here? net own)
-          (jing/get local k not-found)
-          (if-let [res (root-get net own k)]
-            (if (some? (:value res)) (:value res) not-found)
-            (throw (ex-info "root owner unreachable"
-                            {:k k, :owner own})))))))
-
-
-  (delete!
-    [_ k]
-    ;; advisory unpin (design doc, delete! option 1): drop this node's
-    ;; copy only; replicas elsewhere are outside our control
-    (jing/key-class k)
-    (jing/delete! local k))
-
-
-  (close! [_] (close-net! net) (jing/close! local) nil))
-
-
-(defn create-kv-dht
-  "Wrap an IDhtNet transport and a local IKVStore as an IKVStore over the
-  peer grid. `local` is both this node's cache and its share of the
-  keyspace, so the net must serve its incoming requests from the same
-  store. dao.jing.dht.node/create-kv-dht-udp wires both ends for UDP."
+   The DHT routes only :segment/sha256-... content addresses and records no
+   source identity: there are no roots, CAS records, deletes, or intake
+   streams."
   [{:keys [net local]}]
-  (->KVDht net local))
+  (when-not (and net local)
+    (throw (ex-info "dao.jing.dht requires :net and :local"
+                    {:net net, :local local})))
+  (when-not (fn? (:put-content-fn local))
+    (throw (ex-info "dao.jing.dht local requires :put-content-fn"
+                    {:local local})))
+  (when-not (fn? (:get-content-fn local))
+    (throw (ex-info "dao.jing.dht local requires :get-content-fn"
+                    {:local local})))
+  (let [closed-atom (atom false)
+        handle {:net net, :local local, :closed-atom closed-atom}]
+    (assoc handle
+           :put-content-fn (make-put handle)
+           :get-content-fn (make-get handle)
+           :close-fn (make-close handle))))

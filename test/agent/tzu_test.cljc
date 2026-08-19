@@ -9,7 +9,7 @@
 ;; LLM IO with-redefs (unavailable on ClojureDart).
 #?(:clj (defn- response-stream
           [resp]
-          (doto (ds/open! {:type :ringbuffer, :capacity 1})
+          (doto (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})
             (ds/append! resp)
             ds/close!)))
 
@@ -153,7 +153,7 @@
    :clj
    (deftest run-agent-writes-to-stream-test
      (testing "agent writes to stream when LLM requests stream_write"
-       (let [s (ds/open! {:type :ringbuffer, :capacity 5})
+       (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
              registry {"render" s}
              call-count (atom 0)]
          (with-redefs
@@ -186,7 +186,7 @@
    :clj
    (deftest run-agent-reads-from-stream-test
      (testing "agent reads from stream when LLM requests stream_read"
-       (let [s (doto (ds/open! {:type :ringbuffer, :capacity 5})
+       (let [s (doto (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
                  (ds/append! :hello))
              registry {"input" s}
              call-count (atom 0)]
@@ -217,7 +217,7 @@
    :clj
    (deftest run-agent-max-iterations-test
      (testing "run-agent throws after exceeding max iterations"
-       (let [s (ds/open! {:type :ringbuffer, :capacity 5})
+       (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 5})
              registry {"s" s}]
          (with-redefs
            [tzu/chat-completion
@@ -263,8 +263,9 @@
                   2 {"choices" [{"message" {"content" "fetched the page"},
                                  "finish_reason" "stop"}]})))
             ds/open! (fn [desc]
-                       (if (= :http (:type desc))
-                         (doto (orig-open {:type :ringbuffer, :capacity 1})
+                       (if (= :http (:dao.stream/type desc))
+                         (doto (orig-open {:dao.stream/type :ringbuffer,
+                                           :capacity 1})
                            (ds/append! {:status 200,
                                         :body "example page content",
                                         :headers {}})

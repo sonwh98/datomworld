@@ -174,8 +174,8 @@
 
 
 (deftest transport-agnostic-rpc-test
-  #?(:clj (let [c2s (ds/open! {:type :ringbuffer, :capacity 1024})
-                s2c (ds/open! {:type :ringbuffer, :capacity 1024})
+  #?(:clj (let [c2s (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
+                s2c (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
                 server-stream (->DuplexStream c2s s2c)
                 client-stream (->DuplexStream s2c c2s)
                 handlers {:math/add +, :math/mul *}
@@ -184,8 +184,6 @@
                 client (rpc-client/init-client client-stream)]
             (is (= 5 (rpc-client/call! client :math/add [2 3])))
             (is (= 6 (rpc-client/call! client :math/mul [2 3]))) ; second op
-            ;; proves
-            ;; cursor
-            ;; tracking
+            ;; proves cursor tracking
             (reset! stop true)
             (rpc-client/close! client))))

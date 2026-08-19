@@ -1,38 +1,38 @@
 (ns dao.data.btree.storage
-  "IStorage adapters over dao.jing's IKVStore (docs/design/dao.data.btree.md
-  §5.1, §5.4). Two adapters, one error taxonomy:
+  "IStorage adapters over dao.jing content-store handles (docs/design/dao.data.btree.md
+   §5.1, §5.4). A handle is the plain-data content store carrying
+   :put-content-fn, :get-content-fn, and :close-fn (docs/design/dao.jing.md,
+   Materialization rule); addresses are derived from payloads by
+   dao.jing/materialize!, never supplied by this layer. Two adapters, one
+   error taxonomy:
 
-  - KVStorage (kv-storage): the sync rule-1 adapter. Absence is
-    authoritative: a missing blob throws \"missing index segment\".
-    Optional same-host integrity verification (§5.2): rehash the fetched
-    blob against its content address; mismatch throws \"corrupt index
-    segment\". Off by default — jing/segment-key hashes a pr-str that is
-    not host-stable, so cross-host reads must not verify (dao.jing.md,
-    Current Scope).
-  - HydrationStorage (hydration-storage): the §5.4 hydration-cache
-    adapter for async-only backends. Reads answer only from the cache;
-    any miss throws \"unhydrated segment\" — the cache cannot distinguish
-    absent from not-yet-fetched without blocking on the backend. hydrate!
-    copies the reachable blob graph from the source into the cache.
+   - KVStorage (kv-storage): the sync rule-1 adapter. Absence is
+     authoritative: a missing blob throws \"missing index segment\".
+     Optional same-host integrity verification (§5.2): rehash the fetched
+     blob against its content address; mismatch throws \"corrupt index
+     segment\". Off by default — dao.jing's print-based content hash is not
+     host-stable, so cross-host reads must not verify (dao.jing.md, Current
+     Scope).
+   - HydrationStorage (hydration-storage): the §5.4 hydration-cache
+     adapter for async-only backends. Reads answer only from the cache;
+     any miss throws \"unhydrated segment\" — the cache cannot distinguish
+     absent from not-yet-fetched without blocking on the backend. hydrate!
+     copies the reachable blob graph from the source into the cache.
 
-  dao.data.btree itself stays storage-agnostic; this namespace is the one
-  place the tree meets dao.jing (Ruling 1: no new storage protocol —
-  everything below is put!/get/segment-key)."
+   dao.data.btree itself stays storage-agnostic; this namespace is the one
+   place the tree meets dao.jing (Decision 1: no new storage protocol —
+   everything below is materialize!/get, plus segment-key for §5.2
+   verification)."
   (:require [dao.data.btree :as bt]
             [dao.jing :as jing]))
 
 
 (def ^:private absent
-  "Identity sentinel for IKVStore misses (§5.1 sketch): keywords are not
+  "Identity sentinel for handle misses (§5.1 sketch): keywords are not
    reliably `identical?` on cljs, an opaque host object is."
   #?(:cljd (Object.)
      :clj (Object.)
      :cljs (js-obj)))
-
-
-(defn- rev-less
-  [blob]
-  (dissoc blob :rev))
 
 
 (deftype KVStorage
@@ -40,12 +40,7 @@
 
   bt/IStorage
 
-  (-store
-    [_ node]
-    (let [blob (bt/node->blob node)
-          k (jing/segment-key blob)]
-      (jing/put! store k blob)
-      k))
+  (-store [_ node] (jing/materialize! store (bt/node->blob node)))
 
 
   (-restore
@@ -53,13 +48,12 @@
     (let [blob (jing/get store addr absent)]
       (when (identical? blob absent)
         (throw (ex-info "missing index segment" {:address addr})))
-      (let [blob (rev-less blob)]
-        (when verify?
-          (let [actual (jing/segment-key blob)]
-            (when (not= addr actual)
-              (throw (ex-info "corrupt index segment"
-                              {:expected addr, :actual actual})))))
-        (bt/blob->node blob settings))))
+      (when verify?
+        (let [actual (jing/segment-key blob)]
+          (when (not= addr actual)
+            (throw (ex-info "corrupt index segment"
+                            {:expected addr, :actual actual})))))
+      (bt/blob->node blob settings)))
 
 
   (-accessed [_ _addr] nil)
@@ -69,11 +63,11 @@
 
 
 (defn kv-storage
-  "A sync IStorage over an IKVStore. opts: {:branching-factor n (default
-   512) :ref-type k (default per host, §5.3) :verify? bool (default false,
-   §5.2 — same-host mint+read only)}. The returned storage owns the
-   Settings every tree restored through it shares (§5.1 threading rule);
-   pass the manifest's :branching-factor here."
+  "A sync IStorage over a dao.jing content-store handle. opts:
+   {:branching-factor n (default 512) :ref-type k (default per host, §5.3)
+   :verify? bool (default false, §5.2 — same-host mint+read only)}. The
+   returned storage owns the Settings every tree restored through it shares
+   (§5.1 threading rule); pass the manifest's :branching-factor here."
   ([store] (kv-storage store nil))
   ([store opts]
    (let [box (volatile! nil)
@@ -96,13 +90,15 @@
 
   (-store
     [_ node]
-    ;; writes go to the source (the durable backend); the cache is a read
-    ;; accelerator only
+    ;; writes land in the durable source AND the read cache; both are
+    ;; content-addressed, so both must answer with the same address
     (let [blob (bt/node->blob node)
-          k (jing/segment-key blob)]
-      (jing/put! source k blob)
-      (jing/put! cache k blob)
-      k))
+          source-addr (jing/materialize! source blob)
+          cache-addr (jing/materialize! cache blob)]
+      (when-not (= source-addr cache-addr)
+        (throw (ex-info "hydration source and cache diverged"
+                        {:source source-addr, :cache cache-addr})))
+      source-addr))
 
 
   (-restore
@@ -111,7 +107,7 @@
       (if (identical? blob absent)
         ;; absent vs not-hydrated is undecidable synchronously (§5.4)
         (throw (ex-info "unhydrated segment" {:address addr}))
-        (bt/blob->node (rev-less blob) settings))))
+        (bt/blob->node blob settings))))
 
 
   (-accessed [_ _addr] nil)
@@ -124,7 +120,7 @@
   "The §5.4 hydration-cache adapter: reads answer only from `cache` (miss
    => \"unhydrated segment\"); `hydrate!` fills the cache from `source`.
    In production `source` is an async backend accessed only by the
-   hydration pre-pass; in tests any IKVStore stands in."
+   hydration pre-pass; in tests any content handle stands in."
   ([source cache] (hydration-storage source cache nil))
   ([source cache opts]
    (let [box (volatile! nil)
@@ -142,8 +138,8 @@
    reachable from the set's root address out of the source backend into
    the hydration cache, so subsequent reads — and mutations, whose write
    path requires residency — succeed. Idempotent: already-cached segments
-   are re-put, not re-derived. Returns the set. On a non-hydration storage
-   this is a no-op (sync backends need no hydration)."
+   are re-materialized as no-ops. Returns the set. On a non-hydration
+   storage this is a no-op (sync backends need no hydration)."
   [s]
   (let [storage (bt/set-storage s)]
     (when (instance? HydrationStorage storage)
@@ -155,8 +151,10 @@
                   (let [blob (jing/get source addr absent)]
                     (when (identical? blob absent)
                       (throw (ex-info "missing index segment" {:address addr})))
-                    (let [blob (rev-less blob)]
-                      (jing/put! cache addr blob)
-                      (doseq [a (:addresses blob)] (pull! a)))))]
+                    (let [addr' (jing/materialize! cache blob)]
+                      (when-not (= addr addr')
+                        (throw (ex-info "hydration address mismatch"
+                                        {:expected addr, :actual addr'}))))
+                    (doseq [a (:addresses blob)] (pull! a))))]
           (when-some [addr (bt/set-address s)] (pull! addr)))))
     s))

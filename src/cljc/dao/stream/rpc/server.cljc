@@ -88,7 +88,7 @@
    Example transport-agnostic usage (e.g. over an in-memory stream):
    ```clojure
    (let [handlers {:demo/add +}
-         stream (ds/open! {:type :ringbuffer, :capacity 1024})
+         stream (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
          stop-atom (atom false)]
      (serve-connection! handlers stream stop-atom))
    ```"

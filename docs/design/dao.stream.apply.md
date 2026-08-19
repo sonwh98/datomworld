@@ -73,26 +73,24 @@ Example endpoint descriptor:
 
 ```clojure
 {:dao.stream.apply/request
- {:transport {:type :ringbuffer
-              :mode :create
-              :capacity nil}}
+ {:dao.stream/type :ringbuffer
+  :capacity nil}
  :dao.stream.apply/response
- {:transport {:type :ringbuffer
-              :mode :create
-              :capacity nil}}}
+ {:dao.stream/type :ringbuffer
+  :capacity nil}}
 ```
 
 Example remote endpoint descriptor:
 
 ```clojure
 {:dao.stream.apply/request
- {:transport {:type :websocket
-              :mode :connect
-              :url "ws://host:port/in"}}
+ {:dao.stream/type :websocket
+  :mode :connect
+  :url "ws://host:port/in"}
  :dao.stream.apply/response
- {:transport {:type :websocket
-              :mode :connect
-              :url "ws://host:port/out"}}}
+ {:dao.stream/type :websocket
+  :mode :connect
+  :url "ws://host:port/out"}}
 ```
 
 ### Request Value
@@ -165,8 +163,8 @@ Standalone `dao.stream.apply` usage requires only `dao.stream` and `dao.stream.a
 (require '[dao.stream :as ds]
          '[dao.stream.apply :as dao-apply])
 
-(let [request-stream  (ds/open! {:transport {:type :ringbuffer :capacity nil}})
-      response-stream (ds/open! {:transport {:type :ringbuffer :capacity nil}})
+(let [request-stream  (ds/open! {:dao.stream/type :ringbuffer :capacity nil})
+      response-stream (ds/open! {:dao.stream/type :ringbuffer :capacity nil})
       handlers        {:op/add +}
 
       _ (ds/append! request-stream
@@ -341,8 +339,8 @@ The tag should stay `:dao.stream.apply/call`, not collapse to `:dao.stream.apply
 Caller and callee share in-memory streams:
 
 ```clojure
-(let [request-stream  (ds/open! {:transport {:type :ringbuffer :capacity nil}})
-      response-stream (ds/open! {:transport {:type :ringbuffer :capacity nil}})
+(let [request-stream  (ds/open! {:dao.stream/type :ringbuffer :capacity nil})
+      response-stream (ds/open! {:dao.stream/type :ringbuffer :capacity nil})
       handlers        {:op/echo identity}]
   ...)
 ```
@@ -355,13 +353,13 @@ Caller and callee can also communicate over remote streams:
 
 ```clojure
 {:dao.stream.apply/request
- {:transport {:type :websocket
-              :mode :connect
-              :url "ws://localhost:8000/in"}}
+ {:dao.stream/type :websocket
+  :mode :connect
+  :url "ws://localhost:8000/in"}
  :dao.stream.apply/response
- {:transport {:type :websocket
-              :mode :connect
-              :url "ws://localhost:8000/out"}}}
+ {:dao.stream/type :websocket
+  :mode :connect
+  :url "ws://localhost:8000/out"}}
 ```
 
 The request and response values are unchanged. Only stream realization changes.

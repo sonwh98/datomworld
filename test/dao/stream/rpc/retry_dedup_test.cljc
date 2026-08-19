@@ -111,8 +111,8 @@
 
 (deftest server-dedup-test
   #?(:clj
-     (let [c2s (ds/open! {:type :ringbuffer, :capacity 1024})
-           s2c (ds/open! {:type :ringbuffer, :capacity 1024})
+     (let [c2s (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
+           s2c (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
            handler-calls (atom 0)
            handlers {:math/add (fn [a b] (swap! handler-calls inc) (+ a b))}
            stop (atom false)

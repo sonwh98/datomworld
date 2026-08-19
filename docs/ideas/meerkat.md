@@ -4,7 +4,10 @@
 (Cloudflare Research, 2026-07-08)
 **Analyzed:** 2026-07-09
 **Status:** Synthesis note. Surfaces architectural decisions for `dao.jing`,
-`dao.jing.dht`, and `dao.space`; does not change any code or API.
+`dao.jing.dht`, and `dao.space`; does not change any code or API. The later DaoJing
+observer redesign removed mutable roots and CAS from its contract, so CAS-specific
+recommendations below are historical consensus research, not a DaoJing implementation
+plan.
 
 Meerkat is Cloudflare Research's global consensus service, built on **QuePaxa**
 (a leaderless consensus algorithm, EPFL 2023). They layer applications (a
@@ -96,14 +99,14 @@ different point in the design space: **permissioned, leaderless, log-based**.
   simply lands in a later slot.
 
 `design/dao.jing.dht.md`'s own *Lineage* section already concedes the direction:
-"A network `IKVStore` can be delivered today over the transports `datom.world`
+"A network content handle can be delivered today over the transports `datom.world`
 already has (`dao.stream.http`, `dao.stream.ws`, both TCP)." That TCP-backended,
 trusted-backend path *is* the permissioned model. Meerkat is evidence that the
 permissioned model is enough for a great deal of real global infrastructure, and
 it dodges all five sortition open-questions.
 
 **Lesson.** Treat the permissioned model as the realistic first target for
-`cas!`-over-the-network, and keep permissionless Sybil-resistant sortition as the
+consensus-over-the-network, and keep permissionless Sybil-resistant sortition as the
 explicit research program it already is, rather than blocking distributed `cas!`
 on solving all five problems at once. (Caveat: this is in tension with a stated
 project invariant; see §5.)
@@ -275,7 +278,7 @@ CAS-registers if it needs a globally-agreed order.
    is a real promise rather than a slogan. This is the load-bearing consequence
    of invariant line 4.
 4. **first consensus target.** Treat the permissioned, TCP-backended
-   `IKVStore`-over-network path as the first real `cas!`-over-the-network target;
+   content-handle-over-network path as the first real distributed-storage target;
    keep permissionless sortition as research.
 5. **testing posture.** Add formal-verification and deterministic-simulation
    testing to the design intent for `dao.jing.dht` consensus code.

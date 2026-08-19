@@ -65,7 +65,7 @@
         body-map (cond-> {"model" model, "max_tokens" 8192, "messages" messages}
                    tools (assoc "tools" tools))
         {:keys [status body error]}
-        (ds/take!! (ds/open! {:type :http,
+        (ds/take!! (ds/open! {:dao.stream/type :http,
                               :url url,
                               :method :post,
                               :headers {"Authorization" (str "Bearer " k),
@@ -363,7 +363,8 @@
    :cljs nil
    :clj (defn -main
           [& _args]
-          (let [registry {"io" (ds/open! {:type :ringbuffer, :capacity 10})}]
+          (let [registry {"io" (ds/open! {:dao.stream/type :ringbuffer,
+                                          :capacity 10})}]
             (println "Agent Tzu REPL. Type your prompt, or /exit to quit.")
             (println "Available streams in registry: " (keys registry))
             (loop [history []]

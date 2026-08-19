@@ -73,6 +73,22 @@
   (space/machine-space (run-space ast)))
 
 
+(defn- q-current
+  [query-form source & inputs]
+  (q/collect (apply q/q query-form (q/current (q/relation source)) inputs)))
+
+
+(defn- q-current-as-of
+  [query-form source as-of & inputs]
+  (q/collect
+    (apply q/q query-form (q/current (q/relation source) as-of) inputs)))
+
+
+(defn- pull-current
+  [source eid pattern]
+  (q/pull (q/current (q/relation source)) eid pattern))
+
+
 ;; =============================================================================
 ;; 1. Peer behavior — the language, end to end
 ;; =============================================================================
@@ -326,14 +342,15 @@
     (let [space (space-of factorial)]
       (is
         (= 2
-           (ffirst (q/q '[:find (count ?e) :where [?e :yin/type :lambda]]
-                        space)))
+           (ffirst (q-current '[:find (count ?e) :where [?e :yin/type :lambda]]
+                              space)))
         "the factorial lambda is an entity in the machine's space — twice,
            because self-application names it in operator and operand position
            and the two occurrences are not :eid-shared")
-      (is (seq (q/q '[:find ?e :where [?e :yin/type :application]] space))
+      (is (seq (q-current '[:find ?e :where [?e :yin/type :application]] space))
           "application nodes are entities")
-      (is (seq (q/q '[:find ?e :where [?e :yin/type :lambda]] space {:as-of 0}))
+      (is (seq
+            (q-current-as-of '[:find ?e :where [?e :yin/type :lambda]] space 0))
           "the program is genesis: visible as-of t=0, before any step ran"))))
 
 
@@ -341,7 +358,8 @@
   (testing "each step appends under a fresh t and stamps its step number"
     (let [vm (run-space factorial)
           space (space/machine-space vm)
-          steps (map first (q/q '[:find ?s :where [_ :cfg/step ?s]] space))]
+          steps (map first
+                     (q-current '[:find ?s :where [_ :cfg/step ?s]] space))]
       (is (seq steps) "configurations record their step")
       (is (apply distinct? steps) "one configuration per step")
       (is (= (range (count steps)) (sort steps))
@@ -353,15 +371,16 @@
     (let [space (space-of factorial)]
       (is (= [1 2 3 4 5]
              (sort (map first
-                        (q/q '[:find ?v :in $ ?name :where [?b :bind/name ?name]
-                               [?b :bind/addr ?a] [?a :cell/value ?v]]
-                             space
-                             'n))))
+                        (q-current '[:find ?v :in $ ?name :where
+                                     [?b :bind/name ?name] [?b :bind/addr ?a]
+                                     [?a :cell/value ?v]]
+                                   space
+                                   'n))))
           "every live binding of n across the recursion, read by query")
-      (is (seq (q/q '[:find ?e :where [?e :cell/ref _]] space))
+      (is (seq (q-current '[:find ?e :where [?e :cell/ref _]] space))
           "the recursive function argument is a closure: a ref cell")
       (is (contains? (set (map first
-                               (q/q '[:find ?t :where [_ :k/tag ?t]] space)))
+                               (q-current '[:find ?t :where [_ :k/tag ?t]] space)))
                      :app-op)
           "the continuation is reified — its frame tags are queryable data"))))
 
@@ -370,19 +389,19 @@
   (testing "one q spans code (C), environment (E), and store (S)"
     (is (= [1 2 3 4 5]
            (sort (map first
-                      (q/q '[:find ?v :where [?var :yin/type :variable]
-                             [?var :yin/name ?nm] [?b :bind/name ?nm]
-                             [?b :bind/addr ?a] [?a :cell/value ?v]]
-                           (space-of factorial)))))
+                      (q-current '[:find ?v :where [?var :yin/type :variable]
+                                   [?var :yin/name ?nm] [?b :bind/name ?nm]
+                                   [?b :bind/addr ?a] [?a :cell/value ?v]]
+                                 (space-of factorial)))))
         "join AST variable nodes to live bindings to cell values")))
 
 
 (deftest provenance-is-joinable
   (testing "why does this cell hold 5? — :cell/set-by names the config"
     (let [steps (map first
-                     (q/q '[:find ?s :where [?a :cell/value 5]
-                            [?a :cell/set-by ?cfg] [?cfg :cfg/step ?s]]
-                          (space-of factorial)))]
+                     (q-current '[:find ?s :where [?a :cell/value 5]
+                                  [?a :cell/set-by ?cfg] [?cfg :cfg/step ?s]]
+                                (space-of factorial)))]
       (is (seq steps) "the write is attributed to a config entity")
       (is (every? integer? steps) "and the config knows its step"))))
 
@@ -390,13 +409,13 @@
 (deftest closures-are-entities
   (testing "closure values are ref-joinable eids, not opaque host values"
     (let [space (space-of factorial)]
-      (is (seq (q/q '[:find ?clo ?body :where [?a :cell/ref ?clo]
-                      [?clo :clo/body ?body]]
-                    space))
+      (is (seq (q-current '[:find ?clo ?body :where [?a :cell/ref ?clo]
+                            [?clo :clo/body ?body]]
+                          space))
           "a closure-valued binding is unifiable from cell to body node")
-      (is (seq (q/q '[:find ?cfg :where [?cfg :cfg/val-ref ?clo]
-                      [?clo :clo/param ?p]]
-                    space))
+      (is (seq (q-current '[:find ?cfg :where [?cfg :cfg/val-ref ?clo]
+                            [?clo :clo/param ?p]]
+                          space))
           "configs that produced closure values join through :cfg/val-ref"))))
 
 
@@ -410,11 +429,13 @@
                            :consequent {:type :literal, :value 10},
                            :alternate {:type :literal, :value 20}})
           entered (set (map first
-                            (q/q '[:find ?n :where [_ :cfg/ctrl ?n]] space)))
-          live (ffirst
-                 (q/q '[:find ?e :in $ ?v :where [?e :yin/value ?v]] space 10))
-          dead (ffirst
-                 (q/q '[:find ?e :in $ ?v :where [?e :yin/value ?v]] space 20))]
+                            (q-current '[:find ?n :where [_ :cfg/ctrl ?n]] space)))
+          live (ffirst (q-current '[:find ?e :in $ ?v :where [?e :yin/value ?v]]
+                                  space
+                                  10))
+          dead (ffirst (q-current '[:find ?e :in $ ?v :where [?e :yin/value ?v]]
+                                  space
+                                  20))]
       (is (contains? entered live) "the taken branch entered control")
       (is (not (contains? entered dead))
           "the untaken branch never entered control: dead code by query"))))
@@ -424,16 +445,22 @@
   (testing "a recursion cell is absent before it is set and present after"
     (let [space (space-of factorial)
           cell (first (sort (map first
-                                 (q/q '[:find ?a :in $ ?name :where
-                                        [?b :bind/name ?name] [?b :bind/addr ?a]
-                                        [?a :cell/value _]]
-                                      space
-                                      'n))))
-          set-t (nth (first (q/match space [cell :cell/value '_])) 3)]
-      (is (nil? (:cell/value
-                  (q/pull space cell [:cell/value] {:as-of (dec set-t)})))
+                                 (q-current '[:find ?a :in $ ?name :where
+                                              [?b :bind/name ?name]
+                                              [?b :bind/addr ?a]
+                                              [?a :cell/value _]]
+                                            space
+                                            'n))))
+          set-t (nth (first (q/match (q/history (q/relation space))
+                              [cell :cell/value '_ '_ '_]))
+                     3)]
+      (is (nil? (:cell/value (q/pull (q/current (q/relation space) (dec set-t))
+                                     cell
+                                     [:cell/value])))
           "as-of just before the set, the cell holds no value")
-      (is (some? (:cell/value (q/pull space cell [:cell/value] {:as-of set-t})))
+      (is (some? (:cell/value (q/pull (q/current (q/relation space) set-t)
+                                      cell
+                                      [:cell/value])))
           "as-of the set, the value is visible"))))
 
 
@@ -445,27 +472,30 @@
       (is (pos-int? owner))
       (is (every? #(= owner (peek %)) space)
           "m = owner on every datom the machine wrote")
-      (is (= 'machine (:agent/name (q/pull space owner [:agent/name])))
+      (is (= 'machine (:agent/name (pull-current space owner [:agent/name])))
           "the owner is itself an entity in the space"))))
 
 
 (deftest seeded-space-stays-partitioned-by-writer
   (testing
     "a machine seeded from another's datoms keeps them distinguishable by m.
-     Note this is a value copy, not a shared medium: bob starts from a
-     snapshot of alice's space and neither sees the other's later writes.
-     What is under test is the `m` writer tag, not coordination."
+     The copy shares AST node ids across writers, so a current fold over the
+     flattened space now rejects that fabricated cross-writer [e a v t]
+     collision (docs/design/dao.space.query.md); the machine-state range is
+     disjoint by :eid-base and stays queryable."
     (let [alice (vm/eval (space/create-vm {:owner-name 'alice, :eid-base 2048})
                          {:type :literal, :value 1})
           bob (vm/eval (space/create-vm {:owner-name 'bob,
                                          :eid-base 65536,
                                          :space (space/machine-space alice)})
                        {:type :literal, :value 2})
-          shared (space/machine-space bob)]
+          shared (space/machine-space bob)
+          names (q/current (q/relation (filterv #(= :agent/name (nth % 1))
+                                                shared)))]
       (is (= #{2048 65536} (set (map peek shared)))
           "the shared space partitions by writer: m says who wrote what")
-      (is (= 'alice (:agent/name (q/pull shared 2048 [:agent/name]))))
-      (is (= 'bob (:agent/name (q/pull shared 65536 [:agent/name])))))))
+      (is (= 'alice (:agent/name (q/pull names 2048 [:agent/name]))))
+      (is (= 'bob (:agent/name (q/pull names 65536 [:agent/name])))))))
 
 
 (deftest trace-is-optional
@@ -474,9 +504,9 @@
           untraced (run-space factorial {:trace? false})]
       (is (= (vm/value traced) (vm/value untraced) 120)
           "semantics never depend on the trace")
-      (is (empty? (q/q '[:find ?c :where [?c :cfg/step _]]
-                       (space/machine-space untraced)))
+      (is (empty? (q-current '[:find ?c :where [?c :cfg/step _]]
+                             (space/machine-space untraced)))
           "no configuration entities were deposited")
-      (is (seq (q/q '[:find ?e :where [?e :yin/type :lambda]]
-                    (space/machine-space untraced)))
+      (is (seq (q-current '[:find ?e :where [?e :yin/type :lambda]]
+                          (space/machine-space untraced)))
           "the program is still genesis — C is not part of the trace"))))

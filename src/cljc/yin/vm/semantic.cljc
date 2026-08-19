@@ -12,7 +12,7 @@
             [yin.vm.telemetry :as telemetry]))
 
 
-(declare semantic-vm-restore)
+(declare semantic-vm-restore bind-variadic-params)
 
 
 ;; =============================================================================
@@ -238,16 +238,19 @@
                            :env env-call
                            :k new-k)))
                 (if (= :closure (:type fn-val))
-                  (let [{body-node :body-node, env-clo :env} fn-val]
+                  (let [{params :params, body-node :body-node, env-clo :env}
+                        fn-val
+                        new-env (merge env-clo
+                                       (bind-variadic-params params []))]
                     (if tail?
                       ;; TCO: skip restore-env
                       (assoc vm
                              :control {:type :node, :id body-node}
-                             :env env-clo
+                             :env new-env
                              :k new-k)
                       (assoc vm
                              :control {:type :node, :id body-node}
-                             :env env-clo ; Switch to closure env
+                             :env new-env ; Switch to closure env
                              :k {:type :restore-env, :env env-call, :next new-k})))
                   (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
               ;; Prepare to eval args
@@ -309,7 +312,9 @@
                 (if (= :closure (:type fn-val))
                   (let [{params :params, body-node :body-node, env-clo :env}
                         fn-val
-                        new-env (merge env-clo (zipmap params new-evaluated))]
+                        new-env (merge env-clo
+                                       (bind-variadic-params params
+                                                             new-evaluated))]
                     (if tail?
                       ;; TCO: skip restore-env
                       (assoc vm
@@ -628,20 +633,17 @@
 
 (defn- materialize-ast-datoms
   [dao-db]
-  ;; Chronological order must be explicit, not implicit: every datom in a
-  ;; single transaction shares the same `t`, so sorting by `t` alone
-  ;; depends entirely on sort stability. JVM `sort-by` is stable;
-  ;; ClojureDart's delegates to Dart's `List.sort`, which is not guaranteed
-  ;; stable and reorders cardinality-many attrs (:yin/params,
-  ;; :yin/operands). Sort by
-  ;; [t log-position] so order is deterministic across backends.
-  (->> (query/current-state-seq dao-db)
-       (filter ast-dao-datom?)
-       (map dao-datom->tuple)
-       (map-indexed (fn [i d] [(nth d 3) i d]))
-       (sort-by (juxt first second))
-       (map peek)
-       (vec)))
+  ;; Validity is order-independent, but cardinality-many AST attributes are
+  ;; ordered syntax. current-state-seq returns EAVT order, which would sort
+  ;; repeated :yin/operands by value and silently reverse non-commutative
+  ;; calls. Select its winners, then retain their original log positions.
+  (let [current (set (query/current-state-seq dao-db))]
+    (->> dao-db
+         (map dao-datom->tuple)
+         (filter current)
+         (filter ast-dao-datom?)
+         (distinct)
+         (vec))))
 
 
 (defn- refresh-semantic-index-from-db
@@ -957,7 +959,8 @@
                    :halted? true,
                    :value nil,
                    :blocked? false,
-                   :node-id-counter -1024,
+                   :primitives (or (:primitives opts) (:primitives base)),
+                   :node-id-counter (- datom/first-user-id),
                    :macro-registry (or (:macro-registry opts) {})}))
          (telemetry/install :semantic)
          (telemetry/emit-snapshot :init)))))
@@ -1111,7 +1114,10 @@
 (defn find-by-type
   "Find all entity IDs with the given :yin/type value."
   [dao-db t]
-  (map first (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]] dao-db t)))
+  (map first
+       (query/collect (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]]
+                               (query/current (query/relation dao-db))
+                               t))))
 
 
 (defn find-lambdas

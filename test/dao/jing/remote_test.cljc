@@ -1,346 +1,381 @@
 (ns dao.jing.remote-test
-  "Tests for dao.jing.remote — the WebSocket-remote IKVStore adapter.
+  "Tests for dao.jing.remote, the WebSocket-remote content adapter.
 
-   Architecture:
-   - Server side uses dao.stream.rpc.server with dao.jing.remote/default-handlers
-   - Client side uses dao.jing.remote/connect-kv!, which wraps a
-     dao.stream.rpc.client connection as a RemoteKVStore implementing IKVStore"
-  (:require [clojure.test :as t :refer [deftest is testing use-fixtures]]
+   Server side: dao.stream.rpc.ws serves dao.jing.remote/default-handlers over
+   a local dao.jing content handle. Client side:
+   dao.jing.remote/connect-content! wraps a dao.stream.rpc.client connection as
+   a dao.jing content handle. The synchronous WebSocket constructor is
+   JVM-only, so network tests are gated with #?(:clj ...) while the
+   in-process content-client unit tests run on all hosts."
+  (:require [clojure.test :refer [deftest is]]
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
-            [dao.jing.file :as jing.file]
+            #?(:clj [dao.jing.file :as jing.file])
             [dao.jing.remote :as remote]
-            [dao.stream.rpc.ws :as rpc-ws]))
+            #?(:clj [dao.stream.rpc.ws :as rpc-ws])))
 
 
-;; =============================================================================
-;; Test Fixtures
-;; =============================================================================
-
-(def ^:dynamic *server* nil)
-(def ^:dynamic *client* nil)
-(def ^:dynamic *store* nil)
-
-
-#?(:clj (defn- random-port
-          []
-          (+ 10000 (rand-int 50000))))
-
-
-#?(:clj (defn- start-kv!
-          [store port]
-          (rpc-ws/start! (remote/default-handlers store) port)))
+(defn- local-client
+  "Build an in-process handlers + content-client pair over a memory store.
+   Returns {:store s :handlers h :client c :close-counter a}."
+  ([] (local-client (mem/create-content-mem)))
+  ([store]
+   (let [handlers (remote/default-handlers store)
+         close-counter (atom 0)
+         client (remote/content-client ::local
+                                       (fn [_ op args]
+                                         (apply (get handlers op) args))
+                                       (fn [_] (swap! close-counter inc)))]
+     {:store store,
+      :handlers handlers,
+      :client client,
+      :close-counter close-counter})))
 
 
-#?(:clj (defn- with-remote-server
-          [store-type f]
-          (let [port (random-port)
-                ;; Create backing store (memory for speed, file for
-                ;; persistence
-                ;; tests)
-                backing-store (case store-type
-                                :memory (mem/create-kv-mem)
-                                :file (jing.file/create-kv-file
-                                        (str "/tmp/dao-jing-remote-test-"
-                                             (rand-int 1000000))))
-                ;; Start WebSocket server exposing the store
-                server (start-kv! backing-store port)
-                ;; Give server time to start
+#?(:clj (defn- with-server
+          [f]
+          (let [port (+ 20000 (rand-int 30000))
+                url (str "ws://localhost:" port)
+                backing (mem/create-content-mem)
+                server (rpc-ws/start! (remote/default-handlers backing) port)
                 _ (Thread/sleep 100)]
-            (try (binding [*server* server *store* backing-store] (f))
-                 (finally (rpc-ws/stop! server) (jing/close! backing-store))))))
+            (try (let [client (remote/connect-content! url)]
+                   (try (f url client) (finally (jing/close! client))))
+                 (finally (rpc-ws/stop! server) (jing/close! backing))))))
 
 
-;; =============================================================================
-;; Basic Connectivity Tests
-;; =============================================================================
-
-(deftest client-can-connect-to-server-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote/connect-kv! url)]
-                (is (some? client) "Client should connect successfully")
-                (is (satisfies? jing/IKVStore client)
-                    "Client should implement IKVStore")
-                (jing/close! client))))))
+(deftest default-handlers-exact-test
+  (let [store (mem/create-content-mem)
+        handlers (remote/default-handlers store)]
+    (is (= #{:jing/put-content :jing/get-content} (set (keys handlers)))
+        "server handlers must expose exactly the two content ops")
+    (is (every? ifn? (vals handlers)))
+    (is (thrown? #?(:clj Exception
+                    :cljd Object
+                    :cljs js/Error)
+          (remote/default-handlers {}))
+        "construction must throw when :put-content-fn is missing")
+    (jing/close! store)))
 
 
-(deftest client-rejects-invalid-url-test
-  #?(:clj (testing "Client throws on connection failure"
-            (is (thrown? Exception
-                  (remote/connect-kv! "ws://localhost:99999"))))))
+(deftest put-automatic-materialize-test
+  (let [fx (local-client)
+        client (:client fx)
+        payload {:hello "world"}
+        address (jing/materialize! client payload)]
+    (is (= (jing/segment-key payload) address)
+        "materialize! must return the payload's segment address")
+    (is (= payload (jing/get client address ::miss))
+        "materialized content must be readable by its segment-key address")
+    (jing/close! client)
+    (jing/close! (:store fx))))
 
 
-;; =============================================================================
-;; put! and get Operations
-;; =============================================================================
-
-(deftest remote-put-and-get-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote/connect-kv! url)]
-                (try
-                  ;; Put a value
-                  (is (true? (jing/put! client
-                                        :test-key
-                                        {:value "hello", :bytes [1 2 3]}))
-                      "put! should return true on success")
-                  ;; Get it back
-                  (let [result (jing/get client :test-key nil)]
-                    (is (= "hello" (:value result))
-                        "get should return the stored value")
-                    (is (= [1 2 3] (:bytes result))
-                        "get should preserve all fields")
-                    (is (= 0 (:rev result)) "Initial revision should be 0"))
-                  ;; Get non-existent key
-                  (is (= :not-found (jing/get client :missing-key :not-found))
-                      "get should return not-found sentinel for missing keys")
-                  (finally (jing/close! client))))))))
+(deftest get-nil-opaque-absent-test
+  (let [fx (local-client)
+        client (:client fx)]
+    (let [nil-address (jing/materialize! client nil)]
+      (is (= (jing/segment-key nil) nil-address)
+          "materialize! must mint the address of a nil payload")
+      (is (nil? (jing/get client nil-address ::miss))
+          "a stored nil must be returned as nil, not as the absent sentinel"))
+    (let [opaque [1 2 3 {:nested true}]
+          opaque-address (jing/materialize! client opaque)]
+      (is (= (jing/segment-key opaque) opaque-address)
+          "materialize! must mint the address of an opaque payload")
+      (is (= opaque (jing/get client opaque-address ::miss))
+          "opaque values must round-trip"))
+    (is (= ::miss
+           (jing/get client (jing/segment-key {:never "written"}) ::miss))
+        "an absent address must return the not-found sentinel")
+    (jing/close! client)
+    (jing/close! (:store fx))))
 
 
-(deftest remote-put-overwrites-test
-  #?(:clj (with-remote-server :memory
-            (fn []
-              (let [url (str "ws://localhost:"
-                             (:port *server*))
-                    client (remote/connect-kv! url)]
-                (try
-                  ;; First put
-                  (jing/put! client :key {:v 1})
-                  (is (= 1 (:v (jing/get client :key nil))))
-                  ;; Second put (overwrites with rev 0)
-                  (jing/put! client :key {:v 2})
-                  (is (= 2 (:v (jing/get client :key nil))))
-                  (is (= 0 (:rev (jing/get client :key nil)))
-                      "put! resets revision to 0")
-                  (finally (jing/close! client))))))))
+(deftest put-duplicate-reports-present-test
+  (let [fx (local-client)
+        client (:client fx)
+        payload {:dedup "same content"}
+        address (jing/materialize! client payload)]
+    (is (= (jing/segment-key payload) address)
+        "materialize! must return the segment address")
+    (is (= :present ((:put-content-fn client) address payload))
+        "materializing identical content again must report :present")
+    (jing/close! client)
+    (jing/close! (:store fx))))
 
 
-;; =============================================================================
-;; cas! (Compare-And-Swap) Operations
-;; =============================================================================
-
-(deftest remote-cas-success-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote/connect-kv! url)]
-                (try
-                  ;; Initial put
-                  (jing/put! client :counter {:n 0})
-                  (is (= 0 (:rev (jing/get client :counter nil))))
-                  ;; Successful CAS
-                  (is (true? (jing/cas! client :counter 0 {:n 1}))
-                      "cas! should return true when revision matches")
-                  ;; Verify update
-                  (let [result (jing/get client :counter nil)]
-                    (is (= 1 (:n result)))
-                    (is (= 1 (:rev result))
-                        "Revision should increment after CAS"))
-                  (finally (jing/close! client))))))))
+(deftest server-put-rejects-non-keyword-address-test
+  (let [fx (local-client)
+        handlers (:handlers fx)
+        payload {:x 1}]
+    (is (thrown? #?(:clj Exception
+                    :cljd Object
+                    :cljs js/Error)
+          ((:jing/put-content handlers) "not-a-keyword" payload))
+        "a non-keyword address must be rejected")
+    (jing/close! (:client fx))
+    (jing/close! (:store fx))))
 
 
-(deftest remote-cas-failure-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote/connect-kv! url)]
-                (try
-                  ;; Initial put
-                  (jing/put! client :counter {:n 0})
-                  ;; First CAS succeeds
-                  (jing/cas! client :counter 0 {:n 1})
-                  ;; Second CAS with stale revision fails
-                  (is (false? (jing/cas! client :counter 0 {:n 2}))
-                      "cas! should return false when revision doesn't match")
-                  ;; Value unchanged
-                  (is (= 1 (:n (jing/get client :counter nil))))
-                  (finally (jing/close! client))))))))
+(deftest server-put-rejects-hash-mismatch-test
+  (let [fx (local-client)
+        handlers (:handlers fx)
+        payload {:x 1}]
+    (is (thrown?
+          #?(:clj Exception
+             :cljd Object
+             :cljs js/Error)
+          ((:jing/put-content handlers) (jing/segment-key {:x 2}) payload))
+        "an address whose hash does not match the payload must be rejected")
+    (jing/close! (:client fx))
+    (jing/close! (:store fx))))
 
 
-(deftest remote-cas-on-fresh-key-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote/connect-kv! url)]
-                (try
-                  ;; CAS on non-existent key with old-rev 0 should succeed
-                  (is (true? (jing/cas! client :fresh-key 0 {:data "value"})))
-                  (is (= "value" (:data (jing/get client :fresh-key nil))))
-                  (finally (jing/close! client))))))))
+(deftest backend-invalid-put-result-test
+  (let [handlers (remote/default-handlers {:put-content-fn (fn [_ _] :bogus)})]
+    (is (thrown?
+          #?(:clj Exception
+             :cljd Object
+             :cljs js/Error)
+          ((:jing/put-content handlers) (jing/segment-key {:x 1}) {:x 1}))
+        "a backend result outside #{:inserted :present} must throw")))
 
 
-;; =============================================================================
-;; delete! Operations
-;; =============================================================================
-
-(deftest remote-delete-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote/connect-kv! url)]
-                (try
-                  ;; Put then delete
-                  (jing/put! client :temp {:data "to delete"})
-                  (is (true? (jing/delete! client :temp))
-                      "delete! should return true")
-                  ;; Key should be gone
-                  (is (= :gone (jing/get client :temp :gone))
-                      "get should return not-found after delete")
-                  (finally (jing/close! client))))))))
+(deftest client-get-arbitrary-address-test
+  (let [fx (local-client)
+        client (:client fx)]
+    (is (thrown? #?(:clj Exception
+                    :cljd Object
+                    :cljs js/Error)
+          (jing/get client :anything-at-all ::miss))
+        "client get must reject an arbitrary keyword address")
+    (is (thrown? #?(:clj Exception
+                    :cljd Object
+                    :cljs js/Error)
+          (jing/get client "string-address" ::miss))
+        "client get must reject a string address")
+    (jing/close! client)
+    (jing/close! (:store fx))))
 
 
-(deftest remote-delete-missing-key-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote/connect-kv! url)]
-                (try
-                  ;; Deleting non-existent key should succeed (be
-                  ;; idempotent)
-                  (is (true? (jing/delete! client :never-existed)))
-                  (finally (jing/close! client))))))))
+(deftest close-idempotent-ops-throw-test
+  (let [fx (local-client)
+        client (:client fx)
+        close-counter (:close-counter fx)]
+    (jing/close! client)
+    (jing/close! client)
+    (is (= 1 @close-counter) "the underlying close must run exactly once")
+    (is (thrown? #?(:clj Exception
+                    :cljd Object
+                    :cljs js/Error)
+          (jing/materialize! client {:x 1}))
+        "materialize! after close must throw")
+    (is (thrown? #?(:clj Exception
+                    :cljd Object
+                    :cljs js/Error)
+          (jing/get client (jing/segment-key {:x 1}) ::miss))
+        "get after close must throw")
+    (jing/close! (:store fx))))
 
 
-;; =============================================================================
-;; Multiple Client Tests
-;; =============================================================================
+(deftest close-failure-retry-test
+  (let [store (mem/create-content-mem)
+        handlers (remote/default-handlers store)
+        attempts (atom 0)
+        client (remote/content-client
+                 ::local
+                 (fn [_ op args] (apply (get handlers op) args))
+                 (fn [_]
+                   (swap! attempts inc)
+                   (when (< @attempts 2) (throw (ex-info "close failed" {})))))]
+    (is (thrown? #?(:clj Exception
+                    :cljd Object
+                    :cljs js/Error)
+          (jing/close! client))
+        "a failed close must propagate the error")
+    (is (= 1 @attempts))
+    (is (false? @(:closed-atom client))
+        "the client must stay open after a failed close")
+    (is (= (jing/segment-key {:still "open"})
+           (jing/materialize! client {:still "open"}))
+        "a valid materialize! must still work after a failed close")
+    (is (nil? (jing/close! client)) "a retry close must succeed and return nil")
+    (is (= 2 @attempts))
+    (is (true? @(:closed-atom client))
+        "a successful close must mark the client closed")
+    (is (nil? (jing/close! client)) "a close after success must be a no-op")
+    (is (= 2 @attempts))
+    (jing/close! store)))
 
-(deftest multiple-clients-share-store-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client-a (remote/connect-kv! url)
-                    client-b (remote/connect-kv! url)]
-                (try
-                  ;; Client A writes
-                  (jing/put! client-a :shared {:from "a"})
-                  ;; Client B should see it
-                  (is (= "a" (:from (jing/get client-b :shared nil)))
-                      "Client B should see writes from Client A")
-                  ;; Client B updates via CAS
-                  (let [current (jing/get client-b :shared nil)]
-                    (jing/cas! client-b :shared (:rev current) {:from "b"}))
-                  ;; Client A should see the update
-                  (is (= "b" (:from (jing/get client-a :shared nil)))
-                      "Client A should see CAS from Client B")
-                  (finally (jing/close! client-a) (jing/close! client-b))))))))
+
+(deftest two-clients-share-store-test
+  (let [store (mem/create-content-mem)
+        a (local-client store)
+        b (local-client store)
+        payload {:from "a"}
+        address (jing/materialize! (:client a) payload)]
+    (is (= (jing/segment-key payload) address)
+        "materialize! must return the segment address")
+    (is (= payload (jing/get (:client b) address ::miss))
+        "writes through one client must be visible to the other")
+    (jing/close! (:client a))
+    (jing/close! (:client b))
+    (jing/close! store)))
 
 
-;; =============================================================================
-;; File-backed Store Tests
-;; =============================================================================
-(deftest remote-file-store-persists-test
+(deftest network-connect-test
+  #?(:clj (with-server (fn [_url client]
+                         (is (some? client))
+                         (is (false? @(:closed-atom client)))
+                         (is (ifn? (:put-content-fn client)))
+                         (is (ifn? (:get-content-fn client)))
+                         (is (ifn? (:close-fn client)))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest network-materialize-and-get-test
+  #?(:clj (with-server
+            (fn [_url client]
+              (let [payload {:hello "world"}
+                    address (jing/materialize! client payload)]
+                (is (= (jing/segment-key payload) address)
+                    "materialize! must return the segment address")
+                (is (= payload (jing/get client address ::miss)))
+                (is (= :present ((:put-content-fn client) address payload))
+                    "duplicate content must report :present over the wire"))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest network-two-clients-share-test
+  #?(:clj (with-server
+            (fn [url client]
+              (let [client-b (remote/connect-content! url)
+                    payload {:from "a"}
+                    address (jing/materialize! client payload)]
+                (try (is (= (jing/segment-key payload) address)
+                         "materialize! must return the segment address")
+                     (is (= payload (jing/get client-b address ::miss))
+                         "a second client must see the first client's writes")
+                     (finally (jing/close! client-b))))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest network-invalid-url-test
+  #?(:clj (is (thrown? Exception
+                (remote/connect-content! "ws://localhost:99999")))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest network-file-restart-test
   #?(:clj
-     (testing "File-backed store persists across client reconnections"
-       (let [port (random-port)
-             path (str "/tmp/dao-jing-remote-persist-test-"
-                       (rand-int 1000000))
-             backing-store (jing.file/create-kv-file path)]
-         (try
-           ;; Start server with file store
-           (let [server (start-kv! backing-store port)]
-             (Thread/sleep 100)
-             ;; Client 1 connects and writes
-             (let [client1 (remote/connect-kv! (str "ws://localhost:" port))]
-               (jing/put! client1 :persistent {:data "survives"})
-               (jing/close! client1))
-             ;; Stop server
-             (rpc-ws/stop! server)
-             (jing/close! backing-store))
-           ;; Reopen the same file
-           (let [backing-store2 (jing.file/create-kv-file path)
-                 server2 (start-kv! backing-store2 port)]
-             (Thread/sleep 100)
-             ;; Client 2 connects and reads
-             (let [client2 (remote/connect-kv! (str "ws://localhost:" port))]
-               (is (= "survives" (:data (jing/get client2 :persistent nil)))
-                   "Data should persist across server restarts")
-               (jing/close! client2))
-             (rpc-ws/stop! server2)
-             (jing/close! backing-store2))
-           (finally
-             ;; Cleanup
-             (try #?(:clj (java.nio.file.Files/deleteIfExists
-                            (java.nio.file.Path/of path
-                                                   (make-array String 0))))
-                  (catch #?(:clj Exception
-                            :cljs :default)
-                         _))))))))
+     (let [path (str "target/dao-jing-remote-"
+                     (java.util.UUID/randomUUID)
+                     ".log")
+           payload {:persisted "yes"}
+           address (jing/segment-key payload)]
+       (try
+         (let [backing (jing.file/create-content-file path)
+               port (+ 20000 (rand-int 30000))
+               url (str "ws://localhost:" port)
+               server (rpc-ws/start! (remote/default-handlers backing) port)
+               _ (Thread/sleep 100)]
+           (try (let [client (remote/connect-content! url)]
+                  (is (= (jing/segment-key payload)
+                         (jing/materialize! client payload))
+                      "payload must materialize on the file-backed server")
+                  (jing/close! client))
+                (finally (rpc-ws/stop! server) (jing/close! backing))))
+         (let [backing (jing.file/create-content-file path)
+               port (+ 20000 (rand-int 30000))
+               url (str "ws://localhost:" port)
+               server (rpc-ws/start! (remote/default-handlers backing) port)
+               _ (Thread/sleep 100)]
+           (try (let [client (remote/connect-content! url)]
+                  (is (= payload (jing/get client address ::miss))
+                      "content must survive a server restart")
+                  (jing/close! client))
+                (finally (rpc-ws/stop! server) (jing/close! backing))))
+         (finally (try (java.nio.file.Files/deleteIfExists
+                         (java.nio.file.Path/of path (make-array String 0)))
+                       (catch Exception _)))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
 
 
-(deftest client-operations-fail-when-server-down-test
-  #?(:clj
-     (testing "Client throws on connection timeout when server is unreachable"
-       (is (thrown? Exception (remote/connect-kv! "ws://localhost:59999"))))))
+(deftest local-malformed-envelope-test
+  (let [malformed-response (atom nil)
+        mock-handlers {:jing/get-content (fn [_address & _]
+                                           @malformed-response)}
+        client (remote/content-client ::mock
+                                      (fn [_ op args]
+                                        (apply (get mock-handlers op) args))
+                                      (fn [_] nil))
+        addr (jing/segment-key {:x 1})]
+    (try (doseq [val ["bogus" {:found? "yes", :value nil} {:found? true}
+                      {:value 123} {:found? true, :value 123, :extra 4}]]
+           (reset! malformed-response val)
+           (try (jing/get client addr ::miss)
+                (is false
+                    (str "should have thrown for malformed response: "
+                         (pr-str val)))
+                (catch #?(:clj Exception
+                          :cljs js/Error
+                          :cljd Object)
+                       e
+                  (let [data (ex-data e)
+                        msg #?(:clj (.getMessage e)
+                               :cljs (.-message e)
+                               :cljd (ex-message e))]
+                    (is (= :jing/get-content (:operation data)))
+                    (is (= addr (:address data)))
+                    (is (= val (:response data)))
+                    (is (re-find #"malformed RPC response" msg))))))
+         (finally (jing/close! client)))))
 
 
-;; =============================================================================
-;; Edge Cases
-;; =============================================================================
-
-(deftest remote-empty-value-map-test
-  #?(:clj (with-remote-server :memory
-            (fn []
-              (let [url (str "ws://localhost:"
-                             (:port *server*))
-                    client (remote/connect-kv! url)]
-                (try
-                  ;; Empty value map
-                  (jing/put! client :empty {})
-                  (let [result (jing/get client :empty nil)]
-                    (is (= {} (dissoc result :rev))
-                        "Empty map should round-trip"))
-                  (finally (jing/close! client))))))))
-
-
-(deftest remote-large-value-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote/connect-kv! url)
-                    large-data (vec (range 1000))]
-                (try (jing/put! client :large {:data large-data})
-                     (is (= large-data (:data (jing/get client :large nil)))
-                         "Large values should round-trip correctly")
-                     (finally (jing/close! client))))))))
+(deftest local-present-then-absent-test
+  (let [mock-handlers {:jing/put-content (fn [_address _payload & _] :present),
+                       :jing/get-content (fn [_address & _]
+                                           {:found? false, :value nil})}
+        client (remote/content-client ::mock
+                                      (fn [_ op args]
+                                        (apply (get mock-handlers op) args))
+                                      (fn [_] nil))]
+    (try
+      ;; nil case
+      (is (thrown-with-msg?
+            #?(:clj Exception
+               :cljs js/Error
+               :cljd Object)
+            #"backend reported :present but the content address is absent"
+            (jing/materialize! client nil)))
+      ;; non-nil case
+      (is (thrown-with-msg?
+            #?(:clj Exception
+               :cljs js/Error
+               :cljd Object)
+            #"backend reported :present but the content address is absent"
+            (jing/materialize! client {:some "payload"})))
+      (finally (jing/close! client)))))
 
 
-(deftest remote-special-characters-in-keys-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote/connect-kv! url)]
-                (try
-                  ;; Various key types that dao.jing supports
-                  (jing/put! client :keyword-key {:type "keyword"})
-                  (jing/put! client "string-key" {:type "string"})
-                  (jing/put! client 42 {:type "number"})
-                  (is (= "keyword" (:type (jing/get client :keyword-key nil))))
-                  (is (= "string" (:type (jing/get client "string-key" nil))))
-                  (is (= "number" (:type (jing/get client 42 nil))))
-                  (finally (jing/close! client))))))))
-
-
-(deftest client-close-is-idempotent-test
-  #?(:clj (with-remote-server
-            :memory
-            (fn []
-              (let [url (str "ws://localhost:" (:port *server*))
-                    client (remote/connect-kv! url)]
-                ;; Multiple closes should not error
-                (jing/close! client)
-                (jing/close! client)
-                (is (true? true) "Multiple close! calls should not throw"))))))
+(deftest network-presence-envelope-test
+  #?(:clj (with-server
+            (fn [_url client]
+              (let [nil-addr (jing/materialize! client nil)
+                    envelope-like {:found? true, :value "hello"}
+                    env-addr (jing/materialize! client envelope-like)
+                    local-sentinel (Object.)
+                    absent-addr (jing/segment-key {:absent "indeed"})]
+                (is (nil? (jing/get client nil-addr ::miss)))
+                (is (= envelope-like (jing/get client env-addr ::miss)))
+                (is (identical?
+                      local-sentinel
+                      (jing/get client absent-addr local-sentinel))))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))

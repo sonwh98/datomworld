@@ -116,9 +116,10 @@ in Datomic is an efficiency choice (index once, share to many), not a correctnes
    offline) or readers rebuild in memory.
 2. **Cross-stream `as-of`.** No global clock (`t` is per-stream); a cross-stream time
    bound needs a wall-clock instant or a vector of cursors.
-3. **Content-addressed identity not yet load-bearing.** `yin/content.cljc` hashes via
-   `pr-str` not canonical bytes; the index uses integer eids not `[namespace offset]`;
-   content-addressable indexes would need canonical segmentation.
+3. **Content-addressed identity not yet load-bearing.** `dao.jing/content-hash` hashes
+   via `pr-str` not canonical bytes, and addresses blobs rather than entities; the index
+   uses integer eids not `[namespace offset]`; content-addressable indexes would need
+   canonical segmentation.
 
 ## References
 

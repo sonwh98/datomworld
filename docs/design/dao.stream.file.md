@@ -6,7 +6,7 @@ open, so reads are a true `tail -f`. Writes append to disk asynchronously;
 durability is reconciled at `close!`.
 
 ```
-{:type :file
+{:dao.stream/type :file
  :path "/data/events.log"
  :capacity 1024                  ;; optional, defaults to 1024 segments; nil = unbounded (risky, opt-in)
  :eviction-policy :evict-oldest} ;; optional, defaults to :evict-oldest
