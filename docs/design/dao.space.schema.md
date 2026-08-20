@@ -14,7 +14,13 @@ registered the published opener and dropped `:schema-address` (§5), ruled
 the `:db/*` meta-properties interpreter axioms (§2), and pinned card-many
 expansion, sequential lookup-ref resolution, and no-dedup (§3). A final
 ruling made strictness a mode: the wrapper rejects only under
-`{:strict true}` — the medium never rejects tuples (§3, §6). The motivation
+`{:strict true}` — the medium never rejects tuples (§3, §6). A
+pre-implementation pin pass verified every cited seam against the source
+and pinned the remaining mechanics: bootstrap ids and the axiom carve-out
+(§2), the extraction query's actual engine shape (§4), retract-row emission
+and the unique-requires-card-one ruling (§3), the mode split between
+schema-structure and data violations (§3, §8), and `:source` openability
+(§4). The motivation
 is stated in the doc itself: what schema buys an adopter, and why optional
 is the only coherent form (§1).
 
@@ -191,6 +197,22 @@ is frozen: the five property names enumerate the extraction patterns; an
 unknown `:db/*` row is rejected at the wrapper and ignored by the view.
 There is no schema-of-schema-of-schema to need.
 
+**Bootstrap pins.** `(schema/bootstrap)` returns tx-data — one `[:db/add e
+a v]` row per axiom fact — not raw d5 (d5 vectors are not in the §3
+transaction vocabulary). The five `:db/*` attribute entities take the
+conventional genesis ids 16–20: the datom spec rules the reserved block out
+("user entities, including all schema, live at 16+ and migrate with data",
+`docs/agents/datom-spec.md`, Reserved Entities), and a stream whose genesis
+is the bootstrap has those ids free by construction. The ids are a
+convention, not a reservation — the axioms resolve by `:db/ident` value
+through the `a`/`v` slots, so a late-adopting stream may seed equivalent
+rows at any free ids. Transacting the bootstrap is the one sanctioned
+`:db/*` declaration: the wrapper admits property rows on the `:db/*`
+attributes only when they match the axiom relation verbatim (idempotent
+re-seeding changes nothing interpretively); every other re-declaration or
+retraction of a `:db/*` attribute's own properties is rejected in **both**
+modes (§3's mode split).
+
 Consequences:
 
 - **Evolution is appends.** `:person/name` becoming card-many is a new datom
@@ -228,7 +250,10 @@ transaction throws with nothing appended; the stream stays clean.
   live value it is rejected: be explicit (retract first, or use the map
   form).
 - `[:db/retract e a]` / `[:db/retract e a v]` — explicit retraction: the
-  attribute (or that value) becomes absent.
+  attribute (or that value) becomes absent. The attribute-wide form emits
+  one retraction row `[e a v nil 0]` per live value of `[e a]` in the
+  wrapper's current-state index, all at the allocated `t`; an attribute
+  with no live values emits nothing (there is no value to name).
 - Lookup refs are accepted wherever an entity id is expected — `:db/id`
   position and `:db.type/ref` values alike — and resolve before emission
   (§3.1). Resolution is sequential per item within a record: a `:db/id`
@@ -253,8 +278,21 @@ is lax: the wrapper provides its services (lookup-ref resolution, §3.3
 supersession emission, collection expansion, the current-state index) and
 appends transactions that violate declared constraints — valueType
 mismatches, dangling refs, unique duplicates, self-contradictory card-one
-records, malformed schema rows — leaving them to the §6 audit. Strict mode
-rejects them before emission, as §3.1 details. One rejection is
+records — leaving them to the §6 audit. Strict mode
+rejects them before emission, as §3.1 details.
+
+**The mode split: schema-structure vs data violations.** Two classes of
+rejection behave differently, and the difference is not a mode. A
+**schema-structure violation** — an unknown `:db/*` property name, an
+illegal `:db.type/*` or `:db.cardinality/*` value in a schema row, a
+re-declared or retracted `:db/*` axiom property (§2), a duplicate
+`:db/ident` (within the batch or against the live vocabulary), `:db/unique`
+on a card-many attribute — rejects in **both** modes: the wrapper cannot
+offer even its lax services (lookup-ref resolution needs the unique index,
+supersession needs cardinality) over a vocabulary it cannot interpret
+unambiguously. A **data-vs-schema violation** — valueType mismatch, dangling
+ref, unique duplicate, card-one self-contradiction within one record — is
+the strict-only class; lax appends it and the §6 audit measures it. One rejection is
 mode-independent: an unresolvable lookup ref, because there is no value to
 write and minting is forbidden. The reader is always lax — §4 never rejects.
 Strictness is a writer's stance, never the medium's.
@@ -283,12 +321,17 @@ appends and the violation becomes an audit finding (§6).
   appends" (`src/cljc/dao/space/transactor.cljc`, `entity->datoms`). New
   entities carry an explicit `:db/id` from the caller. A batch is validated
   against the index *and against itself*: two entities in one record
-  asserting the same unique value is a self-conflict.
+  asserting the same unique value is a self-conflict. `:db/unique` requires
+  the attribute be declared `:db.cardinality/one` — unique on a card-many
+  (declared or defaulted) attribute is a schema-structure violation (both
+  modes); the view's unique index covers card-one uniques only.
 - **Schema rows themselves** — the wrapper validates `:db/*` rows at
   transact: known property names only, legal `:db.type/*` and
   `:db.cardinality/*` values, keyword `:db/ident`s, `:db/ident` uniqueness
   on the vocabulary itself, and no re-declaration or retraction of a `:db/*`
-  attribute's own properties (§2 axioms).
+  attribute's own properties (§2 axioms). These are schema-structure
+  checks: both modes reject (§3's mode split), save the verbatim-axiom
+  carve-out that lets the bootstrap itself through.
 
 **Wrapper state, declared.** The wrapper maintains one per-wrapper
 current-state index — built in the same cursor-zero full scan that already
@@ -352,12 +395,16 @@ new duty.
 Card-one resolution is a **composition of interpretations**, not a rival
 grouping of raw d5. First, the schema is fetched with `q` over the source's
 **history** view — not `current`, which projects to d3 and would leave the
-fold no `t`/`m` to supersede with. The bootstrap's fixed names enumerate the
-patterns, so one disjunctive query (`or-join`, `ground`-ing each name)
-returns every attribute entity and its full d5 property rows. The
-interpreter's one private fold then applies retraction and collapses the
-surviving property values per property (greatest `(t, m)`, tie → least `v`)
-— rules `q`'s surface cannot express. Then the data, in three steps:
+fold no `t`/`m` to supersede with. The pinned extraction shape is one
+5-ary pattern `[?se ?p ?v ?t ?m]` over the history relation plus a `:fns`
+predicate naming the five `:db/*` properties — the history view carries no
+fact-index, so `eval-pattern-clause` routes the pattern through the
+relation path where arbitrary arity unifies (`query.cljc`, `eval-pattern-clause`);
+an `or-join` with the names inlined per branch is equivalent mechanism,
+not contract. The interpreter's one private fold then applies retraction and
+collapses the surviving property values per property (greatest `(t, m)`, tie
+→ least `v` under `compare-vals`) — rules `q`'s surface cannot express.
+Then the data, in three steps:
 
 1. Interpret via `dao.space.current` — group by `[e a v]`, greatest `(t, m)`,
    retractions removed, conflicting same-`[e a v t]`-different-`m` history
@@ -398,8 +445,11 @@ bound, which inherits from `:source` exactly as `current`'s descriptor does.
 `history` are *not* realized through `defopen`; they are special-cased in
 `realize-db-value!` / `realize-datom-view!`. The schema view instead
 registers `(ds/defopen :dao.space.schema/current …)`, whose body opens
-`:source` once, interprets (the extraction and steps 1–3 above), **drains
-and closes the inner stream**, and returns a self-contained closed
+`:source` once with `ds/open!` (`:source` is any d5 descriptor `open!`
+dispatches — a relation, a published index, a raw stream type — never a
+`current`/`history` view, which are query-layer interpreters), drains it
+via `strict-vec`, **closes the inner stream**, interprets (the extraction
+and steps 1–3 above), and returns a self-contained closed
 `ViewStream`
 advertising `:fact? true`. Because a closed realization satisfying
 Reader+Bound flows through `realize-db-value!`'s existing borrowed path —
@@ -515,9 +565,11 @@ openers register at namespace load, so opening a schema descriptor requires
 ;; install: schema tuples are transacted through the ordinary write path,
 ;; bootstrap rows first, then user attributes — the same vocabulary as data
 (schema/transact! log (schema/bootstrap))
-(schema/transact! log [{:db/id 16 :db/ident :person/name
+(schema/transact! log [{:db/id 21 :db/ident :person/name
                         :db/valueType :db.type/string
                         :db/cardinality :db.cardinality/one}])
+;; 21, not 16: the bootstrap's five entities occupy the genesis ids 16-20
+;; by convention (§2); entity ids are a stream-local gauge
 
 ;; read — one source (any bounded descriptor of the stream's datoms: a
 ;; published manifest, or a drained relation in tests); the view finds the
@@ -526,8 +578,8 @@ openers register at namespace load, so opening a schema descriptor requires
          (schema/current data-source))             ; bounded d3 db-value
 
 ;; write — same stream, validated against the schema it carries
-(schema/transact! log [{:db/id 17 :person/name "…"}
-                      {:db/id 18 :person/friend [:person/email "…@…"]}])
+(schema/transact! log [{:db/id 22 :person/name "…"}
+                      {:db/id 23 :person/friend [:person/email "…@…"]}])
 ;; one atomic record; the lookup ref resolves before emission and may
 ;; target an entity created earlier in the same record
 
@@ -570,6 +622,17 @@ openers register at namespace load, so opening a schema descriptor requires
   presents as a scalar under the count convention. A cardinality marker on
   the view, or a schema-aware pull, is a follow-up — noted, not designed
   here.
+- **Pre-implementation pin pass.** Verified against source before any
+  implementation: the `defopen`/`ViewStream`/`::owned` seam flows a closed
+  `:fact? true` realization through `q` with zero changes; the extraction's
+  5-ary pattern rides the relation path (history carries no fact-index);
+  `select-by-index` has no completeness fallback and the manifest a single
+  `:count` (the §5 deferral stands); the transactor preserves explicit `m`
+  and owns `t`. Pinned rulings: bootstrap ids 16–20 as convention and the
+  verbatim-axiom carve-out (§2); `[:db/retract e a]` emits one retract row
+  per live value (§3); `:db/unique` requires declared card-one (§3.1); the
+  schema-structure / data-violation mode split (§3); `:source` is an
+  `open!`-dispatchable d5 descriptor, never a nested view (§4).
 
 
 ## 9. The executable contract (when implemented)
