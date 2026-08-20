@@ -245,12 +245,12 @@
         tex-slot (.getUniformSlot frag-shader "tex")]
     (.bindPipeline pass pipeline)
     (.setPrimitiveType pass gpu/PrimitiveType.triangle)
-    (.bindVertexBuffer pass v-view (count verts))
-    (.bindIndexBuffer pass i-view gpu/IndexType.int16 (.-length i-data))
+    (.bindVertexBuffer pass v-view)
+    (.bindIndexBuffer pass i-view gpu/IndexType.int16)
     (.bindUniform pass u-slot u-view)
     (.bindUniform pass frag-slot f-view)
     (.bindTexture pass tex-slot texture .sampler sampler)
-    (.draw pass)))
+    (.drawIndexed pass (.-length i-data))))
 
 
 (defn- render-lines-gpu!
@@ -283,12 +283,12 @@
         tex-slot (.getUniformSlot frag-shader "tex")]
     (.bindPipeline pass pipeline)
     (.setPrimitiveType pass gpu/PrimitiveType.line)
-    (.bindVertexBuffer pass v-view (count verts))
-    (.bindIndexBuffer pass i-view gpu/IndexType.int16 (.-length i-data))
+    (.bindVertexBuffer pass v-view)
+    (.bindIndexBuffer pass i-view gpu/IndexType.int16)
     (.bindUniform pass u-slot u-view)
     (.bindUniform pass frag-slot f-view)
     (.bindTexture pass tex-slot texture .sampler sampler)
-    (.draw pass)))
+    (.drawIndexed pass (.-length i-data))))
 
 
 (defn- gpu-supported-draw?
