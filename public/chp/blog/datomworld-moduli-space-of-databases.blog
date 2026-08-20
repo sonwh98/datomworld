@@ -20,6 +20,14 @@
           [:p
            "Because interpretation is external, an interpreter can take arbitrary streams and materialize them as tuples, key/value entries, document trees, vectors, or graph projections: whatever data structure is fit for its operational context. Datom.world does not contain one inevitable database; it contains a space of possible database interpreters. Each coherent choice of observation semantics is one point in that space; the materialized structure follows from the observation rather than selecting the point."]
 
+          [:h2 "The Mathematical Metaphor"]
+
+          [:p
+           "The term " [:strong "moduli space"] " is borrowed from algebraic geometry. In mathematics, a moduli space is a geometric space where each individual point represents a complex object (such as an elliptic curve or a manifold). Moving from one point to another corresponds to morphing the underlying object into a new shape."]
+
+          [:p
+           "Applying this metaphor to architecture fundamentally changes how we view databases. Historically, we treat relational, vector, and columnar databases as separate silos. The moduli space metaphor argues that the raw data is a shared, neutral substrate. The " [:em "database"] " is merely the lens (the interpreter) applied to that data. Therefore, DaoSpace (tuple matching) and DaoField (vector distance) are not layered on top of each other; they are sibling points in an open space of interpreters, projecting different algebraic rules over the exact same immutable byte stream."]
+
           [:h2 "What Defines a Point"]
 
           [:p

@@ -6,9 +6,9 @@
                   [:article
                    :$blog-title
                    :$blog-date
-                   
+
                    [:p "If you look closely at the architecture of a secure virtual machine and the architecture of a Large Language Model interacting with tools, you will find they are structurally identical."]
-                   
+
                    [:p "Both are, at their core, isolated reasoning engines that cannot natively touch the outside world. They are locked in a room, processing symbols. For the " [:strong "Yin.VM"] ", those symbols are AST datoms being reduced in a CESK (Control, Environment, Store, Continuation) machine. For an " [:strong "LLM"] ", those symbols are tokens being predicted by transformer weights. Neither engine has any native concept of a file system, a network socket, or a database."]
 
                    [:h2 "The Boundary and the Emission"]
@@ -51,5 +51,4 @@
 
                    [:p "This strict adherence to " [:em "Interpretation > Abstraction"] " guarantees that the agent's network requests, file reads, and API calls are asynchronous, suspendable, and perfectly observable data effects. If a process crashes while waiting for the LLM to reply, the agent's continuation sits safely in the database, ready to be resumed later, or even migrated to another node."]
 
-                   [:p "By aligning the architecture of our agents with the architecture of our virtual machine, we ensure that the entire stack remains a " [:em "glass box"] ". As intelligence scales, that intelligence remains grounded in explicit, causal data streams."]
-                   ]]]}
+                   [:p "By aligning the architecture of our agents with the architecture of our virtual machine, we ensure that the entire stack remains a " [:em "glass box"] ". As intelligence scales, that intelligence remains grounded in explicit, causal data streams."]]]]}

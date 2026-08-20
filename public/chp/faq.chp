@@ -220,10 +220,10 @@
           [:details.faq {:open true}
            [:summary "How are datoms stored and replicated?"]
            [:div
-              [:p
-               "Datoms flow through DaoStreams. Interpreters consume streams and materialize what they need. "
-               "The index library maintains append-only covered indexes (EAVT, AEVT, AVET, VAET) and merges datoms by transaction and causal ID. "
-               "Each node chooses what to materialize. Some store everything, others keep only recent data or specific attributes."]]]
+            [:p
+             "Datoms flow through DaoStreams. Interpreters consume streams and materialize what they need. "
+             "The index library maintains append-only covered indexes (EAVT, AEVT, AVET, VAET) and merges datoms by transaction and causal ID. "
+             "Each node chooses what to materialize. Some store everything, others keep only recent data or specific attributes."]]]
           [:details.faq
            [:summary "What is entanglement between nodes?"]
            [:div

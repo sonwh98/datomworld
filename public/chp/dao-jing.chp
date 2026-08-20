@@ -14,6 +14,8 @@
          [:p
           "DaoJing is pure syntax. It holds " [:em "form"] ", never " [:em "meaning"] ". What a payload denotes, whether \"datom,\" \"view,\" or \"query,\" is semantics an interpreter projects onto it, never something storage knows. Concretely it is a content-addressed key-value boundary, the decentralized analog to Datomic's storage layer."]
          [:p
+          [:em "Read more about this lineage in " [:a {:href "/blog/evolution-of-immutable-storage.blog"} "The Evolution of Immutable Storage: From Datomic to dao.jing"] "."]]
+         [:p
           "A store is defined by what it holds, not the pipe data arrived through. Opaque values enter through a caller-supplied pool of " [:a {:href "/dao-stream.chp"} "DaoStream"] " intake streams. Source stream identity never enters the content address or stored value."]
          [:p
           "DaoJing is therefore an interpretation of DaoStream as a content-addressed KV store, but one deliberately devoid of domain semantics. Any point in "

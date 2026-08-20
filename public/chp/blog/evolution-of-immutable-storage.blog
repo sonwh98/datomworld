@@ -1,0 +1,68 @@
+#:blog{:title "The Evolution of Immutable Storage: From Datomic to dao.jing",
+       :date #inst "2026-08-18T00:00:00.000-00:00",
+       :abstract
+       [:p "Datomic revolutionized databases by introducing the \"database as a value.\" However, its storage model evolved to address the tension of storing a mutable root alongside immutable segments. By examining this history, we see why the strict abstraction boundaries of dao.jing and dao.stream represent the structural endgame of this architectural lineage, elegantly scaling from distributed cloud to embedded single-process deployments."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p "Datomic revolutionized how we think about databases by introducing the concept of the \"database as a value.\" By separating the transactor from storage and treating the database as an immutable, queryable value, it solved entire classes of caching and consistency problems."]
+
+          [:p "However, the architecture of how Datomic " [:em "stored"] " that immutable value underwent a significant evolution. Examining this history—from Datomic V1 to Datomic Cloud (V2)—reveals an inherent tension in early immutable database design. By understanding this tension, we can see why the strict abstraction boundaries of " [:code "dao.jing"] " and " [:code "dao.stream"] " represent the structural endgame of this architectural lineage."]
+
+          [:h2 "Datomic V1: The Unified KVStore and the Mutable Root"]
+
+          [:p "In original Datomic, the storage layer was abstracted behind a protocol called " [:code "KVStore"] ". This protocol had to support two radically different access patterns simultaneously:"]
+
+          [:ol.bulleted
+           [:li [:strong "Immutable Segments:"] " The actual data—the trees of EAVT, AEVT, etc.—were written as write-once, read-many chunks."]
+           [:li [:strong "The Mutable Root:"] " To know what the \"current\" database was, there had to be a pointer to the tip of the tree. Updating this pointer required a conditional write—a Compare-And-Swap (CAS) operation."]]
+
+          [:p "Because Datomic V1 bundled both immutable data and the mutable root into a single " [:code "KVStore"] " interface, the underlying storage technology " [:em "had"] " to support CAS operations natively."]
+
+          [:p "This is the historical reason why Datomic couldn't use Amazon S3 as a primary storage backend. S3 was a pure object store; it lacked the atomic CAS capabilities required to coordinate the mutable root. Instead, Datomic had to rely on systems like DynamoDB, Cassandra, or SQL databases, which were far more expensive and complex than dumb object storage."]
+
+          [:h2 "Datomic V2 (Cloud / Core2): The Split"]
+
+          [:p "As Datomic evolved into Datomic Cloud (and the Core2 architecture), the team recognized the friction of the unified " [:code "KVStore"] ". They made a pragmatic architectural shift, splitting the storage layer into two distinct pieces:"]
+
+          [:ol.bulleted
+           [:li [:strong "The " [:code "val-store"] ":"] " A pure, immutable store for the data segments. This could now natively sit on S3, drastically reducing costs and increasing read scalability."]
+           [:li [:strong "The " [:code "log/atom"] ":"] " The mutable state and the root pointer were separated out and backed by DynamoDB, which provided the necessary conditional writes for coordination."]]
+
+          [:p "This was a massive improvement. It allowed Datomic to leverage S3 for the bulk of its storage. However, the system still intrinsically coupled the concept of \"the current state of the database\" with the storage layer's responsibilities."]
+
+          [:h2 "dao.jing: Eradicating the Mutable Root"]
+
+          [:p "The design of " [:code "dao.jing"] " takes the evolution started by Datomic to its absolute mathematical conclusion. It asks: " [:em "What if the storage layer had no concept of time, coordination, or state whatsoever?"]]
+
+          [:p [:code "dao.jing"] " entirely eradicates the mutable root from the storage engine. It provides pure, idempotent, content-addressed materialization (" [:code "KV[sha256(bytes)] = bytes"] "). There is no root pointer in " [:code "dao.jing"] " to update, and therefore no CAS operations are required anywhere in the storage layer."]
+
+          [:p "Because " [:code "dao.jing"] " is stripped of all coordination responsibilities, it reduces storage to the lowest common denominator. It is infinitely parallelizable and can run natively on any basic object store."]
+
+          [:p "But if " [:code "dao.jing"] " doesn't know what the \"current\" state is, who does?"]
+
+          [:h2 "dao.stream: The Pure Abstraction Boundary"]
+
+          [:p "This is where " [:code "dao.stream"] " enters. " [:code "dao.stream"] " is the undeniable source of truth for time, ordering, and mutations. It is a pure log."]
+
+          [:p "Crucially, " [:code "dao.stream"] " is not a mandated piece of heavy infrastructure like Kafka—it is an " [:strong "abstraction boundary"] "."]
+
+          [:p [:code "dao.jing"] " acts merely as an " [:em "interpreter"] " that observes " [:code "dao.stream"] ". It reads the ordered events and materializes them into content-addressed chunks in the storage layer."]
+
+          [:p "By formalizing " [:code "dao.stream"] " as an interface rather than a physical service, we gain something Datomic never had: " [:strong "the ability to scale down to zero infrastructure without compromising architectural purity."]]
+
+          [:p "If you are running a massive, distributed enterprise application, your " [:code "dao.stream"] " implementation might be Kafka, and your " [:code "dao.jing"] " might write to S3."]
+
+          [:p "But if you are building a small, embedded application, " [:code "dao.stream"] " can be implemented as an in-memory queue or a local SQLite journal, and " [:code "dao.jing"] " can write to the local filesystem. Both run in the exact same OS process."]
+
+          [:p "In Datomic, the logic for handling the CAS root and the immutable segments were intrinsically tangled in the storage implementation. In our design, because " [:code "dao.stream"] " and " [:code "dao.jing"] " are separated by a mathematical abstraction boundary, their implementations are isolated. They can share the same memory space, but they never violate each other's boundaries."]
+
+          [:h2 "Conclusion"]
+
+          [:p "Datomic V1 proved that the database could be a value, but struggled with the storage of the mutable root. Datomic V2 pragmatically split the mutable root from the immutable values to utilize cloud object storage."]
+
+          [:p [:code "dao.jing"] " and " [:code "dao.stream"] " finalize this architectural arc. By decoupling time (the stream) from representation (the content-addressed storage) via a strict abstraction boundary, we achieve a system that possesses the distributed scalability of the modern cloud, but retains the ergonomic simplicity of embedded databases. It is structurally perfect."]]]]}

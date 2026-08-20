@@ -32,18 +32,18 @@
           "A stream exists first as a descriptor value. The minimal shape in current practice is small:"]
          [:div.code-block
           [:pre [:code
-                 "{:type :ringbuffer\n :capacity 1024}"]]]
+                 "{:dao.stream/type :ringbuffer\n :capacity 1024}"]]]
          [:p
           "The design target expands that into a richer, still-serializable description (top-level fields stay flat):"]
          [:div.code-block
           [:pre [:code
-                 "{:stream/id ...\n :type :ringbuffer\n :mode :create\n :capacity 1024\n :eviction-policy :reject\n :retention {:type :keep-all}\n :backpressure {:type :park-writer}\n :shibi {...}}"]]]
+                 "{:stream/id ...\n :dao.stream/type :ringbuffer\n :mode :create\n :capacity 1024\n :eviction-policy :reject\n :retention {:type :keep-all}\n :backpressure {:type :park-writer}\n :shibi {...}}"]]]
          [:div.feature-grid
           [:article.feature-card
            [:h3 [:code ":stream/id"]]
            [:p "Names the stream independently of any one transport instance or runtime backend."]]
           [:article.feature-card
-           [:h3 [:code ":type"]]
+           [:h3 [:code ":dao.stream/type"]]
            [:p "Transport kind such as " [:code ":ringbuffer"] ", " [:code ":http"] ", or " [:code ":file-input-stream"] ". This is the " [:code "open!"] " dispatch key."]]
           [:article.feature-card
            [:h3 [:code ":shibi"]]
@@ -60,9 +60,9 @@
           "A descriptor is not yet an operational stream. The realization boundary is explicit:"]
          [:div.code-block
           [:pre [:code
-                 "(defmulti open!\n  \"Realize a descriptor into an operational transport.\"\n  (fn [descriptor] (:type descriptor)))"]]]
+                 "(defmulti open!\n  \"Realize a descriptor into an operational transport.\"\n  (fn [descriptor] (:dao.stream/type descriptor)))"]]]
          [:p
-          "The dispatcher reads the top-level " [:code ":type"] " from the descriptor, for example " [:code ":ringbuffer"] " or " [:code ":websocket"] ". Each transport adds a " [:code "defmethod"] " for its type (via the " [:code "defopen"] " macro). New transports do not require changing the core entry point."]
+          "The dispatcher reads the top-level " [:code ":dao.stream/type"] " from the descriptor, for example " [:code ":ringbuffer"] " or " [:code ":websocket"] ". Each transport adds a " [:code "defmethod"] " for its type (via the " [:code "defopen"] " macro). New transports do not require changing the core entry point."]
          [:p
           "This keeps descriptor schema and implementation decoupled. Different runtimes can realize the same descriptor differently while preserving the same high-level stream semantics."]
          [:div.feature-grid
@@ -89,7 +89,7 @@
            [:p [:code "(next stream cursor)"] " performs non-destructive cursor-based reading and returns " [:code "{:ok val :cursor cursor'}"] ", " [:code ":blocked"] ", " [:code ":end"] ", or " [:code ":daostream/gap"] "."]]
           [:article.feature-card
            [:h3 "Writer"]
-           [:p [:code "(append! stream val)"] " appends a value and returns " [:code "{:result :ok :woke [...]}"] " or " [:code "{:result :full}"] ". Writes throw if the transport is closed."]]
+           [:p [:code "(put! stream val)"] " appends a value and returns " [:code "{:result :ok :woke [...]}"] " or " [:code "{:result :full}"] ". Writes throw if the transport is closed."]]
           [:article.feature-card
            [:h3 "Bound"]
            [:p [:code "(close! stream)"] " marks the stream closed without erasing prior values, and " [:code "(closed? stream)"] " reports lifecycle state."]]
@@ -146,7 +146,7 @@
           "DaoStream works as a message bus or event log with no VM, continuation system, or scheduler. A ringbuffer descriptor is enough to build a simple queue:"]
          [:div.code-block
           [:pre [:code
-                 "(def queue\n  (dao.stream/open! {:type :ringbuffer\n                  :capacity 1000}))\n\n(dao.stream/append! queue {:id 1 :msg \"hello\"})\n(dao.stream/append! queue {:id 2 :msg \"world\"})\n\n(loop [cursor {:position 0}\n       messages []]\n  (let [result (dao.stream/next queue cursor)]\n    (cond\n      (map? result) (recur (:cursor result) (conj messages (:ok result)))\n      (= result :blocked) messages\n      (= result :end) messages)))"]]]
+                 "(def queue\n  (dao.stream/open! {:dao.stream/type :ringbuffer\n                  :capacity 1000}))\n\n(dao.stream/put! queue {:id 1 :msg \"hello\"})\n(dao.stream/put! queue {:id 2 :msg \"world\"})\n\n(loop [cursor {:position 0}\n       messages []]\n  (let [result (dao.stream/next queue cursor)]\n    (cond\n      (map? result) (recur (:cursor result) (conj messages (:ok result)))\n      (= result :blocked) messages\n      (= result :end) messages)))"]]]
          [:div.feature-grid
           [:article.feature-card
            [:h3 "Message queues"]
@@ -158,17 +158,5 @@
            [:h3 "Request-response"]
            [:p "Separate request and response streams support RPC patterns without requiring continuation parking."]]]
          [:p
-          "This is the point of the design: no hidden scheduler is required, and no VM is required. DaoStream can stand alone."]]]
-
-       [:section.section-light
-        [:div.section-inner
-         [:h2 "Relation to DaoSpace"]
-         [:p
-          "Streams are independent of " [:a {:href "/dao-space.chp"} "DaoSpace"] " (which absorbed the former DaoSpace). DaoSpace consumes streams. In Datom.World, DaoStream is the general stream substrate and DaoSpace is a datom consumer over that substrate: its indexing library builds covered indexes from stream datoms, and its query library matches over them."]
-         [:p
-          "DaoStream can carry arbitrary values or bytes, but the dominant system use case is datom transport. That is why most streams in Datom.World are streams of datoms. A bounded stream is a stable value that DaoSpace can consume to build indexes or answer queries. Stream semantics do not depend on those indexes."]
-         [:p
-          "The design target is descriptor-first, transport-agnostic, cursor-based, gap-aware, and explicit about backpressure and trust. The ringbuffer transport is the reference shape. Richer descriptor fields such as " [:code ":stream/id"] ", retention, backpressure, and " [:code ":shibi"] " extend the same model rather than replacing it."]
-         [:p.next
-          "See how " [:a {:href "/dao-space.chp"} "DaoSpace"] " interprets datom streams as indexes, or explore " [:a {:href "/yin.chp"} "Yin"] " to see one runtime that treats blocked stream demand as parked continuations."]]])}
+          "This is the point of the design: no hidden scheduler is required, and no VM is required. DaoStream can stand alone."]]])}
     template))

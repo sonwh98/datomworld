@@ -124,7 +124,7 @@
           [:h2 "One Point in a Larger Space"]
 
           [:p
-           "The larger moduli-space idea belongs to Datom.world's governing philosophy: semantics is in the interpreter observing DaoStream, not in the stream or stored structure."]
+           "The larger moduli-space idea (a metaphor borrowed from mathematics) belongs to Datom.world's governing philosophy: semantics is in the interpreter observing DaoStream, not in the stream or stored structure."]
 
           [:ul.bulleted
            [:li
