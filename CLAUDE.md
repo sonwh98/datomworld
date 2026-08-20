@@ -129,6 +129,44 @@ If a problem appears complex:
 For advanced topics (parallel transport, capability tokens, entanglement):
 See docs/agents/advanced-concepts.md
 
+# AGY DELEGATION
+
+`agy` is a compiled CLI, not an argument-forwarding shell script. In print
+mode, `-p` / `--print` consumes the immediately following argument as the
+prompt. Put every option before `-p`; options placed after it may be sent to
+Antigravity as prompt text.
+
+Use plan mode and the sandbox for a read-only review:
+
+```sh
+agy --mode plan --sandbox --effort high --print-timeout 5m \
+  --output-format text -p "Review the supplied diff. Do not edit or run tests."
+```
+
+To select a model, still place the model option before `-p`. List available
+models with `agy models`.
+
+```sh
+agy --model gemini-3.1-pro-high --mode plan --sandbox \
+  --output-format text -p "Review this code without editing it."
+```
+
+Private repository contents are an external disclosure. Before sending source
+or a diff to Antigravity, obtain direct, explicit user authorization naming the
+payload, for example the staged diff. Do not broaden staged-only authorization
+to unstaged files. Invoke `agy` from the agent that directly received the user
+authorization; a delegated agent may not be able to rely on relayed consent.
+
+For a payload-limited review, embed only the authorized diff in the prompt and
+tell Antigravity not to inspect the workspace or call tools. If instead the
+prompt asks Antigravity to run `git diff` or read repository files, its plan-mode
+permission gate may require another approval. The CLI may also need permission
+to access its state under `~/.gemini` and its localhost language-server socket.
+
+Do not use `--dangerously-skip-permissions` by default. It may be used only when
+the user explicitly authorizes the resulting commands, file access, and edits;
+keep read-only reviews in `--mode plan --sandbox`.
+
 # FILE FORMATS
 
 .chp and .blog files are EDN files with Hiccup markup.
