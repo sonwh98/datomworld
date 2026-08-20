@@ -1,9 +1,15 @@
 # dao.space.schema — A Schema Interpreter over the Tuple Space
 
-Status: proposed design note. Nothing here is implemented. The
-revision dropped index-membership pruning, restated cardinality-one as a
+Status: implemented in `src/cljc/dao/space/schema.cljc`; the executable
+contract is `test/dao/space/schema_test.cljc`. The design review that closed
+the first implementation moved every rejection before append, made one
+wrapper a serialized writer boundary, retained lax uniqueness ambiguity as
+sets, made schema changes effective on the next transaction, replayed
+retractions into wrapper state, removed `m` from temporal ordering, and moved
+provenance audit to a d5-retaining fold. The earlier revision dropped
+index-membership pruning, restated cardinality-one as a
 composition over `current`, replaced Datomic tempid/upsert with lookup refs,
-and retargeted audit to the raw view; §8 records the rulings. A completion
+and retargeted audit to the raw-current-d5 fold; §8 records the rulings. A completion
 pass pinned the interface: the Datomic-style bootstrap (schema as seeded
 tuples, §2), the `:db.type/*` vocabulary, the transaction vocabulary
 including retraction, the borrowed-realization path, wrapper ownership, and
@@ -15,7 +21,7 @@ the `:db/*` meta-properties interpreter axioms (§2), and pinned card-many
 expansion, sequential lookup-ref resolution, and no-dedup (§3). A final
 ruling made strictness a mode: the wrapper rejects only under
 `{:strict true}` — the medium never rejects tuples (§3, §6). A
-pre-implementation pin pass verified every cited seam against the source
+implementation pin pass verified every cited seam against the source
 and pinned the remaining mechanics: bootstrap ids and the axiom carve-out
 (§2), the extraction query's actual engine shape (§4), retract-row emission
 and the unique-requires-card-one ruling (§3), the mode split between
@@ -26,6 +32,9 @@ is the only coherent form (§1).
 
 **Related documents:**
 
+- `docs/design/dao.space.schema.datomic.md` — the proposed strict
+  Datomic-compatibility interpreter; what full compatibility would require
+  beyond this dialect
 - `docs/design/dao.space.md` — the tuple space this interpreter reads; the
   moduli-space framing
 - `docs/design/dao.space.query.md` — the source polymorphism the schema view
@@ -87,8 +96,10 @@ compensation. Schema moves mistakes to the one moment they cost nothing:
   startup — machine-readable, attributed, versioned on the `t` axis —
   instead of folklore in READMEs and hand-written prompts.
 - **Definable violations.** "Breaks the schema" is a predicate only if a
-  schema is held. Lax mode plus audit is trust-but-verify: nothing
-  rejected, conformance measurable per writer through the `m` slot.
+  schema is held. Lax mode plus audit is trust-but-verify: data violations
+  append, conformance remains measurable per writer through the `m` slot;
+  structurally uninterpretable schema and non-denoting lookup refs still
+  reject as specified in §3.
 - **Honest history for everyone.** The wrapper's supersession emission keeps
   raw readers coherent too; without it, writers hand-roll retraction logic,
   mostly don't, and every reader pays for the incoherence.
@@ -125,7 +136,7 @@ The Datomic feature mapping, settled up front:
 |---|---|
 | `:db/valueType` | Write-time type predicate on `v` (validating wrapper, §3.1) |
 | `:db/cardinality` | A **view rule, not a write constraint** (§3.2, §4) |
-| `:db.type/ref` | Write-time existence check against the current view *plus entities created earlier in the same record* — beyond Datomic, which has no referential integrity; here restrictions are a feature |
+| `:db.type/ref` | Write-time existence check against the current view *plus entities backed by assertions in the same record* — beyond Datomic, which has no referential integrity; here restrictions are a feature |
 | `:db/unique` | Lookup-ref resolution before append + duplicate rejection (§3.1); no id minting |
 | `:db/index` | **Deferred** — published covered sets remain complete (§5); schema-directed membership waits on the generic relation positional indexes open item |
 | `:db/isComponent` | **Declined** (§8): cascading retraction has no append-only write form; any revival is a view-rule derivation, never read-side writes |
@@ -152,8 +163,10 @@ medium it describes:
 ```
 
 **The schema lives in the space, Datomic's shape.** Schema rows are stored in
-the same bounded d5 source as the data — the agent's own stream, or the
-shared space — never passed as a side value. They are distinguished by the
+the same bounded d5 physical source as the data — one authoring stream, never
+an implicit union of independent histories and never a side value. A fleet
+composes those sources as separate query db-values because `e` and `t` are
+source-local. Schema rows are distinguished by the
 fixed `:db/*` attribute vocabulary; installing schema is transacting schema
 tuples through the ordinary write path (the bootstrap first, below, then user
 attributes). A raw reader sees them as ordinary tuples; the schema reader
@@ -258,7 +271,9 @@ transaction throws with nothing appended; the stream stays clean.
   position and `:db.type/ref` values alike — and resolve before emission
   (§3.1). Resolution is sequential per item within a record: a `:db/id`
   lookup ref may target an entity created earlier in the same record,
-  matching ref-value resolution.
+  matching ref-value resolution. An assertion-emitting entity map creates
+  such a same-record target; a map whose values all expand to zero assertions
+  emits no fact and creates nothing.
 - **Card-many collection expansion.** A collection value on a card-many
   attribute (`{:person/friends #{8 9}}`) expands to one datom per element —
   the `yin.vm` precedent (`datoms->tx-data`).
@@ -294,8 +309,11 @@ unambiguously. A **data-vs-schema violation** — valueType mismatch, dangling
 ref, unique duplicate, card-one self-contradiction within one record — is
 the strict-only class; lax appends it and the §6 audit measures it. One rejection is
 mode-independent: an unresolvable lookup ref, because there is no value to
-write and minting is forbidden. The reader is always lax — §4 never rejects.
-Strictness is a writer's stance, never the medium's.
+write and minting is forbidden. An ambiguous lookup ref is likewise rejected
+in both modes: lax uniqueness keeps every claimant, so zero or several
+claimants do not denote one `e`. The reader never rejects data-vs-schema
+violations; structurally uninterpretable schema is an explicit construction
+error. Strictness is a writer's stance, never the medium's.
 
 ### 3.1 What each declaration checks
 
@@ -308,11 +326,14 @@ appends and the violation becomes an audit finding (§6).
   `instant`, and `bytes` are deferred until their representations are pinned
   cross-platform. An unknown `:db.type` in a schema is rejected at
   construction.
-- `:db.type/ref` — target `e` exists in the current view **plus entities
-  created earlier in the same atomic record** (a batch may create a parent
-  and its referrer together; a check against only the prior view would reject
-  every such batch). Lookup-ref values in ref position resolve through the
-  same unique index before the check.
+- `:db.type/ref` — at admission, target `e` exists in the current view **plus
+  entities backed by an emitted assertion in the same atomic record** (an
+  assertion-emitting entity map is visible to its own refs, and earlier
+  assertions are visible to later items). An empty map or an entity map whose
+  collections emit no datoms grants no phantom existence. Lookup-ref values in ref position resolve through the
+  same unique index before the check. This is an assertion-time existence
+  check, not durable referential integrity: later retractions can make an
+  earlier reference dangling, and audit observes that condition.
 - `:db/unique` — duplicates rejected; **lookup refs** `[:unique-attr value]`
   supplied in `:db/id` position are resolved against the wrapper's index
   **before emission**. An unmatched lookup ref is a rejection, never a
@@ -324,7 +345,13 @@ appends and the violation becomes an audit finding (§6).
   asserting the same unique value is a self-conflict. `:db/unique` requires
   the attribute be declared `:db.cardinality/one` — unique on a card-many
   (declared or defaulted) attribute is a schema-structure violation (both
-  modes); the view's unique index covers card-one uniques only.
+  modes); the wrapper's unique index covers card-one uniques only and maps a
+  value to the set of live claimants. Lookup resolution succeeds only for a
+  singleton set. **The guarantee boundary:** `:db/unique` is a promise about
+  one stream's interpretation, not about the world — two wrappers on two
+  streams may assert the same value and neither rejects. World-unique
+  identity is §6's claim race, crossed by the §8 value bridges, never
+  enforced by the medium.
 - **Schema rows themselves** — the wrapper validates `:db/*` rows at
   transact: known property names only, legal `:db.type/*` and
   `:db.cardinality/*` values, keyword `:db/ident`s, `:db/ident` uniqueness
@@ -334,17 +361,25 @@ appends and the violation becomes an audit finding (§6).
   carve-out that lets the bootstrap itself through.
 
 **Wrapper state, declared.** The wrapper maintains one per-wrapper
-current-state index — built in the same cursor-zero full scan that already
-derives `next-t` (no extra IO), incremented per successful append — serving
+current-state index, built from a bounded snapshot after the inner transactor
+performs its own cursor-zero watermark scan, and advanced per successful
+append. A transaction containing schema rows takes another bounded snapshot
+to interpret its candidate next schema epoch. Data transactions advance the
+projections incrementally; a schema epoch change rebuilds them against the
+new declarations. The index serves
 three duties at once: uniqueness, current values for supersession (§3.3), and
 lookup-ref resolution. It is per-wrapper and single-writer, the same duty
-class as the `t` watermark, not new hidden mutability. **The schema is read
+class as the `t` watermark, not new hidden mutability. The whole plan,
+validate, append, and state-advance transition is serialized through that one
+wrapper, mirroring the inner transactor's single-writer boundary; no check can
+race another append through the same wrapper. **The schema is read
 from the stream at open, with `q`**: the wrapper drains its retained history
 into a relation and runs the same extraction query as the §4 view — one
 extraction function, two interpreters. The stream carries its own schema
-(§2). Adopting evolved schema datoms means constructing a new wrapper
-(cheap — the open scan is already full-history). There is no live schema
-mutation inside a running wrapper. Ownership is explicit: `schema/transactor`
+(§2). A schema transaction is validated as a proposed next epoch before
+emission and becomes effective for the following transaction. Assertions and
+retractions both update the running wrapper's schema and derived indexes; no
+reopen is required. Ownership is explicit: `schema/transactor`
 opens the inner `:transactor` and owns it — its `close!` delegates inward,
 and the inner wrapper never leaks.
 
@@ -366,11 +401,21 @@ is useful. This is a **wrapper-side, strict-mode** ruling; the
 **reader-side** rule for a stranger's legal log carrying same-`t` asserts is
 the tie-break in §4, which never rejects.
 
+One atomic record may not contain both assertion and retraction of the same
+`[e a v]`. Both would receive the same `t`, while raw current-state semantics
+correctly treats same-`[e a v t]` rows with different operations as conflicting
+history. The wrapper rejects that item-order ambiguity before append in both
+modes; callers split the causality across transaction records instead.
+
 ### 3.3 The mandated update shape: explicit supersession
 
-When the wrapper translates an update of a card-one attribute whose current
-value is `v_old`, it emits **retract-old + assert-new in one atomic record at
-the same `t`**: `[e a v_old t retract]` and `[e a v_new t assert]`. Three
+When the wrapper translates an update of a card-one attribute, it emits
+**retract every other live value + assert desired in one atomic record at the
+same `t`**: one `[e a v_old t retract]` per live `v_old != v_new`, followed by
+`[e a v_new t assert]`. The plural rule repairs a lax history instead of
+silently choosing one predecessor. Retractions are ordered by
+`index/compare-vals`, so emitted transaction data is arrival-order independent.
+Three
 reasons, in decreasing weight:
 
 1. **Explicit causality** is a project invariant, and the transactor already
@@ -385,9 +430,9 @@ reasons, in decreasing weight:
    writers who do not supersede explicitly — its correct role under §6's
    table — rather than the primary mechanism for the wrapper's own writes.
 
-Cost: the wrapper must know the current value of each card-one attribute it
-updates. The per-wrapper current-state index (§3.1) already holds it — no
-new duty.
+Cost: the wrapper must know the live value set of each card-one attribute it
+updates. The per-wrapper current-state index (§3.1) already holds it — no new
+duty.
 
 
 ## 4. The read boundary: one new view type
@@ -402,15 +447,16 @@ fact-index, so `eval-pattern-clause` routes the pattern through the
 relation path where arbitrary arity unifies (`query.cljc`, `eval-pattern-clause`);
 an `or-join` with the names inlined per branch is equivalent mechanism,
 not contract. The interpreter's one private fold then applies retraction and
-collapses the surviving property values per property (greatest `(t, m)`, tie
-→ least `v` under `compare-vals`) — rules `q`'s surface cannot express.
+collapses the surviving property values per property (greatest `t`, tie →
+least `v` under `compare-vals`) — rules `q`'s surface cannot express. `m` is
+a metadata entity reference and never participates in temporal ordering.
 Then the data, in three steps:
 
-1. Interpret via `dao.space.current` — group by `[e a v]`, greatest `(t, m)`,
+1. Interpret via `dao.space.current` — group by `[e a v]`, greatest `t`,
    retractions removed, conflicting same-`[e a v t]`-different-`m` history
    rejected, exactly as today (`current-state-seq`).
 2. Collapse the surviving asserts by `[e a]` **for the attributes the schema
-   names card-one**: greatest `(t, m)` wins; on a full `(t, m)` tie, the
+   names card-one**: greatest `t` wins; on a same-`t` tie, the
    least `v` under the canonical value comparator (`index/compare-vals`)
    wins — arbitrary but deterministic from the data alone, independent of
    arrival order, and never a rejection. (A stranger's legal log may carry
@@ -524,12 +570,16 @@ descriptor equality. The shape carries what `validate-descriptor!` requires:
 | Lax writers and strangers on shared storage | No rejection — but **audit-as-query** (below) |
 | Untrusted guests | Controlled mode (ADR 0002): a capability-tokened gatekeeper confines accepted writes to schema-valid ones. Enforcement moves to the capability boundary, not the medium |
 
-**Audit-as-query runs against the raw view.** The audit target must be plain
-`dao.space.current` — group `[e a v]`, pre-collapse — because the schema'd
-view has already collapsed card-one violations and cannot exhibit them. The
-two violation classes are different query shapes: type/ref violations are a
-per-datom join of the raw view against schema datoms; card-one violations
-are a grouping query over the raw view (one `[e a]`, two live `v`s). The
+**Audit-as-query retains d5 provenance.** The audit starts from `history`,
+applies current-state resolution per `[e a v]` without projecting away `t/m`,
+and audits that raw-current-d5 relation before schema card-one collapse. Plain
+`dao.space.current` is insufficient because it projects to d3 and cannot
+attribute a violation through `m`; `schema/current` is insufficient because
+it has already hidden card-one multiplicity. Type/ref violations are a
+per-datom join against schema datoms, card-one violations group by `[e a]`,
+and unique violations group by `[a v]` across distinct `e`. Each finding keeps
+the offending row's `t/m`; grouping findings keep the contributing d5 rows.
+The
 default builtins registry has no type predicates — auditors ship their own
 via `{:fns …}`, which `q` merges over builtins; builtins stay closed in this
 design.
@@ -602,13 +652,16 @@ openers register at namespace load, so opening a schema descriptor requires
   derivation only, never read-side writes.
 - **Tie rulings, two sides.** Wrapper side: self-contradictory single
   records are rejected (§3.2). Reader side: a stranger's same-`t` card-one
-  asserts resolve by the §4 tie (greatest `(t, m)`, then least `v` under
+  asserts resolve by the §4 tie (greatest `t`, then least `v` under
   `compare-vals`) — arbitrary-but-deterministic, never a rejection. Pin both
-  by test when implemented.
-- **Schema pinning.** Wrappers and views name their source — a bounded d5
+  by test.
+- **Schema epochs.** Wrappers and views name their source — a bounded d5
   descriptor, optionally `as-of`'d — and read the schema from it. Evolution
   never rewrites history; each `as-of` sees the schema it names. A manifest
-  does not encode its schema; there is no `:schema-address` (§5).
+  does not encode its schema; there is no `:schema-address` (§5). A wrapper
+  validates schema tx N as a candidate epoch and adopts it only after tx N
+  commits, so the epoch governs tx N+1. Retractions advance epochs exactly as
+  assertions do.
 - **Cross-stream refs are interpreter-relative.** An `e` in one stream names
   nothing in another. The sanctioned bridge is unique attributes whose
   *values* are globally meaningful (`:task/id "uuid-…"`) plus explicit query
@@ -622,8 +675,8 @@ openers register at namespace load, so opening a schema descriptor requires
   presents as a scalar under the count convention. A cardinality marker on
   the view, or a schema-aware pull, is a follow-up — noted, not designed
   here.
-- **Pre-implementation pin pass.** Verified against source before any
-  implementation: the `defopen`/`ViewStream`/`::owned` seam flows a closed
+- **Implementation verification.** The `defopen`/`ViewStream`/`::owned` seam
+  flows a closed
   `:fact? true` realization through `q` with zero changes; the extraction's
   5-ary pattern rides the relation path (history carries no fact-index);
   `select-by-index` has no completeness fallback and the manifest a single
@@ -635,24 +688,24 @@ openers register at namespace load, so opening a schema descriptor requires
   `open!`-dispatchable d5 descriptor, never a nested view (§4).
 
 
-## 9. The executable contract (when implemented)
+## 9. The executable contract
 
-`test/dao/space/schema_test.cljc`, written first. The matrix the rulings
-prescribe:
+`test/dao/space/schema_test.cljc`, written first. The matrix pins:
 
 - card-one composition: the out-of-order retraction trace (§4) resolves to
   `v2`; the same-`t` assert+retract update resolves to `v_new`.
-- the reader tie: a full `(t, m)` tie collapses to the least `v` under
+- the reader tie: a same-`t` tie collapses to the least `v` under
   `compare-vals`; never throws.
 - unschematized attributes pass through; undeclared cardinality is
   card-many; an unknown `:db.type` is rejected at construction.
 - wrapper (strict mode): valueType rejection, ref existence including
-  same-batch targets, batch self-conflict on unique values, lookup-ref
+  assertion-backed same-batch targets, no zero-emission phantom targets,
+  batch self-conflict on unique values, lookup-ref
   resolution, map-form supersession emitting retract+assert at one `t`,
   `[:db/add]` collision on a card-one attribute rejected.
-- modes: lax appends each of those violations and the audit query finds
-  them; the same transactions reject under `{:strict true}`; an unmatched
-  lookup ref rejects in both modes.
+- modes: lax appends data violations and the audit query finds them; the same
+  transactions reject under `{:strict true}`; unmatched and ambiguous lookup
+  refs and same-EAV opposite operations reject in both modes without appending.
 - bootstrap: the seed relation reads back as the `:db/*` vocabulary's own
   properties; re-declaring or retracting a `:db/*` property is rejected at
   the wrapper and ignored by the view (axioms, §2); duplicate `:db/ident`
@@ -668,13 +721,21 @@ prescribe:
   after `close!` (the ownership trap).
 - extraction surface: the schema query runs over the history view and binds
   `?t ?m` — a `current`-view extraction cannot supersede; the fold applies
-  retraction, then greatest `(t, m)`.
+  retraction, then greatest `t`, with `m` retained as metadata only.
 - as-of: `:as-of` bounds data and schema; `:schema-as-of` re-reads the
   schema at a different point of the same `t` axis.
-- audit: type-predicate auditors ship `:fns`; card-one violations surface
-  only on the raw view.
+- audit: type-predicate auditors ship `:fns`; card-one and unique violations
+  surface only on the raw-current-d5 fold, whose findings retain `t/m`.
 - wrapper no-dedup: retract of an absent fact and re-assert of the live
   value append as told; card-many collections expand one datom per element.
+- wrapper atomicity: every rejection leaves history and transaction time
+  unchanged; concurrent calls through one wrapper serialize; retractions
+  update live value, unique, entity, and schema projections; lax unique
+  ambiguity survives reopen; desired-state card-one repair retracts every
+  predecessor in canonical value order.
+- the guarantee boundary (§3.1): the same unique value commits on two
+  streams through two wrappers — no cross-wrapper or global state exists —
+  while each wrapper still rejects its own stream's duplicates (§6).
 - publisher parity: the published descriptor opens through its registered
   opener and answers as a `q` db-input; `q` answers identically before and
   after publish.

@@ -265,6 +265,26 @@
            (first (keys (schema/extract-schema d5-rows)))))))
 
 
+;; ---------------------------------------------------------------------------
+;; T15: a reified metadata reference does not erase a surviving fact
+;; ---------------------------------------------------------------------------
+
+(deftest reified-metadata-reference-survives-schema-extraction
+  (let [metadata-e datom/first-user-id
+        d5-rows [[21 :db/ident :person/name 0 metadata-e]
+                 [21 :db/valueType :db.type/string 0 metadata-e]
+                 [21 :db/cardinality :db.cardinality/one 0 metadata-e]]]
+    (is (= {:db/valueType :db.type/string
+            :db/cardinality :db.cardinality/one}
+           (get (schema/extract-schema d5-rows) :person/name)))
+    (is (= #{[21 :db/ident :person/name]
+             [21 :db/valueType :db.type/string]
+             [21 :db/cardinality :db.cardinality/one]}
+           (query/collect
+             (query/q '[:find ?e ?a ?v :where [?e ?a ?v]]
+                      (schema/current (query/relation d5-rows))))))))
+
+
 ;; ===========================================================================
 ;; The read view: schema/current tests
 ;; ===========================================================================
@@ -796,9 +816,19 @@
     (let [{:keys [local intake]} (fresh-streams)
           w (schema/transactor local intake {:strict true})]
       (schema/transact! w (bootstrap-tx))
-      (let [r (schema/transact! w [{:db/id 8}
+      (let [r (schema/transact! w [{:db/id 8 :person/name "Target"}
                                    {:db/id 9 :person/friends 8}])]
         (is (= :ok (:result r))))
+      (ds/close! w)))
+  (testing "strict: an empty entity map does not create a ref target"
+    (let [{:keys [local intake]} (fresh-streams)
+          w (schema/transactor local intake {:strict true})]
+      (schema/transact! w (bootstrap-tx))
+      (is (thrown-with-msg?
+            #?(:cljs js/Error :cljd Object :default Exception)
+            #"dangling ref"
+            (schema/transact! w [{:db/id 8}
+                                 {:db/id 9 :person/friends 8}])))
       (ds/close! w)))
   (testing "lax: dangling ref appends"
     (let [{:keys [local intake]} (fresh-streams)
@@ -1130,6 +1160,41 @@
               #?(:cljs js/Error :cljd Object :default Exception)
               #"axiom protection"
               (schema/transact! w [[:db/retract 16 :db/unique true]])))
+        (ds/close! w)))
+    (testing (str "strict=" strict? ": axiom identity cannot be renamed")
+      (let [{:keys [local intake]} (fresh-streams)
+            w (schema/transactor local intake {:strict strict?})]
+        (schema/transact! w (schema/bootstrap))
+        (let [before (datoms-of local)]
+          (is (thrown-with-msg?
+                #?(:cljs js/Error :cljd Object :default Exception)
+                #"axiom protection"
+                (schema/transact! w [[:db/add 16 :db/ident
+                                      :evil/renamed]])))
+          (is (= before (datoms-of local))
+              "renaming an axiom appends nothing"))
+        (is (thrown-with-msg?
+              #?(:cljs js/Error :cljd Object :default Exception)
+              #"axiom protection"
+              (schema/transact! w [{:db/id 16
+                                    :db/ident :evil/map-renamed}])))
+        (ds/close! w)))
+    (testing (str "strict=" strict?
+                  ": same-record axiom declaration cannot mutate its axiom")
+      (let [{:keys [local intake]} (fresh-streams)
+            w (schema/transactor local intake {:strict strict?})
+            before (datoms-of local)]
+        (is (thrown-with-msg?
+              #?(:cljs js/Error :cljd Object :default Exception)
+              #"axiom protection"
+              (schema/transact!
+                w
+                [[:db/add 99 :db/ident :db/ident]
+                 [:db/add 99 :db/cardinality :db.cardinality/many]])))
+        (is (= before (datoms-of local))
+            "a same-record axiom mutation appends nothing")
+        (is (= 0 (:t (schema/transact! w [[7 :person/value :ok]])))
+            "an axiom rejection consumes no transaction time")
         (ds/close! w)))))
 
 
@@ -1169,22 +1234,30 @@
   (doseq [strict? [true false]]
     (testing (str "strict=" strict? ": unique on undeclared cardinality")
       (let [{:keys [local intake]} (fresh-streams)
-            w (schema/transactor local intake {:strict strict?})]
+            w (schema/transactor local intake {:strict strict?})
+            before (datoms-of local)]
         (is (thrown-with-msg?
               #?(:cljs js/Error :cljd Object :default Exception)
               #":db/unique requires :db.cardinality/one"
               (schema/transact! w [[:db/add 21 :db/ident :test/x]
                                    [:db/add 21 :db/unique true]])))
+        (is (= before (datoms-of local))
+            "rejection leaves the append-only history unchanged")
+        (is (= 0 (:t (schema/transact! w [[30 :test/value :ok]])))
+            "a rejected plan consumes no transaction time")
         (ds/close! w)))
     (testing (str "strict=" strict? ": unique on card-many")
       (let [{:keys [local intake]} (fresh-streams)
-            w (schema/transactor local intake {:strict strict?})]
+            w (schema/transactor local intake {:strict strict?})
+            before (datoms-of local)]
         (is (thrown-with-msg?
               #?(:cljs js/Error :cljd Object :default Exception)
               #":db/unique requires :db.cardinality/one"
               (schema/transact! w [[:db/add 21 :db/ident :test/x]
                                    [:db/add 21 :db/cardinality :db.cardinality/many]
                                    [:db/add 21 :db/unique true]])))
+        (is (= before (datoms-of local))
+            "rejection leaves the append-only history unchanged")
         (ds/close! w)))))
 
 
@@ -1261,17 +1334,20 @@
       ;; The valid value IS returned only if present.
       (is (= #{} (set valid))
           "no valid string values found (only the violation exists)"))
-    ;; Audit: violation direction via complement predicate
-    (let [rel (query/relation (datoms-of local))
+    ;; Audit: preserve provenance by collapsing history to raw-current d5,
+    ;; then query that relation directly rather than projecting through the
+    ;; current d3 view.
+    (let [raw-current-d5 (query/current-state-seq (datoms-of local))
+          rel (query/relation raw-current-d5)
           violations
           (query/collect
-            (query/q '[:find ?e ?v
-                       :where [?e :person/name ?v]
+            (query/q '[:find ?e ?v ?t ?m
+                       :where [?e :person/name ?v ?t ?m]
                        [(not-string? ?v)]]
-                     (query/current rel)
+                     rel
                      {:fns {'not-string? (complement string?)}}))]
-      (is (= #{[7 42]} (set violations))
-          "audit finds the violation via :fns"))
+      (is (= #{[7 42 1 1]} (set violations))
+          "audit finds the violation with transaction and metadata provenance"))
     (ds/close! w)))
 
 
@@ -1508,3 +1584,241 @@
              (qq '[:find ?e :where [?e :person/email "a@b.com"]]
                  (query/current (query/relation (datoms-of local))))))
       (ds/close! w))))
+
+
+;; ---------------------------------------------------------------------------
+;; W44: lax ambiguity is retained as data, never collapsed in wrapper state
+;; ---------------------------------------------------------------------------
+
+(deftest lax-unique-ambiguity-rejects-lookup
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake)]
+    (schema/transact! w (bootstrap-tx))
+    (schema/transact! w [{:db/id 7 :person/email "dup@x.com"}])
+    (schema/transact! w [{:db/id 8 :person/email "dup@x.com"}])
+    (let [before (datoms-of local)]
+      (is (thrown-with-msg?
+            #?(:cljs js/Error :cljd Object :default Exception)
+            #"ambiguous lookup ref"
+            (schema/transact! w [{:db/id [:person/email "dup@x.com"]
+                                  :person/name "Nobody"}])))
+      (is (= before (datoms-of local))
+          "an ambiguous address has no value to append"))
+    (ds/close! w)
+    (testing "a strict wrapper reopening lax history retains the ambiguity"
+      (let [strict-wrapper (schema/transactor local intake {:strict true})
+            before (datoms-of local)]
+        (is (thrown-with-msg?
+              #?(:cljs js/Error :cljd Object :default Exception)
+              #"ambiguous lookup ref"
+              (schema/transact!
+                strict-wrapper
+                [{:db/id [:person/email "dup@x.com"]
+                  :person/name "Nobody"}])))
+        (is (= before (datoms-of local)))
+        (ds/close! strict-wrapper)))))
+
+
+;; ---------------------------------------------------------------------------
+;; W45: retractions update the live unique projection
+;; ---------------------------------------------------------------------------
+
+(deftest retract-frees-unique-value
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake {:strict true})]
+    (schema/transact! w (bootstrap-tx))
+    (schema/transact! w [{:db/id 7 :person/email "reuse@x.com"}])
+    (schema/transact! w [[:db/retract 7 :person/email "reuse@x.com"]])
+    (is (= :ok (:result
+                 (schema/transact! w
+                                   [{:db/id 8
+                                     :person/email "reuse@x.com"}]))))
+    (is (= #{[8]}
+           (qq '[:find ?e :where [?e :person/email "reuse@x.com"]]
+               (query/current (query/relation (datoms-of local))))))
+    (ds/close! w)))
+
+
+;; ---------------------------------------------------------------------------
+;; W46: map-form desired state repairs every lax card-one predecessor
+;; ---------------------------------------------------------------------------
+
+(deftest map-form-repairs-all-card-one-values
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake)]
+    (schema/transact! w (bootstrap-tx))
+    (schema/transact! w [[:db/add 7 :person/name "old-a"]])
+    (schema/transact! w [[:db/add 7 :person/name "old-b"]])
+    (let [result (schema/transact! w [{:db/id 7 :person/name "new"}])
+          repaired (:datoms result)]
+      (is (= 3 (count repaired))
+          "repair retracts both predecessors and asserts desired state")
+      (is (= #{"old-a" "old-b"}
+             (into #{}
+                   (comp (filter datom/retracted?)
+                         (map index/datom-v))
+                   repaired))))
+    (is (= #{["new"]}
+           (qq '[:find ?v :where [7 :person/name ?v]]
+               (query/current (query/relation (datoms-of local))))))
+    (ds/close! w)))
+
+
+;; ---------------------------------------------------------------------------
+;; W47: one wrapper is one serialized writer boundary
+;; ---------------------------------------------------------------------------
+
+(deftest concurrent-strict-unique-writes-serialize
+  #?(:clj
+     (let [{:keys [local intake]} (fresh-streams)
+           w (schema/transactor local intake {:strict true})
+           start (promise)]
+       (schema/transact! w (bootstrap-tx))
+       (let [writes (doall
+                      (for [e (range 100 116)]
+                        (future
+                          @start
+                          (try
+                            (schema/transact!
+                              w [{:db/id e :person/email "race@x.com"}])
+                            :committed
+                            (catch Exception _ :rejected)))))]
+         (deliver start true)
+         (is (= 1 (count (filter #{:committed} (map deref writes)))))
+         (is (= 1
+                (count
+                  (qq '[:find ?e
+                        :where [?e :person/email "race@x.com"]]
+                      (query/current
+                        (query/relation (datoms-of local))))))))
+       (ds/close! w))
+     :default
+     (is true)))
+
+
+;; ---------------------------------------------------------------------------
+;; W48: only emitted assertions establish entity existence
+;; ---------------------------------------------------------------------------
+
+(deftest non-emitting-map-is-not-a-ref-target
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake {:strict true})]
+    (schema/transact! w (bootstrap-tx))
+    (let [before (datoms-of local)]
+      (is (thrown-with-msg?
+            #?(:cljs js/Error :cljd Object :default Exception)
+            #"dangling ref"
+            (schema/transact! w [{:db/id 8 :person/friends []}
+                                 {:db/id 9 :person/friends 8}])))
+      (is (= before (datoms-of local))
+          "a zero-emission map cannot create a transient phantom entity"))
+    (ds/close! w)))
+
+
+;; ---------------------------------------------------------------------------
+;; W49: one transaction cannot carry opposite operations for one EAV
+;; ---------------------------------------------------------------------------
+
+(deftest opposite-operations-on-one-eav-reject-atomically
+  (doseq [strict? [true false]
+          tx-data [[[:db/add 7 :person/name "x"]
+                    [:db/retract 7 :person/name "x"]]
+                   [[:db/retract 7 :person/name "x"]
+                    [:db/add 7 :person/name "x"]]]]
+    (let [{:keys [local intake]} (fresh-streams)
+          w (schema/transactor local intake {:strict strict?})]
+      (schema/transact! w (bootstrap-tx))
+      (let [before (datoms-of local)]
+        (is (thrown-with-msg?
+              #?(:cljs js/Error :cljd Object :default Exception)
+              #"opposite operations"
+              (schema/transact! w tx-data)))
+        (is (= before (datoms-of local))
+            "a record rejected by current-state semantics appends nothing")
+        (is (= 1 (:t (schema/transact! w [[8 :person/name "valid"]])))
+            "a rejected plan consumes no transaction time"))
+      (ds/close! w))))
+
+
+;; ---------------------------------------------------------------------------
+;; W50: schema retractions become the next transaction's epoch
+;; ---------------------------------------------------------------------------
+
+(deftest schema-retractions-update-live-and-reopened-wrappers
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake {:strict true})]
+    (schema/transact! w (bootstrap-tx))
+    (schema/transact! w [[:db/retract 23 :db/unique true]
+                         [:db/retract 23 :db/cardinality
+                          :db.cardinality/one]])
+    (schema/transact! w [[7 :person/email "shared@x.com"]
+                         [8 :person/email "shared@x.com"]
+                         [7 :person/email "second@x.com"]])
+    (is (= #{[7 "shared@x.com"]
+             [7 "second@x.com"]
+             [8 "shared@x.com"]}
+           (qq '[:find ?e ?v :where [?e :person/email ?v]]
+               (schema/current (query/relation (datoms-of local))))))
+    (ds/close! w)
+    (let [reopened (schema/transactor local intake {:strict true})]
+      (is (= :ok (:result
+                   (schema/transact! reopened
+                                     [[9 :person/email "shared@x.com"]]))))
+      (is (thrown-with-msg?
+            #?(:cljs js/Error :cljd Object :default Exception)
+            #"unmatched lookup ref"
+            (schema/transact!
+              reopened
+              [{:db/id [:person/email "shared@x.com"]
+                :person/name "Nobody"}])))
+      (ds/close! reopened))))
+
+
+;; ---------------------------------------------------------------------------
+;; W51: reified metadata refs seed schema and values on wrapper open
+;; ---------------------------------------------------------------------------
+
+(deftest reified-metadata-reference-seeds-wrapper-state
+  (let [{:keys [local intake]} (fresh-streams)
+        metadata-e 99
+        rows (conj (mapv #(assoc % 4 metadata-e) schema-rows)
+                   [7 :person/name "old" 0 metadata-e])]
+    (doseq [row rows]
+      (ds/append! local row))
+    (let [w (schema/transactor local intake {:strict true})
+          result (schema/transact! w [{:db/id 7 :person/name "new"}])]
+      (is (= #{[7 :person/name "old" (:db/retract datom/reserved)]
+               [7 :person/name "new" (:db/assert datom/reserved)]}
+             (set (map (fn [d]
+                         [(index/datom-e d)
+                          (index/datom-a d)
+                          (index/datom-v d)
+                          (index/datom-m d)])
+                       (:datoms result))))
+          "reopened state repairs the metadata-backed live value")
+      (ds/close! w))))
+
+
+;; ---------------------------------------------------------------------------
+;; W52: the guarantee boundary: :db/unique is per-stream, never per-world
+;; ---------------------------------------------------------------------------
+
+(deftest unique-is-per-stream-not-per-world
+  (let [{a-local :local, a-intake :intake} (fresh-streams)
+        {b-local :local, b-intake :intake} (fresh-streams)
+        wa (schema/transactor a-local a-intake {:strict true})
+        wb (schema/transactor b-local b-intake {:strict true})]
+    (schema/transact! wa (bootstrap-tx))
+    (schema/transact! wb (bootstrap-tx))
+    (testing "the same unique value commits on two independent streams"
+      (is (= :ok (:result (schema/transact!
+                            wa [{:db/id 7 :person/email "dup@x.com"}]))))
+      (is (= :ok (:result (schema/transact!
+                            wb [{:db/id 8 :person/email "dup@x.com"}])))))
+    (testing "each stream still enforces its own uniqueness"
+      (is (thrown-with-msg?
+            #?(:cljs js/Error :cljd Object :default Exception)
+            #"unique duplicate"
+            (schema/transact! wb [{:db/id 9 :person/email "dup@x.com"}]))))
+    (ds/close! wa)
+    (ds/close! wb)))

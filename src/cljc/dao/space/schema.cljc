@@ -118,8 +118,8 @@
    [e a v t m] vectors, already as-of-bounded by the caller. Fetches
    through the public q surface over the history view, then applies the
    private fold: current-state semantics per [se p v], name entities by
-   live :db/ident, collapse per [entity property] (greatest (t, m), tie
-   under index/compare-vals). Returns {ident property-map} of live,
+   live :db/ident, collapse per [entity property] (greatest t, tie under
+   index/compare-vals). Returns {ident property-map} of live,
    declared properties. Includes :db/* entities if present but does not
    synthesize them. Throws on unknown :db.type and on conflicting
    same-[se p v t]-different-m rows."
@@ -136,10 +136,12 @@
         ;; Greatest t wins; same [se p v t] different m throws;
         ;; retractions removed.
         live (query/current-state-seq (mapv vec fetched))
-        ;; Collect surviving assertions.
-        asserts (filterv datom/asserted? live)
-        ;; Build entity -> ident map from live :db/ident assertions.
-        ident-rows (filterv #(= :db/ident (index/datom-a %)) asserts)
+        ;; current-state-seq has already removed the reserved retraction
+        ;; marker. Keep every surviving fact, including one whose m names a
+        ;; reified metadata entity rather than the reserved assert marker.
+        facts live
+        ;; Build entity -> ident map from live :db/ident facts.
+        ident-rows (filterv #(= :db/ident (index/datom-a %)) facts)
         entity->ident
         (persistent!
           (reduce (fn [m row]
@@ -149,10 +151,6 @@
                             (< (index/datom-t prev) (index/datom-t row))
                             (assoc! m e row)
                             (> (index/datom-t prev) (index/datom-t row))
-                            m
-                            (< (index/datom-m prev) (index/datom-m row))
-                            (assoc! m e row)
-                            (> (index/datom-m prev) (index/datom-m row))
                             m
                             :else
                             (let [c (index/compare-vals
@@ -166,9 +164,9 @@
         valid-es (set (keys entity->ident))
         prop-asserts (filterv #(and (not= :db/ident (index/datom-a %))
                                     (contains? valid-es (index/datom-e %)))
-                              asserts)
-        ;; Greatest (t, m) lexicographic wins; on full tie, least v
-        ;; under compare-vals.
+                              facts)
+        ;; Greatest t wins; on a same-t tie, least v under compare-vals.
+        ;; m is a metadata entity reference, never an ordering coordinate.
         by-ep (persistent!
                 (reduce (fn [m row]
                           (let [k [(index/datom-e row) (index/datom-a row)]]
@@ -179,10 +177,6 @@
                                                (index/datom-t row)) row
                                             (> (index/datom-t prev)
                                                (index/datom-t row)) prev
-                                            (< (index/datom-m prev)
-                                               (index/datom-m row)) row
-                                            (> (index/datom-m prev)
-                                               (index/datom-m row)) prev
                                             :else
                                             (let [c (index/compare-vals
                                                       (index/datom-v prev)
@@ -272,10 +266,9 @@
                                     ident)))
                           schema)
         surviving (query/current-state-seq data-rows)
-        asserts (filterv datom/asserted? surviving)
         {card-one-rows true,
          pass-through  false}
-        (group-by #(contains? card-one-es (index/datom-a %)) asserts)
+        (group-by #(contains? card-one-es (index/datom-a %)) surviving)
         collapsed
         (vals
           (reduce
@@ -288,10 +281,6 @@
                                   (index/datom-t row)) row
                                (> (index/datom-t prev)
                                   (index/datom-t row)) prev
-                               (< (index/datom-m prev)
-                                  (index/datom-m row)) row
-                               (> (index/datom-m prev)
-                                  (index/datom-m row)) prev
                                :else
                                (let [c (index/compare-vals
                                          (index/datom-v prev)
@@ -374,24 +363,53 @@
 ;; =============================================================================
 
 (defn- resolve-lookup-ref
-  "Resolve a lookup ref [:attr value] against unique + record state.
-   Returns the entity id, or nil if not found."
-  [ref state record-unique]
+  "Resolve a lookup ref [:attr value] against the planned unique state.
+   A unique index retains every claimant so lax violations remain explicit.
+   Returns the sole entity id, nil when absent, and throws when ambiguous."
+  [ref state]
   (when (and (vector? ref) (= 2 (count ref)))
-    (let [[attr val] ref]
-      (or (get-in record-unique [attr val])
-          (get-in (:unique state) [attr val])))))
+    (let [[attr val] ref
+          owners (get-in (:unique state) [attr val] #{})]
+      (case (count owners)
+        0 nil
+        1 (first owners)
+        (throw (ex-info (str "ambiguous lookup ref: " (pr-str ref)
+                             " names entities " (pr-str owners))
+                        {:lookup-ref ref, :entities owners}))))))
+
+
+(defn- unique-attr?
+  [schema attr]
+  (let [props (resolve-props schema attr)]
+    (and (:db/unique props)
+         (= :db.cardinality/one (:db/cardinality props)))))
+
+
+(defn- add-unique-owner
+  [unique attr value e]
+  (update-in unique [attr value] (fnil conj #{}) e))
+
+
+(defn- remove-unique-owner
+  [unique attr value e]
+  (if-not (contains? (get unique attr {}) value)
+    unique
+    (let [owners (disj (get-in unique [attr value]) e)]
+      (cond
+        (seq owners) (assoc-in unique [attr value] owners)
+        (= 1 (count (get unique attr))) (dissoc unique attr)
+        :else (update unique attr dissoc value)))))
 
 
 (defn- resolve-ref-value
   "Resolve a ref value if the attr is :db.type/ref. Lookup refs resolve
-   against unique + record state."
-  [v attr schema state record-unique]
+   against the planned unique state."
+  [v attr schema state]
   (let [resolved-props (resolve-props schema attr)]
     (if (and (= :db.type/ref (:db/valueType resolved-props))
              (vector? v)
              (= 2 (count v)))
-      (or (resolve-lookup-ref v state record-unique)
+      (or (resolve-lookup-ref v state)
           (throw (ex-info (str "unmatched lookup ref in ref position: "
                                (pr-str v))
                           {:lookup-ref v, :attr attr})))
@@ -401,20 +419,30 @@
 (defn- emit-retract
   "Emit a retraction datom [e a v nil 0] and update state."
   [e a v datoms state]
-  (let [k [e a]]
+  (let [k [e a]
+        vs (get-in state [:values k])
+        present? (contains? (or vs #{}) v)
+        vs' (disj vs v)
+        values (if (empty? vs')
+                 (dissoc (:values state) k)
+                 (assoc (:values state) k vs'))
+        fact-count (get-in state [:entity-fact-count e] 0)
+        fact-count' (if present? (dec fact-count) fact-count)
+        entity-fact-count (cond
+                            (not present?) (:entity-fact-count state)
+                            (pos? fact-count')
+                            (assoc (:entity-fact-count state) e fact-count')
+                            :else
+                            (dissoc (:entity-fact-count state) e))]
     (assoc state
-           :datoms (conj! datoms [e a v nil 0])
-           :values (let [vs (get-in state [:values k])
-                         vs' (disj vs v)]
-                     (if (empty? vs')
-                       (dissoc (:values state) k)
-                       (assoc (:values state) k vs')))
-           :unique (if-let [attr-uv (get-in state [:unique a])]
-                     (let [attr-uv' (dissoc attr-uv v)]
-                       (if (empty? attr-uv')
-                         (dissoc (:unique state) a)
-                         (assoc (:unique state) a attr-uv')))
-                     (:unique state)))))
+           :datoms (conj! datoms
+                          [e a v nil (:db/retract datom/reserved)])
+           :values values
+           :entity-fact-count entity-fact-count
+           :entities (if (and present? (zero? fact-count'))
+                       (disj (:entities state) e)
+                       (:entities state))
+           :unique (remove-unique-owner (:unique state) a v e))))
 
 
 (defn- emit-assert
@@ -423,43 +451,44 @@
    this record — is a strict-mode rejection (§3.1: the batch is validated
    against the index and against itself); lax appends it and the §6 audit
    measures it."
-  [e a v datoms state record-unique record-es]
+  [e a v datoms state]
   (let [k [e a]
+        new-fact? (not (contains? (get-in state [:values k] #{}) v))
         resolved-props (resolve-props (:schema state) a)
         is-unique (and (:db/unique resolved-props)
                        (= :db.cardinality/one
                           (:db/cardinality resolved-props)))
-        conflicting-e (when is-unique
-                        (let [live-e (get-in (:unique state) [a v])
-                              rec-e (get record-unique [a v])]
-                          (cond (and live-e (not= live-e e)) live-e
-                                (and rec-e (not= rec-e e)) rec-e)))]
-    (when (and conflicting-e (:strict? state))
+        conflicting-es (when is-unique
+                         (disj (get-in (:unique state) [a v] #{}) e))]
+    ;; :db/ident duplication is a schema-structure violation in both modes;
+    ;; validate-schema-row! owns that diagnostic below this translation step.
+    (when (and (seq conflicting-es) (:strict? state) (not= :db/ident a))
       (throw
         (ex-info
           (str "unique duplicate for " (pr-str a) ": " (pr-str v)
-               " already held by entity " conflicting-e)
-          {:attr a, :value v, :entity e, :conflict conflicting-e})))
+               " already held by entities " (pr-str conflicting-es))
+          {:attr a, :value v, :entity e, :conflicts conflicting-es})))
     (assoc state
            :datoms (conj! datoms [e a v])
            :values (update (:values state) k (fnil conj #{}) v)
+           :entity-fact-count (if new-fact?
+                                (update (:entity-fact-count state) e
+                                        (fnil inc 0))
+                                (:entity-fact-count state))
+           :entities (conj (:entities state) e)
            :unique (if is-unique
-                     (assoc-in (:unique state) [a v] e)
-                     (:unique state))
-           :record-unique (if is-unique
-                            (assoc-in record-unique [a v] e)
-                            record-unique)
-           :record-es (conj record-es e))))
+                     (add-unique-owner (:unique state) a v e)
+                     (:unique state)))))
 
 
 (defn- validate-ref!
-  "Validate ref existence in strict mode. Target must be in entities or
-   record-es."
-  [v e a state record-es strict?]
+  "Validate assertion-time ref existence in strict mode. The target must be
+   live before this item or denoted by an assertion-emitting entity map in
+   this record."
+  [v e a state strict?]
   (when strict?
     (when (and (integer? v) (not (neg? v)))
-      (when-not (or (contains? (:entities state) v)
-                    (contains? record-es v))
+      (when-not (contains? (:entities state) v)
         (throw (ex-info (str "dangling ref: " (pr-str v)
                              " not found for " (pr-str a))
                         {:ref v, :entity e, :attr a}))))))
@@ -484,60 +513,61 @@
 
 
 (defn- translate-entity
-  "Translate one entity map into datoms. Returns {:datoms [...] :state s'
-   :record-unique ru' :record-es re'}."
-  [entity state schema strict? record-unique record-es]
+  "Translate one entity map into datoms. Returns {:datoms [...] :state s'}."
+  [entity state schema strict?]
   (when-not (contains? entity :db/id)
     (throw (ex-info "entity map requires :db/id" {:entity entity})))
   (let [raw-e (:db/id entity)
         e (if (and (vector? raw-e) (= 2 (count raw-e)))
-            (or (resolve-lookup-ref raw-e state record-unique)
+            (or (resolve-lookup-ref raw-e state)
                 (throw (ex-info (str "unmatched lookup ref: " (pr-str raw-e))
                                 {:lookup-ref raw-e})))
-            raw-e)]
-    (loop [attrs (dissoc entity :db/id)
+            raw-e)
+        entity-attrs (dissoc entity :db/id)
+        emits-assertion?
+        (some
+          (fn [[attr val]]
+            (let [card (:db/cardinality (resolve-props schema attr))
+                  lookup-ref? (and (vector? val)
+                                   (= 2 (count val))
+                                   (keyword? (first val))
+                                   (unique-attr? schema (first val)))]
+              (or (= :db.cardinality/one card)
+                  lookup-ref?
+                  (not (and (coll? val) (empty? val))))))
+          entity-attrs)]
+    (loop [attrs entity-attrs
            datoms (transient [])
-           st state
-           ru record-unique
-           re record-es]
+           ;; Pre-mark only a map that will emit an assertion. This preserves
+           ;; self-refs without granting existence to an empty collection.
+           st (if emits-assertion? (update state :entities conj e) state)]
       (if (empty? attrs)
         {:datoms (persistent! datoms)
-         :state st
-         :record-unique ru
-         :record-es (conj re e)}
+         :state st}
         (let [[attr val] (first attrs)
               resolved-props (resolve-props schema attr)
               card (:db/cardinality resolved-props)
               live (get-in st [:values [e attr]])]
           (cond
             (= card :db.cardinality/one)
-            (let [v (resolve-ref-value val attr schema st ru)]
+            (let [v (resolve-ref-value val attr schema st)]
               (when-not (schema-row? attr)
                 (validate-type! v attr schema st strict?)
-                (validate-ref! v e attr st re strict?))
-              (if (and live (not= (first live) v))
-                ;; supersession: retract old + assert new
-                (let [v-old (first live)
-                      _ (when (and (= :db.type/ref
-                                      (:db/valueType resolved-props))
-                                   strict?)
-                          (validate-ref! v-old e attr st re strict?))
-                      after-retract (emit-retract e attr v-old datoms st)
-                      after-assert (emit-assert e attr v
-                                                (:datoms after-retract)
-                                                after-retract ru re)]
-                  (recur (rest attrs)
-                         (:datoms after-assert)
-                         after-assert
-                         (:record-unique after-assert)
-                         (:record-es after-assert)))
-                ;; assert only
-                (let [after (emit-assert e attr v datoms st ru re)]
-                  (recur (rest attrs)
-                         (:datoms after)
-                         after
-                         (:record-unique after)
-                         (:record-es after)))))
+                (validate-ref! v e attr st strict?))
+              ;; Desired-state repair: retract every other live value before
+              ;; asserting v. This restores raw-current coherence even after a
+              ;; lax writer left several card-one values live.
+              (let [[repair-datoms repair-state]
+                    (reduce
+                      (fn [[ds s] v-old]
+                        (let [after (emit-retract e attr v-old ds s)]
+                          [(:datoms after) after]))
+                      [datoms st]
+                      (sort index/compare-vals (disj (or live #{}) v)))
+                    after (emit-assert e attr v repair-datoms repair-state)]
+                (recur (rest attrs)
+                       (:datoms after)
+                       after)))
 
             ;; card-many or undeclared
             :else
@@ -550,7 +580,7 @@
                                    (vector? val)
                                    (= 2 (count val))
                                    (keyword? (first val))
-                                   (some? (get-in (:unique st) [(first val)])))
+                                   (unique-attr? schema (first val)))
                   vs (if (and (coll? val) (not lookup-ref?))
                        (vec val)
                        [val])
@@ -558,23 +588,19 @@
                   (reduce
                     (fn [acc v-raw]
                       (let [v (resolve-ref-value v-raw attr schema
-                                                 (:state acc) (:ru acc))]
+                                                 (:state acc))]
                         (when-not (schema-row? attr)
                           (validate-type! v attr schema (:state acc) strict?)
-                          (validate-ref! v e attr (:state acc) (:er acc) strict?))
+                          (validate-ref! v e attr (:state acc) strict?))
                         (let [after (emit-assert e attr v (:d acc)
-                                                 (:state acc) (:ru acc) (:er acc))]
+                                                 (:state acc))]
                           {:d (:datoms after)
-                           :state after
-                           :ru (:record-unique after)
-                           :er (:record-es after)})))
-                    {:d datoms :state st :ru ru :er re}
+                           :state after})))
+                    {:d datoms :state st}
                     vs)]
               (recur (rest attrs)
                      (:d result)
-                     (:state result)
-                     (:ru result)
-                     (:er result)))))))))
+                     (:state result)))))))))
 
 
 (defn- schema-row?
@@ -598,7 +624,7 @@
    rules. Throws on violations. Called per datom before emission.
    Axiom protection (rule 3) fires FIRST — it is both-modes and takes
    precedence over generic :db/* checks."
-  [e a v state _schema record-unique _record-es]
+  [e a v state]
   ;; Rule 3: axiom protection (FIRST — both-modes, takes precedence)
   ;; Only applies when entity already has a live ident that is an axiom.
   (when (and (not= a :db/ident) (get (:entity->ident state) e))
@@ -649,63 +675,36 @@
                              (pr-str v))
                         {:value v})))
       nil)
-    ;; Rule 2: :db/ident uniqueness
+      ;; Rule 2: :db/ident uniqueness
     (when (= a :db/ident)
-      (let [existing-e (get-in (:unique state) [:db/ident v])]
-        (when (and existing-e (not= existing-e e))
+      (let [existing-es (disj (get-in (:unique state) [:db/ident v] #{}) e)]
+        (when (seq existing-es)
           (throw (ex-info (str "duplicate :db/ident " (pr-str v)
-                               ": already owned by entity " existing-e)
-                          {:ident v, :existing-entity existing-e,
-                           :new-entity e}))))
-      (let [record-owner (get-in record-unique [:db/ident v])]
-        (when (and record-owner (not= record-owner e))
-          (throw (ex-info (str "duplicate :db/ident " (pr-str v)
-                               " within record: entities " record-owner
-                               " and " e)
-                          {:ident v, :entities [record-owner e]})))))))
+                               ": already owned by entities " (pr-str existing-es))
+                          {:ident v, :existing-entities existing-es,
+                           :new-entity e})))))))
 
 
 (defn- validate-unique-card-one!
-  "Post-record check: every attr declared :db/unique must be card-one.
-   Checks both live schema, record declarations, and the translated datoms
-   for :db/unique assertions."
-  [state schema record-unique datoms]
-  ;; Collect all attrs that have :db/unique declared (live + record + datoms)
-  (let [;; From live unique index
-        live-unique-attrs (set (keys (:unique state)))
-        ;; From record-unique
-        record-unique-attrs (set (keys record-unique))
-        ;; From datoms: any [:db/add e :db/unique true] declares e's ident as unique
-        datom-unique-attrs
-        (into #{}
-              (keep (fn [d]
-                      (when (and (= :db/unique (nth d 1))
-                                 (= true (nth d 2)))
-                        (let [e (nth d 0)
-                              ident (or (get (:entity->ident state) e)
-                                        (some (fn [[v ent]]
-                                                (when (= ent e) v))
-                                              (get record-unique :db/ident)))]
-                          (when ident ident)))))
-              datoms)
-        all-unique-attrs (into live-unique-attrs
-                               (concat record-unique-attrs datom-unique-attrs))]
-    (doseq [attr all-unique-attrs]
-      (when-not (contains? axioms attr)
-        (let [rp (resolve-props schema attr)]
-          (when-not (= :db.cardinality/one (:db/cardinality rp))
-            (throw (ex-info (str ":db/unique requires :db.cardinality/one, but "
-                                 (pr-str attr) " is " (pr-str (:db/cardinality rp)))
-                            {:attr attr}))))))))
+  "Pre-emission schema-structure check: every attribute whose proposed
+   schema declares :db/unique true must also declare card-one."
+  [schema]
+  (doseq [[attr props] schema
+          :when (:db/unique props)]
+    (when-not (= :db.cardinality/one (:db/cardinality props))
+      (throw (ex-info (str ":db/unique requires :db.cardinality/one, but "
+                           (pr-str attr) " is "
+                           (pr-str (:db/cardinality props)))
+                      {:attr attr})))))
 
 
 (defn- translate-record
   "Translate one record (entity map or datom vector) into flat datom vectors.
-   Returns {:datoms [...] :state s' :record-unique ru' :record-es re'}."
-  [item state schema strict? record-unique record-es]
+   Returns {:datoms [...] :state s'}."
+  [item state schema strict?]
   (cond
     (map? item)
-    (translate-entity item state schema strict? record-unique record-es)
+    (translate-entity item state schema strict?)
 
     ;; [:db/add e a v] or bare [e a v] shorthand
     (and (vector? item)
@@ -713,17 +712,28 @@
              (and (= 3 (count item)) (not (keyword? (first item))))))
     (let [[e-raw a v] (if (= :db/add (first item)) (rest item) item)
           e (if (and (vector? e-raw) (= 2 (count e-raw)))
-              (or (resolve-lookup-ref e-raw state record-unique)
+              (or (resolve-lookup-ref e-raw state)
                   (throw (ex-info (str "unmatched lookup ref: "
                                        (pr-str e-raw))
                                   {:lookup-ref e-raw})))
               e-raw)
-          resolved-v (resolve-ref-value v a schema state record-unique)]
+          resolved-v (resolve-ref-value v a schema state)]
+      ;; Axiom identity is itself protected. This must precede strict
+      ;; cardinality diagnostics so the both-mode structural rule wins.
+      (when (= a :db/ident)
+        (let [live-ident-for-e (get (:entity->ident state) e)]
+          (when (and (contains? axioms live-ident-for-e)
+                     (not= live-ident-for-e resolved-v))
+            (throw (ex-info (str "axiom protection: cannot rename "
+                                 (pr-str live-ident-for-e) " to "
+                                 (pr-str resolved-v))
+                            {:entity e, :ident live-ident-for-e,
+                             :actual resolved-v})))))
       ;; Skip data-level type validation for schema rows — the both-modes
       ;; validate-schema-row! handles them with proper error messages.
       (when-not (schema-row? a)
         (validate-type! resolved-v a schema state strict?)
-        (validate-ref! resolved-v e a state record-es strict?))
+        (validate-ref! resolved-v e a state strict?))
       ;; BOTH-MODES: axiom protection on [:db/add] (takes precedence over
       ;; card-one collision which is strict-only)
       (when (and (not= a :db/ident) (not (#{:db/id :db/add :db/retract} a)))
@@ -757,21 +767,16 @@
                                  " differs. Use retract first or map form.")
                             {:entity e, :attr a,
                              :live (first live), :new resolved-v})))))
-      {:datoms [[e a resolved-v]]
-       :state state
-       :record-unique (let [rp (resolve-props schema a)]
-                        (if (and (:db/unique rp)
-                                 (= :db.cardinality/one (:db/cardinality rp)))
-                          (assoc-in record-unique [a resolved-v] e)
-                          record-unique))
-       :record-es (conj record-es e)})
+      (let [after (emit-assert e a resolved-v (transient []) state)]
+        {:datoms (persistent! (:datoms after))
+         :state after}))
 
     (and (vector? item)
          (= :db/retract (first item))
          (= 4 (count item)))
     (let [[_ e-raw a v] item
           e (if (and (vector? e-raw) (= 2 (count e-raw)))
-              (or (resolve-lookup-ref e-raw state record-unique)
+              (or (resolve-lookup-ref e-raw state)
                   (throw (ex-info (str "unmatched lookup ref: "
                                        (pr-str e-raw))
                                   {:lookup-ref e-raw})))
@@ -785,23 +790,16 @@
                                  (pr-str live-ident-for-e))
                             {:entity e, :attr a,
                              :ident live-ident-for-e})))))
-      {:datoms [[e a v nil 0]]
-       :state (let [k [e a]
-                    vs (get-in state [:values k])
-                    vs' (disj vs v)]
-                (assoc state :values
-                       (if (empty? vs')
-                         (dissoc (:values state) k)
-                         (assoc (:values state) k vs'))))
-       :record-unique record-unique
-       :record-es record-es})
+      (let [after (emit-retract e a v (transient []) state)]
+        {:datoms (persistent! (:datoms after))
+         :state after}))
 
     (and (vector? item)
          (= :db/retract (first item))
          (= 3 (count item)))
     (let [[_ e-raw a] item
           e (if (and (vector? e-raw) (= 2 (count e-raw)))
-              (or (resolve-lookup-ref e-raw state record-unique)
+              (or (resolve-lookup-ref e-raw state)
                   (throw (ex-info (str "unmatched lookup ref: "
                                        (pr-str e-raw))
                                   {:lookup-ref e-raw})))
@@ -815,26 +813,124 @@
                                  (pr-str live-ident-for-e))
                             {:entity e, :attr a,
                              :ident live-ident-for-e})))))
-      (let [vs (get-in state [:values [e a]])
-            retract-datoms (mapv (fn [v] [e a v nil 0]) vs)]
-        {:datoms retract-datoms
-         :state (assoc state :values (dissoc (:values state) [e a]))
-         :record-unique record-unique
-         :record-es record-es}))
+      (let [vs (sort index/compare-vals (get-in state [:values [e a]]))
+            [datoms next-state]
+            (reduce
+              (fn [[ds s] v]
+                (let [after (emit-retract e a v ds s)]
+                  [(:datoms after) after]))
+              [(transient []) state]
+              vs)]
+        {:datoms (persistent! datoms)
+         :state next-state}))
 
     :else
     (throw (ex-info "unrecognized tx-data item"
                     {:item item}))))
 
 
+(defn- least-value
+  [values]
+  (first (sort index/compare-vals values)))
+
+
+(defn- reindex-state
+  "Derive every lookup projection from live values and one schema epoch.
+   Unique values retain a set of all claimants so lax ambiguity is data."
+  [state schema strict?]
+  (let [values (:values state)
+        entity-fact-count
+        (reduce-kv
+          (fn [counts [e _a] vs]
+            (update counts e (fnil + 0) (count vs)))
+          {}
+          values)
+        unique
+        (reduce-kv
+          (fn [idx [e a] vs]
+            (if (unique-attr? schema a)
+              (reduce (fn [m v] (add-unique-owner m a v e)) idx vs)
+              idx))
+          {}
+          values)
+        entity->ident
+        (reduce-kv
+          (fn [m [e a] vs]
+            (if (and (= :db/ident a) (seq vs))
+              (assoc m e (least-value vs))
+              m))
+          {}
+          values)]
+    {:values values
+     :unique unique
+     :entities (set (keys entity-fact-count))
+     :entity-fact-count entity-fact-count
+     :entity->ident entity->ident
+     :schema schema
+     :strict? strict?}))
+
+
+(defn- rows->state
+  [rows schema strict?]
+  (let [live (query/current-state-seq rows)
+        values (reduce
+                 (fn [m d]
+                   (update m
+                           [(index/datom-e d) (index/datom-a d)]
+                           (fnil conj #{})
+                           (index/datom-v d)))
+                 {}
+                 live)]
+    (reindex-state {:values values} schema strict?)))
+
+
+(defn- next-transaction-time
+  [rows]
+  (if (seq rows)
+    (inc (reduce max (map index/datom-t rows)))
+    0))
+
+
+(defn- stamp-candidate
+  [t d]
+  (let [[e a v _dt m] d]
+    [e a v t (if (nil? m) datom/default-op m)]))
+
+
+(declare contains-schema-row?)
+
+
+(defn- proposed-schema
+  "Interpret schema rows as the next transaction would, without emitting.
+   The wrapper and its inner transactor are serialized together, so the
+   predicted t is the inner transactor's next t."
+  [local-stream schema datoms]
+  (if-not (contains-schema-row? datoms)
+    schema
+    (let [rows (index/snapshot-datoms local-stream)
+          t (next-transaction-time rows)]
+      (extract-schema (into rows (map #(stamp-candidate t %) datoms))))))
+
+
+#_{:clj-kondo/ignore [:unused-binding]}
+
+
+(defn- with-write-lock
+  "Serialize one wrapper's validate -> append -> state transition. The state
+   atom is a private per-wrapper coordination handle, never global state."
+  [lock f]
+  #?(:clj (locking lock (f))
+     :default (f)))
+
+
 (deftype SchemaWrapper
-  [inner local-stream strict? schema state]
+  [inner local-stream strict? state]
 
   ds/IDaoStreamBound
 
   (close!
     [_]
-    (ds/close! inner))
+    (with-write-lock state #(ds/close! inner)))
 
 
   (closed?
@@ -855,39 +951,9 @@
                           :intake-pool intake-pool
                           :name "schema"})
          rows (index/snapshot-datoms local-stream)
-         schema (extract-schema rows)
-         cs (query/current-state-seq rows)
-         asserts (filterv datom/asserted? cs)
-         values (reduce
-                  (fn [m d]
-                    (let [k [(index/datom-e d) (index/datom-a d)]]
-                      (update m k (fnil conj #{}) (index/datom-v d))))
-                  {}
-                  asserts)
-         unique (reduce
-                  (fn [m d]
-                    (let [a (index/datom-a d)
-                          rp (resolve-props schema a)]
-                      (if (and (:db/unique rp)
-                               (= :db.cardinality/one
-                                  (:db/cardinality rp)))
-                        (assoc-in m [a (index/datom-v d)]
-                                  (index/datom-e d))
-                        m)))
-                  {}
-                  asserts)
-         entities (into #{} (map index/datom-e) asserts)
-         ;; entity->ident: reverse of (:unique :db/ident) for axiom lookup
-         entity->ident (into {}
-                             (map (fn [[v e]] [e v]))
-                             (get unique :db/ident))]
-     (->SchemaWrapper inner local-stream strict? schema
-                      (atom {:values values
-                             :unique unique
-                             :entities entities
-                             :entity->ident entity->ident
-                             :schema schema
-                             :strict? strict?})))))
+         schema (extract-schema rows)]
+     (->SchemaWrapper inner local-stream strict?
+                      (atom (rows->state rows schema strict?))))))
 
 
 (defn- contains-schema-row?
@@ -897,100 +963,139 @@
   (some (fn [d] (schema-row? (second d))) datoms))
 
 
+(defn- validate-record-ops!
+  "Reject item-order ambiguity between assertion and retraction for one EAV.
+   Persisted current-state semantics treats same-t opposite operations as
+   conflicting history, so such a record cannot cross the append boundary."
+  [datoms]
+  (reduce
+    (fn [ops d]
+      (let [eav (subvec (vec d) 0 3)
+            op (if (= 5 (count d)) (nth d 4) datom/default-op)]
+        (when (and (contains? ops eav) (not= (get ops eav) op))
+          (throw (ex-info (str "opposite operations on one EAV in a single "
+                               "transaction: " (pr-str eav))
+                          {:eav eav, :operations #{(get ops eav) op}})))
+        (assoc ops eav op)))
+    {}
+    datoms)
+  nil)
+
+
+(defn- translated-op
+  [d]
+  (if (= 5 (count d)) (nth d 4) datom/default-op))
+
+
+(defn- validate-axiom-datoms!
+  "Protect axiom entities using the complete translated record. Looking at
+   the whole record makes the rule independent of item order: an axiom ident
+   declared in this record protects every row on that entity in this record."
+  [datoms state]
+  (let [established
+        (reduce-kv
+          (fn [m [e a] values]
+            (if (= :db/ident a)
+              (reduce (fn [acc ident]
+                        (if (contains? axioms ident)
+                          (update acc e (fnil conj #{}) ident)
+                          acc))
+                      m
+                      values)
+              m))
+          {}
+          (:values state))
+        axiom-idents
+        (reduce
+          (fn [m d]
+            (let [[e a v] d]
+              (if (and (= :db/ident a)
+                       (= datom/default-op (translated-op d))
+                       (contains? axioms v))
+                (update m e (fnil conj #{}) v)
+                m)))
+          established
+          datoms)]
+    (doseq [[e idents] axiom-idents]
+      (when (< 1 (count idents))
+        (throw (ex-info (str "axiom protection: entity " (pr-str e)
+                             " cannot name multiple axioms "
+                             (pr-str idents))
+                        {:entity e, :idents idents}))))
+    (doseq [d datoms
+            :let [[e a v] d
+                  ident (first (get axiom-idents e))]
+            :when ident]
+      (let [expected (assoc (get axioms ident) :db/ident ident)]
+        (when (or (not= datom/default-op (translated-op d))
+                  (not (contains? expected a))
+                  (not= (get expected a) v))
+          (throw (ex-info (str "axiom protection: " (pr-str ident)
+                               " permits only its verbatim axiom facts, got "
+                               (pr-str [e a v]))
+                          {:entity e, :ident ident, :attr a, :value v,
+                           :expected (get expected a),
+                           :operation (translated-op d)}))))))
+  nil)
+
+
 (defn transact!
   "Translate, validate, and commit tx-data as one atomic record. Returns
-   {:result :ok :t t :datoms datoms}. After successful append, replays
-   the d5 datoms into wrapper state. Schema-row validation (both-modes)
-   runs per datom before emission; unique-card-one check runs per record."
+   {:result :ok :t t :datoms datoms}. One per-wrapper serialized transition
+   plans and validates the complete next state before the single append, then
+   installs that already-planned state only after append succeeds. Schema
+   changes become effective for the next transaction."
   [^SchemaWrapper wrapper tx-data]
-  (when (ds/closed? wrapper)
-    (throw (ex-info "cannot transact! on closed wrapper" {})))
-  (when (empty? tx-data)
-    (throw (ex-info "transact! requires at least one item"
-                    {:tx-data tx-data})))
-  (let [st @(.-state wrapper)
-        schema (:schema st)
-        strict? (.-strict? wrapper)
-        translated
-        (loop [items (vec tx-data)
-               datoms []
-               state st
-               record-unique {}
-               record-es #{}]
-          (if (empty? items)
-            {:datoms datoms, :state state,
-             :record-unique record-unique, :record-es record-es}
-            (let [item (first items)
-                  result (translate-record item state schema strict?
-                                           record-unique record-es)]
-              ;; Validate each translated datom (both-modes schema-row checks)
-              ;; Use PRE-translation record-unique/record-es for duplicate
-              ;; detection (the result has already been updated).
-              (doseq [d (:datoms result)]
-                (validate-schema-row! (nth d 0) (nth d 1) (nth d 2)
-                                      (:state result) schema
-                                      record-unique
-                                      record-es))
-              (recur (rest items)
-                     (into datoms (:datoms result))
-                     (:state result)
-                     (:record-unique result)
-                     (:record-es result)))))
-        datoms (:datoms translated)]
-    (when (empty? datoms)
-      (throw (ex-info "transact! produced no datoms" {:tx-data tx-data})))
-    (let [result (tx/transact! (.-inner wrapper) datoms)
-          d5-datoms (:datoms result)
-          asserts (filterv datom/asserted? d5-datoms)
-          has-schema-rows? (contains-schema-row? datoms)
-          new-schema (if has-schema-rows?
-                       (extract-schema
-                         (index/snapshot-datoms
-                           (.-local-stream wrapper)))
-                       schema)
-          ;; Post-record: unique-requires-card-one check (uses new-schema)
-          _ (validate-unique-card-one! (:state translated) new-schema
-                                       (:record-unique translated)
-                                       datoms)
-          st @(.-state wrapper)
-          new-values
-          (reduce
-            (fn [m d]
-              (let [k [(index/datom-e d) (index/datom-a d)]]
-                (update m k (fnil conj #{}) (index/datom-v d))))
-            (:values st)
-            asserts)
-          ;; F2: derive new-unique from new-schema (not stale outer schema)
-          new-unique
-          (reduce
-            (fn [m d]
-              (let [a (index/datom-a d)
-                    rp (resolve-props new-schema a)]
-                (if (and (:db/unique rp)
-                         (= :db.cardinality/one (:db/cardinality rp)))
-                  (assoc-in m [a (index/datom-v d)] (index/datom-e d))
-                  m)))
-            (:unique st)
-            asserts)
-          new-entities
-          (into (:entities st) (map index/datom-e) asserts)
-          ;; Update entity->ident from :db/ident assertions
-          new-entity->ident
-          (reduce
-            (fn [m d]
-              (if (= :db/ident (index/datom-a d))
-                (assoc m (index/datom-e d) (index/datom-v d))
-                m))
-            (get st :entity->ident {})
-            asserts)]
-      (reset! (.-state wrapper)
-              {:values new-values
-               :unique new-unique
-               :entities new-entities
-               :entity->ident new-entity->ident
-               :schema new-schema
-               :strict? (.-strict? wrapper)})
-      result)))
+  (let [lock (.-state wrapper)]
+    (with-write-lock
+      lock
+      (fn []
+        (when (ds/closed? wrapper)
+          (throw (ex-info "cannot transact! on closed wrapper" {})))
+        (when (empty? tx-data)
+          (throw (ex-info "transact! requires at least one item"
+                          {:tx-data tx-data})))
+        (let [st @lock
+              schema (:schema st)
+              strict? (.-strict? wrapper)
+              translated
+              (loop [items (vec tx-data)
+                     datoms []
+                     state st]
+                (if (empty? items)
+                  {:datoms datoms, :state state}
+                  (let [item (first items)
+                        result (translate-record item state schema strict?)]
+                    ;; Both-mode schema structure validation is part of the
+                    ;; plan, before any append can occur.
+                    (doseq [d (:datoms result)]
+                      (validate-schema-row! (nth d 0) (nth d 1) (nth d 2)
+                                            (:state result)))
+                    (recur (rest items)
+                           (into datoms (:datoms result))
+                           (:state result)))))
+              datoms (:datoms translated)]
+          (when (empty? datoms)
+            (throw (ex-info "transact! produced no datoms"
+                            {:tx-data tx-data})))
+          (validate-record-ops! datoms)
+          (validate-axiom-datoms! datoms st)
+          (let [schema-change? (boolean (contains-schema-row? datoms))
+                next-schema (proposed-schema (.-local-stream wrapper)
+                                             schema
+                                             datoms)
+                _ (validate-unique-card-one! next-schema)
+                next-state (if schema-change?
+                             (reindex-state (:state translated)
+                                            next-schema
+                                            strict?)
+                             (-> (:state translated)
+                                 (dissoc :datoms)
+                                 (assoc :schema next-schema
+                                        :strict? strict?)))
+                result (tx/transact! (.-inner wrapper) datoms)]
+            (reset! lock next-state)
+            result))))))
 
 
 ;; =============================================================================
