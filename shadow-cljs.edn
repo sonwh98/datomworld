@@ -1,11 +1,8 @@
 ;; shadow-cljs configuration
-{:source-paths
- ["src/dev"
-  "src/cljs"
-  "src/cljc"
-  "test"]
-
- :deps {:aliases [:cljs]}
+;; Source paths come from deps.edn (:paths plus the :cljs alias's
+;; :extra-paths); shadow ignores any :source-paths set here when :deps
+;; is used.
+{:deps {:aliases [:cljs]}
 
  :dev-http {9000 "public"}
 
