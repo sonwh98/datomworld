@@ -2,765 +2,1880 @@
 
 ## Summary
 
-`dao.gui.event` semantics do not belong in `dao.gui`, and do not belong in
-`dao.postgraphics`.
+`dao.gui.event` is the portable input interpreter downstream of terminal
+presentation. It consumes presented interaction geometry, normalized pointer
+packets, terminal input profiles, timer results, and subscription commands. It
+produces targeted pointer values, recognized gesture values, arena decisions,
+and diagnostics as explicit stream data.
 
-`dao.gui` is fixed as a pure compiler from Hiccup-like authored UI to
-`dao.postgraphics` frame programs. The terminal is the runtime that renders
-those frames and is also the place where host-native input first appears.
+The terminal is responsible for observing host-native input. It does not define
+portable gesture semantics. Android, iOS, Flutter, and mobile web all expose
+different gesture facilities, but they can provide the same lower-level facts:
+pointer identity, contact lifecycle, position, time, pressure, contact geometry,
+and cancellation. `dao.gui.event` interprets those facts through explicit
+recognizer-machine data.
 
-`dao.gui.event` is a separate runtime layer downstream of terminal
-presentation. In v1 it handles only tap events.
+The standard portable gesture vocabulary is:
 
-It is responsible for:
+- tap and repeated tap, including double tap
+- long press
+- pan / drag
+- swipe and fling
+- scale / pinch
+- rotation
+- combined translation, scale, and rotation
+- edge pan
+- pressure press when the device reports pressure
 
-- consuming terminal-emitted presented geometry for a specific frame
-- deriving a frame-local hit index from that geometry
-- consuming terminal-emitted tap input
-- adapting tap coordinates into GUI Cartesian coordinates when needed
-- hit-testing taps against the active hit index
-- notifying subscribers that have declared interest in a node id and event kind
+Custom recognizers use the same finite-state-machine data model as the standard
+recognizers. Targeted raw pointer streams remain available when an interaction
+cannot be expressed by the standard machines.
 
-It is not responsible for:
-
-- changing the `dao.gui` compile contract
-- embedding event semantics in `dao.postgraphics`
-- painting pixels directly
-- turning `dao.gui` into a stream runtime
-- introducing retained-scene semantics into `dao.gui`
+This contract cannot make application input out of events reserved by the host.
+Examples include operating-system navigation gestures and browser chrome
+gestures. When the host takes ownership after contact begins, the terminal emits
+`:cancel`; when the host intercepts before application delivery, no application
+pointer sequence exists.
 
 ## Layering
 
-The layers remain:
-
 ```text
 [dao.gui compiler]
-   │ emits dao.postgraphics frame program
+   │ emits dao.postgraphics frame program with interaction metadata
    ▼
 [terminal]
    ├─ presents frame
-   ├─ emits presented-frame geometry
-   └─ emits native tap input
+   ├─ emits presented interaction geometry
+   ├─ emits an immutable input profile
+   ├─ normalizes host pointer packets
+   └─ emits terminal/reset/input-loss/space-change signals
    ▼
 [dao.gui.event runtime]
-   ├─ derives frame-local hit index
-   ├─ normalizes tap coordinates into GUI space
-   ├─ hit-tests taps
-   └─ dispatches tap signals to subscribers
+   ├─ constructs explicit hit paths and gesture arenas
+   ├─ captures pointer sequences to their initial paths
+   ├─ interprets recognizer-machine data
+   ├─ consumes explicit timer results
+   └─ emits targeted pointer, gesture, and diagnostic values
    ▼
-application
+[application streams]
 ```
 
-Key point:
+The separation is strict:
 
-- `dao.gui` compiles authored UI into a frame program
-- the terminal is authoritative for what was actually presented
-- presented geometry is only final after presentation
-- `dao.gui.event` interprets that presented geometry to build hit regions
-- subscribers are notified downstream of explicit hit-testing
+- `dao.gui` remains a pure compiler.
+- `dao.postgraphics` remains rendering bytecode plus inert metadata carriage.
+- the terminal owns host observation, presentation, and coordinate adaptation.
+- `dao.gui.event` owns portable hit-testing, recognition, arbitration, capture,
+  and dispatch interpretation.
+- the application owns state updates and recompilation.
 
-Neither `dao.gui` nor `dao.postgraphics` absorbs these runtime concerns.
-
-## Why Not `dao.gui`
-
-`dao.gui.md` fixes `dao.gui` as a pure compiler. `dao.gui.event` must stay
-outside that boundary because terminal input, presented geometry, and
-subscription dispatch are runtime concerns that occur after compilation and
-presentation.
-
-`dao.gui` produces the frame program, then downstream runtime layers take over.
-`dao.gui.event` is one of those downstream layers.
-
-## Why Not `dao.postgraphics`
-
-`dao.postgraphics` remains rendering bytecode plus graphics VM contract. It
-should stay about:
-
-- draw ops
-- transform ops
-- clip ops
-- viewport semantics
-- graphics VM execution
-
-Tap dispatch, subscriber routing, hit-testing policy, and frame-local hit
-indexes are not rendering bytecode concerns. They are runtime interpretation
-above the graphics VM.
+No frame contains callbacks. No terminal callback is a portable event API. No
+gesture recognizer owns hidden global state.
 
 ## Event Boundary
 
-The stable v1 boundary is:
+One `dao.gui.event` binding consumes these streams:
 
-- presented geometry in
-- tap input in
-- subscriber-interest declarations in
-- tap dispatch out
+- presented geometry
+- terminal input profile and auxiliary terminal signals
+- normalized pointer packets
+- recognizer timer results
+- subscriber registration commands
 
-Concretely, the `dao.gui.event` runtime accepts:
+It produces these streams:
 
-- terminal-emitted geometry for a presented frame generation
-- terminal-emitted tap input
-- a subscriber registry keyed by node id and event kind
+- timer requests
+- contact-change, arena-merge, and arena-decision trace values
+- targeted pointer dispatch
+- recognized gesture dispatch
+- diagnostics
 
-and produces:
+An implementation may multiplex these values onto fewer physical DaoStreams,
+but every value carries a discriminator and the ordering rules in this document
+still apply. Stream transport does not replace frame, generation, input-sequence,
+or coordinate-space identity.
 
-- tap dispatch to matching subscribers
-- optional emitted signals or stream values, if the application chooses that
-  integration style
+### Binding Contract
 
-The important point is that subscriber notification happens after explicit
-hit-testing against explicit geometry derived from a frame the terminal has
-already presented.
+The public constructor is data-oriented. `bind` creates no ambient singleton and
+does not register host callbacks:
 
-## Identity Propagation
+```clojure
+{:dao.gui.event/binding-version 1
+ :inputs {:runtime-input runtime-input-stream}
+ :outputs {:effects effect-stream
+           :pointer pointer-stream
+           :gesture gesture-stream
+           :dispatch dispatch-stream
+           :diagnostic diagnostic-stream}}
+```
 
-Interactive identity originates in authored Hiccup.
+`runtime-input-stream` carries only the canonical envelope below. The binding
+owns its immutable interpreter value; each consumed input maps it to a new
+interpreter value and an ordered vector of output values. An embedding runtime
+may expose that total reducer directly for replay:
 
-The downstream contract is:
+```clojure
+{:state next-state
+ :outputs [effect-or-pointer-or-gesture-or-dispatch-or-diagnostic]}
+```
 
-- authored UI declares stable node identity
-- `dao.gui` lowers that identity into `dao.postgraphics` op metadata; for
-  `dao.gui`-authored interactive targets in v1, `:interactive-events` is
-  lowered onto the dedicated `:meta/region` op only, while draw ops may carry
-  `:node-id` for provenance but never `:interactive-events`
-- for `dao.gui`-authored interactive targets in v1, `dao.gui` also lowers one
-  authoritative `:meta/region` per `(node-id, event-kind)`
-- the terminal preserves that metadata while presenting the frame
-- terminal-emitted presented geometry reports the same node identity
-- `dao.gui.event` dispatches subscriber-interest against that reported identity
+Every output has `:runtime/seq` of the input which caused it and
+`:output/seq`, starting at zero within that input. Output order is the vector
+order. The effect stream carries only timer requests in version 1. Pointer and
+gesture streams carry their respective event envelopes. The dispatch stream
+contains fan-out values, not executable functions. A binding closes its outputs
+only after it has processed one `:dao.gui.event/teardown` runtime input and
+emitted all resulting cancellation and timer-cancel values.
 
-`dao.gui.event` does not invent node ids and the terminal does not reconstruct
-them from paint geometry alone. Identity is carried downstream explicitly.
+The only legal `:runtime/source` values are `:geometry`, `:profile`,
+`:pointer`, `:timer`, `:subscription`, `:terminal`, and `:control`. The corresponding
+`:runtime/value :message/kind` or `:input/kind` must agree with its source;
+mismatch is `:dao.gui.event/unrecognized-event-kind` and has no other effect.
+
+The sole control value in version 1 is teardown:
+
+```clojure
+{:input/kind :dao.gui.event/teardown
+ :reason :binding-closed}
+```
+
+It is wrapped with `:runtime/source :control`. After one valid teardown, later
+inputs are ignored and produce no output because the binding output streams are
+already closed.
+
+### Canonical Runtime Input Order
+
+Split host streams enter the interpreter through one explicit multiplexer. Its
+output is the canonical runtime-input stream:
+
+```clojure
+{:runtime/seq 1204
+ :runtime/time-us 812338600
+ :runtime/source :pointer
+ :runtime/value <normalized-pointer-packet>}
+```
+
+`:runtime/seq` starts at zero for one runtime binding and increases by one for
+every multiplexed value. `:runtime/time-us` uses the terminal's monotonic clock.
+The multiplexer emits already ordered values; `dao.gui.event` does not retain a
+hidden sorting buffer.
+
+Runtime timestamps must be nondecreasing. At equal timestamps, source priority
+is:
+
+1. control values
+2. terminal reset, coordinate-space, input-loss, profile, and geometry values
+3. subscription commands
+4. pointer packets
+5. timer results
+
+`:runtime/seq` is the final tie-break inside one priority. A value arriving with
+a timestamp older than the emitted runtime prefix is a protocol error and is
+dropped or cancels its affected arena. Presentation geometry and profiles must
+still precede any down packet that refers to them.
+
+This order makes timer-versus-pointer deadlines deterministic without coupling
+event interpretation to the render loop. Every pointer tuple steps all relevant
+machines and resolves the arena immediately; no frame-boundary commit exists.
+
+### Reducer State And Step Order
+
+The following is the complete logical reducer-state schema. Implementations may
+use different internal representations only if trace replay yields the same
+fixture projection derived below and the same output sequence:
+
+```clojure
+{:dao.gui.event/state-version 1
+ :generation-id <opaque-id-or-nil>
+ :last-runtime-time-us <integer-or-nil>
+ :last-runtime-seq -1
+ :active-coordinate-space-id <id-or-nil>
+ :coordinate-spaces {coordinate-space-id {:viewport {:width <number>
+                                                      :height <number>}}}
+ :geometry {:active <presented-geometry-or-nil>}
+ :profiles {profile-id <input-profile>}
+ :subscriptions {subscription-id <registration>}
+ :subscription-order [subscription-id]
+ :pointers {pointer-id <capture>}
+ :arenas {arena-id <arena>}
+ :next-arena-id 0
+ :timers {timer-correlation-key <timer-record>}}
+```
+
+A capture contains its origin generation, frame, coordinate space, profile,
+target path, matching subscription ids, current pointer facts, and arena id. An
+arena contains the snapshotted path/profile/recognizer declarations, sorted
+candidates, active pointer ids, lifecycle `:open`, `:accepted`, `:ended`, or
+`:cancelled`, deferred-accept records, and its creation input sequence. A candidate contains its
+recognizer identity, machine state id, machine local state, bounded windows,
+timer records, and decision `:possible`, `:held`, `:accepted`, or `:rejected`.
+Every candidate also exposes this immutable arbitration projection after each
+machine step:
+
+```clojure
+{:candidate-id [node-id recognizer-id]
+ :gesture/kind <keyword>
+ :declaration-rank <rank-tuple>
+ :decision <decision>
+ :contacts <canonical-range>
+ :arbitration {:tap/count <optional-positive-integer>
+               :tap/completed-count <optional-non-negative-integer>
+               :tap/first-centroid <optional-position>
+               :tap/last-up-time-us <optional-integer>}}
+```
+
+Only the arena reads this projection. Recognizer-local state and windows are not
+cross-candidate inputs. The projection is replaced atomically after the
+candidate step and before arena resolution for that runtime input.
+
+For one canonical input the reducer performs this exact order: validate the
+envelope and causal ids; update the applicable state map; derive a single
+machine input per affected candidate; step candidates in candidate order; apply
+arena resolution; derive pointer and gesture events; fan each event to its
+snapshotted subscriptions; finally append diagnostics. Cancellation effects are
+ordered before cancellation gesture/pointer events, and those events before
+their dispatches. A candidate fault is transformed into reject plus diagnostic;
+it never aborts the reducer.
+
+## Authored Interaction Data
+
+Interactive identity begins in authored Hiccup. The generic authoring surface is
+`:gui/gestures`, a vector of recognizer declarations on a node with a stable
+`:node-id`.
+
+```clojure
+[:gui/image
+ {:node-id ::map
+  :gui/gestures
+  [{:recognizer/id ::map-transform
+    :gesture/kind :transform
+    :machine :dao.gui.event/transform
+    :config {:contacts {:min 1 :max 5}}
+    :arena {:priority 0 :mode :exclusive}}]
+  :gui/touch-action :none}
+ image]
+```
+
+`:on-tap` remains authoring shorthand, not a second runtime contract:
+
+```clojure
+{:node-id ::save
+ :on-tap [:project/save project-eid]}
+```
+
+It lowers exactly as if the node declared one standard tap recognizer:
+
+```clojure
+{:recognizer/id [::save :tap]
+ :gesture/kind :tap
+ :machine :dao.gui.event/tap
+ :config {:count 1
+          :contacts 1
+          :join-after-accept false
+          :contact-loss :end}
+ :arena {:priority 0 :mode :exclusive}}
+```
+
+The `:on-tap` value itself remains application data. It is not serialized into
+`dao.postgraphics`. The application associates it with the stable node id and
+interprets it after dispatch.
+
+Every recognizer declaration has this shape:
+
+```clojure
+{:recognizer/id ::stable-recognizer
+ :gesture/kind :tap
+ :machine :dao.gui.event/tap
+ :config {:count 1
+          :contacts 1
+          :join-after-accept false
+          :contact-loss :end}
+ :arena {:priority 0
+         :mode :exclusive
+         :coexistence/group nil}}
+```
+
+Rules:
+
+- `:recognizer/id` is unique within one node.
+- `:gesture/kind` is the subscriber-visible semantic kind.
+- `:config` contains only data and overrides the active input profile.
+- `:config :join-after-accept` defaults to `false`. An accepted winner admits a
+  later contact only when this value is `true` and its machine admits the join.
+- `:config :contact-loss` is one of `:end`, `:degrade`, or `:hold` and defaults
+  to `:end`.
+- `:arena :priority` defaults to `0`; larger values rank first.
+- `:arena :mode` defaults to `:exclusive`.
+- cooperative recognizers may accept together only when they carry the same
+  non-nil `:coexistence/group`.
+- an exclusive recognizer never coexists with another accepted recognizer.
+- declaration vector order is semantically significant and is preserved.
+
+Canonical recognizer data always represents `:contacts` as
+`{:min <positive-integer> :max <positive-integer>}` with `min <= max`. An
+authored integer `n` lowers to `{:min n :max n}` before presentation, tracing,
+or validation. Standard recognizers must not interpret the authored shorthand
+directly.
+
+Compiler lowering is a normative, closed relation in version 1. It recognizes
+only `:gui/gestures`, `:gui/touch-action`, stable `:node-id`, and the documented
+`:on-tap` shorthand. It validates each declaration, canonicalizes contacts and
+defaults, constructs the root-to-target interactive path, and emits one
+`:meta/region` carrying that canonical data. Unknown gesture authoring keys or
+unknown standard machine keywords are compiler errors. Compiler implementation
+code is not part of the wire conformance surface; its emitted metadata is.
+
+## Identity And Explicit Interaction Paths
+
+An interactive `:meta/region` carries:
+
+- its stable `:node-id`
+- its recognizer declarations
+- an explicit root-to-target interaction path
+- its authored browser touch policy
+- visual precedence
+
+`dao.gui` constructs the path from authored structure. It must not be inferred
+later from overlapping rectangles. A generic `dao.postgraphics` producer that
+wants nested interaction supplies the same metadata explicitly.
+
+The interaction path contains interactive nodes only. Each entry repeats the
+data needed to construct candidates without consulting an implicit scene graph:
+
+```clojure
+{:interaction/path
+ [{:node-id ::scroll
+   :recognizers [{:recognizer/id ::scroll-pan
+                  :gesture/kind :pan
+                  :machine :dao.gui.event/pan
+                  :config {:axis :y}
+                  :arena {:priority 0 :mode :exclusive}}]
+   :touch-action :none}
+  {:node-id ::row-button
+   :recognizers [{:recognizer/id ::row-tap
+                  :gesture/kind :tap
+                  :machine :dao.gui.event/tap
+                  :config {:count 1 :contacts 1}
+                  :arena {:priority 0 :mode :exclusive}}]
+   :touch-action :manipulation}]}
+```
+
+Node ids are scoped to one `dao.gui` root and one event-runtime binding. A node
+id may be any EDN value with stable equality semantics. Namespaced keywords are
+recommended. Duplicate logical targets with the same `(node-id,
+recognizer-id)` in one compiled frame are compiler errors. Several rectangular
+regions may represent one logical target.
 
 ## Presented Geometry
 
-Presented geometry is authoritative only after the terminal has actually
-presented the frame.
-
-This is the causal rule:
+Presented geometry becomes authoritative only after presentation:
 
 ```text
 frame program -> terminal presentation -> presented geometry -> hit index
 ```
 
-Not:
-
-```text
-planned frame -> speculative geometry -> hit index
-```
-
-This avoids a race where a future frame's hit regions become active before that
-frame is visible on screen.
-
-So the terminal should:
-
-- present frame `N`
-- resolve the geometry for the actually presented frame `N`
-- if frame `N` contains explicitly interactive metadata for v1, emit the
-  resulting interactive geometry tagged with frame id `N`
-- if frame `N` contains no explicitly interactive metadata for v1, emit an
-  explicit empty geometry value (`{:frame-id N :nodes []}`) for frame `N`, so stale hit regions are cleared
-- if a submitted frame is rejected by the graphics VM before presentation,
-  there is no new presented-frame generation. The terminal MUST emit a
-  **Frame Rejection Signal** (`{:message/kind :dao.terminal/rejection :submission-id N :reason reason}`), where `N` is the rejected submission's terminal-local ingress sequence number. `dao.gui.event`
-  continues to use the geometry and hit index of the last successfully
-  presented frame, because event state advances only when presentation
-  advances. This ensures interactive truth remains anchored to the visible
-  stale pixels.
-- presented-frame identity is scoped to one terminal instance. A VM reset
-  signal is therefore a hard generation boundary, not merely a dropped-frame
-  notification
-
-Then `dao.gui.event` should:
-
-- consume that presented-geometry value
-- derive the active hit index for the same frame id
-
-The active hit index must always correspond to the last successfully presented
-frame.
-
-## Transport
-
-`dao.stream` is the canonical integration shape for terminal-emitted geometry
-and terminal-emitted input.
-
-Conceptually:
-
-- a frame stream carries compiled `dao.postgraphics` frames
-- a geometry stream carries terminal-emitted presented geometry for interactive
-  targets, or an explicit empty-hit-generation value when the presented frame
-  has no interactive targets
-- an input stream carries terminal-emitted tap events
-- an optional downstream event stream may carry dispatch results
-
-Wire-level discrimination is explicit in v1: geometry and tap values carry no
-`:message/kind`; auxiliary protocol signals always do.
-
-Presented-frame IDs and `submission-id` values are independent monotonic
-counters in v1. Presented-frame IDs advance only on successful presentation;
-submission IDs advance on terminal ingress.
-
-Direct function-call wiring is still possible, but the design center is
-stream-shaped because it preserves explicit causality and keeps the terminal and
-event runtime decoupled.
-
-Sequential stream ordering alone is not enough. The required invariant is
-**frame-causality**:
-
-- geometry for frame `N` must be installed before any tap attributed to frame
-  `N` is dispatched
-- if geometry and tap input travel on separate streams, tap events must carry a
-  presented-frame id
-- terminals MUST emit presented geometry for frame `N` before emitting any tap
-  tagged with frame `N`, regardless of whether geometry and taps travel on one
-  combined stream or separate streams
-- `dao.gui.event` must not dispatch a tap for frame `N` until geometry for
-  frame `N` is active
-- if geometry and tap input travel on one stream, the stream order must still
-  satisfy the same rule: geometry event for frame `N` before any tap event for
-  frame `N`
-- a well-behaved terminal tags each tap with the frame generation that was
-  actually visible when that tap was recognized; future-frame taps are therefore
-  a protocol error rather than a normal waiting case
-- if a transport violates frame order across split streams, `dao.gui.event`
-  does not repair that by inference. Out-of-order geometry or taps are terminal
-  protocol errors and should be dropped or surfaced diagnostically rather than
-  rebound to a different frame generation
-- a tap for a frame that never became a presented generation is likewise a
-  protocol error and must be dropped immediately rather than buffered
-
-`dao.stream` gives sequential ordering. This design additionally requires
-cross-event causality by frame generation.
-
-## Geometry Shape
-
-The terminal emits presented geometry as plain data. The exact schema is an
-implementation choice, but it must support derivation of interactive screen
-regions for a specific presented frame.
-
-Geometry emission is conditional, not universal:
-
-- if a presented frame contains no explicit interactive metadata for v1, the
-  terminal need not emit region-bearing geometry for that frame, but it must
-  still advance hit-state generation with an explicit empty geometry value (`{:frame-id N :nodes []}`)
-- if a presented frame contains explicit interactive metadata for v1, the
-  terminal must emit geometry for the interactive targets that survive
-  presentation, clipping, and v1 geometry restrictions
-
-The emitted geometry must already be normalized into the same Cartesian event
-space used by `dao.gui.event`. Backend-native coordinate systems do not cross
-the terminal boundary.
-
-Illustrative shape:
+The terminal emits one geometry value for every successfully presented frame,
+including an explicit empty value when the frame has no interactive targets.
 
 ```clojure
-{:frame-id 42
+{:message/kind :dao.terminal/presented-geometry
+ :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8"
+ :frame-id 42
+ :coordinate-space-id 7
  :nodes
- [{:node-id ::save-button
-   :event :tap
-   :regions [{:bounds {:x 24 :y 16 :width 96 :height 32}
-              :paint-order 17}]}]}
+ [{:node-id ::save
+   :interaction/path
+   [{:node-id ::save
+     :recognizers
+     [{:recognizer/id [::save :tap]
+       :gesture/kind :tap
+       :machine :dao.gui.event/tap
+       :config {:count 1 :contacts 1}
+       :arena {:priority 0 :mode :exclusive}}]
+     :touch-action :manipulation}]
+   :touch-action :manipulation
+   :regions
+   [{:bounds {:x 24 :y 16 :width 96 :height 32}
+     :paint-order 73014444049}]}]}
 ```
 
-This shape is illustrative, not normative. The invariants are:
+The terminal resolves `:touch-action` to the effective policy for the complete
+interaction path. The per-path policies remain present for diagnostics and
+inspection.
 
-- the geometry value is data, not callbacks
-- it is tagged to exactly one presented frame generation
-- it includes authored node identity preserved through `dao.postgraphics`
-  metadata
-- it includes only nodes whose metadata declares interactive interest for v1
-- it carries enough realized screen geometry to derive rectangular hit regions
-- emitted bounds reflect the final visible screen-space result after clipping,
-  not merely logical authored bounds
-- emitted bounds are expressed in GUI Cartesian screen coordinates, with origin
-  at the bottom-left and `y` increasing upward
-- non-drawing `:meta/region` ops are also eligible geometry sources when they
-  carry interactive metadata
-- it preserves deterministic visual precedence information matching final
-  presented paint order
-- node ids are stable enough for subscriber lookup
+Presented geometry obeys these invariants:
 
-Consequences:
+- `:generation-id` identifies one terminal generation.
+- `:frame-id` advances once per successful presentation in that generation.
+- `:coordinate-space-id` names the viewport mapping used by bounds and input.
+- all bounds are final visible screen-space bounds after transforms and clips.
+- coordinates are GUI Cartesian logical pixels, origin bottom-left, y upward.
+- region precedence uses the canonical `dao.postgraphics` effective-z formula.
+- a fully clipped target contributes no region.
+- an empty `:nodes` vector replaces the prior hit index with an empty index.
+- geometry for a frame is emitted before pointer input observed against it.
 
-- the terminal emits geometry only for nodes that are explicitly interactive in
-  v1 and that contribute either visible presented geometry or explicit
-  non-drawing `:meta/region` geometry
-- a frame with no explicitly interactive nodes installs an empty hit generation
-- a node fully clipped out of the presented frame emits no interactive region
-- a partially clipped node emits only its visible remainder (Note: `:meta/region` hit slop is also subject to ancestor `:clip/push-rect` bounds and cannot extend outside a scroll view)
-- hit-testing uses presented visible geometry, not unclipped logical bounds
+Rectangular hit geometry remains exact. Axis alignment uses epsilon `1e-6` and
+hit containment uses `[x, x + width) x [y, y + height)`. Unsupported
+non-rectangular presented regions are omitted with an explicit diagnostic.
 
-## Region Aggregation
+For `dao.gui` output, the dedicated interactive `:meta/region` remains the sole
+source of hit geometry. Draw ops may carry provenance identity but do not carry
+recognizers.
 
-One authored interactive node may contribute multiple graphics ops to the same
-presented frame.
+### Region Aggregation And Overlap
 
-For `dao.gui`-authored interactive nodes specifically, the explicit
-`:meta/region` is authoritative in v1. Terminals should derive the target's hit
-geometry from that `:meta/region`, not from re-aggregating the node's painted
-primitives. The more general aggregation rules below remain available to other
-`dao.postgraphics` producers that do not come from `dao.gui`.
-The terminal heuristic is:
+Presented regions are grouped by logical target, meaning the same node id,
+recognizer declarations, interaction path, and effective touch policy.
 
-- if a `(node-id, event-kind)` has an explicit interactive `:meta/region` and
-  no painted ops carry `:interactive-events` for that same key, that
-  `:meta/region` is authoritative for that target
-- otherwise, the terminal falls back to the general aggregation rules for
-  painted contributions
+- For `dao.gui` output, one interactive `:meta/region` per logical target is
+  authoritative and substitutive. Painted contributions with that identity are
+  ignored for hit geometry.
+- For generic producers without an authoritative region, visible painted and
+  explicit region contributions with identical target metadata are additive.
+- Aggregation happens after transform resolution and clipping.
+- Disjoint visible rectangles remain separate. A terminal must not replace
+  them with a bounding rectangle that makes an unpainted gap interactive.
+- Rectangles may be coalesced only when both exact covered area and effective
+  precedence relative to every other interactive region are preserved.
+- Every emitted rectangle retains its own effective paint order when overlap
+  could affect topmost selection.
+- A fully clipped contribution is omitted; a partially clipped contribution
+  emits only its visible remainder.
+- A parent target does not own a child's pixels merely because the child appears
+  on its interaction path. Each target owns only its explicit region geometry.
 
-For v1, terminal-emitted geometry aggregates by `(node-id, event-kind)`:
+Across mixed producers, effective order is the canonical value
+`(metadata-precedence << 32) | bytecode-index`. At a down position, exactly one
+highest-order rectangle supplies the target path. Equal effective order is a
+terminal protocol error because the canonical formula should have made order
+unique within one completed frame.
 
-- for generic producers, all visible painted contributions and explicit
-  `:meta/region` contributions carrying the same `node-id` and event kind
-  belong to the same interactive target
-- aggregation happens after clipping and after final paint resolution
-- if those visible contributions form several disjoint axis-aligned rectangles,
-  the terminal should emit several regions for that same node id
-- if those visible contributions can be represented exactly as one
-  axis-aligned rectangle, the terminal may emit one region
-- the terminal must not inflate several disjoint visible areas into one larger
-  rectangle that covers pixels the node did not actually paint
-- explicit `:meta/region` contributions are additive for generic producers,
-  but for `dao.gui`-authored interactive targets, the `:meta/region` is
-  **substitutive**: it is the sole authoritative source of hit geometry, and
-  painted contributions with the same identity are ignored for hit-testing
-  purposes (consistent with the rule that `dao.gui` draw ops MUST NOT carry
-  `:interactive-events`)
+## Terminal Input Profile
 
-So the conceptual shape is:
+Gesture thresholds are explicit runtime data. A terminal emits an input profile
+after reset and before the first pointer packet that refers to it.
 
 ```clojure
-{:frame-id 42
- :nodes
- [{:node-id ::save-button
-   :event :tap
-   :regions [{:bounds {:x 24 :y 16 :width 96 :height 32}
-              :paint-order 17}]}]}
+{:message/kind :dao.terminal/input-profile
+ :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8"
+ :profile-id 3
+ :capabilities #{:coalesced-samples :pressure :contact-geometry}
+ :thresholds
+ {:motion/slop 18.0
+  :tap/max-duration-us 300000
+  :multi-tap/max-delay-us 300000
+  :multi-tap/slop 100.0
+  :long-press/delay-us 500000
+  :swipe/min-distance 48.0
+  :swipe/max-duration-us 500000
+  :swipe/min-velocity 500.0
+  :fling/min-velocity 50.0
+  :fling/max-velocity 8000.0
+  :velocity/window-us 100000
+  :edge/width 20.0
+  :pressure/start-threshold 0.5
+  :pressure/release-threshold 0.5}}
 ```
 
-V1 semantics are region-per-visible-rectangle, grouped by `(node-id, event-kind)`.
+Units are logical pixels, microseconds, radians, and logical pixels per second.
+The terminal should project host gesture settings where a host exposes them.
+The values above are the normative fallback profile when it does not.
 
-When one logical target contributes several regions with different final paint
-orders, those regions retain their individual `:paint-order` values. The
-terminal must not collapse them into one target-level order that loses overlap
-information.
+Optional capabilities are:
 
-More generally, regions sharing a `node-id` and event kind may be coalesced
-only when coalescing preserves both:
+- `:coalesced-samples`
+- `:predicted-samples`
+- `:pressure`
+- `:contact-geometry`
+- `:tilt`
+- `:twist`
+- `:hover`
+- browser terminals additionally report supported CSS policy tokens as
+  `:touch-action/auto`, `:touch-action/none`, `:touch-action/manipulation`,
+  `:touch-action/pan-x`, `:touch-action/pan-y`, directional pan tokens, and
+  `:touch-action/pinch-zoom`
 
-- the exact covered area
-- the effective paint precedence of that area relative to all other interactive
-  geometry
+A recognizer requiring an absent capability is dormant and produces one warning
+when installed. It does not invalidate other recognizers on the node. A profile
+update affects pointer sequences that begin after the update; every arena
+snapshots its profile and recognizer configuration at creation.
 
-If coalescing would erase precedence distinctions that matter for topmost-wins
-hit-testing, the terminal must emit the regions separately.
+Profile ids are unique and monotonically increasing within a generation. The
+runtime retains a profile while an arena snapshots it. A later packet for an
+active pointer may name a newer installed profile, but recognition for that
+arena continues with its origin profile. New down packets must name the latest
+installed profile.
 
-For explicit `:meta/region` contributions, `:paint-order` is derived from
-explicit precedence metadata when present. For `dao.gui`-authored targets,
-that precedence metadata is mandatory and represents the target's visual
-stacking in the fully assembled frame. Generic producers may omit explicit
-precedence metadata, in which case terminals fall back to bytecode op order.
+## Normalized Pointer Packets
 
-Across mixed producers, terminals MUST normalize precedence into one effective
-precedence scale for the whole presented frame using the **Canonical Precedence
-Formula** defined in `dao.postgraphics.md`:
+The normative terminal input value is:
 
-`effective-z = (metadata-precedence << 32) | bytecode-index`
+```clojure
+{:input/kind :pointer
+ :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8"
+ :frame-id 42
+ :coordinate-space-id 7
+ :profile-id 3
+ :input-seq 918
+ :pointer {:id 11
+           :type :touch
+           :primary? true
+           :buttons 1
+           :modifiers #{}}
+ :phase :move
+ :samples
+ [{:time-us 812334500
+   :position {:x 120.25 :y 380.5}
+   :pressure 0.61
+   :contact {:width 8.0 :height 7.5}
+   :sample/kind :coalesced}
+  {:time-us 812338600
+   :position {:x 124.0 :y 377.0}
+   :pressure 0.64
+   :contact {:width 8.2 :height 7.4}
+   :sample/kind :actual}]}
+```
 
-This formula ensures that structured layers (established by metadata) always
-outrank generic bytecode, while bytecode order remains the stable internal
-tie-breaker within any given layer.
+Required pointer phases are `:down`, `:move`, `:up`, and `:cancel`. `:hover` is
+allowed for pointer types that support it, but touch gesture conformance does
+not depend on hover.
 
-## Hit Index
+Rules:
 
-`dao.gui.event` derives a frame-local hit index from presented geometry.
+- `:input-seq` increases by one for every emitted packet in a generation.
+- pointer ids are unique among active pointers and may be reused only after
+  `:up` or `:cancel`.
+- each packet has at least one sample, ordered by increasing `:time-us`.
+- the final sample is the packet's current value and is `:actual`.
+- coalesced samples precede that actual sample and participate in recognition.
+- predicted samples are dispatchable for rendering feedback but never affect
+  recognition, velocity, arena decisions, or emitted semantic gestures.
+- unavailable optional properties are omitted, not invented.
+- `:buttons` follows the Pointer Events bit convention; active touch contact
+  uses `1`, while touch up and cancel use `0`.
+- normalized pressure, when present, is finite and in `[0.0, 1.0]`; contact
+  width and height are finite non-negative logical pixels.
+- terminal-native pixel, y-axis, timestamp, and pointer-id conventions do not
+  cross this boundary.
 
-The hit index is:
+A `:hover` packet never creates, joins, captures, or steps an arena. The runtime
+hit-tests its actual position against the active presented geometry and emits a
+targeted raw pointer event to matching `:pointer` subscriptions for that node.
+It is dropped without diagnostic when nothing is hit. A hover packet for an id
+that is currently an active touch contact is a protocol error.
 
-- dynamic
-- ephemeral
-- replaced when presented geometry changes
-- optimized for hit-testing
+### Terminal Adapter Contract
 
-Its concrete representation is an implementation choice.
+The adapter assigns `:input-seq` after it has expanded a host callback into one
+portable packet. It must never split a host callback into packet ordering that
+changes its actual-sample lifecycle. Android and iOS Flutter adapters map
+`PointerDownEvent`, `PointerMoveEvent`, `PointerUpEvent`, and
+`PointerCancelEvent` directly; Flutter coordinates are converted from its
+top-left logical space by `y = viewport-height - y`. Browser adapters map
+`pointerdown`, `pointermove`, `pointerup`, `pointercancel`, and `lostpointercapture`.
+They call `setPointerCapture(pointerId)` after an accepted browser down and emit
+one portable cancel if capture is lost.
 
-Possible representations include:
+For all adapters, host timestamps are converted once to integer microseconds
+from a monotonic origin. A host timestamp that regresses is clamped only if it
+belongs to a coalesced sample in the same packet; otherwise the adapter emits
+protocol-error and cancels the pointer. Browser `getCoalescedEvents()` values
+are sorted by converted time, filtered to strictly preceding the actual sample,
+and emitted as `:coalesced`; unsupported or invalid values are omitted with a
+diagnostic. Browser predicted events are marked `:predicted`; the reducer
+forwards them only to raw pointer output and excludes them from recognition.
 
-- a simple vector of rectangular regions for small region counts
-- a z-sorted vector for topmost-first hit testing
-- a map keyed by node id for subscriber association
-- a spatial hash, grid, or similar structure if region counts grow
+The adapter maps every host contact id to an opaque EDN scalar stable from down
+through up/cancel. It must not derive ids from array index, primary status, or
+position. A Flutter cancel carries the last known actual position and zero
+buttons. A browser `pointercancel` does the same. If a host omits pressure,
+contact geometry, tilt, or twist, the adapter omits that key and the profile
+does not advertise its capability.
 
-The semantic source of truth is the presented geometry, not the hit index
-itself.
+## Frame And Input Causality
 
-## Coordinate Contract
+A down packet starts a sequence only when all of these match installed state:
 
-`dao.gui.event` uses the same Cartesian coordinate system as
-`dao.postgraphics`:
+- generation id
+- coordinate-space id
+- input profile id
+- active presented frame id
 
-- origin at viewport bottom-left
-- `x` increases right
-- `y` increases up
+For a new down packet:
 
-The terminal is responsible for adapting both:
+- `pointer.frame == active.frame`: hit-test and create an arena.
+- `pointer.frame > active.frame`: protocol error; drop it.
+- `pointer.frame < active.frame`: stale uncaptured down; drop it.
 
-- native input into that space before `dao.gui.event` consumes it
-- emitted presented geometry into that same space before it leaves the terminal
-  boundary
+After a pointer is active, its later packets may carry a newer visible frame id
+than its origin frame. They remain captured to the original interaction path.
+A later packet with a frame id older than the current active frame is still
+valid for that captured pointer when its `:input-seq` is next in order. A packet
+from a future frame remains a protocol error.
 
-No terminal-native coordinate system should leak upward into event semantics.
+No pointer packet is buffered waiting for geometry or rebound to another frame.
+Frame rejection and frame skipping leave existing geometry and captures intact.
+A terminal reset cancels every active pointer and arena, clears geometry and
+profiles, and begins a new generation.
 
-## Hit Geometry
+`coordinate-space-id` describes only the terminal root mapping: viewport size,
+device-pixel ratio, orientation, and system-view transform. Local layout,
+clipping, scrolling, animation, and gesture-driven node transforms do not mint
+a new coordinate-space id and do not cancel an active sequence. Pointer math
+continues in the captured root Cartesian space.
 
-V1 is deliberately narrow:
+## Hit Testing And Capture
 
-- tap only
-- rectangular hit regions only
-- screen-space resolved regions only
-- exact hit-testing only
+On pointer down, the runtime finds every region containing the point and selects
+the one with greatest effective paint precedence. That region supplies the
+explicit interaction path. Tree nesting and rectangle overlap are never used to
+invent additional ancestors.
 
-Because `dao.gui.md` allows visual non-translation transforms inside authored
-components, this document must stay explicit about interaction geometry:
+A valid down that hits no region creates an uncaptured pointer record with
+`:arena-id nil`; its later move packets have no output and its up/cancel removes
+the record. This preserves lifecycle validation without inventing a target.
+Down for an id already in the pointer map emits `:duplicate-pointer-down` and
+is dropped after cancelling and removing the existing pointer record. Move, up, or
+cancel for an id absent from the pointer map emits `:orphan-pointer-packet` and
+is otherwise dropped.
 
-- a v1 interactive region is valid only when the presented geometry resolves to
-  an exact axis-aligned screen-space rectangle
-- clipping is resolved before emission, so the region represents only the
-  visible screen-space remainder
-- translate-only ancestry is always valid
-- if visual realization would make the interactive area non-rectangular or
-  otherwise inexact in screen space, that node is not interactive in v1 and
-  the terminal should emit a warning diagnostic identifying the node id and
-  reason, then omit that node from emitted interactive geometry
+The runtime creates candidates from every recognizer declaration on that path.
+The candidate's target is the path entry that declared it. Gesture dispatch goes
+only to the winning recognizer's node; there is no implicit capture or bubble
+phase in the application API.
 
-Axis alignment is evaluated with a shared tolerance of **`1e-6`** for all
-coordinate resolution. V1 terminals MUST treat sub-pixel deviations from
-pure translation as still axis-aligned when they are within this epsilon.
-This ensures interaction doesn't break due to infinitesimal floating-point
-noise in transform realization.
+The path, geometry frame, profile, recognizer declarations, and matching
+subscriber registrations are immutable snapshots for the sequence. Later
+frames do not retarget or cancel it merely because a target moves or disappears.
+Pointer movement outside the original target, across another region, or across
+another interaction path never causes re-hit-testing or arena recomputation.
 
-Rectangular hit-testing in v1 uses a **half-open boundary convention**:
-`[x, x + width) × [y, y + height)`. The lower-left corner is inclusive; the
-upper and right edges are exclusive. Two abutting rectangles therefore do not
-both claim the shared upper or right edge — each pixel along a shared edge
-belongs to exactly one rectangle.
+Target disappearance means that a later presented frame omits, clips, or moves
+the captured node; capture persists. Runtime-binding teardown is different: it
+cancels every active arena and then releases the binding's state.
 
-Exact axis-aligned geometry may come from either:
+An accepted recognizer logically captures its participating pointers through
+`:up`, `:cancel`, or recognizer termination. Terminals also preserve physical
+delivery after the pointer leaves the initial rectangle. On web, the terminal
+captures the pointer on a stable terminal root after pointer down. Logical
+capture does not prevent the browser or operating system from cancelling a
+sequence it owns.
 
-- visible painted contributions after transform and clipping
-- explicit `:meta/region` ops after transform and clipping
+## Multi-Pointer Joining
 
-V1 chooses correctness over approximate hit-testing.
+A new down packet is hit-tested once and its interaction path is snapshotted.
+Only that new down can connect arenas. Movement by an existing pointer never
+changes candidate incidence.
 
-## Ordering And Overlap
+A live candidate intersects the new contact when both paths contain the same
+`(node-id, recognizer-id)` and generation and coordinate-space ids match.
+Candidate intersection is computed only from immutable path tuples, not from
+current pointer position.
 
-Overlap policy must match what the user sees on screen.
+Resolve accepted intersections first. An accepted arena is eligible only when
+its winner declares `:join-after-accept true`, its contact range admits the
+pointer, and its current machine state admits joining. If several accepted
+arenas qualify, choose the highest-ranked winner, then the oldest arena; accepted
+arenas never merge. The contact joins that one arena and does not also join or
+merge unresolved arenas.
 
-For v1:
+When no accepted arena qualifies:
 
-- hit precedence is determined by explicit visual ordering in the presented
-  geometry
-- the topmost eligible region at the tap point wins
-- if two regions overlap, later paint precedence wins
+- With no intersecting unresolved arena, create an independent arena.
+- With one intersecting unresolved arena, join it.
+- With several intersecting unresolved arenas, merge them into the oldest arena.
 
-The precedence source is not arbitrary. It must correspond to the final
-presented paint order of the assembled `dao.postgraphics` frame program,
-including `dao.gui`'s `flow ++ overlay` assembly rule.
+When a contact cannot join an accepted arena, any new or merged unresolved arena
+omits that already-owned exclusive `(node-id, recognizer-id)` candidate. Other
+candidates on the new path remain eligible.
 
-This matters because `dao.gui.md` defines a post-flow overlay layer. A region
-associated with a visual overlay must also outrank the regions it visually
-covers. Tree nesting alone is not a sufficient rule.
+An arena merge is explicit trace data:
 
-For nested interactive identities:
+```clojure
+{:event/kind :dao.gui.event/arena-merged
+ :arena-id 12
+ :merged-arena-ids [12 19]
+ :pointer-ids #{4 7 9}
+ :candidate-ids [[::scroll ::scroll-pan]
+                 [::map ::map-transform]]}
+```
 
-- a node owns only the visible painted contributions whose ops carry that same
-  node's identity
-- a parent interactive node does not implicitly own pixels painted by an
-  interactive child with a different node id
-- if parent and child both emit interactive geometry and overlap, normal
-  presented paint precedence decides the winner at the tap point
+The lowest creation sequence, equivalently the oldest arena, supplies the
+surviving `:arena-id`. Candidate identity is `(node-id, recognizer-id)`;
+duplicates are retained once at their earliest declaration rank. All pointers,
+snapshotted subscriptions, machine states, and outstanding timer identities are
+moved into the surviving immutable arena value before recognition resumes.
+Later duplicate candidate instances receive `:arena/cancelled`, and their timer
+identities are invalidated rather than combined with the retained machine state.
 
-Interactive `node-id` values are scoped to one `dao.gui` root / one
-`dao.gui.event` instance. Authors use `:node-id` exclusively for interaction;
-persistent widget state (scroll position, etc.) is keyed separately by `:gui/id`
-in the application state. For `dao.gui`-authored interactive targets in v1,
-duplicate `(node-id, event-kind)` values referring to different logical targets
-within one presented frame are a compiler error. Aggregation of multiple regions
-for one `(node-id, event-kind)` is valid only when those regions belong to the
-same logical target.
+Every join or merge produces a machine input before any candidate sees the new
+pointer's down tuple. For lift or cancellation, candidates first receive the
+pointer's up or cancel tuple while the ending contact is still addressable, then
+receive the contact-change input for the remaining set:
 
-A `node-id` may be any EDN value with stable equality semantics. Namespaced
-keywords are recommended for portability and readability.
+```clojure
+{:input/kind :dao.gui.event/contacts-changed
+ :arena-id 12
+ :cause :merge
+ :added-pointer-ids #{9}
+ :removed-pointer-ids #{}
+ :pointer-ids #{4 7 9}
+ :contact-count 3}
+```
 
-This uniqueness guarantee is only enforceable within one producer's completed
-frame artifact. If an application mixes `dao.gui` output with geometry from
-other producers, cross-producer `node-id` namespace coordination is an
-application responsibility.
+The event is delivered to every possible or accepted candidate in the resulting
+arena. A pointer belongs to exactly one arena. Arenas never split after a lift;
+candidates apply their declared `:contact-loss` policy after the contact-change
+tuple updates the set.
 
-For `dao.gui`, detecting that duplicate-target error is a compiler obligation.
-Because collisions may arise in unrelated subtrees, the compiler performs this
-check in a post-pass over the assembled interactive `:meta/region` ops for the
-completed frame.
+Applications that need one-finger pan to grow into pinch or rotation should use
+`:transform` with a contact range beginning at one. An already accepted
+exclusive `:pan` does not silently turn into a different recognizer when another
+finger arrives.
+
+## Gesture Arena
+
+Candidates receive the same captured pointer and timer tuples and emit explicit
+decisions:
+
+- `:hold`: remain possible
+- `:accept`: claim recognition
+- `:reject`: leave the arena
+
+Candidate rank is deterministic:
+
+1. greater explicit `:arena :priority`
+2. greater zero-based path index in the presented interaction-path vector
+3. earlier recognizer index in the presented declaration vector
+4. stable EDN comparison of `:recognizer/id`
+
+Every rank component therefore comes from presented trace data. Runtime
+allocation order and host widget traversal never participate.
+
+All candidate transitions caused by one input tuple are evaluated before arena
+resolution. If multiple exclusive candidates accept on that tuple, the
+highest-ranked candidate wins. Losing possible or accepted continuous
+candidates receive cancellation. Cooperative candidates accept together only
+when they name the same non-nil coexistence group and no higher-ranked exclusive
+candidate accepts.
+
+Candidates never receive a sibling candidate's machine state, decision, window,
+or emitted payload. `:arena/accepted`, `:arena/rejected`, and
+`:arena/cancelled` machine inputs describe only that candidate's own arena
+lifecycle. Cross-candidate competition is interpreted by the arena from
+snapshotted declaration metadata and explicit candidate decisions.
+
+The one deferral rule is repeated tap. When a tap candidate completes count
+`n`, the arena defers its acceptance while a same-node, same-contact-count tap
+candidate with configured count greater than `n` remains viable. Viability is a
+pure arena predicate over that higher-count candidate's declared count, completed
+count, first-tap centroid, last valid up time, current contact facts, rejection
+decision, and snapshotted tap thresholds. It remains viable only while it has
+not rejected, has not exceeded motion or multi-tap slop, and the next valid down
+can still arrive at or before `last-up-time-us + multi-tap/max-delay-us`.
+Candidate-local state is not inspected. When all higher-count alternatives
+reject or their `:next-tap` timers fire, the greatest completed count accepts;
+rank breaks ties. Evaluation uses the original input timestamps, happens in the
+same reducer step that removes the last viable alternative, and never re-defers
+that completed tap.
+
+Concretely, a tap's proposed accept is changed to candidate decision `:held` and
+stored in arena `:deferred-accepts` with its complete pending recognized payload
+and causal input sequence. It emits no decision or gesture yet. Revival removes
+that record, accepts the candidate, and emits the stored value with the original
+gesture time plus the reviving input's `:runtime/seq`. Cancellation or input
+loss discards deferred accepts without semantic output.
+
+An arena ends after all pointers end and every machine has accepted and ended or
+rejected. A terminal cancel, reset, coordinate-space change, input gap, runtime
+teardown, or machine fault cancels every accepted continuous gesture and rejects
+every possible candidate in the affected arena.
+
+Cancellation after acceptance is not a second winner decision. It emits exactly
+one semantic `:cancel` phase for each accepted continuous gesture, propagates
+`:arena/cancelled` to cooperative winners, and invalidates their timers. A
+discrete gesture already emitted as `:recognized` is not retroactively revoked.
+
+### Common competition cases
+
+- A child tap and ancestor vertical pan both hold after down. Movement past the
+  pan slop accepts the pan and cancels the tap. Up inside tap limits accepts the
+  tap when the pan never accepted.
+- A long press timer accepts the long press and cancels an exclusive tap. Up
+  before the timer rejects long press and allows tap to resolve.
+- A one-tap recognizer waits through the multi-tap deadline when a competing
+  repeated-tap recognizer could still accept. It is not emitted speculatively.
+- Scale and rotation declarations can accept together only when both are
+  cooperative and share a coexistence group. A combined `:transform`
+  recognizer avoids this coordination.
+
+## Recognizer Machine Data
+
+Standard and custom recognizers are immutable finite-state machines. Standard
+machine keywords resolve to the total normative transition algorithms in this
+document. An implementation may express or precompile those algorithms as the
+machine data below, but the result must be observationally equivalent. The
+transition clauses and schemas in this document are authoritative if a derived
+machine-data artifact disagrees.
+
+```clojure
+{:machine/version 1
+ :initial :possible
+ :state {:origin nil}
+ :windows {:motion {:capacity 32}}
+ :states
+ {:possible
+  [{:on :pointer/down
+    :when [:= [:contacts/count] 1]
+    :actions
+    [[:state/assoc :origin [:contacts/centroid]]
+     [:arena/hold]]}
+   {:on :pointer/move
+    :when [:> [:distance [:state/get :origin]
+                        [:contacts/centroid]]
+              [:setting :motion/slop]]
+    :actions [[:arena/reject] [:goto :rejected]]}
+   {:on :pointer/up
+    :when [:<= [:elapsed-us] [:setting :tap/max-duration-us]]
+    :actions
+    [[:arena/accept]
+     [:emit :recognized
+      {:position [:contacts/centroid] :count 1}]
+     [:goto :ended]]}
+   {:on :pointer/cancel
+    :when true
+    :actions [[:arena/reject] [:goto :rejected]]}]
+  :ended []
+  :rejected []}}
+```
+
+Machine input selectors are:
+
+- `:pointer/down`, `:pointer/move`, `:pointer/up`, `:pointer/cancel`
+- `:contacts/changed`
+- `:timer/fired`
+- `:arena/accepted`, `:arena/rejected`, `:arena/cancelled`
+
+The expression vocabulary is closed:
+
+- literals: EDN scalars, vectors, sets, and maps
+- lookup: `:state/get`, `:sample/get`, `:pointer/get`, `:config/get`,
+  `:profile/get`, and `:setting`
+- logic: `:and`, `:or`, `:not`
+- comparison: `:=`, `:not=`, `:<`, `:<=`, `:>`, `:>=`, `:contains?`
+- arithmetic: `:+`, `:-`, `:*`, `:/`, `:abs`, `:min`, `:max`, `:clamp`
+- contact projections: `:contacts/count`, `:contacts/centroid`,
+  `:contacts/span`, `:contacts/angle`, and `:contacts/ids`
+- motion projections: `:distance`, `:delta`, `:elapsed-us`, `:velocity`,
+  `:direction`, and `:edge-distance`
+
+`:setting` reads a declaration override first and the snapshotted terminal
+profile second. Division by zero, a missing required value, non-finite numeric
+output, or an invalid projection faults only that candidate.
+
+Actions are:
+
+- `[:state/assoc key expression]`
+- `[:state/dissoc key]`
+- `[:window/push window-id expression]`
+- `[:timer/start timer-id duration-expression]`
+- `[:timer/cancel timer-id]`
+- `[:arena/hold]`, `[:arena/accept]`, `[:arena/reject]`
+- `[:emit phase payload-expression]`
+- `[:goto state-id]`
+
+For one input, transitions are tested in declaration order and only the first
+true transition runs. Actions run left to right against an immutable state
+value, producing a new state and zero or more effect tuples. Windows must have a
+positive compile-time capacity. Machines have no loops, recursion, host calls,
+callbacks, dynamic code loading, or unbounded collections.
+
+Validation rejects unknown operators, states, selectors, or actions; duplicate
+state ids; references to undeclared windows; non-terminal states without a
+cancel transition; and emissions whose phase is not legal for the declared
+gesture kind.
+
+A machine transition relation is total: its state set, initial state, input
+alphabet, ordered guards, and effects are finite and explicit. After the ordered
+transitions for one state are tested, an otherwise-unmatched legal input leaves
+the state unchanged and emits no effect. An input outside the declared alphabet
+faults the candidate. Thus no standard or custom machine relies on an undefined
+state/event pair.
+
+Machine validation also requires a finite EDN value at every literal, keyword
+state ids, unique transition order within each state vector, and a declared
+setting for every `:setting` lookup. `:goto` may target only a declared state.
+`[:arena/accept]` and `[:arena/reject]` may occur at most once in a transition;
+an `:emit` must be after `:arena/accept` in that transition or occur while the
+candidate is already accepted. Machine local state values and window entries
+must be finite EDN values. The compiler rejects an action that can append an
+unbounded value or whose expression can return a function, stream, host object,
+NaN, or infinity.
+
+The evaluator is total. A missing optional lookup evaluates to `nil`; comparison
+or arithmetic requiring a missing or non-numeric value makes its transition
+false, except division by zero and non-finite arithmetic, which fault the
+candidate. `:and` and `:or` short-circuit left to right. Map and vector
+expressions evaluate their children in declaration order. `:window/push` drops
+the oldest value when capacity is reached. `:timer/start` replaces the prior
+timer of that id by first emitting its cancel effect and then a new start effect
+with its incremented sequence. `:goto` changes the state only after every prior
+action succeeds. A transition that faults applies no later actions.
+
+Before each machine step the runtime provides a frozen evaluation context:
+
+```clojure
+{:candidate <candidate-before-step>
+ :contacts <active-captured-contacts-sorted-by-id>
+ :sample <actual-sample>
+ :pointer <packet-pointer-map>
+ :input <normalized-packet-or-timer-or-contact-change>
+ :time-us <input-time-us>
+ :config <snapshotted-config>
+ :profile <snapshotted-profile>
+ :coordinate-space {:id <coordinate-space-id>
+                    :viewport {:width <positive-number>
+                               :height <positive-number>}}}
+```
+
+Contact projections use actual samples only. `:contacts/centroid` is the
+arithmetic mean of current positions. `:contacts/span` is the mean distance
+from that centroid, zero for fewer than two contacts. `:contacts/angle` is the
+angle from the lowest pointer id to the next-lowest pointer id, normalized to
+`[-pi, pi)`. `:velocity` is least-squares velocity over the candidate window,
+or zero when it contains fewer than two distinct timestamps. `:direction` is
+the axis or compass keyword derived from its vector using the configured axis;
+the exact boundary rule is `abs(x) >= abs(y)` selects horizontal, with zero
+vector yielding `nil`.
+
+`:edge-distance` reads the frozen context viewport and current sample position.
+It returns the non-negative distance to a requested edge: x for `:left`,
+`viewport.width - x` for `:right`, `viewport.height - y` for `:top`, and y for
+`:bottom`. A missing viewport faults the candidate; an out-of-viewport position
+is clamped only for this distance projection and remains unchanged everywhere
+else.
+
+Every motion window entry has exactly this shape:
+
+```clojure
+{:time-us <integer>
+ :position {:x <finite-number> :y <finite-number>}
+ :pointer-ids [<ids-in-stable-edn-order>]}
+```
+
+Entries are ordered by `(time-us, pointer-ids)` and retain only entries whose
+time is at least `latest-time-us - :velocity/window-us`, subject to the declared
+capacity. Velocity is the independent ordinary-least-squares slope of x and y
+against seconds after subtracting the first retained timestamp. Duplicate
+timestamps contribute positions but do not create elapsed time; fewer than two
+distinct timestamps yields `{:x 0.0 :y 0.0}`. Pan, swipe, and fling use this one
+function over identical captured actual/coalesced samples. No recognizer reads
+another recognizer's window or reported velocity.
+
+For each coalesced or actual sample, the runtime temporarily replaces that
+pointer's position in the current contact set, computes the centroid, and pushes
+one entry before evaluating the next sample. The actual sample becomes the
+stored contact position. Predicted samples never enter this process. This rule
+makes the pan, swipe, and fling windows byte-identical for the same contact
+range and input packets.
+
+## Timers
+
+Time is an explicit effect boundary. A timer action emits:
+
+```clojure
+{:effect/kind :dao.gui.event/timer-request
+ :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8"
+ :coordinate-space-id 7
+ :arena-id 81
+ :recognizer/id ::hold
+ :timer-id :long-press
+ :timer-seq 2
+ :timer/op :start
+ :deadline-us 812834500}
+```
+
+The clock/scheduler returns:
+
+```clojure
+{:input/kind :dao.gui.event/timer-fired
+ :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8"
+ :coordinate-space-id 7
+ :arena-id 81
+ :recognizer/id ::hold
+ :timer-id :long-press
+ :timer-seq 2
+ :time-us 812834500}
+```
+
+Cancellation is another timer-request value with `:timer/op :cancel`. Late
+results for ended arenas, cancelled timers, or superseded timer sequences are
+ignored with a warning diagnostic. `:timer-seq` increases per
+`(arena-id, recognizer-id, timer-id)` and distinguishes a restarted timer from a
+late result for its prior incarnation.
+
+The complete correlation key is `(generation-id, coordinate-space-id, arena-id,
+recognizer-id, timer-id, timer-seq)`. The runtime validates every component
+before delivery. Candidate rejection, semantic end/cancel, arena merge removal,
+coordinate-space change, reset, and teardown invalidate the affected timer
+keys. Recognition compares terminal monotonic timestamps, never wall-clock time.
+
+The scheduler is stateless with respect to recognition. It must emit at most one
+timer-fired input for one correlation key. The runtime records a timer as
+`:scheduled`, `:cancelled`, or `:fired`; receiving a valid fired value changes
+it from `:scheduled` to `:fired` before stepping the candidate. A timer whose
+deadline is before the next pointer time is still delivered only when its
+explicit timer-fired input appears. At equal timestamps canonical source order
+makes the pointer step first. This intentionally makes scheduler delivery, not
+an implicit clock read, the cause of long-press acceptance.
+
+## Standard Recognizers
+
+All standard recognizers are total normative transition algorithms expressible
+with the DSL above. A repository may ship machine-data templates as compiled
+artifacts; those templates are normative test inputs and must replay identically
+to these clauses. Their template ids, accepted phases, and terminal transitions
+are fixed in version 1. Configuration keys not listed here are invalid.
+
+| Template | Initial state and hold | Accept transition | After acceptance | Terminal transition |
+| --- | --- | --- | --- | --- |
+| `:tap` | `:possible`; record first centroid/time | final required `:up` satisfies duration, slop, and count | emit `:recognized`; state `:ended` | any cancel, bad contact count, or slop breach: reject |
+| `:long-press` | `:possible`; final required down starts `:long-press` timer | matching timer fires while range/slop valid | emit `:start`, then updates | final up emits `:end`; cancel/range breach emits `:cancel` |
+| `:pan` | `:possible`; record centroid/time and velocity window | axis-qualified displacement strictly exceeds slop | emit `:start`, then updates | final/range-ending up emits `:end`; cancel emits `:cancel` |
+| `:swipe` | `:possible`; record centroid/time/window | final up meets distance, duration, direction, velocity | emit `:recognized` | any early invalidity rejects |
+| `:fling` | `:possible`; record the canonical velocity window | final up has velocity in range | emit `:recognized` | cancel or final velocity below threshold rejects |
+| `:transform` | `:possible`; record centroid/span/angle | translation, absolute log-scale, or absolute rotation exceeds its configured slop | emit `:start`, then updates | below-minimum count ends; cancel emits cancel |
+| `:edge-pan` | `:possible`; down is in configured edge strip | inward axis displacement exceeds slop | same as pan | same as pan |
+| `:pressure-press` | `:possible`; pressure capability is present | actual pressure is at least start threshold | emit `:start`, then updates | up ends; cancel or falling below optional release threshold cancels |
+
+For all templates, `:down` establishes a contact before stepping candidates,
+`:up` contributes its final actual sample before removing that contact, and
+`:cancel` does not contribute a semantic final sample. Contact-count changes
+then produce one `:contacts/changed` machine input in ascending recognizer
+declaration order. A candidate accepts only after its own step; arena resolution
+may immediately turn a losing accepted candidate into rejected without allowing
+it to emit a semantic event. The winning candidate's accept-caused start or
+recognized event is emitted after the decision trace.
+
+Unless a recognizer clause says otherwise, maximum bounds are inclusive,
+minimum bounds are inclusive, and a slop threshold is crossed only by a value
+strictly greater than the threshold. Exact equality therefore remains possible
+for slop and satisfies duration, distance, velocity, pressure, edge-width, and
+contact-count limits. For every standard machine, a legal input not matched by
+the table or its kind-specific clauses holds the current state and emits
+nothing; this is the total default transition.
+
+### Tap And Repeated Tap
+
+- Defaults: one contact and one tap.
+- All required contacts must down and up within motion slop and
+  `:tap/max-duration-us`.
+- Repeated taps must target the same node, use the required contact count, begin
+  within `:multi-tap/max-delay-us`, and remain within `:multi-tap/slop` of the
+  first tap centroid.
+- An unexpected join or lift before recognition rejects the tap candidate.
+- Output is one `:recognized` event with `:count`, `:contacts`, and final
+  `:position`. Intermediate taps are not dispatched.
+- `:double-tap` is authoring shorthand for `:tap` with `:count 2`; it is not a
+  different wire protocol.
+
+The complete tap configuration is `:count` (positive integer, default `1`),
+`:contacts` (canonical range with equal min/max, default one), `:max-duration-us`, `:slop`,
+`:max-delay-us`, and `:multi-tap-slop`; absent threshold keys resolve through
+the profile names shown above.
+
+The normative tap machine states and local values are:
+
+```clojure
+{:states #{:awaiting-down :contacts-down :between-taps :ended :rejected}
+ :initial :awaiting-down
+ :state {:completed-count 0
+         :current-pointer-ids #{}
+         :current-down-time-us nil
+         :current-origin-positions {}
+         :current-positions {}
+         :first-tap-centroid nil
+         :last-tap-centroid nil
+         :last-up-time-us nil}}
+```
+
+Its ordered transition algorithm is:
+
+1. In `:awaiting-down`, the first down starts one tap: record its time, pointer
+   id, and position, then enter `:contacts-down`. Further downs are admitted
+   until the canonical contact maximum is reached. A down beyond that maximum
+   rejects. Recognition duration is measured from that first down.
+2. In `:contacts-down`, record each admitted pointer's down and current position. Every
+   actual/coalesced sample must remain within motion slop of that same pointer's
+   recorded position. Motion slop is reset for every tap. A cancel, slop breach,
+   duration greater than `:tap/max-duration-us`, or a lift before the required
+   minimum contact count was reached rejects.
+3. After the required contact count has been reached, those contacts may lift in
+   any order. The final required up completes the tap when duration is within
+   the limit. Its centroid is computed from each required contact's final up
+   position retained in `:current-positions`. The first completed tap stores
+   `:first-tap-centroid`; every later
+   centroid must be within `:multi-tap/slop` of it. Multi-tap slop never resets.
+4. Increment `:completed-count` on completion and publish it to the arbitration
+   projection. If it equals configured `:count`, propose accept with the complete
+   recognized payload and enter `:ended`, subject to arena deferral. Otherwise,
+   set `:last-up-time-us`, start or restart `:next-tap` at exactly
+   `last-up-time-us + :multi-tap/max-delay-us`, clear only the per-tap pointer,
+   time, and origin fields, and enter `:between-taps`.
+5. In `:between-taps`, a down at or before that deadline cancels `:next-tap`,
+   initializes the next tap exactly as step 1, and enters `:contacts-down`. A
+   matching timer-fired input, a later down, or a down outside multi-tap slop
+   rejects. The timer is restarted after every intermediate completed tap, never
+   measured from the first tap.
+6. `:ended` and `:rejected` are terminal. Any otherwise-unmatched legal input
+   follows the standard no-op transition. Intermediate taps are never emitted.
+
+A higher-count tap holds competing lower-count taps through the arena rule
+above. When the higher-count alternative expires or rejects, the arena revives
+the greatest completed deferred count; machine state is not rewound.
+
+### Long Press
+
+- Starts a timer on the final required down.
+- Rejects before acceptance when contact count leaves its configured range or
+  centroid movement exceeds motion slop.
+- Accepts and emits `:start` when the timer fires.
+- Emits `:update` for accepted movement, `:end` after the final up, and
+  `:cancel` on cancellation.
+- Leaving the configured contact range rejects before acceptance and emits
+  `:cancel` after acceptance, regardless of a broader authored contact-loss
+  policy.
+
+Long-press configuration is `:contacts` as `{:min n :max n}`, `:delay-us`,
+`:slop`, and `:contact-loss`. It records the centroid at the final required
+down. Before acceptance every actual move is tested against that centroid;
+after acceptance updates use the same centroid-relative payload as pan. Its
+timer is cancelled on every terminal transition.
+
+### Pan / Drag
+
+- Tracks centroid motion for its configured contact range.
+- Accepts when motion exceeds slop on `:x`, `:y`, or `:free` axis.
+- Default start behavior is `:slop`: cumulative translation starts at the
+  acceptance point. `:down` includes pre-acceptance displacement.
+- Emits start/update/end/cancel with cumulative `:translation`, per-packet
+  `:delta`, and bounded-window `:velocity`.
+- Falling below the configured minimum contact count ends an accepted pan by
+  default. `:degrade` rebases its centroid when the remaining count is still a
+  machine-valid configuration; `:hold` emits no updates until the range becomes
+  valid again.
+- `:drag` and application scroll recognizers are configurations of `:pan`.
+
+Pan configuration is `:contacts` as `{:min n :max n}`, `:axis` (`:x`, `:y`, or
+`:free`), `:start-at` (`:slop` or `:down`), `:slop`, and `:contact-loss`. Axis
+qualification requires the primary component to exceed slop and the orthogonal
+component not to exceed it before acceptance. Once accepted, an axis pan zeros
+the orthogonal translation, delta, and velocity components.
+
+### Swipe And Fling
+
+- Swipe is discrete and accepts on final up when configured direction, minimum
+  distance, maximum duration, and minimum velocity all match.
+- Fling is discrete and independently accepts on final up when canonical
+  velocity is within the configured minimum and maximum. It never observes a
+  pan candidate or consumes a pan payload.
+- Swipe emits direction, displacement, duration, and velocity. Fling emits
+  velocity and direction.
+- A pan and fling declaration may share a cooperative coexistence group so both
+  the pan end and fling value are emitted.
+
+When cooperative pan and fling both succeed on one up, the pan `:end` event and
+all of its dispatches precede the fling `:recognized` event and its dispatches.
+Both report the same canonical terminal velocity. Neither suppresses or mutates
+the other.
+
+Swipe configuration is `:contacts`, `:direction` (one of `:left`, `:right`,
+`:up`, `:down`, or `:any`), `:min-distance`, `:max-duration-us`, and
+`:min-velocity`. Fling configuration is `:min-velocity`, `:max-velocity`, and
+`:direction`. Direction uses the same horizontal-on-tie rule as the evaluator.
+
+### Transform, Scale, And Rotation
+
+- Transform supports a configurable contact range and may start with one
+  contact when one-finger translation should grow into multi-touch transform.
+- It accepts when centroid translation, span change, or angular change passes
+  its configured slop.
+- It emits focal point, cumulative and incremental translation, cumulative and
+  incremental scale, and cumulative and incremental rotation in radians.
+- Contact joins and leaves rebase the reference centroid/span/angle without a
+  discontinuity in cumulative values.
+- Transform uses `:contact-loss :degrade` by default while its remaining count
+  is within the configured range, and ends when it falls below the minimum.
+- `:scale` / `:pinch` and `:rotation` are projections of the transform template.
+  They can coexist only under the arena rules.
+
+Transform configuration is `:contacts`, `:translation-slop`, `:scale-slop`
+(absolute `log(scale)`), `:rotation-slop` (absolute radians), and
+`:contact-loss`. Its reference baseline is rebased after every join/lift, while
+the cumulative output remains unchanged. For two or more contacts its span and
+angle use the two lowest pointer ids; scale is `1.0` and rotation `0.0` until a
+second contact exists. Rotation deltas are normalized to `[-pi, pi)`.
+
+### Edge Pan
+
+- The initial contact must begin within `:edge/width` of a configured viewport
+  edge and then move inward past motion slop.
+- Its lifecycle and payload otherwise match pan, with an additional `:edge`.
+- A host-reserved navigation gesture may prevent delivery or cancel it; an
+  application must not assume that every configured edge is interceptable.
+
+Edge-pan configuration is `:edge` (`:left`, `:right`, `:top`, or `:bottom`),
+`:contacts`, `:axis`, `:slop`, and `:contact-loss`. Inward means positive x
+from left, negative x from right, negative y from top, and positive y from
+bottom. The initial sample is in the edge strip when its inclusive distance to
+that edge is less than or equal to `:edge/width`.
+
+### Pressure Press
+
+- Requires the `:pressure` capability and explicit start and optional peak
+  thresholds in recognizer configuration or the terminal profile.
+- Emits start/update/end/cancel with normalized pressure.
+- It remains dormant with a warning when pressure is unavailable.
+
+Pressure configuration is `:contacts`, `:start-threshold`, `:release-threshold`
+(default equal to start threshold), and `:peak-threshold` (optional). Start
+requires `pressure >= start-threshold`; when release is lower than start, an
+accepted press remains active while pressure is at least release. `:update`
+emits only when the actual normalized pressure differs from the last emitted
+pressure; peak is included once when first crossed.
+
+### Standard Gesture Payloads
+
+Version 1 payload maps are closed. They contain exactly the keys below; the
+common envelope carries `:position`, `:pointer-ids`, and `:time-us`.
+
+```clojure
+{:tap {:count <positive-integer>
+       :contacts <positive-integer>
+       :duration-us <non-negative-integer>}
+ :long-press {:translation {:x <number> :y <number>}
+              :delta {:x <number> :y <number>}
+              :duration-us <non-negative-integer>}
+ :pan {:translation {:x <number> :y <number>}
+       :delta {:x <number> :y <number>}
+       :velocity {:x <number-per-second> :y <number-per-second>}}
+ :swipe {:direction <direction-keyword>
+         :displacement {:x <number> :y <number>}
+         :distance <non-negative-number>
+         :duration-us <non-negative-integer>
+         :velocity {:x <number-per-second> :y <number-per-second>}}
+ :fling {:direction <direction-keyword>
+         :velocity {:x <number-per-second> :y <number-per-second>}
+         :speed <non-negative-number-per-second>}
+ :transform {:translation {:x <number> :y <number>}
+             :delta {:x <number> :y <number>}
+             :scale <positive-number>
+             :scale-delta <positive-number>
+             :rotation <radians>
+             :rotation-delta <radians>}
+ :edge-pan {:edge <edge-keyword>
+            :translation {:x <number> :y <number>}
+            :delta {:x <number> :y <number>}
+            :velocity {:x <number-per-second> :y <number-per-second>}}
+ :pressure-press {:pressure <number-in-zero-to-one>
+                  :peak? <boolean>}}
+```
+
+`:scale` and `:rotation` projections use the corresponding closed subsets of
+the transform payload. For transform, scale, and rotation, the common envelope's
+`:position` is the emitted focal point, equal to the current contact centroid;
+there is deliberately no duplicate focal key inside the closed payload.
+Continuous `:start`, `:update`, and `:end` use the same
+kind-specific shape. `:cancel` uses the last successfully emitted payload plus
+`:reason`, one of `:pointer-cancel`, `:arena-lost`, `:input-loss`, `:reset`,
+`:coordinate-space-change`, `:teardown`, or `:recognizer-fault`. A continuous
+gesture cancelled before its first update uses the start payload. No
+implementation-specific payload keys are permitted.
+
+## Gesture Output
+
+Every recognized semantic value has a common envelope:
+
+```clojure
+{:event/kind :gesture
+ :gesture/id [81 ::map-transform]
+ :gesture/kind :transform
+ :phase :update
+ :node-id ::map
+ :recognizer/id ::map-transform
+ :arena-id 81
+ :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8"
+ :origin-frame-id 42
+ :observed-frame-id 45
+ :coordinate-space-id 7
+ :time-us 812338600
+ :pointer-ids #{11 12}
+ :position {:x 180.0 :y 300.0}
+ :payload
+ {:translation {:x 12.0 :y -4.0}
+  :delta {:x 1.5 :y -0.5}
+  :scale 1.25
+  :scale-delta 1.02
+  :rotation 0.31
+  :rotation-delta 0.02}}
+```
+
+Discrete gestures use only `:recognized`. Continuous gestures use
+`:start`, zero or more `:update` values, and exactly one `:end` or `:cancel`
+after start. A candidate emits nothing before acceptance unless the emitted
+value is explicitly marked as targeted raw pointer data.
+
+Targeted raw pointer output has `{:event/kind :pointer}` and preserves the
+normalized packet plus `:arena-id`, `:origin-frame-id`, `:target-path`, and
+current arena status. Predicted samples may appear only on this raw output.
 
 ## Subscriber Model
 
-Dispatch is subscription-driven.
-
-Applications declare subscriber-interest in a node id and an event kind. In
-v1 the event kind is just `:tap`.
-
-Conceptually:
+Subscriber interest is changed through an explicit command stream:
 
 ```clojure
-{[::save-button :tap] [subscriber-a subscriber-b]
- [::cancel-button :tap] [subscriber-c]}
+{:subscription/op :add
+ :subscription/id "save-handler-1"
+ :subscriber/id ::project-controller
+ :node-id ::save
+ :event-kind :tap}
 ```
 
-This shape is illustrative. The invariants are:
+```clojure
+{:subscription/op :remove
+ :subscription/id "save-handler-1"}
+```
 
-- subscriptions are keyed by stable node id and event kind
-- registering a subscriber for an unrecognized event kind in v1 is allowed but
-  dormant; the runtime should emit a warning diagnostic at registration time
-- dispatch is explicit lookup, not implicit callback execution hidden in frame
-  data
-- zero, one, or many subscribers may exist for a given `(node-id, event-kind)`
-- if no subscriber is registered, the tap is ignored after hit-testing
-- when many subscribers are registered for the same `(node-id, event-kind)`,
-  they are invoked synchronously in registration order. A long-running subscriber will block subsequent dispatch on later taps
-- taps that arrive while a subscriber dispatch is still running are governed by
-  upstream `dao.stream` backpressure and eviction policy in v1
-- regardless of upstream buffering policy, `dao.gui.event` MUST NOT rebind a
-  delayed tap to newer geometry after the fact
-- when upstream policy reports or otherwise makes visible that a tap was evicted
-  before dispatch, `dao.gui.event` MUST emit `:dao.gui.event/dispatch-busy`
-  so the drop is explicit to the application
-- duplicate registrations are preserved in registration order; registering the
-  same subscriber twice causes two notifications
-- the subscriber list for one dispatch is snapshotted at dispatch start;
-  additions or removals made by a subscriber take effect only on later dispatches
-- unsubscribe, when provided by an implementation, removes one registration
-  instance at a time; API surface for registration ownership remains
-  application-defined in v1
-- one subscriber failure should not prevent later subscribers from being
-  notified; failures are surfaced separately as diagnostics or error events
-- tearing down one `dao.gui.event` instance releases its subscriber registry
-  after any already-snapshotted dispatch completes
-- if terminal-emitted geometry or metadata carries unrecognized event kinds in
-  v1, `dao.gui.event` filters them out, emits a warning diagnostic, and
-  continues processing any recognized kinds such as `:tap`
+`:add` accepts optional `:gesture/phases`, a non-empty set of legal phases, and
+`:raw?`, default `false`. `:event-kind` is either one declared gesture kind or
+`:pointer`; `:node-id` is required. A gesture registration matches when node id,
+gesture kind, and phase match. A raw registration matches only a targeted raw
+pointer event for its terminal target node. No registration is inherited from
+an ancestor path entry. Unknown node ids are valid registrations and simply
+match no arena until a later down captures that node.
 
-This synchronous dispatch rule is intentional in v1. Subscriber invocation is
-part of the explicit causal chain, not a hidden queued runtime. Authors should
-keep subscribers small and non-blocking; expensive work should hand off to a
-stream or separate worker boundary explicitly.
+The runtime emits one dispatch value per matching registration:
+
+```clojure
+{:dispatch/kind :dao.gui.event/subscriber
+ :subscription/id "save-handler-1"
+ :subscriber/id ::project-controller
+ :node-id ::save
+ :event-kind :tap
+ :event <gesture-or-pointer-value>}
+```
+
+Rules:
+
+- subscriptions are ordered by successful add command.
+- subscription ids are unique per runtime binding.
+- removing an unknown id is idempotent.
+- a pointer arena snapshots matching registrations at creation.
+- additions and removals affect later arenas, not an active one.
+- duplicate interests require distinct subscription ids and each receives a
+  dispatch value.
+- no subscriber callback executes inside `dao.gui.event`.
+- teardown cancels active arenas, emits their final cancellation dispatches,
+  then releases the registry and closes runtime-owned outputs.
+
+Malformed add commands, duplicate subscription ids, illegal event kinds, or
+illegal phases emit a diagnostic and leave the registry unchanged. A successful
+remove is applied before any pointer packet at the same timestamp because of
+canonical source order. Dispatches are produced in snapshot registration order;
+one event is fully fanned out before the next event. A full dispatch stream
+parks the binding as specified in Transport, rather than changing registration
+or event order.
+
+## Mobile Web Touch Policy
+
+Browser touch ownership is decided before application gesture recognition.
+Because the web terminal paints one canvas, it realizes per-region policy as
+transparent DOM policy overlays derived from presented geometry.
+
+Accepted authored policies are:
+
+- `:auto`
+- `:none`
+- `:manipulation`
+- a valid set drawn from `:pan-x`, `:pan-y`, `:pan-left`, `:pan-right`,
+  `:pan-up`, `:pan-down`, and `:pinch-zoom`
+
+The default is `:auto`. Invalid combinations are compiler errors. The effective
+policy is the CSS `touch-action` intersection of the explicit policies along
+the interaction path.
+
+For intersection, normalize `:pan-x` to `#{:pan-left :pan-right}`, `:pan-y` to
+`#{:pan-up :pan-down}`, `:manipulation` to all four pan directions plus
+`:pinch-zoom`, `:none` to the empty set, and `:auto` to an unconstrained top
+value. Intersect from root to target. Serialize the empty result as `:none`, an
+unchanged unconstrained result as `:auto`, the full manipulation set as
+`:manipulation`, and every other result as a set of direction and pinch
+keywords. This makes policy composition deterministic without constructing a
+DOM ancestry graph.
+
+Canonical CSS serialization is:
+
+| Effective EDN value | CSS `touch-action` |
+| --- | --- |
+| `:auto` | `auto` |
+| `:none` | `none` |
+| `:manipulation` | `manipulation` |
+| both horizontal directions | `pan-x` |
+| `:pan-left` only | `pan-left` |
+| `:pan-right` only | `pan-right` |
+| both vertical directions | `pan-y` |
+| `:pan-up` only | `pan-up` |
+| `:pan-down` only | `pan-down` |
+| `:pinch-zoom` | `pinch-zoom` |
+
+When horizontal, vertical, and pinch permissions coexist, serialize their
+canonical tokens in that order separated by spaces. A terminal advertises the
+tokens it can realize in its input profile. Missing token support invokes the
+diagnosed fallback below; it is not silently broadened to `auto`.
+
+After presenting geometry, the web terminal:
+
+- derives overlay identity from `(generation-id, frame-id, node-id,
+  region-index, effective-touch-action)`
+- reuses unchanged keyed overlay elements and removes only obsolete keys
+- maps Cartesian logical bounds to CSS pixel bounds
+- maps effective paint precedence deterministically to DOM stacking order
+- assigns each overlay its effective `touch-action`
+- assigns `pointer-events:auto`, `aria-hidden:true`, no accessibility role, and
+  no tab stop
+- commits the complete overlay projection in the same presentation batch before
+  publishing the frame as interactive
+- listens for Pointer Events at a stable terminal root
+- uses root pointer capture after down to survive overlay replacement
+- emits normalized packets regardless of which overlay supplied policy
+
+The overlays are non-painting and carry no accessibility role or application
+semantics. They exist only so browser DOM hit-testing can choose `touch-action`
+before contact. `dao.gui.event`, not the DOM, remains authoritative for semantic
+hit-testing and target selection.
+
+Overlay DOM is an idempotent projection of the same canonical presented
+geometry, clipping, and precedence used by semantic hit-testing. It is never a
+second semantic scene graph. A frame is not input-active until that projection
+commits successfully.
+
+`:dao.gui.event/browser-policy-conflict` means the presented frame assigns two
+different effective policies to the same logical `(node-id, interaction-path)`
+or produces duplicate overlay identities with different bounds, precedence, or
+policy. The terminal rejects that overlay batch, retains the previously active
+geometry and overlays, and emits the diagnostic with both conflicting values.
+It does not choose one policy. `:browser-policy-mismatch` instead means one
+internally consistent policy cannot be realized by the host.
+
+If a browser cannot express the effective policy, or the overlay batch cannot
+be committed consistently, the terminal emits
+`:dao.gui.event/browser-policy-mismatch` and applies `touch-action:none` to the
+stable terminal root for that surface. This fallback captures more interaction
+than requested and may disable native scrolling, zoom, momentum, or overscroll,
+so it is always diagnostic and never silent.
+
+When the browser takes over panning or zooming, `pointercancel` becomes a
+normalized `:cancel`. Changing an overlay's policy after pointer down has no
+effect on that active sequence.
+
+## Coordinate-Space Changes
+
+Viewport size, device-pixel ratio, orientation, or system-view mapping may
+establish a new root coordinate space. Local node transforms, scroll offsets,
+clips, layout, and animation do not. The terminal emits this before geometry in
+the new space:
+
+```clojure
+{:message/kind :dao.terminal/coordinate-space-change
+ :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8"
+ :old-coordinate-space-id 7
+ :coordinate-space-id 8
+ :viewport {:width 844.0 :height 390.0}
+ :reason :orientation-change}
+```
+
+`:viewport` is required, uses finite positive GUI logical pixels, and is the
+normative source for edge distances and Flutter y-axis normalization. The
+initial coordinate space is established by the first coordinate-space-change
+after reset, with `:old-coordinate-space-id nil`. Presented geometry and pointer
+packets must name that installed space. A size change always mints a new id.
+The reducer stores the id and viewport in `:coordinate-spaces`, makes the id
+active before processing subsequent geometry, and snapshots that complete value
+into every new arena and machine evaluation context. Reset clears the map;
+active arenas retain their old snapshot only until their required cancellation
+has been emitted.
+
+The terminal first emits cancel packets for every active pointer in the old
+space. The runtime then cancels any remaining arenas, clears old geometry, and
+accepts no new down until presented geometry for the new space is active.
+Recognizers never compute deltas across coordinate spaces.
+
+## Transport, Coalescing, And Backpressure
+
+Pointer lifecycle packets must not disappear silently.
+
+- terminals may coalesce consecutive moves for one pointer into the ordered
+  `:samples` vector of a later move packet
+- terminals must not coalesce across down, up, cancel, generation, frame, or
+  coordinate-space boundaries
+- down, up, and cancel are never evicted intentionally
+- pointer input streams must use reject/backpressure rather than
+  `:evict-oldest`
+- a runtime whose dispatch stream is full parks its input cursor rather than
+  dropping an already-produced gesture phase
+- if input retention is exceeded while the runtime is parked, the observed
+  DaoStream gap becomes explicit input loss and cancels all affected arenas
+- recognized semantic dispatch values are never conflated, evicted, or
+  rewritten into latest-wins state
+
+Input loss is signalled as:
+
+```clojure
+{:message/kind :dao.terminal/input-loss
+ :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8"
+ :after-input-seq 918
+ :before-input-seq 922
+ :affected-pointer-ids #{11 12}
+ :reason :stream-capacity}
+```
+
+The terminal or DaoStream adapter reports packet facts only; it never names
+runtime arena ids. `:after-input-seq` is the last retained packet before the
+gap, and `:before-input-seq` is the first retained packet after it. Optional
+`:affected-pointer-ids` is present only when the producer can prove the exact
+set. The runtime maps those pointers to arenas and emits cancellation traces
+naming the derived arena ids. When the set is absent, it cancels every active
+arena in the generation.
+
+The runtime does not guess missing movement, synthesize an up, or emit a
+successful gesture from an incomplete sequence.
+
+`input-seq` indexes packets the terminal actually emitted. A gap means a missing
+packet index or an observed DaoStream retention gap, not elapsed silence. Contact
+liveness is defined only by down, up, and cancel facts; a stationary contact
+needs no heartbeat and progresses through explicit timer tuples. A device that
+disappears without emitting cancellation is an unobservable host limitation and
+must be listed in that terminal's capability matrix.
+
+## Terminal Signals
+
+Existing terminal accounting signals remain:
+
+```clojure
+{:message/kind :dao.terminal/reset
+ :generation-id <opaque-id>}
+```
+
+```clojure
+{:message/kind :dao.terminal/rejection
+ :submission-id <integer>
+ :reason <keyword>}
+```
+
+```clojure
+{:message/kind :dao.terminal/frame-skipped
+ :submission-id <integer>}
+```
+
+Protocol errors use:
+
+```clojure
+{:message/kind :dao.terminal/protocol-error
+ :error/kind <keyword>
+ :generation-id <opaque-id>
+ :frame-id <optional-integer>
+ :input-seq <optional-integer>}
+```
+
+Frame rejection and skipping do not alter active geometry or pointer capture.
+Reset, coordinate-space change, and input loss do.
 
 ## Diagnostics
 
-Diagnostics are explicit data, not implicit side effects.
-
-When this design says a terminal or `dao.gui.event` runtime should emit or
-surface a diagnostic, the canonical form is a diagnostic event on a dedicated
-stream or equivalent explicit callback boundary.
-
-Normal control-flow values are not diagnostics. In particular, an explicit empty
-geometry / empty-hit-generation update for a non-interactive frame is ordinary
-state advancement, not a warning or error.
-
-The normative wire shape for v1 is:
+Diagnostics are explicit data on a dedicated stream:
 
 ```clojure
-{:diagnostic/kind :dao.gui.event/unsupported-region
- :severity :warning
- :frame-id 42
- :node-id ::save-button
- :reason :non-rectangular-screen-geometry}
+{:diagnostic/kind :dao.gui.event/invalid-recognizer
+ :severity :error
+ :node-id ::map
+ :recognizer/id ::map-transform
+ :reason :unbounded-window}
 ```
 
-`:frame-id` is optional on diagnostics that do not arise from one concrete
-presented frame, such as registration-time warnings. Diagnostic kinds use the
-consumer-layer namespace (`:dao.gui.event/...`) regardless of whether the
-terminal or the event runtime emitted the value.
+Normative diagnostic kinds are:
 
-Normative diagnostic kinds in v1 include:
+- `:dao.gui.event/unsupported-region`
+- `:dao.gui.event/invalid-recognizer`
+- `:dao.gui.event/recognizer-fault`
+- `:dao.gui.event/unsupported-capability`
+- `:dao.gui.event/unrecognized-event-kind`
+- `:dao.gui.event/no-active-frame`
+- `:dao.gui.event/future-frame-input`
+- `:dao.gui.event/stale-frame-input`
+- `:dao.gui.event/stale-generation-input`
+- `:dao.gui.event/coordinate-space-mismatch`
+- `:dao.gui.event/profile-mismatch`
+- `:dao.gui.event/input-sequence-gap`
+- `:dao.gui.event/duplicate-pointer-down`
+- `:dao.gui.event/orphan-pointer-packet`
+- `:dao.gui.event/capture-lost`
+- `:dao.gui.event/late-timer`
+- `:dao.gui.event/late-runtime-input`
+- `:dao.gui.event/browser-policy-conflict`
+- `:dao.gui.event/browser-policy-mismatch`
+- `:dao.gui.event/dispatch-backpressure`
 
-- `:dao.gui.event/unsupported-region` — warning; a would-be interactive region
-  could not be represented as an exact v1 rectangle
-- `:dao.gui.event/dispatch-busy` — error; a later tap was backpressured or
-  dropped before `dao.gui.event` could dispatch it because synchronous
-  subscriber dispatch was still running and upstream `dao.stream` policy
-  applied backpressure or eviction
-- `:dao.gui.event/unrecognized-event-kind` — warning; registration or emitted
-  metadata referenced an event kind not supported in v1
-- `:dao.gui.event/no-active-frame` — error; a tap arrived before any frame in
-  the current generation had become active and was dropped
-- `:dao.gui.event/future-frame-tap` — error; a tap carried a presented-frame ID
-  greater than the active frame in the current generation
-- `:dao.gui.event/stale-frame-tap` — error; a tap carried a presented-frame ID
-  older than the active frame in the current generation and was dropped
-- `:dao.gui.event/out-of-order-frame-events` — error; geometry or tap events
-  arrived in an order that violates frame-causality within one generation
-- `:dao.gui.event/stale-generation-tap` — error; a tap referred to a generation
-  that had already been superseded by a VM Reset Signal
+Severities are `:warning` and `:error`. Warnings omit only the unsupported
+candidate or optional value. Errors drop or cancel the affected pointer,
+candidate, arena, or dispatch explicitly; they do not retroactively invalidate
+a presented frame.
 
-The invariants are:
+Trigger conditions are normative: unsupported or non-rectangular geometry is
+`:unsupported-region`; declaration/DSL validation failure is
+`:invalid-recognizer`; evaluation failure is `:recognizer-fault`; a missing
+declared capability is `:unsupported-capability`; an illegal source/kind pair is
+`:unrecognized-event-kind`; down without current geometry is `:no-active-frame`;
+frame id greater or less than the permitted id is respectively
+`:future-frame-input` or `:stale-frame-input`; generation or coordinate-space
+mismatch uses its named diagnostic; a down naming an absent or non-latest
+profile id is `:profile-mismatch`; a nonconsecutive `:input-seq` is
+`:input-sequence-gap`; down for an active id is `:duplicate-pointer-down`;
+move/up/cancel for an inactive id is `:orphan-pointer-packet`; terminal lost
+capture without a valid cancel is `:capture-lost`; a stale or invalidated timer
+key is `:late-timer`; regressing canonical runtime time is
+`:late-runtime-input`; browser policy conditions are defined above; and a
+parked full dispatch stream emits `:dispatch-backpressure` once per parked
+interval.
 
-- diagnostics are emitted as explicit data values
-- diagnostics do not change rendering semantics
-- warning diagnostics do not abort frame presentation or subscriber dispatch by
-  themselves
-- in v1, the only severities are `:warning` and `:error`
-- `:warning` preserves normal control flow
-- `:error` indicates a dropped event or omitted interactive target, but still
-  does not retroactively invalidate an already presented frame
-- dropped taps, omitted unsupported regions, and subscriber failures may all be
-  surfaced through this same diagnostic boundary
+Every diagnostic must include its kind, severity, causing `:runtime/seq`, and
+all available causal ids. `:reason` keywords and those fields are conformance
+data. Optional human-readable `:message`, stack data, and host error text are
+implementation-discretionary and are omitted from canonical traces.
 
-This preserves the project's invariants:
+## Trace And Numeric Conformance
 
-- event routing is data-driven
-- causality is explicit:
-  frame -> presentation -> geometry -> hit index -> tap -> subscriber
-  notification
-- `dao.gui` stays pure
+The debug and test trace is versioned EDN:
 
-## Tap Semantics
+```clojure
+{:dao.gui.event.trace/version 1
+ :runtime-inputs [<canonical-runtime-input>]
+ :runtime-outputs [<arena-timer-dispatch-or-diagnostic-value>]}
+```
 
-V1 tap semantics are intentionally concrete:
+It records the complete causally ordered values needed for replay: presented
+geometry, input profiles, normalized pointer packets including sample kinds,
+timer requests/results, subscription commands, contact changes, arena merges and
+decisions, dispatches, and diagnostics. It contains no host callbacks or
+unrecorded scheduler state.
 
-- the terminal recognizes a host-native tap gesture
-- the terminal emits one tap event for that recognized gesture
-- the tap event is tagged with the presented frame id it belongs to
-- the normative tap wire shape in v1 is
-  `{:frame-id <int> :position {:x <number> :y <number>}}`, where `:position`
-  is in `dao.gui.event`'s Cartesian coordinate space (origin bottom-left,
-  `y` upward)
-- `dao.gui.event` receives that tap event, not a down/up public sequence
-- before any frame has been successfully presented in the current generation,
-  the active hit index is empty and all taps are dropped with an
-  diagnostic of kind `:dao.gui.event/no-active-frame`
-- tap dispatch follows a strict three-sided rule against the active geometry frame:
-- `tap.frame == active`: dispatch immediately.
-- `tap.frame > active`: treat as a terminal protocol error, emit a diagnostic of
-  kind `:dao.gui.event/future-frame-tap` or a **Protocol Error Signal**, and
-  drop immediately.
-- `tap.frame < active`: drop with a diagnostic of kind
-  `:dao.gui.event/stale-frame-tap` (never rebound to newer geometry).
-- well-formed terminal integrations do not normally produce `tap.frame > active`, because taps are tagged with the frame that was actually visible when the gesture was recognized.
-- if the terminal / VM instance restarts, any in-flight taps carrying frame IDs
-  from the previous instance are dropped with a diagnostic; VM-assigned frame
-  IDs are not stable across restarts
-- after a VM restart the active hit index is empty until the new VM emits
-  geometry for its first presented frame; taps during that interval are dropped
-  under the same three-sided rule
-- if the viewport changes after frame `N` was presented, a tap tagged with
-  frame `N` still dispatches against frame `N`'s geometry and coordinate space;
-  later resizes affect only later presented frames
-- after a VM restart, recovery requires a newly presented valid frame. The
-  event runtime does not synthesize continuity from pre-restart generations
-- a **VM Reset Signal** (`{:message/kind :dao.terminal/reset :generation-id <string-uuid>}`) clears the active
-  presented-frame generation immediately; after reset, comparison against
-  pre-reset frame IDs is invalid. V1 does not define a causal tap buffer, so
-  there is no buffered tap state to preserve across reset.
-- `generation-id` is an opaque namespace token chosen by the terminal. Consumers
-  use it only to distinguish one presented-frame namespace from another. In
-  effect, a terminal-scoped frame identity is `(generation-id, frame-id)`, but
-  v1 transports that identity as one reset token plus later integer `frame-id`
-  values. Geometry and taps compare only by `frame-id` within the current
-  generation; `generation-id` changes only on reset boundaries
-- the **Protocol Error Signal** drives concrete state in v1 according to its
-  `:error/kind`: `:future-frame-tap` is dropped immediately under the
-  three-sided rule, while `:out-of-order-frame-events` and
-  `:stale-generation-tap` are treated as terminal protocol faults and surfaced
-  as `:dao.gui.event/out-of-order-frame-events` and
-  `:dao.gui.event/stale-generation-tap` diagnostics respectively, without
-  rebinding any tap or geometry to a different frame or generation
-- the **Frame Skipped Signal** (`{:message/kind :dao.terminal/frame-skipped :submission-id <int>}`) is informational in v1. `dao.gui.event` keeps no buffer of pending taps awaiting a future frame and maintains no `submission-id`-to-`frame-id` mapping, so the signal triggers no state transition inside the event runtime. It exists to make a gap in the terminal's submission sequence visible to upstream observers (frame producers, diagnostics consumers) that may correlate submission IDs with their own bookkeeping
-- a **Frame Skipped Signal** is emitted when the terminal's submission sequence
-  advances past frame submission `N` without ever presenting it, for example
-  due to coalescing, backpressure, or replacement by a newer submission before
-  presentation. After that signal, geometry for `N` can never arrive in v1
-- dispatch targets the single highest-precedence region containing the tap point
-- dispatch kind is `:tap`
+The trace codec is a conformance surface, not a compatibility adapter for the
+former tap draft. `:on-tap` is desugared before tracing, so a trace contains only
+the canonical recognizer declaration and new gesture envelope.
 
-Drag, hover, capture, keyboard routing, and focus are deferred.
+Cross-runtime comparison requires exact equality for ids, targets, phases,
+decisions, ordering, and non-numeric payloads. Numeric gesture projections are
+rounded to the nearest multiple of `1e-6` before trace encoding; ties round to
+the even multiple. NaN and infinite values are invalid. This is the canonical
+comparison rule for CLJ, CLJS, and CLJD and replaces byte-for-byte comparison of
+unrounded host floating-point results.
 
-## Relationship To the Render Loop
+### Executable Fixture Contract
 
-The application drives the render loop. As defined in `dao.gui.md`, the
-application decides when to compile and hands completed frame programs to
-the terminal.
+Each conformance fixture is one EDN value suitable for direct reducer replay:
 
-`dao.gui.event` composes downstream of that boundary:
+```clojure
+{:fixture/id :tap/single
+ :initial-state nil
+ :inputs [<canonical-runtime-input>]
+ :expect {:outputs [<complete-output-values-in-order>]
+          :state {:generation-id <opaque-id-or-nil>
+                  :coordinate-space-id <id-or-nil>
+                  :active-frame-id <id-or-nil>
+                  :profile-ids [<ids-in-order>]
+                  :subscription-ids [<ids-in-registration-order>]
+                  :active-pointer-ids [<ids-in-stable-edn-order>]
+                  :active-arena-ids [<ids-in-creation-order>]
+                  :scheduled-timer-keys [<keys-in-stable-edn-order>]
+                  :last-runtime-seq <integer>
+                  :last-runtime-time-us <integer-or-nil>
+                  :next-arena-id <integer>}}}
+```
 
-- `dao.gui` emits frame programs
-- the terminal presents them
-- the terminal emits presented geometry for interactive targets, or an explicit
-  empty-hit-generation update when the presented frame has none, and emits tap
-  input when host-native taps occur
-- `dao.gui.event` consumes those downstream values
-- `dao.gui.event` derives the hit index and dispatches to subscribers
+`nil` initial state means the version-1 empty state. Fixture inputs must include
+geometry, profile, and subscriptions explicitly before their first use. Expected
+outputs contain complete values after canonical numeric rounding, including
+timer cancellation and diagnostics; no wildcard comparison is allowed except
+`{:any-of [...]}` around an explicitly declared host-capability alternative.
+The eleven-key `:state` map above is the complete public fixture projection; no
+other reducer fields appear and none of these keys may be omitted. A fixture
+fails when an additional output, missing output, different order, or a different
+projected state occurs.
 
-This keeps the contracts aligned:
+It is derived mechanically from the logical reducer state: coordinate-space id
+is `:active-coordinate-space-id`; active frame id is
+`[:geometry :active :frame-id]`; profile ids are the `:profiles` keys in numeric
+ascending order; subscription ids are `:subscription-order`; pointer ids are
+the `:pointers` keys in stable EDN order; arena ids are live `:arenas` keys in
+creation-sequence order; scheduled timer keys are the keys whose timer record is
+`:scheduled`, in stable EDN order; and the remaining scalar fields are copied
+directly. The full map-shaped reducer schema is inspectable implementation
+state, while this derived eleven-key map is the sole cross-implementation state
+comparison surface.
 
-- compilation remains deterministic
-- terminal rendering remains terminal-specific
-- event dispatch remains a separate runtime concern
+The repository must provide fixtures for every bullet in Conformance Scenarios,
+plus one minimal fixture for each diagnostic kind and each invalid-machine
+validation rule. It must also provide a generator that creates finite packet
+traces with up to five contacts, then asserts: every emitted gesture references
+an origin capture; every continuous start has exactly one later end/cancel;
+every timer-fired value has a prior start of the same key; no ended arena or
+pointer remains in the projected state; and replaying the same trace is exactly
+deterministic. Generated traces may not substitute for the named regression
+fixtures.
 
-## V1 Scope
+## Touch Capability Matrix
 
-V1 solves only:
+The matrix describes direct touchscreen conformance. `portable` means that
+identical normalized traces and profiles have the same semantics. `capability`
+means that the terminal profile must advertise the required fact. `reserved`
+means that host ownership may prevent delivery or produce cancellation.
 
-- terminal-originated tap events
-- post-presentation geometry emission
-- frame-local rectangular hit regions
-- dynamic hit-index derivation
-- Cartesian coordinate normalization
-- subscription lookup by node id and event kind
-- deterministic topmost-wins dispatch
+| Gesture / input | Android Flutter | iOS Flutter | Mobile web |
+| --- | --- | --- | --- |
+| tap / repeated tap | portable | portable | portable |
+| long press | portable | portable | portable |
+| pan / drag / application scroll | portable | portable | portable, subject to `touch-action` |
+| swipe / fling | portable | portable | portable, subject to `touch-action` |
+| scale / pinch / rotation / transform | portable | portable | portable, subject to `touch-action` |
+| edge pan | reserved at system edges | reserved at system edges | reserved by browser navigation where applicable |
+| pressure press | capability | capability | capability |
+| contact geometry / tilt / twist | capability | capability | capability |
+| coalesced or predicted samples | capability | capability | capability |
 
-Deferred:
+Trackpad pan/zoom, wheel, hover routing, text selection, native drag-and-drop,
+context menus, and accessibility activation are separate non-touch protocols.
+The unified pointer envelope permits later adapters but does not make those
+modalities part of this touch arena contract.
 
-- pointer down / up as separate public events
-- drag
-- hover
-- enter / leave
-- focus traversal
-- pointer capture
-- keyboard routing
-- gesture recognition beyond terminal-recognized tap
-- non-rectangular hit regions
-- accessibility semantics
+## Host Conformance
+
+A conforming Android/iOS Flutter terminal:
+
+- observes raw Flutter pointer events rather than using Flutter gesture
+  callbacks as the portable contract
+- maps physical coordinates to Cartesian logical pixels
+- preserves pointer ids, phases, timestamps, and available contact properties
+- reports a device-adapted immutable input profile
+- preserves physical delivery after down and reports host cancellation
+
+A conforming mobile web terminal:
+
+- consumes Pointer Events, not emulated mouse events, for touch recognition
+- uses `getCoalescedEvents` and predicted events only when supported and marks
+  them explicitly
+- realizes geometry-derived touch-policy overlays
+- normalizes browser coordinates and timestamps
+- turns `pointercancel` and lost capture into explicit cancellation
+
+Given identical canonical runtime inputs, every conforming runtime produces the
+same ids, targets, phases, arena decisions, ordering, and non-numeric semantic
+values. Numeric payloads match after canonical `1e-6` trace rounding.
+
+## Conformance Scenarios
+
+Implementations must test at least:
+
+- one-, two-, and three-contact taps; single, double, and repeated taps
+- single tap delayed by a competing double tap
+- long press acceptance, early up, movement rejection, and cancellation
+- child tap competing with ancestor vertical scroll pan
+- axis-constrained and free pan, including pointer leaving the hit rectangle
+- pan end with and without fling
+- swipe direction, distance, duration, and velocity boundaries
+- one-finger transform growing into two-finger scale and rotation without value
+  discontinuity
+- separate cooperative scale and rotation recognizers
+- one-arena contact join and `:contacts/changed` ordering
+- a new down bridging several unresolved arenas into the oldest arena
+- accepted-arena late join with `:join-after-accept` enabled and disabled
+- path-disjoint controls operating concurrently
+- contact lift under `:end`, `:degrade`, and `:hold`
+- contact-count overflow and duplicate-candidate merge cancellation
+- captured movement across another interactive region without re-hit-testing,
+  target change, or arena change
+- edge pan delivered, cancelled by the host, and never delivered because the
+  host reserved it
+- pressure recognition with and without pressure capability
+- custom machine validation, deterministic transition order, timers, and fault
+  isolation
+- capture across frame presentation and target disappearance
+- rejected and skipped frames while a gesture is active
+- terminal reset, coordinate-space or profile mismatch, duplicate ids, orphan
+  packets, and input-sequence gaps
+- local scrolling and animation without coordinate-space remint
+- pointer-before-timer deadline ties, stale timer sequences, and late runtime
+  input
+- predicted-sample miscorrection without semantic state change
+- web `:auto`, `:none`, `:manipulation`, pan, and pinch policies on overlapping
+  regions
+- atomic overlay publication, stable-root capture, accessibility exclusion,
+  precedence mapping, and explicit policy-mismatch fallback
+- bounded input and dispatch streams without silent lifecycle loss
+- one retention gap naming and cancelling several affected arenas
+- stationary long press without heartbeat packets
+- cross-runtime trace replay with exact structural equality and canonical
+  `1e-6` numeric comparison
 
 ## Design Rules
 
-- keep `dao.gui` as a pure compiler from authored UI to `dao.postgraphics`
-- keep `dao.postgraphics` as rendering bytecode only
-- treat terminal presentation as the point where geometry becomes
-  authoritative
-- have the terminal emit presented geometry tagged to a frame generation
-- consume that geometry downstream in `dao.gui.event`, canonically via
-  `dao.stream`
-- derive a dynamic frame-local hit index from presented geometry
-- represent geometry and hit data as plain data, not callbacks
-- dispatch by subscription interest in `(node-id, event-kind)`
-- **Pinned Precedence:** Use the **Canonical Precedence Formula** (`metadata << 32 | index`) for all hit routing.
-- **Axis-Alignment Epsilon:** Reject interaction geometry only when deviations from pure translation exceed **`1e-6`**.
-- **Canonical Signaling:** Use normative EDN message shapes for Reset, Rejection, Protocol Error, and Frame Skipped signals.
-- **Boundary Convention:** Hit-testing uses half-open rectangles.
-- preserve explicit causality from frame delivery through tap dispatch
+- model host input, time, recognition, arbitration, capture, subscription, and
+  diagnostics as stream data
+- preserve raw facts before interpreting gestures
+- construct interaction paths explicitly from tuples; never infer a graph
+- snapshot causally relevant frame, path, profile, recognizer, and subscriber
+  values at pointer down
+- change arena membership only through explicit contact join, lift, or merge
+  tuples; pointer movement never changes the captured path
+- keep active pointer capture stable across recompilation
+- make every loss, cancellation, unsupported capability, and protocol violation
+  observable
+- use bounded, total recognizer machines with no host callbacks or hidden
+  effects
+- keep `dao.gui` pure and `dao.postgraphics` metadata inert for painting
+- prefer one combined transform recognizer when translation, scale, and rotation
+  must evolve together
+- treat browser and operating-system ownership as an explicit restriction, not
+  a portable gesture promise
+- keep event interpretation independent of render-frame commits and host widget
+  hit-test graphs
 
 ## Accepted Defaults
 
-These choices are fixed for v1:
-
-- `dao.gui.event` is not part of `dao.gui`
-- `dao.gui.event` is not part of `dao.postgraphics`
-- the terminal is where native events first appear
-- the terminal is authoritative for presented-frame geometry
-- presented geometry is emitted after presentation, not before
-- `dao.stream` is the canonical transport for geometry and tap events
-- taps are frame-tagged and follow the strict three-sided dispatch rule
-- the only public event kind is `:tap`
-- hit regions are derived from presented geometry normalized to a shared **`1e-6`** epsilon
-- the hit index is dynamic runtime data ordered by the **Canonical Precedence Formula**
-- subscriptions are keyed by node id and event kind
-- dispatch is topmost-wins among hit regions at the tap point
+- the terminal emits normalized pointer packets, not recognized portable
+  gestures
+- `dao.gui.event` owns portable gesture recognition
+- the pointer envelope supports touch, pen, mouse, and unknown devices; complete
+  conformance in this revision is required for touch
+- the standard recognizer vocabulary is extensible through validated machine
+  data and targeted raw pointer streams
+- hit geometry remains exact, rectangular, clipped, and topmost-first
+- hit-testing occurs once on down; active sequences are never re-hit-tested
+- interaction paths are explicit metadata
+- arena exclusivity is local; path-disjoint controls may recognize concurrently
+- unresolved arenas connected by a new down merge explicitly into the oldest
+  arena and never split afterward
+- gesture arena ties are deterministic
+- capture lasts until pointer or arena termination, reset, space change, input
+  loss, or teardown
+- gesture thresholds come from explicit terminal profiles with declaration
+  overrides
+- mobile web touch ownership is explicit per region and realized with terminal
+  policy overlays committed before the frame becomes interactive
+- subscriptions and dispatch are streams, not callback execution
+- recognized semantic dispatch is lossless; only raw terminal moves may be
+  explicitly coalesced before interpretation
+- packet-index continuity requires no heartbeat
+- direct touch is the conformance scope; non-touch modalities use separate
+  protocols
+- no compatibility adapter is defined for the former bare tap wire shape
