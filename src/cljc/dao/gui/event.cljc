@@ -13,7 +13,8 @@
   (:require [dao.gui.event.decl :as decl]
             [dao.gui.event.fault :as fault]
             [dao.gui.event.pointer :as pointer]
-            [dao.gui.event.trace :as trace]))
+            [dao.gui.event.trace :as trace]
+            [dao.stream :as ds]))
 
 
 (def state-version 1)
@@ -25,8 +26,11 @@
 
 
 (def standard-gesture-kinds
-  "Subscriber-visible semantic kinds of the standard recognizer vocabulary."
-  #{:tap :long-press :pan :swipe :fling :transform :edge-pan :pressure-press})
+  "Subscriber-visible semantic kinds of the standard recognizer vocabulary.
+  This set agrees with the declarable kinds: :drag lowers from pan and
+  :scale, :pinch, and :rotation are transform projections."
+  #{:tap :long-press :pan :drag :swipe :fling :transform :scale :pinch :rotation
+    :edge-pan :pressure-press})
 
 
 (def legal-phases #{:recognized :start :update :end :cancel})
@@ -78,7 +82,7 @@
     {:generation-id (:generation-id state),
      :coordinate-space-id (:active-coordinate-space-id state),
      :active-frame-id (get-in state [:geometry :active :frame-id]),
-     :profile-ids (sort (keys (:profiles state))),
+     :profile-ids (vec (sort (keys (:profiles state)))),
      :subscription-ids (:subscription-order state),
      :active-pointer-ids (vec (trace/edn-sort (keys (:pointers state)))),
      :active-arena-ids (vec (sort (keys (:arenas state)))),
@@ -251,37 +255,42 @@
 
 
 (defn- validate-path-declarations
-  "Validate recognizer declarations on one interaction path. Invalid
-  declarations are omitted with one :invalid-recognizer diagnostic each;
-  duplicate (node-id, recognizer-id) identities in the same frame are
-  omitted with a diagnostic. :seen accumulates candidate identities across
-  the whole frame."
-  [path seen]
+  "Validate recognizer declarations on one presented node's interaction
+  path. Invalid declarations are omitted with one :invalid-recognizer
+  diagnostic each. Duplicate (node-id, recognizer-id) identities are
+  rejected only for logical targets, the terminal path entry that names
+  the presented node itself: the same logical target declared twice in
+  one frame is a compiler error. Ancestor entries may repeat across
+  several explicit root-to-target paths; that repetition is intentional
+  and keeps its recognizers."
+  [path target-node-id seen]
   (reduce (fn [{:keys [path diagnostics seen]} entry]
             (let [node-id (:node-id entry)
-                  {:keys [kept omitted new-seen]}
-                  (reduce (fn [{:keys [kept omitted seen]}
+                  ;; ancestor identities never deduplicate across the frame
+                  entry-seen (if (= node-id target-node-id) seen #{})
+                  {:keys [kept dropped carried]}
+                  (reduce (fn [{:keys [kept dropped carried]}
                                {:keys [recognizer/id], :as decl}]
                             (let [reason (decl/validate-declaration decl)]
-                              (if (or reason (contains? seen [node-id id]))
+                              (if (or reason (contains? carried [node-id id]))
                                 {:kept kept,
-                                 :omitted
-                                 (conj omitted
+                                 :dropped
+                                 (conj dropped
                                        (fault/diagnostic
                                          :dao.gui.event/invalid-recognizer
                                          :error (or reason
                                                     :duplicate-candidate)
                                          :node-id node-id
                                          :recognizer/id id)),
-                                 :seen seen}
+                                 :carried carried}
                                 {:kept (conj kept decl),
-                                 :omitted omitted,
-                                 :seen (conj seen [node-id id])})))
-                          {:kept [], :omitted [], :seen seen}
+                                 :dropped dropped,
+                                 :carried (conj carried [node-id id])})))
+                          {:kept [], :dropped [], :carried entry-seen}
                           (:recognizers entry))]
               {:path (conj path (assoc entry :recognizers kept)),
-               :diagnostics (into diagnostics omitted),
-               :seen new-seen}))
+               :diagnostics (into diagnostics dropped),
+               :seen (if (= node-id target-node-id) carried seen)}))
           {:path [], :diagnostics [], :seen seen}
           path))
 
@@ -309,6 +318,7 @@
                       (reduce (fn [acc node]
                                 (let [path-result (validate-path-declarations
                                                     (:interaction/path node)
+                                                    (:node-id node)
                                                     (:seen acc))
                                       node' (assoc node
                                                    :interaction/path
@@ -344,6 +354,14 @@
           {:state state,
            :outputs [(fault/diagnostic :dao.gui.event/profile-mismatch
                                        :error :duplicate-profile-id
+                                       :profile-id profile-id)]}
+          ;; profile ids are unique and monotonically increasing within one
+          ;; generation; a regressing id is rejected without installing it
+          (and (some? (:latest-profile-id adopted))
+               (< profile-id (:latest-profile-id adopted)))
+          {:state state,
+           :outputs [(fault/diagnostic :dao.gui.event/profile-mismatch
+                                       :error :regressing-profile-id
                                        :profile-id profile-id)]}
           :else {:state (-> adopted
                             (assoc-in [:profiles profile-id]
@@ -541,19 +559,159 @@
 ;; Binding
 ;; ---------------------------------------------------------------------------
 
+(def output-destinations
+  "The six runtime-owned output streams of one binding."
+  [:effects :trace :pointer :gesture :dispatch :diagnostic])
+
+
+(defn- route-destination
+  "Destination stream key of one reducer output. Routing never reorders:
+  pending records keep complete reducer-output order."
+  [output]
+  (cond (:diagnostic/kind output) :diagnostic
+        (:dispatch/kind output) :dispatch
+        (:effect/kind output) :effects
+        (= :gesture (:event/kind output)) :gesture
+        (= :pointer (:event/kind output)) :pointer
+        :else :trace))
+
+
+(defn- enqueue-outputs
+  [pending outputs]
+  (into pending
+        (map (fn [output]
+               {:destination (route-destination output), :value output}))
+        outputs))
+
+
+(defn- park-interval-key
+  "Identity of one parked interval: the same destination stream and the
+  same head pending value."
+  [destination value]
+  [destination (:runtime/seq value) (:output/seq value)])
+
+
+(defn- enter-park
+  "Record the parked interval. On entry to a dispatch-stream interval,
+  append one dispatch-backpressure diagnostic to the tail of the pending
+  outputs for the causing runtime input; a full diagnostic stream later
+  parks on that value without recursive diagnostics."
+  [binding destination value]
+  (let [interval (park-interval-key destination value)
+        same-interval? (= interval (:park binding))
+        binding (assoc binding :park interval)]
+    (if (and (= :dispatch destination) (not same-interval?))
+      (let [causing-seq (:runtime/seq value)
+            assigned (keep (fn [entry]
+                             (let [v (:value entry)]
+                               (when (= causing-seq (:runtime/seq v))
+                                 (:output/seq v))))
+                           (:pending binding))
+            diagnostic {:diagnostic/kind :dao.gui.event/dispatch-backpressure,
+                        :severity :warning,
+                        :reason :dispatch-stream-full,
+                        :runtime/seq causing-seq,
+                        :output/seq (inc (long (reduce max -1 assigned)))}]
+        (update binding
+                :pending
+                conj
+                {:destination :diagnostic, :value diagnostic}))
+      binding)))
+
+
+(defn- flush-pending
+  "Append pending outputs in order until the queue empties or one parks.
+  Appended values leave the queue and are never appended again. A nil
+  destination stream is a permissive sink for that destination."
+  [binding]
+  (loop [binding binding]
+    (let [pending (:pending binding)]
+      (if (empty? pending)
+        (assoc binding :park nil)
+        (let [{:keys [destination value]} (first pending)
+              stream (get-in binding [:outputs destination])]
+          (if (nil? stream)
+            (recur (update binding :pending subvec 1))
+            (let [result (ds/append! stream value)]
+              (if (= :full (:result result))
+                (enter-park binding destination value)
+                (recur (update binding :pending subvec 1))))))))))
+
+
+(defn- close-outputs
+  "Close every runtime-owned output stream. The input stream is owned by
+  the multiplexer and is never closed here."
+  [binding]
+  (doseq [k output-destinations]
+    (when-let [stream (get-in binding [:outputs k])] (ds/close! stream)))
+  (assoc binding :closed? true))
+
+
+(defn advance
+  "The public binding driver over real DaoStreams. Retries pending output
+  in order before reading; reads at most one runtime input per call;
+  consumes it exactly once and retains the cursor even if its output
+  subsequently parks; steps the total reducer and routes the ordered
+  outputs to their destination streams. Returns {:binding next-binding
+  :status ...} where status is :advanced, :parked, :blocked, :end,
+  :input-gap, or :closed. After one valid teardown input is fully flushed
+  the binding closes all six runtime-owned outputs; later inputs are
+  ignored."
+  [binding]
+  (if (:closed? binding)
+    {:binding binding, :status :closed}
+    (let [flushed (flush-pending binding)]
+      (cond
+        (:park flushed) {:binding flushed, :status :parked}
+        (:teardown? flushed) {:binding (close-outputs flushed), :status :closed}
+        :else
+        (let [input (get-in binding [:inputs :runtime-input])
+              result (ds/next input (or (:cursor binding) {:position 0}))]
+          (cond
+            (map? result)
+            (let [{next-state :state, outputs :outputs}
+                  (step (:state flushed) (:ok result))
+                  stepped (assoc flushed
+                                 :state next-state
+                                 :cursor (:cursor result)
+                                 :pending (enqueue-outputs (:pending flushed)
+                                                           outputs)
+                                 :teardown? (boolean (:closed next-state)))
+                  flushed' (flush-pending stepped)]
+              (cond (:park flushed') {:binding flushed', :status :parked}
+                    (:teardown? flushed')
+                    {:binding (close-outputs flushed'), :status :closed}
+                    :else {:binding flushed', :status :advanced}))
+            (= result :blocked) {:binding flushed, :status :blocked}
+            (= result :end) {:binding flushed, :status :end}
+            ;; a bare gap cannot construct the canonical input-loss
+            ;; envelope: report without advancing the cursor
+            (= result :daostream/gap) {:binding flushed, :status :input-gap}
+            :else {:binding flushed, :status :blocked}))))))
+
+
 (defn bind
-  "Data-oriented public constructor. Creates no ambient singleton and
-  registers no host callbacks. :offer maps one canonical input to the next
-  binding value plus its ordered outputs."
+  "Data-oriented public constructor. Creates no ambient singleton, host
+  thread, callback, or waiter registration. The binding value carries the
+  input stream and read cursor, the six output streams, the immutable
+  interpreter state, the ordered pending-output queue, teardown and
+  parked-interval state, and an :offer function exposing the total reducer
+  for direct replay."
   [{:keys [inputs outputs], :as _spec}]
   (letfn [(make
-            [state]
+            [state cursor pending teardown?]
             {:dao.gui.event/binding-version state-version,
              :inputs inputs,
              :outputs outputs,
              :state state,
+             :cursor cursor,
+             :pending pending,
+             :teardown? teardown?,
+             :closed? false,
+             :park nil,
              :offer (fn [runtime-input]
                       (let [{next-state :state, out :outputs}
                             (step state runtime-input)]
-                        {:binding (make next-state), :outputs out}))})]
-    (make (initial-state))))
+                        {:binding (make next-state cursor pending teardown?),
+                         :outputs out}))})]
+    (make (initial-state) {:position 0} [] false)))

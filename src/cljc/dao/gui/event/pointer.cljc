@@ -161,14 +161,18 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- region-contains?
+  "Half-open containment [x, x+width) x [y, y+height). Malformed
+  non-numeric coordinates match no region: the reducer stays total."
   [bounds x y]
-  (and (<= (:x bounds) (double x))
+  (and (number? x)
+       (number? y)
+       (<= (:x bounds) (double x))
        (< (double x) (+ (:x bounds) (:width bounds)))
        (<= (:y bounds) (double y))
        (< (double y) (+ (:y bounds) (:height bounds)))))
 
 
-(defn hit-region
+(defn- hit-region
   "Topmost region containing the point, or nil, or ::ambiguous when two
   regions share the greatest effective paint order."
   [regions x y]
@@ -186,9 +190,21 @@
 ;; Windows and contacts
 ;; ---------------------------------------------------------------------------
 
-(defn- final-sample
+(defn- recognition-samples
+  "Only :actual and :coalesced samples may update contacts, recognizer
+  windows, velocity, payloads, or arena decisions. Predicted samples are
+  dispatchable for rendering feedback but never affect recognition."
   [packet]
-  (peek (vec (:samples packet))))
+  (filter (fn [sample] (contains? #{:actual :coalesced} (:sample/kind sample)))
+          (:samples packet)))
+
+
+(defn- final-sample
+  "The packet's current value: the last actual or coalesced sample, with a
+  defensive fallback to the last sample for a malformed packet carrying no
+  recognition samples."
+  [packet]
+  (or (last (recognition-samples packet)) (peek (vec (:samples packet)))))
 
 
 (defn- push-window-entries
@@ -229,6 +245,9 @@
   [arena candidate packet machine-input time-us]
   {:contacts (:contacts arena),
    :sample (final-sample packet),
+   ;; recognition-visible samples only: predicted samples never reach a
+   ;; machine through the context
+   :samples (vec (recognition-samples packet)),
    :pointer (:pointer packet),
    :input machine-input,
    :packet packet,
@@ -245,6 +264,25 @@
   (case (first effect)
     :timer/start
     (let [[_op timer-id duration-us] effect
+          ;; a restart first cancels the scheduled prior incarnation of
+          ;; the same timer id, then starts the next sequence
+          prior (get-in candidate [:active-timers timer-id])
+          prior-tkey (when prior
+                       (fault/timer-key (:generation-id arena)
+                                        (:coordinate-space-id arena)
+                                        (:arena-id arena)
+                                        (:recognizer-id candidate)
+                                        timer-id
+                                        (:timer-seq prior)))
+          prior-scheduled?
+          (and prior-tkey
+               (= :scheduled (get-in state [:timers prior-tkey :status])))
+          [state-after-prior cancel-output]
+          (if prior-scheduled?
+            (let [[timers cancel] (fault/cancel-timer (:timers state)
+                                                      prior-tkey)]
+              [(assoc state :timers timers) cancel])
+            [state nil])
           timer-seq (inc (get-in candidate [:timer-seqs timer-id] 0))
           tkey (fault/timer-key (:generation-id arena)
                                 (:coordinate-space-id arena)
@@ -252,16 +290,17 @@
                                 (:recognizer-id candidate)
                                 timer-id
                                 timer-seq)
-          output (assoc (fault/timer-request tkey :start)
-                        :deadline-us (+ time-us duration-us))]
-      {:state (assoc-in state
+          deadline (+ time-us duration-us)
+          start-output (assoc (fault/timer-request tkey :start)
+                              :deadline-us deadline)]
+      {:state (assoc-in state-after-prior
                         [:timers tkey]
-                        {:status :scheduled, :deadline-us (+ time-us duration-us)}),
+                        {:status :scheduled, :deadline-us deadline}),
        :candidate (-> candidate
                       (assoc-in [:timer-seqs timer-id] timer-seq)
                       (assoc-in [:active-timers timer-id]
                                 {:timer-seq timer-seq})),
-       :effects [output]})
+       :effects (vec (keep identity [cancel-output start-output]))})
     :timer/cancel (let [timer-id (first (rest effect))
                         active (get-in candidate [:active-timers timer-id])]
                     (if (nil? active)
@@ -423,7 +462,7 @@
    :time-us time-us,
    :pointer-ids (set (:participant-ids arena)),
    :position position,
-   :payload payload})
+   :payload (recognizer/project-payload (:gesture/kind candidate) payload)})
 
 
 (defn- decision-trace
@@ -494,10 +533,16 @@
         acc (update acc
                     :traces
                     conj
-                    (decision-trace arena candidate :cancelled cause))]
-    (if (:emitted-start? (get-in (:state acc)
-                                 [:arenas arena-id :candidates
-                                  (:candidate-id candidate)]))
+                    (decision-trace arena candidate :cancelled cause))
+        cancelled (get-in (:state acc)
+                          [:arenas arena-id :candidates
+                           (:candidate-id candidate)])]
+    ;; an accepted continuous gesture that already emitted its terminal
+    ;; :end has exactly one terminal phase: a later arena cancellation
+    ;; emits no second semantic event
+    (if (and (:emitted-start? cancelled)
+             (not (contains? #{:ended :rejected}
+                             (:machine/state (:machine-state cancelled)))))
       (let [payload (assoc (or (:last-payload candidate) {}) :reason cause)
             event (gesture-event arena
                                  candidate
@@ -512,7 +557,9 @@
 
 
 (defn- commit-winner
-  "Commit an accepted candidate's held emissions as semantic events."
+  "Commit an accepted candidate's held emissions as semantic events. The
+  arena's :winner is maintained by the resolver, not here: a cooperative
+  resolution commits several winners."
   [acc arena candidate emissions time-us packet]
   (let [arena-id (:arena-id arena)
         events (map (fn [{:keys [phase payload position]}]
@@ -536,11 +583,6 @@
                          (decision-trace arena candidate :accepted :arena-winner))
                        events))
           (update acc' :state assoc-in [:arenas arena-id :status] :accepted)
-          (update acc'
-                  :state
-                  assoc-in
-                  [:arenas arena-id :winner]
-                  (:candidate-id candidate))
           (update acc'
                   :state
                   update-in
@@ -606,22 +648,38 @@
                         acc))
                     acc
                     candidates)
-        ;; 2. accepters
-        accepters (keep (fn [candidate]
-                          (when (= :accept
-                                   (get-in candidate [::proposed :decision]))
-                            candidate))
-                        (vals (:candidates (current-arena acc arena-id))))
-        exclusive (filter (fn [c]
-                            (= :exclusive
-                               (get-in c [:arena-decl :mode] :exclusive)))
-                          accepters)
-        ;; losing or previously accepted candidates that are not the winner
+        ;; 2. accepters, in deterministic candidate rank order: host map
+        ;; iteration never participates
+        accepters
+        (by-rank (keep (fn [id]
+                         (let [candidate (get-in (current-arena acc arena-id)
+                                                 [:candidates id])]
+                           (when (= :accept
+                                    (get-in candidate [::proposed :decision]))
+                             candidate)))
+                       (:candidate-order (current-arena acc arena-id))))
+        arena-candidates (fn [acc]
+                           (map (fn [id]
+                                  (get-in (current-arena acc arena-id)
+                                          [:candidates id]))
+                                (:candidate-order (current-arena acc arena-id))))
+        ;; losing or previously accepted candidates that cannot coexist
+        ;; with the winners: an accepted candidate survives only by being a
+        ;; winner or by sharing the winners' non-nil coexistence group
         cancel-not-winner
-        (fn [acc winner-id]
+        (fn [acc winner-ids coexistent-group]
           (reduce (fn [acc candidate]
                     (if (and (:accepted? candidate)
-                             (not= (:candidate-id candidate) winner-id))
+                             (not (contains? winner-ids
+                                             (:candidate-id candidate)))
+                             (not (and (some? coexistent-group)
+                                       (= :cooperative
+                                          (get-in candidate
+                                                  [:arena-decl :mode]))
+                                       (= coexistent-group
+                                          (get-in candidate
+                                                  [:arena-decl
+                                                   :coexistence/group])))))
                       (cancel-loser acc
                                     (current-arena acc arena-id)
                                     candidate
@@ -630,7 +688,7 @@
                                     packet)
                       acc))
                   acc
-                  (vals (:candidates (current-arena acc arena-id)))))
+                  (arena-candidates acc)))
         reject-loser (fn [acc loser]
                        (-> acc
                            (update :state
@@ -651,93 +709,117 @@
                                                    :rejected
                                                    :arena-lost))))
         acc
-        (if (seq exclusive)
-          (let [ranked (by-rank exclusive)
-                winner (first ranked)
-                arena-now (current-arena acc arena-id)
-                defer? (and (= :tap (:gesture/kind winner))
-                            (tap-alternative-viable? arena-now winner))
-                after-losers (reduce (fn [acc loser]
-                                       (if (:accepted? loser)
-                                         (cancel-loser
-                                           acc
-                                           (current-arena acc arena-id)
-                                           loser
-                                           :arena-lost
-                                           time-us
-                                           packet)
-                                         (reject-loser acc loser)))
-                                     acc
-                                     (rest ranked))
-                acc (cancel-not-winner after-losers (:candidate-id winner))]
-            (if defer?
-              (let [proposed (get-in (current-arena acc arena-id)
-                                     [:candidates (:candidate-id winner)
-                                      ::proposed])]
-                (-> acc
-                    (update :state
+        (if (empty? accepters)
+          acc
+          (let [existing-exclusive-winner
+                (some (fn [candidate]
+                        (when (and (:accepted? candidate)
+                                   (= :exclusive
+                                      (get-in candidate
+                                              [:arena-decl :mode]
+                                              :exclusive)))
+                          candidate))
+                      (arena-candidates acc))]
+            (if (some? existing-exclusive-winner)
+              ;; an already-accepted exclusive winner admits no later
+              ;; winner
+              (reduce (fn [acc loser]
+                        (if (:accepted? loser)
+                          (cancel-loser acc
+                                        (current-arena acc arena-id)
+                                        loser
+                                        :arena-lost
+                                        time-us
+                                        packet)
+                          (reject-loser acc loser)))
+                      acc
+                      accepters)
+              (let [top (first accepters)
+                    top-exclusive?
+                    (= :exclusive
+                       (get-in top [:arena-decl :mode] :exclusive))
+                    winners (if top-exclusive?
+                              [top]
+                              (let [group (get-in top
+                                                  [:arena-decl
+                                                   :coexistence/group])]
+                                ;; cooperative accepters win together
+                                ;; only within the same non-nil
+                                ;; coexistence group
+                                (if (nil? group)
+                                  [top]
+                                  (filter (fn [c]
+                                            (= group
+                                               (get-in c
+                                                       [:arena-decl
+                                                        :coexistence/group])))
+                                          accepters))))
+                    winner-ids (set (map :candidate-id winners))
+                    winners-group (when-not top-exclusive?
+                                    (get-in top
+                                            [:arena-decl :coexistence/group]))
+                    losers (remove (fn [c]
+                                     (contains? winner-ids (:candidate-id c)))
+                                   accepters)
+                    defer? (and top-exclusive?
+                                (= :tap (:gesture/kind top))
+                                (tap-alternative-viable?
+                                  (current-arena acc arena-id)
+                                  top))
+                    after-losers (reduce (fn [acc loser]
+                                           (if (:accepted? loser)
+                                             (cancel-loser
+                                               acc
+                                               (current-arena acc arena-id)
+                                               loser
+                                               :arena-lost
+                                               time-us
+                                               packet)
+                                             (reject-loser acc loser)))
+                                         acc
+                                         losers)
+                    acc (cancel-not-winner after-losers
+                                           winner-ids
+                                           winners-group)]
+                (if defer?
+                  (let [proposed (get-in (current-arena acc arena-id)
+                                         [:candidates (:candidate-id top)
+                                          ::proposed])]
+                    (-> acc
+                        (update :state
+                                assoc-in
+                                [:arenas arena-id :candidates
+                                 (:candidate-id top) :decision]
+                                :held)
+                        (update :state
+                                update-in
+                                [:arenas arena-id :candidates
+                                 (:candidate-id top)]
+                                dissoc
+                                ::proposed)
+                        (update :state
+                                update-in
+                                [:arenas arena-id :deferred-accepts]
+                                assoc
+                                (:candidate-id top)
+                                {:emissions (:emissions proposed),
+                                 :time-us time-us})))
+                  (let [committed (reduce (fn [acc winner]
+                                            (commit-winner
+                                              acc
+                                              (current-arena acc arena-id)
+                                              winner
+                                              (get-in winner
+                                                      [::proposed :emissions])
+                                              time-us
+                                              packet))
+                                          acc
+                                          winners)]
+                    (update committed
+                            :state
                             assoc-in
-                            [:arenas arena-id :candidates
-                             (:candidate-id winner) :decision]
-                            :held)
-                    (update :state
-                            update-in
-                            [:arenas arena-id :candidates
-                             (:candidate-id winner)]
-                            dissoc
-                            ::proposed)
-                    (update :state
-                            update-in
-                            [:arenas arena-id :deferred-accepts]
-                            assoc
-                            (:candidate-id winner)
-                            {:emissions (:emissions proposed),
-                             :time-us time-us})))
-              (commit-winner acc
-                             (current-arena acc arena-id)
-                             winner
-                             (get-in winner [::proposed :emissions])
-                             time-us
-                             packet)))
-          ;; no exclusive accepter: cooperative groups accept together
-          (reduce (fn [acc group-accepters]
-                    (let [arena-now (current-arena acc arena-id)
-                          exclusive-winner?
-                          (some (fn [c]
-                                  (and (:accepted? c)
-                                       (= :exclusive
-                                          (get-in c
-                                                  [:arena-decl :mode]
-                                                  :exclusive))))
-                                (vals (:candidates arena-now)))]
-                      (if exclusive-winner?
-                        (reduce (fn [acc loser]
-                                  (if (:accepted? loser)
-                                    (cancel-loser acc
-                                                  (current-arena acc arena-id)
-                                                  loser
-                                                  :arena-lost
-                                                  time-us
-                                                  packet)
-                                    (reject-loser acc loser)))
-                                acc
-                                group-accepters)
-                        (reduce (fn [acc member]
-                                  (commit-winner
-                                    acc
-                                    (current-arena acc arena-id)
-                                    member
-                                    (get-in member [::proposed :emissions])
-                                    time-us
-                                    packet))
-                                acc
-                                group-accepters))))
-                  acc
-                  (vals (group-by
-                          (fn [c] (get-in c [:arena-decl :coexistence/group]))
-                          (filter (fn [c]
-                                    (= :cooperative (get-in c [:arena-decl :mode])))
-                                  accepters)))))
+                            [:arenas arena-id :winner]
+                            (:candidate-id (first winners)))))))))
         ;; 3. revive deferred taps when no viable higher-count alternative
         ;;    remains
         acc (revive-deferred acc arena-id time-us packet)
@@ -768,7 +850,7 @@
       acc)))
 
 
-(defn revive-deferred
+(defn- revive-deferred
   "Revive deferred tap accepts whose higher-count alternatives are gone.
   The greatest completed count accepts first; rank breaks ties. One
   deferred accept commits per resolution step."
@@ -818,11 +900,18 @@
                         [:arenas arena-id :deferred-accepts]
                         dissoc
                         candidate-id)
-                (commit-winner (current-arena acc arena-id)
-                               (assoc candidate :decision :possible)
-                               (:emissions record)
-                               (:time-us record)
-                               packet))))))))
+                (as-> revived
+                  (commit-winner revived
+                                 (current-arena revived arena-id)
+                                 (assoc candidate :decision :possible)
+                                 (:emissions record)
+                                 (:time-us record)
+                                 packet)
+                  (update revived
+                          :state
+                          assoc-in
+                          [:arenas arena-id :winner]
+                          candidate-id)))))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -976,6 +1065,26 @@
 ;; Down
 ;; ---------------------------------------------------------------------------
 
+(defn- add-path-candidates
+  "Add a joining down's remaining path candidates to one arena. Candidates
+  already present are retained once at their earliest declaration rank and
+  identities owned by accepted arenas are omitted; other candidates on the
+  new path remain eligible."
+  [acc arena-id path owned-ids]
+  (let [arena (get-in (:state acc) [:arenas arena-id])
+        existing (set (keys (:candidates arena)))
+        omit (into existing owned-ids)
+        additions (candidates-from-path path omit (:profile arena))
+        order-additions (candidate-declaration-order path omit)]
+    (if (empty? additions)
+      acc
+      (-> acc
+          (update-in [:state :arenas arena-id :candidates] merge additions)
+          (update-in [:state :arenas arena-id :candidate-order]
+                     into
+                     order-additions)))))
+
+
 (defn- join-or-create-arena
   "Resolve accepted intersections first, then unresolved joins and merges.
   Returns the accumulator with the pointer captured and machine inputs
@@ -994,37 +1103,47 @@
                                     (and (= :accepted (:status arena))
                                          (intersecting arena))))
                                 live-arenas)
+        decl-on-path (fn [candidate]
+                       (first (keep (fn [entry]
+                                      (some (fn [d]
+                                              (when (and (= (:node-id candidate)
+                                                            (:node-id entry))
+                                                         (= (:recognizer-id
+                                                              candidate)
+                                                            (:recognizer/id d)))
+                                                d))
+                                            (:recognizers entry)))
+                                    path)))
+        accepted-winners (fn [arena]
+                           (filter :accepted?
+                                   (map (fn [cid] (get-in arena [:candidates cid]))
+                                        (:candidate-order arena))))
+        ;; an accepted arena is joinable when any accepted winner declares
+        ;; :join-after-accept on the new path and its machine admits the
+        ;; joining contact
         eligible-accepted
         (filter (fn [id]
-                  (let [arena (get-in state [:arenas id])
-                        winner (get-in arena [:candidates (:winner arena)])]
-                    (and winner
-                         (decl/join-after-accept
-                           (first
-                             (keep (fn [entry]
-                                     (some
-                                       (fn [d]
-                                         (when (and (= (:node-id winner)
-                                                       (:node-id entry))
-                                                    (= (:recognizer-id winner)
-                                                       (:recognizer/id d)))
-                                           d))
-                                       (:recognizers entry)))
-                                   path)))
-                         (recognizer/admits-join? (:machine winner)
-                                                  (:machine-state winner)
-                                                  (:config winner)
-                                                  (inc (count (:contacts
-                                                                arena)))))))
+                  (let [arena (get-in state [:arenas id])]
+                    (boolean (some (fn [winner]
+                                     (when-let [d (decl-on-path winner)]
+                                       (and (decl/join-after-accept d)
+                                            (recognizer/admits-join?
+                                              (:machine winner)
+                                              (:machine-state winner)
+                                              (:config winner)
+                                              (inc (count (:contacts
+                                                            arena)))))))
+                                   (accepted-winners arena)))))
                 accepted-arenas)]
     (if (seq eligible-accepted)
       ;; join the highest-ranked winner, then the oldest arena
       (let [target-id (first (sort-by (fn [id]
-                                        (let [arena (get-in state [:arenas id])]
-                                          [(candidate-rank (get-in arena
-                                                                   [:candidates
-                                                                    (:winner
-                                                                      arena)]))
+                                        (let [arena (get-in state [:arenas id])
+                                              ranks (map candidate-rank
+                                                         (accepted-winners arena))]
+                                          [(or (first (sort trace/edn-compare
+                                                            ranks))
+                                               [])
                                            ;; oldest arena breaks ties
                                            (:arena-id arena)]))
                                       trace/edn-compare
@@ -1046,17 +1165,18 @@
                                accepted-arenas))]
         (cond
           (empty? unresolved) (create-arena acc packet region time-us owned)
-          (= 1 (count unresolved)) (capture-in-arena acc
-                                                     packet
-                                                     region
-                                                     (first unresolved)
-                                                     time-us
-                                                     :join)
-          :else
-          (let [oldest (first unresolved)
-                absorbed (rest unresolved)
-                acc (merge-arenas acc oldest absorbed packet time-us)]
-            (capture-in-arena acc packet region oldest time-us :join)))))))
+          (= 1 (count unresolved))
+          (->
+            acc
+            (add-path-candidates (first unresolved) path owned)
+            (capture-in-arena packet region (first unresolved) time-us :join))
+          :else (let [oldest (first unresolved)
+                      absorbed (rest unresolved)
+                      acc (merge-arenas acc oldest absorbed packet time-us)]
+                  (->
+                    acc
+                    (add-path-candidates oldest path owned)
+                    (capture-in-arena packet region oldest time-us :join))))))))
 
 
 (defn- create-arena
@@ -1536,7 +1656,8 @@
                                                            (window-of candidate)
                                                            (:contacts arena)
                                                            pointer-id
-                                                           (:samples packet)
+                                                           (recognition-samples
+                                                             packet)
                                                            window-us))])
                                         candidates)))))))))
 

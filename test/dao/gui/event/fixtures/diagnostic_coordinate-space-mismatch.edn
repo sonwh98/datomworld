@@ -1,0 +1,108 @@
+{:fixture/id :diagnostic/coordinate-space-mismatch,
+ :initial-state nil,
+ :inputs
+ [#:runtime{:seq 0,
+            :time-us 812000000,
+            :source :terminal,
+            :value
+            {:message/kind :dao.terminal/coordinate-space-change,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :old-coordinate-space-id nil,
+             :coordinate-space-id 7,
+             :viewport {:width 390.0, :height 844.0},
+             :reason :orientation-change}}
+  #:runtime{:seq 1,
+            :time-us 812000000,
+            :source :geometry,
+            :value
+            {:message/kind :dao.terminal/presented-geometry,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :frame-id 42,
+             :coordinate-space-id 7,
+             :nodes
+             [{:node-id :dao.gui.event.fixtures-gen/fixture,
+               :interaction/path
+               [{:node-id :dao.gui.event.fixtures-gen/fixture,
+                 :recognizers
+                 [{:recognizer/id
+                   [:dao.gui.event.fixtures-gen/fixture :tap],
+                   :gesture/kind :tap,
+                   :machine :dao.gui.event/tap,
+                   :config
+                   {:count 1,
+                    :contacts {:min 1, :max 1},
+                    :join-after-accept false,
+                    :contact-loss :end},
+                   :arena
+                   {:priority 0,
+                    :mode :exclusive,
+                    :coexistence/group nil}}],
+                 :touch-action :manipulation}],
+               :touch-action :manipulation,
+               :regions
+               [{:bounds {:x 24, :y 16, :width 200, :height 200},
+                 :paint-order 100}]}]}}
+  #:runtime{:seq 2,
+            :time-us 812000000,
+            :source :profile,
+            :value
+            {:message/kind :dao.terminal/input-profile,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :profile-id 3,
+             :capabilities #{},
+             :thresholds
+             {:fling/max-velocity 8000.0,
+              :swipe/min-distance 48.0,
+              :edge/width 20.0,
+              :multi-tap/slop 100.0,
+              :multi-tap/max-delay-us 300000,
+              :long-press/delay-us 500000,
+              :motion/slop 18.0,
+              :fling/min-velocity 50.0,
+              :pressure/start-threshold 0.5,
+              :swipe/min-velocity 500.0,
+              :tap/max-duration-us 300000,
+              :swipe/max-duration-us 500000,
+              :velocity/window-us 100000,
+              :pressure/release-threshold 0.5}}}
+  #:runtime{:seq 10,
+            :time-us 812000000,
+            :source :pointer,
+            :value
+            {:samples
+             [{:time-us 812000000,
+               :position {:x 40.0, :y 20.0},
+               :sample/kind :actual}],
+             :coordinate-space-id 8,
+             :input-seq 10,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :phase :down,
+             :pointer
+             {:id 11,
+              :type :touch,
+              :primary? true,
+              :buttons 1,
+              :modifiers #{}},
+             :profile-id 3,
+             :frame-id 42,
+             :input/kind :pointer}}],
+ :expect
+ {:outputs
+  [{:diagnostic/kind :dao.gui.event/coordinate-space-mismatch,
+    :severity :error,
+    :reason :coordinate-space-mismatch,
+    :coordinate-space-id 8,
+    :output/seq 0,
+    :runtime/seq 10}],
+  :state
+  {:coordinate-space-id 7,
+   :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+   :last-runtime-seq 10,
+   :profile-ids [3],
+   :active-pointer-ids [],
+   :last-runtime-time-us 812000000,
+   :subscription-ids [],
+   :next-arena-id 0,
+   :active-arena-ids [],
+   :active-frame-id 42,
+   :scheduled-timer-keys []}}}

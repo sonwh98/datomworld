@@ -416,3 +416,131 @@
            (:active-pointer-ids (event/fixture-projection (:state cancelled)))))
     (is (= []
            (:active-arena-ids (event/fixture-projection (:state cancelled)))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Predicted samples
+;; ---------------------------------------------------------------------------
+
+(defn- predicted-move
+  "A move packet whose predicted sample displaces far from the origin while
+  the actual sample stays put: the miscorrection shape."
+  [seq time-us id predicted-x predicted-y actual-x actual-y]
+  (pointer-input
+    seq
+    time-us
+    (u/pointer-packet
+      {:phase :move,
+       :id id,
+       :x actual-x,
+       :y actual-y,
+       :time-us time-us,
+       :input-seq seq,
+       :samples
+       [(u/sample (dec time-us) predicted-x predicted-y :kind :predicted)]})))
+
+
+(defn- gestures
+  [outputs]
+  (filter #(= :gesture (:event/kind %)) outputs))
+
+
+(deftest predicted-sample-miscorrection-does-not-break-the-tap
+  (let [state (boot-with-subs (u/sub-add "t1" :dao.gui.event.util/save :tap))
+        run (fn [s]
+              (reduce (fn [acc input]
+                        (let [result (step* (:state acc) input)]
+                          {:state (:state result),
+                           :outputs (into (:outputs acc) (:outputs result))}))
+                      {:state s, :outputs []}
+                      [(down 10 u/t0 11 40.0 20.0)
+                       (predicted-move 11 (+ u/t0 10000) 11 400.0 400.0 41.0 21.0)
+                       (up 12 (+ u/t0 50000) 11 41.0 21.0)]))
+        {:keys [outputs]} (run state)
+        [gesture] (gestures outputs)]
+    ;; a large predicted displacement followed by a stationary actual
+    ;; sample must not breach motion slop: the tap still recognizes
+    (is (some? gesture))
+    (is (= :recognized (:phase gesture)))
+    (is (= {:count 1, :contacts 1, :duration-us 50000} (:payload gesture)))))
+
+
+(deftest predicted-sample-miscorrection-does-not-pan
+  (let [decl (assoc-in (u/pan-decl ::save) [:config :contacts] {:min 1, :max 1})
+        geometry (u/presented-geometry {:node-id ::save, :recognizers [decl]})
+        s1 (:state (step* (event/initial-state)
+                          (u/rt 0 u/t0 :terminal space-input)))
+        s2 (:state (step* s1 (u/rt 1 u/t0 :geometry geometry)))
+        state (:state (step* s2 (u/rt 2 u/t0 :profile (u/input-profile {}))))
+        run (fn [s]
+              (reduce (fn [acc input]
+                        (let [result (step* (:state acc) input)]
+                          {:state (:state result),
+                           :outputs (into (:outputs acc) (:outputs result))}))
+                      {:state s, :outputs []}
+                      [(down 10 u/t0 11 40.0 20.0)
+                       (predicted-move 11 (+ u/t0 10000) 11 400.0 20.0 41.0 21.0)
+                       (up 12 (+ u/t0 20000) 11 41.0 21.0)]))
+        {:keys [outputs]} (run state)]
+    (is (= [] (gestures outputs)))
+    (is (= [] (filter #(contains? #{:start} (:phase %)) outputs)))))
+
+
+(deftest predicted-sample-miscorrection-does-not-fling
+  (let [decl (assoc-in (u/pan-decl ::save) [:machine] :dao.gui.event/fling)
+        geometry (u/presented-geometry {:node-id ::save, :recognizers [decl]})
+        s1 (:state (step* (event/initial-state)
+                          (u/rt 0 u/t0 :terminal space-input)))
+        s2 (:state (step* s1 (u/rt 1 u/t0 :geometry geometry)))
+        state (:state (step* s2 (u/rt 2 u/t0 :profile (u/input-profile {}))))
+        run (fn [s]
+              (reduce (fn [acc input]
+                        (let [result (step* (:state acc) input)]
+                          {:state (:state result),
+                           :outputs (into (:outputs acc) (:outputs result))}))
+                      {:state s, :outputs []}
+                      [(down 10 u/t0 11 40.0 20.0)
+                       ;; ~5000 px/s if the predicted sample entered the
+                       ;; velocity window: inside the fling range
+                       (predicted-move 11 (+ u/t0 10000) 11 140.0 20.0 40.0 20.0)
+                       (up 12 (+ u/t0 20000) 11 40.0 20.0)]))
+        {:keys [outputs]} (run state)]
+    ;; the predicted displacement must not enter the velocity window
+    (is (= [] (gestures outputs)))))
+
+
+(deftest predicted-samples-appear-only-in-raw-pointer-output
+  (let [state (boot-with-subs
+                (assoc (u/sub-add "raw" :dao.gui.event.util/save :pointer)
+                       :raw? true))
+        after-down (:state (step* state (down 10 u/t0 11 40.0 20.0)))
+        moved (step*
+                after-down
+                (predicted-move 11 (+ u/t0 10000) 11 400.0 400.0 41.0 21.0))
+        raw-event (first-of (:outputs moved) :event/kind)]
+    (is (some? raw-event))
+    ;; predicted samples are preserved verbatim on the raw output...
+    (is (= [:predicted :actual] (mapv :sample/kind (:samples raw-event))))
+    ;; ...and the stored contact position is the final actual sample
+    (is (= {:x 41.0, :y 21.0}
+           (get-in (:state moved) [:pointers 11 :position])))))
+
+
+(deftest malformed-sample-positions-never-throw
+  (let [state (boot-state)
+        packet (pointer-input 10
+                              u/t0
+                              (-> (u/pointer-packet {:phase :down,
+                                                     :id 11,
+                                                     :x 40.0,
+                                                     :y 20.0,
+                                                     :time-us u/t0,
+                                                     :input-seq 10})
+                                  (assoc :samples [{:time-us u/t0,
+                                                    :sample/kind :actual}])))
+        {:keys [outputs state]} (step* state packet)]
+    ;; a sample without a position is malformed terminal data: the reducer
+    ;; stays total, the pointer becomes uncaptured, no arena is invented
+    (is (= [] (keep :diagnostic/kind outputs)))
+    (is (= [11] (:active-pointer-ids (event/fixture-projection state))))
+    (is (= [] (:active-arena-ids (event/fixture-projection state))))))

@@ -1,0 +1,492 @@
+{:fixture/id :join/bridge-merge,
+ :initial-state nil,
+ :inputs
+ [#:runtime{:seq 0,
+            :time-us 812000000,
+            :source :terminal,
+            :value
+            {:message/kind :dao.terminal/coordinate-space-change,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :old-coordinate-space-id nil,
+             :coordinate-space-id 7,
+             :viewport {:width 390.0, :height 844.0},
+             :reason :orientation-change}}
+  #:runtime{:seq 1,
+            :time-us 812000000,
+            :source :geometry,
+            :value
+            {:message/kind :dao.terminal/presented-geometry,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :frame-id 42,
+             :coordinate-space-id 7,
+             :nodes
+             [{:node-id :dao.gui.event.fixtures-gen/x,
+               :interaction/path
+               [{:node-id :dao.gui.event.fixtures-gen/x,
+                 :recognizers
+                 [{:recognizer/id [:dao.gui.event.fixtures-gen/x :pan],
+                   :gesture/kind :pan,
+                   :machine :dao.gui.event/pan,
+                   :config
+                   {:contacts {:min 1, :max 3},
+                    :axis :free,
+                    :start-at :slop,
+                    :contact-loss :end,
+                    :join-after-accept false},
+                   :arena
+                   {:priority 0,
+                    :mode :exclusive,
+                    :coexistence/group nil}}],
+                 :touch-action :none}],
+               :touch-action :none,
+               :regions
+               [{:bounds {:x 0, :y 0, :width 100, :height 100},
+                 :paint-order 10}]}
+              {:node-id :dao.gui.event.fixtures-gen/y,
+               :interaction/path
+               [{:node-id :dao.gui.event.fixtures-gen/y,
+                 :recognizers
+                 [{:recognizer/id [:dao.gui.event.fixtures-gen/y :pan],
+                   :gesture/kind :pan,
+                   :machine :dao.gui.event/pan,
+                   :config
+                   {:contacts {:min 1, :max 3},
+                    :axis :free,
+                    :start-at :slop,
+                    :contact-loss :end,
+                    :join-after-accept false},
+                   :arena
+                   {:priority 0,
+                    :mode :exclusive,
+                    :coexistence/group nil}}],
+                 :touch-action :none}],
+               :touch-action :none,
+               :regions
+               [{:bounds {:x 200, :y 0, :width 100, :height 100},
+                 :paint-order 11}]}
+              {:node-id :dao.gui.event.fixtures-gen/bridge,
+               :interaction/path
+               [{:node-id :dao.gui.event.fixtures-gen/x,
+                 :recognizers
+                 [{:recognizer/id [:dao.gui.event.fixtures-gen/x :pan],
+                   :gesture/kind :pan,
+                   :machine :dao.gui.event/pan,
+                   :config
+                   {:contacts {:min 1, :max 3},
+                    :axis :free,
+                    :start-at :slop,
+                    :contact-loss :end,
+                    :join-after-accept false},
+                   :arena
+                   {:priority 0,
+                    :mode :exclusive,
+                    :coexistence/group nil}}],
+                 :touch-action :none}
+                {:node-id :dao.gui.event.fixtures-gen/y,
+                 :recognizers
+                 [{:recognizer/id [:dao.gui.event.fixtures-gen/y :pan],
+                   :gesture/kind :pan,
+                   :machine :dao.gui.event/pan,
+                   :config
+                   {:contacts {:min 1, :max 3},
+                    :axis :free,
+                    :start-at :slop,
+                    :contact-loss :end,
+                    :join-after-accept false},
+                   :arena
+                   {:priority 0,
+                    :mode :exclusive,
+                    :coexistence/group nil}}],
+                 :touch-action :none}
+                {:node-id :dao.gui.event.fixtures-gen/bridge,
+                 :recognizers
+                 [{:recognizer/id
+                   [:dao.gui.event.fixtures-gen/bridge :tap],
+                   :gesture/kind :tap,
+                   :machine :dao.gui.event/tap,
+                   :config
+                   {:count 1,
+                    :contacts {:min 1, :max 1},
+                    :join-after-accept false,
+                    :contact-loss :end},
+                   :arena
+                   {:priority 0,
+                    :mode :exclusive,
+                    :coexistence/group nil}}],
+                 :touch-action :none}],
+               :touch-action :none,
+               :regions
+               [{:bounds {:x 0, :y 200, :width 390, :height 200},
+                 :paint-order 12}]}]}}
+  #:runtime{:seq 2,
+            :time-us 812000000,
+            :source :profile,
+            :value
+            {:message/kind :dao.terminal/input-profile,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :profile-id 3,
+             :capabilities #{},
+             :thresholds
+             {:fling/max-velocity 8000.0,
+              :swipe/min-distance 48.0,
+              :edge/width 20.0,
+              :multi-tap/slop 100.0,
+              :multi-tap/max-delay-us 300000,
+              :long-press/delay-us 500000,
+              :motion/slop 18.0,
+              :fling/min-velocity 50.0,
+              :pressure/start-threshold 0.5,
+              :swipe/min-velocity 500.0,
+              :tap/max-duration-us 300000,
+              :swipe/max-duration-us 500000,
+              :velocity/window-us 100000,
+              :pressure/release-threshold 0.5}}}
+  #:runtime{:seq 10,
+            :time-us 812000000,
+            :source :pointer,
+            :value
+            {:samples
+             [{:time-us 812000000,
+               :position {:x 50.0, :y 50.0},
+               :sample/kind :actual}],
+             :coordinate-space-id 7,
+             :input-seq 10,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :phase :down,
+             :pointer
+             {:id 11,
+              :type :touch,
+              :primary? true,
+              :buttons 1,
+              :modifiers #{}},
+             :profile-id 3,
+             :frame-id 42,
+             :input/kind :pointer}}
+  #:runtime{:seq 11,
+            :time-us 812010000,
+            :source :pointer,
+            :value
+            {:samples
+             [{:time-us 812010000,
+               :position {:x 250.0, :y 50.0},
+               :sample/kind :actual}],
+             :coordinate-space-id 7,
+             :input-seq 11,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :phase :down,
+             :pointer
+             {:id 12,
+              :type :touch,
+              :primary? true,
+              :buttons 1,
+              :modifiers #{}},
+             :profile-id 3,
+             :frame-id 42,
+             :input/kind :pointer}}
+  #:runtime{:seq 12,
+            :time-us 812020000,
+            :source :pointer,
+            :value
+            {:samples
+             [{:time-us 812020000,
+               :position {:x 60.0, :y 250.0},
+               :sample/kind :actual}],
+             :coordinate-space-id 7,
+             :input-seq 12,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :phase :down,
+             :pointer
+             {:id 13,
+              :type :touch,
+              :primary? true,
+              :buttons 1,
+              :modifiers #{}},
+             :profile-id 3,
+             :frame-id 42,
+             :input/kind :pointer}}
+  #:runtime{:seq 13,
+            :time-us 812030000,
+            :source :pointer,
+            :value
+            {:samples
+             [{:time-us 812030000,
+               :position {:x 50.0, :y 50.0},
+               :sample/kind :actual}],
+             :coordinate-space-id 7,
+             :input-seq 13,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :phase :up,
+             :pointer
+             {:id 11,
+              :type :touch,
+              :primary? true,
+              :buttons 0,
+              :modifiers #{}},
+             :profile-id 3,
+             :frame-id 42,
+             :input/kind :pointer}}
+  #:runtime{:seq 14,
+            :time-us 812040000,
+            :source :pointer,
+            :value
+            {:samples
+             [{:time-us 812040000,
+               :position {:x 250.0, :y 50.0},
+               :sample/kind :actual}],
+             :coordinate-space-id 7,
+             :input-seq 14,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :phase :up,
+             :pointer
+             {:id 12,
+              :type :touch,
+              :primary? true,
+              :buttons 0,
+              :modifiers #{}},
+             :profile-id 3,
+             :frame-id 42,
+             :input/kind :pointer}}
+  #:runtime{:seq 15,
+            :time-us 812050000,
+            :source :pointer,
+            :value
+            {:samples
+             [{:time-us 812050000,
+               :position {:x 60.0, :y 250.0},
+               :sample/kind :actual}],
+             :coordinate-space-id 7,
+             :input-seq 15,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :phase :up,
+             :pointer
+             {:id 13,
+              :type :touch,
+              :primary? true,
+              :buttons 0,
+              :modifiers #{}},
+             :profile-id 3,
+             :frame-id 42,
+             :input/kind :pointer}}],
+ :expect
+ {:outputs
+  [{:samples
+    [{:time-us 812000000,
+      :position {:x 50.0, :y 50.0},
+      :sample/kind :actual}],
+    :coordinate-space-id 7,
+    :input-seq 10,
+    :origin-frame-id 42,
+    :event/kind :pointer,
+    :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+    :arena/status :open,
+    :phase :down,
+    :target-path [:dao.gui.event.fixtures-gen/x],
+    :runtime/seq 10,
+    :pointer
+    {:id 11, :type :touch, :primary? true, :buttons 1, :modifiers #{}},
+    :node-id :dao.gui.event.fixtures-gen/x,
+    :profile-id 3,
+    :frame-id 42,
+    :output/seq 0,
+    :arena-id 0}
+   {:samples
+    [{:time-us 812010000,
+      :position {:x 250.0, :y 50.0},
+      :sample/kind :actual}],
+    :coordinate-space-id 7,
+    :input-seq 11,
+    :origin-frame-id 42,
+    :event/kind :pointer,
+    :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+    :arena/status :open,
+    :phase :down,
+    :target-path [:dao.gui.event.fixtures-gen/y],
+    :runtime/seq 11,
+    :pointer
+    {:id 12, :type :touch, :primary? true, :buttons 1, :modifiers #{}},
+    :node-id :dao.gui.event.fixtures-gen/y,
+    :profile-id 3,
+    :frame-id 42,
+    :output/seq 0,
+    :arena-id 1}
+   {:event/kind :dao.gui.event/arena-merged,
+    :arena-id 0,
+    :merged-arena-ids [1],
+    :pointer-ids #{12 11},
+    :candidate-ids
+    [[:dao.gui.event.fixtures-gen/x
+      [:dao.gui.event.fixtures-gen/x :pan]]
+     [:dao.gui.event.fixtures-gen/y
+      [:dao.gui.event.fixtures-gen/y :pan]]],
+    :output/seq 0,
+    :runtime/seq 12}
+   {:cause :merge,
+    :removed-pointer-ids #{},
+    :added-pointer-ids #{},
+    :event/kind :dao.gui.event/contacts-changed,
+    :pointer-ids #{12 11},
+    :contact-count 2,
+    :runtime/seq 12,
+    :output/seq 1,
+    :arena-id 0}
+   {:cause :join,
+    :removed-pointer-ids #{},
+    :added-pointer-ids #{13},
+    :event/kind :dao.gui.event/contacts-changed,
+    :pointer-ids #{13 12 11},
+    :contact-count 3,
+    :runtime/seq 12,
+    :output/seq 2,
+    :arena-id 0}
+   {:event/kind :dao.gui.event/arena-decision,
+    :arena-id 0,
+    :candidate-id
+    [:dao.gui.event.fixtures-gen/bridge
+     [:dao.gui.event.fixtures-gen/bridge :tap]],
+    :decision :rejected,
+    :cause :machine-reject,
+    :output/seq 3,
+    :runtime/seq 12}
+   {:samples
+    [{:time-us 812020000,
+      :position {:x 60.0, :y 250.0},
+      :sample/kind :actual}],
+    :coordinate-space-id 7,
+    :input-seq 12,
+    :origin-frame-id 42,
+    :event/kind :pointer,
+    :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+    :arena/status :open,
+    :phase :down,
+    :target-path
+    [:dao.gui.event.fixtures-gen/x
+     :dao.gui.event.fixtures-gen/y
+     :dao.gui.event.fixtures-gen/bridge],
+    :runtime/seq 12,
+    :pointer
+    {:id 13, :type :touch, :primary? true, :buttons 1, :modifiers #{}},
+    :node-id :dao.gui.event.fixtures-gen/bridge,
+    :profile-id 3,
+    :frame-id 42,
+    :output/seq 4,
+    :arena-id 0}
+   {:cause :lift,
+    :removed-pointer-ids #{11},
+    :added-pointer-ids #{},
+    :event/kind :dao.gui.event/contacts-changed,
+    :pointer-ids #{13 12},
+    :contact-count 2,
+    :runtime/seq 13,
+    :output/seq 0,
+    :arena-id 0}
+   {:event/kind :dao.gui.event/arena-decision,
+    :arena-id 0,
+    :candidate-id
+    [:dao.gui.event.fixtures-gen/x
+     [:dao.gui.event.fixtures-gen/x :pan]],
+    :decision :rejected,
+    :cause :machine-reject,
+    :output/seq 1,
+    :runtime/seq 13}
+   {:event/kind :dao.gui.event/arena-decision,
+    :arena-id 0,
+    :candidate-id
+    [:dao.gui.event.fixtures-gen/y
+     [:dao.gui.event.fixtures-gen/y :pan]],
+    :decision :rejected,
+    :cause :machine-reject,
+    :output/seq 2,
+    :runtime/seq 13}
+   {:samples
+    [{:time-us 812030000,
+      :position {:x 50.0, :y 50.0},
+      :sample/kind :actual}],
+    :coordinate-space-id 7,
+    :input-seq 13,
+    :origin-frame-id 42,
+    :event/kind :pointer,
+    :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+    :arena/status :open,
+    :phase :up,
+    :target-path [:dao.gui.event.fixtures-gen/x],
+    :runtime/seq 13,
+    :pointer
+    {:id 11, :type :touch, :primary? true, :buttons 0, :modifiers #{}},
+    :node-id :dao.gui.event.fixtures-gen/x,
+    :profile-id 3,
+    :frame-id 42,
+    :output/seq 3,
+    :arena-id 0}
+   {:cause :lift,
+    :removed-pointer-ids #{12},
+    :added-pointer-ids #{},
+    :event/kind :dao.gui.event/contacts-changed,
+    :pointer-ids #{13},
+    :contact-count 1,
+    :runtime/seq 14,
+    :output/seq 0,
+    :arena-id 0}
+   {:samples
+    [{:time-us 812040000,
+      :position {:x 250.0, :y 50.0},
+      :sample/kind :actual}],
+    :coordinate-space-id 7,
+    :input-seq 14,
+    :origin-frame-id 42,
+    :event/kind :pointer,
+    :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+    :arena/status :open,
+    :phase :up,
+    :target-path [:dao.gui.event.fixtures-gen/y],
+    :runtime/seq 14,
+    :pointer
+    {:id 12, :type :touch, :primary? true, :buttons 0, :modifiers #{}},
+    :node-id :dao.gui.event.fixtures-gen/y,
+    :profile-id 3,
+    :frame-id 42,
+    :output/seq 1,
+    :arena-id 0}
+   {:cause :lift,
+    :removed-pointer-ids #{13},
+    :added-pointer-ids #{},
+    :event/kind :dao.gui.event/contacts-changed,
+    :pointer-ids #{},
+    :contact-count 0,
+    :runtime/seq 15,
+    :output/seq 0,
+    :arena-id 0}
+   {:samples
+    [{:time-us 812050000,
+      :position {:x 60.0, :y 250.0},
+      :sample/kind :actual}],
+    :coordinate-space-id 7,
+    :input-seq 15,
+    :origin-frame-id 42,
+    :event/kind :pointer,
+    :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+    :arena/status :open,
+    :phase :up,
+    :target-path
+    [:dao.gui.event.fixtures-gen/x
+     :dao.gui.event.fixtures-gen/y
+     :dao.gui.event.fixtures-gen/bridge],
+    :runtime/seq 15,
+    :pointer
+    {:id 13, :type :touch, :primary? true, :buttons 0, :modifiers #{}},
+    :node-id :dao.gui.event.fixtures-gen/bridge,
+    :profile-id 3,
+    :frame-id 42,
+    :output/seq 1,
+    :arena-id 0}],
+  :state
+  {:coordinate-space-id 7,
+   :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+   :last-runtime-seq 15,
+   :profile-ids [3],
+   :active-pointer-ids [],
+   :last-runtime-time-us 812050000,
+   :subscription-ids [],
+   :next-arena-id 2,
+   :active-arena-ids [],
+   :active-frame-id 42,
+   :scheduled-timer-keys []}}}

@@ -11,7 +11,7 @@
             [dao.gui.event.machine :as machine]))
 
 
-(defn setting
+(defn- setting
   "Declaration override first, snapshotted profile second. ::fault marks a
   missing required value, which faults the candidate."
   [ctx config-key profile-key]
@@ -22,12 +22,12 @@
         (if (some? profile-value) profile-value ::fault)))))
 
 
-(defn hold
+(defn- hold
   [state]
   {:state state, :effects [], :emissions [], :decision :hold})
 
 
-(defn reject
+(defn- reject
   [state]
   {:state (assoc state :machine/state :rejected),
    :effects [],
@@ -35,7 +35,7 @@
    :decision :reject})
 
 
-(defn fault
+(defn- fault
   [state]
   {:state (assoc state :machine/state :rejected),
    :effects [],
@@ -48,7 +48,7 @@
 ;; Tap and repeated tap
 ;; ---------------------------------------------------------------------------
 
-(def tap-initial-state
+(def ^:private tap-initial-state
   {:machine/state :awaiting-down,
    :contacts-reached? false,
    :completed-count 0,
@@ -69,9 +69,10 @@
 
 (defn- tap-slop-exceeded?
   "Motion slop against this tap's recorded down position, and multi-tap
-  slop against the first tap centroid, checked on every sample."
-  [state packet slop multi-slop]
-  (let [pid (get-in packet [:pointer :id])]
+  slop against the first tap centroid, checked on every recognition-visible
+  sample: predicted samples never breach slop."
+  [state ctx slop multi-slop]
+  (let [pid (get-in ctx [:packet :pointer :id])]
     (boolean (some (fn [sample]
                      (let [origin (get (:current-origin-positions state) pid)
                            first-centroid (:first-tap-centroid state)]
@@ -82,7 +83,7 @@
                                 (> (geom/distance (:position sample)
                                                   first-centroid)
                                    (double multi-slop))))))
-                   (:samples packet)))))
+                   (:samples ctx)))))
 
 
 (defn- positions-centroid
@@ -90,7 +91,7 @@
   (geom/centroid (into {} (map (fn [[id p]] [id {:position p}]) positions))))
 
 
-(defn step-tap
+(defn- step-tap
   [ctx machine-input state config]
   (let [packet (:packet ctx)
         pid (get-in packet [:pointer :id])
@@ -157,7 +158,7 @@
                    :decision :hold}))))
           :pointer/move
           (if (= :contacts-down (:machine/state state))
-            (if (tap-slop-exceeded? state packet slop multi-slop)
+            (if (tap-slop-exceeded? state ctx slop multi-slop)
               (reject state)
               (hold (assoc state
                            :current-positions
@@ -252,7 +253,7 @@
           (hold state))))))
 
 
-(defn project-tap
+(defn- project-tap
   [_ctx state config]
   {:tap/count (get config :count 1),
    :tap/completed-count (:completed-count state),
@@ -264,7 +265,7 @@
 ;; Long press
 ;; ---------------------------------------------------------------------------
 
-(def long-press-initial-state
+(def ^:private long-press-initial-state
   {:machine/state :possible,
    :origin-centroid nil,
    :down-time-us nil,
@@ -285,7 +286,7 @@
    :duration-us (- time-us (or down-time time-us))})
 
 
-(defn step-long-press
+(defn- step-long-press
   [ctx machine-input state config]
   (let [time-us (:time-us ctx)
         [contact-min contact-max] (contact-range config)
@@ -418,7 +419,7 @@
 ;; Pan / drag
 ;; ---------------------------------------------------------------------------
 
-(def pan-initial-state
+(def ^:private pan-initial-state
   {:machine/state :possible,
    :origin-centroid nil,
    :accept-centroid nil,
@@ -464,7 +465,7 @@
       (or (> dx slop) (> dy slop)))))
 
 
-(defn step-pan
+(defn- step-pan
   [ctx machine-input state config]
   (let [time-us (:time-us ctx)
         [contact-min contact-max] (contact-range config)
@@ -650,7 +651,7 @@
 ;; Swipe and fling
 ;; ---------------------------------------------------------------------------
 
-(def swipe-initial-state
+(def ^:private swipe-initial-state
   {:machine/state :possible, :origin-centroid nil, :down-time-us nil})
 
 
@@ -673,7 +674,7 @@
     (= (count (:contacts ctx)) contact-min)))
 
 
-(defn step-swipe
+(defn- step-swipe
   [ctx machine-input state config]
   (let [time-us (:time-us ctx)
         direction-config (get config :direction :any)
@@ -736,7 +737,7 @@
           (hold state))))))
 
 
-(defn step-fling
+(defn- step-fling
   [ctx machine-input state config]
   (let [direction-config (get config :direction :any)
         min-velocity (setting ctx :min-velocity :fling/min-velocity)
@@ -781,7 +782,7 @@
 ;; Transform (translation, scale, rotation)
 ;; ---------------------------------------------------------------------------
 
-(def transform-initial-state
+(def ^:private transform-initial-state
   {:machine/state :possible,
    :anchor-centroid nil,
    :baseline-centroid nil,
@@ -844,7 +845,7 @@
                            (double rotation-slop))))))))
 
 
-(defn step-transform
+(defn- step-transform
   [ctx machine-input state config]
   (let [centroid (geom/centroid (:contacts ctx))
         {:keys [span angle two?]} (transform-span-angle (:contacts ctx))]
@@ -1035,7 +1036,7 @@
 ;; Edge pan
 ;; ---------------------------------------------------------------------------
 
-(def edge-pan-initial-state
+(def ^:private edge-pan-initial-state
   {:machine/state :possible,
    :in-edge? false,
    :origin-centroid nil,
@@ -1053,7 +1054,7 @@
     :bottom (- (double (:y centroid)) (double (:y origin)))))
 
 
-(defn step-edge-pan
+(defn- step-edge-pan
   [ctx machine-input state config]
   (let [edge (get config :edge :left)
         slop (setting ctx :slop :motion/slop)
@@ -1161,11 +1162,11 @@
 ;; Pressure press
 ;; ---------------------------------------------------------------------------
 
-(def pressure-press-initial-state
+(def ^:private pressure-press-initial-state
   {:machine/state :possible, :last-pressure nil, :peak-emitted? false})
 
 
-(defn step-pressure-press
+(defn- step-pressure-press
   [ctx machine-input state config]
   (let [pressure (get-in ctx [:sample :pressure])
         start-threshold
@@ -1276,10 +1277,29 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; Payload projections
+;; ---------------------------------------------------------------------------
+
+(defn project-payload
+  "The exact closed payload subset for one gesture kind. :scale, :pinch,
+  and :rotation are projections of the transform template: they emit only
+  their own subset, never the full transform payload. A :reason key from a
+  cancel payload survives the projection."
+  [gesture-kind payload]
+  (let [projected (case gesture-kind
+                    (:scale :pinch) (select-keys payload [:scale :scale-delta])
+                    :rotation (select-keys payload [:rotation :rotation-delta])
+                    payload)]
+    (if (contains? payload :reason)
+      (assoc projected :reason (:reason payload))
+      projected)))
+
+
+;; ---------------------------------------------------------------------------
 ;; Capability requirements
 ;; ---------------------------------------------------------------------------
 
-(def machine->required-capabilities
+(def ^:private machine->required-capabilities
   {:dao.gui.event/pressure-press #{:pressure}})
 
 

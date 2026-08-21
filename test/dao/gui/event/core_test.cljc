@@ -367,3 +367,22 @@
     (is (= [] outputs))
     ;; teardown released the registry; the post-teardown add was ignored
     (is (= [] (:subscription-order state)))))
+
+
+(deftest subscription-add-accepts-every-standard-declarable-kind
+  ;; the subscription vocabulary agrees with valid standard declarations:
+  ;; :drag, :scale, :pinch, and :rotation are all subscribable
+  (let [kinds [:tap :long-press :pan :drag :swipe :fling :transform :scale
+               :pinch :rotation :edge-pan :pressure-press]
+        state (reduce (fn [s [i k]]
+                        (:state (event/step
+                                  s
+                                  (u/rt i
+                                        u/t0
+                                        :subscription
+                                        (u/sub-add (str "sub-" i) ::save k)))))
+                      (event/initial-state)
+                      (map-indexed vector kinds))]
+    (is (= (count kinds) (count (:subscription-order state))))
+    (is (= [] (remove #(contains? event/standard-gesture-kinds %) kinds))
+        "every declarable standard kind is in the public vocabulary")))

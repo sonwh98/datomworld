@@ -8,17 +8,14 @@
   (:require [clojure.test :refer [deftest is testing]]
             #?@(:clj [[clojure.edn :as edn] [clojure.string :as str]])
             [dao.gui.event :as event]
+            [dao.gui.event.fixtures-corpus :as fixtures-corpus]
             [dao.gui.event.trace :as trace]
             [dao.gui.event.util :as u]))
 
 
-#_:clj-kondo/ignore
-
-
-(defn- load-fixture
-  [path]
-  #?(:clj (edn/read-string (slurp path))
-     :cljs (throw (ex-info "fixture loading is JVM-only" {}))))
+#?(:clj (defn- load-fixture
+          [path]
+          (edn/read-string (slurp path))))
 
 
 #?(:clj (defn- fixture-files
@@ -28,29 +25,51 @@
                (sort-by str))))
 
 
+(defn- check-fixture
+  "Replay one fixture value and assert the complete output vector and the
+  eleven-key state projection against its committed expectation."
+  [fixture]
+  (let [initial (if (nil? (:initial-state fixture))
+                  (event/initial-state)
+                  (:initial-state fixture))
+        {:keys [state outputs]} (event/replay initial (:inputs fixture))
+        expected-outputs (get-in fixture [:expect :outputs])
+        expected-state (get-in fixture [:expect :state])]
+    (testing (str (:fixture/id fixture) " outputs")
+      (is (= (count expected-outputs) (count outputs))
+          (str "output count mismatch for " (:fixture/id fixture)))
+      (doseq [[i [expected actual]]
+              (map-indexed vector (map vector expected-outputs outputs))]
+        (is (trace/matches? expected actual)
+            (str "output " i
+                 " mismatch for " (:fixture/id fixture)
+                 "\nexpected: " (pr-str expected)
+                 "\nactual:   " (pr-str actual)))))
+    (testing (str (:fixture/id fixture) " state")
+      (is (= expected-state (event/fixture-projection state))))))
+
+
 (deftest fixtures-replay-to-their-expectations
   #?(:clj (doseq [file (fixture-files)]
+            (check-fixture (load-fixture (str file))))
+     :default nil))
+
+
+(deftest embedded-corpus-replays-on-every-runtime
+  (doseq [[_id fixture] fixtures-corpus/corpus] (check-fixture fixture)))
+
+
+(deftest committed-edn-files-and-embedded-corpus-agree
+  #?(:clj (doseq [file (fixture-files)]
             (let [fixture (load-fixture (str file))
-                  initial (if (nil? (:initial-state fixture))
-                            (event/initial-state)
-                            (:initial-state fixture))
-                  {:keys [state outputs]} (event/replay initial
-                                                        (:inputs fixture))
-                  expected-outputs (get-in fixture [:expect :outputs])
-                  expected-state (get-in fixture [:expect :state])]
-              (testing (str (:fixture/id fixture) " outputs")
-                (is (= (count expected-outputs) (count outputs))
-                    (str "output count mismatch for " (:fixture/id fixture)))
-                (doseq [[i [expected actual]]
-                        (map-indexed vector
-                                     (map vector expected-outputs outputs))]
-                  (is (trace/matches? expected actual)
-                      (str "output " i
-                           " mismatch for " (:fixture/id fixture)
-                           "\nexpected: " (pr-str expected)
-                           "\nactual:   " (pr-str actual)))))
-              (testing (str (:fixture/id fixture) " state")
-                (is (= expected-state (event/fixture-projection state))))))
+                  embedded (get fixtures-corpus/corpus (:fixture/id fixture))]
+              (is (some? embedded)
+                  (str (:fixture/id fixture)
+                       " missing from the embedded corpus"))
+              (is (= embedded fixture)
+                  (str (:fixture/id fixture)
+                       " differs between the .edn file and the corpus; "
+                       "regenerate with dao.gui.event.fixtures-write"))))
      :default nil))
 
 

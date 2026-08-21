@@ -3,16 +3,17 @@
 ;; ranges, never the authored integer shorthand. Specification:
 ;; docs/design/dao.gui.event.md sections Authored Interaction Data,
 ;; Recognizer Machine Data, Standard Recognizers.
-(ns dao.gui.event.decl)
+(ns dao.gui.event.decl
+  (:require [dao.gui.event.machine :as machine]))
 
 
-(def standard-machines
+(def ^:private standard-machines
   #{:dao.gui.event/tap :dao.gui.event/long-press :dao.gui.event/pan
     :dao.gui.event/swipe :dao.gui.event/fling :dao.gui.event/transform
     :dao.gui.event/edge-pan :dao.gui.event/pressure-press})
 
 
-(def machine->gesture-kinds
+(def ^:private machine->gesture-kinds
   {:dao.gui.event/tap #{:tap},
    :dao.gui.event/long-press #{:long-press},
    :dao.gui.event/pan #{:pan :drag},
@@ -23,12 +24,12 @@
    :dao.gui.event/pressure-press #{:pressure-press}})
 
 
-(def universal-config-keys
+(def ^:private universal-config-keys
   "Keys every standard configuration may carry."
   #{:contacts :join-after-accept :contact-loss})
 
 
-(def machine->config-keys
+(def ^:private machine->config-keys
   {:dao.gui.event/tap #{:count :max-duration-us :slop :max-delay-us
                         :multi-tap-slop},
    :dao.gui.event/long-press #{:delay-us :slop},
@@ -42,19 +43,15 @@
                                    :peak-threshold}})
 
 
-(def legal-modes #{:exclusive :cooperative})
-(def legal-contact-loss #{:end :degrade :hold})
-(def legal-axes #{:x :y :free})
-(def legal-start-at #{:slop :down})
-(def legal-directions #{:left :right :up :down :any})
-(def legal-edges #{:left :right :top :bottom})
-
-(def default-contacts {:min 1, :max 1})
-
-(def default-contacts-by-machine {:dao.gui.event/transform {:min 1, :max 5}})
+(def ^:private legal-modes #{:exclusive :cooperative})
+(def ^:private legal-contact-loss #{:end :degrade :hold})
+(def ^:private legal-axes #{:x :y :free})
+(def ^:private legal-start-at #{:slop :down})
+(def ^:private legal-directions #{:left :right :up :down :any})
+(def ^:private legal-edges #{:left :right :top :bottom})
 
 
-(defn finite-number?
+(defn- finite-number?
   [v]
   (and (number? v)
        (<= -1.7976931348623157E308 (double v) 1.7976931348623157E308)))
@@ -134,75 +131,59 @@
 
 (defn validate-declaration
   "Returns nil when the presented declaration is valid, else a reason
-  keyword for the :dao.gui.event/invalid-recognizer diagnostic."
+  keyword for the :dao.gui.event/invalid-recognizer diagnostic. Custom
+  machines run their complete machine validation here: a malformed machine
+  is omitted at installation rather than faulting per input later."
   [{:keys [recognizer/id gesture/kind machine config arena], :as decl}]
-  (cond
-    (not (and (map? decl) (some? id) (keyword? kind))) :malformed-declaration
-    (not (or (contains? standard-machines machine)
-             (and (map? machine) (contains? machine :machine/version))))
-    :unknown-machine
-    (and (contains? standard-machines machine)
-         (not (contains? (get machine->gesture-kinds machine) kind)))
-    :illegal-gesture-kind
-    (not (map? config)) :malformed-config
-    ;; the authored integer shorthand is not presentable: contacts must be
-    ;; a canonical range map
-    (and (contains? config :contacts)
-         (not (valid-contacts? (:contacts config))))
-    :non-canonical-contacts
-    (and (contains? config :contact-loss)
-         (not (contains? legal-contact-loss (:contact-loss config))))
-    :illegal-contact-loss
-    (and (contains? config :join-after-accept)
-         (not (boolean? (:join-after-accept config))))
-    :illegal-join-after-accept
-    (and (contains? standard-machines machine)
-         (some (fn [k]
-                 (and (contains? config k)
-                      (not (or (contains? universal-config-keys k)
-                               (contains? (get machine->config-keys machine)
-                                          k)))))
-               (keys config)))
-    :unknown-config-key
-    (and (contains? standard-machines machine)
-         (config-value-fault machine config))
-    (config-value-fault machine config)
-    (not (map? arena)) :malformed-arena
-    (and (contains? arena :mode) (not (contains? legal-modes (:mode arena))))
-    :illegal-arena-mode
-    (and (contains? arena :priority) (not (finite-number? (:priority arena))))
-    :invalid-priority
-    :else nil))
-
-
-(defn contacts-range
-  "Canonical contacts range of a valid declaration, defaulting per machine."
-  [decl]
-  (or (get-in decl [:config :contacts])
-      (get default-contacts-by-machine (:machine decl))
-      default-contacts))
-
-
-(defn contact-loss
-  [decl]
-  (get-in decl [:config :contact-loss] :end))
+  (let [machine-faults (when (and (map? machine)
+                                  (contains? machine :machine/version))
+                         (machine/validate machine))]
+    (cond
+      (not (and (map? decl) (some? id) (keyword? kind))) :malformed-declaration
+      (not (or (contains? standard-machines machine)
+               (and (map? machine) (contains? machine :machine/version))))
+      :unknown-machine
+      (and (contains? standard-machines machine)
+           (not (contains? (get machine->gesture-kinds machine) kind)))
+      :illegal-gesture-kind
+      (not (map? config)) :malformed-config
+      ;; the authored integer shorthand is not presentable: contacts must
+      ;; be a canonical range map
+      (and (contains? config :contacts)
+           (not (valid-contacts? (:contacts config))))
+      :non-canonical-contacts
+      (and (contains? config :contact-loss)
+           (not (contains? legal-contact-loss (:contact-loss config))))
+      :illegal-contact-loss
+      (and (contains? config :join-after-accept)
+           (not (boolean? (:join-after-accept config))))
+      :illegal-join-after-accept
+      (and (contains? standard-machines machine)
+           (some (fn [k]
+                   (and (contains? config k)
+                        (not (or (contains? universal-config-keys k)
+                                 (contains? (get machine->config-keys machine)
+                                            k)))))
+                 (keys config)))
+      :unknown-config-key
+      (and (contains? standard-machines machine)
+           (config-value-fault machine config))
+      (config-value-fault machine config)
+      (not (map? arena)) :malformed-arena
+      (and (contains? arena :mode) (not (contains? legal-modes (:mode arena))))
+      :illegal-arena-mode
+      ;; cooperative mode cannot coexist without a non-nil group: reject
+      ;; the declaration rather than silently treating it as exclusive
+      (and (= :cooperative (:mode arena)) (nil? (:coexistence/group arena)))
+      :cooperative-without-group
+      (and (contains? arena :priority) (not (finite-number? (:priority arena))))
+      :invalid-priority
+      ;; complete validation of a custom machine
+      (seq machine-faults) (:reason (first machine-faults))
+      :else nil)))
 
 
 (defn join-after-accept
+  "Whether an accepted winner admits a later joining contact."
   [decl]
   (get-in decl [:config :join-after-accept] false))
-
-
-(defn arena-mode
-  [decl]
-  (get-in decl [:arena :mode] :exclusive))
-
-
-(defn arena-priority
-  [decl]
-  (get-in decl [:arena :priority] 0))
-
-
-(defn coexistence-group
-  [decl]
-  (get-in decl [:arena :coexistence/group]))

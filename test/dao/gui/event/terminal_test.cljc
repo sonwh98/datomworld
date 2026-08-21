@@ -172,20 +172,17 @@
 
 
 (deftest invalid-region-geometry-diagnoses-unsupported-region
-  (let [geometry (update
-                   (u/presented-geometry {:frame-id 43})
-                   :nodes
-                   (fn [[node]]
-                     [(update node
+  (let [geometry (update (u/presented-geometry {:frame-id 43})
+                         :nodes
+                         (fn [[node]]
+                           [(update
+                              node
                               :regions
-                              conj
-                              {:bounds {:x 0, :y 0, :width -5, :height 10},
-                               :paint-order 101})
-                      (update node
-                              :regions
-                              conj
-                              {:bounds {:x "left", :y 0, :width 5, :height 10},
-                               :paint-order 102})]))
+                              into
+                              [{:bounds {:x 0, :y 0, :width -5, :height 10},
+                                :paint-order 101}
+                               {:bounds {:x "left", :y 0, :width 5, :height 10},
+                                :paint-order 102}])]))
         booted (boot)
         {:keys [outputs]} (step* booted (u/rt 3 (+ u/t0 3) :geometry geometry))]
     ;; both malformed regions are omitted with one diagnostic each
@@ -209,6 +206,96 @@
     (is (= [:dao.gui.event/invalid-recognizer :dao.gui.event/invalid-recognizer
             :dao.gui.event/invalid-recognizer]
            (diag-kinds outputs)))))
+
+
+(deftest cooperative-declaration-without-group-is-rejected
+  (let [cooperative-nil-group (-> (u/tap-decl ::save)
+                                  (assoc-in [:arena :mode] :cooperative))
+        geometry (u/presented-geometry {:frame-id 43,
+                                        :node-id ::coop,
+                                        :recognizers [cooperative-nil-group
+                                                      (u/tap-decl ::coop)]})
+        booted (boot)
+        {:keys [outputs state]} (step* booted
+                                       (u/rt 3 (+ u/t0 3) :geometry geometry))
+        diagnostic (first (filter :diagnostic/kind outputs))]
+    ;; exactly one invalid-recognizer diagnostic for the offending
+    ;; declaration
+    (is (= [:dao.gui.event/invalid-recognizer] (diag-kinds outputs)))
+    (is (= :cooperative-without-group (:reason diagnostic)))
+    (is (= ::coop (:node-id diagnostic)))
+    ;; the valid sibling declaration is still installed
+    (is (pos? (count (get-in state [:geometry :regions]))))))
+
+
+(deftest repeated-ancestor-entries-across-paths-keep-their-recognizers
+  (let [ancestor {:node-id ::scroll,
+                  :recognizers [(u/pan-decl ::scroll)],
+                  :touch-action :none}
+        geometry {:message/kind :dao.terminal/presented-geometry,
+                  :generation-id u/generation,
+                  :frame-id 43,
+                  :coordinate-space-id u/space-id,
+                  :nodes
+                  [{:node-id ::row-a,
+                    :interaction/path [ancestor
+                                       {:node-id ::row-a,
+                                        :recognizers [(u/tap-decl ::row-a)],
+                                        :touch-action :manipulation}],
+                    :touch-action :manipulation,
+                    :regions [{:bounds {:x 0, :y 0, :width 100, :height 50},
+                               :paint-order 10}]}
+                   {:node-id ::row-b,
+                    :interaction/path [ancestor
+                                       {:node-id ::row-b,
+                                        :recognizers [(u/tap-decl ::row-b)],
+                                        :touch-action :manipulation}],
+                    :touch-action :manipulation,
+                    :regions [{:bounds {:x 0, :y 60, :width 100, :height 50},
+                               :paint-order 11}]}]}
+        booted (boot)
+        {:keys [outputs state]} (step* booted
+                                       (u/rt 3 (+ u/t0 3) :geometry geometry))]
+    ;; the same logical ancestor in two explicit root-to-target paths is
+    ;; intentional repetition, not a duplicate declaration
+    (is (= [] (diag-kinds outputs)))
+    ;; both targets and the ancestor recognizers survive into the hit index
+    (is (= 2 (count (get-in state [:geometry :regions]))))
+    (is (= #{::row-a ::row-b}
+           (set (map :node-id (get-in state [:geometry :regions])))))
+    (is (every? #(= 2 (count (:interaction/path %)))
+                (get-in state [:geometry :regions])))
+    ;; every region keeps the shared ancestor's recognizer
+    (is (every? #(= 1 (count (get-in % [:recognizers-by-node ::scroll])))
+                (get-in state [:geometry :regions])))))
+
+
+(deftest duplicate-target-identity-across-nodes-diagnoses
+  (let [dup-target (fn []
+                     {:node-id ::dupe,
+                      :recognizers [(u/tap-decl ::dupe)],
+                      :touch-action :none})
+        geometry {:message/kind :dao.terminal/presented-geometry,
+                  :generation-id u/generation,
+                  :frame-id 43,
+                  :coordinate-space-id u/space-id,
+                  :nodes
+                  [{:node-id ::dupe,
+                    :interaction/path [(dup-target)],
+                    :touch-action :none,
+                    :regions [{:bounds {:x 0, :y 0, :width 50, :height 50},
+                               :paint-order 10}]}
+                   {:node-id ::dupe,
+                    :interaction/path [(dup-target)],
+                    :touch-action :none,
+                    :regions [{:bounds {:x 60, :y 0, :width 50, :height 50},
+                               :paint-order 11}]}]}
+        booted (boot)
+        {:keys [outputs]} (step* booted (u/rt 3 (+ u/t0 3) :geometry geometry))]
+    ;; the same logical target declared by two nodes is a duplicate
+    (is (= [:dao.gui.event/invalid-recognizer] (diag-kinds outputs)))
+    (is (= :duplicate-candidate
+           (:reason (first (filter :diagnostic/kind outputs)))))))
 
 
 (deftest duplicate-candidate-identity-in-one-frame-diagnoses
@@ -243,6 +330,41 @@
                      :profile (u/input-profile {:profile-id u/profile-id})))]
     (is (= [:dao.gui.event/profile-mismatch] (diag-kinds outputs)))
     (is (= [u/profile-id] (:profile-ids (project state))))))
+
+
+(deftest regressing-profile-id-diagnoses-and-leaves-profiles-unchanged
+  (let [booted (boot)
+        ;; profile-id 3 is installed; 2 regresses below the latest id
+        {:keys [state outputs]} (step* booted
+                                       (u/rt 3 (+ u/t0 3)
+                                             :profile (u/input-profile
+                                                        {:profile-id 2})))]
+    (is (= [:dao.gui.event/profile-mismatch] (diag-kinds outputs)))
+    (is (= [u/profile-id] (:profile-ids (project state))))
+    (is (= u/profile-id (:latest-profile-id state)))))
+
+
+(deftest profile-boundaries-equal-duplicate-and-next
+  (let [booted (boot)]
+    (testing "equal id is the duplicate case"
+      (let [{:keys [state outputs]} (step* booted
+                                           (u/rt 3 (+ u/t0 3)
+                                                 :profile (u/input-profile
+                                                            {:profile-id
+                                                             u/profile-id})))]
+        (is (= [:dao.gui.event/profile-mismatch]
+               (mapv :diagnostic/kind outputs)))
+        (is (= [u/profile-id] (:profile-ids (project state))))))
+    (testing "the next integer id installs and becomes latest"
+      (let [{:keys [state outputs]}
+            (step* booted
+                   (u/rt 3 (+ u/t0 3)
+                         :profile (u/input-profile {:profile-id
+                                                    (inc u/profile-id)})))]
+        (is (= [] outputs))
+        (is (= [u/profile-id (inc u/profile-id)]
+               (:profile-ids (project state))))
+        (is (= (inc u/profile-id) (:latest-profile-id state)))))))
 
 
 (deftest profile-rejects-stale-generation

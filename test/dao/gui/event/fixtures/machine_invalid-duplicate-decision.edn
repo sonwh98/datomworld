@@ -1,0 +1,117 @@
+{:fixture/id :machine/invalid-duplicate-decision,
+ :initial-state nil,
+ :inputs
+ [#:runtime{:seq 0,
+            :time-us 812000000,
+            :source :terminal,
+            :value
+            {:message/kind :dao.terminal/coordinate-space-change,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :old-coordinate-space-id nil,
+             :coordinate-space-id 7,
+             :viewport {:width 390.0, :height 844.0},
+             :reason :orientation-change}}
+  #:runtime{:seq 2,
+            :time-us 812000000,
+            :source :profile,
+            :value
+            {:message/kind :dao.terminal/input-profile,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :profile-id 3,
+             :capabilities #{},
+             :thresholds
+             {:fling/max-velocity 8000.0,
+              :swipe/min-distance 48.0,
+              :edge/width 20.0,
+              :multi-tap/slop 100.0,
+              :multi-tap/max-delay-us 300000,
+              :long-press/delay-us 500000,
+              :motion/slop 18.0,
+              :fling/min-velocity 50.0,
+              :pressure/start-threshold 0.5,
+              :swipe/min-velocity 500.0,
+              :tap/max-duration-us 300000,
+              :swipe/max-duration-us 500000,
+              :velocity/window-us 100000,
+              :pressure/release-threshold 0.5}}}
+  #:runtime{:seq 10,
+            :time-us 812000000,
+            :source :geometry,
+            :value
+            {:message/kind :dao.terminal/presented-geometry,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :frame-id 43,
+             :coordinate-space-id 7,
+             :nodes
+             [{:node-id :dao.gui.event.fixtures-gen/fixture,
+               :interaction/path
+               [{:node-id :dao.gui.event.fixtures-gen/fixture,
+                 :recognizers
+                 [{:recognizer/id
+                   [:dao.gui.event.fixtures-gen/fixture :bad],
+                   :gesture/kind :tap,
+                   :machine
+                   {:machine/version 1,
+                    :initial :possible,
+                    :state {:origin nil},
+                    :windows {:motion {:capacity 8}},
+                    :states
+                    {:possible
+                     [{:on :pointer/down,
+                       :when [:= [:contacts/count] 1],
+                       :actions
+                       [[:state/assoc :origin [:contacts/centroid]]
+                        [:arena/hold]]}
+                      {:on :pointer/move,
+                       :when
+                       [:>
+                        [:distance
+                         [:state/get :origin]
+                         [:contacts/centroid]]
+                        [:setting :motion/slop]],
+                       :actions [[:arena/reject] [:goto :rejected]]}
+                      {:on :pointer/up,
+                       :when
+                       [:<=
+                        [:elapsed-us]
+                        [:setting :tap/max-duration-us]],
+                       :actions
+                       [[:arena/accept]
+                        [:arena/reject]
+                        [:goto :ended]]}
+                      {:on :pointer/cancel,
+                       :when true,
+                       :actions [[:arena/reject] [:goto :rejected]]}],
+                     :ended [],
+                     :rejected []}},
+                   :config {},
+                   :arena
+                   {:priority 0,
+                    :mode :exclusive,
+                    :coexistence/group nil}}],
+                 :touch-action :manipulation}],
+               :touch-action :manipulation,
+               :regions
+               [{:bounds {:x 24, :y 16, :width 96, :height 32},
+                 :paint-order 100}]}]}}],
+ :expect
+ {:outputs
+  [{:diagnostic/kind :dao.gui.event/invalid-recognizer,
+    :severity :error,
+    :reason :duplicate-decision,
+    :recognizer/id [:dao.gui.event.fixtures-gen/fixture :bad],
+    :node-id :dao.gui.event.fixtures-gen/fixture,
+    :output/seq 0,
+    :runtime/seq 10}],
+  :state
+  {:coordinate-space-id 7,
+   :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+   :last-runtime-seq 10,
+   :profile-ids [3],
+   :active-pointer-ids [],
+   :last-runtime-time-us 812000000,
+   :subscription-ids [],
+   :next-arena-id 0,
+   :active-arena-ids [],
+   :active-frame-id 43,
+   :scheduled-timer-keys []}}}

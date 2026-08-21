@@ -388,3 +388,71 @@
              (first (keep-indexed (fn [i [t k]]
                                     (when (and (= t :gesture) (= k :fling)) i))
                                   kinds)))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Cooperative group arbitration
+;; ---------------------------------------------------------------------------
+
+(defn- swipe-fling-inputs
+  "Down, one qualifying move, and a fast terminal up: both a swipe and a
+  fling candidate accept on the up tuple."
+  []
+  [(ptr 10 u/t0 :down 11 40.0 20.0) (ptr 11 (+ u/t0 20000) :move 11 70.0 20.0)
+   (ptr 12 (+ u/t0 40000) :up 11 140.0 20.0)])
+
+
+(deftest different-coexistence-groups-compete-deterministically
+  (let [state (boot :recognizers
+                    [(swipe-decl :coexistence ::group-a)
+                     (fling-decl :coexistence ::group-b)])
+        result (run state (swipe-fling-inputs))
+        events (gestures (:outputs result))]
+    ;; both accept on the same up, but different groups never coexist: the
+    ;; higher-ranked swipe (earlier declaration) wins alone
+    (is (= [:swipe] (mapv :gesture/kind events)))
+    (is
+      (= [[:rejected :arena-lost] [:accepted :arena-winner]]
+         (mapv (juxt :decision :cause)
+               (filter #(= :dao.gui.event/arena-decision (:event/kind %))
+                       (:outputs result))))
+      "the losing fling is rejected before the winner commits: it never
+         accepted, so it emits no cancel gesture")))
+
+
+(deftest rank-not-mode-decides-between-exclusive-and-cooperative
+  (testing "a higher-ranked exclusive accepter defeats cooperative accepters"
+    (let [;; swipe is exclusive with the greater priority
+          state (boot :recognizers
+                      [(fling-decl :coexistence ::group-b)
+                       (assoc-in (swipe-decl) [:arena :priority] 1)])
+          result (run state (swipe-fling-inputs))
+          events (gestures (:outputs result))]
+      (is (= [:swipe] (mapv :gesture/kind events)))))
+  (testing "a higher-ranked cooperative accepter defeats an exclusive one"
+    (let [state (boot :recognizers
+                      [(fling-decl :coexistence ::group-b) (swipe-decl)])
+          result (run state (swipe-fling-inputs))
+          events (gestures (:outputs result))]
+      ;; equal priority: the earlier declaration ranks first
+      (is (= [:fling] (mapv :gesture/kind events))))))
+
+
+(deftest shared-coexistence-group-accepts-together-in-rank-order
+  (let [state (boot :recognizers
+                    [(swipe-decl :coexistence ::group-a)
+                     (fling-decl :coexistence ::group-a)])
+        result (run state (swipe-fling-inputs))
+        events (gestures (:outputs result))]
+    ;; one shared non-nil group: both discrete winners are emitted in
+    ;; candidate rank order
+    (is (= [:swipe :fling] (mapv :gesture/kind events)))
+    ;; semantic events keep complete order: the swipe event and any
+    ;; dispatch fan-out precede the fling event and its fan-out
+    (let [semantic (mapv (fn [o]
+                           (cond (:gesture/kind o) [:gesture (:gesture/kind o)]
+                                 (:dispatch/kind o) [:dispatch (:event-kind o)]
+                                 :else nil))
+                         (:outputs result))]
+      (is (= [[:gesture :swipe] [:gesture :fling]]
+             (vec (remove nil? semantic)))))))

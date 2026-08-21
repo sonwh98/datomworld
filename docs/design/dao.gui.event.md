@@ -72,6 +72,26 @@ The separation is strict:
 No frame contains callbacks. No terminal callback is a portable event API. No
 gesture recognizer owns hidden global state.
 
+### Implementation Scope
+
+This revision defines the complete end-to-end architecture, but the current
+implementation conformance claim is limited to `dao.gui.event` interpretation,
+replay, and DaoStream binding over canonical runtime inputs.
+
+The following upstream boundaries are specified but deferred:
+
+- lowering authored `:gui/gestures`, `:on-tap`, and `:gui/touch-action` data into
+  canonical `:meta/region` metadata in `dao.gui`;
+- terminal production of presented geometry, input profiles, normalized pointer
+  packets, coordinate-space signals, and browser policy overlays;
+- Android, iOS Flutter, and mobile-web host adapters.
+
+Consequently, this implementation does not claim that authored Hiccup currently
+reaches `dao.gui.event`, nor that any existing terminal produces the canonical
+runtime-input stream. Tests for the implemented scope construct canonical
+metadata and runtime inputs directly. The deferred boundaries remain normative
+requirements for a later end-to-end conformance claim.
+
 ## Event Boundary
 
 One `dao.gui.event` binding consumes these streams:
@@ -104,11 +124,44 @@ does not register host callbacks:
 {:dao.gui.event/binding-version 1
  :inputs {:runtime-input runtime-input-stream}
  :outputs {:effects effect-stream
+           :trace trace-stream
            :pointer pointer-stream
            :gesture gesture-stream
            :dispatch dispatch-stream
            :diagnostic diagnostic-stream}}
 ```
+
+A binding contains its input stream and read cursor, the six output streams, its
+immutable interpreter state, an ordered pending-output queue, teardown state,
+and the identity of any current parked interval. It creates no host thread and
+registers no callback or waiter.
+
+The public driver is:
+
+```clojure
+(advance binding)
+;; =>
+{:binding next-binding
+ :status :advanced}   ; or :parked, :blocked, :end, :input-gap, :closed
+```
+
+Before reading input, `advance` retries pending output in order. If the queue is
+fully flushed, it reads at most one runtime input. On `{:ok value :cursor c'}`
+it consumes that value exactly once, retains `c'` even if output subsequently
+parks, steps the reducer, queues the resulting ordered outputs, and attempts to
+flush them. It never reads a second input during the same call. An embedding
+runtime drives progress by calling `advance` repeatedly.
+
+`:advanced` means one input was consumed and all outputs currently pending from
+it were appended. `:parked` means the head pending output could not be appended.
+`:blocked` means the input stream returned `:blocked`. `:end` means it returned
+`:end` before teardown. `:input-gap` means it returned
+`:daostream/gap`. `:closed` means teardown output has been completely flushed
+and all runtime-owned output streams have been closed.
+
+An input-stream `:end` is not implicit teardown. The binding retains its state
+and leaves its outputs open, although a closed input stream cannot subsequently
+supply another value.
 
 `runtime-input-stream` carries only the canonical envelope below. The binding
 owns its immutable interpreter value; each consumed input maps it to a new
@@ -122,18 +175,29 @@ may expose that total reducer directly for replay:
 
 Every output has `:runtime/seq` of the input which caused it and
 `:output/seq`, starting at zero within that input. Output order is the vector
-order. The effect stream carries only timer requests in version 1. Pointer and
+order. Every reducer output is placed in one pending record containing its
+destination and value. Timer requests route to `:effects`; contact-change,
+arena-merge, arena-decision, and other trace-only values route to `:trace`;
+`:event/kind :pointer` routes to `:pointer`; `:event/kind :gesture` routes to
+`:gesture`; `:dispatch/kind` routes to `:dispatch`; and `:diagnostic/kind`
+routes to `:diagnostic`. Routing does not alter vector order. Append attempts
+occur in complete reducer-output order even though consumers observe separate
+physical streams. The effect stream carries only timer requests. Pointer and
 gesture streams carry their respective event envelopes. The dispatch stream
 contains fan-out values, not executable functions. A binding closes its outputs
 only after it has processed one `:dao.gui.event/teardown` runtime input and
 emitted all resulting cancellation and timer-cancel values.
+
+The binding, reducer state, recognizer-machine, and trace values each carry
+their own schema-version discriminator. Those fields version their individual
+data shapes; they do not define one shared version for this document.
 
 The only legal `:runtime/source` values are `:geometry`, `:profile`,
 `:pointer`, `:timer`, `:subscription`, `:terminal`, and `:control`. The corresponding
 `:runtime/value :message/kind` or `:input/kind` must agree with its source;
 mismatch is `:dao.gui.event/unrecognized-event-kind` and has no other effect.
 
-The sole control value in version 1 is teardown:
+The sole control value defined by this contract is teardown:
 
 ```clojure
 {:input/kind :dao.gui.event/teardown
@@ -309,6 +373,13 @@ Rules:
 - `:arena :mode` defaults to `:exclusive`.
 - cooperative recognizers may accept together only when they carry the same
   non-nil `:coexistence/group`.
+- `:arena :mode :cooperative` requires a non-nil
+  `:arena :coexistence/group`. A compiler rejects an authored declaration that
+  violates this rule. If such a declaration reaches runtime installation, the
+  runtime omits that candidate and emits exactly one
+  `:dao.gui.event/invalid-recognizer` diagnostic for that declaration with
+  `:reason :cooperative-without-group`, the available node and recognizer
+  identities, and severity `:error`. It is not treated as exclusive.
 - an exclusive recognizer never coexists with another accepted recognizer.
 - declaration vector order is semantically significant and is preserved.
 
@@ -318,7 +389,10 @@ authored integer `n` lowers to `{:min n :max n}` before presentation, tracing,
 or validation. Standard recognizers must not interpret the authored shorthand
 directly.
 
-Compiler lowering is a normative, closed relation in version 1. It recognizes
+The target compiler lowering is a normative, closed relation. Its implementation
+is deferred under Implementation Scope. Until that boundary is implemented,
+canonical authored-interaction examples in this document are producer-contract
+fixtures rather than a claim about the current `dao.gui` compiler. It recognizes
 only `:gui/gestures`, `:gui/touch-action`, stable `:node-id`, and the documented
 `:on-tap` shorthand. It validates each declaration, canonicalizes contacts and
 defaults, constructs the root-to-target interactive path, and emits one
@@ -568,6 +642,11 @@ that is currently an active touch contact is a protocol error.
 
 ### Terminal Adapter Contract
 
+The terminal adapter contract is a deferred producer boundary under
+Implementation Scope. It defines the canonical values that a future conforming
+adapter must emit; it is not part of the current reducer-and-binding
+implementation claim.
+
 The adapter assigns `:input-seq` after it has expanded a host callback into one
 portable packet. It must never split a host callback into packet ordering that
 changes its actual-sample lifecycle. Android and iOS Flutter adapters map
@@ -760,6 +839,15 @@ highest-ranked candidate wins. Losing possible or accepted continuous
 candidates receive cancellation. Cooperative candidates accept together only
 when they name the same non-nil coexistence group and no higher-ranked exclusive
 candidate accepts.
+
+When several candidates accept on one tuple, cooperative accepters are
+partitioned by their non-nil coexistence group. Each group is ranked by its
+highest-ranked accepting member. The highest-ranked accepting candidate across
+all exclusive candidates and cooperative groups determines the winning mode.
+If it is exclusive, that candidate wins alone. If it is cooperative, every
+accepting cooperative candidate in that candidate's group wins, in candidate
+rank order. All other accepting or possible competitors lose according to the
+normal arena-cancellation rules. Map iteration order never participates.
 
 Candidates never receive a sibling candidate's machine state, decision, window,
 or emitted payload. `:arena/accepted`, `:arena/rejected`, and
@@ -1016,6 +1104,23 @@ ignored with a warning diagnostic. `:timer-seq` increases per
 `(arena-id, recognizer-id, timer-id)` and distinguishes a restarted timer from a
 late result for its prior incarnation.
 
+Restart applies only after the new duration and deadline have been evaluated
+successfully. If the same candidate has a `:scheduled` prior incarnation of
+that timer id, the transition atomically:
+
+1. changes the prior timer record from `:scheduled` to `:cancelled`;
+2. emits its `:timer/op :cancel` request;
+3. allocates the next monotonically increasing `:timer-seq`;
+4. records the new correlation key as `:scheduled`; and
+5. emits its `:timer/op :start` request.
+
+The cancel and start are consecutive timer effects of the same causing runtime
+input, in that order, and receive increasing `:output/seq` values. A fault while
+evaluating the restart leaves the prior timer unchanged and emits neither
+effect. Cancelled and fired records may be retained for late-result
+classification, but only the new scheduled key appears in the executable
+fixture state's `:scheduled-timer-keys`.
+
 The complete correlation key is `(generation-id, coordinate-space-id, arena-id,
 recognizer-id, timer-id, timer-seq)`. The runtime validates every component
 before delivery. Candidate rejection, semantic end/cancel, arena merge removal,
@@ -1037,7 +1142,7 @@ All standard recognizers are total normative transition algorithms expressible
 with the DSL above. A repository may ship machine-data templates as compiled
 artifacts; those templates are normative test inputs and must replay identically
 to these clauses. Their template ids, accepted phases, and terminal transitions
-are fixed in version 1. Configuration keys not listed here are invalid.
+are fixed by this contract. Configuration keys not listed here are invalid.
 
 | Template | Initial state and hold | Accept transition | After acceptance | Terminal transition |
 | --- | --- | --- | --- | --- |
@@ -1248,7 +1353,7 @@ pressure; peak is included once when first crossed.
 
 ### Standard Gesture Payloads
 
-Version 1 payload maps are closed. They contain exactly the keys below; the
+Gesture payload maps are closed. They contain exactly the keys below; the
 common envelope carries `:position`, `:pointer-ids`, and `:time-us`.
 
 ```clojure
@@ -1521,14 +1626,48 @@ Pointer lifecycle packets must not disappear silently.
 - terminals must not coalesce across down, up, cancel, generation, frame, or
   coordinate-space boundaries
 - down, up, and cancel are never evicted intentionally
-- pointer input streams must use reject/backpressure rather than
-  `:evict-oldest`
 - a runtime whose dispatch stream is full parks its input cursor rather than
   dropping an already-produced gesture phase
-- if input retention is exceeded while the runtime is parked, the observed
-  DaoStream gap becomes explicit input loss and cancels all affected arenas
 - recognized semantic dispatch values are never conflated, evicted, or
   rewritten into latest-wins state
+
+A conforming canonical runtime-input DaoStream uses reject/backpressure rather
+than `:evict-oldest`. An upstream multiplexer or gap-aware adapter that can
+identify lost packet facts represents them as the canonical
+`:dao.terminal/input-loss` runtime input described below.
+
+The bare `:daostream/gap` result contains insufficient causal information to
+construct that envelope. On receiving it, `advance` returns `:input-gap`
+without advancing the cursor or synthesizing a diagnostic. Recovery requires
+the owning multiplexer to establish a new cursor and supply an explicit
+input-loss value, or to perform explicit teardown. A bare gap is therefore a
+transport-boundary failure, not a replay input.
+
+Every runtime-owned output stream is lossless from the binding's perspective.
+If any `append!` returns `{:result :full}`, the binding retains that value as
+the head pending output, retains every later output in order, and reads no
+further input until pending output can be flushed. Outputs successfully
+appended before the full result are removed from the pending queue and are
+never appended again.
+
+Only a full dispatch stream produces
+`:dao.gui.event/dispatch-backpressure`. On entry to such a parked interval, the
+binding appends one diagnostic value to the tail of the pending outputs for the
+causing runtime input. Its `:output/seq` follows every reducer-produced output
+already assigned to that input. If the diagnostic stream is full when that
+queued diagnostic reaches the head, it remains pending and parks the binding;
+this does not recursively produce another backpressure diagnostic.
+
+A parked interval is the maximal contiguous sequence of `advance` results that
+are parked on the same destination stream and the same head pending value. It
+ends when that value is appended or ceases to be the head pending value. A
+dispatch-backpressure diagnostic is emitted at most once during that interval.
+A later full result for a different dispatch value begins a new interval.
+
+After consuming one valid teardown input, the binding reads no later input. It
+flushes all cancellation effects, cancellation events, dispatches, traces, and
+diagnostics in their existing order, then calls `close!` on all six
+runtime-owned output streams. It never closes the input stream.
 
 Input loss is signalled as:
 
@@ -1703,8 +1842,30 @@ Each conformance fixture is one EDN value suitable for direct reducer replay:
                   :next-arena-id <integer>}}}
 ```
 
-`nil` initial state means the version-1 empty state. Fixture inputs must include
-geometry, profile, and subscriptions explicitly before their first use. Expected
+`nil` initial state means the canonical empty reducer state. Fixture inputs must include
+geometry, profile, and subscriptions explicitly before their first use.
+
+Each named fixture is committed as an individual, minimal, hand-checkable EDN
+value. A repository script may generate or update those files, but the committed
+fixture, not the generator's current output, is the conformance artifact.
+Generated expected values must be reviewed and committed explicitly; a test may
+not obtain its expectation by invoking the implementation under test.
+
+Every fixture whose owning boundary is `dao.gui.event` must replay unchanged on
+CLJ, CLJS, and CLJD and must produce the same complete outputs and eleven-key
+state projection. Runtimes may use different resource-loading mechanisms, such
+as embedding the committed EDN corpus into generated CLJC data, provided the
+values are identical.
+
+The fixture requirement applies to every in-scope reducer or binding scenario,
+every diagnostic produced by `dao.gui.event`, and every invalid-machine
+validation rule. Scenarios and diagnostics owned solely by the deferred compiler
+or terminal boundaries are required when those boundaries are implemented and
+are not reducer-conformance fixtures in this implementation pass. Separate
+boundary tests, rather than reducer replay fixtures, cover DaoStream parking,
+host packet normalization, presentation, and DOM overlay behavior.
+
+Expected
 outputs contain complete values after canonical numeric rounding, including
 timer cancellation and diagnostics; no wildcard comparison is allowed except
 `{:any-of [...]}` around an explicitly declared host-capability alternative.
@@ -1726,7 +1887,11 @@ comparison surface.
 
 The repository must provide fixtures for every bullet in Conformance Scenarios,
 plus one minimal fixture for each diagnostic kind and each invalid-machine
-validation rule. It must also provide a generator that creates finite packet
+validation rule. It must maintain a manifest mapping each in-scope Conformance
+Scenarios bullet, diagnostic kind, and invalid-machine validation rule to its
+fixture or boundary test. One minimal fixture may cover several explicitly
+listed obligations, but no obligation may be implicit. It must also provide a
+generator that creates finite packet
 traces with up to five contacts, then asserts: every emitted gesture references
 an origin capture; every continuous start has exactly one later end/cancel;
 every timer-fired value has a prior start of the same key; no ended arena or
@@ -1759,6 +1924,10 @@ The unified pointer envelope permits later adapters but does not make those
 modalities part of this touch arena contract.
 
 ## Host Conformance
+
+Host conformance is deferred until the corresponding terminal adapters exist.
+The current implementation may claim deterministic behavior only after the
+canonical runtime inputs described by this document have been supplied.
 
 A conforming Android/iOS Flutter terminal:
 

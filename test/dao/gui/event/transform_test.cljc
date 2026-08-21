@@ -459,3 +459,157 @@
         diagnostics (filter :diagnostic/kind (:outputs result))]
     (is (= [:start :end] (phases (:outputs result))))
     (is (= [] diagnostics))))
+
+
+;; ---------------------------------------------------------------------------
+;; Scale and rotation projections of the transform template
+;; ---------------------------------------------------------------------------
+
+(deftest cooperative-scale-and-rotation-projections
+  (let [scale-decl (transform-decl :kind :scale
+                                   :contacts {:min 2, :max 5}
+                                   :coexistence ::pinch-rotate)
+        rotation-decl (transform-decl :kind :rotation
+                                      :contacts {:min 2, :max 5}
+                                      :coexistence ::pinch-rotate)
+        state (boot :path [{:node-id node-id,
+                            :recognizers [scale-decl rotation-decl],
+                            :touch-action :none}]
+                    :subscription (u/sub-add "s" node-id :scale))
+        result (run state
+                    [(ptr 10 u/t0 :down 11 100.0 200.0)
+                     (ptr 11 (+ u/t0 10000) :down 12 160.0 200.0)
+                     ;; translation breaches slop: both projections accept
+                     (ptr 12 (+ u/t0 20000) :move 12 200.0 240.0)
+                     ;; spread and rotate further
+                     (ptr 13 (+ u/t0 30000) :move 12 250.0 290.0)
+                     (ptr 14 (+ u/t0 40000) :up 11 100.0 200.0)
+                     (ptr 15 (+ u/t0 50000) :up 12 250.0 290.0)])
+        events (gestures (:outputs result))
+        scale-events (filter #(= :scale (:gesture/kind %)) events)
+        rotation-events (filter #(= :rotation (:gesture/kind %)) events)]
+    ;; both projections start and end through the common envelope
+    (is (= [:start :update :end] (mapv :phase scale-events)))
+    (is (= [:start :update :end] (mapv :phase rotation-events)))
+    ;; scale emits exactly the closed scale subset, never the full
+    ;; transform
+    (is (every? #(= #{:scale :scale-delta} (set (keys (:payload %))))
+                scale-events))
+    ;; rotation emits exactly the closed rotation subset
+    (is (every? #(= #{:rotation :rotation-delta} (set (keys (:payload %))))
+                rotation-events))
+    ;; spreading the fingers grows scale above one
+    (is (> (:scale (:payload (last scale-events))) 1.0))
+    ;; rotating the second finger around the first turns the cumulative
+    ;; angle
+    (is (not= 0.0 (:rotation (:payload (last rotation-events)))))
+    ;; the envelope position is the focal centroid for both projections
+    (let [two-contact-centroid {:x (/ (+ 100.0 250.0) 2),
+                                :y (/ (+ 200.0 290.0) 2)}]
+      (is (= two-contact-centroid
+             (:position (last (filter #(= :update (:phase %)) scale-events))))))
+    ;; the subscription for the projected kind fans out
+    (is (= "s"
+           (:subscription/id
+             (some #(when (and (:dispatch/kind %)
+                               (= :scale (get-in % [:event :gesture/kind])))
+                      %)
+                   (:outputs result)))))))
+
+
+(deftest pinch-is-the-scale-projection-alias
+  (let [pinch-decl (transform-decl :kind :pinch :contacts {:min 2, :max 5})
+        state (boot :path [{:node-id node-id,
+                            :recognizers [pinch-decl],
+                            :touch-action :none}]
+                    :subscription (u/sub-add "p" node-id :pinch))
+        result (run state
+                    [(ptr 10 u/t0 :down 11 100.0 200.0)
+                     (ptr 11 (+ u/t0 10000) :down 12 160.0 200.0)
+                     (ptr 12 (+ u/t0 20000) :move 12 220.0 260.0)
+                     (ptr 13 (+ u/t0 30000) :up 11 100.0 200.0)
+                     (ptr 14 (+ u/t0 40000) :up 12 220.0 260.0)])
+        pinch-events (filter #(= :pinch (:gesture/kind %))
+                             (gestures (:outputs result)))]
+    (is (pos? (count pinch-events)))
+    (is (every? #(= #{:scale :scale-delta} (set (keys (:payload %))))
+                pinch-events))))
+
+
+(deftest joining-down-adds-its-remaining-path-candidates
+  (let [node-transform
+        (fn [nid rid]
+          {:recognizer/id [nid rid],
+           :gesture/kind :transform,
+           :machine :dao.gui.event/transform,
+           :config {:contacts {:min 1, :max 5},
+                    :join-after-accept false,
+                    :contact-loss :degrade},
+           :arena {:priority 0, :mode :exclusive, :coexistence/group nil}})
+        x-decl (node-transform ::x :transform)
+        y-decl (node-transform ::y :transform)
+        bridge-tap (u/tap-decl node-id [node-id :bridge-tap])
+        path-x {:node-id ::x, :recognizers [x-decl], :touch-action :none}
+        path-y {:node-id ::y, :recognizers [y-decl], :touch-action :none}
+        path-bridge {:node-id node-id,
+                     :recognizers [bridge-tap],
+                     :touch-action :manipulation}
+        geometry (geometry-for
+                   :nodes
+                   [{:node-id ::x,
+                     :interaction/path [path-x],
+                     :touch-action :none,
+                     :regions [{:bounds {:x 0, :y 0, :width 100, :height 100},
+                                :paint-order 10}]}
+                    {:node-id ::y,
+                     :interaction/path [path-y],
+                     :touch-action :none,
+                     :regions [{:bounds {:x 200, :y 0, :width 100, :height 100},
+                                :paint-order 11}]}
+                    {:node-id node-id,
+                     :interaction/path [path-x path-y path-bridge],
+                     :touch-action :manipulation,
+                     :regions [{:bounds {:x 0, :y 200, :width 390, :height 200},
+                                :paint-order 12}]}])
+        s1 (:state (event/step (event/initial-state)
+                               (u/rt 0 u/t0 :terminal space-input)))
+        s2 (:state (event/step s1 (u/rt 1 u/t0 :geometry geometry)))
+        state (:state (event/step s2
+                                  (u/rt 2 u/t0 :profile (u/input-profile {}))))
+        run (fn [inputs]
+              (loop [state state
+                     inputs inputs
+                     outputs []]
+                (if (empty? inputs)
+                  {:state state, :outputs outputs}
+                  (let [r (event/step state (first inputs))]
+                    (recur (:state r)
+                           (rest inputs)
+                           (into outputs (:outputs r)))))))
+        merged-state (:state (run [(ptr 10 u/t0 :down 11 50.0 50.0)
+                                   (ptr 11 (+ u/t0 1000) :down 12 250.0 50.0)
+                                   ;; the bridging down merges both
+                                   ;; unresolved arenas
+                                   (ptr 12 (+ u/t0 2000) :down 13 60.0 250.0)]))
+        result (run [(ptr 10 u/t0 :down 11 50.0 50.0)
+                     (ptr 11 (+ u/t0 1000) :down 12 250.0 50.0)
+                     (ptr 12 (+ u/t0 2000) :down 13 60.0 250.0)
+                     (ptr 13 (+ u/t0 3000) :up 11 50.0 50.0)
+                     (ptr 14 (+ u/t0 4000) :up 12 250.0 50.0)
+                     (ptr 15 (+ u/t0 5000) :up 13 60.0 250.0)])
+        merges (filter #(= :dao.gui.event/arena-merged (:event/kind %))
+                       (:outputs result))
+        candidates-of (fn [arena-id]
+                        (set (map :candidate-id
+                                  (vals (get-in merged-state
+                                                [:arenas arena-id
+                                                 :candidates])))))]
+    ;; the merge happened into the oldest arena
+    (is (= 1 (count merges)))
+    (is (= 0 (:arena-id (first merges))))
+    (is (= [1] (:merged-arena-ids (first merges))))
+    ;; the merged arena contains both prior candidates AND the bridge
+    ;; target's own declaration
+    (is (contains? (candidates-of 0) [::x [::x :transform]]))
+    (is (contains? (candidates-of 0) [::y [::y :transform]]))
+    (is (contains? (candidates-of 0) [node-id [node-id :bridge-tap]]))))
