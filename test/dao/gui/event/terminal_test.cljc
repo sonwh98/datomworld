@@ -59,7 +59,10 @@
             :scheduled-timer-keys [],
             :last-runtime-seq 0,
             :last-runtime-time-us u/t0,
-            :next-arena-id 0}
+            :next-arena-id 0,
+            :focus {:id nil, :node-id nil, :generation-id nil},
+            :keys-down [],
+            :last-keyboard-seq nil}
            (project state)))
     (is (= {:width 390.0, :height 844.0}
            (get-in state [:coordinate-spaces u/space-id :viewport])))))
@@ -400,7 +403,10 @@
             :scheduled-timer-keys [],
             :last-runtime-seq 4,
             :last-runtime-time-us (+ u/t0 4),
-            :next-arena-id 0}
+            :next-arena-id 0,
+            :focus {:id nil, :node-id nil, :generation-id nil},
+            :keys-down [],
+            :last-keyboard-seq nil}
            (project state)))
     (is (= {} (:coordinate-spaces state)))))
 

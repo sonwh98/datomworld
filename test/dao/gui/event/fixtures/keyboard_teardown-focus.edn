@@ -1,0 +1,111 @@
+{:fixture/id :keyboard/teardown-focus,
+ :initial-state nil,
+ :inputs
+ [#:runtime{:seq 0,
+            :time-us 812000000,
+            :source :terminal,
+            :value
+            {:message/kind :dao.terminal/coordinate-space-change,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :old-coordinate-space-id nil,
+             :coordinate-space-id 7,
+             :viewport {:width 390.0, :height 844.0},
+             :reason :orientation-change}}
+  #:runtime{:seq 1,
+            :time-us 812000000,
+            :source :geometry,
+            :value
+            {:message/kind :dao.terminal/presented-geometry,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :frame-id 42,
+             :coordinate-space-id 7,
+             :nodes
+             [{:node-id :dao.gui.event.fixtures-gen/fixture,
+               :interaction/path
+               [{:node-id :dao.gui.event.fixtures-gen/fixture,
+                 :recognizers
+                 [{:recognizer/id
+                   [:dao.gui.event.fixtures-gen/fixture :tap],
+                   :gesture/kind :tap,
+                   :machine :dao.gui.event/tap,
+                   :config
+                   {:count 1,
+                    :contacts {:min 1, :max 1},
+                    :join-after-accept false,
+                    :contact-loss :end},
+                   :arena
+                   {:priority 0,
+                    :mode :exclusive,
+                    :coexistence/group nil}}],
+                 :touch-action :manipulation}],
+               :touch-action :manipulation,
+               :regions
+               [{:bounds {:x 24, :y 16, :width 200, :height 200},
+                 :paint-order 100}]}]}}
+  #:runtime{:seq 2,
+            :time-us 812000000,
+            :source :profile,
+            :value
+            {:message/kind :dao.terminal/input-profile,
+             :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+             :profile-id 3,
+             :capabilities #{},
+             :thresholds
+             {:fling/max-velocity 8000.0,
+              :swipe/min-distance 48.0,
+              :edge/width 20.0,
+              :multi-tap/slop 100.0,
+              :multi-tap/max-delay-us 300000,
+              :long-press/delay-us 500000,
+              :motion/slop 18.0,
+              :fling/min-velocity 50.0,
+              :pressure/start-threshold 0.5,
+              :swipe/min-velocity 500.0,
+              :tap/max-duration-us 300000,
+              :swipe/max-duration-us 500000,
+              :velocity/window-us 100000,
+              :pressure/release-threshold 0.5}}}
+  #:runtime{:seq 3,
+            :time-us 812000000,
+            :source :subscription,
+            :value
+            {:subscription/op :add,
+             :subscription/id "kb-1",
+             :subscriber/id :dao.gui.event.fixtures-gen/controller,
+             :node-id :dao.gui.event.fixtures-gen/fixture,
+             :event-kind :keyboard}}
+  #:runtime{:seq 10,
+            :time-us 812000000,
+            :source :subscription,
+            :value
+            {:subscription/op :focus/set,
+             :focus/id :dao.gui.event.fixtures-gen/editor,
+             :node-id :dao.gui.event.fixtures-gen/fixture}}
+  #:runtime{:seq 11,
+            :time-us 812001000,
+            :source :control,
+            :value #:input{:kind :dao.gui.event/teardown}}],
+ :expect
+ {:outputs
+  [{:effect/kind :dao.gui.event/focus-request,
+    :operation :set,
+    :focus-id :dao.gui.event.fixtures-gen/editor,
+    :node-id :dao.gui.event.fixtures-gen/fixture,
+    :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+    :output/seq 0,
+    :runtime/seq 10}],
+  :state
+  {:last-keyboard-seq nil,
+   :coordinate-space-id 7,
+   :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8",
+   :last-runtime-seq 11,
+   :profile-ids [3],
+   :active-pointer-ids [],
+   :last-runtime-time-us 812001000,
+   :subscription-ids [],
+   :next-arena-id 0,
+   :focus {:id nil, :node-id nil, :generation-id nil},
+   :keys-down [],
+   :active-arena-ids [],
+   :active-frame-id 42,
+   :scheduled-timer-keys []}}}

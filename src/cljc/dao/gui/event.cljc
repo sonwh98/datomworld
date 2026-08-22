@@ -12,17 +12,19 @@
 (ns dao.gui.event
   (:require [dao.gui.event.decl :as decl]
             [dao.gui.event.fault :as fault]
+            [dao.gui.event.keyboard :as keyboard]
             [dao.gui.event.pointer :as pointer]
             [dao.gui.event.trace :as trace]
             [dao.stream :as ds]))
 
 
-(def state-version 1)
+(def state-version 2)
 
 
 (def legal-runtime-sources
-  "The only legal :runtime/source values in version 1."
-  #{:geometry :profile :pointer :timer :subscription :terminal :control})
+  "The only legal :runtime/source values in version 2."
+  #{:geometry :profile :pointer :keyboard :timer :subscription :terminal
+    :control})
 
 
 (def standard-gesture-kinds
@@ -41,11 +43,13 @@
    :profile #{:dao.terminal/input-profile},
    :terminal #{:dao.terminal/reset :dao.terminal/coordinate-space-change
                :dao.terminal/input-loss :dao.terminal/rejection
-               :dao.terminal/frame-skipped :dao.terminal/protocol-error}})
+               :dao.terminal/frame-skipped :dao.terminal/protocol-error
+               :dao.terminal/focus-lost}})
 
 
 (def ^:private input-kind-sources
   {:pointer #{:pointer},
+   :keyboard #{:keyboard},
    :timer #{:dao.gui.event/timer-fired},
    :control #{:dao.gui.event/teardown}})
 
@@ -55,12 +59,15 @@
 ;; ---------------------------------------------------------------------------
 
 (defn initial-state
-  "The version-1 empty interpreter value."
+  "The empty interpreter value."
   []
   {:dao.gui.event/state-version state-version,
    :generation-id nil,
    :last-runtime-time-us nil,
    :last-runtime-seq -1,
+   :last-keyboard-seq nil,
+   :focus {:id nil, :node-id nil, :generation-id nil},
+   :keys-down [],
    :active-coordinate-space-id nil,
    :coordinate-spaces {},
    :geometry {:active nil},
@@ -74,7 +81,7 @@
 
 
 (defn fixture-projection
-  "The eleven-key public state projection used by conformance fixtures."
+  "The fourteen-key public state projection used by conformance fixtures."
   [state-or-binding]
   (let [state (if (contains? state-or-binding :state)
                 (:state state-or-binding)
@@ -82,6 +89,9 @@
     {:generation-id (:generation-id state),
      :coordinate-space-id (:active-coordinate-space-id state),
      :active-frame-id (get-in state [:geometry :active :frame-id]),
+     :focus (:focus state),
+     :keys-down (:keys-down state),
+     :last-keyboard-seq (:last-keyboard-seq state),
      :profile-ids (vec (sort (keys (:profiles state)))),
      :subscription-ids (:subscription-order state),
      :active-pointer-ids (vec (trace/edn-sort (keys (:pointers state)))),
@@ -120,7 +130,8 @@
       (and (contains? input-kind-sources source)
            (contains? (get input-kind-sources source) (:input/kind value)))
       (and (= :subscription source)
-           (contains? #{:add :remove} (:subscription/op value)))))
+           (contains? #{:add :remove :focus/set :focus/clear}
+                      (:subscription/op value)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -129,7 +140,7 @@
 
 (defn- legal-event-kind?
   [k]
-  (or (= :pointer k)
+  (or (contains? #{:pointer :keyboard} k)
       (contains? standard-gesture-kinds k)
       (qualified-keyword? k)))
 
@@ -140,46 +151,94 @@
 
 
 (defn- step-subscription
-  [state value]
-  (let [{:keys [subscription/op subscription/id]} value]
-    (if (= :remove op)
-      (if (nil? id)
-        {:state state,
-         :outputs [(subscription-fault :malformed-subscription-command)]}
-        {:state (-> state
-                    (update :subscriptions dissoc id)
-                    (update :subscription-order
-                            (fn [order] (vec (remove #(= % id) order))))),
-         :outputs []})
-      (let [existing? (contains? (:subscriptions state) id)
-            node-id (:node-id value)
-            event-kind (:event-kind value)
-            phases (:gesture/phases value)
-            raw? (boolean (:raw? value))
-            malformed? (or (nil? id)
-                           (nil? node-id)
-                           (not (legal-event-kind? event-kind))
-                           (and (some? phases)
-                                (or (not (set? phases))
-                                    (empty? phases)
-                                    (not (every? legal-phases phases)))))]
-        (cond malformed? {:state state,
-                          :outputs [(subscription-fault
-                                      :malformed-subscription-command)]}
-              existing? {:state state,
-                         :outputs [(subscription-fault
-                                     :duplicate-subscription-id)]}
-              :else {:state (-> state
-                                (assoc-in [:subscriptions id]
-                                          {:subscription/id id,
-                                           :subscriber/id (:subscriber/id
-                                                            value),
-                                           :node-id node-id,
-                                           :event-kind event-kind,
-                                           :gesture/phases phases,
-                                           :raw? raw?})
-                                (update :subscription-order conj id)),
-                     :outputs []})))))
+  [state runtime-input]
+  (let [value (:runtime/value runtime-input)
+        {:keys [subscription/op subscription/id]} value
+        rt-seq (:runtime/seq runtime-input)]
+    (cond (= :focus/clear op)
+          ;; Subscription commands are application-driven, not
+          ;; terminal-bound, so focus/clear validates only :focus-id and
+          ;; intentionally omits a generation check.
+          (if (nil? (:focus/id value))
+            {:state state,
+             :outputs [(fault/diagnostic
+                         :dao.gui.event/malformed-subscription-command
+                         :error
+                         :malformed-subscription-command)]}
+            (if (nil? (:id (:focus state)))
+              {:state state, :outputs []}
+              (if (= (:focus/id value) (:id (:focus state)))
+                (let [[next-state outs] (keyboard/clear-focus-and-keys
+                                          state
+                                          rt-seq
+                                          :focus-lost
+                                          true)]
+                  {:state next-state, :outputs outs})
+                {:state state,
+                 :outputs [(fault/diagnostic :dao.gui.event/focus-mismatch
+                                             :warning :focus-mismatch
+                                             :focus-id (:focus/id value))]})))
+          (= :focus/set op)
+          (if (or (nil? (:focus/id value)) (nil? (:node-id value)))
+            {:state state,
+             :outputs [(fault/diagnostic
+                         :dao.gui.event/malformed-subscription-command
+                         :error
+                         :malformed-subscription-command)]}
+            (let [[next-state outs] (keyboard/set-focus state rt-seq value)]
+              {:state next-state, :outputs outs}))
+          (= :remove op)
+          (if (nil? id)
+            {:state state,
+             :outputs [(subscription-fault :malformed-subscription-command)]}
+            {:state (-> state
+                        (update :subscriptions dissoc id)
+                        (update :subscription-order
+                                (fn [order] (vec (remove #(= % id) order))))),
+             :outputs []})
+          :else
+          (let [existing? (contains? (:subscriptions state) id)
+                node-id (:node-id value)
+                event-kind (:event-kind value)
+                phases (:gesture/phases value)
+                keyboard-phases (:keyboard/phases value)
+                raw? (boolean (:raw? value))
+                malformed? (or (nil? id)
+                               (nil? node-id)
+                               (not (legal-event-kind? event-kind))
+                               (and (= :keyboard event-kind) raw?)
+                               (and (= :keyboard event-kind) (some? phases))
+                               (and (= :keyboard event-kind)
+                                    (some? keyboard-phases)
+                                    (or (not (set? keyboard-phases))
+                                        (empty? keyboard-phases)
+                                        (not (every? #{:down :up :cancel}
+                                                     keyboard-phases))))
+                               (and (not= :keyboard event-kind)
+                                    (some? keyboard-phases))
+                               (and (not= :keyboard event-kind)
+                                    (some? phases)
+                                    (or (not (set? phases))
+                                        (empty? phases)
+                                        (not (every? legal-phases phases)))))]
+            (cond malformed? {:state state,
+                              :outputs [(subscription-fault
+                                          :malformed-subscription-command)]}
+                  existing? {:state state,
+                             :outputs [(subscription-fault
+                                         :duplicate-subscription-id)]}
+                  :else {:state (-> state
+                                    (assoc-in
+                                      [:subscriptions id]
+                                      {:subscription/id id,
+                                       :subscriber/id (:subscriber/id value),
+                                       :node-id node-id,
+                                       :event-kind event-kind,
+                                       :gesture/phases phases,
+                                       :keyboard/phases keyboard-phases,
+                                       :raw? raw?})
+                                    (update :subscription-order conj id)),
+                         :outputs []})))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -187,21 +246,29 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- step-teardown
-  [state _value]
+  [state runtime-input]
   ;; Teardown cancels every active arena, emits the final cancellation
   ;; dispatches and timer cancels, releases the registry, and closes the
   ;; outputs. Later inputs are ignored because the outputs are closed.
   (let [[cancelled outputs] (pointer/cancel-arenas state
                                                    :teardown
                                                    (set (keys (:arenas state)))
-                                                   nil)]
-    {:state (-> cancelled
+                                                   nil)
+        ;; Teardown intentionally omits a focus-request effect when
+        ;; clearing focus, as the binding is already shutting down.
+        [k-cancelled k-outputs] (keyboard/cancel-held-keys cancelled
+                                                           (:runtime/seq
+                                                             runtime-input)
+                                                           :teardown)]
+    {:state (-> k-cancelled
                 (assoc :closed true)
+                (assoc :focus {:id nil, :node-id nil, :generation-id nil})
                 (assoc :subscriptions {})
                 (assoc :subscription-order [])
                 (assoc :pointers {})
                 (assoc :arenas {})),
-     :outputs outputs}))
+     ;; pointer cancels precede keyboard cancels in teardown
+     :outputs (into outputs k-outputs)}))
 
 
 ;; ---------------------------------------------------------------------------
@@ -385,18 +452,27 @@
                    :pointers {}
                    :arenas {}
                    :timers timers
-                   :last-input-seq nil),
+                   :last-input-seq nil
+                   :last-keyboard-seq nil),
      :outputs timer-effects}))
 
 
 (defn- step-reset
-  [state value]
-  (clear-generation-state state (:generation-id value)))
+  [state runtime-input]
+  (let [value (:runtime/value runtime-input)
+        [st outs] (keyboard/clear-focus-and-keys state
+                                                 (:runtime/seq runtime-input)
+                                                 :reset
+                                                 false)
+        {gen-st :state, gen-outs :outputs}
+        (clear-generation-state st (:generation-id value))]
+    {:state gen-st, :outputs (into outs gen-outs)}))
 
 
 (defn- step-coordinate-space-change
-  [state value]
-  (let [{:keys [generation-id old-coordinate-space-id coordinate-space-id
+  [state runtime-input]
+  (let [value (:runtime/value runtime-input)
+        {:keys [generation-id old-coordinate-space-id coordinate-space-id
                 viewport]}
         value
         {adopted :state, fault :fault}
@@ -439,30 +515,52 @@
 
 
 (defn- step-input-loss
-  [state value]
-  ;; The terminal reports packet facts only; the runtime maps affected
-  ;; pointers to arenas and cancels them. Without a provable pointer set
-  ;; every active arena in the generation is cancelled.
-  (let [affected (set (:affected-pointer-ids value))
+  [state runtime-input]
+  (let [value (:runtime/value runtime-input)
+        ;; The terminal reports packet facts only; the runtime maps
+        ;; affected pointers to arenas and cancels them. Without a provable
+        ;; pointer set every active arena in the generation is cancelled.
+        affected (set (:affected-pointer-ids value))
         arena-ids (if (seq affected)
                     (set (keep (fn [[_pid pointer]] (:arena-id pointer))
                                (select-keys (:pointers state) affected)))
                     (set (keys (:arenas state))))
         [cancelled outputs]
-        (pointer/cancel-arenas state :input-loss arena-ids value)]
-    {:state cancelled, :outputs outputs}))
+        (pointer/cancel-arenas state :input-loss arena-ids value)
+        [k-cancelled k-outputs] (keyboard/clear-focus-and-keys cancelled
+                                                               (:runtime/seq
+                                                                 runtime-input)
+                                                               :input-loss
+                                                               false)]
+    ;; pointer cancels precede keyboard cancels in input-loss
+    {:state k-cancelled, :outputs (into outputs k-outputs)}))
 
 
 (defn- step-terminal
-  [state value]
-  (case (:message/kind value)
-    :dao.terminal/reset (step-reset state value)
-    :dao.terminal/coordinate-space-change (step-coordinate-space-change state
-                                                                        value)
-    :dao.terminal/input-loss (step-input-loss state value)
-    ;; rejection, frame-skipped, and protocol-error do not alter active
-    ;; geometry or pointer capture
-    {:state state, :outputs []}))
+  [state runtime-input]
+  (let [value (:runtime/value runtime-input)]
+    (case (:message/kind value)
+      :dao.terminal/reset (step-reset state runtime-input)
+      :dao.terminal/coordinate-space-change
+      (step-coordinate-space-change state runtime-input)
+      :dao.terminal/input-loss (step-input-loss state runtime-input)
+      :dao.terminal/focus-lost
+      (let [focus (:focus state)]
+        (if (and (= (:focus-id value) (:id focus))
+                 (= (:generation-id value) (:generation-id state)))
+          (let [[next-state outs] (keyboard/clear-focus-and-keys
+                                    state
+                                    (:runtime/seq runtime-input)
+                                    :focus-lost
+                                    false)]
+            {:state next-state, :outputs outs})
+          {:state state,
+           :outputs [(fault/diagnostic :dao.gui.event/focus-mismatch
+                                       :warning :focus-mismatch
+                                       :focus-id (:focus-id value))]}))
+      ;; rejection, frame-skipped, and protocol-error do not alter active
+      ;; geometry or pointer capture
+      {:state state, :outputs []})))
 
 
 (defn- step-pointer
@@ -482,6 +580,7 @@
    :profile step-profile,
    :terminal step-terminal,
    :pointer step-pointer,
+   :keyboard keyboard/step-keyboard,
    :timer step-timer})
 
 
@@ -531,9 +630,12 @@
                                       :error
                                       :regressing-time)])}
             (let [handler (get source-handlers source)
-                  ;; pointer and timer handlers consume the full envelope
-                  ;; (they need the canonical seq and time)
-                  handler-args (if (contains? #{:pointer :timer} source)
+                  ;; All handlers except geometry and profile consume the
+                  ;; full envelope; those two handlers need only the value.
+                  handler-args (if (contains? #{:pointer :keyboard :timer
+                                                :subscription :terminal
+                                                :control}
+                                              source)
                                  [state runtime-input]
                                  [state value])
                   {handler-state :state, outputs :outputs} (apply handler
@@ -560,8 +662,8 @@
 ;; ---------------------------------------------------------------------------
 
 (def output-destinations
-  "The six runtime-owned output streams of one binding."
-  [:effects :trace :pointer :gesture :dispatch :diagnostic])
+  "The seven runtime-owned output streams of one binding."
+  [:effects :trace :pointer :keyboard :gesture :dispatch :diagnostic])
 
 
 (defn- route-destination
@@ -573,6 +675,7 @@
         (:effect/kind output) :effects
         (= :gesture (:event/kind output)) :gesture
         (= :pointer (:event/kind output)) :pointer
+        (= :keyboard (:event/kind output)) :keyboard
         :else :trace))
 
 
@@ -655,7 +758,7 @@
   outputs to their destination streams. Returns {:binding next-binding
   :status ...} where status is :advanced, :parked, :blocked, :end,
   :input-gap, or :closed. After one valid teardown input is fully flushed
-  the binding closes all six runtime-owned outputs; later inputs are
+  the binding closes all seven runtime-owned outputs; later inputs are
   ignored."
   [binding]
   (if (:closed? binding)
@@ -693,7 +796,7 @@
 (defn bind
   "Data-oriented public constructor. Creates no ambient singleton, host
   thread, callback, or waiter registration. The binding value carries the
-  input stream and read cursor, the six output streams, the immutable
+  input stream and read cursor, the seven output streams, the immutable
   interpreter state, the ordered pending-output queue, teardown and
   parked-interval state, and an :offer function exposing the total reducer
   for direct replay."

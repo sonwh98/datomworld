@@ -4,9 +4,9 @@
 
 `dao.gui.event` is the portable input interpreter downstream of terminal
 presentation. It consumes presented interaction geometry, normalized pointer
-packets, terminal input profiles, timer results, and subscription commands. It
-produces targeted pointer values, recognized gesture values, arena decisions,
-and diagnostics as explicit stream data.
+and keyboard events, terminal input profiles, timer results, and subscription
+commands. It produces targeted pointer values, keyboard values, recognized
+gesture values, arena decisions, and diagnostics as explicit stream data.
 
 The terminal is responsible for observing host-native input. It does not define
 portable gesture semantics. Android, iOS, Flutter, and mobile web all expose
@@ -47,7 +47,7 @@ pointer sequence exists.
    ├─ presents frame
    ├─ emits presented interaction geometry
    ├─ emits an immutable input profile
-   ├─ normalizes host pointer packets
+   ├─ normalizes host pointer and keyboard events
    └─ emits terminal/reset/input-loss/space-change signals
    ▼
 [dao.gui.event runtime]
@@ -55,7 +55,7 @@ pointer sequence exists.
    ├─ captures pointer sequences to their initial paths
    ├─ interprets recognizer-machine data
    ├─ consumes explicit timer results
-   └─ emits targeted pointer, gesture, and diagnostic values
+   └─ emits targeted pointer, keyboard, gesture, and diagnostic values
    ▼
 [application streams]
 ```
@@ -83,7 +83,7 @@ The following upstream boundaries are specified but deferred:
 - lowering authored `:gui/gestures`, `:on-tap`, and `:gui/touch-action` data into
   canonical `:meta/region` metadata in `dao.gui`;
 - terminal production of presented geometry, input profiles, normalized pointer
-  packets, coordinate-space signals, and browser policy overlays;
+  and keyboard events, coordinate-space signals, and browser policy overlays;
 - Android, iOS Flutter, and mobile-web host adapters.
 
 Consequently, this implementation does not claim that authored Hiccup currently
@@ -99,6 +99,7 @@ One `dao.gui.event` binding consumes these streams:
 - presented geometry
 - terminal input profile and auxiliary terminal signals
 - normalized pointer packets
+- normalized keyboard events
 - recognizer timer results
 - subscriber registration commands
 
@@ -107,6 +108,7 @@ It produces these streams:
 - timer requests
 - contact-change, arena-merge, and arena-decision trace values
 - targeted pointer dispatch
+- targeted keyboard dispatch
 - recognized gesture dispatch
 - diagnostics
 
@@ -121,17 +123,18 @@ The public constructor is data-oriented. `bind` creates no ambient singleton and
 does not register host callbacks:
 
 ```clojure
-{:dao.gui.event/binding-version 1
+{:dao.gui.event/binding-version 2
  :inputs {:runtime-input runtime-input-stream}
  :outputs {:effects effect-stream
            :trace trace-stream
            :pointer pointer-stream
+           :keyboard keyboard-stream
            :gesture gesture-stream
            :dispatch dispatch-stream
            :diagnostic diagnostic-stream}}
 ```
 
-A binding contains its input stream and read cursor, the six output streams, its
+A binding contains its input stream and read cursor, the seven output streams, its
 immutable interpreter state, an ordered pending-output queue, teardown state,
 and the identity of any current parked interval. It creates no host thread and
 registers no callback or waiter.
@@ -170,20 +173,20 @@ may expose that total reducer directly for replay:
 
 ```clojure
 {:state next-state
- :outputs [effect-or-pointer-or-gesture-or-dispatch-or-diagnostic]}
+ :outputs [effect-or-pointer-or-keyboard-or-gesture-or-dispatch-or-diagnostic]}
 ```
 
 Every output has `:runtime/seq` of the input which caused it and
 `:output/seq`, starting at zero within that input. Output order is the vector
 order. Every reducer output is placed in one pending record containing its
-destination and value. Timer requests route to `:effects`; contact-change,
+destination and value. Timer and focus requests route to `:effects`; contact-change,
 arena-merge, arena-decision, and other trace-only values route to `:trace`;
 `:event/kind :pointer` routes to `:pointer`; `:event/kind :gesture` routes to
-`:gesture`; `:dispatch/kind` routes to `:dispatch`; and `:diagnostic/kind`
+`:gesture`; `:event/kind :keyboard` routes to `:keyboard`; `:dispatch/kind` routes to `:dispatch`; and `:diagnostic/kind`
 routes to `:diagnostic`. Routing does not alter vector order. Append attempts
 occur in complete reducer-output order even though consumers observe separate
-physical streams. The effect stream carries only timer requests. Pointer and
-gesture streams carry their respective event envelopes. The dispatch stream
+physical streams. The effect stream carries timer and focus requests. Pointer,
+keyboard, and gesture streams carry their respective event envelopes. The dispatch stream
 contains fan-out values, not executable functions. A binding closes its outputs
 only after it has processed one `:dao.gui.event/teardown` runtime input and
 emitted all resulting cancellation and timer-cancel values.
@@ -193,9 +196,14 @@ their own schema-version discriminator. Those fields version their individual
 data shapes; they do not define one shared version for this document.
 
 The only legal `:runtime/source` values are `:geometry`, `:profile`,
-`:pointer`, `:timer`, `:subscription`, `:terminal`, and `:control`. The corresponding
+`:pointer`, `:keyboard`, `:timer`, `:subscription`, `:terminal`, and `:control`. The corresponding
 `:runtime/value :message/kind` or `:input/kind` must agree with its source;
 mismatch is `:dao.gui.event/unrecognized-event-kind` and has no other effect.
+
+For `:runtime/source :keyboard`, the value must have `:input/kind :keyboard`.
+For `:runtime/source :subscription`, the value must have `:subscription/op`
+`:add`, `:remove`, `:focus/set`, or `:focus/clear`. Focus commands use the
+forms defined in Normalized Keyboard Events.
 
 The sole control value defined by this contract is teardown:
 
@@ -230,11 +238,13 @@ is:
 
 1. control values
 2. terminal reset, coordinate-space, input-loss, profile, and geometry values
-3. subscription commands
-4. pointer packets
-5. timer results
+3. subscription and focus commands
+4. keyboard events
+5. pointer packets
+6. timer results
 
-`:runtime/seq` is the final tie-break inside one priority. A value arriving with
+`:runtime/seq` is the final tie-break inside one priority. Keyboard events are
+ordered before pointer packets at equal timestamps. A value arriving with
 a timestamp older than the emitted runtime prefix is a protocol error and is
 dropped or cancels its affected arena. Presentation geometry and profiles must
 still precede any down packet that refers to them.
@@ -250,10 +260,15 @@ use different internal representations only if trace replay yields the same
 fixture projection derived below and the same output sequence:
 
 ```clojure
-{:dao.gui.event/state-version 1
+{:dao.gui.event/state-version 2
  :generation-id <opaque-id-or-nil>
  :last-runtime-time-us <integer-or-nil>
  :last-runtime-seq -1
+ :focus {:id <focus-id-or-nil>
+         :node-id <node-id-or-nil>
+         :generation-id <opaque-id-or-nil>}
+ :keys-down [<physical-key-codes-in-stable-edn-order>]
+ :last-keyboard-seq <input-seq-or-nil>
  :active-coordinate-space-id <id-or-nil>
  :coordinate-spaces {coordinate-space-id {:viewport {:width <number>
                                                       :height <number>}}}
@@ -618,7 +633,9 @@ not depend on hover.
 
 Rules:
 
-- `:input-seq` increases by one for every emitted packet in a generation.
+- `:input-seq` increases by one for every emitted pointer packet in a
+  generation. Pointer and keyboard input sequences are modality-local;
+  `:runtime/seq` is the single global sequence across all runtime sources.
 - pointer ids are unique among active pointers and may be reused only after
   `:up` or `:cancel`.
 - each packet has at least one sample, ordered by increasing `:time-us`.
@@ -640,6 +657,182 @@ targeted raw pointer event to matching `:pointer` subscriptions for that node.
 It is dropped without diagnostic when nothing is hit. A hover packet for an id
 that is currently an active touch contact is a protocol error.
 
+## Normalized Keyboard Events
+
+Keyboard input uses the same runtime-input stream and map-shaped event
+envelopes as pointer input. It does not participate in pointer hit-testing,
+capture, or gesture arenas. The terminal observes host keyboard input and emits
+one normalized value for each delivered key transition, including the host
+focus token captured when the transition was delivered.
+
+The normative terminal input value is:
+
+```clojure
+{:input/kind :keyboard
+ :generation-id "c18496e9-1a16-4b1d-9028-e35ba0dc7af8"
+ :input-seq 919
+ :focus-id ::editor
+ :phase :down
+ :key {:code :key-a
+       :logical :a
+       :location :standard}
+ :modifiers #{:control}
+ :repeat? false
+ :time-us 812338700}
+```
+
+`:phase` is `:down` or `:up`. The nested `:key` map's `:code` is the
+layout-independent physical key identity; its `:logical` value is the
+layout-dependent meaning produced by the terminal. Its `:location` is one of
+`:standard`, `:left`, `:right`, `:numpad`, or `:unknown`. The terminal omits a
+logical value when the host cannot provide one. `:modifiers` is a set of
+`:shift`, `:control`, `:alt`, `:meta`,
+`:caps-lock`, `:num-lock`, and `:scroll-lock`. `:repeat?` is true only for a
+host-generated repeated `:down` value.
+
+Keyboard field rules are:
+
+- `:generation-id`, `:input-seq`, and `:time-us` are required; `:input-seq` is
+  an integer increasing by one within the generation and `:time-us` is an
+  integer monotonic timestamp.
+- `:focus-id` is required and is either the current focus id or `nil`. A nil
+  focus id is valid input but cannot produce a subscriber dispatch.
+- `:phase` is required and is one of `:down` or `:up`.
+- `:key` is required and contains `:code`, `:logical`, and `:location`.
+- the nested `:key` map's `:code` is a keyword. The portable
+  vocabulary reserves `:key-a` through `:key-z`, `:digit-0` through
+  `:digit-9`, `:f1` through `:f24`, `:arrow-up`, `:arrow-down`,
+  `:arrow-left`, `:arrow-right`, `:home`, `:end`, `:page-up`, `:page-down`,
+  `:insert`, `:delete`, `:backspace`, `:enter`, `:escape`, `:tab`, and
+  `:space`. Hosts may use additional namespaced codes. Unknown host keys use
+  a namespaced `:unknown/*` code and are not discarded.
+- the nested `:key` map's `:logical` is either a namespaced keyword for a non-printing logical key,
+  a one-Unicode-scalar string for a printable key, or `nil` when unavailable.
+- the nested `:key` map's `:location` is required and is one of `:standard`, `:left`, `:right`,
+  `:numpad`, or `:unknown`.
+- `:modifiers` is required, is a set, and contains only the listed modifier
+  keywords. Lock modifiers describe the state after this key transition.
+- `:repeat?` is required and is boolean. It is false for every `:up` value.
+- unknown fields are rejected with `:dao.gui.event/malformed-keyboard-event`;
+  optional host-specific data is not forwarded in this contract.
+
+Keyboard events are routed through explicit focus data. `:focus-id` identifies
+the focus record selected by the event runtime; it is not inferred from pointer
+geometry. The event runtime, not the terminal, is authoritative for focus.
+The terminal adapter may use the focus command to focus a host widget, but host
+focus does not change runtime focus implicitly. A `nil` `:focus-id` means that
+the event is unfocused and it is not delivered to a node subscription.
+The application sets focus through the same explicit command stream:
+
+```clojure
+{:subscription/op :focus/set
+ :focus/id ::editor
+ :node-id ::editor}
+```
+
+```clojure
+{:subscription/op :focus/clear
+ :focus/id ::editor}
+```
+
+`:focus/id` is unique within a generation. `:subscription/op :focus/set`
+replaces the current focus, and `:subscription/op :focus/clear` is idempotent.
+The runtime stores the focused id, node id, and generation id in its immutable
+state. A focus-set or focus-clear command emits a focus effect before any later
+keyboard event is consumed:
+
+```clojure
+{:effect/kind :dao.gui.event/focus-request
+ :operation :set
+ :focus-id ::editor
+ :node-id ::editor}
+```
+
+The clear form uses `:operation :clear` and omits `:node-id`. The terminal
+adapter uses this effect to update host focus, but does not mutate runtime
+focus directly. A keyboard event's `:focus-id` must equal the current focus id
+or be nil; an unknown or stale focus id produces
+`:dao.gui.event/focus-mismatch` and is dropped. Focus commands affect later
+keyboard events and never alter an active pointer arena.
+
+Keyboard transitions are raw input data. Text insertion, dead-key resolution,
+and IME composition are not inferred from `:key`'s `:logical` value; a future text-input
+value must represent committed text and composition explicitly.
+
+The targeted raw keyboard output preserves the normalized event and adds the
+focus target:
+
+```clojure
+{:event/kind :keyboard
+ :runtime/seq 919
+ :output/seq 0
+ :event/phase :down
+ :focus-id ::editor
+ :node-id ::editor
+ :key {:code :key-a
+       :logical :a
+       :location :standard}
+ :modifiers #{:control}
+ :repeat? false
+ :time-us 812338700}
+```
+
+Keyboard output has no arena id, frame id, target path, or coordinate space.
+The `:keyboard` output stream is lossless. A keyboard event without focus is
+retained on the raw keyboard stream but produces no subscriber dispatch.
+Lossless means the reducer never coalesces or drops a valid, non-protocol-error
+keyboard value;
+normal output backpressure still parks the binding until the keyboard stream
+accepts the pending value. `replay` consumes the same keyboard inputs and must
+produce the same focus state, `:keys-down` state, lifecycle values, and
+dispatch order.
+
+When focus is cleared while keys are held, or when terminal reset, input loss,
+or teardown clears keyboard state, the runtime emits one lifecycle value before
+the state transition completes. The lifecycle value is queued before the focus
+effect or terminal cancellation output caused by that transition:
+
+```clojure
+{:event/kind :keyboard
+ :runtime/seq 920
+ :output/seq 0
+ :event/phase :cancel
+ :focus-id ::editor
+ :node-id ::editor
+ :reason :focus-lost
+ :released-key-codes #{:key-a}}
+```
+
+Keyboard subscriptions receive this value when their `:keyboard/phases` includes
+`:cancel`. The reasons are `:focus-lost`, `:reset`, `:input-loss`, and
+`:teardown`. The lifecycle value is not a physical key-up and is not inserted
+into `:keys-down`.
+
+Keyboard lifecycle rules are:
+
+- `:input-seq` increases by one for every keyboard event in a generation. It is
+  keyboard-local; `:runtime/seq` is the single global sequence across pointer,
+  keyboard, timer, terminal, geometry, and subscription values. Input-sequence
+  continuity is checked independently for pointer and keyboard values. When a
+  gap is detected, the runtime emits `:input-sequence-gap`, clears focus and
+  held keyboard keys, emits the corresponding keyboard cancellation lifecycle
+  value, and uses the received event's sequence as the new keyboard-local
+  anchor. A pointer gap does not change the keyboard anchor.
+- `:repeat?` may be true only on `:down`; repeated downs are forwarded and are
+  not coalesced.
+- the runtime records each accepted down's physical key code in `:keys-down` in stable EDN order, and removes it on up.
+- a down for a code already in `:keys-down` is accepted only when `:repeat?` is
+  true; otherwise it emits `:dao.gui.event/duplicate-key-down` and is dropped.
+- an up for a code absent from `:keys-down` emits
+  `:dao.gui.event/orphan-key-up` and is dropped.
+- the runtime does not synthesize a missing up event.
+- terminal reset, input loss, focus clear, and teardown clear the focused target
+  and `:keys-down`; they emit the lifecycle value above but do not synthesize
+  physical key-up events.
+- a keyboard event received after focus clear has no subscriber dispatch until a
+  later focus-set command.
+- keyboard events never create, join, merge, or terminate pointer arenas.
+
 ### Terminal Adapter Contract
 
 The terminal adapter contract is a deferred producer boundary under
@@ -656,6 +849,14 @@ top-left logical space by `y = viewport-height - y`. Browser adapters map
 `pointerdown`, `pointermove`, `pointerup`, `pointercancel`, and `lostpointercapture`.
 They call `setPointerCapture(pointerId)` after an accepted browser down and emit
 one portable cancel if capture is lost.
+
+Keyboard adapters emit one keyboard value for each host key-down or key-up
+transition. They map the host physical key to `:key` `:code`, the host layout
+meaning to `:key` `:logical` when available, and the host location to
+`:key` `:location`. They copy the host modifier set, mark host auto-repeat as
+`:repeat? true`, and convert the host monotonic timestamp to integer
+microseconds. A host text or composition callback is not converted into a
+keyboard event; text and IME values are outside this revision.
 
 For all adapters, host timestamps are converted once to integer microseconds
 from a monotonic origin. A host timestamp that regresses is clamped only if it
@@ -1453,13 +1654,35 @@ Subscriber interest is changed through an explicit command stream:
  :subscription/id "save-handler-1"}
 ```
 
+Keyboard focus and subscription registration remain separate operations:
+
+```clojure
+{:subscription/op :add
+ :subscription/id "editor-keyboard-1"
+ :subscriber/id ::editor-controller
+ :node-id ::editor
+ :event-kind :keyboard
+ :keyboard/phases #{:down :up :cancel}}
+```
+
+```clojure
+{:subscription/op :focus/set
+ :focus/id ::editor
+ :node-id ::editor}
+```
+
 `:add` accepts optional `:gesture/phases`, a non-empty set of legal phases, and
-`:raw?`, default `false`. `:event-kind` is either one declared gesture kind or
-`:pointer`; `:node-id` is required. A gesture registration matches when node id,
-gesture kind, and phase match. A raw registration matches only a targeted raw
-pointer event for its terminal target node. No registration is inherited from
-an ancestor path entry. Unknown node ids are valid registrations and simply
-match no arena until a later down captures that node.
+`:raw?`, default `false`. `:event-kind` is either one declared gesture kind,
+`:pointer`, or `:keyboard`; `:node-id` is required. A gesture registration
+matches when node id, gesture kind, and phase match. A raw registration matches
+only a targeted raw pointer event for its terminal target node. A keyboard
+registration matches when its node id is the current focused node. Keyboard
+registrations may optionally provide `:keyboard/phases`, a non-empty subset of
+`:down`, `:up`, and `:cancel`; without it, `:down` and `:up` match. No registration is inherited
+from an ancestor path entry. Unknown node ids are valid registrations and
+simply match no pointer arena or focused keyboard event. `:raw?` is not valid
+with `:event-kind :keyboard`; the keyboard stream is already the raw event
+stream, and setting it true is a malformed subscription command.
 
 The runtime emits one dispatch value per matching registration:
 
@@ -1472,12 +1695,38 @@ The runtime emits one dispatch value per matching registration:
  :event <gesture-or-pointer-value>}
 ```
 
+For a keyboard registration, `:event-kind` is `:keyboard` and `:event` is the
+targeted keyboard value. The dispatch retains the subscription order and does
+not execute the subscriber:
+
+```clojure
+{:dispatch/kind :dao.gui.event/subscriber
+ :subscription/id "editor-keyboard-1"
+ :subscriber/id ::editor-controller
+ :node-id ::editor
+ :event-kind :keyboard
+ :event {:event/kind :keyboard
+         :runtime/seq 919
+         :output/seq 0
+         :event/phase :down
+         :focus-id ::editor
+         :node-id ::editor
+         :key {:code :key-a
+               :logical :a
+               :location :standard}
+         :modifiers #{:control}
+         :repeat? false
+         :time-us 812338700}}
+```
+
 Rules:
 
 - subscriptions are ordered by successful add command.
 - subscription ids are unique per runtime binding.
 - removing an unknown id is idempotent.
-- a pointer arena snapshots matching registrations at creation.
+- a pointer arena snapshots matching pointer registrations at creation.
+- keyboard registrations are evaluated against the current focus when each
+  keyboard event is consumed.
 - additions and removals affect later arenas, not an active one.
 - duplicate interests require distinct subscription ids and each receives a
   dispatch value.
@@ -1486,10 +1735,11 @@ Rules:
   then releases the registry and closes runtime-owned outputs.
 
 Malformed add commands, duplicate subscription ids, illegal event kinds, or
-illegal phases emit a diagnostic and leave the registry unchanged. A successful
-remove is applied before any pointer packet at the same timestamp because of
-canonical source order. Dispatches are produced in snapshot registration order;
-one event is fully fanned out before the next event. A full dispatch stream
+illegal gesture or keyboard phases emit a diagnostic and leave the registry
+unchanged. A successful remove or focus command is applied before any keyboard
+or pointer packet at the same timestamp because of canonical source order.
+Dispatches are produced in registration order; one event is fully fanned out
+before the next event. A full dispatch stream
 parks the binding as specified in Transport, rather than changing registration
 or event order.
 
@@ -1666,7 +1916,7 @@ A later full result for a different dispatch value begins a new interval.
 
 After consuming one valid teardown input, the binding reads no later input. It
 flushes all cancellation effects, cancellation events, dispatches, traces, and
-diagnostics in their existing order, then calls `close!` on all six
+diagnostics in their existing order, then calls `close!` on all seven
 runtime-owned output streams. It never closes the input stream.
 
 Input loss is signalled as:
@@ -1718,6 +1968,21 @@ Existing terminal accounting signals remain:
  :submission-id <integer>}
 ```
 
+When host focus is lost without an application focus command, the terminal
+emits:
+
+```clojure
+{:message/kind :dao.terminal/focus-lost
+ :generation-id <opaque-id>
+ :focus-id <focus-id-or-nil>
+ :reason <keyword>}
+```
+
+The runtime accepts `:dao.terminal/focus-lost` only for the current generation
+and current focus id, then clears focus and `:keys-down`. A stale focus-loss
+value produces `:dao.gui.event/focus-mismatch` and does not alter state. Focus
+loss does not synthesize keyboard up events.
+
 Protocol errors use:
 
 ```clojure
@@ -1750,6 +2015,10 @@ Normative diagnostic kinds are:
 - `:dao.gui.event/recognizer-fault`
 - `:dao.gui.event/unsupported-capability`
 - `:dao.gui.event/unrecognized-event-kind`
+- `:dao.gui.event/malformed-keyboard-event`
+- `:dao.gui.event/focus-mismatch`
+- `:dao.gui.event/duplicate-key-down`
+- `:dao.gui.event/orphan-key-up`
 - `:dao.gui.event/no-active-frame`
 - `:dao.gui.event/future-frame-input`
 - `:dao.gui.event/stale-frame-input`
@@ -1780,13 +2049,17 @@ frame id greater or less than the permitted id is respectively
 `:future-frame-input` or `:stale-frame-input`; generation or coordinate-space
 mismatch uses its named diagnostic; a down naming an absent or non-latest
 profile id is `:profile-mismatch`; a nonconsecutive `:input-seq` is
-`:input-sequence-gap`; down for an active id is `:duplicate-pointer-down`;
+`:input-sequence-gap` (checked separately for each input modality, and after a gap the received event becomes the new modality-local sequence anchor); down for an
+active id is `:duplicate-pointer-down`;
 move/up/cancel for an inactive id is `:orphan-pointer-packet`; terminal lost
 capture without a valid cancel is `:capture-lost`; a stale or invalidated timer
 key is `:late-timer`; regressing canonical runtime time is
 `:late-runtime-input`; browser policy conditions are defined above; and a
 parked full dispatch stream emits `:dispatch-backpressure` once per parked
-interval.
+interval; a missing or wrong keyboard field is `:malformed-keyboard-event`; a
+keyboard or focus-loss value naming a non-current focus is `:focus-mismatch`; a
+non-repeat down for an already-held physical key is `:duplicate-key-down`; and
+an up for a physical key not held in `:keys-down` is `:orphan-key-up`.
 
 Every diagnostic must include its kind, severity, causing `:runtime/seq`, and
 all available causal ids. `:reason` keywords and those fields are conformance
@@ -1800,12 +2073,13 @@ The debug and test trace is versioned EDN:
 ```clojure
 {:dao.gui.event.trace/version 1
  :runtime-inputs [<canonical-runtime-input>]
- :runtime-outputs [<arena-timer-dispatch-or-diagnostic-value>]}
+ :runtime-outputs [<effect-pointer-keyboard-gesture-dispatch-or-diagnostic-value>]}
 ```
 
 It records the complete causally ordered values needed for replay: presented
-geometry, input profiles, normalized pointer packets including sample kinds,
-timer requests/results, subscription commands, contact changes, arena merges and
+geometry, input profiles, normalized pointer and keyboard events including
+keyboard lifecycle values, focus commands and focus effects, timer
+requests/results, subscription commands, contact changes, arena merges and
 decisions, dispatches, and diagnostics. It contains no host callbacks or
 unrecorded scheduler state.
 
@@ -1834,6 +2108,11 @@ Each conformance fixture is one EDN value suitable for direct reducer replay:
                   :active-frame-id <id-or-nil>
                   :profile-ids [<ids-in-order>]
                   :subscription-ids [<ids-in-registration-order>]
+                  :focus {:id <focus-id-or-nil>
+                         :node-id <node-id-or-nil>
+                         :generation-id <opaque-id-or-nil>}
+                  :keys-down [<physical-key-codes-in-stable-edn-order>]
+                  :last-keyboard-seq <input-seq-or-nil>
                   :active-pointer-ids [<ids-in-stable-edn-order>]
                   :active-arena-ids [<ids-in-creation-order>]
                   :scheduled-timer-keys [<keys-in-stable-edn-order>]
@@ -1852,8 +2131,9 @@ Generated expected values must be reviewed and committed explicitly; a test may
 not obtain its expectation by invoking the implementation under test.
 
 Every fixture whose owning boundary is `dao.gui.event` must replay unchanged on
-CLJ, CLJS, and CLJD and must produce the same complete outputs and eleven-key
-state projection. Runtimes may use different resource-loading mechanisms, such
+CLJ, CLJS, and CLJD and must produce the same complete outputs and the
+keyboard-extended state projection shown above.
+Runtimes may use different resource-loading mechanisms, such
 as embedding the committed EDN corpus into generated CLJC data, provided the
 values are identical.
 
@@ -1869,7 +2149,7 @@ Expected
 outputs contain complete values after canonical numeric rounding, including
 timer cancellation and diagnostics; no wildcard comparison is allowed except
 `{:any-of [...]}` around an explicitly declared host-capability alternative.
-The eleven-key `:state` map above is the complete public fixture projection; no
+The keyboard-extended `:state` map above is the complete public fixture projection; no
 other reducer fields appear and none of these keys may be omitted. A fixture
 fails when an additional output, missing output, different order, or a different
 projected state occurs.
@@ -1882,7 +2162,7 @@ the `:pointers` keys in stable EDN order; arena ids are live `:arenas` keys in
 creation-sequence order; scheduled timer keys are the keys whose timer record is
 `:scheduled`, in stable EDN order; and the remaining scalar fields are copied
 directly. The full map-shaped reducer schema is inspectable implementation
-state, while this derived eleven-key map is the sole cross-implementation state
+state, while this derived keyboard-extended map is the sole cross-implementation state
 comparison surface.
 
 The repository must provide fixtures for every bullet in Conformance Scenarios,
@@ -1918,10 +2198,10 @@ means that host ownership may prevent delivery or produce cancellation.
 | contact geometry / tilt / twist | capability | capability | capability |
 | coalesced or predicted samples | capability | capability | capability |
 
-Trackpad pan/zoom, wheel, hover routing, text selection, native drag-and-drop,
-context menus, and accessibility activation are separate non-touch protocols.
-The unified pointer envelope permits later adapters but does not make those
-modalities part of this touch arena contract.
+Trackpad pan/zoom, wheel, text selection, native drag-and-drop, context menus,
+and accessibility activation remain separate non-touch protocols. Keyboard
+events are defined by this document, but do not participate in the touch arena
+contract.
 
 ## Host Conformance
 
@@ -1946,6 +2226,16 @@ A conforming mobile web terminal:
 - realizes geometry-derived touch-policy overlays
 - normalizes browser coordinates and timestamps
 - turns `pointercancel` and lost capture into explicit cancellation
+
+A conforming keyboard-capable terminal:
+
+- emits normalized `:keyboard` values for host key-down and key-up transitions
+- preserves physical code, logical key when available, location, modifiers,
+  repeat status, and monotonic timestamp
+- applies focus-request effects from the event runtime and emits terminal
+  focus-lost values when host focus disappears independently
+- clears focus on reset and input loss without fabricating key-up transitions
+- keeps committed text and IME composition outside the keyboard contract
 
 Given identical canonical runtime inputs, every conforming runtime produces the
 same ids, targets, phases, arena decisions, ordering, and non-numeric semantic
@@ -1988,6 +2278,11 @@ Implementations must test at least:
 - predicted-sample miscorrection without semantic state change
 - web `:auto`, `:none`, `:manipulation`, pan, and pinch policies on overlapping
   regions
+- focused keyboard down and up dispatch, repeat forwarding, modifier keys,
+  unfocused input, focus replacement, and idempotent focus clear
+- keyboard ordering against pointer and timer values at equal timestamps
+- keyboard state clearing on reset, input loss, focus clear, and teardown
+- keyboard dispatch backpressure and raw keyboard-stream retention
 - atomic overlay publication, stable-root capture, accessibility exclusion,
   precedence mapping, and explicit policy-mismatch fallback
 - bounded input and dispatch streams without silent lifecycle loss
@@ -2045,6 +2340,6 @@ Implementations must test at least:
 - recognized semantic dispatch is lossless; only raw terminal moves may be
   explicitly coalesced before interpretation
 - packet-index continuity requires no heartbeat
-- direct touch is the conformance scope; non-touch modalities use separate
-  protocols
+- direct touch and raw keyboard transitions are the conformance scope; text,
+  IME, wheel, and other non-touch modalities use separate protocols
 - no compatibility adapter is defined for the former bare tap wire shape

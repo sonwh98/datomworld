@@ -1,6 +1,7 @@
 ;; Executable fixture contract: EDN fixtures replay through the total
 ;; reducer; expected outputs compare with canonical 1e-6 rounding and the
-;; eleven-key state projection must match exactly. Also: replay determinism
+;; keyboard-extended state projection must match exactly. Also: replay
+;; determinism
 ;; and a deterministic generated-trace invariant check. Specification:
 ;; docs/design/dao.gui.event.md sections Trace And Numeric Conformance and
 ;; Executable Fixture Contract.
@@ -27,7 +28,7 @@
 
 (defn- check-fixture
   "Replay one fixture value and assert the complete output vector and the
-  eleven-key state projection against its committed expectation."
+  keyboard-extended state projection against its committed expectation."
   [fixture]
   (let [initial (if (nil? (:initial-state fixture))
                   (event/initial-state)

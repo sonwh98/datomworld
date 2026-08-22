@@ -6,7 +6,8 @@
 ;; in dao.gui.event.fixtures-write. Specification:
 ;; docs/design/dao.gui.event.md section Executable Fixture Contract.
 (ns dao.gui.event.fixtures-gen
-  (:require [dao.gui.event :as event]
+  (:require [clojure.string :as string]
+            [dao.gui.event :as event]
             [dao.gui.event.trace :as trace]
             [dao.gui.event.util :as u]))
 
@@ -268,6 +269,35 @@
 ;; ---------------------------------------------------------------------------
 ;; Scenario inputs
 ;; ---------------------------------------------------------------------------
+
+(defn- keyb
+  [n k-seq t phase code & {:keys [logical location repeat? modifiers focus-id]}]
+  (let [logical (or logical
+                    (let [nm (name code)]
+                      (if (string/starts-with? nm "key-") (subs nm 4) code)))]
+    (u/rt n
+          t
+          :keyboard
+          {:input/kind :keyboard,
+           :generation-id u/generation,
+           :input-seq k-seq,
+           :time-us t,
+           :phase phase,
+           :focus-id focus-id,
+           :repeat? (boolean repeat?),
+           :modifiers (set modifiers),
+           :key {:code code,
+                 :logical logical,
+                 :location (or location :standard)}})))
+
+
+(defn- focus-cmd
+  [n t op focus-id node-id]
+  (u/rt n
+        t
+        :subscription
+        {:subscription/op op, :focus/id focus-id, :node-id node-id}))
+
 
 (def ^:private t u/t0)
 
@@ -1256,6 +1286,284 @@
 ;; Fixture registry
 ;; ---------------------------------------------------------------------------
 
+
+(defn- scenario-keyboard-focus
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::editor)
+         (keyb 12 1 (+ t 2000) :up :key-a :focus-id ::editor)]))
+
+
+(defn- scenario-keyboard-repeat
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::editor)
+         (keyb 12 1 (+ t 2000) :down :key-a :focus-id ::editor :repeat? true)
+         (keyb 13 2 (+ t 3000) :up :key-a :focus-id ::editor)]))
+
+
+(defn- scenario-keyboard-modifier
+  []
+  (into
+    (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+    [(focus-cmd 10 t :focus/set ::editor node)
+     (keyb 11 0 (+ t 1000) :down :shift :focus-id ::editor :modifiers #{:shift})
+     (keyb 12 1 (+ t 2000) :down :key-a :focus-id ::editor :modifiers #{:shift})
+     (keyb 13 2 (+ t 3000) :up :key-a :focus-id ::editor :modifiers #{:shift})
+     (keyb 14 3 (+ t 4000) :up :shift :focus-id ::editor)]))
+
+
+(defn- scenario-keyboard-unfocused
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(keyb 11 0 (+ t 1000) :down :key-a)
+         (keyb 12 1 (+ t 2000) :up :key-a)]))
+
+
+(defn- scenario-keyboard-focus-replace
+  []
+  (into (boot :geometry (geometry :node-id ::n1)
+              :subs [(sub "kb-1" ::n1 :keyboard) (sub "kb-2" ::n2 :keyboard)])
+        [(focus-cmd 10 t :focus/set ::f1 ::n1)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::f1)
+         (focus-cmd 12 (+ t 2000) :focus/set ::f2 ::n2)
+         (keyb 13 1 (+ t 3000) :up :key-a :focus-id ::f2)]))
+
+
+(defn- scenario-keyboard-focus-clear
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::editor)
+         (focus-cmd 12 (+ t 2000) :focus/clear ::editor node)
+         (keyb 13 1 (+ t 3000) :up :key-a)]))
+
+
+(defn- scenario-keyboard-ordering
+  []
+  (into (boot :geometry (geometry :recognizers [(tap-decl [node :tap])])
+              :subs [(sub "tap" :tap) (sub "kb" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::editor)
+         (ptr 12 (+ t 2000) :down 11 40.0 20.0)
+         (keyb 13 1 (+ t 3000) :up :key-a :focus-id ::editor)
+         (ptr 14 (+ t 4000) :up 11 40.0 20.0)]))
+
+
+(defn- scenario-keyboard-terminal-reset
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::editor)
+         (u/rt 12 (+ t 2000)
+               :terminal {:message/kind :dao.terminal/reset,
+                          :generation-id "new-gen",
+                          :time-us (+ t 2000)})
+         (rt 13 (+ t 3000) :terminal (space))
+         (rt 14 (+ t 3000) :geometry (geometry))
+         (rt 15 (+ t 3000) :profile (u/input-profile {}))
+         (keyb 16 1 (+ t 4000) :down :key-a :focus-id nil)]))
+
+
+(defn- scenario-keyboard-diag-duplicate-down
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::editor)
+         (keyb 12 1 (+ t 2000) :down :key-a :focus-id ::editor)]))
+
+
+(defn- scenario-keyboard-diag-orphan-up
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :up :key-a :focus-id ::editor)]))
+
+
+(defn- scenario-keyboard-diag-malformed
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (u/rt 11 (+ t 1000)
+               :keyboard
+               {:input/kind :keyboard,
+                :generation-id u/generation,
+                :input-seq 0,
+                :time-us (+ t 1000),
+                :phase :down,
+                :focus-id ::editor,
+                :repeat? false,
+                :modifiers #{},
+                :key {:code :key-a, :logical "a", :location :unknown-loc}})
+         (u/rt 12 (+ t 2000)
+               :keyboard
+               {:input/kind :keyboard,
+                :generation-id u/generation,
+                :input-seq 0,
+                :time-us (+ t 2000),
+                :phase :down,
+                :focus-id ::editor,
+                :repeat? false,
+                :modifiers #{},
+                :key {:code :key-a, :logical "ab", :location :standard}})]))
+
+
+(defn- scenario-keyboard-diag-focus-clear-stale
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (focus-cmd 11 (+ t 1000) :focus/clear ::wrong-focus node)]))
+
+
+(defn- scenario-keyboard-diag-focus-clear-idempotent
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (focus-cmd 11 (+ t 1000) :focus/clear ::editor node)
+         (focus-cmd 12 (+ t 2000) :focus/clear ::editor node)]))
+
+
+(defn- scenario-keyboard-diag-teardown-focus
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (u/rt 11 (+ t 1000) :control {:input/kind :dao.gui.event/teardown})]))
+
+
+(defn- scenario-keyboard-diag-missing-focus
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (u/rt 11 (+ t 1000)
+               :keyboard
+               {:input/kind :keyboard,
+                :generation-id u/generation,
+                :input-seq 0,
+                :time-us (+ t 1000),
+                :phase :down,
+                :repeat? false,
+                :modifiers #{},
+                :key {:code :key-a, :logical "a", :location :standard}})]))
+
+
+(defn- scenario-keyboard-diag-repeat-up
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :up :key-a :focus-id ::editor :repeat? true)]))
+
+
+(defn- scenario-keyboard-diag-unknown-field
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (u/rt 11 (+ t 1000)
+               :keyboard {:input/kind :keyboard,
+                          :generation-id u/generation,
+                          :input-seq 0,
+                          :time-us (+ t 1000),
+                          :phase :down,
+                          :focus-id ::editor,
+                          :repeat? false,
+                          :modifiers #{},
+                          :key
+                          {:code :key-a, :logical "a", :location :standard},
+                          :extra-field 42})]))
+
+
+(defn- scenario-keyboard-diag-focus-mismatch
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::wrong-focus)]))
+
+
+(defn- scenario-keyboard-diag-focus-lost-mismatch
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (u/rt 11 (+ t 1000)
+               :terminal {:message/kind :dao.terminal/focus-lost,
+                          :generation-id u/generation,
+                          :time-us (+ t 1000),
+                          :focus-id ::wrong-focus})]))
+
+
+(defn- scenario-keyboard-diag-stale-gen
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (u/rt 11 (+ t 1000)
+               :keyboard
+               {:input/kind :keyboard,
+                :generation-id "stale-gen",
+                :input-seq 0,
+                :time-us (+ t 1000),
+                :phase :down,
+                :focus-id ::editor,
+                :repeat? false,
+                :modifiers #{},
+                :key {:code :key-a, :logical "a", :location :standard}})]))
+
+
+(defn- scenario-keyboard-gap-independence
+  []
+  (into (boot :geometry (geometry :recognizers [(tap-decl [node :tap])])
+              :subs [(sub "tap" :tap) (sub "kb" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::editor)
+         (ptr 12 (+ t 2000) :down 11 40.0 20.0)
+         ;; pointer gap (14 instead of 13)
+         (ptr 14 (+ t 4000) :up 11 40.0 20.0)
+         ;; keyboard should still be tracking at 12 (expected next is 12
+         ;; since keyb was 11)
+         (keyb 12 1 (+ t 5000) :up :key-a :focus-id ::editor)]))
+
+
+(defn- scenario-keyboard-gap
+  []
+  (into (boot :geometry (geometry) :subs [(sub "kb-1" :keyboard)])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::editor)
+         (keyb 13 2 (+ t 3000) :down :key-b :focus-id ::editor)]))
+
+
+(defn- scenario-diagnostic-subscription-cross-kind-kb
+  []
+  (boot :geometry (geometry)
+        :subs [(assoc (sub "bad-kb" :keyboard) :gesture/phases #{:start})]))
+
+
+(defn- scenario-diagnostic-subscription-cross-kind-gesture
+  []
+  (boot :geometry (geometry)
+        :subs [(assoc (sub "bad-gesture" :tap) :keyboard/phases #{:down})]))
+
+
+(defn- scenario-keyboard-phase-filter
+  []
+  (into (boot :geometry (geometry)
+              :subs [(assoc (sub "kb-down" :keyboard) :keyboard/phases #{:down})
+                     (assoc (sub "kb-up" :keyboard) :keyboard/phases #{:up})])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::editor)
+         (keyb 12 1 (+ t 2000) :up :key-a :focus-id ::editor)]))
+
+
+(defn- scenario-keyboard-teardown-held
+  []
+  (into (boot :geometry (geometry)
+              :subs [(sub "kb-1" :keyboard)
+                     (assoc (sub "kb-2" :keyboard)
+                            :keyboard/phases #{:down :up :cancel})])
+        [(focus-cmd 10 t :focus/set ::editor node)
+         (keyb 11 0 (+ t 1000) :down :key-a :focus-id ::editor)
+         (keyb 12 1 (+ t 2000) :down :key-b :focus-id ::editor)
+         (u/rt 13 (+ t 3000) :control {:input/kind :dao.gui.event/teardown})]))
+
+
 (def ^:private scenarios
   (into
     {}
@@ -1318,7 +1626,40 @@
        [:machine/custom-tap scenario-machine-custom-tap]
        [:machine/transition-order scenario-machine-transition-order]
        [:machine/timers scenario-machine-timers]
-       [:machine/fault-isolation scenario-machine-fault-isolation]]
+       [:machine/fault-isolation scenario-machine-fault-isolation]
+       [:keyboard/focus scenario-keyboard-focus]
+       [:keyboard/repeat scenario-keyboard-repeat]
+       [:keyboard/modifier scenario-keyboard-modifier]
+       [:keyboard/unfocused scenario-keyboard-unfocused]
+       [:keyboard/focus-replace scenario-keyboard-focus-replace]
+       [:keyboard/focus-clear scenario-keyboard-focus-clear]
+       [:keyboard/ordering scenario-keyboard-ordering]
+       [:keyboard/terminal-reset scenario-keyboard-terminal-reset]
+       [:keyboard/gap scenario-keyboard-gap]
+       [:diagnostic/keyboard-duplicate-down
+        scenario-keyboard-diag-duplicate-down]
+       [:diagnostic/keyboard-orphan-up scenario-keyboard-diag-orphan-up]
+       [:diagnostic/keyboard-malformed scenario-keyboard-diag-malformed]
+       [:diagnostic/keyboard-missing-focus scenario-keyboard-diag-missing-focus]
+       [:diagnostic/keyboard-repeat-up scenario-keyboard-diag-repeat-up]
+       [:diagnostic/keyboard-unknown-field scenario-keyboard-diag-unknown-field]
+       [:diagnostic/keyboard-focus-clear-stale
+        scenario-keyboard-diag-focus-clear-stale]
+       [:keyboard/focus-clear-idempotent
+        scenario-keyboard-diag-focus-clear-idempotent]
+       [:keyboard/teardown-focus scenario-keyboard-diag-teardown-focus]
+       [:diagnostic/keyboard-focus-mismatch
+        scenario-keyboard-diag-focus-mismatch]
+       [:diagnostic/keyboard-focus-lost-mismatch
+        scenario-keyboard-diag-focus-lost-mismatch]
+       [:diagnostic/keyboard-stale-gen scenario-keyboard-diag-stale-gen]
+       [:diagnostic/subscription-cross-kind-kb
+        scenario-diagnostic-subscription-cross-kind-kb]
+       [:diagnostic/subscription-cross-kind-gesture
+        scenario-diagnostic-subscription-cross-kind-gesture]
+       [:keyboard/gap-independence scenario-keyboard-gap-independence]
+       [:keyboard/phase-filter scenario-keyboard-phase-filter]
+       [:keyboard/teardown-held scenario-keyboard-teardown-held]]
       (map (fn [[rule mutate]]
              [(keyword "machine" (str "invalid-" (name rule)))
               (invalid-machine-fixture rule mutate)])

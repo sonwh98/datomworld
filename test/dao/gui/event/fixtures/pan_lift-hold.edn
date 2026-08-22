@@ -408,7 +408,8 @@
     :output/seq 0,
     :arena-id 0}],
   :state
-  {:coordinate-space-id nil,
+  {:last-keyboard-seq nil,
+   :coordinate-space-id nil,
    :generation-id "fresh-generation",
    :last-runtime-seq 15,
    :profile-ids [],
@@ -416,6 +417,8 @@
    :last-runtime-time-us 812040000,
    :subscription-ids ["p"],
    :next-arena-id 1,
+   :focus {:id nil, :node-id nil, :generation-id nil},
+   :keys-down [],
    :active-arena-ids [],
    :active-frame-id nil,
    :scheduled-timer-keys []}}}

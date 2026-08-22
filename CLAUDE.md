@@ -144,7 +144,8 @@ agy --mode plan --sandbox --effort high --print-timeout 5m \
 ```
 
 To select a model, still place the model option before `-p`. List available
-models with `agy models`.
+models with `agy models` immediately before the invocation; do not guess an
+identifier or silently accept a fallback model.
 
 ```sh
 agy --model gemini-3.1-pro-high --mode plan --sandbox \
@@ -157,15 +158,68 @@ payload, for example the staged diff. Do not broaden staged-only authorization
 to unstaged files. Invoke `agy` from the agent that directly received the user
 authorization; a delegated agent may not be able to rely on relayed consent.
 
-For a payload-limited review, embed only the authorized diff in the prompt and
-tell Antigravity not to inspect the workspace or call tools. If instead the
-prompt asks Antigravity to run `git diff` or read repository files, its plan-mode
-permission gate may require another approval. The CLI may also need permission
-to access its state under `~/.gemini` and its localhost language-server socket.
+For a payload-limited review, run from an empty directory such as `/private/tmp`
+and tell Antigravity not to inspect a workspace or call tools. Do not put a
+private diff, document, or source payload directly after `-p`: command-line
+arguments can be visible to process inspection and logs. Send a large private
+payload through `--input-format stream-json` on standard input instead, using
+the CLI's current NDJSON protocol and `--output-format stream-json`; this keeps
+the payload out of the process argument list. If a review instead asks
+Antigravity to run `git diff` or read repository files, its plan-mode permission
+gate may require another approval.
+
+The CLI needs write access to its state under `~/.gemini` and permission to bind
+its localhost language-server socket, even for `--mode plan --sandbox`. If a
+sandboxed invocation fails on either requirement, retry the same command with
+only those host permissions approved. Keep `--mode plan --sandbox`; do not
+weaken it to work around the startup failure. Network permission may likewise
+be required to reach the provider.
+
+For an unattended review, keep `--print-timeout 5m`, `--output-format text`,
+and a prompt that requires a text response. Capture and inspect a non-empty
+response before treating the review as completed.
 
 Do not use `--dangerously-skip-permissions` by default. It may be used only when
 the user explicitly authorizes the resulting commands, file access, and edits;
 keep read-only reviews in `--mode plan --sandbox`.
+
+# GLM AND DEEPSEEK DELEGATION
+
+`glm` and `deepseek` are local wrappers around Claude Code for their respective
+provider models. Invoke the wrapper, rather than `claude`, when selecting either
+provider.
+
+For a payload-limited, read-only review, run from an empty directory such as
+`/private/tmp`, disable tools, use plan permissions, and embed only the payload
+the user authorized:
+
+```sh
+glm --safe-mode --permission-mode plan \
+  --tools "" --no-session-persistence --output-format text \
+  -p "Review only the supplied payload. Do not inspect a workspace, call tools, or edit files."
+
+deepseek --safe-mode --permission-mode plan \
+  --tools "" --no-session-persistence --output-format text \
+  -p "Review only the supplied payload. Do not inspect a workspace, call tools, or edit files."
+```
+
+For an interactive coding session, invoke `glm` or `deepseek` directly. Use
+`--permission-mode plan` for review and exploration. Use edit-accepting modes
+only after the user directly authorizes the intended file access and edits.
+
+Private repository contents are an external disclosure. Before sending source,
+diffs, tests, or other private workspace material, obtain direct, explicit user
+authorization naming the exact payload. A payload-limited authorization does
+not authorize workspace inspection. Do not rely on authorization relayed through
+another agent.
+
+Do not use `--dangerously-skip-permissions` or
+`--allow-dangerously-skip-permissions` unless the user explicitly authorizes the
+resulting commands, file access, and edits. Tool-disabled reviews may still
+require network permission to reach the configured provider.
+
+Treat wrapper configuration and local provider credentials as secret. Do not
+print, copy, or commit them.
 
 # FILE FORMATS
 

@@ -1,18 +1,20 @@
 ;; The DaoStream binding contract: advance consumes the canonical
-;; runtime-input stream in order, routes reducer outputs to their six
+;; runtime-input stream in order, routes reducer outputs to their seven
 ;; destination streams, parks on backpressure, and closes runtime-owned
 ;; outputs after teardown. Specification: docs/design/dao.gui.event.md
 ;; sections Event Boundary, Binding Contract, Transport Coalescing And
 ;; Backpressure.
 (ns dao.gui.event.bind-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as string]
+            [clojure.test :refer [deftest is testing]]
             [dao.gui.event :as event]
             [dao.gui.event.util :as u]
             [dao.stream :as ds]
             [dao.stream.ringbuffer :as rb]))
 
 
-(def output-keys [:effects :trace :pointer :gesture :dispatch :diagnostic])
+(def output-keys
+  [:effects :trace :pointer :keyboard :gesture :dispatch :diagnostic])
 
 
 (defn- streams
@@ -75,6 +77,36 @@
   (into (boot-inputs)
         [(ptr 10 u/t0 :down 11 40.0 20.0)
          (ptr 11 (+ u/t0 50000) :up 11 41.0 21.0)]))
+
+
+(defn- keyb
+  [n k-seq time-us phase code focus-id]
+  (let [logical (let [nm (name code)]
+                  (if (string/starts-with? nm "key-") (subs nm 4) code))]
+    (u/rt n
+          time-us
+          :keyboard
+          {:input/kind :keyboard,
+           :generation-id u/generation,
+           :input-seq k-seq,
+           :time-us time-us,
+           :phase phase,
+           :repeat? false,
+           :modifiers #{},
+           :key {:code code, :logical logical, :location :standard},
+           :focus-id focus-id})))
+
+
+(defn- keyboard-inputs
+  []
+  (into (boot-inputs)
+        [(u/rt 10 u/t0 :subscription (u/sub-add "k1" tap-node :keyboard))
+         (u/rt 11 (+ u/t0 1000)
+               :subscription {:subscription/op :focus/set,
+                              :focus/id ::editor,
+                              :node-id tap-node})
+         (keyb 12 0 (+ u/t0 2000) :down :key-a ::editor)
+         (keyb 13 1 (+ u/t0 3000) :up :key-a ::editor)]))
 
 
 (defn- make-binding
@@ -240,7 +272,7 @@
       (is (= ["s2"] (mapv :subscription/id (drain (:dispatch outputs))))))))
 
 
-(deftest teardown-closes-all-six-outputs-but-not-the-input
+(deftest teardown-closes-all-seven-outputs-but-not-the-input
   (let [{:keys [binding input]}
         (make-binding :inputs
                       (into (boot-inputs)
@@ -310,3 +342,38 @@
         [status n] (drive binding #{:blocked :end :input-gap :closed})]
     (is (= :blocked status))
     (is (= 8 n))))
+
+
+(deftest advance-routes-keyboard-outputs-to-their-destination-streams
+  (let [{:keys [binding]} (make-binding :inputs (keyboard-inputs))
+        [status n final] (drive binding #{:blocked :end :input-gap :closed})
+        outputs (:outputs final)]
+    (is (= :blocked status))
+    (is (= 10 n)) ; 5 boot + 2 subs + 2 keyb = 9 inputs => 10 advances
+    (is (= [:down :up] (mapv :event/phase (drain (:keyboard outputs)))))
+    (is (= 2 (count (drain (:dispatch outputs)))))
+    (is (= #{"k1"} (set (map :subscription/id (drain (:dispatch outputs))))))
+    (is (= [{:effect/kind :dao.gui.event/focus-request,
+             :operation :set,
+             :focus-id ::editor,
+             :node-id tap-node,
+             :generation-id u/generation}]
+           (map #(select-keys %
+                              [:effect/kind :operation :focus-id :node-id
+                               :generation-id])
+                (drain (:effects outputs)))))
+    (is (= [] (drain (:diagnostic outputs))))))
+
+
+(deftest keyboard-backpressure-parks-stream
+  (let [{:keys [binding]} (make-binding :output-capacities {:keyboard 1}
+                                        :inputs (keyboard-inputs))
+        [status _n parked] (drive binding)
+        outputs (:outputs parked)]
+    (is (= :parked status))
+    (is (= 1 (count (drain (:keyboard outputs)))))
+    (consume-count (:keyboard outputs) 1)
+    (let [[final-status] (drive parked
+                                #{:blocked :end :input-gap :closed :parked})]
+      (is (= :blocked final-status))
+      (is (= [:up] (mapv :event/phase (drain (:keyboard outputs))))))))

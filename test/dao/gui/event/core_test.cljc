@@ -30,11 +30,12 @@
 
 (deftest initial-state-matches-version-1-schema
   (let [state (event/initial-state)]
-    (is (= 1 (:dao.gui.event/state-version state)))
+    (is (= 2 (:dao.gui.event/state-version state)))
     (is (= #{:dao.gui.event/state-version :generation-id :last-runtime-time-us
-             :last-runtime-seq :active-coordinate-space-id :coordinate-spaces
-             :geometry :profiles :subscriptions :subscription-order :pointers
-             :arenas :next-arena-id :timers}
+             :last-runtime-seq :last-keyboard-seq :active-coordinate-space-id
+             :coordinate-spaces :geometry :profiles :subscriptions
+             :subscription-order :pointers :arenas :next-arena-id :timers :focus
+             :keys-down}
            (set (keys state))))
     (is (nil? (:generation-id state)))
     (is (nil? (:last-runtime-time-us state)))
@@ -67,7 +68,7 @@
 
 (deftest every-output-carries-causality-seqs
   (let [state (-> (event/initial-state)
-                  (as-> s (assoc-in s [:dao.gui.event/state-version] 1)))
+                  (as-> s (assoc-in s [:dao.gui.event/state-version] 2)))
         {:keys [outputs]}
         (step state (u/rt 7 u/t0 :pointer {:input/kind :bogus-thing}))]
     (is (= 1 (count outputs)))
@@ -305,12 +306,12 @@
 ;; Fixture state projection
 ;; ---------------------------------------------------------------------------
 
-(deftest fixture-projection-is-eleven-keys
+(deftest fixture-projection-has-keyboard-extended-state
   (let [projection (event/fixture-projection (event/initial-state))]
     (is (= #{:generation-id :coordinate-space-id :active-frame-id :profile-ids
              :subscription-ids :active-pointer-ids :active-arena-ids
              :scheduled-timer-keys :last-runtime-seq :last-runtime-time-us
-             :next-arena-id}
+             :next-arena-id :focus :keys-down :last-keyboard-seq}
            (set (keys projection))))
     (is (= {:generation-id nil,
             :coordinate-space-id nil,
@@ -322,7 +323,10 @@
             :scheduled-timer-keys [],
             :last-runtime-seq -1,
             :last-runtime-time-us nil,
-            :next-arena-id 0}
+            :next-arena-id 0,
+            :focus {:id nil, :node-id nil, :generation-id nil},
+            :keys-down [],
+            :last-keyboard-seq nil}
            projection))))
 
 
@@ -338,7 +342,7 @@
                  :dispatch nil,
                  :diagnostic nil}
         binding (event/bind {:inputs inputs, :outputs outputs})]
-    (is (= 1 (:dao.gui.event/binding-version binding)))
+    (is (= 2 (:dao.gui.event/binding-version binding)))
     (is (= inputs (:inputs binding)))
     (is (= outputs (:outputs binding)))
     (is (ifn? (:offer binding)))))
