@@ -259,7 +259,7 @@
 
 (deftype PostgraphicsPainter
   [frame* submit! image-holder decoding? frame-seq*
-   rendered-seq*]
+   rendered-seq* backend-mode on-paint-error]
   :extends
   m/CustomPainter
 
@@ -269,36 +269,40 @@
           ^double width (.-width size)
           ^double height (.-height size)]
       (when (seq frame)
-        (try (let [lowered (lower/lower-frame
-                             frame
-                             {:viewport-width width,
-                              :viewport-height height,
-                              :supports-render-targets? false,
-                              :supports-image? false,
-                              :texture-source-valid?
-                              (fn [s]
-                                (or (instance? gpu/Texture s)
-                                    (instance? tex/PgTexture s)))})
-                   image (if (gpu-render/gpu-available?)
-                           (submit! lowered width height)
-                           (do (canvas-render/paint-3d! canvas
-                                                        lowered
-                                                        width
-                                                        height
-                                                        image-holder
-                                                        decoding?
-                                                        frame-seq*
-                                                        rendered-seq*)
-                               nil))]
-               (when image
-                 (.drawImage canvas image (ui/Offset. 0.0 0.0) (ui/Paint.)))
-               (doseq [pass (:passes lowered)
-                       draw (:draws pass)]
-                 (case (:pipeline draw)
-                   :draw-2d (paint-2d-draw! canvas draw height)
-                   :text (paint-text! canvas draw)
-                   nil)))
-             (catch Object e (dart/print (str "Paint failed: " e)))))))
+        (try
+          (let [lowered (lower/lower-frame frame
+                                           {:viewport-width width,
+                                            :viewport-height height,
+                                            :supports-render-targets? false,
+                                            :supports-image? false,
+                                            :texture-source-valid?
+                                            (fn [s]
+                                              (or (instance? gpu/Texture s)
+                                                  (instance? tex/PgTexture
+                                                             s)))})
+                image (case backend-mode
+                        :gpu (submit! lowered width height)
+                        :software (do (canvas-render/paint-3d!
+                                        canvas
+                                        lowered
+                                        width
+                                        height
+                                        image-holder
+                                        decoding?
+                                        frame-seq*
+                                        rendered-seq*)
+                                      nil))]
+            (when image
+              (.drawImage canvas image (ui/Offset. 0.0 0.0) (ui/Paint.)))
+            (doseq [pass (:passes lowered)
+                    draw (:draws pass)]
+              (case (:pipeline draw)
+                :draw-2d (paint-2d-draw! canvas draw height)
+                :text (paint-text! canvas draw)
+                nil)))
+          (catch Object e
+            (when on-paint-error (on-paint-error e))
+            (dart/print (str "Paint failed: " e)))))))
 
 
   (shouldRepaint [_this _old] true))
@@ -307,6 +311,17 @@
 ;; --- stream wiring ---
 
 (def put-frame! terminal/put-frame!)
+
+
+(defn resolve-backend-mode
+  "Resolves :auto, :gpu, or :software without hiding an explicit choice."
+  [requested gpu-available?]
+  (case (or requested :auto)
+    :auto (if gpu-available? :gpu :software)
+    :gpu :gpu
+    :software :software
+    (throw (ex-info "Unknown Flutter postgraphics backend"
+                    {:backend requested, :allowed #{:auto :gpu :software}}))))
 
 
 (defn- close-binding!
@@ -335,41 +350,45 @@
        image is painted even if the frame stream has since paused.  The
        seq guard in paint-3d! stops that decode-triggered repaint from kicking
        a redundant re-render."
-  [frame-stream & {:keys [on-error signal-stream]}]
-  (f/widget
-    :managed
-    [frame* (atom []) :dispose nil :refresh-on :never frame-seq* (atom 0)
-     :dispose nil :refresh-on :never rendered-seq* (atom -1) :dispose nil
-     :refresh-on :never image-holder (atom nil) :dispose nil :refresh-on :never
-     decoding? (atom false) :dispose nil :refresh-on :never _binding
-     (terminal/bind-stream!
-       frame-stream
-       {:validate-frame! #(lower/validate-frame!
-                            %
-                            {:supports-render-targets? false,
-                             :supports-image? false,
-                             :texture-source-valid?
-                             (fn [s]
-                               (or (instance? gpu/Texture s)
-                                   (instance? tex/PgTexture s)))}),
-        :present-frame!
-        (fn [frame] (reset! frame* frame) (swap! frame-seq* inc)),
-        :signal-stream signal-stream,
-        :on-error (or on-error
-                      (fn [e]
-                        (dart/print (str "Invalid frame rejected ("
+  [frame-stream & {:keys [on-error on-paint-error signal-stream backend]}]
+  (let [backend-mode (resolve-backend-mode backend (gpu-render/gpu-available?))]
+    (f/widget :managed
+              [frame* (atom []) :dispose nil :refresh-on :never frame-seq*
+               (atom 0) :dispose nil :refresh-on :never rendered-seq* (atom -1)
+               :dispose nil :refresh-on :never image-holder (atom nil) :dispose
+               nil :refresh-on :never decoding? (atom false) :dispose nil
+               :refresh-on :never _binding
+               (terminal/bind-stream!
+                 frame-stream
+                 {:validate-frame! #(lower/validate-frame!
+                                      %
+                                      {:supports-render-targets? false,
+                                       :supports-image? false,
+                                       :texture-source-valid?
+                                       (fn [s]
+                                         (or (instance? gpu/Texture s)
+                                             (instance? tex/PgTexture s)))}),
+                  :present-frame!
+                  (fn [frame] (reset! frame* frame) (swap! frame-seq* inc)),
+                  :signal-stream signal-stream,
+                  :on-error (or on-error
+                                (fn [e]
+                                  (dart/print
+                                    (str "Invalid frame rejected ("
                                          (name (terminal/rejection-reason e))
                                          "): " e))))}) :dispose close-binding!
-     :refresh-on :never]
-    :watch
-    [_frame-seq frame-seq* _image image-holder]
-    (m/CustomPaint. .painter
-                    (PostgraphicsPainter. frame*
-                                          gpu-render/submit-gpu!
-                                          image-holder
-                                          decoding?
-                                          frame-seq*
-                                          rendered-seq*))))
+               :refresh-on :never]
+              :watch
+              [_frame-seq frame-seq* _image image-holder]
+              (m/CustomPaint. .painter
+                              (PostgraphicsPainter. frame*
+                                                    gpu-render/submit-gpu!
+                                                    image-holder
+                                                    decoding?
+                                                    frame-seq*
+                                                    rendered-seq*
+                                                    backend-mode
+                                                    on-paint-error)))))
 
 
 (defn postgraphics-widget
@@ -378,10 +397,14 @@
 
   Options:
   - :on-error      callback receiving the exception when a frame is rejected
+  - :on-paint-error callback receiving exceptions raised while painting
+  - :backend       :auto (default), :gpu, or :software
   - :signal-stream dao.stream to which canonical terminal signals
                    (:dao.terminal/reset, :dao.terminal/rejection) are emitted;
                    required for participants in dao.gui.event"
-  [frame-stream & {:keys [on-error signal-stream]}]
+  [frame-stream & {:keys [on-error on-paint-error signal-stream backend]}]
   (frame-stream-widget frame-stream
                        :on-error on-error
-                       :signal-stream signal-stream))
+                       :on-paint-error on-paint-error
+                       :signal-stream signal-stream
+                       :backend backend))

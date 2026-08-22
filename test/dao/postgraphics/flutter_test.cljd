@@ -1,0 +1,45 @@
+(ns dao.postgraphics.flutter-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.postgraphics.flutter :as flutter]))
+
+
+(deftest backend-selection-is-explicit
+  (testing "explicit software and GPU modes do not depend on availability"
+    (is (= :software (flutter/resolve-backend-mode :software true)))
+    (is (= :software (flutter/resolve-backend-mode :software false)))
+    (is (= :gpu (flutter/resolve-backend-mode :gpu true)))
+    (is (= :gpu (flutter/resolve-backend-mode :gpu false))))
+  (testing "auto mode follows GPU availability"
+    (is (= :gpu (flutter/resolve-backend-mode :auto true)))
+    (is (= :gpu (flutter/resolve-backend-mode nil true)))
+    (is (= :software (flutter/resolve-backend-mode :auto false)))
+    (is (= :software (flutter/resolve-backend-mode nil false)))))
+
+
+;; cljd.test has no thrown? / thrown-with-msg?; express both assertions with
+;; try/catch and assert the ex-info payload directly.
+(deftest invalid-backend-mode-is-rejected
+  (testing "an unknown backend keyword throws with the allowed set"
+    (let [rejected? (fn [mode]
+                      (try (flutter/resolve-backend-mode mode true)
+                           false
+                           (catch Object _ true)))]
+      (is (rejected? :unknown))
+      (is (rejected? :metal)))
+    (is (= #{:auto :gpu :software}
+           (try (flutter/resolve-backend-mode :metal true)
+                nil
+                (catch Object e (:allowed (ex-data e))))))))
+
+
+;; Backend capability gate: the painter and frame validation both lower with
+;; render targets and image ops unsupported, so the demo frame contract above
+;; is exactly what the widget can present. Paint-error behavior (exceptions
+;; caught per paint attempt, routed to :on-paint-error, no automatic backend
+;; fallback or retry) lives in PostgraphicsPainter.paint and requires the
+;; Dart/Flutter runtime, so it is not unit-testable from this cljd namespace.
+(deftest backend-policy-declares-supported-pipelines
+  (let [policy flutter/GPU_RENDERER_POLICY]
+    (is (contains? (:supported-3d-ops policy) :draw3d/mesh))
+    (is (every? (fn [p] (contains? (:supported-pipelines policy) p))
+                [:clear :camera-reset :mesh-3d :draw-3d :draw-2d :text]))))
