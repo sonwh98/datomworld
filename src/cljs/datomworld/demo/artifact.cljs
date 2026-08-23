@@ -3,7 +3,7 @@
             [dao.postgraphics.terminal :as terminal]
             [dao.postgraphics.web :as pg]
             [dao.stream :as ds]
-            [dao.stream.ringbuffer]
+            [dao.stream.ringbuffer :as rb]
             [datomworld.demo.artifact-runner :as runner]
             [datomworld.demo.artifact-scene :as scene]
             [datomworld.demo.responsive :as responsive]
@@ -21,13 +21,16 @@
 
 
 (defonce runtime-input-stream
-  (ds/open!
-    {:dao.stream/type :ringbuffer, :capacity 64, :eviction-policy :reject}))
+  (ds/open! {:dao.stream/type :ringbuffer,
+             :capacity 1024,
+             :eviction-policy :evict-oldest}))
 
 
 (defonce event-binding* (atom nil))
 (defonce output-streams* (atom nil))
+(defonce output-cursors* (atom {}))
 (defonce runtime-seq* (atom 0))
+(defonce keyboard-seq* (atom -1))
 (defonce runtime-time* (atom -1))
 
 
@@ -45,9 +48,9 @@
 
 (defonce active-pointers* (atom {}))
 (defonce canvas-listeners* (atom nil))
+(defonce keyboard-listeners* (atom nil))
 (defonce canvas* (atom nil))
 (defonce resize-observer* (atom nil))
-(defonce output-cursors* (atom {}))
 
 
 (def output-keys
@@ -61,7 +64,7 @@
                [k
                 (ds/open! {:dao.stream/type :ringbuffer,
                            :capacity 64,
-                           :eviction-policy :reject})])
+                           :eviction-policy :evict-oldest})])
              output-keys)))
 
 
@@ -69,15 +72,41 @@
   []
   (when-let [binding @event-binding*]
     (let [result (runner/advance-until-progress binding 64)]
-      (reset! event-binding* (:binding result))
+      (reset! event-binding*
+              (if (some #{:input-gap} (:statuses result))
+                (let [state (get-in result [:binding :state])
+                      runtime-seq (inc (long (or (:last-runtime-seq state) -1)))
+                      runtime-time-us (inc (long (or (:last-runtime-time-us state)
+                                                     -1)))]
+                  (event/recover-input-gap
+                    (:binding result)
+                    {:position (rb/tail-position runtime-input-stream)}
+                    {:runtime/seq runtime-seq,
+                     :runtime/time-us runtime-time-us,
+                     :runtime/source :terminal,
+                     :runtime/value {:message/kind :dao.terminal/input-loss,
+                                     :generation-id (:generation-id state),
+                                     :reason :stream-capacity}}))
+                (:binding result)))
       (doseq [[k stream] @output-streams*]
         (loop [cursor (get @output-cursors* k {:position 0})]
           (let [read (ds/next stream cursor)]
             (if (map? read)
-              (do (when (= k :gesture)
-                    (swap! scene-state runner/reduce-gesture (:ok read)))
-                  (recur (:cursor read)))
-              (swap! output-cursors* assoc k cursor))))))))
+              (let [value (:ok read)]
+                (when (and (= k :gesture) (runner/drag-gesture? value))
+                  (prn "dao.gui.event drag -> dao.stream" value))
+                (when (= k :gesture)
+                  (swap! scene-state runner/reduce-gesture value))
+                (when (= k :keyboard)
+                  (prn "dao.stream keyboard -> scene" value)
+                  (swap! scene-state runner/reduce-keyboard value))
+                (recur (:cursor read)))
+              (if (= :daostream/gap read)
+                (do (prn "dao.stream output gap; resuming at tail" k)
+                    (swap! output-cursors* assoc
+                           k
+                           {:position (rb/tail-position stream)}))
+                (swap! output-cursors* assoc k cursor)))))))))
 
 
 (defn- append-runtime!
@@ -88,6 +117,7 @@
         envelope (assoc value
                         :runtime/seq seq
                         :runtime/time-us time-us)]
+    (prn "dao.stream <-" envelope)
     (when (= :ok (:result (ds/append! runtime-input-stream envelope)))
       (reset! runtime-seq* seq)
       (reset! runtime-time* time-us)
@@ -177,13 +207,52 @@
                 :sample/kind :actual}]}))
 
 
+(defn- keyboard-modifiers
+  [event]
+  (cond-> #{}
+    (.-altKey event) (conj :alt)
+    (.-ctrlKey event) (conj :control)
+    (.-metaKey event) (conj :meta)
+    (.-shiftKey event) (conj :shift)))
+
+
+(defn- keyboard-packet
+  [event phase input-seq]
+  {:input/kind :keyboard,
+   :generation-id (:generation-id @ids*),
+   :input-seq input-seq,
+   :time-us (js/Math.floor (* 1000 (.-timeStamp event))),
+   :phase phase,
+   :focus-id nil,
+   :repeat? (boolean (.-repeat event)),
+   :modifiers (keyboard-modifiers event),
+   :key {:code (runner/keyboard-code (.-code event)),
+         :logical (.-key event),
+         :location :standard}})
+
+
+(defn- zoom-key?
+  [event]
+  (or (contains? #{"+" "-"} (.-key event))
+      (contains? #{"NumpadAdd" "NumpadSubtract"} (.-code event))))
+
+
+(defn- rotation-key?
+  [event]
+  (contains? #{"KeyW" "KeyA" "KeyS" "KeyD"} (.-code event)))
+
+
 (defn- install-pointer-listeners!
   [canvas]
   (when-let [old @canvas-listeners*]
     (when-let [mounted @canvas*]
       (doseq [[kind handler] old] (.removeEventListener mounted kind handler))))
+  (when-let [old @keyboard-listeners*]
+    (doseq [[kind handler] old] (.removeEventListener js/window kind handler)))
   (if (nil? canvas)
-    (do (reset! canvas-listeners* nil) (reset! canvas* nil))
+    (do (reset! canvas-listeners* nil)
+        (reset! keyboard-listeners* nil)
+        (reset! canvas* nil))
     (let [runtime-pointer
           (fn [event phase]
             (let [seq (inc @runtime-seq*)
@@ -198,12 +267,26 @@
                                   :runtime-time-us seq,
                                   :packet
                                   (pointer-packet event phase seq)}))))
-          handlers {"pointerdown" #(runtime-pointer % :down),
-                    "pointermove" #(runtime-pointer % :move),
-                    "pointerup" #(runtime-pointer % :up),
-                    "pointercancel" #(runtime-pointer % :cancel),
-                    "pointerout" #(runtime-pointer % :cancel),
-                    "pointerleave" #(runtime-pointer % :cancel)}]
+          handlers (into {}
+                         (map (fn [[kind phase]]
+                                [kind
+                                 #(runtime-pointer % phase)])
+                              runner/pointer-event-phases))
+          runtime-keyboard
+          (fn [event phase]
+            (when (and (or (zoom-key? event) (rotation-key? event))
+                       (not (.-altKey event))
+                       (not (.-ctrlKey event))
+                       (not (.-metaKey event)))
+              (.preventDefault event)
+              (let [input-seq (swap! keyboard-seq* inc)]
+                (append-runtime!
+                  (runner/keyboard-runtime-input
+                    {:runtime-seq (inc @runtime-seq*),
+                     :runtime-time-us (.-timeStamp event),
+                     :packet (keyboard-packet event phase input-seq)})))))
+          keyboard-handlers {"keydown" #(runtime-keyboard % :down),
+                             "keyup" #(runtime-keyboard % :up)}]
       (resize! (canvas-size canvas))
       (when (exists? js/ResizeObserver)
         (let [observer (js/ResizeObserver. (fn [_]
@@ -212,7 +295,10 @@
           (reset! resize-observer* observer)))
       (set! (.. canvas -style -touchAction) "none")
       (doseq [[kind handler] handlers] (.addEventListener canvas kind handler))
+      (doseq [[kind handler] keyboard-handlers]
+        (.addEventListener js/window kind handler))
       (reset! canvas-listeners* handlers)
+      (reset! keyboard-listeners* keyboard-handlers)
       (reset! canvas* canvas))))
 
 
@@ -278,10 +364,9 @@
                    :box-shadow "0 30px 100px rgba(0,0,0,0.55)"})}
         :canvas-ref install-pointer-listeners! :viewport-size
         (fn [] @viewport*) :signal-stream signal-stream :on-error
-        (fn [error] (js/console.error "artifact frame rejected" error))
+        (fn [error] (prn "artifact frame rejected" error))
         :on-paint-error
-        (fn [error]
-          (js/console.error "artifact paint failed" error))])}))
+        (fn [error] (prn "artifact paint failed" error))])}))
 
 
 (defn- reset-scene!
@@ -340,14 +425,20 @@
       [:h2 {:style {:margin "0 0 10px", :font-size "18px"}}
        "Interactive 3D Sandbox"]
       [:p {:style {:color "#c2cee8", :margin "0 0 12px"}}
-       "This demo completely bypasses the UI compiler and injects low-level "
-       [:code "dao.gui.event"] " gestures to orbit and zoom."]
+       "This demo illustrates the first axiom, "
+       [:strong "everything is a stream"] ". Pointer, keyboard, geometry, "
+       "timer, and subscription values travel through bounded "
+       [:code "dao.stream.ring-buffer"] " streams into " [:code "dao.gui.event"]
+       ". The interpreter emits semantic interaction "
+       "values, which update immutable camera state and the next frame."]
       [:ul
        {:style {:color "#8391b7",
                 :font-size "14px",
                 :margin "0",
                 :padding-left "20px"}}
-       [:li "Click and drag to " [:strong "orbit"] "."]
+       [:li "Click and drag to " [:strong "rotate"] "."]
        [:li "Pinch or scroll to " [:strong "zoom"] "."]
+       [:li "Press " [:strong "+"] " or " [:strong "-"] " to zoom."]
+       [:li "Press " [:strong "W/A/S/D"] " to rotate."]
        [:li "Click or tap to " [:strong "pulse"]
         " the artifact's emissive material."]]]]]])

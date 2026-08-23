@@ -793,6 +793,25 @@
             :else {:binding flushed, :status :blocked}))))))
 
 
+(defn recover-input-gap
+  "Resume a binding after a transport-owned input-loss envelope.
+
+  The caller supplies a cursor positioned after the discarded input. The
+  envelope is interpreted normally, so active pointer arenas and held keys
+  are cancelled and the cancellation outputs remain ordered with pending
+  output. This is deliberately separate from `advance`: a bare stream gap
+  does not contain enough information to recover by itself."
+  [binding cursor runtime-input]
+  (let [{next-state :state, outputs :outputs} (step (:state binding)
+                                                    runtime-input)]
+    (assoc binding
+           :state next-state
+           :cursor cursor
+           :pending (enqueue-outputs (:pending binding) outputs)
+           :teardown? (boolean (:closed next-state))
+           :park nil)))
+
+
 (defn bind
   "Data-oriented public constructor. Creates no ambient singleton, host
   thread, callback, or waiter registration. The binding value carries the

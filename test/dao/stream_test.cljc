@@ -190,6 +190,18 @@
       (is (= :c (:ok (ds/drain-one! s)))))))
 
 
+(deftest evict-oldest-tail-position-test
+  (let [s (ds/open! {:dao.stream/type :ringbuffer,
+                     :capacity 2,
+                     :eviction-policy :evict-oldest})]
+    (is (= 0 (dao.stream.ringbuffer/tail-position s)))
+    (ds/append! s :a)
+    (ds/append! s :b)
+    (ds/append! s :c)
+    (is (= 3 (dao.stream.ringbuffer/tail-position s)))
+    (is (= :c (:ok (ds/next s {:position 2}))))))
+
+
 (deftest invalid-eviction-policy-test
   (testing "open! rejects unsupported eviction policies"
     (is (thrown? #?(:clj Exception

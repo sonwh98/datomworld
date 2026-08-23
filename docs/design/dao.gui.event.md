@@ -2,11 +2,28 @@
 
 ## Summary
 
-`dao.gui.event` is the portable input interpreter downstream of terminal
-presentation. It consumes presented interaction geometry, normalized pointer
-and keyboard events, terminal input profiles, timer results, and subscription
-commands. It produces targeted pointer values, keyboard values, recognized
-gesture values, arena decisions, and diagnostics as explicit stream data.
+`dao.gui.event` is a portable event interpreter built on `dao.stream`. In the
+browser implementation, those channels are bounded `dao.stream.ring-buffer`
+streams. This is a direct application of Datom.world's first axiom,
+"everything is a stream": host observations, presented geometry, input
+profiles, timers, subscriptions, control messages, recognized events, and
+diagnostics are all values carried by streams.
+
+It consumes presented interaction geometry, normalized pointer and keyboard
+events, terminal input profiles, timer results, and subscription commands from
+explicit input streams. It interprets those ordered values as immutable state
+transitions, then emits targeted pointer values, keyboard values, recognized
+gesture values, arena decisions, and diagnostics onto explicit output streams.
+The application does not call a recognizer directly and the recognizer does
+not call application callbacks. Meaning is produced at the stream boundary by
+an interpreter.
+
+This makes `dao.gui.event` more than a gesture helper or callback registry. It
+is a stream-to-stream interpreter: low-level observations enter as data,
+recognizer machines and arbitration interpret them, and semantic interaction
+values leave as data. Runtime sequence numbers, timestamps, generations, and
+coordinate spaces preserve causality while the DaoStream ring-buffer provides
+the bounded transport, retention, eviction, and backpressure boundary.
 
 The terminal is responsible for observing host-native input. It does not define
 portable gesture semantics. Android, iOS, Flutter, and mobile web all expose

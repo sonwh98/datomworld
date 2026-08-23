@@ -399,6 +399,18 @@
   ([capacity position] (make-ring-buffer-stream* capacity nil position)))
 
 
+(defn tail-position
+  "Returns the absolute position at which the next value will be appended.
+   A cursor that has observed an eviction can resume at this position when
+   the consumer intentionally discards the values still retained by the
+   buffer and waits for new input."
+  [stream]
+  #?(:clj (:tail @(.-state-atom ^RingBufferStream stream))
+     :cljs (:tail @(.-state-atom ^RingBufferStream stream))
+     :cljd (:tail @(.-state-atom ^RingBufferStream stream))
+     :default (:tail @(.-state-atom stream))))
+
+
 (ds/defopen :ringbuffer
             [descriptor]
             (let [{:keys [capacity eviction-policy]} descriptor]

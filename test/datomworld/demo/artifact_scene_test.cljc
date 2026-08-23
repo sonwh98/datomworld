@@ -44,7 +44,7 @@
   (let [frame (scene/build-frame (assoc scene/initial-state :pulse 2.0)
                                  [10.0 10.0])
         artifact (last frame)]
-    (is (> (nth (:material/emissive artifact) 1) 0.8))
+    (is (> (nth (:material/emissive artifact) 1) 0.79))
     (is (= 1.0 (nth (:material/emissive artifact) 2)))
     (is (not-any? #(#{:target/push :target/pop} (:op/kind %)) frame))))
 

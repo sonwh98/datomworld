@@ -223,6 +223,32 @@
       (is (= 0 (get-in (:binding result) [:cursor :position]))))))
 
 
+(deftest recover-input-gap-resets-state-and-resumes-at-new-cursor
+  (let [input (ds/open! {:dao.stream/type :ringbuffer,
+                         :capacity 2,
+                         :eviction-policy :evict-oldest})
+        _ (doseq [i (range 4)]
+            (ds/append!
+              input
+              (u/rt i u/t0 :subscription (u/sub-add (str "s" i) ::node :tap))))
+        binding (event/bind {:inputs {:runtime-input input},
+                             :outputs (streams 64)})
+        gap-result (event/advance binding)
+        recovered (event/recover-input-gap
+                    (:binding gap-result)
+                    {:position (dao.stream.ringbuffer/tail-position input)}
+                    {:runtime/seq 4,
+                     :runtime/time-us u/t0,
+                     :runtime/source :terminal,
+                     :runtime/value {:message/kind :dao.terminal/input-loss,
+                                     :reason :stream-capacity}})]
+    (is (= :input-gap (:status gap-result)))
+    (is (= 4 (get-in recovered [:cursor :position])))
+    (is (= {} (get-in recovered [:state :arenas])))
+    (is (= {} (get-in recovered [:state :pointers])))
+    (is (= :blocked (:status (event/advance recovered))))))
+
+
 (deftest full-dispatch-parks-once-per-interval-with-one-diagnostic
   (let [{:keys [binding]} (make-binding :output-capacities {:dispatch 1}
                                         :inputs (tap-inputs))

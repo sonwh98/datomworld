@@ -50,14 +50,14 @@ Shared timing and stream policy. Build every stream with
 - tick interval: `16ms` (approximately 60 Hz);
 - frame stream: capacity `4`, `:eviction-policy :evict-oldest` (a newer frame
   supersedes an older one);
-- runtime-input stream: capacity `64`, `:eviction-policy :reject` (a full
-  append reports backpressure rather than evicting);
-- each event output stream: capacity `64`, `:eviction-policy :reject`.
+- runtime-input stream: capacity `1024`, `:eviction-policy :evict-oldest`;
+- each event output stream: capacity `64`, `:eviction-policy :evict-oldest`.
 
-Runtime input and output must never evict oldest values, because eviction
-creates sequence gaps and can corrupt gesture recognition, or silently drops a
-pending output. When a `:reject` append reports a full stream, the host retains
-the packet (input) or lets the binding park (output) and retries after progress.
+Input and event outputs are bounded latest-window streams. If input retention
+does gap, the host advances to the current ringbuffer tail, emits a canonical
+`:dao.terminal/input-loss` reset, and waits for a fresh `pointerdown` before
+recognizing another gesture. A slow host keeps the newest 1024 input values
+and newest 64 output values; older values may be discarded.
 
 ## File 1: `src/cljc/datomworld/demo/artifact_scene.cljc`
 

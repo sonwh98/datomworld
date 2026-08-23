@@ -1,10 +1,19 @@
 (ns datomworld.demo.artifact-runner
-  (:require [dao.gui.event :as event]
+  (:require [clojure.string :as string]
+            [dao.gui.event :as event]
             [datomworld.demo.artifact-scene :as scene]))
 
 
 (def initial-state scene/initial-state)
 (def pan-sensitivity 0.005)
+
+
+(def pointer-event-phases
+  {"pointerdown" :down,
+   "pointermove" :move,
+   "pointerup" :up,
+   "pointercancel" :cancel,
+   "lostpointercapture" :cancel})
 
 
 (def profile-thresholds
@@ -39,6 +48,24 @@
    :runtime/time-us runtime-time-us,
    :runtime/source :pointer,
    :runtime/value packet})
+
+
+(defn keyboard-runtime-input
+  [{:keys [runtime-seq runtime-time-us packet]}]
+  {:runtime/seq runtime-seq,
+   :runtime/time-us runtime-time-us,
+   :runtime/source :keyboard,
+   :runtime/value packet})
+
+
+(defn keyboard-code
+  [code]
+  (if (keyword? code)
+    code
+    (-> (str code)
+        (string/replace #"([a-z0-9])([A-Z])" "$1-$2")
+        string/lower-case
+        keyword)))
 
 
 (defn presented-geometry
@@ -120,7 +147,8 @@
    {:runtime/source :profile,
     :runtime/value (input-profile {:generation-id generation-id,
                                    :profile-id profile-id,
-                                   :capabilities #{:touch :mouse :stylus}}),
+                                   :capabilities #{:touch :mouse :stylus
+                                                   :keyboard}}),
     :runtime/time-us 2,
     :runtime/seq 2}
    {:runtime/source :subscription,
@@ -161,6 +189,11 @@
   (if (number? x) (double x) fallback))
 
 
+(defn drag-gesture?
+  [gesture]
+  (contains? #{:pan :drag} (:gesture/kind gesture)))
+
+
 (defn reduce-gesture
   [state gesture]
   (case (:gesture/kind gesture)
@@ -180,9 +213,51 @@
     state))
 
 
+(def keyboard-zoom-in-factor 0.9)
+(def keyboard-zoom-out-factor 1.1)
+(def keyboard-rotation-step 0.08)
+
+
+(defn- keyboard-zoom-factor
+  [key]
+  (case (:logical key)
+    "+" keyboard-zoom-in-factor
+    "-" keyboard-zoom-out-factor
+    (case (:code key)
+      :numpad-add keyboard-zoom-in-factor
+      :numpad-subtract keyboard-zoom-out-factor
+      nil)))
+
+
+(defn- keyboard-rotation-delta
+  [key]
+  (case (:code key)
+    :key-w {:pitch (- keyboard-rotation-step)}
+    :key-s {:pitch keyboard-rotation-step}
+    :key-a {:yaw (- keyboard-rotation-step)}
+    :key-d {:yaw keyboard-rotation-step}
+    nil))
+
+
+(defn reduce-keyboard
+  [state keyboard-event]
+  (if (= :down (:event/phase keyboard-event))
+    (if-let [factor (keyboard-zoom-factor (:key keyboard-event))]
+      (update state
+              :zoom
+              #(max scene/min-zoom (min scene/max-zoom (* % factor))))
+      (if-let [{:keys [pitch yaw]} (keyboard-rotation-delta (:key
+                                                              keyboard-event))]
+        (-> state
+            (update :cam-rot-x
+                    #(max -1.4835 (min 1.4835 (+ % (double (or pitch 0.0))))))
+            (update :cam-rot-y #(+ % (double (or yaw 0.0)))))
+        state))
+    state))
+
+
 (defn tick-state
   [state]
   (-> state
       (update :pulse #(* (double (or % 0.0)) scene/pulse-decay-factor))
-      (update :phase #(+ (double (or % 0.0)) scene/phase-step))
-      (update :cam-rot-y #(+ (double (or % 0.0)) 0.005))))
+      (update :phase #(+ (double (or % 0.0)) scene/phase-step))))
