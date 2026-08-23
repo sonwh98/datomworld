@@ -1,8 +1,7 @@
 (ns dao.postgraphics.raster-test
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.postgraphics.math :as m]
-    [dao.postgraphics.raster :as raster]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.postgraphics.math :as m]
+            [dao.postgraphics.raster :as raster]))
 
 
 (defn- approx=
@@ -466,6 +465,16 @@
 
 
 (deftest blinn-phong-point-attenuation
+  (testing "an omitted point-light range uses the default attenuation range"
+    (let [result
+          (raster/blinn-phong
+            {:diffuse [1 1 1]}
+            [{:kind :point, :color [1 1 1], :position [0 0 1], :range nil}]
+            [0 0 5]
+            [0 0 1]
+            [0 0 0])]
+      (is (every? number? result))
+      (is (pos? (first result)))))
   (testing "beyond range -> fully attenuated"
     (let [result
           (raster/blinn-phong

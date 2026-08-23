@@ -4,9 +4,8 @@
    CPU triangle/line rasterizer the software backends drive.  No platform types —
    pixel and depth buffers are injected via put-pixel!/depth-get/depth-set!
    callbacks so each platform (web/canvas, flutter/canvas) owns its own arrays."
-  (:require
-    [dao.postgraphics.math :as math]
-    [dao.postgraphics.validation :as v]))
+  (:require [dao.postgraphics.math :as math]
+            [dao.postgraphics.validation :as v]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -250,7 +249,7 @@
                 :point
                 (let [to-light (math/vec3-sub (:position light) world-pos)
                       dist (math/msqrt (math/dot3 to-light to-light))
-                      range (double (get light :range 100.0))
+                      range (double (or (:range light) 100.0))
                       L (math/vec3-normalize to-light)
                       n-l (max 0.0 (math/dot3 normal L))
                       H (math/vec3-normalize (math/vec3-add L view-dir))

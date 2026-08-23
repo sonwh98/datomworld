@@ -1,0 +1,246 @@
+(ns datomworld.demo.artifact
+  (:require ["dart:async" :as async]
+            ["dart:core" :as core]
+            ["package:flutter/material.dart" :as m]
+            [dao.gui.event :as event]
+            [dao.postgraphics.flutter :as pg]
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer]
+            [datomworld.demo.artifact-runner :as runner]
+            [datomworld.demo.artifact-scene :as scene]))
+
+
+(def ^:private frame-stream
+  (ds/open! {:dao.stream/type :ringbuffer,
+             :capacity 4,
+             :eviction-policy :evict-oldest}))
+
+
+(def ^:private scene-state (atom runner/initial-state))
+(def ^:private timer-stop* (atom nil))
+
+
+(def ^:private runtime-input-stream
+  (ds/open!
+    {:dao.stream/type :ringbuffer, :capacity 64, :eviction-policy :reject}))
+
+
+(def ^:private event-binding* (atom nil))
+(def ^:private output-streams* (atom nil))
+(def ^:private output-cursors* (atom {}))
+(def ^:private runtime-seq* (atom 0))
+(def ^:private runtime-time* (atom -1))
+
+
+(def ^:private ids*
+  (atom {:generation-id 1, :frame-id 1, :coordinate-space-id 1, :profile-id 1}))
+
+
+(def ^:private viewport* (atom [800.0 600.0]))
+
+
+(def ^:private signal-stream
+  (ds/open!
+    {:dao.stream/type :ringbuffer, :capacity 32, :eviction-policy :reject}))
+
+
+(def ^:private active-pointers* (atom #{}))
+
+
+(def ^:private output-keys
+  [:effects :trace :pointer :keyboard :gesture :dispatch :diagnostic])
+
+
+(defn- open-output-streams
+  []
+  (into {}
+        (map (fn [k]
+               [k
+                (ds/open! {:dao.stream/type :ringbuffer,
+                           :capacity 64,
+                           :eviction-policy :reject})])
+             output-keys)))
+
+
+(defn- advance!
+  []
+  (when-let [binding @event-binding*]
+    (let [result (runner/advance-until-progress binding 64)]
+      (reset! event-binding* (:binding result))
+      (doseq [[k stream] @output-streams*]
+        (loop [cursor (get @output-cursors* k {:position 0})]
+          (let [read (ds/next stream cursor)]
+            (if (map? read)
+              (do (when (= k :gesture)
+                    (swap! scene-state runner/reduce-gesture (:ok read)))
+                  (recur (:cursor read)))
+              (swap! output-cursors* assoc k cursor))))))))
+
+
+(defn- append-runtime!
+  [value]
+  (let [seq (inc @runtime-seq*)
+        requested-time (or (:runtime/time-us value) seq)
+        time-us (max (inc @runtime-time*) (long requested-time))
+        envelope (assoc value
+                        :runtime/seq seq
+                        :runtime/time-us time-us)]
+    (when (= :ok (:result (ds/append! runtime-input-stream envelope)))
+      (reset! runtime-seq* seq)
+      (reset! runtime-time* time-us)
+      (advance!))))
+
+
+(defn- boot-events!
+  []
+  (let [{:keys [generation-id frame-id coordinate-space-id profile-id]} @ids*
+        [width height] @viewport*
+        outputs (open-output-streams)]
+    (reset! output-streams* outputs)
+    (reset! output-cursors* {})
+    (reset! event-binding* (event/bind {:inputs {:runtime-input
+                                                 runtime-input-stream},
+                                        :outputs outputs}))
+    (doseq [value (runner/boot-values {:generation-id generation-id,
+                                       :frame-id frame-id,
+                                       :coordinate-space-id coordinate-space-id,
+                                       :profile-id profile-id,
+                                       :width width,
+                                       :height height})]
+      (append-runtime! value))))
+
+
+(defn- resize!
+  [size]
+  (when (not= size @viewport*)
+    (reset! viewport* size)
+    (when @event-binding*
+      (let [ids (swap! ids* (fn [ids]
+                              (-> ids
+                                  (update :frame-id inc)
+                                  (update :coordinate-space-id inc))))
+            [width height] size]
+        (doseq [value [{:runtime/source :terminal,
+                        :runtime/value
+                        {:message/kind :dao.terminal/coordinate-space-change,
+                         :generation-id (:generation-id ids),
+                         :coordinate-space-id (:coordinate-space-id ids),
+                         :viewport {:width width, :height height}}}
+                       {:runtime/source :geometry,
+                        :runtime/value (runner/presented-geometry
+                                         (:generation-id ids)
+                                         (:frame-id ids)
+                                         (:coordinate-space-id ids)
+                                         width
+                                         height)}]]
+          (append-runtime! value))))))
+
+
+(defn- pointer-type
+  [e]
+  (let [kind (str (.-kind e))]
+    (cond (.contains kind "touch") :touch
+          (.contains kind "stylus") :stylus
+          :else :mouse)))
+
+
+(defn- emit-pointer!
+  [phase e]
+  (let [id (.-pointer e)
+        active (if (= phase :up)
+                 (disj @active-pointers* id)
+                 (conj @active-pointers* id))
+        _ (reset! active-pointers* active)
+        pos (.-localPosition e)
+        seq (inc @runtime-seq*)
+        packet {:input/kind :pointer,
+                :generation-id (:generation-id @ids*),
+                :frame-id (:frame-id @ids*),
+                :coordinate-space-id (:coordinate-space-id @ids*),
+                :profile-id (:profile-id @ids*),
+                :input-seq seq,
+                :pointer {:id id,
+                          :type (pointer-type e),
+                          :primary? (= id (first (sort active))),
+                          :buttons (.-buttons e),
+                          :modifiers #{},
+                          :pressure (.-pressure e)},
+                :phase phase,
+                :samples [{:time-us (.-inMicroseconds (.-timeStamp e)),
+                           :position {:x (.-dx pos), :y (.-dy pos)},
+                           :sample/kind :actual}]}]
+    (append-runtime! (runner/pointer-runtime-input {:runtime-seq seq,
+                                                    :runtime-time-us seq,
+                                                    :packet packet}))))
+
+
+(defn- emit-frame!
+  []
+  (pg/put-frame! frame-stream (scene/build-frame @scene-state @viewport*)))
+
+
+(defn stop!
+  []
+  (when-let [stop-fn @timer-stop*]
+    (stop-fn)
+    (reset! timer-stop* nil))
+  :stopped)
+
+
+(defn dispose!
+  []
+  (stop!)
+  (append-runtime! {:runtime/source :control,
+                    :runtime/value {:input/kind :dao.gui.event/teardown}})
+  (reset! event-binding* nil)
+  (ds/close! runtime-input-stream)
+  (ds/close! signal-stream)
+  (ds/close! frame-stream)
+  :disposed)
+
+
+(defn start!
+  []
+  (when-not @timer-stop*
+    (boot-events!)
+    (emit-frame!)
+    (let [timer (async/Timer.periodic
+                  (core/Duration .milliseconds 16)
+                  (fn [_] (swap! scene-state runner/tick-state) (emit-frame!)))]
+      (reset! timer-stop* (fn [] (.cancel timer)))))
+  :started)
+
+
+(defn view
+  []
+  (m/Scaffold .appBar
+              (m/AppBar .title (m/Text "Glowing Artifact"))
+              .body
+              (m/LayoutBuilder
+                .builder
+                (fn [_context ^m/BoxConstraints constraints]
+                  (let [w (.-maxWidth constraints)
+                        h (min w (.-maxHeight constraints))]
+                    (resize! [w h])
+                    (m/Center .child
+                              (m/SizedBox .width
+                                          w
+                                          .height
+                                          h
+                                          .child
+                                          (m/Listener
+                                            .onPointerDown
+                                            (fn [e] (emit-pointer! :down e))
+                                            .onPointerMove
+                                            (fn [e] (emit-pointer! :move e))
+                                            .onPointerUp
+                                            (fn [e] (emit-pointer! :up e))
+                                            .onPointerCancel
+                                            (fn [e] (emit-pointer! :cancel e))
+                                            .child
+                                            (pg/postgraphics-widget
+                                              frame-stream
+                                              :signal-stream signal-stream
+                                              :on-error (fn [e] (core/print e))
+                                              :on-paint-error
+                                              (fn [e] (core/print e)))))))))))

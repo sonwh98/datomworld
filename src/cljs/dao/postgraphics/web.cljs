@@ -6,11 +6,10 @@
    chooses between.  The two backends need different lowering capabilities
    (the GPU path supports render targets + images; the CPU path does not), so
    the dispatcher picks the submitter and its lowering opts together."
-  (:require
-    [dao.postgraphics.lowering :as lower]
-    [dao.postgraphics.terminal :as terminal]
-    [dao.postgraphics.web.canvas :as sw]
-    [dao.postgraphics.web.gpu :as gpu]))
+  (:require [dao.postgraphics.lowering :as lower]
+            [dao.postgraphics.terminal :as terminal]
+            [dao.postgraphics.web.canvas :as sw]
+            [dao.postgraphics.web.gpu :as gpu]))
 
 
 (def put-frame! terminal/put-frame!)
@@ -104,8 +103,9 @@
   - :canvas-attrs  Hiccup attrs merged onto the internal canvas
   - :viewport-size function returning [width height]
   - :resolve-resource function resolving image/texture resources
+  - :canvas-ref callback receiving the mounted canvas or nil on teardown
   - :backend       override {:submit! :supports-render-targets? :supports-image?}"
-  [frame-stream & {:keys [canvas-attrs], :as opts}]
+  [frame-stream & {:keys [canvas-attrs canvas-ref], :as opts}]
   ;; Form-2 component: the constructor closes over per-instance state
   ;; (handle, set-ref!) created once; the render fn reuses the captured
   ;; opts.  The :ref callback binds on mount (canvas non-nil) and tears
@@ -114,8 +114,10 @@
         set-ref!
         (fn [canvas]
           (if canvas
-            (reset! handle (bind-frame-stream! canvas frame-stream opts))
+            (do (reset! handle (bind-frame-stream! canvas frame-stream opts))
+                (when canvas-ref (canvas-ref canvas)))
             (do (when-let [h @handle]
                   (when-let [close! (:close! h)] (close!)))
+                (when canvas-ref (canvas-ref nil))
                 (reset! handle nil))))]
     (fn [] [:canvas (assoc canvas-attrs :ref set-ref!)])))

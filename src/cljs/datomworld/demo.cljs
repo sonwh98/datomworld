@@ -1,16 +1,16 @@
 (ns datomworld.demo
-  (:require
-    [datomworld.demo.compilation-pipeline :as pipeline]
-    [datomworld.demo.continuation-stream :as cont-demo]
-    [datomworld.demo.earth-moon :as earth-moon-demo]
-    [datomworld.demo.equation-plotter :as plotter-demo]
-    [datomworld.demo.responsive :as responsive]
-    [datomworld.demo.solar-system :as solar-demo]
-    [datomworld.demo.voxel :as voxel-demo]
-    [datomworld.demo.yin-repl :as yin-repl-demo]
-    [reagent.core :as r]
-    [reagent.dom :as rdom]
-    [yin.vm.telemetry-viewer :as tv]))
+  (:require [datomworld.demo.compilation-pipeline :as pipeline]
+            [datomworld.demo.continuation-stream :as cont-demo]
+            [datomworld.demo.artifact :as artifact-demo]
+            [datomworld.demo.earth-moon :as earth-moon-demo]
+            [datomworld.demo.equation-plotter :as plotter-demo]
+            [datomworld.demo.responsive :as responsive]
+            [datomworld.demo.solar-system :as solar-demo]
+            [datomworld.demo.voxel :as voxel-demo]
+            [datomworld.demo.yin-repl :as yin-repl-demo]
+            [reagent.core :as r]
+            [reagent.dom :as rdom]
+            [yin.vm.telemetry-viewer :as tv]))
 
 
 (def demo-options
@@ -22,6 +22,10 @@
     :label "Earth and Moon",
     :icon "◐",
     :desc "3D postgraphics Earth/Moon scene using mesh and line ops."}
+   {:id :artifact,
+    :label "Glowing Artifact",
+    :icon "✦",
+    :desc "Cross-platform postgraphics artifact scene."}
    {:id :pipeline,
     :label "Pipeline Compilation",
     :icon "⚙",
@@ -46,9 +50,9 @@
     :desc
     "Math equation plotter demonstrating FFI from Yin.VM to functions implemented in ClojureScript"}
    #_{:id :telemetry,
-    :label "VM Telemetry Viewer",
-    :icon "📡",
-    :desc "Live telemetry and REPL for running VMs."}])
+      :label "VM Telemetry Viewer",
+      :icon "📡",
+      :desc "Live telemetry and REPL for running VMs."}])
 
 
 (defn- hash->demo
@@ -61,6 +65,7 @@
     "#telemetry" :telemetry
     "#solar-system" :solar-system
     "#earth-moon" :earth-moon
+    "#artifact" :artifact
     "#voxel" :voxel
     :home))
 
@@ -75,6 +80,7 @@
     :telemetry "#telemetry"
     :solar-system "#solar-system"
     :earth-moon "#earth-moon"
+    :artifact "#artifact"
     :voxel "#voxel"
     "#home"))
 
@@ -95,6 +101,7 @@
   (case demo-id
     :solar-system (solar-demo/dispose!)
     :earth-moon (earth-moon-demo/dispose!)
+    :artifact (artifact-demo/dispose!)
     :voxel (voxel-demo/dispose!)
     nil))
 
@@ -112,46 +119,54 @@
 (defn home-view
   []
   [:div
-   {:style {:min-height "100vh",
-            :background
-            "radial-gradient(circle at top, #13244e 0%, #070916 52%, #04050d 100%)",
-            :color "#f1f5ff",
-            :padding "72px 20px 40px",
-            :box-sizing "border-box"}}
+   {:style
+    {:min-height "100vh",
+     :background
+     "radial-gradient(circle at top, #13244e 0%, #070916 52%, #04050d 100%)",
+     :color "#f1f5ff",
+     :padding "72px 20px 40px",
+     :box-sizing "border-box"}}
    [:div
     {:style {:width "min(1180px, 100%)",
              :margin "0 auto",
              :display "flex",
              :flex-direction "column",
              :gap "28px"}}
-    [:div
-     {:style {:max-width "760px"}}
-     [:div {:style {:color "#8eb6ff",
-                    :font-size "12px",
-                    :font-weight "700",
-                    :letter-spacing "0.16em",
-                    :text-transform "uppercase",
-                    :margin-bottom "12px"}}
-      "Interactive stream frontends"]
-     [:h1 {:style {:font-size "clamp(2.4rem, 6vw, 4.8rem)",
-                   :line-height "0.94",
-                   :margin "0 0 12px"}}
+    [:div {:style {:max-width "760px"}}
+     [:div
+      {:style {:color "#8eb6ff",
+               :font-size "12px",
+               :font-weight "700",
+               :letter-spacing "0.16em",
+               :text-transform "uppercase",
+               :margin-bottom "12px"}} "Interactive stream frontends"]
+     [:h1
+      {:style {:font-size "clamp(2.4rem, 6vw, 4.8rem)",
+               :line-height "0.94",
+               :margin "0 0 12px"}}
       [:a
        {:href "https://datom.world",
         :style {:color "inherit", :text-decoration "none"}} "Datom.world"]
       " Demos"]
-     [:p {:style {:margin 0,
-                  :color "#b8c7e8",
-                  :font-size "16px",
-                  :line-height "1.65"}}
+     [:p
+      {:style
+       {:margin 0, :color "#b8c7e8", :font-size "16px", :line-height "1.65"}}
       "Everything is a stream. Everything is a continuation. Meaning is constructed by the interpreter."]
-     [:div {:style {:margin-top "18px", :display "flex", :gap "24px", :flex-wrap "wrap"}}
-      [:a {:href "/blog/structure-vs-interpretation.blog"
-           :style {:color "#8eb6ff", :text-decoration "none", :font-size "14px", :font-weight "600"}}
-       "→ Structure vs Interpretation"]
-      [:a {:href "/blog/semantics-structure-interpretation.blog"
-           :style {:color "#8eb6ff", :text-decoration "none", :font-size "14px", :font-weight "600"}}
-       "→ Semantics as Structure"]]]
+     [:div
+      {:style
+       {:margin-top "18px", :display "flex", :gap "24px", :flex-wrap "wrap"}}
+      [:a
+       {:href "/blog/structure-vs-interpretation.blog",
+        :style {:color "#8eb6ff",
+                :text-decoration "none",
+                :font-size "14px",
+                :font-weight "600"}} "→ Structure vs Interpretation"]
+      [:a
+       {:href "/blog/semantics-structure-interpretation.blog",
+        :style {:color "#8eb6ff",
+                :text-decoration "none",
+                :font-size "14px",
+                :font-weight "600"}} "→ Semantics as Structure"]]]
     [:div
      {:style {:display "grid",
               :grid-template-columns (responsive/auto-fit-grid 260),
@@ -180,9 +195,9 @@
                                "#2d3b55")
                          (set! (.. e -currentTarget -style -transform) "none"))}
         [:div {:style {:font-size "3rem"}} icon]
-        [:div
-         [:h2 {:style {:margin "0 0 10px", :font-size "1.35rem"}} label]
-         [:p {:style {:margin 0, :color "#8b949e", :line-height "1.6"}} desc]]])]]])
+        [:div [:h2 {:style {:margin "0 0 10px", :font-size "1.35rem"}} label]
+         [:p {:style {:margin 0, :color "#8b949e", :line-height "1.6"}}
+          desc]]])]]])
 
 
 (defn root-shell
@@ -197,6 +212,7 @@
        :telemetry [tv/main-panel]
        :solar-system [solar-demo/main-view]
        :earth-moon [earth-moon-demo/main-view]
+       :artifact [artifact-demo/main-view]
        :voxel [voxel-demo/main-view]
        [home-view])
      (when (not= selected-demo :home)

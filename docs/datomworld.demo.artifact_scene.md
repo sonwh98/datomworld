@@ -96,10 +96,11 @@ The frame operation order is:
  :state/depth-test
  :state/depth-write
  :state/lighting-enable
- :light/ambient
- :light/point
- :draw3d/mesh        ; floor
- :draw3d/mesh        ; artifact
+:light/ambient
+:light/point
+:draw3d/mesh        ; floor
+:draw3d/mesh        ; animated halo
+:draw3d/mesh        ; artifact
 ]
 ```
 
@@ -117,7 +118,8 @@ Use the same operation shape as the existing scene builders. In particular:
   privately in this namespace or in a new shared mesh namespace. Do not make
   the artifact demo depend on `earth_moon_scene.cljc`;
 - the artifact emissive value is a 3-channel vector derived from a clamped
-  pulse, for example `[0.0 (* 0.8 pulse) pulse]`;
+  pulse and an advancing phase, so the artifact has a visible baseline glow
+  that brightens on tap;
 - the floor uses an ordinary 4-channel fill and does not sample a target.
 
 Camera semantics are fixed for both hosts. The camera targets the world origin
