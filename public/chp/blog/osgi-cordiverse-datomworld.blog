@@ -1,0 +1,68 @@
+#:blog{:title "OSGi, Cordiverse, and Datom.world: The Evolution of Dynamic Composability",
+       :date #inst "2026-08-25T00:00:00.000-00:00",
+       :abstract
+       [:p "For decades, software engineers have struggled with the dynamic lifecycle of components within long-running processes. OSGi pioneered dynamic module loading in Java, while Cordiverse formalizes it mathematically with revertible effects. Datom.world approaches the same problem by sidestepping mutable state entirely, leveraging immutable streams and treating the AST as queryable datoms to make dynamic composition structural rather than imperative."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p "How do you manage the dynamic lifecycle of components within a single, long-running process without everything collapsing into a tangled mess of state?"]
+
+          [:p "This is one of the hardest problems in software engineering, especially for plugin architectures, extensible servers, and AI agent harnesses. Over the years, three distinct philosophies have emerged to solve it: the imperative pioneer (" [:strong "OSGi"] "), the modern formalization (" [:a {:href "https://github.com/cordiverse/paper"} [:strong "Cordiverse"] ] "), and the paradigm shift (" [:strong "Datom.world"] ")."]
+
+          [:h2 "OSGi: The Imperative Pioneer"]
+
+          [:p "Born in the late 90s, OSGi is the famous Java framework for developing and deploying modular software programs. Its defining feature is its dynamic module system, where bundles (components) can be installed, started, stopped, updated, and uninstalled at runtime without bringing down the whole system."]
+
+          [:p "OSGi achieves this through a dynamic Service Registry. Bundles declare what services they provide and listen for services they consume. However, OSGi is notoriously brittle in practice. When a bundle is updated or uninstalled, its " [:code "stop()"] " method is called. The developer is entirely responsible for manually unregistering services, clearing listeners, and cleaning up memory. If they miss even one listener, the system suffers a memory leak or a stale reference. OSGi expects perfect imperative cleanup in a mutable world."]
+
+          [:h2 "Cordiverse: The Modern Formalization"]
+
+          [:p "Cordiverse (and its meta-framework Cordis) tackles the exact same problem as OSGi, but attempts to " [:strong "mathematically formalize and automate"] " the lifecycle management."]
+
+          [:p "Where OSGi relies on developers to write flawless " [:code "stop()"] " routines, Cordiverse introduces " [:strong "Temporal Composability"] " via " [:strong "\"revertible effects\""] ". The Cordiverse runtime mathematically tracks the inverse of every action (effect) a component takes. When a module is hot-reloaded or removed, the runtime automatically unrolls those inverses, guaranteeing a clean slate without manual cleanup."]
+
+          [:p "Furthermore, OSGi's imperative service registry is replaced by " [:strong "Spatial Composability"] " via " [:strong "\"reactive coeffects\""] ". Components statically declare their dependencies on a unified context. When that context changes (e.g., a dependency is loaded or removed), the component is reactively notified. It is the dynamic wiring OSGi pioneered, lifted into a formal calculus."]
+
+          [:h2 "Datom.world: Escaping the Mutable State Trap"]
+
+          [:p "OSGi and Cordiverse represent the pinnacle of attempting to strictly manage mutable state in a shared memory space. They require massive complexity—calculi of coeffects, strict module boundaries, and runtime effect tracking—just to safely load and unload code."]
+
+          [:p "Datom.world looks at this problem and concludes: " [:em "\"The problem isn't that we aren't managing lifecycle hooks well enough; the problem is that we are mutating state in place.\""]]
+
+          [:p "By building upon its foundational axioms, Datom.world sidesteps the entire paradigm. " [:strong "Axiom 1 (Everything is a Stream)"] " forces everything into immutable, append-only streams of facts (datoms). There is no mutable context to \"roll back\" or \"clean up\". If you want to undo an action, you append a retraction datom, or simply query the stream at a previous transaction ID."]
+
+          [:h2 "Beyond Hot-Reloading: When Code is Data"]
+
+          [:p "While Cordiverse pushes the absolute limits of what you can do with opaque text compiled into a traditional runtime, it is ultimately still trapped inside that box. Datom.world's " [:strong "Axiom 3 (Code and State are Datoms)"] " shatters that box entirely. Because Yin.vm ASTs are represented as pure structural data rather than opaque text, Datom.world unlocks capabilities that a traditional module-loader framework cannot even attempt:"]
+
+          [:h3 "Reactive Datalog vs. Reactive Coeffects"]
+          [:p "Cordiverse has to invent a highly specialized, closed mathematical apparatus just to figure out what a piece of code depends on. In Datom.world, you get this for free through " [:strong "Datalog"] ". You can literally write a query that says: " [:em "\"Find me all function calls inside Continuation X that reference State Y.\""] " Since DaoSpace is an embedded Datalog interpreter over a stream, a Yin.vm continuation can simply subscribe to that query. If a required resource is retracted by another agent, the query result changes, and the continuation reacts instantly. The code itself is a queryable database index."]
+
+          [:h3 "True Code Mobility"]
+          [:p "Cordiverse gives you hot-reloading on a single machine. Yin.vm gives you teleportation. Because the entire execution state (the continuation) is just an append-only log of datoms (" [:strong "Axiom 4: Everything is a Continuation"] "), you can pause a running process on your phone, send the stream over the network, and seamlessly resume execution on a massive GPU cluster. The runtime isn't a physical machine; it's the stream."]
+
+          [:h3 "Microscopic AI Self-Modification"]
+          [:p "If an AI agent in Cordiverse wants to evolve its own behavior, it has to write a new text file, save it to disk, and ask the loader to hot-swap the entire plugin. In Datom.world, an AI agent can run a Datalog query to find a specific " [:code "if/else"] " branch inside its own running AST, and append a transaction that surgically rewrites that single node in real-time. It can safely evolve its own logic at a microscopic level without ever touching a text file."]
+
+          [:h3 "Time-Traveling Execution"]
+          [:p "Cordiverse can \"revert\" an effect by running an inverse function, but the past is still gone. Because Yin.vm execution traces are immutable datoms, you have perfect, granular time travel. You can query the database to ask: " [:em "\"What did the AST of this function look like 3 weeks ago, what were the values of its local variables, and what was the exact line of code that caused the state change?\""]]
+
+          [:h2 "Conclusion"]
+
+          [:p "OSGi showed us the necessity of dynamic composition. Cordiverse is showing us how to do it safely in a mutable environment by tracking effects mathematically. But Datom.world demonstrates that if you abandon mutable state and opaque text entirely in favor of immutable streams and queryable ASTs, the hardest problems of dynamic lifecycles simply vanish."]
+
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/datomworld.chp#axioms"}
+             "The Four Axioms of Datom.world"]]
+           [:li
+            [:a {:href "/blog/computation-moves-data-stays.blog"}
+             "Computation Moves, Data Stays"]]
+           [:li
+            [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"}
+             "Yin.vm: Chinese Characters for Programming Languages"]]]]]]}
