@@ -454,7 +454,7 @@ Tests cover:
 ## References
 
 - **VM Architecture:** `docs/agents/architecture.md`
-- **Datom Spec:** `docs/agents/datom-spec.md`
+- **Datom Spec:** `docs/design/datom.md`
 - **Yang Compiler:** `src/cljc/yang/clojure.cljc`
 - **DAO Stream:** `src/cljc/dao/stream.cljc`
 - **VM Telemetry:** `src/cljc/yin/vm/telemetry.cljc`

@@ -48,7 +48,7 @@ view.
 **Related documents:**
 - `docs/design/dao.space.md` — the sibling point: the tuple space, exact associative matching, and the moduli-space framing both share
 - `docs/design/dao.jing.md` — the storage boundary both read: the content-addressed store of opaque bytes served as content, never as datoms
-- `docs/agents/datom-spec.md` — tuples of any dimension/size in an open moduli space; the `d_k` dimension a vector inhabits
+- `docs/design/datom.md` — tuples of any dimension/size in an open moduli space; the `d_k` dimension a vector inhabits
 - `docs/design/dao.space.discrete-to-continuous.md` — why the datom set carries a metric at all: `ℓ²(E)`, spectral decomposition, the discrete→continuous correspondence this doc rests on
 - `docs/design/dao.space.locality.md`, `dao.space.metaphors.md` — the geometry/locality cluster
 
@@ -66,14 +66,14 @@ is 陰陽: `dao.space` is the **form** of the essence, `dao.field` its **flow**.
 ## A vector *is* a tuple (the `d_k` floor)
 
 `dao.field` needs no new storage primitive because a vector is already a tuple.
-[`datom-spec.md`](../agents/datom-spec.md) grades the moduli space by dimension `n` — "a tuple at dimension `n` is a tuple-shaped event in **n coordinates**" — and the space is **open**:
+[`datom.md`](./datom.md) grades the moduli space by dimension `n` — "a tuple at dimension `n` is a tuple-shaped event in **n coordinates**" — and the space is **open**:
 applications declare new dimensions as needed, no dimension canonical. A `k`-dimensional
 embedding is therefore a **`d_k` tuple**: its `k` slots *are* the coordinates.
 
 This dissolves the usual "where do the vectors live" question:
 
 - **No compound-by-hash detour.** The "a slot value is always small" rule
-  (`datom-spec.md`, Canonical Encoding) is about a single slot. Here each slot is one
+  (`datom.md`, Canonical Encoding) is about a single slot. Here each slot is one
   coordinate — an inline float, ≤ 32 bytes — so the whole vector rides as a wide `d_k` tuple of
   small slots, not a blob referenced by hash.
 - **Fixed-size typed streams give the layout for free.** A `d_k` typed stream

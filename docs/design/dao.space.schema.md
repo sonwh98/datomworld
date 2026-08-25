@@ -51,7 +51,7 @@ is the only coherent form (§1).
   this design once mis-cited and now cites correctly (§5)
 - `docs/design/adr/0002-share-governed-computation-not-data.md` — controlled
   mode, the enforcement boundary for untrusted writers
-- `docs/agents/datom-spec.md` — schema entities named by `:db/ident`
+- `docs/design/datom.md` — schema entities named by `:db/ident`
 - `docs/datomic.md` — the schema model being interpreted
 
 
@@ -215,7 +215,7 @@ a v]` row per axiom fact — not raw d5 (d5 vectors are not in the §3
 transaction vocabulary). The five `:db/*` attribute entities take the
 conventional genesis ids 16–20: the datom spec rules the reserved block out
 ("user entities, including all schema, live at 16+ and migrate with data",
-`docs/agents/datom-spec.md`, Reserved Entities), and a stream whose genesis
+`docs/design/datom.md`, Reserved Entities), and a stream whose genesis
 is the bootstrap has those ids free by construction. The ids are a
 convention, not a reservation — the axioms resolve by `:db/ident` value
 through the `a`/`v` slots, so a late-adopting stream may seed equivalent

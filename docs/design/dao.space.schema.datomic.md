@@ -22,7 +22,7 @@ compatible" are not testable.
 - `docs/design/dao.space.md` — the tuple-space storage boundary
 - `docs/design/dao.space.query.md` — query db-values and source polymorphism
 - `docs/design/dao.space.index.md` — covered index representation
-- `docs/agents/datom-spec.md` — canonical d5 tuples and metadata references
+- `docs/design/datom.md` — canonical d5 tuples and metadata references
 - `docs/agents/architecture.md` — agents and DaoStream effect boundaries
 - `docs/design/adr/0002-share-governed-computation-not-data.md` — capability
   boundaries for governed writes

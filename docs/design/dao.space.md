@@ -58,7 +58,7 @@ admissible tuple dimension).
 - `docs/design/dao.space.query.md` — the query library's design record: index realization, the `read-datoms` contract, and the decisions
 - `docs/design/dao.space.index.md` — the transactor-side indexing library: every agent indexes its own datoms; the covered-index realization both sides share
 - `docs/design/dao.stream.md` — the append-only log primitive tuples and descriptors are written through
-- `docs/agents/datom-spec.md` — tuples and datoms, content-addressed identity, the gauge/base framing
+- `docs/design/datom.md` — tuples and datoms, content-addressed identity, the gauge/base framing
 - `docs/datomic.md` — the Datomic architecture the Transactor/Storage/Query split maps to
 - `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the decision this design records
 - `docs/design/adr/0002-share-governed-computation-not-data.md` — the access-mode security model
@@ -537,7 +537,7 @@ The tuple space is **Linda's** contribution: generative communication (write int
 medium, don't address a receiver), spatial and temporal decoupling, non-destructive
 associative matching. The divergences are immutability (append, never `take`) and being an
 **n-tuple space**: tuples of any dimension (the moduli-space framing of
-`docs/agents/datom-spec.md`) in place of untyped positional arrays. The datom — the canonical
+`docs/design/datom.md`) in place of untyped positional arrays. The datom — the canonical
 persistent tuple `[e a v t m]` is the special case where `dao.space` behaves
 like Datomic. Unlike Datomic, `dao.space.query/q` matches arbitrary mixed
 n-tuples. Plain clauses are exact-arity; explicit rest syntax requests prefix

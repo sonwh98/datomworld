@@ -171,7 +171,7 @@ Seven new posts are needed to complete the series. Each should be written in the
 - `docs/ideas/agent-smith.md` – discusses containment of malicious agents.
 - `docs/vm-todo.md` – performance and bug analysis of Yin.vm’s four back-ends.
 - `docs/register-vm.md` – detailed analysis of the register-based VM.
-- `AGENTS.md` – project development rules and philosophical foundations.
+- `CLAUDE.md` / `docs/design/datom.world.md` – project development rules and philosophical foundations.
 
 ---
 

@@ -10,7 +10,7 @@
 > **Related:** `dao.jing.md` (the storage-boundary spec this doc justifies) and `dao.space.md` (the tuple space),
 > `dao.space.v0.md` (superseded; original gauge framing), `dao.space.discrete-to-continuous.md` (the *Descent*
 > section, where the static half of this correspondence is made rigorous),
-> `docs/agents/datom-spec.md` (entity ID as local gauge).
+> `docs/design/datom.md` (entity ID as local gauge).
 
 ---
 

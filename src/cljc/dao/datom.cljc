@@ -8,7 +8,7 @@
 
    This namespace is the single source of truth for the reserved ids and for
    the boundary between reserved and user space; nothing should compare m or e
-   against a bare literal. See docs/agents/datom-spec.md.")
+   against a bare literal. See docs/design/datom.md.")
 
 
 (def reserved
@@ -35,7 +35,7 @@
    coordinates in a slot the spec declares a stream-local gauge, and would put
    the floor above what an int8-wide e can represent at all.
 
-   See docs/agents/datom-spec.md, Reserved Entities."
+   See docs/design/datom.md, Reserved Entities."
   16)
 
 

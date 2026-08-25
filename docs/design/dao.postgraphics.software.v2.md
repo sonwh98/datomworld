@@ -268,7 +268,7 @@ This is a single-line change with large correctness impact.
 ## Testing Strategy
 
 - For each change, add a test in `test/dao/postgraphics/` or the platform
-  counterpart before modifying implementation (TDD per AGENTS.md).
+  counterpart before modifying implementation (TDD per `docs/agents/build-n-test.md`).
 - Texture sampling: test `sample-texture` with `:levels` present at fractional
   `mip-level` produces blended colours.
 - Mipmap generation: test that level-1 dimensions are `(quot w 2)` and pixel

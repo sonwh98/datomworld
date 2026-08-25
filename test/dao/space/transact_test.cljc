@@ -9,7 +9,7 @@
     "with no :next-eid supplied, allocation starts at datom/first-user-id.
             Every other test in this namespace passes :next-eid explicitly, so
             the default floor is otherwise uncovered — and it is the value the
-            reserved range (docs/agents/datom-spec.md, Reserved Entities) pins."
+            reserved range (docs/design/datom.md, Reserved Entities) pins."
     (let [res (transact/prepare-tx
                 {:base-datoms [], :tx-data [{:db/id "tid_1", :name "Alice"}]})]
       (is (= datom/first-user-id (get (:tempids res) "tid_1")))

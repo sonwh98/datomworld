@@ -16,7 +16,7 @@ acknowledgement, garbage collection, and async hydration — is listed under
 - `docs/design/dao.jing.dht.md` — the DHT distribution backend
 - `docs/design/dao.stream.md` — the append-only stream primitive
 - `docs/design/dao.data.btree.md` — the covered-index node format
-- `docs/agents/datom-spec.md` — the datom and tuple specification
+- `docs/design/datom.md` — the datom and tuple specification
 - `docs/design/adr/0001-dao-space-as-storage-boundary.md` — the storage-boundary
   decision
 - `docs/datomic.md` — the Datomic storage architecture that informs the

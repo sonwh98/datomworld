@@ -10,7 +10,7 @@
 > idealization that requires additional structure (a Dirichlet form, or finite
 > truncation / an unbounded Dirac operator for compact resolvent); see the caveats
 > below. With those distinctions, the gauge/bundle/curvature language developed
-> here (grounding the gauge/base framing of `docs/agents/datom-spec.md`, the
+> here (grounding the gauge/base framing of `docs/design/datom.md`, the
 > current home `docs/design/dao.space.md` designates) is a correct description of
 > the metric and spectral structure, not mere metaphor.
 
@@ -450,7 +450,7 @@ operators, continuous geometry). The middle column is the translation.
 spectral decomposition, and the graph (geodesic) metric — these are latent in the
 relational structure of the discrete datoms, extracted via Gelfand-Naimark + the
 spectral theorem. For these, the gauge/bundle/curvature language here (grounding the
-gauge/base framing of `docs/agents/datom-spec.md`, the current home, per
+gauge/base framing of `docs/design/datom.md`, the current home, per
 `docs/design/dao.space.md`) is a correct description, not metaphor, once the Dirac
 operator is chosen. The
 *fuller* continuous apparatus (manifold, heat kernel, spectral dimension) is the

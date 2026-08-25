@@ -18,7 +18,7 @@ proposes changing the tuple-space model; the model is the point.
 - `docs/design/dao.jing.md` — the storage boundary agents ultimately share
 - `docs/design/dao.space.security.md`, `docs/design/adr/0002-share-governed-computation-not-data.md` — the controlled-mode model for untrusted participants
 - `docs/design/yin.vm.ffi.md` — the confined-evaluation bridge governed agents would run through
-- `docs/agents/datom-spec.md` — tuples, canonical d5, provenance (`m`), content addressing
+- `docs/design/datom.md` — tuples, canonical d5, provenance (`m`), content addressing
 
 ## Why a tuple space fits agents
 
@@ -93,7 +93,7 @@ The substrate is real and tested:
   touch, and history, `as-of`, and rest/4+-slot scans retain the eager EAVT
   walk (an unselective 3-fixed clause walks the restored tree instead).
 - **Provenance slots** — every datom carries `t` and `m`; the `m` entity is where
-  assert/retract and authorship metadata live (`datom-spec.md`).
+  assert/retract and authorship metadata live (`datom.md`).
 
 ## What LLM agents need — the gap list
 

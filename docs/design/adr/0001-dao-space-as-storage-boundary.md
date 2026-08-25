@@ -126,4 +126,4 @@ in Datomic is an efficiency choice (index once, share to many), not a correctnes
 - `docs/design/dao.space.md` — the storage-boundary design (current, canonical)
 - `docs/design/dao.space.v0.md` — earlier framing (superseded; resource/geometry material still useful)
 - `docs/design/dao.stream.md`, `docs/design/dao.stream.file.md` — transport
-- `docs/agents/datom-spec.md` — datoms, content-addressed identity, gauge/base framing
+- `docs/design/datom.md` — datoms, content-addressed identity, gauge/base framing

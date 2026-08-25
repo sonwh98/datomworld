@@ -11,7 +11,7 @@ Transport is not the cross-stream query fold. Both cross a stream boundary; they
 different operations and use different mechanisms:
   Fold (dao.space.query): no ingestion. Datoms stay where they are; sources remain
     separate database inputs and each clause resolves against its named source, so
-    equal stream-local ids never collide or merge (docs/agents/datom-spec.md,
+    equal stream-local ids never collide or merge (docs/design/datom.md,
     d5: SOURCE SCOPE). e is never rewritten, nothing is deduplicated, nothing is
     hashed. A coordinate operation.
   Transport (this section): ingestion. The receiver ends up owning the datoms, mints
@@ -21,7 +21,7 @@ receiver's stream and carry the receiver's scope. Migration is a third thing —
 it relocates a stream whole, so its scope and offsets travel unchanged.
 
 Transport is interpreter-level, and unimplemented.
-  The content hash below is the *semantic* hash of docs/agents/datom-spec.md: an
+  The content hash below is the *semantic* hash of docs/design/datom.md: an
   interpreter's projection of an entity, over (a v) or (a v m). It is specified,
   not built, and no attribute is reserved for it.
   It is NOT dao.jing/content-hash. That one is the *syntactic* hash — it addresses

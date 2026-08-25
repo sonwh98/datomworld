@@ -15,7 +15,7 @@ Therefore, **the unit of sharing is not the datom; it is the governed interprete
 ## Grounding in Existing Primitives
 
 This model builds naturally upon datom.world's existing primitives:
-- **`m`-slot Access Control:** The `m` slot in the d5 datom (see `docs/agents/datom-spec.md`) references a reified metadata entity (where `dao.datom/reserved` governs low IDs). This provides the natural per-datom policy handle.
+- **`m`-slot Access Control:** The `m` slot in the d5 datom (see `docs/design/datom.md`) references a reified metadata entity (where `dao.datom/reserved` governs low IDs). This provides the natural per-datom policy handle.
 - **Confinement:** The architectural stance to "prefer confinement over verification" (see `docs/agents/advanced-concepts.md`). Trust must be contextual, revocable, and stream-scoped.
 - **Immutable Provenance:** An accountability floor based on an immutable log that records derivation and access.
 
@@ -85,6 +85,6 @@ This model accepts several honest limits:
 
 - [ADR 0002: Share Governed Computation, Not Data](adr/0002-share-governed-computation-not-data.md) — the decision this design elaborates
 - [`dao.space.md`](dao.space.md) — the tuple space; its "Security and Access Modes" subsection summarizes this doc
-- [`docs/agents/datom-spec.md`](../agents/datom-spec.md) — the `m` slot
+- [`docs/design/datom.md`](datom.md) — the `m` slot
 - [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) — confinement; continuation parallel transport
 - [`docs/agents/architecture.md`](../agents/architecture.md) — the `yin.vm` CESK machine and Universal-AST substrate

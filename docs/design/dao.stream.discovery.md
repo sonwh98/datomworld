@@ -222,7 +222,7 @@ Everything above rests on prerequisites already tracked elsewhere:
 1. **Signed heads / kickoff-hash identity** (a stream-layer prerequisite, not
    mutable DaoJing state; see `dao.jing.dht.md`) — mechanism (1) *is* this
    discipline; (2)–(4) resolve to it.
-2. **Source-scoped query inputs** (`dao.space.query.md`; `datom-spec.md`, d5:
+2. **Source-scoped query inputs** (`dao.space.query.md`; `datom.md`, d5:
    SOURCE SCOPE) — sources stay separate database inputs and equal stream-local
    ids unify only when the query deliberately joins them; prerequisite for
    folding strangers' directories.

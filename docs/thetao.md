@@ -35,10 +35,10 @@ VM state is content-addressable. Every continuation, environment, and register f
 
 Consequences:
 
-- Continuations are datoms in declared dimensions (see `docs/agents/datom-spec.md`). Each option publishes its own continuation dimension; both project to d3 for observability.
+- Continuations are datoms in declared dimensions (see `docs/design/datom.md`). Each option publishes its own continuation dimension; both project to d3 for observability.
 - Compound slot values (environment, parent continuation, register frame) appear by content hash, not by pointer or by entity ID. Structural sharing across continuations is automatic.
 - **Persistence invariant** (correctness): a value crossing into a persistent stream (event/fact/effect/effect-response) carries its content hash. The ephemeral-to-persistent transition is the only place content hashes are required for correctness. Replay, content addressing, and dedup depend on this transition holding.
-- **Consequence** (derived from the invariant plus the execution stream being ephemeral): the hot loop has no correctness obligation to hash. Inside the execution stream, continuations reference parents, environments, and register frames by local entity ID (the d5 local gauge, see datom-spec "Components"). Hash and local id are two coordinates on the same value; the persistence boundary chooses which one is observable.
+- **Consequence** (derived from the invariant plus the execution stream being ephemeral): the hot loop has no correctness obligation to hash. Inside the execution stream, continuations reference parents, environments, and register frames by local entity ID (the d5 local gauge, see datom.md "Components"). Hash and local id are two coordinates on the same value; the persistence boundary chooses which one is observable.
 - **Performance note** (not an invariant): hashing in the hot loop for dedup, memoization, or content-store lookup is voluntary. Implementations may pay that cost when measurement justifies it; the spec does not require or forbid it. The default should be to avoid speculative hashing.
 - Cycles are forbidden at the value layer. Continuation parent chains are acyclic by construction: the parent reference (local id or hash) exists before the child references it. Algebra forms must not introduce self-referential continuation values.
 - Hash datoms use `m=1` (`:db/derived`) per the d5 spec and are excluded from their own computation.
@@ -120,7 +120,7 @@ The runtime may maintain derived indexes for convenience, but only as caches rec
 
 Both VMs represent continuations as datoms in a declared dimension.
 
-Each option publishes its dimension via the meta-protocol (datom-spec, "META-PROTOCOL"):
+Each option publishes its dimension via the meta-protocol (datom.md, "META-PROTOCOL"):
 
 - `:dim/arity`, `:dim/slots`, `:dim/encoding`, `:dim/projection-to d3`, `:dim/lift-from d3`
 - the content hash of the dimension subgraph is the dimension's identity

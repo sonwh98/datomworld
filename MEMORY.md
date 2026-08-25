@@ -1,8 +1,13 @@
 # Datomworld Rules and Guides
 
 ## Core Philosophy
-- [CLAUDE.md](./CLAUDE.md) — Development rules, core philosophy, build & test commands
-- [docs/agents/datom-spec.md](./docs/agents/datom-spec.md) — Datom 5-tuples, entity IDs, content addressing, namespaces
+- [CLAUDE.md](./CLAUDE.md) — Development rules, core philosophy
+- [docs/design/datom.world.md](./docs/design/datom.world.md) — Core philosophy, foundational axioms, invariants, tuples, streams
+- [docs/agents/build-n-test.md](./docs/agents/build-n-test.md) — Build, lint, test commands, and TDD
+- [docs/agents/website.md](./docs/agents/website.md) — Website content (.chp and .blog EDN file specifications)
+- [docs/agents/calling-agents.md](./docs/agents/calling-agents.md) — Coding agent delegation instructions (agy, glm, deepseek)
+- [docs/agents/team/README.md](./docs/agents/team/README.md) — Autonomous engineering team roles and LLM model assignments
+- [docs/design/datom.md](./docs/design/datom.md) — Datom 5-tuples, entity IDs, content addressing, namespaces
 - [docs/agents/architecture.md](./docs/agents/architecture.md) — Streams, agents, Yin.VM CESK machine, compilation pipeline, runtime macros
 
 ## Design and Development

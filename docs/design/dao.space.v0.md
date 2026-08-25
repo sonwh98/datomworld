@@ -18,7 +18,7 @@
 **Related documents:**
 - `docs/design/dao.stream.md` — the stream transport foundation
 - `docs/design/dao.stream.file.md` — the file-backed byte stream that member logs are built on
-- `docs/agents/datom-spec.md` — datom moduli space, dimensions, gauge/content-hash framing
+- `docs/design/datom.md` — datom moduli space, dimensions, gauge/content-hash framing
 - `docs/design/dao.space.metaphors.md` — visual and biological metaphors for the space
 - `docs/design/dao.space.discrete-to-continuous.md` — the spectral-triple realization (gauge groupoid, Dirac operator, curvature)
 - `docs/design/dao.space.locality.md` — physics ↔ distributed-computing correspondence (relativity, descent, consistency models, CAP)
@@ -30,7 +30,7 @@
 
 Concretely, a DaoSpace is **a collection of file-backed dao.streams**. `dao.space/open!` returns a **handle** to that collection; the handle plays two roles. As a **factory**, it opens member write logs — `ds/open!` delegates through the space to realize a `dao.stream.file` member, and `ds/append!` appends datom frames to it. As a **read target**, the handle answers questions over *all* member logs at once: `dao.space/q` (Datalog) and `dao.space/match` (datom pattern). The asymmetry is deliberate — **writing is streaming, reading is querying.** You never read the space *as* a stream; member streams carry datoms in, the space answers questions out.
 
-This is datom.world's modern tuple space, generalized: not only streams-and-readers but *any resource* and interpreters, because everything reduces to tuples (CLAUDE.md: "everything is data, code is data, runtime state is data"; `datom-spec.md`: datoms are the universal format for DaoDB, AST, schema, provenance). The tuples are **named, n-dimensional** datoms (d1/d3/d5/d10), not Linda's positional, untyped arrays — so a tuple carries its own meaning, and coordination never depends on agents agreeing on field order. Unlike traditional message passing (explicit sender → receiver), DaoSpace enables **stigmergic coordination**: producers leave tuples (traces), consumers react to them, decoupled in time and identity. The space is a *passive* medium — it does not orchestrate, schedule, or decide, and it does not itself coordinate; it *enables* coordination by being the shared tuple substrate. (The medium is a logical rendezvous, which may itself be distributed; it provides a shared catalog, not global agreement — consensus, where needed, is layered on top.)
+This is datom.world's modern tuple space, generalized: not only streams-and-readers but *any resource* and interpreters, because everything reduces to tuples (CLAUDE.md: "everything is data, code is data, runtime state is data"; `datom.md`: datoms are the universal format for DaoDB, AST, schema, provenance). The tuples are **named, n-dimensional** datoms (d1/d3/d5/d10), not Linda's positional, untyped arrays — so a tuple carries its own meaning, and coordination never depends on agents agreeing on field order. Unlike traditional message passing (explicit sender → receiver), DaoSpace enables **stigmergic coordination**: producers leave tuples (traces), consumers react to them, decoupled in time and identity. The space is a *passive* medium — it does not orchestrate, schedule, or decide, and it does not itself coordinate; it *enables* coordination by being the shared tuple substrate. (The medium is a logical rendezvous, which may itself be distributed; it provides a shared catalog, not global agreement — consensus, where needed, is layered on top.)
 
 Membership is **dynamic**: opening a member log (`ds/open!` through the handle) *is* joining the space; closing it leaves. Every writer owns its **own** log, so writes never contend or need routing — there is no shared write cursor to merge. The space is heterogeneous along two axes: member logs differ in **dimension/type** (one carries only d5, another only d10), and in how strict they are (some enforce their type on write, some accept anything). Reads range over all member logs at once; an **interpreter** is the read-side projection that folds those logs into a queryable view — its materialization of a stream is a **slice**: the stream quotiented by an interpreter-defined equivalence relation.
 
@@ -178,7 +178,7 @@ The medium does not privilege any particular kind of participant. A **resource**
 live in a DaoSpace and be coordinated over. This is the operational form of
 datom.world's core philosophy ("everything is data, code is data, runtime state is
 data"; datoms are the universal format for DaoDB, AST, schema, provenance —
-`datom-spec.md`).
+`datom.md`).
 
 Three roles, and "resource" is the general one:
 
@@ -206,7 +206,7 @@ Two canonical resources show the range:
   ```
 
 - **yin.vm bytecode is a resource.** Code is data: an AST reduces to content-addressed
-  datoms (`ast->datoms`, `src/cljc/yin/vm.cljc`; see datom-spec's AST-as-datoms).
+  datoms (`ast->datoms`, `src/cljc/yin/vm.cljc`; see datom.md's AST-as-datoms).
   So agents coordinate over *code* exactly as over data. An interpreter *realizes* an
   AST resource by evaluating it in `yin.vm` ("agents are functions, closures, or
   continuations in Yin.VM").
@@ -218,7 +218,7 @@ status noted under *Geometry*. Gauge-invariant content-addressing applies to
 **self-contained** resources (an AST, a schema, a dao.stream descriptor), whose
 references resolve within the resource; a coordination datom that carries a
 *cross-stream* reference is pinned by that stamped ref, not by a gauge-invariant
-hash, and so does not get dedup/stable-identity for free (see `datom-spec.md`,
+hash, and so does not get dedup/stable-identity for free (see `datom.md`,
 Merkle property > hashing never crosses a stream boundary). The medium is thus
 **homoiconic and reflective**: data, channels, and code coexist as tuples in one
 space, each realizable by some interpreter. A dao.stream is special only in being
@@ -229,13 +229,13 @@ space, each realizable by some interpreter. A dao.stream is special only in bein
 Each member log declares its **dimension** and, optionally, its **slot types**.
 This declaration lives in the stream's kickoff metadata: a stream is identified by
 the hash of `(creator, schema, dimension, t-zero)` (see
-`docs/agents/datom-spec.md`, CONTENT ADDRESSING > Streams), so dimension and
+`docs/design/datom.md`, CONTENT ADDRESSING > Streams), so dimension and
 schema are already first-class properties of a stream's birth, not something
 DaoSpace bolts on.
 
 A stream is **homogeneous in dimension**: a given stream carries only d5, or only
 d10, etc. It may further constrain the size/type of each slot. This is the
-typed / fixed-size stream case from `datom-spec.md` (d5 > Sizing):
+typed / fixed-size stream case from `datom.md` (d5 > Sizing):
 
 ```clojure
 ;; A d5 stream with fixed slot types (cache-efficient, O(1) indexing, SIMD-friendly)
@@ -281,11 +281,11 @@ looking through."
 Because reads are non-destructive and cursors are independent, an interpreter's
 slice does not consume or mutate the stream. The same datom belongs to many
 equivalence classes at once, depending on who is observing — the
-quantum-measurement metaphor from `datom-spec.md` made operational: same data,
+quantum-measurement metaphor from `datom.md` made operational: same data,
 different projections, simultaneously.
 
 Two universal equivalence relations come for free and interpreters build on them
-(see `datom-spec.md`):
+(see `datom.md`):
 
 - **d1 floor** — equal iff same content hash `hash(dimension-hash ‖ slots)`. The
   finest, dimension-aware identity.
@@ -293,7 +293,7 @@ Two universal equivalence relations come for free and interpreters build on them
   provenance and time.
 
 Domain interpreters add their own relations: alpha-equivalence (as a derived
-datom, per `datom-spec.md`), "same customer," "same topic," a
+datom, per `datom.md`), "same customer," "same topic," a
 projection to a coarser dimension, and so on. Each relation slices the same
 typed stream a different way.
 
@@ -316,7 +316,7 @@ member logs' datoms under a chosen equivalence relation.)
 A `dao.space/q` ranges over all member logs. Because each member log is
 dimension-homogeneous but the space is heterogeneous, cross-log joins happen on
 **shared values, not entity IDs** — entity IDs are stream-local gauges (see
-`datom-spec.md`, d5 > NAMESPACES > Cross-Namespace Queries). This reuses Datomic's
+`datom.md`, d5 > NAMESPACES > Cross-Namespace Queries). This reuses Datomic's
 multiple-database pattern: each member log is an explicit input, joined on the
 values they have in common.
 
@@ -336,7 +336,7 @@ values they have in common.
 
 Entity IDs are **local to a member log, not to the space.** This is the gauge
 picture taken literally: `e` is a fiber coordinate that never crosses a stream
-boundary as a reference (see `datom-spec.md`, d5 > Components > `e`). The
+boundary as a reference (see `datom.md`, d5 > Components > `e`). The
 consequences shape every coordination pattern.
 
 - **The stream is the namespace.** A stream's identity (its kickoff hash) names
@@ -393,7 +393,7 @@ Stripped of metaphor, the structure is set-theoretic and categorical:
   false` ⇒ **variable fiber**.
 
 This is the spec's own framing: tuples are "elements in a moduli space, graded by
-dimension n" (`datom-spec.md` line 7), with content hash as gauge-invariant
+dimension n" (`datom.md` line 7), with content hash as gauge-invariant
 identity and entity IDs as local coordinates. Here "dimension n" is that moduli
 grading (arity + encoding + morphisms), not a vector-space or manifold dimension.
 The framing is not decorative: it is made concrete, with non-trivial content on
@@ -403,7 +403,7 @@ Gelfand-Naimark → Dirac operator).
 
 ### The gauge picture
 
-The summary above is the gauge/fiber-bundle language `datom-spec.md` commits to:
+The summary above is the gauge/fiber-bundle language `datom.md` commits to:
 "Entity ID is a local gauge", "the gauge-invariant identity is the content hash",
 "migration is a gauge transformation". Made explicit:
 
@@ -422,7 +422,7 @@ shared base**. That gluing is exactly why cross-stream joins happen on shared
 values, not entity IDs (see *Querying Across Streams*): joins live in the base,
 because entity IDs are fiber coordinates that do not commute across streams.
 
-The gauge group `G` is concrete, not vague: per `datom-spec.md` an entity ID is a
+The gauge group `G` is concrete, not vague: per `datom.md` an entity ID is a
 128-bit `[namespace offset]` value, so `G` is generated by zero-basis shifts on
 the 64-bit offset (migration rebases entity IDs) together with relabelings of the
 64-bit namespace. Since the two components act independently, this is a direct
@@ -492,7 +492,7 @@ content-hash as the base `B` of the fibration (the gauge-invariant identity).
 That base is **not realized** in code today. Entity-level Merkle hashing over
 `[a v]` pairs once existed (`src/cljc/yin/content.cljc`, removed when nothing
 consumed it) but hashed via `pr-str` rather than the canonical byte encoding
-`datom-spec.md` mandates, so it was never the portable identity either; and
+`datom.md` mandates, so it was never the portable identity either; and
 `dao.db` still allocates entity IDs sequentially, so the content hash is not
 load-bearing as the identity base. `dao.jing/content-hash` content-addresses
 *blobs* at the storage boundary, which is a different level (see
