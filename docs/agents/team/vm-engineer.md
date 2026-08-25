@@ -6,8 +6,8 @@ description: Yin.VM & Continuation Runtime Engineer role definition and model as
 
 ## Assigned LLM Models
 
-- **Primary**: `xai/grok-4.6` (Frontier STEM performance, deep systems logic, state-machine transitions, and bytecode execution efficiency)
-- **Secondary / Fallback**: `claude-opus-5` (Formal semantics, continuation verification, CESK mathematical modeling)
+- **Primary**: `claude-opus-5` (Most intelligent frontier model for formal semantics, CESK state transitions, continuation verification, and pure functional abstractions)
+- **Secondary / Fallback**: `deepseek/deepseek-v4-pro` (Hybrid-attention long-context reasoning, systems internals, bytecode execution loops, and low-level data structures)
 
 ## Scope of Ownership
 

@@ -11,7 +11,7 @@ This document defines the specialized autonomous software engineering team for *
 | Role | Title | Primary LLM Model | Secondary / Fallback LLM | Key Responsibilities |
 | :--- | :--- | :--- | :--- | :--- |
 | **Architect** | Lead System Architect | `claude-opus-5` | `sakana/fugu-ultra` / `claude-fable-5` | Core philosophy, foundational axioms, invariants, moduli-space gauge theory, subsystem boundaries |
-| **VM Runtime** | Yin.VM Runtime Engineer | `xai/grok-4.6` | `claude-opus-5` | CESK machine, stack & register VMs, continuations, continuation transport, runtime macros |
+| **VM Runtime** | Yin.VM Runtime Engineer | `claude-opus-5` | `deepseek/deepseek-v4-pro` | CESK machine, stack & register VMs, continuations, continuation transport, runtime macros |
 | **Storage & Indexing** | DaoSpace & DaoJing Engineer | `deepseek/deepseek-v4-pro` | `zai-org/GLM-5.3` | B-tree index realization, covered index nodes, DHT Kademlia, content-addressed storage, `q` / `match` |
 | **Compiler & AST** | Yang Compiler Engineer | `gpt-5.3-codex` | `Qwen/Qwen3.8-Max` | Universal AST, Clojure/Python/PHP/Dart lowering, compile-time macros, syntax independence |
 | **Stream & Network** | DaoStream & Protocol Engineer | `MiniMaxAI/MiniMax-M3` | `moonshotai/Kimi-K3` | Append-only log framing, WebSocket/HTTP streams, transit serialization, RPC retries & deduplication |
@@ -27,7 +27,7 @@ This document defines the specialized autonomous software engineering team for *
 Click into each dedicated role specification:
 
 1. [`architect.md`](./architect.md) — **Lead System Architect** (`claude-opus-5`)
-2. [`vm-engineer.md`](./vm-engineer.md) — **Yin.VM Runtime Engineer** (`xai/grok-4.6`)
+2. [`vm-engineer.md`](./vm-engineer.md) — **Yin.VM Runtime Engineer** (`claude-opus-5` / `deepseek/deepseek-v4-pro`)
 3. [`storage-engineer.md`](./storage-engineer.md) — **DaoSpace & DaoJing Storage Engineer** (`deepseek/deepseek-v4-pro`)
 4. [`compiler-engineer.md`](./compiler-engineer.md) — **Yang Compiler & AST Engineer** (`gpt-5.3-codex`)
 5. [`stream-engineer.md`](./stream-engineer.md) — **DaoStream & Distributed Protocol Engineer** (`MiniMaxAI/MiniMax-M3`)
@@ -45,7 +45,7 @@ The team collaborates using the **stigmergic coordination** principles native to
 flowchart TD
     Architect["Architect (Claude Opus 5)"] -->|Architectural Invariants & Specs| Space["DaoSpace / Shared Codebase"]
     Compiler["Compiler Engineer (GPT-5.3 Codex)"] -->|Universal AST & Lowering| Space
-    VM["VM Engineer (Grok 4.6)"] -->|CESK Machine & Continuations| Space
+    VM["VM Engineer (Claude Opus 5 / DeepSeek V4)"] -->|CESK Machine & Continuations| Space
     Storage["Storage Engineer (DeepSeek V4 Pro)"] -->|B-Trees & DHT Indexes| Space
     Stream["Stream Engineer (MiniMax M3)"] -->|Transports & RPC| Space
     Graphics["Graphics Engineer (Kimi K2.7)"] -->|DaoGUI & Shaders| Space
