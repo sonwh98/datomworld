@@ -56,7 +56,8 @@ This plan owns:
 - wrapper composition;
 - retention and gap semantics;
 - optional host-local waiter registration;
-- closed, immutable host transport dispatch; and
+- the explicit resolver contract for host-owned dynamic transport dispatch;
+  and
 - reusable conformance tests.
 
 This plan does not own:
@@ -332,11 +333,11 @@ An outer wrapper must not return an inner descriptor when it changes values,
 cursor space, or lifecycle. Such an outer realization is local until an
 explicit hosting wrapper exposes that exact relation.
 
-### Static Host Dispatch
+### Explicit Dynamic Host Dispatch
 
-`create!` and `attach!` select implementations through an immutable,
-host-compiled dispatch table in a composition namespace above the core
-protocols:
+`create!` and `attach!` select implementations through an explicitly injected
+host resolver in a composition namespace above the core protocols. A fixed
+host may supply an immutable dispatch map:
 
 ```clojure
 {:dao.stream/create
@@ -347,25 +348,82 @@ protocols:
   :dao.stream.udp/stream udp/attach!}}
 ```
 
-The table is ordinary closed code/data, not a mutable multimethod or namespace
-load-time registry. Unknown types return an error with cause
-`:dao.stream/unsupported-type`. Adding a transport requires changing and
-rebuilding the host composition.
+The same composition boundary also accepts a resolver function:
 
-The dispatch structure is immutable, but a handler may close over explicit
-host-owned state supplied when the host composition is constructed. That state
-is never found through a hidden global. This is how an attachment handler can
-resolve a descriptor while `attach!` continues to take only the descriptor.
+```clojure
+{:dao.stream/resolve-handler
+ (fn [operation stream-type]
+   (resolve-from-host operation stream-type))}
+```
+
+These are the two accepted composition option shapes:
+
+```clojure
+;; Fixed map.
+{:dao.stream/dispatch dispatch-table
+ :dao.stream/state    host-state}
+
+;; Dynamic resolver.
+{:dao.stream/resolve-handler resolve-handler
+ :dao.stream/state           host-state}
+```
+
+Exactly one of `:dao.stream/dispatch` and `:dao.stream/resolve-handler` is
+required. Supplying both or neither is a host composition defect and `compose`
+throws before returning host functions.
+
+After generic creation-specification or descriptor-envelope validation, the
+resolver is invoked exactly once with the operation and the already-validated
+`:dao.stream/type`. That invocation is the dispatch linearization point.
+It may close over an explicit host-owned registry, plugin loader, immutable
+snapshot, or other host policy. Registering or removing a transport therefore
+affects subsequent operations without rebuilding the host. The handler chosen
+for an operation is snapshotted for that operation: later registry changes do
+not replace an in-flight handler. Each resolver invocation observes one
+coherent registry version across create and attach registrations; a host must
+publish a multi-operation registration or removal as one state transition.
+
+Dynamic dispatch does not restore the legacy ambient multimethod. There is no
+namespace-global registry, namespace-load side effect, or generic fallback.
+Registration ownership, synchronization, replacement policy, and plugin
+lifecycle belong to the host and are injected through the resolver. A
+descriptor names a stream entry, never executable handler code or a request to
+load a plugin. A missing handler returns an error with cause
+`:dao.stream/unsupported-type` and never falls back to creation or discovery.
+If the resolver throws, or returns a value other than a handler function or
+`nil`, the host converts that resolver defect to an error with cause
+`:dao.stream/transport-error`.
+
+Registration and removal affect dispatch only. They do not mutate the hosted
+stream table, detach or close existing realizations, tear down hosted entries,
+or invalidate descriptors. Existing realizations continue to operate. A later
+`attach!` for a still-registered entry whose transport handler has been removed
+returns `:dao.stream/unsupported-type`, because dispatch precedes entry
+resolution.
+
+The resolver contract permits dynamic results but does not license shared
+mutable state inside DaoStream. A host's registration mechanism must obey the
+datom.world invariants: registration is an explicit host state transition with
+one synchronization domain, not a namespace-global registry, callback, or
+implicitly discovered mutable table. This plan specifies resolver behavior;
+it does not prescribe or own an arbitrary plugin-registration API.
+
+A selected handler has signature `(handler host-state argument)`, where
+`argument` is the validated creation specification or descriptor. `compose`
+injects the explicit host-owned state on every invocation. This is how an
+attachment handler can resolve a descriptor while `attach!` continues to take
+only the descriptor.
 
 The explicit host-owned stream table used by a hosting facade is distinct from
-the dispatch table. It maps hosted entry identities to realizations and may
-change as entries are created or detached. The prohibition on mutable
-registries applies to handler dispatch and type registration, not to this
-explicitly injected stream state.
+the transport registry used by the resolver. It maps hosted entry identities
+to realizations and may change as entries are created or detached. Both are
+explicit host-owned state: the stream table resolves hosted entries, while the
+transport registry resolves operation and type to a handler.
 
 The one-argument `create!` and `attach!` signatures describe host-facing
 functions returned by construction of that explicit composition. They close
-over its immutable dispatch structure and injected handler state. They are not
+over its injected dispatch structure — fixed map or resolver — and handler
+state. They are not
 namespace globals that discover a current host or resolution context.
 
 The signatures in this document show the functions after host composition has
@@ -377,8 +435,8 @@ The composition boundary is explicit:
 
 ```clojure
 (dao.stream.host/compose
-  {:dao.stream/dispatch dispatch-table
-   :dao.stream/state    host-state})
+  {:dao.stream/resolve-handler resolve-handler
+   :dao.stream/state           host-state})
 ;; =>
 {:dao.stream/create! create!
  :dao.stream/attach! attach!}
@@ -1176,11 +1234,19 @@ These are host-composed closures, not ambient namespace globals. Their
 signatures omit the already-bound composition state; the descriptor remains
 the only argument to `attach!`.
 
-The host composition constructor is:
+The host composition constructor accepts either a fixed dispatch map or an
+explicit resolver. The resolver form permits host-owned dynamic registration:
 
 ```clojure
-(dao.stream.host/compose {:dao.stream/dispatch dispatch-table
-                          :dao.stream/state    host-state})
+;; Fixed dispatch map.
+(dao.stream.host/compose
+  {:dao.stream/dispatch dispatch-table
+   :dao.stream/state    host-state})
+
+;; Dynamic resolver.
+(dao.stream.host/compose
+  {:dao.stream/resolve-handler resolve-handler
+   :dao.stream/state           host-state})
 ```
 
 It returns the host's `create!` and `attach!` functions.
@@ -1299,8 +1365,17 @@ Portable projection and host dispatch must test:
 - detach, reattach, and resume with a previously obtained portable cursor;
 - not-portable local wrappers;
 - one descriptor and one attachment route;
-- unknown static dispatch type failure; and
-- absence of runtime registration fallback.
+- unknown type failure for both fixed-map and resolver dispatch;
+- composition rejects both dispatch forms supplied together or neither form;
+- resolver exceptions and non-handler non-nil values become
+  `:dao.stream/transport-error`;
+- registration after composition affects the next operation;
+- removal after composition makes the next operation unsupported;
+- an in-flight operation retains the handler resolved at its start;
+- removal does not alter existing realizations or hosted entries;
+- independent hosts may resolve the same type differently without interference;
+  and
+- absence of ambient global registration or resolve-or-create fallback.
 
 Waitable realizations must additionally test:
 
@@ -1367,7 +1442,9 @@ legacy tests is not an acceptance criterion.
    capabilities.
 4. Remove `open!`, `defopen`, `closed?`, and generic destructive drain from the
    target API.
-5. Add the immutable host dispatch composition boundary.
+5. Implement the explicit host dispatch composition boundary with fixed-map and
+   resolver forms, exactly-one option validation, and contract tests for
+   resolver defects and unknown types.
 
 Completion criterion: the public API and validators exist without a concrete
 transport relying on legacy result shapes.
@@ -1403,7 +1480,9 @@ read or append.
 
 ### Phase 4: Creation, Attachment, and Portability
 
-1. Write static-dispatch tests before replacing `open!` transport registration.
+1. Write explicit dynamic-dispatch tests before replacing `open!` transport
+   registration, including registration, removal, operation snapshots, and
+   host isolation.
 2. Implement separate `create!` and `attach!` handlers.
 3. Implement stable stream identity and the mandatory validation boundary for
    optional Shibi tokens.
@@ -1482,7 +1561,9 @@ The DaoStream redesign is complete when:
 - wrapper composition performs no construction-time reads or hidden pumping;
 - optional waiters cannot lose wakes or complete demand;
 - no generic destructive read remains;
-- static dispatch contains no mutable handler registry or fallback; and
+- dynamic dispatch is explicitly host-owned, supports registration and removal,
+  snapshots one handler per operation, and contains no ambient global registry
+  or fallback; and
 - every logical stream has one authority for position, closed flag, and tail,
   one host-local synchronization domain, and deterministic cross-attachment
   wake ordering;
