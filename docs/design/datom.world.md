@@ -153,5 +153,5 @@ See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md)
 
 - **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
 - **Engineering Team Roster**: See [`docs/agents/team/TEAM.md`](../agents/team/TEAM.md) for engineering team roles and LLM model assignments.
-- **Agent Delegation**: See [`docs/agents/calling-agents.md`](../agents/calling-agents.md) for delegating tasks/reviews to other coding agents (`agy`, `cmd`, `glm`, `deepseek`, `codex`).
+- **Agent Delegation**: See [`docs/agents/team/TEAM.md`](../agents/team/TEAM.md) for team roles, collaboration protocols, and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`.
 - **Website & Content**: See [`docs/agents/website.md`](../agents/website.md) for `.chp` and `.blog` EDN/Hiccup file specifications.

@@ -6,17 +6,16 @@ description: Yang Compiler & Universal AST Engineer role definition and model as
 
 ## Assigned LLM Models
 
-- **Primary**: `gpt-5.3-codex` (Frontier code generation, AST transformations, compiler lowering, type inference)
-- **Secondary / Fallback**: `Qwen/Qwen3.8-Max` (Long-horizon syntactic parsing, multi-language transpilation, macro expansion)
+- **Primary**: `qwen/qwen3.8-max` (via `cmd`) / `gpt-5.6-terra` / `gpt-5.6-luna` (balanced agentic coding models; Universal AST transformations, compiler lowering, and multi-file implementation)
+- **Secondary / Fallback**: `glm-5.3` / `claude-5-sonnet` / `gemini-3.7-flash` / `gpt-5.4` (independent lowering review, long-horizon parsing, and macro expansion)
 
 ## Scope of Ownership
 
 - **Yang Compiler**:
   - `src/cljc/yang/clojure.cljc` — Clojure/ClojureScript AST lowering to Universal AST datoms
-  - `src/cljc/yang/macro.cljc` — Compile-time macro expansion
   - `src/cljc/yang/python.cljc` — Python syntax frontend
   - `src/cljc/yang/php.cljc` — PHP syntax frontend
-  - `src/cljc/yang/core.cljc` — Core intermediate representation and transformations
+  - `src/cljc/yin/vm/macro.cljc` — Shared compile-time macro boundary; implementation ownership remains with the VM Runtime role
 - **AST Datom Specifications**:
   - Universal AST datoms (`ast->datoms`, `datoms->ast`)
 
@@ -26,3 +25,30 @@ description: Yang Compiler & Universal AST Engineer role definition and model as
 2. **Deterministic Lowering**: Ensure that source code lowers unambiguously to structured datoms with canonical content hashes.
 3. **Multi-Target Interoperability**: Support lowering from Clojure, Python, and other dialects into the shared Yin.VM instruction set.
 4. **Macro Hygiene & Stigmergy**: Implement macro transformation pipelines that preserve source location metadata and lexically scoped bindings.
+
+## Implementation Prompt Template
+
+```text
+Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+
+# Role: Yang Compiler and Universal AST Implementation Engineer
+
+Implement <task> in <repository-root>. Read <governing-design-file>,
+<source-files>, and <test-files> first. Acceptance criteria:
+- <criterion-1>
+- <criterion-2>
+- <criterion-3>
+
+Work only in named files unless a required dependency demands expansion; report
+any expansion. Preserve unrelated changes, do not weaken tests, preserve syntax
+independence and deterministic lowering, run focused tests and lint, and inspect
+the final diff.
+
+Begin the final response exactly with:
+Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Completed-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+
+Report changed files, exact test/check outcomes, unresolved concerns, and any
+incomplete work. Do not claim edits or tests that did not occur.
+```
