@@ -67,6 +67,32 @@ direction: when the host initiates -- a socket receives, a connection drops, a
 timer fires -- the adapter appends one plain-data event and returns. It invokes
 nothing. An interpreter reads that stream and decides what the event means.
 
+Constructively: **a callback is replaced by a function that transforms an event
+to data on a stream.** The host's demand for a callback stops at that function.
+
+**An adapter is a map of those functions. That is all an adapter is.** It is a
+value, not a namespace, and it is general: sockets, files, timers and windows
+all deliver events by calling something, and an adapter is what they call. The
+host library is handed the map. Each entry takes the host's arguments and
+returns one value; the append is the adapter's, not the entry's, so an entry
+cannot return a value to the host and cannot invoke anything, because it is
+handed nothing to invoke. Host types are classified into plain data here -- a
+transform is the last place holding a host error object, and no host type may
+cross onto the stream.
+
+Which stream an adapter writes to is the caller's composition, never the
+adapter's knowledge. An adapter cannot tell whether it deposits into one
+transport's private stream or into a medium many interpreters read, and it does
+not need to. This is what keeps the layering one-way: a boundary depends on
+nothing above it, because whoever constructs the adapter supplies the stream.
+
+A transform deposits everything and judges nothing. Data is syntax (axiom 2), so
+worth is not a property of the datum -- an event that is noise to one interpreter
+is signal to another that does not exist yet, and filtering at the depositing
+layer destroys the perspectives that have not been taken. How much is retained is
+the medium's retention policy, which is operational; what an event means is
+interpretation. Neither is the depositor's decision.
+
 An adapter that takes a function to invoke has relocated the callback, not
 removed it, even when every value it passes is plain data. An adapter whose
 callback has a meaningful return value is worse: that is a synchronous call in
@@ -76,8 +102,8 @@ Neither direction needs a vocabulary of its own. Host events are ordinary
 values on an ordinary stream, so they need no bespoke envelope, version field,
 or fact taxonomy to be read.
 
-Host error types never cross the boundary. An interpreter classifies them and
-emits a qualified value.
+Host error types never cross the boundary. A transform function classifies them
+and emits a qualified value.
 
 A host with no implementation for an effect emits a qualified unsupported
 result. That is a correct outcome, not a gap to be filled.

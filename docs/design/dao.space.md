@@ -427,7 +427,34 @@ crash-only semantics natively:
 ## Coordination: Stigmergy
 
 Agents coordinate by leaving datoms in `dao.jing` for others to query, decoupled in time and
-identity. Because streams are append-only there is no destructive `take`: to "claim" work an
+identity.
+
+**An interpreter taps a stream without being aware of its source.** This is the property that
+makes the coordination stigmergic rather than merely asynchronous, and it is the test to apply
+when a design looks decoupled but is not. If an interpreter must be *handed* a particular
+producer's stream, then something knows both sides and wired them together; the coupling has
+moved from a function call to a reference, and has not been removed. The ant is not handed a
+pheromone trail. It encounters the medium and finds what is there.
+
+Two consequences follow, and both are invariants:
+
+- **Nothing registers.** An interested interpreter holds a cursor and matches what it reads;
+  it does not declare interest and wait to be called. Registration is a subscription registry,
+  which is a callback table under a different name, and it reintroduces exactly the coupling
+  the medium exists to remove.
+- **A new interpreter starts reading without anything being rewired.** No producer is
+  modified, no wiring step is added, and no existing reader is disturbed. If adding a reader
+  requires touching a writer, the medium is not doing its job.
+
+Because interpreters both read the medium and deposit back into it, refinement accretes in
+one place rather than travelling along wires. A host boundary deposits syntax; an interpreter
+reads it and deposits the semantic fact it derived; a further interpreter reads that. This is
+the blackboard working as designed -- successive levels of abstraction over one medium, with
+no participant aware of any other.
+
+`dao.space` is that medium. A separate system event bus would be a second stigmergic medium
+beside the one this document describes; see
+[ADR 0003](adr/0003-dao-space-is-the-event-medium.md). Because streams are append-only there is no destructive `take`: to "claim" work an
 agent *appends a new datom* asserting the claim, and "current state" is a read-side query over
 the accreted datoms. This is the tuple space working as designed — coordination with no
 broker, no message-format negotiation, and no leader election.
