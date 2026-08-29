@@ -22,7 +22,7 @@ Restrictions are a feature.
 
 - Do not introduce hidden global state.
 - Do not introduce implicit control flow.
-- Do not introduce callbacks without explicit stream representation.
+- Do not introduce callbacks; every callback is events on a stream.
 - Do not introduce shared mutable state.
 - Do not collapse interpretation and execution into the same layer.
 - Do not assume graphs: graphs must be constructed explicitly from tuples.
