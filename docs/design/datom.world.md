@@ -62,6 +62,20 @@ An adapter that exposes a function for portable code to call is not an
 interpreter. It isolates the host library but keeps the coupling, and the
 effect never appears as an emission.
 
+A callback is an event on a stream. That is the same rule in the other
+direction: when the host initiates -- a socket receives, a connection drops, a
+timer fires -- the adapter appends one plain-data event and returns. It invokes
+nothing. An interpreter reads that stream and decides what the event means.
+
+An adapter that takes a function to invoke has relocated the callback, not
+removed it, even when every value it passes is plain data. An adapter whose
+callback has a meaningful return value is worse: that is a synchronous call in
+both directions wearing the shape of an event.
+
+Neither direction needs a vocabulary of its own. Host events are ordinary
+values on an ordinary stream, so they need no bespoke envelope, version field,
+or fact taxonomy to be read.
+
 Host error types never cross the boundary. An interpreter classifies them and
 emits a qualified value.
 
