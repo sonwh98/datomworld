@@ -48,7 +48,7 @@
           [:h2 "What if We Don't Pretend?"]
           [:p
            "At Datom.world, we're building on Plan 9's philosophy, but we asked a different question: "
-           [:strong "what is the honest universal abstraction for communication and IO?"]]
+           [:strong "what universal abstraction actually fits communication and IO?"]]
           [:p
            "Files are wonderful for persistent, randomly-accessible storage. But a file is a mutable byte array: "
            "read offset 100 twice and you may get two different answers, and the old bytes are simply gone. "
@@ -77,7 +77,7 @@
              [:td "Creation is not attachment; attaching never creates"]]
             [:tr
              [:td "fid"]
-             [:td "realization"]
+             [:td "handle"]
              [:td "Host-local live value; never travels, never pretends to"]]
             [:tr
              [:td [:code "read"]]
@@ -136,7 +136,7 @@
            "There is no destructive read anywhere in the contract—no drain, no take. "
            "An operation that removed an element as it read would make one reader's progress every other reader's data loss."]
           [:p
-           "When retention is bounded and a slow reader falls behind the window, the stream doesn't lie and doesn't silently reposition anyone. It reports, as data:"]
+           "When retention is bounded and a slow reader falls behind the window, the stream doesn't skip ahead and doesn't silently reposition anyone. It reports, as data:"]
           [:div.code-block
            [:pre
             [:code
@@ -144,7 +144,7 @@
              " :dao.stream/cursor  oldest-retained}"]]]
           [:p
            "The reader decides what missing history means—fatal for a replayer, a shrug for a live dashboard. "
-           "A mutable file destroys history silently every time it's written. A DaoStream gap is the log being honest about the one way history can leave."]
+           "A mutable file destroys history silently every time it's written. A DaoStream gap makes the one way history can leave an explicit, reported event."]
 
           [:h2 "Outcomes Are Data, Not Blocking and errno"]
           [:p
@@ -159,7 +159,7 @@
            "Writes are the same: " [:code "append!"] " answers " [:code ":dao.stream/full"] " or " [:code ":dao.stream/closed"] " as values, never as exceptions. "
            "Who waits, and how long, is an interpreter or runtime decision made " [:em "above"] " the stream. The substrate never captures your thread and never calls you back."]
 
-          [:h2 "Capability Honesty vs. the ctl File"]
+          [:h2 "Declared Capabilities vs. the ctl File"]
           [:p
            "Plan 9 forced every resource into full file shape even when the resource couldn't honor it. The escape hatch was the "
            [:code "ctl"]
@@ -175,14 +175,14 @@
            [:li
             "The " [:strong "portable descriptor"] " only " [:em "names"] " an existing stream—never executable code, never a construction program."]
            [:li
-            "A " [:strong "realization declares its capabilities"] ": reader, writer, closable—the subset its medium can honor."]]
+            "A " [:strong "handle declares its capabilities"] ": reader, writer, closable—the subset its medium can honor."]]
           [:p
-           "That last point is where the file metaphor quietly broke and DaoStream refuses to paper over it. A raw socket retains nothing—it cannot honor cursors, re-reading, or independent readers. So a WebSocket realization is "
+           "That last point is where the file metaphor quietly broke and DaoStream refuses to paper over it. A raw socket retains nothing—it cannot honor cursors, re-reading, or independent readers. So a WebSocket handle is "
            [:em "writer and closable only"]
            ". Outbound, sending is appending. Inbound, each arriving message is deposited onto a log "
            [:em "the caller composed"]
            "—a ring buffer you sized, beside the socket, never hidden inside it. One conversation is a pipe with a log at each end, each end owned by the party that reads it. "
-           "Where 9P faked file semantics over sockets, DaoStream declares what each transport honestly is."]
+           "Where 9P faked file semantics over sockets, DaoStream declares what each transport actually is."]
 
           [:h2 "Composition: The Pipe Is Dumb"]
           [:p
@@ -233,16 +233,16 @@
           [:p
            "DaoStream deliberately declines the illusion. The boundary is a first-class fact with a precise location: "
            [:strong "serialization"]
-           ". A realization—the live, host-local value—never crosses a serialization boundary. A descriptor—plain data, self-contained like a CORBA interoperable reference—exists precisely to cross them. Within one memory space, streams really are values that can be sent through streams: append a realization to an in-memory stream and the receiver simply uses it. The moment elements are encoded—for a wire "
+           ". A handle—the live, host-local value—never crosses a serialization boundary. A descriptor—plain data, self-contained like a CORBA interoperable reference—exists precisely to cross them. Within one memory space, streams really are values that can be sent through streams: append a handle to an in-memory stream and the receiver simply uses it. The moment elements are encoded—for a wire "
            [:em "or a file"]
            "—only data survives, and a name must travel where the value cannot."]
           [:p
-           "This is π-calculus mobility done honestly. An agent that discovers a descriptor in some stream it reads can "
+           "This is π-calculus mobility with the boundary kept visible. An agent that discovers a descriptor in some stream it reads can "
            [:code "attach!"]
            " and join a conversation it didn't know existed at start time—the topology of communication evolves at runtime, carried by the data itself. "
            "But nothing pretends the remote is local: attaching returns outcomes as data, appends answer "
            [:code "full"]
-           " when a send buffer is saturated, and a descriptor that names something unreachable resolves to an honest "
+           " when a send buffer is saturated, and a descriptor that names something unreachable resolves to a plain "
            [:code ":dao.stream/not-found"]
            "."]
 
@@ -310,8 +310,8 @@
            [:li "History is kept, and its loss is reported, never silent"]
            [:li "Readers own their own progress; the substrate remembers no one"]
            [:li "Every operational answer is a value; nothing blocks, nothing calls back"]
-           [:li "Every transport declares what it honestly is"]
+           [:li "Every transport declares what it is; none pretends to more"]
            [:li "The boundary between here and there is data, not an illusion"]]
           [:p [:strong "Plan 9 showed us the power of universal interfaces."]]
           [:p
-           [:strong "DaoStream shows that the interface can stay universal without the metaphor telling lies."]]]]]}
+           [:strong "DaoStream shows that the interface can stay universal when the abstraction matches what the medium actually does."]]]]]}
