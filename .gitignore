@@ -46,3 +46,9 @@ dep-graph.svg
 # Local secrets / scratch (hold API keys — never commit)
 env.sh
 
+
+# Local agent/REPL state
+.cljs_node_repl/
+.agents/
+.antigravitycli/
+.commandcode/
