@@ -6,8 +6,13 @@ description: High-Throughput Subagent Worker role definition and model assignmen
 
 ## Assigned LLM Models
 
-- **Primary**: `muse-spark-1.2-contributor` through `muse` / `gpt-5.6-luna` through `codex` (cost-effective agentic coding and large-codebase work)
-- **Secondary / Fallback**: `gpt-5.4-mini` / `google/gemini-3.5-flash-lite` / `glm-5.3`, selected by route availability and subsystem needs
+- **Primary**: `gemini-3.7-flash` through `agy` (fast, flat-fee dispatch matching this seat's actual scope — bounded searches, small explicitly-scoped edits — and `agy` carries the most headroom of the flat subscriptions, unlike GPT/codex which is already the roster's most-loaded family). See the 2026-08-30 evaluation note in TEAM.md.
+- **Secondary / Fallback**: `gpt-5.6-terra` through `codex` (scoped edits that need more capability than flash) / `gpt-5.4-mini` / `google/gemini-3.5-flash-lite` / `glm-5.3`, selected by route availability and subsystem needs
+
+`muse-spark-1.2-contributor` (through `muse`) is metered, pay-per-token Meta
+API access, not a flat subscription — every call costs money regardless of
+this seat's high call volume. It is not routed here by default; reserve it
+for selective, high-value work the flat subscriptions above cannot cover.
 
 ## Scope of Ownership
 

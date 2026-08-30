@@ -6,9 +6,10 @@ description: Adversarial Code Reviewer & Security Auditor role definition and mo
 
 ## Assigned LLM Models
 
-- **Routine Review Primary**: `qwen/qwen3.8-max` (via `cmd`, independent non-Western cross-family auditor) / `gpt-5.6-sol` / `gemini-3.7-flash` / `claude-5-sonnet`. Always enforce cross-family review: patches authored by GPT models default to Qwen, Claude, or Gemini; patches authored by GLM models default to Qwen, GPT, Claude, or Gemini.
-- **Routine Fallback**: `glm-5.3` only when the patch was authored by a non-GLM model; storage, VM, and stream patches authored by GLM default to `qwen/qwen3.8-max`, `gpt-5.6-sol`, or `gemini-3.7-flash` review
-- **Security Sign-off**: `gpt-5.6-sol` (via Codex CLI) / `claude-5-opus` / `claude-5-sonnet` (through `claude` CLI under Claude Pro subscription or `agy`); `gemini-3.1-pro-high` is the long-context fallback.
+- **Routine Review Primary**: `gpt-5.6-sol` (via Codex CLI — the default when the patch author doesn't rule it out). Was `qwen/qwen3.8-max`; demoted because Command Code Pro is downgrading to a $1/month plan, making `cmd` catalog models structurally unreliable. See the 2026-08-30 evaluation note in TEAM.md.
+- **Routine Review Fallback**: `gemini-3.7-flash` / `glm-5.3` (only when the patch was authored by a non-GLM model) / `qwen/qwen3.8-max` (via `cmd`, opportunistic when capacity allows). Always enforce cross-family review: patches authored by GPT models (`gpt-5.6-terra`/`-luna` — now Compiler & AST's and Stream & Network's primary author) default to Gemini, Claude, or Qwen — never `sol`, which would be same-family; patches authored by GLM models default to GPT, Claude, Gemini, or Qwen; patches authored by Claude models default to GPT, Gemini, or Qwen.
+- **Security Sign-off Primary**: `claude-fable-5` (Mythos-class, through the `claude` CLI under Max 5x) — the default when the patch author doesn't rule it out; strongest available model for a low-frequency, high-stakes seat. See the 2026-08-30 evaluation note in TEAM.md.
+- **Security Sign-off Fallback**: `gpt-5.6-sol` (via Codex CLI, cross-family when the patch is Claude-authored) / `claude-5-opus` / `gemini-3.1-pro-high`.
 
 ## Scope of Ownership
 

@@ -6,7 +6,8 @@ description: DaoGUI & Postgraphics Frontend Engineer role definition and model a
 
 ## Assigned LLM Models
 
-- **Primary**: `moonshotai/kimi-k2.7-code` / `gemini-3.7-flash` (frontier vision-language coding, visual UI layout, canvas rasterization, shader rendering)
+- **Primary**: `gemini-3.7-flash` via `agy` (flat-fee, visual UI layout, canvas rasterization, shader rendering). Was `moonshotai/kimi-k2.7-code`; demoted to Fallback because Command Code Pro is being downgraded to a $1/month plan, making `cmd` catalog models structurally unreliable as a primary route. Capability fit here is unverified in either direction — no repo-internal evidence for `flash` on WebGL/WebGPU/canvas work specifically. See the 2026-08-30 evaluation note in TEAM.md.
+- **Secondary / Fallback**: `moonshotai/kimi-k2.7-code` (via `cmd`, opportunistic when capacity allows) / `minimax/minimax-m3-free`
 - **Secondary / Fallback**: `minimaxai/minimax-m3` (multimodal, long-context agentic work) / `glm-5.3` (Hiccup compilers and layout trees) / `gpt-5.4-mini`
 
 ## Scope of Ownership

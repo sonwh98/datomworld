@@ -6,7 +6,8 @@ description: Yang Compiler & Universal AST Engineer role definition and model as
 
 ## Assigned LLM Models
 
-- **Primary**: `qwen/qwen3.8-max` (via `cmd`) / `gpt-5.6-terra` / `gpt-5.6-luna` (balanced agentic coding models; Universal AST transformations, compiler lowering, and multi-file implementation)
+- **Primary**: `gpt-5.6-terra` via `codex` (flat-fee under Codex Plus; Universal AST transformations, compiler lowering, and multi-file implementation). Was `qwen/qwen3.8-max`; demoted to Fallback because Command Code Pro is being downgraded to a $1/month plan, making `cmd` catalog models structurally unreliable as a primary route, not just temporarily exhausted. See the 2026-08-30 evaluation note in TEAM.md.
+- **Secondary / Fallback**: `gpt-5.6-luna` / `qwen/qwen3.8-max` (via `cmd`, opportunistic when capacity allows)
 - **Secondary / Fallback**: `glm-5.3` / `claude-5-sonnet` / `gemini-3.7-flash` / `gpt-5.4` (independent lowering review, long-horizon parsing, and macro expansion)
 
 ## Scope of Ownership

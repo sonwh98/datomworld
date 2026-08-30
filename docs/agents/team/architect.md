@@ -6,8 +6,8 @@ description: Lead System Architect role definition and model assignment for dato
 
 ## Assigned LLM Models
 
-- **Primary**: `gpt-5.6-sol` (frontier reasoning, formal invariant proofs, systems architecture) via Codex CLI (`codex exec -s danger-full-access` under ChatGPT Plus subscription).
-- **Secondary / Fallback**: Claude models (`claude-5-opus` / `claude-5-sonnet`) / `gemini-3.1-pro-high` (approximately 1M-token context for repository-wide synthesis) / `glm-5.3` (systems architecture and long-horizon engineering)
+- **Primary**: `claude-fable-5` (Mythos-class, strongest available model for architecture; via the `claude` CLI under Max 5x — reviews and design need no write access). See the 2026-08-30 evaluation note in TEAM.md: this contract itself is the repository-specific evidence, reviewed adversarially by `gpt-5.6-sol` across six convergence rounds.
+- **Secondary / Fallback**: `gpt-5.6-sol` (via Codex CLI, `codex exec -s read-only` — cross-family review when Architect-authored work needs an independent check, or when Fable capacity is unavailable) / `claude-5-opus` / `gemini-3.1-pro-high` (approximately 1M-token context for repository-wide synthesis) / `glm-5.3` (systems architecture and long-horizon engineering)
 
 ## Scope of Ownership
 

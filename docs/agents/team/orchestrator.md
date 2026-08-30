@@ -6,8 +6,9 @@ description: Lead Engineering Orchestrator role definition and model assignment 
 
 ## Assigned LLM Models
 
-- **Primary**: `gemini-3.7-flash` (via `agy`, medium reasoning effort — flat-rate daily interactive driver with a large context window for tool use, multi-agent coordination, and synthesis). Decompose and delegate deep architectural reasoning to the Architect role rather than reasoning it directly in this session.
-- **Secondary / Fallback**: `gpt-5.6-sol` (complex professional workflows when operating in a Codex-centric terminal) / `gemini-3.1-pro-high` (repository-wide context and synthesis) / `glm-5.3` (systems-heavy coordination)
+- **Primary**: `gpt-5.6-sol` (via an interactive `codex` session — the seat's real work is skeptical verification and consensus arbitration, which is judgment work; GPT's reasoning tier fits that profile better than its implementation tier, `terra`/`luna`. See the 2026-08-30 evaluation note in TEAM.md. Harness caveat: this seat is whichever CLI the user is actually driving — if that stays Claude Code, the model actually answering here remains Claude regardless of this line). Decompose and delegate deep architectural reasoning to the Architect role rather than reasoning it directly in this session.
+- **Secondary / Fallback**: `gemini-3.1-pro-high` (the fallback for verification/consensus work when GPT capacity is unavailable, and cross-family-safe from Architect=`claude-fable-5`) / `claude-5-sonnet` (via `claude` under Max 5x, when driving from Claude Code — use only when Gemini is also unavailable, since it reintroduces same-family risk with Architect for that session) / `glm-5.3` (systems-heavy coordination)
+- **Scoped tool, not a model tier**: `gemini-3.7-flash` (via `agy`, medium reasoning effort) may be used within this seat for lightweight mechanical dispatch sub-tasks — routing a well-defined delegation, formatting a brief — that need no judgment. It is neither primary nor fallback for the role's actual work (scope, consensus, verification), which is judgment work `sol` and `pro-high` are evaluated for and flash is not.
 
 ## Scope of Ownership
 

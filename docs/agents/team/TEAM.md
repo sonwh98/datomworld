@@ -11,19 +11,31 @@ review findings—rather than relying on hidden point-to-point context.
 
 ## 1. Team Roster and Model Assignments
 
-| Role | Primary LLM Model | Secondary / Fallback LLM | Key Responsibilities |
-| :--- | :--- | :--- | :--- |
-| **Orchestrator** | `gemini-3.7-flash` (via `agy`, medium reasoning effort; daily interactive driver — decompose and delegate architecture work to the Architect role rather than reasoning it directly) | `gpt-5.6-sol` / `gemini-3.1-pro-high` / `glm-5.3` | Scope, decomposition, delegation, consensus, local verification, commit readiness (never stage/commit without explicit user instruction) |
-| **Architect** | `gpt-5.6-sol` (via Codex CLI `codex exec -s danger-full-access`) | `claude-5-opus` / `claude-5-sonnet` / `gemini-3.1-pro-high` / `glm-5.3` | Foundational axioms, invariants, subsystem boundaries, multi-platform architecture |
-| **VM Runtime** | `glm-5.3` / `claude-5-sonnet` | `gpt-5.6-terra` / `qwen/qwen3.8-max` / `gemini-3.7-flash` / `deepseek-v4-pro` | CESK machine, VMs, continuations, runtime macros, execution loop optimizations |
-| **Storage & Indexing** | `glm-5.3` | `claude-5-sonnet` / `deepseek-v4-pro` / `gpt-5.4` / `gemini-3.7-flash` | B-trees, indexing, DHT, content-addressed storage, query |
-| **Compiler & AST** | `qwen/qwen3.8-max` (via `cmd`) / `gpt-5.6-terra` | `gpt-5.6-luna` / `glm-5.3` / `claude-5-sonnet` / `gemini-3.7-flash` | Universal AST, multi-language lowering, compile-time macros |
-| **Stream & Network** | `gpt-5.6-luna` (via Codex CLI) / `glm-5.3` | `gpt-5.6-terra` / `qwen/qwen3.8-max` / `minimax/minimax-m3-free` / `gemini-3.7-flash` | Stream framing, concurrency & lock-free invariants, state machines, transports, serialization, RPC |
-| **Frontend & Graphics** | `moonshotai/kimi-k2.7-code` / `gemini-3.7-flash` | `minimax/minimax-m3-free` (via `cmd`, free thru Sep 5) / `glm-5.3` / `gpt-5.4-mini` | Event systems, WebGL/WebGPU, canvas and terminal rendering |
-| **QA & Verification** | `gemini-3.7-flash` / `claude-5-sonnet` | `gpt-5.4-mini` / `glm-5.3` | TDD, CLJ/CLJS/CLJD parity, lint and regression testing |
-| **Routine Review** | `qwen/qwen3.8-max` / `gpt-5.6-sol` / `gemini-3.7-flash` (always pair with a different model family from author) | `glm-5.3` for non-GLM-authored patches only | Correctness, invariants, portability, diff audits, regressions |
-| **Security Sign-off** | `gpt-5.6-sol` (via Codex CLI) | `claude-5-opus` / `claude-5-sonnet` / `gemini-3.1-pro-high` | Capability boundaries, high-risk invariants, final security review |
-| **Scoped / Subagent Workers** | `muse-spark-1.2-contributor` (via `~/.local/bin/muse` Claude Code wrapper) / `gpt-5.6-terra` (via `codex`) | `gpt-5.4-mini` / `google/gemini-3.5-flash-lite` / `glm-5.3` | Targeted searches, scoped edits, documentation, and linters |
+| Role                                              | Primary Model               | Secondary / Fallback                                          | Key Responsibilities                                                                               |
+| :-------------------------------------------------| :---------------------------| :-------------------------------------------------------------| :--------------------------------------------------------------------------------------------------|
+| **[Orchestrator](./orchestrator.md)**             | `gpt-5.6-sol`               | `gemini-3.1-pro-high` / `claude-5-sonnet`                     | Scope, decomposition, delegation, consensus, local verification, commit readiness                  |
+| **[Architect](./architect.md)**                   | `claude-fable-5`            | `gpt-5.6-sol` / `claude-5-opus`                               | Foundational axioms, invariants, subsystem boundaries, multi-platform architecture                 |
+| **[VM Runtime](./vm-engineer.md)**                | `glm-5.3` †                 | `claude-5-sonnet` / `gpt-5.6-terra`                           | CESK machine, VMs, continuations, runtime macros, execution loop optimizations                     |
+| **[Storage & Indexing](./storage-engineer.md)**   | `glm-5.3` †                 | `claude-5-sonnet` / `deepseek-v4-pro`                         | B-trees, indexing, DHT, content-addressed storage, query                                           |
+| **[Compiler & AST](./compiler-engineer.md)**      | `gpt-5.6-terra`             | `gpt-5.6-luna` / `qwen/qwen3.8-max`                           | Universal AST, multi-language lowering, compile-time macros                                        |
+| **[Stream & Network](./stream-engineer.md)**      | `gpt-5.6-luna`              | `glm-5.3` † / `gpt-5.6-terra`                                 | Stream framing, concurrency & lock-free invariants, state machines, transports, serialization, RPC |
+| **[Frontend & Graphics](./graphics-engineer.md)** | `gemini-3.7-flash`          | `moonshotai/kimi-k2.7-code` / `minimax/minimax-m3-free`       | Event systems, WebGL/WebGPU, canvas and terminal rendering                                         |
+| **[QA & Verification](./qa-engineer.md)**         | `claude-5-sonnet`           | `gemini-3.7-flash` / `gpt-5.4-mini`                           | TDD, CLJ/CLJS/CLJD parity, lint and regression testing                                             |
+| **[Routine Review](./reviewer.md)**               | `gpt-5.6-sol`               | `gemini-3.7-flash` / `glm-5.3` (non-GLM only) / `qwen/qwen3.8-max` | Correctness, invariants, portability, diff audits, regressions                                     |
+| **[Security Sign-off](./reviewer.md)**            | `claude-fable-5`            | `gpt-5.6-sol` / `claude-5-opus`                               | Capability boundaries, high-risk invariants, final security review                                 |
+| **[Scoped / Subagent](./subagent.md)**            | `gemini-3.7-flash`          | `gpt-5.6-terra` / `gpt-5.4-mini`                              | Targeted searches, scoped edits, documentation, and linters                                        |
+
+† Quota override active — see the routing override below.
+
+Each role name links to its specification: scope, responsibilities, and the
+reusable delegation prompt template. Each row names exactly one Primary
+model — the seat's single default route, not a set to pick from. Where
+routing legitimately depends on context (Routine Review and Security
+Sign-off must be cross-family from whoever authored the patch under
+review), that logic lives in prose — see *Stigmergic coordination* in
+Section 3 — and the listed Primary is the default when the author's
+family doesn't rule it out. Prefixed model ids (`qwen/…`, `minimax/…`,
+`moonshotai/…`) are `cmd` catalog names, not typos.
 
 These are default routes, not claims of inherent subsystem expertise. Promote
 or demote a model only from repository-specific evaluations using representative
@@ -31,60 +43,144 @@ prompts, expected findings, edit quality, test outcomes, latency, and effective
 cost. Test execution itself is a property of the agent harness and granted
 tools, not of the underlying model.
 
-### Role specifications and prompt templates
+**Evaluation note, 2026-08-30 (Orchestrator + Architect).** Two linked
+changes, superseding an earlier same-day promotion of Orchestrator to
+`claude-5-sonnet`. Orchestrator primary is `gpt-5.6-sol`: the seat's real
+work is skeptical verification and consensus arbitration (see the
+DaoStream redesign audit trail in `collab/architect-dao-stream-*`), which
+is judgment work, not mechanical dispatch — GPT's reasoning tier (`sol`),
+not its implementation tier (`terra`/`luna`), fits that profile. Architect
+primary is `claude-fable-5`, the strongest available model for
+architecture — its own DaoStream contract, reviewed adversarially by
+`gpt-5.6-sol` across six convergence rounds, is the repository-specific
+evidence for both halves of this split. Fixing the two seats to different
+providers gives cross-family review structurally, without depending on
+routing rules to detect who authored a given patch. `gemini-3.7-flash` is
+not part of this seat's Primary or Fallback tier — it is a scoped tool the
+seat may use for lightweight dispatch sub-tasks needing no judgment; see
+orchestrator.md.
 
-Each role owns its scope, responsibilities, and reusable delegation prompt:
+**Harness caveat**: "Orchestrator" means the live interactive session —
+whichever CLI the user is actually driving. A GPT-family orchestrator
+therefore implies driving from an interactive `codex` session (it has one,
+not just `exec`), with Claude Code as a delegate rather than the reverse.
+If the daily driver stays Claude Code, the model actually answering in
+that seat remains Claude regardless of what this table names as primary.
 
-1. [`orchestrator.md`](./orchestrator.md) — Lead Engineering Orchestrator
-2. [`architect.md`](./architect.md) — Lead System Architect
-3. [`vm-engineer.md`](./vm-engineer.md) — Yin.VM Runtime Engineer
-4. [`storage-engineer.md`](./storage-engineer.md) — DaoSpace & DaoJing Storage Engineer
-5. [`compiler-engineer.md`](./compiler-engineer.md) — Yang Compiler & AST Engineer
-6. [`stream-engineer.md`](./stream-engineer.md) — DaoStream & Distributed Protocol Engineer
-7. [`graphics-engineer.md`](./graphics-engineer.md) — DaoGUI & Postgraphics Engineer
-8. [`qa-engineer.md`](./qa-engineer.md) — QA, TDD & Verification Engineer
-9. [`reviewer.md`](./reviewer.md) — Routine Reviewer, Security Auditor, and consensus follow-up
-10. [`subagent.md`](./subagent.md) — High-Throughput Subagent Worker
+**Evaluation note, 2026-08-30 (Scoped / Subagent).** `muse-spark-1.2-contributor`
+demoted out of this seat's routing entirely: it is metered, pay-per-token
+Meta API access, not a flat subscription like `agy`, `glm`, `codex`, and
+`claude` — every call costs real money regardless of quota. Routing the
+highest-call-volume seat on the roster ("High-Throughput") through the one
+metered route was backwards under the doc's own policy ("use subscription
+quotas before metered providers... reserve metered providers for
+high-value... work, not routine work"), the same policy already applied to
+DeepSeek.
+
+`gemini-3.7-flash` is primary (not `gpt-5.6-terra`), revising a same-day
+placement. Two reasons: the seat's own scope ("bounded searches," "small,
+explicitly scoped" edits) is narrower than `terra`'s agentic-coding profile
+suggests, and flash fits it directly; and `agy` carries the most headroom
+of the flat subscriptions, while GPT/codex is already the roster's most
+loaded family (Orchestrator primary, Stream & Network primary, and several
+fallbacks) — concentrating this seat's high-throughput dispatch there too
+would contend with higher-value judgment work on the same route. `terra`
+remains Fallback for scoped edits that need more capability than flash.
+`muse` remains documented (Section 5) for selective, high-value use only.
+
+**Evaluation note, 2026-08-30 (Security Sign-off).** Promoted `claude-fable-5`
+(Mythos-class, via the `claude` CLI) to sole primary, with `gpt-5.6-sol`
+leading Secondary/Fallback for cross-family review when the patch under
+review is Claude-authored (see *Stigmergic coordination*, Section 3). Basis:
+the seat is the lowest-frequency, highest-stakes review on the roster, which
+is where the most capable model belongs under Max 5x headroom; and
+sol-as-sole-primary put GPT-authored patches (the primary implementation
+route) under a same-family security review. Confirm headless availability
+per CLI Routing Rule 3 before routing.
+
+**Evaluation note, 2026-08-30 (QA & Verification).** Promoted `claude-5-sonnet`
+to primary, demoting `gemini-3.7-flash` to fallback. Basis: the seat is
+mixed — lint and regression-suite dispatch is mechanical (flash fits), but
+TDD test design and CLJ/CLJS/CLJD parity verification is judgment work.
+Cross-host parity bugs are silent and host-specific by nature (see the
+project's own documented traps: the ClojureDart `:clj` reader-conditional
+trap, cljs keyword-identity issues, `dart:core` aliasing) — exactly the
+failure mode a low-judgment model won't catch. `gemini-3.7-flash` remains
+available in Fallback specifically for the mechanical lint/regression loop.
+
+**Active routing override, 2026-08-29.** The table's defaults name `glm-5.3` as
+primary for VM Runtime and Storage & Indexing. GLM has 13% of its quota left
+until the 2026-09-01 reset, so until then those two rows route to `codex`
+(`gpt-5.6-luna`) with `claude-5-sonnet` as fallback, using each row's
+Secondary/Fallback entries rather than the listed Primary. (Stream & Network's
+table entry already reflects this outcome directly — `gpt-5.6-luna` is its
+Primary, not an override — so no override applies there.) Claude moved to Max 5x on the
+same date and is the highest-headroom route, so it absorbs review and
+architecture load. This is a quota override, not an evaluation: restore the
+defaults after the reset unless a repository-specific evaluation says otherwise.
+
+**Evaluation note, 2026-08-30 (Compiler & AST, Frontend & Graphics).**
+Command Code Pro is being downgraded to a $1/month plan, making `cmd`
+catalog models (`qwen`, `kimi`, non-free MiniMax) structurally unreliable
+as primaries, not just temporarily exhausted — the earlier framing of this
+as a "quota override" to restore later no longer applies. Compiler & AST
+primary is now `gpt-5.6-terra` (was Secondary/Fallback); Frontend &
+Graphics primary is now `gemini-3.7-flash` (was Secondary/Fallback), both
+flat-fee. `qwen` and `kimi` remain in each row's Fallback for opportunistic
+use when `cmd` happens to have capacity. Frontend & Graphics capability fit
+is unverified either direction — no repo-internal evidence for `flash` on
+WebGL/WebGPU/canvas work, unlike the judgment-based swaps elsewhere in this
+log. Routine Review primary is `gpt-5.6-sol`, replacing `qwen`
+(demoted to opportunistic Fallback with the other two). **Scoping caveat,
+not optional**: `sol` is GPT-family, and GPT (`terra`/`luna`) now authors
+Compiler & AST and Stream & Network primarily, plus Subagent's fallback —
+`sol` is the default only when the patch author's family doesn't rule it
+out. Per *Stigmergic coordination* (Section 3), a GPT-authored patch
+defaults to `gemini-3.7-flash` or other non-GPT review instead; using `sol`
+there would recreate the same-family blind spot fixed for Security
+Sign-off. This also concentrates more load on GPT/`codex`, already the
+roster's most-loaded family (Orchestrator, Compiler & AST, Stream &
+Network) — worth watching for contention as usage grows.
 
 ## 2. Provider Routing and Cost Policy
  
 Use subscription quotas before metered providers. The user currently has:
  
-- **Claude 50% Token Boost (through August 31st)**: Anthropic / Claude has increased token allowances by 50%. Route high-value architectural reasoning, formal proofs, routine reviews, and security audits through `claude` (Claude Code CLI for `claude-5-opus` / `claude-5-sonnet`) and `agy`'s Claude models (`claude-opus-4-6-thinking` and `claude-3.7-sonnet`);
+- **Claude Max (5x), from 2026-08-29**: the Claude Pro plan was upgraded to Max 5x, so Claude is now the highest-headroom subscription rather than a rationed one. Route high-value architectural reasoning, formal proofs, routine and adversarial reviews, and security audits through `claude` (Claude Code CLI for `claude-5-opus` / `claude-5-sonnet`), and prefer it over metered routes for sustained review work. `agy`'s Claude models (`claude-opus-4-6-thinking`, `claude-3.7-sonnet`) draw on the separate `agy` plan quota;
 - **MiniMax Free Access via `minimax/minimax-m3-free` (through September 5th)**: MiniMax is [free on Command Code through September 5th](https://commandcode.ai/docs/resources/pricing-limits#minimax-free). **CRITICAL ROUTING NOTE**: Always specify the exact model ID `minimax/minimax-m3-free` via `cmd --yolo -m minimax/minimax-m3-free`. Do NOT invoke `minimaxai/minimax-m3` (which draws against paid platform limits). Route GUI/postgraphics rendering, event streams, and broad test expansions through this free route;
-- a yearly [Z.AI GLM Pro subscription](https://z.ai/subscribe), routing heavy implementation and storage/systems execution through `glm-5.3`;
-- an `agy` plan with included Claude and Gemini models, and a separate [Claude Pro subscription](https://claude.ai) providing direct access to Claude via the `claude` CLI;
+- a yearly [Z.AI GLM Pro subscription](https://z.ai/subscribe) for `glm-5.3`. **Quota check 2026-08-29: 13% remaining until the 2026-09-01 reset.** Do not route new implementation work to GLM before the reset; reserve the remainder for work only GLM can do, and prefer `codex` or `claude`;
+- an `agy` plan with included Claude and Gemini models, and a separate [Claude Max 5x subscription](https://claude.ai) providing direct access to Claude via the `claude` CLI;
 - a USD 20/month [Command Code Pro plan](https://commandcode.ai/docs/resources/usage-limits) with access to its non-Claude catalog models (e.g. `qwen/qwen3.8-max`, `moonshotai/kimi-k2.7-code`; budget carefully as paid catalog models draw from platform limits);
-- a dedicated [Meta Model API access](https://api.meta.ai) for `muse-spark-1.2-contributor` via `~/.local/bin/muse` (Claude Code wrapper targeting Meta's Anthropic-compatible endpoint); and
+- a dedicated [Meta Model API access](https://api.meta.ai) for `muse-spark-1.2-contributor` via `~/.local/bin/muse` (Claude Code wrapper targeting Meta's Anthropic-compatible endpoint). **This is metered, pay-per-token access, not a flat subscription** — unlike `agy`, `glm`, `codex`, and `claude`, every call costs money regardless of quota. Reserve it for selective, high-value use the flat subscriptions cannot cover, the same policy as DeepSeek; and
 - metered DeepSeek access whose after-business-hours pricing is cheaper but is not free, reserved for selective execution-loop and data-structure analysis.
  
-Use the `claude`, `agy`, `codex`, `glm`, `muse`, and `cmd` subscriptions for routine work.
+Use the `claude`, `agy`, `codex`, `glm`, and `cmd` subscriptions for routine work.
 Reserve metered providers and pay-per-token frontier models for high-value
 independent reasoning, high-stakes architectural proofs, and final security
 review. Reuse related Claude, GLM, Muse, and Command Code sessions to reduce cold-start and
 quota overhead.
  
-| Model family | CLI | Plan | Preferred work |
-| :--- | :--- | :--- | :--- |
-| Claude (50% Boost thru Aug 31) | `claude` (Claude 5) / `agy` (Claude 4.6) | Claude Pro subscription / `agy` plan quota | Architecture, formal invariants, routine & adversarial code review, compiler lowering, high-stakes security review |
-| Gemini | `agy` | Google AI Pro, $19.99/month fixed fee | QA, TDD, cross-platform parity, daily orchestrator driving |
-| GLM | `~/.local/bin/glm` | Yearly GLM Pro subscription | Primary heavy implementation route: storage, B-trees, DaoStream, RPC, DHT, VM runtime |
-| GPT | `codex` | Codex Plus, $20/month fixed fee | Compiler/AST work, lowering, adversarial review |
-| Muse Spark | `~/.local/bin/muse` | Meta Model API (via Claude Code wrapper) | Primary cost-effective worker for scoped edits, documentation, and linters |
-| MiniMax, Qwen 3.8 Max, Kimi, others | `cmd -m <model>` ([models](https://commandcode.ai/docs/reference/cli/models)) | USD 20/month Command Code Pro (**weekly limit exhausted 2026-08-28; confirm before routing**) | Compiler lowering, AST transformations, and cross-family independent review (prefer `qwen/qwen3.8-max`) |
-| DeepSeek | `~/.local/bin/deepseek` | Metered; cheaper after business hours, not free | Selective data-structure and VM execution-loop analysis |
- 
+| Model Family          | CLI              | Plan / Quota                                                        | Preferred Work                                                              |
+| :---------------------| :----------------| :-------------------------------------------------------------------| :---------------------------------------------------------------------------|
+| Claude                | `claude` / `agy` | Claude Max 5x / `agy` plan                                          | Architecture, formal invariants, adversarial reviews, security sign-off     |
+| Gemini                | `agy`            | Google AI Pro ($19.99/mo)                                           | QA, TDD, cross-platform parity, daily orchestrator driver                   |
+| GLM                   | `glm`            | Yearly GLM Pro (13% quota left)                                     | Storage, B-trees, DaoStream, RPC, DHT, VM runtime (fallback until reset)    |
+| GPT                   | `codex`          | Codex Plus ($20/mo)                                                 | Primary implementation (DaoStream, RPC, state machines), compiler, lowering |
+| Muse Spark            | `muse`           | Meta Model API (metered)                                            | Selective, high-value scoped edits the flat subscriptions cannot cover      |
+| MiniMax / Qwen / Kimi | `cmd`            | Command Code Pro ($20/mo; **weekly** limit, confirm before routing) | Compiler lowering, AST transforms, cross-family review (`qwen3.8-max`)      |
+| DeepSeek              | `deepseek`       | Metered (off-peak)                                                  | Selective data structures and VM execution-loop analysis                    |
+
 ### CLI Routing Rules
- 
-1. **Never invoke Claude through `cmd`**: Its pay-per-token use rapidly exhausts Command Code credits. Invoke Claude directly through `claude` (Claude Code) or `agy` using the Claude Pro subscription.
-2. **Never invoke Muse Spark through `cmd`**: Route Muse Spark exclusively through `~/.local/bin/muse` (which uses Claude Code configured with Meta Model API's Anthropic-compatible endpoint). Make sure to use the `contrib` model (`muse-spark-1.2-contributor`) because it is cheaper.
+
+1. **Never invoke Claude through `cmd`**: Its pay-per-token use rapidly exhausts Command Code credits. Invoke Claude directly through `claude` (Claude Code) or `agy` using the Claude Max subscription.
+2. **Never invoke Muse Spark through `cmd`**: Route Muse Spark exclusively through `~/.local/bin/muse` (which uses Claude Code configured with Meta Model API's Anthropic-compatible endpoint). Use the `contrib` model (`muse-spark-1.2-contributor`) — the cheapest Meta API tier, but still metered per-call; prefer a flat subscription (`agy`, `glm`, `codex`, `claude`) for any routine or high-volume work.
 3. **Model Availability**: Before assigning work, confirm route availability with `agy models`, `cmd --list-models`, or the relevant CLI's model listing. If a model is absent in Codex or `agy`, use the next listed fallback instead of routing it through pay-per-token Command Code credits.
 
 ### External CLI Shell-Out Requirement (No Native Subagents)
 
 Delegated engineering tasks must never be routed through AGY's native subagent tool (`invoke_subagent`). The explicit reason is that **AGY native subagents are limited strictly to models provided by AGY (the Gemini family)**. 
 
-To execute the team roster with true multi-provider model diversity, leverage the user's active subscriptions (Claude Pro with 50% August token boost, yearly GLM Pro, OpenAI/Codex Plus, and Command Code Pro including Muse Code), and guarantee genuine cross-family adversarial reviews, the Orchestrator must shell out directly to external CLI coding agents (`claude`, `glm`, `codex`, `cmd`, `muse`) via shell execution tools (`run_command`).
+To execute the team roster with true multi-provider model diversity, leverage the user's active subscriptions (Claude Max 5x, yearly GLM Pro, OpenAI/Codex Plus, and Command Code Pro), and guarantee genuine cross-family adversarial reviews, the Orchestrator must shell out directly to external CLI coding agents (`claude`, `glm`, `codex`, `cmd`, `muse`) via shell execution tools (`run_command`).
 
 Provider routing establishes **where** work is assigned and which model plans are utilized. Section 3 defines **how** team members collaborate through persistent artifacts, verify diffs, and report commit readiness.
 
@@ -116,7 +212,9 @@ must never stage (`git add`) or commit (`git commit`) changes unless explicitly 
   work. Use parent-child chains when serialization is inherent.
 - Have a different model family review whichever model authored the patch.
   Patches authored by GPT models (`gpt-5.6-terra`/`-luna`) default to `gemini-3.7-flash`
-  or non-GPT review; patches authored by GLM models default to non-GLM review.
+  or non-GPT review; patches authored by GLM models default to non-GLM review;
+  patches or designs authored by Claude models (including `claude-fable-5` as
+  Architect) default to `gpt-5.6-sol` or other non-Claude review.
 - Inspect every cited location and rerun relevant tests. Never accept another
   CLI's self-reported test result as proof.
 - **Avoid redundant test execution by delegated agents**: If the orchestrator has
@@ -133,13 +231,13 @@ must never stage (`git add`) or commit (`git commit`) changes unless explicitly 
 **A reported zero exit code is not evidence of work.** Each of these
 accomplished nothing and was caught only by inspecting the work product:
 
-| Shape | What it looked like | How it was caught |
-| :--- | :--- | :--- |
-| CLI usage error | Help text where the report should be | No findings file was written |
-| Wrong flag position | `error: unexpected argument '-s' found` | Report file absent |
-| Zero tests executed | `clojure -M:test -n <ns>` exit 0, "0 tests" | Namespace was `:cljd`-guarded, so nothing ran on the JVM |
-| Stale build output | `bb test:cljd` green, including a *deleted* test | Generated Dart predated the source edit |
-| Sandboxed verification | "0 failures" with silently skipped socket tests | Assertion count far below a local run |
+| Shape                  | What it looked like                              | How it was caught                                        |
+| :----------------------| :------------------------------------------------| :--------------------------------------------------------|
+| CLI usage error        | Help text where the report should be             | No findings file was written                             |
+| Wrong flag position    | `error: unexpected argument '-s' found`          | Report file absent                                       |
+| Zero tests executed    | `clojure -M:test -n <ns>` exit 0, "0 tests"      | Namespace was `:cljd`-guarded, so nothing ran on the JVM |
+| Stale build output     | `bb test:cljd` green, including a *deleted* test | Generated Dart predated the source edit                  |
+| Sandboxed verification | "0 failures" with silently skipped socket tests  | Assertion count far below a local run                    |
 
 After every delegation, check the artifact, not the status: does the findings
 file exist, does the diff contain the change, did the reported test counts move
@@ -258,18 +356,18 @@ collab/<role>-<task>.prompt.md
 collab/<role>-<task>.<model>.findings.md
 ```
 
-| Role prefix | Artifacts |
-| :--- | :--- |
-| `orchestrator-` | Plan decomposition, phase status, handoff briefs, commit readiness |
-| `architect-` | Architectural designs, axiom reviews, subsystem boundary specs, ADR proposals |
-| `review-` | Adversarial code reviews, security sign-offs, diff audits, consensus logs |
-| `qa-` | TDD specifications, verification test plans, regression audit logs |
-| `vm-` | CESK machine, bytecode dispatch, continuation runtime briefs and findings |
-| `storage-` | B-tree, indexing, DaoSpace storage briefs and findings |
-| `compiler-` | Yang AST lowering, parser, macro expansion briefs and findings |
-| `stream-` | DaoStream framing, network transport, RPC briefs and findings |
-| `graphics-` | DaoGUI, WebGL/WebGPU, canvas rendering briefs and findings |
-| `subagent-` | Scoped tool/linter runs, file searches, worker outputs |
+| Role prefix     | Artifacts                                                                     |
+| :---------------| :-----------------------------------------------------------------------------|
+| `orchestrator-` | Plan decomposition, phase status, handoff briefs, commit readiness            |
+| `architect-`    | Architectural designs, axiom reviews, subsystem boundary specs, ADR proposals |
+| `review-`       | Adversarial code reviews, security sign-offs, diff audits, consensus logs     |
+| `qa-`           | TDD specifications, verification test plans, regression audit logs            |
+| `vm-`           | CESK machine, bytecode dispatch, continuation runtime briefs and findings     |
+| `storage-`      | B-tree, indexing, DaoSpace storage briefs and findings                        |
+| `compiler-`     | Yang AST lowering, parser, macro expansion briefs and findings                |
+| `stream-`       | DaoStream framing, network transport, RPC briefs and findings                 |
+| `graphics-`     | DaoGUI, WebGL/WebGPU, canvas rendering briefs and findings                    |
+| `subagent-`     | Scoped tool/linter runs, file searches, worker outputs                        |
 
 Copy the prompt template from the selected role file into `collab/` under that
 prefix and replace every placeholder. **All files generated by agents or human
@@ -441,13 +539,13 @@ When multiple LLM agents are dispatched to implement or explore solutions for th
   continue until it returns, exits, or emits an explicit process error. Report
   the error before choosing a fallback.
 
-| Target | Session store | Follow-up |
-| :--- | :--- | :--- |
-| `claude` | `~/.claude` | `--resume <session-id>` |
-| `glm` | `~/.claude-glm` | `--resume <session-id>` |
-| `cmd` | `~/.commandcode` | `--resume <name-or-id>` |
-| `codex` | `~/.codex` | `codex exec [-s <mode>] resume <session-uuid>` (flags before `resume`; `--last` only when no other `codex` session is in flight) |
-| `muse` | `~/.claude-muse` | `--resume <session-id>` |
+| Target   | Session store    | Follow-up                                                                                                                        |
+| :--------| :----------------| :--------------------------------------------------------------------------------------------------------------------------------|
+| `claude` | `~/.claude`      | `--resume <session-id>`                                                                                                          |
+| `glm`    | `~/.claude-glm`  | `--resume <session-id>`                                                                                                          |
+| `cmd`    | `~/.commandcode` | `--resume <name-or-id>`                                                                                                          |
+| `codex`  | `~/.codex`       | `codex exec [-s <mode>] resume <session-uuid>` (flags before `resume`; `--last` only when no other `codex` session is in flight) |
+| `muse`   | `~/.claude-muse` | `--resume <session-id>`                                                                                                          |
 
 ## 4. Security, Privacy, and Sandboxing
 
@@ -488,7 +586,7 @@ When multiple LLM agents are dispatched to implement or explore solutions for th
 
 ### Claude through `claude` or `agy`
 
-With a Claude Pro subscription, use the official `claude` CLI (Claude Code) for architectural arbitration, formal invariant verification, and security reviews:
+With the Claude Max subscription, use the official `claude` CLI (Claude Code) for architectural arbitration, formal invariant verification, and security reviews:
 
 ```sh
 claude --permission-mode plan \
@@ -580,13 +678,20 @@ Prefer the stdin form (`-`) over an inline prompt string: Section 4 forbids
 private payloads in command arguments, and every `codex` subcommand that takes a
 prompt accepts `-` to read it from stdin.
 
+**Project policy: invoke `codex` with `-s danger-full-access` for implementation.**
+The workspace sandbox costs more in false findings than it buys here -- it
+silently blocks socket binding and the Flutter cache, so a delegate reports
+failures that are artefacts of the sandbox rather than of its change, and the
+orchestrator cannot tell the two apart without re-running everything locally.
+Reviews stay `read-only`, because a reviewer has no reason to write.
+
 ```sh
 # Headless review (read-only)
 codex exec -m gpt-5.6-sol -s read-only - < collab/review-task.prompt.md \
   > collab/review-task.<model>.stdout.log
 
-# Implementation (edits allowed)
-codex exec -m gpt-5.6-luna -s workspace-write - < collab/stream-task.prompt.md \
+# Implementation (edits allowed, unsandboxed per project policy)
+codex exec -m gpt-5.6-luna -s danger-full-access - < collab/stream-task.prompt.md \
   > collab/stream-task.<model>.stdout.log
 
 # Purpose-built code review; prefer over `exec` for review tasks.
@@ -627,10 +732,28 @@ codex exec -s read-only resume <session-uuid> - < collab/review-followup.prompt.
 > if a wrapper reports the status of a later command in the list. See
 > *Verifying a shell-out actually ran* in Section 3.
 
-Known sandbox limits: `workspace-write` blocks socket binding (JVM tests that
-bind localhost report errors) and cannot write the Flutter cache (ClojureDart
-builds fail before enumeration). Do not accept a delegated `:cljd` or
-socket-test result produced under it.
+`danger-full-access` runs the delegate unsandboxed: it can write anywhere the
+user can, not merely inside the repository. Brief it to the files it owns, and
+read its diff rather than its summary.
+
+Under `workspace-write` instead, two limits apply, recorded because they have
+each produced a false finding:
+
+- **Socket binding is off by default**, so JVM tests that bind localhost fail as
+  a sandbox artefact. It is a config toggle rather than a hard limit -- add
+  `-c sandbox_workspace_write.network_access=true`, or set
+  `[sandbox_workspace_write] network_access = true` in `~/.codex/config.toml`.
+  The emitted seatbelt policy then carries
+  `(allow network-bind (local ip "*:*"))` and
+  `(allow network-inbound (local ip "localhost:*"))`. Verified 2026-08-29 by
+  binding `127.0.0.1:0` inside `codex exec -s workspace-write`.
+- **The Flutter cache cannot be written**, so ClojureDart builds fail before
+  enumeration. No toggle for this one; `danger-full-access` is what clears it.
+
+Two traps found while checking the first: the standalone `codex sandbox`
+subcommand does **not** honour that config key -- it takes sandbox-state flags
+(`--sandbox-state-disable-network`) instead, so a test there reports a false
+negative; and `--strict-config` is an `exec` flag, not a `sandbox` one.
 
 ### Muse Spark through `muse` (Claude Code wrapper)
 
@@ -687,7 +810,7 @@ Canonical file-based review:
 
 ```sh
 cmd -p \
-  -m minimaxai/minimax-m3 \
+  -m minimax/minimax-m3-free \
   --plan --no-session --output-format text \
   < collab/review-task_prompt.md \
   > collab/review-task_findings.md
@@ -697,7 +820,7 @@ Canonical file-based implementation:
 
 ```sh
 cmd -p \
-  -m minimaxai/minimax-m3 \
+  -m minimax/minimax-m3-free \
   --auto-accept --tools-all --output-format text \
   < collab/subagent-task_prompt.md \
   > collab/subagent-task_findings.md
@@ -711,7 +834,7 @@ For related work, omit `--no-session` and resume the same context:
 
 ```sh
 cmd -n "dao-stream-audit" \
-  -m minimaxai/minimax-m3 --plan \
+  -m minimax/minimax-m3-free --plan \
   -p "Read the timestamped prompt file and perform the review."
 
 cmd --resume "dao-stream-audit" --plan \

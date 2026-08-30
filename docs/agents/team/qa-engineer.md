@@ -6,8 +6,8 @@ description: QA, TDD & Verification Engineer role definition and model assignmen
 
 ## Assigned LLM Models
 
-- **Primary**: `gemini-3.7-flash` through `agy` (coding, multi-step agentic review, test design, and token efficiency)
-- **Secondary / Fallback**: `gpt-5.4-mini` (fast TDD generation and subagent work) / `glm-5.3` (systems-focused regression analysis)
+- **Primary**: `claude-5-sonnet` through `claude` under Max 5x (TDD test design and CLJ/CLJS/CLJD parity verification — judgment work; cross-host parity bugs are silent and host-specific by nature. See the 2026-08-30 evaluation note in TEAM.md)
+- **Secondary / Fallback**: `gemini-3.7-flash` through `agy` (the mechanical lint/regression-suite loop, where token efficiency matters more than judgment) / `gpt-5.4-mini` (fast TDD generation and subagent work) / `glm-5.3` (systems-focused regression analysis)
 
 Model capability covers test design and analysis; actual test execution depends
 on the harness exposing terminal tools and granting the required permissions.
