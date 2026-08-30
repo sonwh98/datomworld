@@ -110,7 +110,7 @@
            [:pre
             [:code
              ";; the stream mints an initial cursor; the READER owns it\n"
-             "(cursor R)\n"
+             "(cursor R :dao.stream/oldest)  ;; or :dao.stream/newest\n"
              ";; => {:dao.stream/outcome :dao.stream/ok\n"
              ";;     :dao.stream/cursor  c}\n\n"
              ";; observing hands you a successor cursor\n"
@@ -141,7 +141,7 @@
            [:pre
             [:code
              "{:dao.stream/outcome :dao.stream/gap\n"
-             " :dao.stream/cursor  oldest-retained}"]]]
+             " :dao.stream/cursor  earliest-still-observable}"]]]
           [:p
            "The reader decides what missing history means—fatal for a replayer, a shrug for a live dashboard. "
            "A mutable file destroys history silently every time it's written. A DaoStream gap makes the one way history can leave an explicit, reported event."]
@@ -159,7 +159,7 @@
            "Writes are the same: " [:code "append!"] " answers " [:code ":dao.stream/full"] " or " [:code ":dao.stream/closed"] " as values, never as exceptions. "
            "Who waits, and how long, is an interpreter or runtime decision made " [:em "above"] " the stream. The substrate never captures your thread and never calls you back."]
 
-          [:h2 "Declared Capabilities vs. the ctl File"]
+          [:h2 "Declared Surfaces vs. the ctl File"]
           [:p
            "Plan 9 forced every resource into full file shape even when the resource couldn't honor it. The escape hatch was the "
            [:code "ctl"]
@@ -175,7 +175,7 @@
            [:li
             "The " [:strong "portable descriptor"] " only " [:em "names"] " an existing stream—never executable code, never a construction program."]
            [:li
-            "A " [:strong "handle declares its capabilities"] ": reader, writer, closable—the subset its medium can honor."]]
+            "A " [:strong "handle declares its surfaces"] ": reader, writer, closable—the subset its medium can honor."]]
           [:p
            "That last point is where the file metaphor quietly broke and DaoStream refuses to paper over it. A raw socket retains nothing—it cannot honor cursors, re-reading, or independent readers. So a WebSocket handle is "
            [:em "writer and closable only"]
@@ -242,7 +242,7 @@
            " and join a conversation it didn't know existed at start time—the topology of communication evolves at runtime, carried by the data itself. "
            "But nothing pretends the remote is local: attaching returns outcomes as data, appends answer "
            [:code "full"]
-           " when a send buffer is saturated, and a descriptor that names something unreachable resolves to a plain "
+           " when a send buffer is saturated, an unreachable endpoint is a retryable transport error, and a descriptor whose stream an endpoint disclaims resolves to a plain "
            [:code ":dao.stream/not-found"]
            "."]
 
@@ -277,7 +277,7 @@
             [:tr
              [:td [:strong "Resource mismatch"]]
              [:td "Forced into file shape (" [:code "ctl"] " files)"]
-             [:td "Declared capabilities (a socket is a writer)"]]
+             [:td "Declared surfaces (a socket is a writer)"]]
             [:tr
              [:td [:strong "Names"]]
              [:td "Paths in a mounted hierarchy"]
