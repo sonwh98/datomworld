@@ -186,7 +186,7 @@ vector.
 Fusing is valid only when the buffer's decoupling is unused:
 
 1. **Exclusivity.** Exactly one consumer cursor, in-order, read once; the
-   realization never escapes — not stored, not passed as an operand, not
+   handle never escapes — not stored, not passed as an operand, not
    captured by a lambda body, not closed into a parkable continuation.
 2. **Effect ordering.** Fusion introduces demand-driven execution: the
    producer runs when the consumer needs a value. The producer's appends must
@@ -221,7 +221,7 @@ after:   :move         (value flows in a register)
 ```
 
 No store entries for the stream or cursor ids are ever created. The datoms are
-the contract; the fused artifact and the ring are two realizations of the same
+the contract; the fused artifact and the ring are two implementations of the same
 descriptor — interpretation over abstraction, again.
 
 ### 5.3 Relation to `jit-design.md`

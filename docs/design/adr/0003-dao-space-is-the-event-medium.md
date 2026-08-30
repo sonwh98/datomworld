@@ -48,9 +48,11 @@ facts back into it at a higher level of abstraction.
   layers. The generality of the adapter definition is what preserves the layering.
 
 - **Volume and durability are retention questions, not admission questions.** Data is syntax
-  (axiom 2), so no depositing layer may filter by presumed worth. `dao.stream` already owns
-  the operational answer: capacity, `:dao.stream.retention/evict-oldest` versus `reject`, and
-  `:dao.stream/gap` so a reader is never silently repositioned.
+  (axiom 2), so no depositing layer may filter by presumed worth. The operational answer
+  lives with the selected medium's transport, which declares its capacity and retention
+  policy (evict-oldest versus reject); `dao.stream` standardizes only the outcomes —
+  `:dao.stream/full`, `:dao.stream/gap` — so loss is never silent and a reader is never
+  silently repositioned.
 
 - **The medium must answer with data.** An adapter entry runs on a host callback thread, where
   a thrown exception has nowhere to go, and `dao.stream`'s axiom is that all expected

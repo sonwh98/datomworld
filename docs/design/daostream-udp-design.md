@@ -4,9 +4,9 @@
 
 This document defines a UDP-based transport for DaoStream, enabling datom streams over unreliable, connectionless network links. The design follows the principle that **a datom is a natural UDP datagram**: each datom `[e a v t m]` is a self‑contained, immutable fact that maps directly to a UDP payload. The transport adds a minimal reliability layer (DRDS—Datom Reliable Datagram Streams) that is **optional and interpreter‑directed**, preserving the axiom that semantics are external.
 
-The UDP transport integrates with the existing DaoStream descriptor/realization model:
+The UDP transport integrates with the existing DaoStream descriptor/handle model:
 - Descriptor: `{:dao.stream/type :udp …}`
-- Realization: `open!` multimethod dispatches on `:dao.stream/type :udp`
+- Handle: `open!` multimethod dispatches on `:dao.stream/type :udp`
 - Transport implementation: `UdpTransport` satisfying `IDaoStreamReader`, `IDaoStreamWriter`, `IDaoStreamBound`
 - Waitability: Not `IDaoStreamWaitable` (network‑transparent waiters are impractical); fallback to `check‑wait‑set` polling.
 
@@ -14,7 +14,7 @@ The UDP transport integrates with the existing DaoStream descriptor/realization 
 
 1. **No hidden semantics**: UDP provides raw packet delivery; reliability, ordering, and causality are interpreter‑directed.
 2. **Datom as datagram**: The five‑tuple `[e a v t m]` is the atomic unit of transmission; the transport never inspects its content.
-3. **Channel mobility**: Descriptors are first‑class values that can be sent over streams and realized on any node with UDP connectivity.
+3. **Channel mobility**: Descriptors are first‑class values that can be sent over streams and attached on any node with UDP connectivity.
 4. **Interpreter‑directed reliability**: The transport can be configured for fire‑and‑forget, at‑least‑once, or exactly‑once delivery, as required by the stream’s interpreter.
 
 ## Descriptor Schema
@@ -70,7 +70,7 @@ When `:reliable? true`, the descriptor may include additional DRDS‑specific op
 - `:fec?` – whether to add forward‑error‑correction parity datagrams.
 - `:encryption` – encryption scheme. Initially `:none`; later `:noise` (Noise Protocol) or `:dtls`.
 
-## Transport Realization
+## Transport Handle
 
 The `open!` multimethod dispatches on `:dao.stream/type :udp` and returns an instance of `UdpTransport`.
 
@@ -338,7 +338,7 @@ The UDP transport’s buffer can be bounded by the descriptor’s `:capacity` fi
 UDP is susceptible to spoofing, flooding, and eavesdropping. The following mitigations are available:
 
 1. **Encryption**: DRDS layer can integrate Noise Protocol or DTLS. The `:encryption` descriptor field selects the scheme.
-2. **Authentication**: Stream descriptors may carry Shibi capability tokens in `:shibi`. The `open!` realization validates tokens before creating the transport.
+2. **Authentication**: Stream descriptors may carry Shibi capability tokens in `:shibi`. The `open!` implementation validates tokens before creating the transport.
 3. **Rate limiting**: The transport can limit packets per second based on source address (optional).
 4. **Network isolation**: Run UDP streams over WireGuard tunnels (as described in the blog post “Why TCP Is Too Semantic for Datom.world”). This delegates security to a proven VPN layer.
 

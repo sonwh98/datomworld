@@ -175,7 +175,7 @@ a fixed chunk size.
 
 ---
 
-## Per-host realization
+## Per-host implementation
 
 | Host | `open!` (cheap, no content read) | `put!` async disk write | `close!` blocking flush |
 |---|---|---|---|
