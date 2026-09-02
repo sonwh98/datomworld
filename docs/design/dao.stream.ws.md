@@ -391,6 +391,9 @@ descriptor can.
   as data is interpretation, outside both this transport and the contract).
   Needing nothing from this transport does not mean needing no specification:
   a pause vocabulary both ends must recognize is interoperable wire content,
-  and it requires a durable home before it is built — the migration plan that
-  currently describes it is consumed when its phases complete.
+  and it requires a durable home before it is built. `dao.lease.md` is the
+  intended home for its semantics and does not yet claim them; the wire form
+  is owed by neither that document nor this one until it does. The v2
+  migration plan has deferred flow control out of its slice for the same
+  reason, so nothing is being built against an unsettled vocabulary.
 - Relationship to the RPC layers built over streams.

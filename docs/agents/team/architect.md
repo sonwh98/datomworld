@@ -9,6 +9,15 @@ description: Lead System Architect role definition and model assignment for dato
 - **Primary**: `claude-fable-5` (Mythos-class, strongest available model for architecture; via the `claude` CLI under Max 5x — reviews and design need no write access). See the 2026-08-30 evaluation note in TEAM.md: this contract itself is the repository-specific evidence, reviewed adversarially by `gpt-5.6-sol` across six convergence rounds.
 - **Secondary / Fallback**: `gpt-5.6-sol` (via Codex CLI, `codex exec -s read-only` — cross-family review when Architect-authored work needs an independent check, or when Fable capacity is unavailable) / `claude-5-opus` / `gemini-3.1-pro-high` (approximately 1M-token context for repository-wide synthesis) / `glm-5.3` (systems architecture and long-horizon engineering)
 
+### Active rotation (2026-09-03)
+
+`claude-fable-5-1` reached ~90% of its 5-hour quota during the `yin.vm.v2`
+sign-off rounds. The seat rotates to **`gpt-5.6-sol`** per the fallback above
+until Fable's window resets. Sol has independent standing on this work — it was
+one of the five reviewers of `review-v2-plans-r2` — but it has **not** seen
+sign-off rounds 3 through 7, so a rotation brief must carry what those settled.
+Rotate back when the quota resets; the seat's primary is unchanged.
+
 ## Scope of Ownership
 
 - **Foundations**: [`docs/design/datom.world.md`](../../design/datom.world.md), [`docs/design/datom.md`](../../design/datom.md), [`docs/design/dao.stream.md`](../../design/dao.stream.md)

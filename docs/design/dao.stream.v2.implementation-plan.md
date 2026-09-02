@@ -143,30 +143,20 @@ The reference reader+writer+closable transport, scoped to the contract:
   *Boundary of this plan*).
 No high-water figure in the creation specification: the ring buffer holds no
 reader positions and so can never act on one. The threshold at which a reader
-considers itself behind is that reader's own configuration, supplied to the
-flow-control interpreter (4d) by the composition that wires it.
+considers itself behind is that reader's own configuration, belonging to
+whatever interpreter measures it — which this slice does not build.
 - Cursor anchors `:dao.stream/oldest` and `:dao.stream/newest`;
   `invalid-anchor`; cursors carry the logical-stream identity
   (`cursor-mismatch` / `invalid-cursor` detectable); valid across handles
   of the same logical stream.
-- A transport-owned `lag` operation beside the public surface, under the
-  license the contract's Surfaces section grants: it takes a handle and a
-  cursor and answers, as data, how many retained values lie between that
-  cursor's position and the newest. It is total: eviction is oldest-first, so
-  a cursor whose position is no longer retained is behind every retained
-  value, and `lag` answers the full retained count — maximally behind. It is not a DaoStream operation and adds
-  nothing to the contract's seven. Its one consumer is the flow-control
-  interpreter (4d), which is handed it as an argument by the composition that
-  wires it — never reaching through a handle to find it — and is therefore
-  medium-specific code by construction, as the contract requires of anything
-  that uses a transport-owned operation.
 - One coherent state per operation (single atom; one deref per `next`),
   satisfying the Concurrency section.
 
-Explicitly absent: waiters, drain, take, seq views, `closed?`, and **live
-resize** — resize is compatible with the contract but proves nothing the
-slice needs, and fixed declared capacity is sufficient for deposit
-admission. It follows the slice.
+Explicitly absent: waiters, drain, take, seq views, `closed?`, **live
+resize** — compatible with the contract but proving nothing the slice needs,
+since fixed declared capacity is sufficient for deposit admission — and the
+transport-owned **`lag`** operation, whose only consumer was flow control (see
+*Not in this plan*). Both follow the slice.
 
 The Phase 1 conformance suite runs here for the first time against a transport
 declaring all three surfaces. Laws that need a resolvable descriptor wait for
@@ -319,7 +309,7 @@ the stream (contract, *The readiness extension*). Starting is the driver's
 first call; nothing self-installs. Stopping is the driver ceasing to call it
 while keeping the returned state — which is also the cancellation mechanism —
 and restarting is calling it again with that state. The kept state's cursor
-never moved, which is what makes flow control (4d) need no protocol for
+never moved, which is why a future flow-control layer needs no protocol for
 saying where to continue: the sender never lost its place, so a paused
 connection resumes without being told anything.
 
@@ -361,62 +351,6 @@ define:
   `source-ended`, this composition performs the transport-specific close —
   the ended-stream close code per `dao.stream.ws.md`, settled at the
   wire-contract gate — which `forward-step` deliberately cannot (see 4b).
-
-### 4d — Flow control
-
-Without this, a reader that falls behind loses data: the deposit medium evicts
-its oldest values and the reader is told it missed them. That is honest, and
-right for a live feed where the newest value is the one that matters. It is
-wrong as the only option, and it makes eviction the normal mode rather than
-the backstop it should be.
-
-Nothing here changes the ws transport or the contract; the one piece of
-mechanism, the measurement, is a ring buffer transport-owned operation
-delivered in Phase 2. Pause requests travel as ordinary values
-on the socket the client already writes to, and the serving side reads them
-off its own request medium (see `dao.stream.ws.md`, *Serving*). Two
-interpreters, one per end.
-
-- **The reader publishes its own backlog.** Only it can: a stream holds no
-  reader positions, so neither the medium nor the adapter can know how far
-  behind anyone is. Occupancy relative to *your* cursor is private to you.
-  It measures that occupancy with the deposit medium's transport-owned `lag`
-  operation (Phase 2), handed to it by the same composition that supplies
-  its threshold; the contract's public surface gains no operation for this.
-  When its lag passes the threshold its composition configured, the reader
-  asks for a pause.
-
-  A `gap` on the measured medium outranks any measurement: the reader
-  recovers its cursor and measures again before requesting or renewing
-  anything. An evicted cursor is maximally behind by definition, so without
-  this rule the reader renews a pause forever against a position that no
-  longer exists — pausing harder in exactly the situation that calls for gap
-  recovery instead.
-- **A pause is a lease, not a switch.** The request carries a duration — hold
-  for *n* — and the reader renews while it is still behind. A switch has a
-  stuck state: a lost resume, or a reader that dies mid-pause, leaves the
-  sender stopped forever. A lease expires, so absent renewal the system
-  returns to sending on its own, and a dead reader is indistinguishable from
-  one that caught up.
-- **The serving composition acts on it**: stop stepping the connection's
-  forwarder, resume stepping when the lease lapses or the reader stops
-  renewing. The kept state's cursor never moved, so nothing says where to
-  resume.
-- **Liveness**: the serving side pings on an interval and drops a connection
-  after two unanswered. A connection can die without either side being told,
-  and a paused forwarder would otherwise sit indefinitely on a peer that is
-  gone.
-- **Caps**: a maximum lease duration, so one request cannot buy an hour, and a
-  maximum consecutive paused time, after which the connection is dropped
-  rather than renewed forever.
-
-**Why this cannot be turned against the server.** The served stream evicts on
-its own schedule regardless of who is attached, so a client that pauses and
-never returns causes the server to retain nothing extra — it simply falls
-behind and comes back to a `gap`. The loss moves upstream, bounded by the
-served stream's retention, and lands where the producer can be told about it.
-A client that pauses forever harms only itself. The caps above make that
-bounded rather than merely self-correcting.
 
 ## Phase 5 — The slice, end to end
 
@@ -525,13 +459,43 @@ Not in this plan, by design:
 - Gating who may attach. The contract reserves nothing for it, so neither does
   this plan; it would arrive as an addition, not as the filling-in of a slot
   left open here.
+- **Flow control — a reader pausing a sender.** Deferred, with its dependency
+  named rather than left as a date. A pause has to be a lease and not a switch:
+  a switch has a stuck state, since a lost resume or a reader that dies
+  mid-pause leaves the sender stopped forever, while a grant that lapses absent
+  renewal returns the system to sending on its own. Those semantics now live in
+  `dao.lease.md`, whose facts — the grant, its renewals, and the release or
+  reclaim left as a trace — are datoms on a medium, which for this system means
+  `dao.space`. `dao.space` is not yet built against this contract, so the chain
+  bottoms out beyond this slice.
+
+  What the slice ships without it is the honest default the contract already
+  specifies: a reader that falls behind is evicted past and told so with a
+  `gap`. That is right for a live feed and wrong only as the *sole* option, so
+  its absence costs an alternative rather than a correctness property.
+
+  Two items travel with it. The **pause wire vocabulary** — which the ws spec's
+  Deferred list calls interoperable wire content needing a durable home — is
+  therefore not owed by the wire-contract gate, and the gate's enumeration
+  stands as written. And **liveness probing** stays deferred in
+  `dao.stream.ws.md` on that document's own terms; this plan sets no interval
+  and no unanswered-probe threshold, because a subordinate transient document
+  may not settle what its superior left open.
+
+  Resuming it needs three things in order: `dao.space` on the v2 contract, a
+  `dao.lease.md` that claims the pause and liveness semantics its *Neighbouring
+  deferrals* section currently declines, and a reconciliation of the pause
+  request with that contract's negotiation — a reader asking "hold for *n*" is
+  a proposal, and a proposal creates no state until the serving side grants.
 
 ## End condition — v2 is not a permanent fork
 
 The v2 namespace exists to protect the running system during migration,
 not to live forever. The slice is complete when Phases 1–5 pass on clj and
-cljs; it is explicitly **incomplete on cljd** until the cljd ws transport
-lands, and the end condition is not met before then.
+cljs — Phase 4 being 4a, 4b and 4c, flow control having been deferred out of
+it — and it is explicitly **incomplete on cljd** until the cljd ws transport
+lands, so the end condition is not met before then. Flow control is not part
+of the end condition and does not hold it open.
 
 When the slice is complete and the last consumer has migrated (under its
 own plan), legacy `dao.stream` is deleted and a single decision is taken
