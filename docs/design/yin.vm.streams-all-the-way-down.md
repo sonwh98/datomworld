@@ -15,7 +15,7 @@ proposed machinery names the existing seam it would land in.
 - `docs/design/yin.vm-in-dao.space.md` — the CESK-in-tuple-space premise this
   note extends; its *Ephemeral State Projection* section is the ancestor of
   §6 below
-- `docs/design/jit-design.md` — the advisory trace/patch JIT; the fusion tier
+- `docs/design/yin.vm.jit.md` — the advisory trace/patch JIT; the fusion tier
   in §5 is the compiler-side complement to it
 - `docs/cesk-space-optimization.md` — measured costs of depositing machine
   state as datoms
@@ -224,9 +224,9 @@ No store entries for the stream or cursor ids are ever created. The datoms are
 the contract; the fused artifact and the ring are two implementations of the same
 descriptor — interpretation over abstraction, again.
 
-### 5.3 Relation to `jit-design.md`
+### 5.3 Relation to `yin.vm.jit.md`
 
-`jit-design.md` defines an advisory JIT: a trace surface (`run-traced`,
+`yin.vm.jit.md` defines an advisory JIT: a trace surface (`run-traced`,
 `step-traced`) emits `:yin.trace/*` datoms; the JIT proposes patch datoms; the
 VM applies them at explicit safe points, with guards and deopt datoms. That is
 *observation proposing rewrites*. The fusion tier here is *proof performing
@@ -335,7 +335,7 @@ Each capability is a *reader* of the medium, not a mechanism bolted on:
   continuations are logs.
 - **Observation and meta-circularity.** A debugger is a cursor behind the
   head; an invariant checker is a query against a lagging cursor; a second VM
-  can shadow-execute the same input prefix. The JIT of `jit-design.md` — and
+  can shadow-execute the same input prefix. The JIT of `yin.vm.jit.md` — and
   the fusion profiler of §5.3 — are exactly such observers. The VM can query
   its own state with `dao.space.query` and self-modify by appending to the
   program stream, which the versioned compile already tolerates.

@@ -75,6 +75,36 @@ facts back into it at a higher level of abstraction.
 - Whether `dao.space`'s own `transact!` / `append!` public API should also answer with data,
   or whether the `dao.stream` protocol face alone is governed.
 
+## Amendment (2026-09-01): time-boxed exception for the dao.stream v2 WebSocket slice
+
+The `dao.stream.v2` WebSocket slice
+(`docs/design/dao.stream.v2.implementation-plan.md`, Phases 4–5) wires an
+in-memory ring buffer as its boundary's deposit destination, not a `dao.space`
+writer. This is an exception to the decision above, and it is granted for a
+reason this ADR already records: the decision's own precondition — a writer
+face that answers with data rather than throwing — is unmet, and `dao.space`
+does not yet consume the v2 contract. Requiring the slice to deposit through
+`dao.space` today would pull that migration inside a slice whose boundary
+explicitly excludes it.
+
+The exception is not a reclassification. A ring buffer used this way is one
+composition's retention transport, never a coordination substrate: no
+interpreter outside the slice finds anything through it, it is never indexed
+or published, and it acquires no addressing of its own. Should that shape
+persist, it would be exactly the second stigmergic medium — its own retention,
+its own addressing, its own interpreters — that this ADR exists to forbid.
+
+What makes the exception safe to grant is that the swap is composition-only:
+the boundary adapter cannot tell what it deposits into, so replacing the
+destination changes no adapter code and inverts no layering.
+
+**The exception ends when both hold:** a `dao.space` writer face answers with
+data as this ADR requires, and a composition indexes and publishes what the
+boundary deposits, so those events are discoverable by matching rather than by
+being handed a stream. From that moment this section is void. The trigger is
+deliberately stated as those two facts and not as "`dao.space` migrates":
+`dao.space` is emergent, not a component, and cannot migrate as a unit.
+
 ## References
 
 - `docs/design/datom.world.md` (invariant 3, Host Boundaries, axiom 2)
