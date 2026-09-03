@@ -63,7 +63,7 @@ role or risk requires them.
 
 - Never invoke Claude through `cmd`; use `claude` or `agy`.
 - Never invoke Muse through `cmd`; use `~/.local/bin/muse` with
-  `muse-spark-1.3-contributor`.
+  `muse-spark-1.3-contributor` (not `muse-spark-1.3`).
 - Never use AGY's native `invoke_subagent` for engineering delegation. Shell out
   to `claude`, `agy`, `glm`, `codex`, `cmd`, `muse`, or `deepseek` so the roster
   and cross-family policy remain enforceable.
