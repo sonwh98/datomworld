@@ -189,13 +189,28 @@
                          (contains? r-newest :dao.stream/cursor))
             (swap! violations conj {:check :cursor-newest-failed :result r-newest})))
         ;; Non-destructive read test if elements present
-        (let [c0 (:dao.stream/cursor (v2/cursor handle :dao.stream/oldest))
+        (let [invalid-anchor (v2/cursor handle ::invalid-anchor)
+              _ (when-not (= :dao.stream/invalid-anchor
+                             (:dao.stream/outcome invalid-anchor))
+                  (swap! violations conj {:check :invalid-anchor-not-rejected
+                                          :result invalid-anchor}))
+              c0 (:dao.stream/cursor (v2/cursor handle :dao.stream/oldest))
               res1 (v2/next handle c0)
               res2 (v2/next handle c0)]
           (when-not (= res1 res2)
             (swap! violations conj {:check :destructive-read-detected
                                     :first-read res1
-                                    :second-read res2})))))
+                                    :second-read res2}))
+          ;; The only legal way for a contract consumer to advance is to feed
+          ;; a stream-minted successor (or gap recovery cursor) back to next.
+          ;; Do not inspect cursor shape: it belongs to the transport.
+          (when (contains? #{:dao.stream/ok :dao.stream/gap}
+                           (:dao.stream/outcome res1))
+            (let [successor (:dao.stream/cursor res1)
+                  follow-up (v2/next handle successor)]
+              (when-not (v2/valid-outcome? :next follow-up)
+                (swap! violations conj {:check :invalid-successor-or-recovery-cursor
+                                        :source res1 :follow-up follow-up})))))))
     @violations))
 
 
@@ -238,7 +253,14 @@
    (run-conformance-suite manifest (when-let [hf (:handle-factory manifest)] (hf))))
   ([manifest handle]
    (let [failures (atom [])
-         manifest-res (validate-manifest manifest)]
+         manifest-res (validate-manifest manifest)
+         ;; Each destructive law block gets a fresh transport instance.  The
+         ;; manifest factory is the transport's responsibility; the supplied
+         ;; handle remains a compatibility fallback for older callers.
+         fresh-handle (fn []
+                        (if-let [factory (:handle-factory manifest)]
+                          (factory)
+                          handle))]
      (if-not (:valid? manifest-res)
        {:passed? false :failures (:errors manifest-res)}
        (do
@@ -248,26 +270,26 @@
              (swap! failures concat ind-v)))
 
          ;; 2. Descriptor identity laws (always checked)
-         (when handle
-           (let [desc-v (run-descriptor-laws handle)]
+         (when (fresh-handle)
+           (let [desc-v (run-descriptor-laws (fresh-handle))]
              (when (seq desc-v)
                (swap! failures concat desc-v)))
 
            ;; 3. Reader laws (only if reader declared)
            (when (contains? (:surfaces manifest) :reader)
-             (let [r-v (run-reader-laws handle)]
+             (let [r-v (run-reader-laws (fresh-handle))]
                (when (seq r-v)
                  (swap! failures concat r-v))))
 
            ;; 4. Writer laws (only if writer declared)
            (when (contains? (:surfaces manifest) :writer)
-             (let [w-v (run-writer-laws handle ::conformance-token)]
+             (let [w-v (run-writer-laws (fresh-handle) ::conformance-token)]
                (when (seq w-v)
                  (swap! failures concat w-v))))
 
            ;; 5. Close laws (only if closable declared)
            (when (contains? (:surfaces manifest) :closable)
-             (let [c-v (run-close-laws handle)]
+             (let [c-v (run-close-laws (fresh-handle))]
                (when (seq c-v)
                  (swap! failures concat c-v)))))
 
@@ -367,12 +389,71 @@
   ([stream-identity capacity]
    (make-abstract-stream-model stream-identity capacity []))
   ([stream-identity capacity initial-elements]
+   (make-abstract-stream-model stream-identity capacity initial-elements {}))
+  ([stream-identity capacity initial-elements options]
    {:stream-identity stream-identity
     :capacity capacity
     :elements (vec (map-indexed (fn [i v] {:pos i :val v}) initial-elements))
     :next-pos (count initial-elements)
     :closed? false
-    :attachments {}}))
+    ;; Attachment entries are supplied by the test composition.  A close on an
+    ;; attachment freezes its own visible tail, not the logical stream.
+    :attachments (or (:attachments options) {})
+    ;; Cursor layout is transport-owned.  The model receives projection
+    ;; functions rather than depending on a particular map key convention.
+    :cursor-projector
+    (or (:cursor-projector options)
+        {:identity (fn [cursor] (:stream-identity cursor))
+         :position (fn [cursor] (:position cursor))})}))
+
+
+(defn- invocation
+  "Normalizes legacy positional arguments and the extensible oracle argument
+   shape.  New histories may use
+   {:dao.stream/args [...] :dao.stream/handle {:attachment <id>}}; a missing
+   handle means the logical-stream owner."
+  [args]
+  (if (and (map? args) (contains? args :dao.stream/args))
+    args
+    {:dao.stream/args args :dao.stream/handle {:owner? true}}))
+
+
+(defn- attachment-id
+  [inv]
+  (get-in inv [:dao.stream/handle :attachment]))
+
+
+(defn- attachment-state
+  [state inv]
+  (when-let [id (attachment-id inv)]
+    (get-in state [:attachments id])))
+
+
+(defn- visible-tail
+  [state inv]
+  (or (:tail (attachment-state state inv)) (:next-pos state)))
+
+
+(defn- cursor-identity
+  [state cursor]
+  (when (map? cursor)
+    ((get-in state [:cursor-projector :identity]) cursor)))
+
+
+(defn- cursor-position
+  [state cursor]
+  (when (map? cursor)
+    ((get-in state [:cursor-projector :position]) cursor)))
+
+
+(defn- result-cursor-position
+  [state result]
+  (cursor-position state (:dao.stream/cursor result)))
+
+
+(defn- retained-first
+  [state]
+  (or (:pos (first (:elements state))) (:next-pos state)))
 
 
 (defn abstract-stream-step
@@ -384,15 +465,19 @@
    Returns next state if the operation and outcome are legally accepted by
    the abstract sequential model; returns nil if transition is invalid."
   [state op args result]
-  (let [outcome (:dao.stream/outcome result)]
+  (let [outcome (:dao.stream/outcome result)
+        inv (invocation args)
+        positional (:dao.stream/args inv)
+        attachment (attachment-state state inv)
+        handle-closed? (and attachment (not (:open? attachment)))]
     (case op
       :append!
-      (let [[_val] args]
-        (if (:closed? state)
+      (let [[_val] positional]
+        (if (or (:closed? state) handle-closed?)
           (when (= outcome :dao.stream/closed) state)
           (when (= outcome :dao.stream/ok)
             (let [pos (:next-pos state)
-                  new-elem {:pos pos :val (first args)}
+                  new-elem {:pos pos :val (first positional)}
                   new-elements (conj (:elements state) new-elem)
                   trimmed-elements (if (and (:capacity state)
                                             (> (count new-elements) (:capacity state)))
@@ -404,61 +489,76 @@
 
       :close!
       (when (= outcome :dao.stream/ok)
-        (assoc state :closed? true))
+        (if-let [id (attachment-id inv)]
+          (if (get-in state [:attachments id])
+            (if (get-in state [:attachments id :open?])
+              (assoc-in state [:attachments id]
+                        {:open? false :tail (:next-pos state)})
+              state)
+            nil)
+          (assoc state :closed? true)))
 
       :cursor
-      (let [[anchor] args]
-        (case anchor
-          :dao.stream/oldest
-          (when (and (= outcome :dao.stream/ok)
-                     (map? (:dao.stream/cursor result)))
-            (let [expected-pos (if (seq (:elements state))
-                                 (:pos (first (:elements state)))
-                                 (:next-pos state))
-                  cur-pos (get-in result [:dao.stream/cursor :position])]
-              (when (= cur-pos expected-pos) state)))
+      (let [[anchor] positional]
+        (if handle-closed?
+          (when (= outcome :dao.stream/closed) state)
+          (case anchor
+            :dao.stream/oldest
+            (when (and (= outcome :dao.stream/ok)
+                       (map? (:dao.stream/cursor result)))
+              (let [expected-pos (min (retained-first state) (visible-tail state inv))]
+                (when (= (result-cursor-position state result) expected-pos) state)))
 
-          :dao.stream/newest
-          (when (and (= outcome :dao.stream/ok)
-                     (map? (:dao.stream/cursor result)))
-            (let [expected-pos (:next-pos state)
-                  cur-pos (get-in result [:dao.stream/cursor :position])]
-              (when (= cur-pos expected-pos) state)))
+            :dao.stream/newest
+            (when (and (= outcome :dao.stream/ok)
+                       (map? (:dao.stream/cursor result)))
+              (when (= (result-cursor-position state result) (visible-tail state inv)) state))
 
-          ;; Invalid anchor
-          (when (= outcome :dao.stream/invalid-anchor)
-            state)))
+            ;; Invalid anchor
+            (when (= outcome :dao.stream/invalid-anchor)
+              state))))
 
       :next
-      (let [[cur] args]
-        (if-not (and (map? cur) (= (:stream-identity state) (:stream-identity cur)))
-          ;; Cursor mismatch or invalid cursor
-          (when (contains? #{:dao.stream/cursor-mismatch :dao.stream/invalid-cursor} outcome)
-            state)
-          (let [pos (:position cur)
-                first-pos (some-> (first (:elements state)) :pos)]
+      (let [[cur] positional]
+        (cond
+          (not (map? cur))
+          (when (= outcome :dao.stream/invalid-cursor) state)
+
+          (nil? (cursor-identity state cur))
+          (when (= outcome :dao.stream/invalid-cursor) state)
+
+          (not= (:stream-identity state) (cursor-identity state cur))
+          (when (= outcome :dao.stream/cursor-mismatch) state)
+
+          (not (integer? (cursor-position state cur)))
+          (when (= outcome :dao.stream/invalid-cursor) state)
+
+          :else
+          (let [pos (cursor-position state cur)
+                first-pos (retained-first state)
+                tail (visible-tail state inv)]
             (cond
-              ;; Evicted position -> gap
-              (and first-pos (< pos first-pos))
+              ;; Evicted position -> gap. Recovery names the earliest retained
+              ;; position, even when a closed attachment's frozen tail is gone.
+              (< pos first-pos)
               (when (and (= outcome :dao.stream/gap)
-                         (= first-pos (get-in result [:dao.stream/cursor :position])))
+                         (= first-pos (result-cursor-position state result)))
                 state)
 
-              ;; Retained position -> ok
-              (and first-pos (<= first-pos pos (dec (:next-pos state))))
+              ;; Retained position visible through this handle -> ok.
+              (< pos tail)
               (let [elem (first (filter #(= (:pos %) pos) (:elements state)))]
-                (when (and (= outcome :dao.stream/ok)
+                (when (and elem (= outcome :dao.stream/ok)
                            (= (:val elem) (:dao.stream/value result))
-                           (= (inc pos) (get-in result [:dao.stream/cursor :position])))
+                           (= (inc pos) (result-cursor-position state result)))
                   state))
 
-              ;; At or past tail
-              (>= pos (:next-pos state))
-              (if (:closed? state)
+              ;; A frozen attachment is at end even while the logical stream
+              ;; remains open.  Otherwise logical close determines end/blocked.
+              :else
+              (if (or handle-closed? (:closed? state))
                 (when (= outcome :dao.stream/end) state)
-                (when (= outcome :dao.stream/blocked) state))
-
-              :else nil))))
+                (when (= outcome :dao.stream/blocked) state))))))
 
       ;; Unknown op
       nil)))

@@ -4,12 +4,12 @@
    This is deliberately a small boundary around Transit JSON.  The boundary
    validates the v2 portable domain before writing and after reading; Transit
    handlers and metadata are not part of the wire contract."
-  (:refer-clojure :exclude [read])
   (:require
     [dao.stream.v2 :as stream]
-    #?(:clj [cognitect.transit :as transit]
+    #?(:cljd [dao.stream.v2.transit.cljd :as transit]
+       :clj [cognitect.transit :as transit]
        :cljs [cognitect.transit :as transit]
-       :cljd [dao.stream.v2.transit.cljd :as transit])))
+       :default [cognitect.transit :as transit])))
 
 
 (def max-safe-integer 9007199254740991)
@@ -18,11 +18,17 @@
 
 (defn- finite-number?
   [x]
-  #?(:clj (and (number? x)
-               (not (ratio? x))
-               (not (and (float? x) (or (Double/isNaN (double x))
-                                        (Double/isInfinite (double x))))))
-     :cljs (and (number? x) (js/isFinite x))))
+  ;; ClojureDart supplies both :clj and :cljd reader features, so its branch
+  ;; must come first in every mixed-host reader conditional in this namespace.
+  #?(:cljd (and (number? x) (.-isFinite ^num x))
+     :clj (or (instance? java.lang.Byte x)
+              (instance? java.lang.Short x)
+              (instance? java.lang.Integer x)
+              (instance? java.lang.Long x)
+              (and (instance? java.lang.Double x)
+                   (Double/isFinite ^Double x)))
+     :cljs (and (number? x) (js/isFinite x))
+     :default false))
 
 
 (defn- safe-number?
@@ -49,6 +55,16 @@
   (cond
     (nil? x) true
     (or (true? x) (false? x) (string? x) (keyword? x) (symbol? x)) true
+    ;; The ClojureDart decoder represents out-of-domain Transit tags as
+    ;; records. Reject those before the recursive map case admits them.
+    #?(:cljd (or (transit/tagged-value? x)
+                 (transit/uuid? x)
+                 (transit/uri? x)
+                 (transit/bigint? x)
+                 (transit/bigdec? x)
+                 (transit/quoted? x)
+                 (transit/link? x))
+       :default false) false
     (number? x) (safe-number? x)
     (map? x) (portable-map? x)
     (vector? x) (every? portable-value? x)
@@ -85,21 +101,23 @@
   "Encode one portable value as Transit JSON text."
   [value]
   (ensure-portable! value)
-  #?(:clj (let [out (java.io.ByteArrayOutputStream.)]
+  #?(:cljd (transit/encode value)
+     :clj (let [out (java.io.ByteArrayOutputStream.)]
             (transit/write (transit/writer out :json) value)
             (.toString out "UTF-8"))
-     :cljs (transit/write (transit/writer nil :json) value)
-     :cljd (transit/encode value)))
+     :cljs (transit/write (transit/writer :json) value)
+     :default (throw (ex-info "no DaoStream v2 Transit implementation" {}))))
 
 
 (defn decode
   "Decode Transit JSON text and reject values outside the portable domain."
   [text]
   (let [value
-        #?(:clj (let [in (java.io.ByteArrayInputStream. (.getBytes text "UTF-8"))]
+        #?(:cljd (transit/decode text)
+           :clj (let [in (java.io.ByteArrayInputStream. (.getBytes text "UTF-8"))]
                   (transit/read (transit/reader in :json)))
-           :cljs (transit/read (transit/reader nil :json) text)
-           :cljd (transit/decode text))]
+           :cljs (transit/read (transit/reader :json) text)
+           :default (throw (ex-info "no DaoStream v2 Transit implementation" {})))]
     (ensure-portable! value)))
 
 

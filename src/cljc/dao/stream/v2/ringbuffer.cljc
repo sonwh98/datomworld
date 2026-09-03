@@ -22,7 +22,9 @@
 
 (defn- fresh-state
   [capacity]
-  (atom {:identity (random-uuid)
+  ;; The logical identity is carried in descriptors and cursors.  It therefore
+  ;; belongs to DaoStream's portable data domain, unlike a host UUID object.
+  (atom {:identity (str (random-uuid))
          :capacity capacity
          :first 0
          :tail 0
@@ -87,14 +89,20 @@
             (assoc (result :dao.stream/gap)
                    :dao.stream/cursor
                    {:dao.stream.ringbuffer/identity (:identity s)
+                    ;; The contract's recovery position is the earliest retained
+                    ;; position, which equals the tail when nothing is retained.
+                    ;; It must never be an evicted position: a frozen attachment
+                    ;; whose visible history is fully evicted would otherwise be
+                    ;; handed its own tail back and re-gap forever.  Recovering
+                    ;; past that tail is correct; the next read answers `end`.
                     :dao.stream.ringbuffer/position (:first s)})
             (< pos visible-tail)
-            (if (contains? (:values s) pos)
-              {:dao.stream/outcome :dao.stream/ok
-               :dao.stream/value (get (:values s) pos)
-               :dao.stream/cursor {:dao.stream.ringbuffer/identity (:identity s)
-                                   :dao.stream.ringbuffer/position (inc pos)}}
-              (result :dao.stream/transport-error))
+            ;; `:first`, `:tail`, and `:values` are updated as one state value;
+            ;; positions in this interval are always retained by the transport.
+            {:dao.stream/outcome :dao.stream/ok
+             :dao.stream/value (get (:values s) pos)
+             :dao.stream/cursor {:dao.stream.ringbuffer/identity (:identity s)
+                                 :dao.stream.ringbuffer/position (inc pos)}}
             (or (:closed? s) (some? frozen)) (result :dao.stream/end)
             :else (result :dao.stream/blocked))))))
 
@@ -103,22 +111,25 @@
 
   (append!
     [_ value]
-    (if (and (not owner?) (not (get-in @state [:attachments attachment-id :open?])))
-      (result :dao.stream/closed)
-      (let [out (atom nil)]
-        (swap! state
-               (fn [s]
-                 (if (:closed? s)
-                   (do (reset! out (result :dao.stream/closed)) s)
-                   (let [p (:tail s) n (inc p)
-                         first' (max (:first s) (- n (:capacity s)))]
-                     (reset! out (result :dao.stream/ok))
-                     (-> s (assoc :tail n :first first')
-                         (assoc :values
-                                (assoc (if (> first' (:first s))
-                                         (dissoc (:values s) (:first s))
-                                         (:values s)) p value)))))))
-        @out)))
+    ;; Check attachment liveness *inside* the one state transition.  A deref
+    ;; before swap! permits an append that began before an attachment close to
+    ;; land after it; this form gives append!/close! a single linearization point.
+    (let [out (volatile! nil)]
+      (swap! state
+             (fn [s]
+               (if (or (:closed? s)
+                       (and (not owner?)
+                            (not (get-in s [:attachments attachment-id :open?]))))
+                 (do (vreset! out (result :dao.stream/closed)) s)
+                 (let [p (:tail s) n (inc p)
+                       first' (max (:first s) (- n (:capacity s)))]
+                   (vreset! out (result :dao.stream/ok))
+                   (-> s (assoc :tail n :first first')
+                       (assoc :values
+                              (assoc (if (> first' (:first s))
+                                       (dissoc (:values s) (:first s))
+                                       (:values s)) p value)))))))
+      @out))
 
 
   stream/IDaoStreamClosable
@@ -129,8 +140,12 @@
            (fn [s]
              (if owner?
                (assoc s :closed? true)
-               (assoc-in s [:attachments attachment-id]
-                         {:open? false :tail (:tail s)}))))
+               ;; Preserve the first frozen tail.  Later idempotent closes must
+               ;; not make post-close values visible through this attachment.
+               (if (get-in s [:attachments attachment-id :open?])
+                 (assoc-in s [:attachments attachment-id]
+                           {:open? false :tail (:tail s)})
+                 s))))
     (result :dao.stream/ok)))
 
 
@@ -139,11 +154,9 @@
   [spec]
   (if-not (valid-spec? spec)
     (result :dao.stream/invalid-spec)
-    (let [state (fresh-state (get spec capacity-key))
-          id (random-uuid)]
-      (swap! state assoc-in [:attachments id] {:open? true})
+    (let [state (fresh-state (get spec capacity-key))]
       {:dao.stream/outcome :dao.stream/ok
-       :dao.stream/handle (RingHandle. state id true)
+       :dao.stream/handle (RingHandle. state nil true)
        :dao.stream/identity (:identity @state)})))
 
 
@@ -151,7 +164,9 @@
   [resolver identity]
   (let [x (if (fn? resolver) (resolver identity) (get resolver identity))]
     (cond (instance? RingHandle x) (.-state ^RingHandle x)
-          (instance? #?(:clj clojure.lang.IAtom :cljs cljs.core/Atom) x) x
+          #?(:cljd false
+             :clj (instance? clojure.lang.IAtom x)
+             :cljs (instance? cljs.core/Atom x)) x
           :else nil)))
 
 
@@ -163,15 +178,22 @@
                (contains? descriptor :dao.stream/identity))
     (result :dao.stream/invalid-descriptor)
     (if-let [state (resolve-state resolver (:dao.stream/identity descriptor))]
-      (let [id (random-uuid)]
-        (swap! state assoc-in [:attachments id] {:open? true})
-        {:dao.stream/outcome :dao.stream/ok
-         :dao.stream/handle (RingHandle. state id false)
-         :dao.stream/attachment id})
+      ;; A resolver is host composition, not a trusted decoder.  Confirm that
+      ;; its result actually denotes the descriptor's identity before minting a
+      ;; handle; otherwise a mis-keyed directory silently attaches elsewhere.
+      (if (= (:dao.stream/identity descriptor) (:identity @state))
+        (let [id (str (random-uuid))]
+          (swap! state assoc-in [:attachments id] {:open? true})
+          {:dao.stream/outcome :dao.stream/ok
+           :dao.stream/handle (RingHandle. state id false)
+           :dao.stream/attachment id})
+        (result :dao.stream/not-found))
       (result :dao.stream/not-found))))
 
 
 (defn make-attacher
-  "Return a unary attach! closure over host-owned resolver state."
+  "Return a unary attach! closure over host-owned resolver state.
+   This small directory is composition/test infrastructure, never a registry
+   owned by DaoStream or this namespace."
   [resolver]
   (fn [descriptor] (attach! resolver descriptor)))

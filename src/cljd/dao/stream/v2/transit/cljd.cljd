@@ -96,11 +96,18 @@
 
 
 (defn- cacheable?
-  [s]
+  "Mirror Cognitect Transit's `isCacheable` exactly.
+
+   Map keys longer than three code units are cacheable. Values are cacheable
+   only for long keyword, symbol, and tag strings. Keeping this distinction is
+   essential: caching a short key shifts every later `^` reference."
+  [s position]
   (and (string? s)
-       (or (>= (count s) 4)
-           (and (pos? (count s))
-                (contains? #{126 94 35 114} (code-unit s 0))))))
+       (> (count s) 3)
+       (if (#{:key :tag} position)
+         true
+         (and (= 126 (code-unit s 0))
+              (contains? #{58 36 35} (code-unit s 1))))))
 
 
 (defn- cache-code
@@ -311,7 +318,7 @@
              (= (code-unit s 0) 126)
              (contains? #{126 94 96} (code-unit s 1)))
         (let [v (subs s 1)]
-          (if (and (#{:key :tag} position) (cacheable? v))
+          (if (cacheable? v position)
             (cache-put! cache v)
             v))
         (and (string? s)
@@ -324,10 +331,10 @@
               rep (subs s 2)
               handler (get handlers tag)]
           (cond handler (let [v (handler rep)]
-                          (if (cacheable? s) (cache-put! cache v) v))
+                          (if (cacheable? s position) (cache-put! cache v) v))
                 default-handler (default-handler rep)
                 :else s))
-        :else (if (and (#{:key :tag} position) (cacheable? s))
+        :else (if (cacheable? s position)
                 (cache-put! cache s)
                 s)))
 
