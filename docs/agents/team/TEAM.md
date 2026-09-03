@@ -63,12 +63,14 @@ role or risk requires them.
 
 - Never invoke Claude through `cmd`; use `claude` or `agy`.
 - Never invoke Muse through `cmd`; use `~/.local/bin/muse` with
-  `muse-spark-1.2-contributor`.
+  `muse-spark-1.3-contributor`.
 - Never use AGY's native `invoke_subagent` for engineering delegation. Shell out
   to `claude`, `agy`, `glm`, `codex`, `cmd`, `muse`, or `deepseek` so the roster
   and cross-family policy remain enforceable.
 - The live interactive session is the actual Orchestrator. The roster identifies
   its preferred model; it cannot change the model hosting an already-running CLI.
+- GLM peak hours are Monday to Friday, 14:00–18:00 (UTC+8). Usage outside of these
+  peak hours costs 0.5x credits. Schedule large GLM tasks for off-peak when possible.
 
 ## 3. Collaboration Contract
 
@@ -250,6 +252,16 @@ agy --model <roster-gemini-model> --effort <effort> --mode plan --sandbox \
   -p "Read <authorized-prompt-path> and complete it now."
 ```
 
+**AGY host-sandbox note:** AGY may fail before the model turn with language
+server errors such as `listen tcp 127.0.0.1:0: bind: operation not permitted`,
+or fail to write its logs under `~/.gemini/antigravity-cli`. These are host
+sandbox restrictions, not model or quota failures. For an authorized
+implementation, rerun the identical command with the host command tool using
+`sandbox_permissions: require_escalated`, retain AGY's own `--sandbox` and
+`--mode accept-edits`, and request the narrow prefix `["agy"]`. Do not add
+`--dangerously-skip-permissions`; host escalation is only to initialize AGY's
+language server and account-local logs.
+
 ### GLM
 
 Use the wrapper's native model name, allocate a PTY, name new sessions, and keep
@@ -307,10 +319,10 @@ Muse is metered. Use the dedicated wrapper, allocate a PTY, keep `-p` last, and
 do not redirect stdin.
 
 ```sh
-MUSE_MODEL=muse-spark-1.2-contributor script -q /dev/null ~/.local/bin/muse \
+MUSE_MODEL=muse-spark-1.3-contributor script -q /dev/null ~/.local/bin/muse \
   --name <task-name> --bare --permission-mode plan --allowed-tools Read \
   --output-format text -p "Read <authorized-prompt-path> and complete it now." \
-  > collab/<role>-<task>.muse-spark-1.2-contributor.stdout.log
+  > collab/<role>-<task>.muse-spark-1.3-contributor.stdout.log
 ```
 
 Its `claude-code:unrecognized_model` SDK warning is expected; verify the artifact.
