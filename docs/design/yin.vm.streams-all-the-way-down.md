@@ -10,6 +10,23 @@ that bounds its memory cost (store the irreducible, derive the rest). Cost
 claims cite the measured figures in `docs/cesk-space-optimization.md`;
 proposed machinery names the existing seam it would land in.
 
+**Written against dao.stream v1; read with the v2 contract in mind**
+(annotated 2026-09-03, after the `dao.stream.md` redesign). The core theses
+survive v2 — cursor-as-program-counter (opaque cursors make it stronger),
+boundaries as declared and sized data, the no-waiter conclusion (v2 deletes
+the waiter machinery outright), and §6's storage invariant, which is
+transport-agnostic. The mechanics that changed: cursors are opaque values
+minted by the stream, not `{:position n}` maps; the v2 reference ring-buffer
+realization is bounded evict-oldest, so internal rings in the current migration
+slice become bounded evict-oldest, whose `append!` also never
+blocks but reports loss as `gap`; `open!` and its registry are gone
+(`create!`/`attach!` plus a host-owned dispatch map); the read protocol's
+shapes are outcome maps under `:dao.stream/…` (§5's
+`{:ok v :cursor c'} | :blocked | :end | :daostream/gap` line is v1
+vocabulary, `strict-vec` included); and §2's audit rows describe v1 code.
+A substantive v2-grounded revision is owed only when these tiers are
+pursued.
+
 **Related documents:**
 
 - `docs/design/yin.vm-in-dao.space.md` — the CESK-in-tuple-space premise this

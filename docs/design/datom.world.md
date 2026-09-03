@@ -53,6 +53,11 @@ See [`docs/design/agent.tzu.md`](./agent.tzu.md) and [`docs/design/yin.vm.stream
 Host-specific boundaries are isolated with DaoStream and interpreters of
 DaoStream. A host boundary is a stream boundary, never a function call.
 
+DaoStream handle operations are the one sanctioned function-shaped contact
+with that boundary: their exhaustive outcome maps are stream protocol, not an
+application callback. Above those operations, portable code still expresses
+host work as effect values and observes outcomes as stream data.
+
 Portable code appends an effect value describing what must happen. A host
 interpreter consumes that stream, performs the operation, and appends the
 outcome. Portable code reads the outcome. Correlation is by identity in the
@@ -75,10 +80,12 @@ value, not a namespace, and it is general: sockets, files, timers and windows
 all deliver events by calling something, and an adapter is what they call. The
 host library is handed the map. Each entry takes the host's arguments and
 returns one value; the append is the adapter's, not the entry's, so an entry
-cannot return a value to the host and cannot invoke anything, because it is
-handed nothing to invoke. Host types are classified into plain data here -- a
-transform is the last place holding a host error object, and no host type may
-cross onto the stream.
+cannot return a value to the host and cannot invoke application code. The
+adapter is handed only the deposit operation and its own host resource. If its
+deposit channel fails, it may close that resource to make the boundary
+observably gone; this is teardown, not an upward callback. Host types are
+classified into plain data here -- a transform is the last place holding a host
+error object, and no host type may cross onto the stream.
 
 Which stream an adapter writes to is the caller's composition, never the
 adapter's knowledge. An adapter cannot tell whether it deposits into one
@@ -86,21 +93,27 @@ transport's private stream or into a medium many interpreters read, and it does
 not need to. This is what keeps the layering one-way: a boundary depends on
 nothing above it, because whoever constructs the adapter supplies the stream.
 
-A transform deposits everything and judges nothing. Data is syntax (axiom 2), so
-worth is not a property of the datum -- an event that is noise to one interpreter
-is signal to another that does not exist yet, and filtering at the depositing
-layer destroys the perspectives that have not been taken. How much is retained is
-the medium's retention policy, which is operational; what an event means is
-interpretation. Neither is the depositor's decision.
+A transform deposits every event admitted by the boundary protocol and judges
+none of those events semantically. Wire framing, decoding, and protocol
+validation happen below the transform: malformed wire input is transport
+machinery, not an event the adapter is obliged to deposit. Once the transport
+has produced a valid host event, data is syntax (axiom 2), so worth is not a
+property of the datum -- an event that is noise to one interpreter is signal to
+another that does not exist yet, and filtering at the depositing layer destroys
+the perspectives that have not been taken. How much is retained is the medium's
+retention policy, which is operational; what an event means is interpretation.
+Neither is the depositor's decision.
 
 An adapter that takes a function to invoke has relocated the callback, not
 removed it, even when every value it passes is plain data. An adapter whose
 callback has a meaningful return value is worse: that is a synchronous call in
 both directions wearing the shape of an event.
 
-Neither direction needs a vocabulary of its own. Host events are ordinary
-values on an ordinary stream, so they need no bespoke envelope, version field,
-or fact taxonomy to be read.
+Host events are ordinary values on an ordinary stream. A transport may use a
+qualified envelope to preserve correlation, lifecycle, and additive evolution;
+that envelope remains plain data and creates no separate event mechanism. A
+composition may likewise define its own qualified vocabulary for facts that it
+owns. Neither requires a bespoke bus or callback API.
 
 Host error types never cross the boundary. A transform function classifies them
 and emits a qualified value.
@@ -126,11 +139,6 @@ See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary
 
 ## Development Workflow
 
-- Do not stage or commit changes until explicitly asked by the user.
-- When asked to stage or commit, follow these rules:
-  - Stage only files that were explicitly modified or created for the requested work.
-  - When committing, only commit staged changes; never commit unstaged changes.
-  - Create clear, descriptive commit messages explaining the "why" behind the changes.
 - Do not invent abstractions that hide streams.
 - Do not suggest mainstream frameworks unless explicitly asked.
 - Do not optimize prematurely.

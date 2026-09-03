@@ -78,7 +78,8 @@ nothing. A byte-identical copy would only add drift risk.
 of any kind." It is free of *stream* coupling, but `module.cljc:20-21` holds
 `(defonce ^:private module-registry (atom {}))` and an `effect-registry`, read
 implicitly by `resolve-module` and by effect dispatch at `engine.cljc:43-47`.
-That is the hidden global state `datom.world.md` and `dao.stream.md:79` forbid.
+That is the hidden global state `datom.world.md` and the DaoStream contract's
+*Invariants* forbid.
 `yin.vm.v2.module` replaces the two atoms with a registry value carried in VM
 state and supplied by composition, which changes `resolve-var` and effect
 dispatch. **The registry value carries effect handlers too**: `module.cljc:97-114`
@@ -138,7 +139,7 @@ documents itself as "the universal fallback for transports that do not support
 local registration." Under v2 no transport is waitable, every `satisfies?` guard
 goes false, and the existing polling wait-set is the path taken. This is a
 deletion of an optimisation branch. Cadence comes from the driver above the VM,
-per `dao.stream.md:178-180`.
+per the DaoStream contract's *The IO Model*.
 
 **`:stream/take` is removed from the v2 `stream` module.** Destructive read is
 gone deliberately — "one reader's progress every other reader's data loss." v1's
@@ -202,7 +203,8 @@ Three consequences:
   file, or anything implementing the v2 protocols. This is the contract's own
   instruction for an interpreter that needs what a transport provides: it
   "receives the operation as an ordinary argument from the composition that
-  wired it… rather than on a transport it detected" (`dao.stream.md:385-393`).
+  wired it… rather than on a transport it detected" (DaoStream contract,
+  *Surfaces*).
 - **`:make-stream` has no default.** `:primitives` has one; this must not,
   because a default would smuggle the hardcoded transport and its require back
   in. Absent a supplied constructor, `:stream/make` is unsupported and says so —
@@ -325,7 +327,7 @@ absence changes no evaluation result.
 `:stream/make` gets it; and `engine.cljc:22,157` **parks the continuation on
 `:full`**. That is real backpressure, and `engine_test.cljc:263,365` tests it.
 The sibling plan's v2 ring buffer is evict-oldest with `append!` never returning
-`full` (`dao.stream.v2.implementation-plan.md:139-141`).
+`full` (stream v2 plan, *Phase 2 — Ring buffer reference*).
 
 Ported as-is, puts never park, slow readers get gaps instead, and Phase V5's
 "same results as v1" is false for any program that relies on backpressure. The
@@ -347,7 +349,7 @@ its parked writer.
 This plan deletes destructive take. So a v2 reject-mode ring buffer, once full,
 would be full forever: no operation frees a slot, and the contract forbids the
 one mechanism that could — eviction waiting on a reader
-(`dao.stream.md:612-619`). A `:stream/put` parked on `full` would never wake. A
+(DaoStream contract, *Retention and Gaps*). A `:stream/put` parked on `full` would never wake. A
 silent hang is worse than a reported `gap`.
 
 **Consequence, for the register:** programs relying on park-on-full behave
@@ -397,7 +399,10 @@ agree" and makes the sequencing honest: V1 before the REPL's R1.
 
 It also becomes a step: `serve-once!` returns its next cursor and state rather
 than looping, and retains a computed response until its append succeeds, so a
-handler executes exactly once.
+handler executes exactly once. Handler execution itself is synchronous within
+that step and has no preemption budget in this slice; an unbounded host handler
+can therefore stall the one driver. Multi-tick handler continuations are a
+separate VM capability, not something this RPC state machine pretends to add.
 
 **Consequence for sequencing:** the REPL plan's R1 depends on this phase.
 
@@ -420,9 +425,71 @@ a transport — the ring buffers below are its *test fixture*, and a namespace
 that constructs its own endpoints is how the ring buffer returns through
 `yin.vm.v2.ffi`. Tested over two ring buffers, with the step-shaped `serve-once!`. `dao.stream.v2.rpc.client`
 and `.server` on top of it, socket-free, with the pending-response discipline.
+
+**The transition algebra, stated once.** The REPL plan's R1 mirrors this
+contract exactly; it is specified here because V1 owns the envelope and both
+RPC namespaces consume it.
+
+Client state includes a monotonic, never-reused safe-integer `:next-id`, and
+allocation reserves and increments it before append. Encountering an ID
+already unsent, outstanding, or completed — or exhausting the cross-host
+safe-integer range — is a terminal allocator error and never overwrites a
+request. While a request is unsent, `request!` retries that identical encoded
+request and accepts no new operation. `request!` is total over `append!`:
+`ok` moves the request to outstanding; `full` retains the identical encoded
+request and its allocated ID; `closed`, `invalid-value`, and
+`transport-error` complete it terminally.
+
+`poll!` is total over `next`. `ok` advances to the exact returned successor
+before decoding; `blocked` changes nothing; `gap` advances to the recovery
+cursor and reports every outstanding request lost; `end`,
+`cursor-mismatch`, `invalid-cursor`, and `transport-error` terminate the
+reader binding without changing its cursor and report every outstanding
+request lost. In every loss case an unsent request was never accepted and
+remains eligible for the identical retry specified above, or for an explicit
+rebind decision by the driver.
+Malformed and unsolicited responses are consumed once as diagnostics.
+
+**Completion consumption.** `:completed` is an unpublished outbox, not request history. Every terminal transition appends its completion exactly once. During each `repl-step`, the sole state owner snapshots and publishes the current completions, then returns the next client state with `:completed []`; a later step must not republish them. The vector is therefore bounded by work admitted within one step. Never-reuse across previously published completions is guaranteed by the monotonic `:next-id` high-water mark, not by retaining completed IDs indefinitely. Collision checks cover `:unsent`, `:outstanding`, and any currently unpublished completion.
+
+Server state includes `:request-cursor`, `:pending-response`,
+`:pending-request-id`, `:pending-successor`, and `:terminal`. `serve-once!`
+retries a pending response before reading another request. After a successful
+`next` it retains the exact returned successor and runs the handler at most
+once. `append!` `ok` advances once to that successor; `full` retains both
+response and successor without advancing or re-running; `invalid-value`,
+`closed`, and `transport-error` advance once, report the response
+undeliverable, and terminate. Request-side `blocked`, `gap`, `end`,
+`cursor-mismatch`, `invalid-cursor`, and `transport-error` follow their
+corresponding unchanged, recovery-cursor (recording skipped requests), or
+terminal transitions.
+
+A malformed request never reaches a handler: with a usable ID it receives a
+correlated malformed-request error; without one it produces a local
+diagnostic and advances once. Envelope validation — an ID present and
+non-nil, the op a keyword, the args a vector — and every request and
+response constructor, predicate, correlation-ID rule, and
+`:dao.stream.v2.apply/…` key belong exclusively to `dao.stream.v2.apply`.
+
+`dao.stream.v2.apply` owns a transport-neutral lifecycle vocabulary consumed by
+the client state machine: `:dao.stream.v2.apply/established` changes no request
+or cursor; `/detached` loses every outstanding request and permits rebind;
+`/ended`, `/not-found`, and `/transport-error` terminate the binding and lose
+every outstanding request, with retry left to the driver; `/diagnostic` retains
+the writer, cursor, and requests. Once terminal, later lifecycle values are
+consumed as diagnostics and cannot complete a request twice. A transport
+adapter such as `dao.stream.v2.rpc.ws` owns translation from its event
+vocabulary to these values; neither RPC core namespace names `:ws/…`.
+
 `yin.vm.v2.module` with an explicit registry value, and the v2 `stream` module
 definition it will register. Deliverable: a request/response round trip through
-both layers, and a module resolution test. No VM.
+both layers, and a module resolution test. No VM. Required tests: completions
+publish exactly once, `:completed` is empty in the returned post-publication
+state, its maximum size is bounded by one step's work budget, and IDs remain
+monotonic after earlier completions have been cleared. Neutral lifecycle tests
+cover every value above, repeated post-terminal values, and exactly-once
+completion. WebSocket event sequencing and close codes belong to the stream
+plan's Phase 4a and the REPL plan's socket-free decoder tests.
 
 **V2 — The scheduler.** `dao.runtime.v2` and `yin.vm.v2.runtime-adapter`. This
 is where waiters are deleted, `:woke` removed, `take!` **removed**, `closed?`
@@ -431,7 +498,8 @@ belong in a first phase. Deliverable: park and wake against a v2 ring buffer,
 with the polling wait set as the only mechanism.
 
 **V3 — VM kernel.** `yin.vm.v2`, including `:make-stream` as a construction
-option and the FFI pair created through it with a declared capacity —
+option and the FFI pair created through it when no explicit
+`:call-in`/`:call-out` pair is supplied, with a declared capacity —
 the once-only state machine bounds outstanding requests to one per parked call
 and already-read responses are harmlessly evictable, so the rule is **capacity
 at least maximum-outstanding plus one, and a `gap` at the bridge cursor is
@@ -492,11 +560,19 @@ deliberate. Full cljd namespace compilation gates each phase.
 (reused as-is), `dao.runtime`, `dao.stream.apply`, `yin.module`, and their tests.
 The fifteen existing `yin.vm` consumers keep using v1.
 
-**Not in this plan:** the real telemetry emit path, deferred to a later phase
-per *Telemetry is a stub*; `semantic`, `register`, `stack`; `macro`, `space`,
-`wasm`;
-`dao.space` in any form; migration of any existing consumer; an above-the-stream
-queue interpreter to restore destructive-take semantics.
+**Not in this plan:**
+
+- the real telemetry emit path, deferred to a later phase per *Telemetry is
+  a stub*; `semantic`, `register`, `stack`; `macro`, `space`, `wasm`;
+  `dao.space` in any form; migration of any existing consumer; an
+  above-the-stream queue interpreter to restore destructive-take semantics.
+- **Internal state as streams** — the log-structured CESK end-state,
+  ready-queue-as-stream, stream fusion, and the store-the-irreducible
+  storage invariant explored in
+  [`yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md).
+  The port keeps scheduler queues as plain data by design (the note's own
+  calibration: synchronous-singular consumers pay boundary tax); those
+  tiers get their own plans after V6 lands.
 
 ## End condition
 

@@ -3,8 +3,9 @@
 Status: implementation plan, derived from and subordinate to `dao.stream.md`
 (the contract) and `dao.stream.ws.md` (the WebSocket specification). Where this
 plan and either document disagree, they win. It is a sibling of
-`dao.stream.v2.implementation-plan.md` and depends on part of it; where the two
-overlap, that plan owns the transport and this one owns the RPC layer and the
+`dao.stream.v2.implementation-plan.md` and depends on part of it; that sibling
+owns the transport, the VM plan's V1 owns `dao.stream.v2.apply` and the
+socket-free RPC core, and this plan owns only the WebSocket RPC decoder and the
 REPL. This document is transient: it is consumed as its phases complete.
 
 Revised against a five-model review of 2026-09-02
@@ -13,13 +14,15 @@ unexecutable on two counts: it claimed a v1-free REPL while `yin.vm` consumes
 its streams through v1 protocols, and it claimed the REPL "already owns a
 polling loop" when v1's RPC client owned it. Both are settled below.
 
-**Nothing existing is modified.** Every deliverable here is a new namespace
-alongside the one it replaces. `dao.stream`, `dao.stream.ws`,
-`dao.stream.rpc.*`, `yin.repl` and their tests are untouched, keep running, and
-keep their consumers. This is not a refactor; it is a second implementation
-built beside the first, and the two coexist until each consumer migrates under
-its own plan. The one exception is `shadow-cljs.edn`, discussed under
-*Namespaces and files*, which cannot be avoided and is additive.
+**No existing implementation is modified.** Every implementation deliverable
+here is a new namespace alongside the one it replaces. `dao.stream`,
+`dao.stream.ws`, `dao.stream.rpc.*`, `yin.repl` and their tests are untouched,
+keep running, and keep their consumers. This is not a refactor; it is a second
+implementation built beside the first, and the two coexist until each consumer
+migrates under its own plan. There are exactly **two additive build-configuration
+exceptions**: a new `:yin-repl-v2` `:node-script` build in `shadow-cljs.edn` and
+four new aliases in `deps.edn`, both discussed under *Namespaces and files*.
+No existing alias or build is changed or removed.
 
 ## The whole of it
 
@@ -91,8 +94,6 @@ lands. It is not the plan.
 
 | New | File |
 |-----|------|
-| `dao.stream.v2.rpc.client` | `src/cljc/dao/stream/v2/rpc/client.cljc` |
-| `dao.stream.v2.rpc.server` | `src/cljc/dao/stream/v2/rpc/server.cljc` |
 | `dao.stream.v2.rpc.ws` | `src/cljc/dao/stream/v2/rpc/ws.cljc` |
 | `yin.repl.v2.core` | `src/cljc/yin/repl/v2/core.cljc` |
 | `yin.repl.v2.driver` | `src/cljc/yin/repl/v2/driver.cljc` |
@@ -101,17 +102,22 @@ lands. It is not the plan.
 
 `dao.stream.v2`, `dao.stream.v2.ringbuffer` and `dao.stream.v2.ws` are the
 sibling plan's deliverables. The cljd half of `dao.stream.v2.ws` is this plan's,
-per *Prerequisites*.
+per *Prerequisites*. `dao.stream.v2.apply`, `dao.stream.v2.rpc.client`, and
+`dao.stream.v2.rpc.server` belong to the VM plan's V1 and are dependencies,
+not files owned here.
 
-**Build configuration.** `deps.edn` gains `:clj-yin-repl-v2`,
+**Build configuration — the two additive exceptions.** `deps.edn` gains
+`:clj-yin-repl-v2`,
 `:cljs-yin-repl-v2`, `:cljd-yin-repl-v2` and `:cljd-yin-repl-v2-build` beside
 the existing set. But `:cljs-yin-repl` is only
 `shadow.cljs.devtools.cli run yin.repl/-main`, which executes a Clojure function
 on the JVM; the Node REPL is the `:yin-repl` **`:node-script`** build in
 `shadow-cljs.edn`. So the cljs deliverable needs a `:yin-repl-v2` build added
-there. **This is the one edit to an existing file this plan makes**: it is
-purely additive, touches no existing build, and there is no way to define a
-shadow build without it. `bin/` gains a v2 Dart entry importing
+there. These are the plan's only edits to existing files. Both are purely
+additive: no existing alias or build is changed, removed, or repointed. The
+aliases are required to name the three new host entry points and the cljd build;
+the Shadow build is required because a Node artifact cannot be defined outside
+`shadow-cljs.edn`. `bin/` gains a v2 Dart entry importing
 `lib/cljd-out/yin/repl/v2.dart`, since `runner.clj:13` runs
 `bin/yin_repl_main.dart` rather than the alias's `:output-dir`.
 
@@ -146,8 +152,8 @@ what produced the wrong estimate twice.
 `dao.stream.rpc.*` cannot be ported. The diagnosis was checked against the code
 by four reviewers and holds: v1 reads responses from the same duplex handle it
 wrote to (`rpc/client.cljc:155` through `WebSocketStream`'s hidden
-`:remote-stream` inbox, `ws.cljc:68` — the very thing `dao.stream.ws.md:160`
-forbids); its cursors are `(:position …)` arithmetic seeded from
+`:remote-stream` inbox, `ws.cljc:68` — the very thing the WebSocket spec's
+*The Duplex Model* forbids); its cursors are `(:position …)` arithmetic seeded from
 `(atom {:position 0})` (`rpc/client.cljc:29-42, 129`); and it returns a Promise
 on cljs and a Future on cljd (`rpc/client.cljc:55-57, 108-111`).
 
@@ -155,6 +161,13 @@ on cljs and a Future on cljd (`rpc/client.cljc:55-57, 108-111`).
 and a reader plus cursor for the response medium. That asymmetry is the v2
 shape: under a transport with no reader surface the two directions are two
 streams, and pretending otherwise is what produced the hidden inbox.
+
+**The RPC core consumes a transport-neutral lifecycle vocabulary owned by
+`dao.stream.v2.apply`:** `:dao.stream.v2.apply/established`, `/detached`,
+`/ended`, `/not-found`, `/transport-error`, and `/diagnostic` (the leading
+namespace is elided after the first spelling). Only
+`dao.stream.v2.rpc.ws` knows `:ws/…`; its decoder translates WebSocket events
+to these values before the core transition algebra sees them.
 
 **Client state, explicitly:**
 
@@ -164,45 +177,73 @@ streams, and pretending otherwise is what produced the hidden inbox.
  :cursor      <cursor>          ; the successor next returned; never arithmetic
  :me          <attachment-id>   ; nil on a private medium
  :decode      <fn>              ; envelope -> response, or nil for bare values
+ :next-id     <integer>         ; next never-before-issued safe integer
  :outstanding {id {:op … :args …}}
  :unsent      nil-or-{:id … :op … :args …}
- :completed   [ … ]}
+ :completed   [ … ]} ; unpublished completions since the last repl-step publication
 ```
 
-- **`request!`** appends and returns the next state. On `:dao.stream/full`
-  nothing was appended: the request and **its already-allocated id** are
-  retained in `:unsent`, and the next `request!` retries that one rather than
-  minting a new id. `closed`, `invalid-value` and `transport-error` are terminal
-  for that request.
+- **IDs are allocated, not inferred.** `init-client` sets `:next-id` to zero.
+  Allocation reserves that safe non-negative integer, increments `:next-id`,
+  and never reuses an id during the client state's lifetime. Encountering an id
+  already in `:unsent`, `:outstanding`, or `:completed`, or exhausting the
+  cross-host safe-integer range, is a terminal local allocator error; it never
+  overwrites the earlier request. Only the single `repl-step` owner may allocate.
+- **`request!` is total over `append!`.** With no `:unsent`, it first allocates
+  and encodes one request. With an `:unsent`, it retries that exact encoded
+  request and accepts no new operation. `:dao.stream/ok` clears `:unsent` and
+  installs the request in `:outstanding`; `:dao.stream/full` retains the same
+  request and already-allocated id for a later step; `:dao.stream/closed`,
+  `:dao.stream/invalid-value`, and `:dao.stream/transport-error` clear it and
+  append a terminal completion for that request. No append outcome mints a
+  replacement id or reports a request outstanding unless it was accepted.
 - **`poll!`** drains the response medium up to a budget through its own cursor,
   classifies each element, matches responses to `:outstanding`, and returns the
   next state plus completions. `:dao.stream/blocked` returns to the caller; that
   is the yield, and the caller must then return to its host loop.
-- **One driver owns client state and threads it serially.** Two callers holding
-  the same immutable state mint the same next id and produce divergent states.
-  Several requests may be outstanding at once — ids are matched at drain time,
-  which removes the whole bug class v1's `advance-cursor!` monotonic-max surgery
-  exists to patch — but only under one poller.
+- **`poll!` is total over `next`.** `:dao.stream/ok` always advances to the
+  exact returned successor before interpreting the element; a valid response
+  completes and removes its matching outstanding request, while a response for
+  an unknown id becomes an unsolicited-response diagnostic and changes no
+  request. `:dao.stream/blocked` leaves the cursor and requests unchanged.
+  `:dao.stream/gap` advances to its exact recovery cursor and reports every
+  outstanding request lost. `:dao.stream/end`, `:dao.stream/cursor-mismatch`,
+  `:dao.stream/invalid-cursor`, and `:dao.stream/transport-error` leave the
+  cursor unchanged, report every outstanding request lost, and terminate that
+  reader binding. In all loss cases, `:unsent` was never accepted and remains
+  eligible only for an explicit rebind/retry decision by the driver.
 - **Timeouts are the driver's, not the layer's.** A step-driven layer has no
   clock; deadlines are the caller's, and `now` is passed in if the layer needs
   it at all.
 - **Loss is conservative.** On a `:dao.stream/gap` the recovery cursor says
   nothing about which responses were skipped, so **every outstanding request is
-  reported lost**, not a computed subset. The same applies on any terminal
-  lifecycle event for this attachment — `:ws/closed`, `:ws/not-found`,
-  `:ws/transport-error` — which must be reported as loss rather than left to
-  time out.
+  reported lost**, not a computed subset. The neutral `/detached` event is terminal for the
+  current attachment but reconnectable: it loses every outstanding request and
+  permits `rebind`. `/ended` is terminal for the served stream, loses every
+  outstanding request, and is not converted into reconnectable closure.
+  `/not-found` and `/transport-error` are terminal resolution failures and
+  likewise lose every outstanding request. By contrast, `/diagnostic` is a
+  diagnostic: it is forwarded as a non-terminal
+  diagnostic and retains the writer, cursor, and requests.
 - **Reattachment is a rebind.** `rebind` swaps a dead writer for a fresh
   `attach!` result and takes the new `:me`, keeping the cursor. Without it the
   client filters on a stale attachment id and drops everything the new boundary
   deposits.
 
+- **Completion consumption.** `:completed` is an unpublished outbox, not request history. Every terminal transition appends its completion exactly once. During each `repl-step`, the sole state owner snapshots and publishes the current completions, then returns the next client state with `:completed []`; a later step must not republish them. The vector is therefore bounded by work admitted within one step. Never-reuse across previously published completions is guaranteed by the monotonic `:next-id` high-water mark, not by retaining completed IDs indefinitely. Collision checks cover `:unsent`, `:outstanding`, and any currently unpublished completion.
+
 **The response medium carries envelopes, not responses.** On a real socket every
 element is `{:ws/attachment … :ws/event … :ws/value …}`, mixed across
 attachments and interleaved with `:ws/opened`, `:ws/closed`, `:ws/ended`,
-`:ws/not-found` and `:ws/transport-error`. `poll!` must filter to `:me`, advance
-past other attachments' events without treating them as responses, unwrap only
-`:ws/payload`, and convert lifecycle events into client transitions.
+`:ws/error`, `:ws/not-found` and `:ws/transport-error`. `poll!` must filter to
+`:me`, advance past other attachments' events without treating them as
+responses, unwrap only `:ws/payload`, translate the six known lifecycle kinds
+to the neutral vocabulary above, and apply the core transitions. A well-formed current-vocabulary event that RPC does not know is
+forwarded as an unhandled-event diagnostic with no RPC-state change; malformed
+envelopes and malformed payload responses are likewise consumed once and
+forwarded as diagnostics, never retried or mistaken for responses. This keeps
+the decoder open to additive vocabulary without coupling it to the pending ws
+amendment.
 `dao.stream.v2.rpc.ws` supplies that `:decode` and consumes the **whole**
 `attach!` result including `:dao.stream/attachment`. R1 tested over bare ring
 buffers passes and then breaks at R3 unless this seam is built in R1.
@@ -212,21 +253,45 @@ buffers passes and then breaks at R3 unless this seam is built in R1.
 ```clojure
 {:request-cursor      <cursor>
  :pending-response    nil-or-<encoded>
- :pending-request-id  nil-or-<id>}
+ :pending-request-id  nil-or-<id>
+ :pending-successor   nil-or-<cursor>
+ :terminal            nil-or-<reason>}
 ```
 
-`serve-step` retries `:pending-response` **before** reading another request. A
-response `append!` that returns `full` must not advance the request cursor — and
-must not re-run the handler either, because Yin evaluation is stateful and
-re-execution is wrong. v1 sidesteps this by ignoring the write result
-(`rpc/server.cljc:65`); that cannot be copied into an API claiming totality.
-Each request advances the cursor once and executes its handler once.
+`serve-once!` first retries `:pending-response`; while one exists it reads no
+request. On `next` `:dao.stream/ok`, it retains the exact returned successor,
+validates the request, and invokes a handler at most once. A valid request
+produces a success response; a thrown handler or unknown operation produces an
+error response. A malformed request never reaches a handler: when it has a
+usable id it produces a correlated malformed-request error, and when no usable
+id exists it emits a local diagnostic and advances directly to the successor.
+Extra qualified keys are ignored. Thus a malformed element is consumed once
+and cannot poison the cursor.
 
-**The envelope is fixed in R1**: request and response value shapes, correlation
-id representation, and handler-error encoding, under `:dao.stream.v2.rpc/…`
-keys. v1's `dao.stream.apply` maps (`apply.cljc:42-63`) and its `{:error msg}`
-wrapping (`rpc/server.cljc:24-38`) are the obvious model, copied under v2 keys
-rather than required from v1.
+For a pending response, `append!` `:dao.stream/ok` advances
+`:request-cursor` once to the retained exact successor and clears all pending
+fields. `:dao.stream/full` changes neither cursor nor pending fields, so a later
+step retries the identical encoded response without re-running the handler.
+`:dao.stream/invalid-value`, `:dao.stream/closed`, and
+`:dao.stream/transport-error` advance once to that successor, clear the pending
+fields, record the terminal reason, and end the session; the response is
+reported locally as undeliverable. For request `next`, `:dao.stream/blocked`
+changes nothing; `:dao.stream/gap` records skipped requests and advances to the
+exact recovery cursor; and `:dao.stream/end`,
+`:dao.stream/cursor-mismatch`, `:dao.stream/invalid-cursor`, and
+`:dao.stream/transport-error` record the terminal reason without changing the
+cursor. These are exhaustive over the contract's `next` and `append!` outcomes.
+
+**V1's `dao.stream.v2.apply` is the sole envelope owner.** R1 mirrors and
+requires it; neither R1 nor either RPC namespace defines competing keys. The
+request is `{:dao.stream.v2.apply/id id :dao.stream.v2.apply/op op
+:dao.stream.v2.apply/args args}`. Success and error responses preserve that id
+and carry exactly one of `:dao.stream.v2.apply/ok` or
+`:dao.stream.v2.apply/error`; the latter is plain data with a qualified code
+and message, never a host exception. An id must be present and non-nil, the op
+must be a keyword, and args must be a vector. Predicates, constructors,
+correlation-id representation and validation all belong to V1. This section is
+the precise transition-algebra mirror that V1 must adopt; R1 consumes it.
 
 **Not in the v2 layer:** `retry` and `dedup`, which exist for the lossy UDP
 transport that v2 does not have. They stay on v1 with `dao.stream.rpc.udp`.
@@ -248,32 +313,49 @@ owns one step:
 (defn repl-step [state now] …)
 ```
 
-which drains the output stream, polls the RPC client, advances any server
-sessions, publishes completions to the printer, and returns the next state. It
-never loops on `blocked`.
+which is the **only owner of REPL and RPC state on every host**. It reads and
+advances the input-medium cursor, evaluates eligible input, calls `request!`
+and `poll!`, drains the output stream, advances any server sessions, publishes
+completions, updates prompt state, and returns the next state. It never loops on
+`blocked`. Input adapters have no access to this state.
 
-**Per host, because cadence is the runtime's** (`dao.stream.md:178-180`):
+Every host gets one composition-owned input ring buffer of capacity 1024 and a
+cursor held only by `repl-step`. A line producer appends
+`{:yin.repl.v2.input/line <string>}` and returns; it does not evaluate, request,
+poll, print, prompt, or mutate a completion. The ring buffer makes the handoff
+thread-safe and explicit. A `gap` means typed lines were evicted: `repl-step`
+prints a loss notice, resumes at the recovery cursor, and evaluates none of the
+missing input. Other `next` outcomes follow the same total cursor discipline as
+the output drain.
 
-- **clj** — `run-cli!` parks in `read-line` (`repl.cljc:856`). One owned poller
-  thread runs `repl-step` on an interval so `:ws/opened` and remote results
-  print when they arrive rather than after the user's next keystroke. A caller
-  wanting a blocking wait for one response may write a sleep loop; that is
-  ordinary control flow on a host that can park.
-- **cljs (Node)** — the readline line handler must **return** after `request!`.
-  A single `setInterval` owns `repl-step`, printing, and the prompt discipline,
-  replacing the promise chain at `repl.cljc:903`.
-- **cljd** — identically, with `Timer.periodic`, replacing the chain at
+**Per host, because cadence is the runtime's** (DaoStream contract, *The IO Model*):
+
+- **clj** — the main reader thread parks in `read-line` (`repl.cljc:856`) and
+  only appends each returned line to the input medium. One separate owned
+  poller thread carries the state value through serial `repl-step` calls on an
+  interval, so neutral `/established` and remote results print without waiting for the
+  user's next keystroke. The reader never reads or updates REPL/RPC state.
+- **cljs (Node)** — the readline line handler only appends the line and returns.
+  A single non-overlapping `setInterval` owns serial `repl-step` calls,
+  evaluation, printing, and prompt discipline, replacing the promise chain at
+  `repl.cljc:903`.
+- **cljd** — the line handler likewise only appends and returns; one
+  non-overlapping `Timer.periodic` owner calls `repl-step`, replacing the chain at
   `repl.cljc:1044`. A synchronous `(loop [] (poll!) (recur))` deadlocks the Dart
   event loop: ws IO never progresses, so `blocked` never clears.
 
-**One poller, one client state.** Two tickers on one client deliver completions
-to the wrong consumer.
+**One step owner, one state.** Two tickers or any direct line-handler call to
+`eval-input`, `request!`, or `poll!` violate the design and can allocate a
+duplicate id, advance the wrong cursor, or deliver a completion to the wrong
+consumer.
 
 **`eval-input`'s contract changes and must be stated**: local evaluation returns
 a value; remote evaluation returns immediately with a request id, and the result
-is printed by the driver when it completes. Input typed while a request is
-outstanding is queued, not evaluated — v1 has a clobber race there
-(`repl.cljc:1044-1047`) that must not be copied.
+is printed by the driver when it completes. Remote evaluation input typed while
+a request is outstanding is queued, not evaluated — v1 has a clobber race there
+(`repl.cljc:1044-1047`) that must not be copied. Local control commands
+`disconnect`, `quit`, `help`, and `repl-state` bypass that queue so a stuck or
+slow remote request cannot trap the operator.
 
 The claim that host divergence disappears is **withdrawn**. It moves: out of the
 RPC layer, which now has one shape everywhere, and into one small named driver
@@ -283,7 +365,7 @@ per host. That is the reduction this plan actually delivers.
 
 **D2 — a reply travels on the connection's server-side handle. Settled.**
 The accepted-connection handle is writer+closable with its writer surface on
-that connection's ordered outbound path (`dao.stream.ws.md:44-48`), so replies
+that connection's ordered outbound path (WebSocket spec, *Surfaces*), so replies
 are private by construction. The alternative — a per-conversation served stream
 driven by `forward-step` — buys an outbound replay history that is worthless
 until resumption is specified, and resumption is deferred. `forward-step` (4b)
@@ -292,21 +374,29 @@ is therefore genuinely unnecessary here.
 **D3 — `/repl` names a service-lifetime stream. Settled now, not deferred.**
 The first draft chose D2a and left D3 open, which does not work: a descriptor
 names a server-hosted stream that exists independently of connections and that
-the same descriptor reaches every time (`dao.stream.ws.md:9-16`), so with
+the same descriptor reaches every time (WebSocket spec, *What the Descriptor
+Names*), so with
 nothing served the handshake must authoritatively disclaim `/repl` and *every*
 `connect` deposits `:ws/not-found`.
 
-So the endpoint `create!`s **one composition-owned ring buffer at start**,
-registers it in the resolution table under `/repl`, and both the client handle
-and each accepted-connection handle answer `descriptor` with it
-(`dao.stream.ws.md:38-42`). It carries no ordinary outbound values in this
-slice — nothing is forwarded into it, which is composition policy and not a
+So the endpoint `create!`s **one composition-owned ring buffer of capacity 1 at
+start**,
+registers it in the resolution table under `/repl`, and every client and
+accepted-connection descriptor carries that stream's unchanged
+`:dao.stream/identity` alongside endpoint-specific reachability. It carries no
+ordinary outbound values in this slice — nothing is forwarded into it, which is composition policy and not a
 spec violation. Closing it is the endpoint's `stop!`, which closes each
 attachment with the ended-stream close code, and that is what makes R5's fourth
-fact implementable at all.
+fact implementable at all. Because this slice appends no ordinary value to that
+stream, capacity 1 cannot evict in a correct composition. Nothing reads this
+identity-anchor stream, so no gap policy is claimed; a direct composition test
+instead proves that ordinary append is absent and only owner `close!` changes
+it.
 
-Only the descriptor **key names** wait for the gate. The shape is settled here.
-A pathless `daostream:ws://host:port` normalizes to the `/repl` path.
+Only the descriptor's transport-specific reachability key names wait for the
+gate; `:dao.stream/identity` is already fixed. The shape is settled here.
+The REPL wrapper detects an empty raw URL path and substitutes `/repl` before
+the generic WebSocket canonicalizer runs; an explicit `/` remains `/`.
 
 **D4 — one shared shell, and evaluation is serialized. Settled.**
 v1 builds every handler over one `state-atom` (`repl.cljc:782`) and the `:op/eval`
@@ -345,30 +435,38 @@ From `dao.stream.v2.implementation-plan.md`:
 - **The cljd v2 ws transport**, which the sibling plan defers and **this plan
   owns**, over `dart:io`. It owes the same manifest and conformance evidence as
   the other two hosts.
-- **Both decision gates**: the descriptor key set, and the wire contract.
+- **Phase 3's descriptor/codec gate** and the wire gate: the descriptor key set
+  (still open), and the wire contract (settled in `dao.stream.ws.md`,
+  2026-09-03).
 
-**Not prerequisites:** Phase 3 (the REPL attaches to a ws endpoint by URL, never
-to a ring buffer by descriptor), 4b (dead under D2a), 4c (R4 builds the REPL's
+**Not prerequisites:** Phase 3's test-only local ring-buffer directory beyond
+the descriptor/codec gate, 4b (dead under D2a), 4c (R4 builds the REPL's
 own serving composition, which re-derives 4c's list minus the forwarder), and
 Phase 5 (this plan is that proof).
 
-**Blocked, not merely sequenced.** Three answers do not exist in any document
-today, and R3 and R4 cannot be built without them. Each needs an amendment to
-`dao.stream.ws.md`, which this plan cannot make while subordinate to it:
+**The three spec answers, settled (2026-09-03).** The amendments this plan
+waited on are now in `dao.stream.ws.md`:
 
-1. **Server-side attachment identity** — the contract defines
-   `:dao.stream/attachment` only in an `attach!` success map, and a server
-   handle is minted from a handed-over socket with no `attach!` call.
-2. **Accept notification** — how a composition learns a connection was accepted,
-   and receives its writer handle, without the `:on-connect` callback the spec
-   forbids. This is more basic than identity and nothing addresses it.
-3. **The wire contract's contents** — handshake presentation, disclaimer form,
-   ended-stream close code, value codec, decode-failure behaviour.
+1. **Server-side attachment identity** — the contract authorizes
+   transport-minted identities for handles no `attach!` produced, and the ws
+   spec defines the minting rule; the acceptance offer carries the value
+   under `:ws/attachment`.
+2. **Accept notification** — acceptance is a bounded, acknowledged stream
+   handoff: a fixed pool of handoff slots, each a capacity-one offer and
+   acknowledgement pair holding at most one pending connection, the offer
+   carrying the writer handle under `:ws/handle`, the wire `:ws/accept`
+   frame sent only after the composition's acknowledgement. R4's serving
+   composition consumes this handoff (see Phase R4).
+3. **The wire contract's contents** — request-target presentation, the
+   `:ws/accept`/`:ws/disclaim` first frame, close codes 4000/4002/4004, the
+   Transit-JSON codec with its portable value domain, and decode-failure
+   behaviour are specified in the Handshake and Elements and Serialization
+   sections.
 
 **Nothing here is executable today.** R1 is blocked on the VM plan's V1, R2 on
 its V5, and both on the sibling stream plan's Phases 1 and 2 — none of which
 exists: `src/cljc/dao/stream/v2*` is absent from the tree. R3 through R5 are
-additionally gated on the three spec answers above. The plan states this rather
+additionally gated on Phase 4a of the sibling plan. The plan states this rather
 than sequencing past it.
 
 ## Phase R1 — `dao.stream.v2.rpc.ws`
@@ -378,15 +476,26 @@ is the one piece that needs a transport.
 
 - `ws.cljc`: the `:decode` that filters deposited envelopes by `:me`, advances
   past other attachments' events without treating them as responses, unwraps
-  only `:ws/payload`, and converts `:ws/opened`, `:ws/closed`, `:ws/not-found`
-  and `:ws/transport-error` into client transitions.
+  only `:ws/payload`, distinguishes reconnectable `:ws/closed` from terminal
+  `:ws/ended`, preserves requests across survivable `:ws/error`, converts all
+  known lifecycle and diagnostic kinds to the transport-neutral
+  `:dao.stream.v2.apply/…` vocabulary, and forwards unknown
+  current-vocabulary events as non-terminal diagnostics.
 - `init-client` from the whole `attach!` result, so `:dao.stream/attachment`
   becomes `:me`.
 - Tested with hand-built envelopes over a ring buffer, so it needs no socket and
   can be written before R3.
 
 Deliverable: envelope decode and client construction on clj, cljs and cljd,
-against the V1 client with one shape on all three.
+against the V1 client with one shape on all three. Required tests: completions
+publish exactly once, `:completed` is empty in the returned post-publication
+state, its maximum size is bounded by one step's work budget, and IDs remain
+monotonic after earlier completions have been cleared. Socket-free decoder
+tests inject the sequences `:ws/error` then `:ws/closed`, `:ws/not-found` then
+`:ws/closed`, and a duplicate post-terminal lifecycle event; they prove exact
+neutral translation, one terminal completion, and no retained outstanding
+request. Actual close-code and two-endpoint behavior belongs to the sibling
+stream plan's Phase 4a wire-close conformance suite.
 
 ## Phase R2 — `yin.repl.v2` and its driver, local only
 
@@ -396,10 +505,14 @@ No socket, no wire, no RPC.
   `yin.repl.v2.core` and `yin.repl.v2`.
 - `make-vm` constructs a `yin.vm.v2.ast-walker`, supplies `:make-stream` bound
   to the v2 ring buffer, registers the v2 `stream` module, and hands it a v2
-  in-stream, so `eval-datoms` appends to it. The REPL is the composition that
-  chooses the VM's transport; the VM requires none. No telemetry stream is installed and the
-  `(telemetry)` command is absent, per *The VM*. `vm-constructors` has one
-  entry.
+  ingress ring buffer with a **declared capacity of 4096 elements**, so
+  `eval-datoms` appends to it. The REPL is the composition that chooses the VM's
+  transport; the VM requires none. Its one step owner prevents intentional
+  producer overrun. A `gap` nevertheless means one or more program batches were
+  never ingested and is fatal to the current evaluation: report the loss and
+  require `(reset)` before accepting more evaluation, rather than resuming as if
+  execution were complete. No telemetry stream is installed and the
+  `(telemetry)` command is absent, per *The VM*. `vm-constructors` has one entry.
 - The output stream is a v2 ring buffer with a **declared capacity of 4096
   elements**; its drain loop mints a cursor with `cursor` and advances by the
   successor `next` returns. A `gap` there prints an explicit loss notice and
@@ -420,38 +533,100 @@ namespace.
 
 ## Phase R3 — The client side
 
-- `connect` normalizes the URL to a descriptor whose keys come from the settled
-  gate, calls `attach!`, and gets a handle at once. No promise on any host.
-- The composition wires the deposit medium — **one medium per boundary**,
-  capacity 8192, matching 4a and demultiplexed by `:ws/attachment`, which the
-  client already does. Per-attachment media would need the boundary-level
-  announcement stream `dao.stream.ws.md:140-143` requires, which 4a does not
-  build.
-- The RPC client is built from the ws handle, that medium, a minted cursor
-  anchored at `:dao.stream/newest`, and the whole `attach!` result for `:me`.
-- **`Connected to …` moves** to when the driver observes `:ws/opened`.
-  `:ws/not-found` reports an authoritative disclaimer and is not retried;
-  `:ws/transport-error` reports a reachability failure that may succeed on retry.
+- `connect` normalizes the URL to the canonical path defined by the WebSocket
+  spec; only the REPL wrapper maps an empty URL path to `/repl`. It creates its
+  deposit medium, mints a `:dao.stream/newest` cursor, composes the boundary,
+  and only then calls `attach!`, receiving a handle at once. No promise on any
+  host and no open event can race ahead of the cursor.
+- The client boundary has one capacity-8192 traffic medium reused across
+  reconnects, with at most one active attachment and demultiplexing by
+  `:ws/attachment`.
+- The RPC client is built from the ws handle, the already-minted cursor and
+  medium, and the whole `attach!` result for `:me`.
+- **`Connected to …` moves** to when the driver observes neutral
+  `/established`. `/not-found` reports an authoritative disclaimer and is not
+  retried; `/transport-error` reports a reachability failure that may succeed
+  on retry. The WebSocket spellings are confined to the R1 decoder.
 - `disconnect` is `close!`. Reattaching is `attach!` plus `rebind`, keeping the
   deposit cursor and taking the new attachment id.
 
 ## Phase R4 — The server side
 
 - The endpoint creates its `/repl` service-lifetime stream at start (D3) and
-  registers it in a host-owned resolution table.
-- One request medium per boundary, capacity 8192, demultiplexed by
-  `:ws/attachment`.
+  registers its capacity-1 handle in a host-owned resolution table. It accepts
+  separate bind and advertised host/port configuration; bind defaults to
+  `127.0.0.1`, and descriptors use the advertised values.
+- The WebSocket boundary control medium is a capacity-1024 ring buffer. Its
+  `:dao.stream/newest` cursor is minted and stored before listener bind begins;
+  it carries pre-accept diagnostics and terminal events, never application
+  payload.
+- One request medium per accepted attachment, capacity 8192. After reading an
+  offer, the server creates the medium, mints its `:dao.stream/newest` cursor,
+  stores both in session state, and includes the writer plus admission
+  declaration in the acknowledgement. Only then can `endpoint-step` send
+  `:ws/accept` and enable payload delivery. One client's eviction pressure
+  cannot create another client's request gap. The conforming REPL client sends
+  at most one outstanding request. If a raw or defective peer nevertheless
+  produces a request-medium `gap`, the server records it and closes that
+  attachment; the resulting `/detached` transition reports the client's
+  outstanding request lost instead of leaving it pending forever.
+- The server driver reads the boundary control medium as well as each accepted
+  attachment medium. Pre-accept terminal events retire pending offers from the
+  control path; post-accept terminal events retire established sessions from
+  their per-attachment path, so the acknowledgement race has no orphan state.
+- **Acceptance handoff is consumed, not reinvented.** The composition
+  supplies the endpoint's acceptance handoff as a fixed pool of 8 slots
+  (configurable at `serve!`, minimum 1), per `dao.stream.ws.md`: each
+  slot's offer and acknowledgement media are capacity-1 v2 ring buffers,
+  both reader cursors are minted and stored before listener bind begins,
+  and at most one pending connection occupies a slot — pool exhaustion is
+  the bounded admission control the spec requires, not an error. The server
+  driver polls the offer slots; on an offer it retains the writer handle under
+  `:ws/handle` and the new request-medium reader and cursor in session state
+  keyed by `:ws/attachment`, then appends the full acknowledgement specified in
+  the WebSocket spec, including the request-medium writer and admission
+  declaration, to that slot's acknowledgement medium. No
+  session is served before its acknowledgement — the spec sends no wire
+  `:ws/accept` and enables no value delivery before it. Slot exhaustion is
+  admission control, not an error: the transport closes the new connection
+  pre-acceptance and the client resolves `:ws/transport-error`.
+  A matching but malformed acknowledgement releases the slot and closes the
+  pending connection; a wrong-identity stale acknowledgement changes nothing.
 - One server driver advances every session against a single serially-threaded
-  REPL state (D4), running `serve-step` per session.
-- Serving lifecycle: start, stop, and who owns them, replacing the `:conns` atom
-  and the `:on-connect`/`:on-disconnect` callbacks. `stop!` closes the service
-  stream, which closes each attachment with the ended-stream code.
+  REPL state (D4), running V1's `serve-once!` per session.
+- **Serving lifecycle is composition-owned data.** The composition creates a
+  lifecycle ring buffer (capacity 256), mints its `:dao.stream/newest` cursor,
+  and stores both before `serve!` may begin binding. `serve!` returns
+  immediately with an endpoint value containing that medium and cursor, the
+  service handle, and host resources. Host
+  callbacks only transform and deposit envelopes shaped
+  `{:yin.repl.v2.endpoint/event <kind> :yin.repl.v2.endpoint/value <plain-data>}`.
+  The fixed event set is `:bind-succeeded` (bound host and port),
+  `:bind-failed` (qualified code and message), `:upgrade-failed` (plain request
+  summary, qualified code and message), `:listener-error` (qualified code and
+  message), and `:stopped` (reason). No host error object crosses the boundary.
+  The one server driver owns the lifecycle cursor and is the only code that
+  changes endpoint/REPL state. Unknown qualified envelope keys are ignored; an
+  unknown event kind is surfaced as a diagnostic. A lifecycle `gap` is a fatal
+  endpoint-observability failure and triggers shutdown.
+- `stop!` initiates closing the service stream, listener, and attachments but
+  does not claim completion. Closing the service stream causes client
+  `:ws/ended` and the ended-stream close code; only the host close-completion
+  callback deposits `:stopped`, and only the server driver consuming that event
+  marks stop complete and releases the resolution-table entry. This vocabulary
+  legitimately lives here because it describes R4's REPL serving composition,
+  not the subordinate WebSocket transport; defining it here avoids inventing a
+  fourth ws-spec amendment gate.
 - **On cljd**, `HttpServer.bind` is asynchronous, so `serve!` returns before the
-  port is bound. Where bind success, bind failure, upgrade failure, listener
-  error, and asynchronous close completion appear **as data** must be defined
-  here. Node's `ws` server fails the same way; http-kit throws synchronously.
+  port is bound and the result arrives as the lifecycle data above. Node's `ws`
+  server fails the same way; a synchronous http-kit throw is caught, classified,
+  and deposited as `:bind-failed` before `serve!` returns. In every host the
+  lifecycle medium is the sole observation channel.
   v1's cljd `listen!` never sets `:socket-close-fn` (`ws.cljc:396-408`), so
   server-side `close!` never closes the socket — do not copy that.
+- The server driver calls transport-owned `endpoint-step state now` once per
+  tick before advancing accepted sessions. It is the sole owner of endpoint
+  state, cadence, admission expiry, and stale-ack cleanup.
 
 ## Phase R5 — End to end
 
@@ -484,22 +659,26 @@ returns immediately and reports its outcome when known, `(vm :type)` offers
 All three hosts, first class, every phase.
 
 - **Declare the `append!` outcome subset per host, with reasons**, which is what
-  the contract asks (`dao.stream.md:417-424`). Transient `full` may not be
+  the contract's Surfaces section asks. Transient `full` may not be
   detectable anywhere: `java.net.http sendText` buffers, Node's `ws.send`
   buffers, and Dart's `WebSocket.add` buffers, none exposing backpressure. If
   `full` is excluded by nature on a host, say so with the reason rather than
   inventing a signal.
 - On cljd, `add` after close throws `StateError` synchronously and must be
-  classified to `:dao.stream/closed`. The codec exists at
-  `src/cljd/dao/stream/transit.cljd`.
+  classified to `:dao.stream/closed`. The v2 codec is owned by
+  `dao.stream.v2.transit`; its cljd implementation may adapt algorithms from
+  `src/cljd/dao/stream/transit.cljd` but must not require that legacy namespace.
 - Full cljd namespace compilation gates each phase, per *Namespaces and files*.
 
 ## Boundary of this plan
 
-**Untouched** — no edits, no deletions, no deprecation markers: `dao.stream.cljc`
+**Untouched implementations** — no edits, no deletions, no deprecation markers:
+`dao.stream.cljc`
 and everything under `src/cljc/dao/stream/`; `yin/repl.cljc`,
 `src/clj/yin/repl/runner.clj`, `src/cljd/yin/repl/flutter.cljd`; their tests;
-the existing `deps.edn` aliases and `shadow-cljs.edn` builds. `dao.jing.remote`
+and every existing `deps.edn` alias and `shadow-cljs.edn` build. The two
+build-configuration files receive only the additive entries declared above.
+`dao.jing.remote`
 keeps working on v1 and gets its own plan; it is the harder migration, since its
 `call!` is synchronous-on-JVM and `jing/materialize!` and `jing/get` dispatch
 through it as ordinary value-returning calls.
@@ -507,10 +686,19 @@ through it as ordinary value-returning calls.
 **Deliberately out of this slice:** telemetry in every form, per *The VM* —
 which also removes the `ws://` sink that would have been a second ws client
 proving nothing `connect` does not; the `:semantic`, `:register` and `:stack`
-evaluators, which follow in the VM plan; chain-forwarding through a
+and `:space` evaluators, which follow in the VM plan; chain-forwarding through a
 server's own remote (D4); the Flutter widget; `retry`, `dedup` and a v2 UDP
 transport; ws-level resumption; flow control; and authentication — `--host
 127.0.0.1` remains the only boundary, as in v1.
+
+**Accepted operational limits:** a request already taken from its medium may
+finish mutating the one shared shell after its client disconnects; reporting it
+lost is conservative observation, not cancellation. A handler that never
+returns stalls the serial server driver because V1 has no multi-tick handler
+continuation. These are explicit consequences of D4 and the V1 handler shape,
+not promises of cancellation or isolation. Without the deferred liveness
+protocol, an accepted but silent session can remain allocated indefinitely;
+the bounded handoff limits pending acceptance, not established-session count.
 
 ## End condition
 

@@ -62,18 +62,21 @@ acquisition arrives as data. Nothing waits.
 public surface has no way to ask a handle its retention policy, and must
 not gain one — a predicate answer about a live handle is exactly what
 `closed?` was retired for. So the boundary constructor takes the deposit
-destination *and its declared retention nature as data*, derived from the
-same creation specification that produced the handle, and refuses a
-reject-mode declaration at assembly. This is configuration provenance, not
-runtime introspection. Runtime behavior is unchanged: every non-`ok`
-deposit result tears the connection down.
+destination *and its admission declaration as data*, derived from the same
+creation specification that produced the handle. The declaration names both
+retention (evict-oldest and a capacity) and value domain (`:host-values` or
+`:portable-values`); the constructor refuses reject-mode retention or a domain
+that cannot carry every event it will deposit. This is configuration
+provenance, not runtime introspection. Runtime behavior is unchanged: every
+non-`ok` deposit result tears the connection down.
 
 **Logical-stream identity is minted in Phase 2.** `cursor-mismatch` in
-Phase 2 and stable descriptor identity in Phase 3 are the same identity.
-It is allocated when a logical stream is created, and both cursors and
-descriptors denote it. Their *representations* need not match and need not
-be equally serializable — cursor serialization across hosts stays TBD per
-the contract — but they must refer to the same thing.
+Phase 2 and the `:dao.stream/identity` projection carried with descriptors in
+Phase 3 use the same value. It is allocated when a logical stream is created;
+cursors carry it while descriptors pair it with transport-specific
+reachability. Cursor and descriptor representations need not match and need
+not be equally serializable — cursor serialization across hosts stays TBD per
+the contract — but identity comparison never compares whole descriptors.
 
 ## Phase 1 — Contract core (`src/cljc/dao/stream/v2.cljc`)
 
@@ -81,7 +84,7 @@ The protocol and data surface, with no transport. The seven operations are
 two kinds, and the split is the point:
 
 - **Five handle operations**, as protocols a handle implements per its
-  declared surface: `descriptor` (universal identity), `cursor` and `next`
+  declared surface: `descriptor` (universal reachability and identity projections), `cursor` and `next`
   (reader), `append!` (writer), `close!` (closable).
 - **Two transport entry functions**, `create!` and `attach!`, which take no
   handle because none exists yet. These are per-transport functions.
@@ -103,9 +106,11 @@ Also in Phase 1:
   not exist.
 - Generic envelope validation: `:dao.stream/type` present and qualified;
   everything else transport-owned.
-- `descriptor` on every handle regardless of surface — identity is
-  universal and outlives an attachment, so it must not be bundled into the
-  reader or writer protocol.
+- `descriptor` on every handle regardless of surface — its `{ok}` result
+  requires both `:dao.stream/descriptor` and `:dao.stream/identity`; both
+  outlive an attachment, so the operation must not be bundled into the reader
+  or writer protocol. The conformance harness asserts that the sibling identity
+  equals the identity carried inside the descriptor envelope.
 
 Deliverable: a contract-conformance test suite, **declaration-driven by
 construction**. Its input is a manifest — ordinary data, not code the harness
@@ -126,6 +131,37 @@ outcome the fixture actually produces it. That is what makes the contract's
 "declare which outcomes you produce, and why you exclude the rest" checkable
 rather than aspirational — an exclusion whose substitute never materializes
 fails, and an outcome that never appears proves nothing on its own.
+
+**Concurrency oracle.** The conformance harness uses bounded, offline
+linearizability checking separately for each sequence a handle surface is
+on. It records invocation and completion boundaries, arguments, and
+outcomes; appended test values are unique tokens. The checker searches for a
+sequential history accepted by the transport's pure abstract model.
+
+The only real-time edges it preserves are harness-observable happens-before
+edges: when one invocation has completed before another is begun, the first
+precedes the second. Overlapping operations receive no real-time order and
+may linearize in any model-valid order. Operations on distinct logical
+streams or distinct ordered outbound paths are checked independently; the
+oracle asserts no global order across them.
+
+For the ring buffer, the model contains logical-stream identity, ordered
+positions, the bounded evict-oldest window, immutable cursors, attachment
+lifecycle, and logical-stream close. It linearizes each operation against
+that abstract sequence — not against atom swap order, wall-clock start
+order, thread scheduling, or a particular implementation field.
+
+The Phase 2 concurrency cases include concurrent append/append, append/next,
+append/close, cursor/close, and independent readers, with bounded histories
+small enough for exhaustive search. A history for which no legal
+sequentialization exists fails conformance.
+
+This oracle detects duplicate or lost successful appends, impossible
+outcomes, cursor corruption, non-atomic append-versus-close behavior, and
+destructive interference between readers. It cannot prove liveness or
+fairness, detect failures in schedules the generator did not produce,
+validate WebSocket host-library ordering, or prove correctness for unbounded
+executions. Stress repetition supplements it but is not itself the oracle.
 
 The suite is *authored* in Phase 1 and first *demonstrated* in Phase 2.
 Phase 1 has no transport, so it proves nothing on its own; that is expected
@@ -149,14 +185,54 @@ whatever interpreter measures it — which this slice does not build.
   `invalid-anchor`; cursors carry the logical-stream identity
   (`cursor-mismatch` / `invalid-cursor` detectable); valid across handles
   of the same logical stream.
-- One coherent state per operation (single atom; one deref per `next`),
-  satisfying the Concurrency section.
+- One coherent logical-stream atom containing sequence state, logical close,
+  every attachment's open/closed state, and each closed attachment's frozen
+  tail. `next` makes one deref and decides identity, retention, attachment
+  freeze, and availability from that snapshot, satisfying the Concurrency
+  section.
+- Phase 2 also implements the ring buffer's attachment entry. It is not a
+  namespace-global resolver: `make-attacher` receives a host-owned directory
+  or resolver and returns the unary `attach!` function that a host places in
+  its dispatch table. The returned function validates the descriptor,
+  resolves its logical-stream identity against that captured composition
+  state, and returns `ok`, `invalid-descriptor`, or `not-found`.
+
+  A successful attachment is a fresh attachment handle over the same
+  logical-stream state, not the creator handle reused by reference. Its own
+  `close!` closes only that attachment; `descriptor` and cursors still
+  denote the underlying logical stream. Where these attachment lifecycles
+  are distinguishable, the success map carries `:dao.stream/attachment` as
+  the contract requires.
+
+  Phase 2 tests the entry with a minimal supplied resolver. Phase 3 owns the
+  real test composition's directory population, Transit round trip, and
+  kept-cursor proof; it does not first implement attachment there.
 
 Explicitly absent: waiters, drain, take, seq views, `closed?`, **live
 resize** — compatible with the contract but proving nothing the slice needs,
 since fixed declared capacity is sufficient for deposit admission — and the
 transport-owned **`lag`** operation, whose only consumer was flow control (see
 *Not in this plan*). Both follow the slice.
+
+**Ring-buffer manifest and exclusions.** The manifest records the following
+exact subsets and reasons:
+
+| Operation | Produces | Excluded, and why |
+|---|---|---|
+| `create!` | `ok`, `invalid-spec` | `not-found`: host dispatch answers absence before this handler is selected. `transport-error`: allocation and state transition use only in-memory values and have no operational failure channel after validation. |
+| `attach!` | `ok`, `invalid-descriptor`, `not-found` | `transport-error`: lookup against the supplied in-memory resolver has no operational failure channel. |
+| `descriptor` | `ok` | None; this is the contract's complete set. |
+| `cursor` | `ok`, `invalid-anchor`, `closed` | `transport-error`: cursor minting reads only coherent in-memory state. `closed` is induced through a closed attachment handle; the creator handle remains on the logical stream. |
+| `next` | `ok`, `blocked`, `end`, `gap`, `cursor-mismatch`, `invalid-cursor` | `transport-error`: reading coherent in-memory state has no operational failure channel. |
+| `append!` | `ok`, `closed` | `full`: evict-oldest answers retention pressure by eviction, reported later as `gap`, so it never refuses for capacity. `invalid-value`: an in-memory reference stream performs no encoding and can carry every host value admitted as a stream element. `transport-error`: its in-memory state transition has no operational failure channel. |
+| `close!` | `ok` | None; this is the contract's complete set. |
+
+**Reject mode is not a deferred ring-buffer variant.** It is intentionally
+absent because v2 has no destructive drain: once such a buffer reached
+capacity, no operation could free a slot, so `full` would be permanent.
+Reintroducing reject mode would recreate the withdrawn deadlock rather than
+add usable backpressure. Backpressure, if later required, belongs in the
+deferred interpreter/lease path, not in this reference transport.
 
 The Phase 1 conformance suite runs here for the first time against a transport
 declaring all three surfaces. Laws that need a resolvable descriptor wait for
@@ -171,39 +247,52 @@ directory, which is what makes a ring buffer's descriptor resolvable on its
 own host.
 
 - `descriptor` on a ring buffer handle yields a plain-data envelope that
-  survives the transit codec structurally unchanged.
+  survives the **DaoStream v2 portable codec** structurally unchanged. That
+  codec is Transit JSON text, implemented behind `dao.stream.v2.transit`,
+  with the portable value domain and no-custom-handler profile specified by
+  `dao.stream.ws.md`.
+- There is **one value codec, not two**: Phase 3 encodes the descriptor
+  directly as a Transit value, while WebSocket frames encode their control
+  or value envelope with the same codec. Framing differs; value encoding
+  does not.
+- Phase 3 owns the cross-host codec conformance corpus and round trip on
+  clj, cljs, and cljd. `dao.stream.v2.transit` has host implementations:
+  Cognitect Transit CLJ on clj, Cognitect Transit CLJS on Node, and a new
+  v2-owned cljd implementation adapted from the algorithms in
+  `src/cljd/dao/stream/transit.cljd`. The v2 namespace must not depend on that
+  legacy namespace merely because it uses the same Transit format.
 - A **host-kept local directory** — a map from stream identity to live
   handle, owned by the test composition, not by DaoStream and not by any
   transport. It is deliberately test-only: the ws serving side in Phase 4
   resolves `:ws/path` against its own served-stream table and does not
   reuse this. Say so in the code, so nobody later mistakes it for
   infrastructure.
-- Round-trip test: descriptor → encode → decode → `attach!` against that
-  composition → handle on the same logical stream; a kept cursor resumes
-  through the new handle. This is where the kept-cursor promise is proven,
-  on a transport that has a reader surface.
+- Round-trip test: descriptor → encode → decode → the Phase 2
+  `make-attacher` closure over that composition's directory → handle on the
+  same logical stream; a kept cursor resumes through the new handle. This is
+  where the kept-cursor promise is proven, on a transport that has a reader
+  surface.
 - `not-found` for descriptors nothing backs.
 
-**Decision gate — descriptor key set.** The contract leaves the descriptor
-envelope TBD and this phase produces the evidence for settling it. Phase 4
-must not start against provisional keys: review the round trip's key set,
-settle it in `dao.stream.md`, and settle `:ws/…` in `dao.stream.ws.md`
-against it. Provisional keys carried into a wire format under delivery
-pressure become permanent by accident.
+**Decision gate — descriptor key set.** The contract fixes
+`:dao.stream/identity` and leaves the transport-specific descriptor envelope
+TBD; this phase produces the evidence for settling the remaining keys. The
+gate must keep identity distinct from reachability and prove that distinct
+descriptors for two endpoints serving one stream carry equal identity. Phase 4 must not start
+against provisional keys: review the round trip's key set, settle it in
+`dao.stream.md`, and settle `:ws/…` in `dao.stream.ws.md` against it.
+Provisional keys carried into a wire format under delivery pressure become
+permanent by accident.
 
-**Decision gate — wire contract.** The ws spec's Handshake section says the
-wire's exact form is not specified yet, and its Deferred list holds the
-pieces: how the served stream's identity is presented on connect, the exact
-form of the authoritative disclaimer, the application-range close code that
-distinguishes an ended stream from a dropped connection, the value codec, and
-what a receiver does with wire input that fails to decode. 4a builds both
-ends of that wire and must not start before they are settled — in
-`dao.stream.ws.md`, where they live — for the same reason as the descriptor
-gate: until then two independently written implementations cannot
-interoperate, no wire-level conformance test can be written, and provisional
-choices carried into a wire format under delivery pressure become permanent
-by accident. The gate settles what the Deferred list already scopes; it adds
-nothing to that list and invents no protocol here.
+**Decision gate — wire contract, settled in `dao.stream.ws.md`.** The
+Handshake and Elements and Serialization sections there now specify the
+request-target presentation, the `:ws/accept`/`:ws/disclaim` first frame,
+close codes 4000/4002/4004, the Transit-JSON value codec, and decode-failure
+behaviour. Phase 4a implements that wire verbatim and its wire-level
+conformance tests are a prerequisite to Phase 5 — for the same reason as the
+descriptor gate: provisional choices carried into a wire format under
+delivery pressure become permanent by accident. The gate adds nothing beyond
+what `dao.stream.ws.md` now settles.
 
 ## Phase 4 — WebSocket transport, forwarding, and serving composition
 
@@ -215,8 +304,10 @@ transport, infrastructure, composition — deliberately separate:
 - **Client side**: `attach!` connects and returns without waiting, answering
   only what is decidable here and now — `ok`, `invalid-descriptor`, or
   `transport-error` for a handler that fails locally; see *Settled before
-  Phase 1*. The handle is writer+closable only; `append!` with transient
-  `full` (including while the connection is still establishing),
+  Phase 1*. The composition creates its traffic medium and mints its
+  `:dao.stream/newest` cursor before it calls `attach!`. The handle is
+  writer+closable only; `append!` with transient `full` (including until the
+  client has received `:ws/accept`),
   `invalid-value` for unencodable values, `closed` once down; `close!`
   means disconnect, reattachable;
   connection loss is the same detachment, uninvited.
@@ -225,30 +316,70 @@ transport, infrastructure, composition — deliberately separate:
   produces it — with the same `full`, `closed`, `transport-error`,
   send-racing-close, and identity rules as the client handle; plus that
   connection's own boundary adapter for its inbound events.
-- **Transport constructor**: the entry functions a host puts in its dispatch
-  table are closures this constructor produces, having received the deposit
-  destination and its admission declaration. Bare namespace vars could reach
-  that state only through namespace globals.
+- **Transport constructor**: a client host supplies its traffic deposit
+  destination and admission declaration. A serving endpoint receives bind
+  host/port, advertised host/port, a canonical-path resolution table, a
+  boundary control medium, and a fixed collection of capacity-one
+  acceptance-handoff slots —
+  offer and acknowledgement media plus their declarations — and the
+  composition's policy for expiring unacknowledged offers. The entry
+  functions a host puts in its dispatch table are closures this constructor
+  produces from that state. These are composition-supplied streams, not
+  namespace-global state; bare namespace vars could reach them only through
+  namespace globals.
+- **Endpoint stepping**: the transport exports `endpoint-step`, a total,
+  non-waiting operation over endpoint state and explicit `now`. It polls
+  acknowledgement slots, applies the constructor's admission-expiry policy,
+  sends accept control, and returns the next endpoint state. Path disclaimers
+  and slot-exhaustion closes happen immediately in the bounded upgrade callback
+  and never occupy acceptance state. `endpoint-step` never
+  self-schedules; the composition driver in 4c owns cadence.
 - **Handshake**: encode and recognize the served-stream presentation and the
   authoritative disclaimer as settled at the wire-contract gate and recorded
   in `dao.stream.ws.md` — wire protocol, so
   both ends of it are transport, not composition.
-- **Boundary adapter**: deposits every inbound event — payload and
-  lifecycle, including how the connection resolved, judging nothing — into the
-  host-composed deposit destination — one medium per boundary in this slice,
-  the granularity being composition policy per `dao.stream.ws.md` — as
-  `:ws/attachment`-tagged envelopes — the same value `attach!` returns under
-  `:dao.stream/attachment`, per `dao.stream.ws.md` — enforcing admission at assembly
-  against the declaration passed alongside the destination, and tearing the
-  connection down on any non-`ok` deposit result.
+- **Boundary adapter and acceptance handoff**: client resolution, payload,
+  and lifecycle events are deposited into the client's ordinary host-composed
+  traffic medium. A server-side accepted handle is first offered through a free
+  capacity-one handoff slot under `:ws/event :ws/accepted`; the transport
+  retains the connection in bounded pre-accept state and sends no wire
+  `:ws/accept` until `endpoint-step` observes the matching stream
+  acknowledgement. That acknowledgement carries a composition-created
+  per-attachment traffic writer and its admission declaration; its reader
+  cursor was minted before the acknowledgement. Accepted payload is deposited
+  only there, while the endpoint control medium carries only pre-accept and
+  endpoint lifecycle facts. Every deposited event carries the client-side identity
+  returned by `attach!`, or the server-side identity carried by the accepted
+  offer, under `:ws/attachment`. Admission is enforced at assembly against
+  the declarations passed alongside the media, and every non-`ok` deposit
+  follows `dao.stream.ws.md`'s teardown rule.
 - No callbacks in the public surface; the legacy `on-open!`/`on-message!`/
   `on-close!` shape does not reappear.
 - **Dependency check**: `v2/ws.cljc` requires only `dao.stream.v2` — never
   the ringbuffer namespace. The ws transport depends on the protocols; the
-  ring buffer is the slice's composition partner (deposit destination,
-  served stream), wired by the host composition, not by the transport. A
-  transport requiring another transport is the legacy registry defect
-  reborn.
+  offer, acknowledgement, traffic, and served-stream media are all
+  composition partners — including the concrete capacity-one handoff slots —
+  wired by the host composition, not by the transport. A transport requiring
+  another transport is the legacy registry defect reborn.
+- **Acceptance-handoff tests**: no wire `:ws/accept` or value delivery
+  before matching acknowledgement; an unread offer survives arbitrary
+  traffic-medium eviction; a slot is not reused before acknowledgement; slot
+  exhaustion closes the new connection without overwriting an offer; stale
+  or wrong-identity acknowledgements do not accept a connection; a matching
+  malformed acknowledgement releases its slot and closes pre-accept; pre-accept
+  terminal events use the control medium while post-accept events use the
+  acknowledged per-attachment medium; and
+  offer-deposit failure, acknowledgement-deposit failure, endpoint stop,
+  peer loss, and admission expiry each close the connection, release the slot,
+  ignore a later stale acknowledgement, and deposit exactly one terminal
+  lifecycle event per endpoint.
+- **Wire-close conformance**: on every supported host library, prove codes
+  `4000`, `4002`, and `4004` and their reasons can be sent and observed, and
+  prove the required event sequences for ended, protocol failure, disclaimer,
+  locally initiated `close!`, and a host close failure. If any library fails
+  this gate, Phase 4a does not ship the code-only design: first amend the wire
+  spec to send `{:ws/frame :ws/end}` before close and treat code 4000 as a
+  secondary fast path, then rerun cross-host conformance.
 
 ### 4b — Forwarding (`src/cljc/dao/stream/v2/forward.cljc`)
 
@@ -335,6 +466,8 @@ the host has. This is a named deliverable, not test wiring, and it must
 define:
 
 - the serving lifecycle: what starts and stops an endpoint, and who owns it;
+- the single driver that calls transport-owned `endpoint-step` with its clock,
+  cadence, and admission-expiry policy before advancing application sessions;
 - the `:ws/path` → served-stream resolution table, host-owned data;
 - which identities this endpoint serves — the resolution table's contents.
   The handshake's wire vocabulary is not composition; it belongs to 4a;
@@ -380,12 +513,16 @@ Kill the connection, then verify four separable facts:
    through the ws handle, which has no reader surface. WebSocket-level
    resumption — what history a rejoining client receives — is deferred in
    `dao.stream.ws.md` and is not tested here.
+5. Serving A's stream through a second endpoint produces different reachability
+   descriptors whose `:dao.stream/identity` values are equal; cursors compare
+   that identity, never either descriptor.
 
 ## Host matrix
 
-- **Phases 1–3** are pure `.cljc` with no transport: they must compile and
-  pass on clj, cljs (Node), and cljd. Nothing in them is host-specific, and
-  a parity break here is cheapest to find here.
+- **Phases 1–2** are pure `.cljc` with no host-specific codec: they must compile
+  and pass on clj, cljs (Node), and cljd. Phase 3 is the first host-specific
+  phase because `dao.stream.v2.transit` selects a Transit implementation per
+  host; its shared corpus must pass identically on all three.
 - **Phase 4–5** target clj and cljs (Node) — Node server plus Node client is
   the slice. Browser-client behavior is not validated by a Node target and
   is out of the slice. cljd ws follows once the slice is proven; beware the
@@ -421,7 +558,7 @@ consumed with the rest of this document.
 | `->seq`                              | **gone**                      | An interpreter over a stream, not part of the contract (see the contract's Composition).   |
 | bare `:ok` / `:blocked` / `:end` / `:daostream/gap` returns | outcome maps under `:dao.stream/…` | Every operation returns an open map keyed by `:dao.stream/outcome`, so extensions add keys without breaking consumers. |
 | `{:position 0}` cursors              | transport-owned cursor values | There is no `seek`; every valid cursor comes from the stream.                              |
-| `descriptor` via handle metadata     | `descriptor` operation        | Identity is universal, answered by every handle, and outlives any attachment.              |
+| `descriptor` via handle metadata     | `descriptor` operation        | Every handle returns distinct reachability and logical-stream identity projections, both surviving attachment close. |
 
 Migrating a call site is therefore mostly mechanical — `open!` splits, results
 become maps, cursors come from `cursor` — with two places that need a decision
@@ -487,6 +624,24 @@ Not in this plan, by design:
   deferrals* section currently declines, and a reconciliation of the pause
   request with that contract's negotiation — a reader asking "hold for *n*" is
   a proposal, and a proposal creates no state until the serving side grants.
+
+## Explicit residual risks
+
+- A reader that repeatedly accepts a recovery cursor while producers evict
+  faster than it advances can livelock in repeated `gap` outcomes. Budgets and
+  caller policy bound each step; the contract does not promise catch-up.
+- Cursor authenticity is provenance-by-construction, not cryptographic
+  anti-forgery. Tamper-resistant portable cursors remain deferred with cursor
+  serialization.
+- The bounded linearizability oracle runs wherever the host can support the
+  harness, but useful concurrency exploration is principally the clj run;
+  single-threaded cljs/cljd parity tests are not equivalent evidence.
+- Attachment identities are unique only during one boundary lifetime. A
+  process restart may reuse a representation, so persisted observations must
+  scope it with boundary/session identity rather than treating it as global.
+- During migration, v1/v2 coexistence can drift. The per-consumer migration
+  plans and the end condition below are the control; coexistence is not a
+  permanent compatibility promise.
 
 ## End condition — v2 is not a permanent fork
 

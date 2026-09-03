@@ -33,17 +33,21 @@ values and decides nothing about them:
 
 The Invariants below are these denials in operational form.
 
-The design separates four concepts:
+The design separates five concepts:
 
 1. A **creation specification** is data for creating a new logical stream.
 2. A **handle** is a host-local operational stream value — the
    implementation of the `dao.stream` protocols.
-3. A **portable descriptor** is data used to attach to an existing stream.
-4. A **cursor** is immutable interpreter-owned observation state for one
+3. A **logical-stream identity** is transport-independent plain data shared by
+   every handle and descriptor for one stream.
+4. A **portable descriptor** is reachability data used to attach to an existing
+   stream; it includes the logical-stream identity but is not that identity.
+5. A **cursor** is immutable interpreter-owned observation state for one
    logical stream.
 
-Creation is not attachment. A descriptor is not a creation specification. A
-handle is not portable identity. A cursor is not handle-owned state.
+Creation is not attachment. A descriptor is not a creation specification or an
+identity. A handle is not portable identity. A cursor is not handle-owned
+state.
 
 Seven operations range over them, each returning an outcome map (see
 Result Convention):
@@ -197,10 +201,13 @@ Creation brings a new logical stream into existence. Attachment joins an
 existing one. They are separate operations with separate inputs.
 
 - `create!` consumes a creation specification and returns a handle on a
-  new logical stream. The handle's portable identity is available as a
-  descriptor via `descriptor`, whose outcome set is `{ok}` with
-  `:dao.stream/descriptor` — identity is universal and outlives any
-  attachment, so `descriptor` has no failure outcome.
+  new logical stream. `descriptor` on that handle returns `{ok}` with both
+  `:dao.stream/descriptor`, the transport-specific reachability value, and
+  `:dao.stream/identity`, the transport-independent logical-stream identity.
+  The descriptor carries the same identity internally; the sibling projection
+  and its value inside `:dao.stream/descriptor` must be structurally equal.
+  Both projections are total and outlive any attachment, so `descriptor` has
+  no failure outcome.
 - `attach!` consumes a portable descriptor and returns a handle on an
   attachment to the **same** logical stream the descriptor names. Attaching
   never creates.
@@ -209,10 +216,14 @@ existing one. They are separate operations with separate inputs.
   request to load a plugin.
 
 Streams are values that can be sent through streams — up to a serialization
-boundary. An in-memory stream holds references, so a handle can ride it
-intact, and an interpreter that receives a handle simply uses it —
-every operation takes a handle, and attaching to what you already hold
-is meaningless. But a handle does not survive encoding, and any
+boundary. An in-memory stream whose admission declaration permits host
+references can carry a handle intact. A dynamically delivered handle travels
+as composition data together with its declared surface, for example
+`{:dao.stream/handle h :dao.stream/surface #{:reader :writer}}`; the receiving
+interpreter uses only that declared surface, and attaching to what it already
+holds is meaningless. A composition may omit the wrapper only when the
+receiver's fixed contract already declares the surface. But a handle does not
+survive encoding, and any
 transport that encodes its elements — a file as much as a network socket —
 is a serialization boundary. Descriptors exist for crossing those
 boundaries, where the live value cannot travel and a name must. (What a
@@ -240,25 +251,34 @@ Every other key is transport-owned, qualified under the transport's namespace
 own keys returns `:dao.stream/invalid-spec`.
 
 The **portable descriptor** is inspired by CORBA's interoperable object
-reference. Its exact definition is not designed yet; these properties are
-settled, and the key set that realizes them is TBD:
+reference. It is reachability data, not the logical-stream identity itself.
+Its exact definition is not designed yet; these properties are settled, and
+the key set that realizes them is TBD:
 
 - It carries `:dao.stream/type` — the transport, as above — as its dispatch
   key.
-- It names exactly one logical stream, and that identity is stable: the same
+- It carries the logical-stream identity under the contract-owned
+  `:dao.stream/identity` key. Different descriptors may reach
+  the same logical stream through different endpoints; their reachability data
+  may differ, but their logical-stream identity is structurally equal. The same
   descriptor attaches to the same stream every time.
 - It is self-contained. If the stream is remote, it contains whatever is
   needed to connect — perhaps an IP address and port. The entry data is
   transport-owned; a handler that cannot make sense of it returns
   `:dao.stream/invalid-descriptor`.
-- A transport whose attachments are distinguishable carries
-  `:dao.stream/attachment` in its `attach!` success map — an opaque,
-  structurally serializable value naming this attachment, unique among the
-  attachments that transport can tell apart. Where a transport displaces an
-  answer onto another channel, the same value correlates that attachment's
-  events there. The key and this correlation rule are the contract's; minting
-  and representation are the transport's. Transports that cannot distinguish
-  attachments omit it.
+- A transport whose attachments are distinguishable assigns each attachment
+  an opaque, structurally serializable value, unique among the attachments
+  that transport can tell apart. Every attachment handle the transport mints
+  has such an identity, whether the handle is returned by `attach!` or
+  minted from a host connection accepted without an `attach!` call. An
+  `attach!` success map carries the value under `:dao.stream/attachment`.
+  When no `attach!` call produces the handle, the transport specification
+  names the deposited event or other stream-native mechanism by which the
+  composition receives the identity. Wherever an answer or event for that
+  attachment is displaced onto another channel, the same value correlates it
+  there. The key and correlation rule are the contract's; minting,
+  representation, and the server-side delivery mechanism are the
+  transport's. Transports that cannot distinguish attachments omit it.
 - It carries no authorization. Nothing in this contract gates who may attach:
   a descriptor is a name, and a host that can reach what it names attaches.
   Whether attachment should be gated at all, and by what, is a question this
@@ -270,7 +290,9 @@ settled, and the key set that realizes them is TBD:
 
 For the time being, the operative guarantee is the round trip: `descriptor`
 on a live handle returns `:dao.stream/ok` with `:dao.stream/descriptor`,
-a value that can be sent on a stream and reconstructed on the other end,
+a value that can be sent on a stream and reconstructed on the other end, and
+`:dao.stream/identity`, equal through every handle and descriptor for the
+logical stream,
 where `attach!` on the reconstructed value attaches to the stream it names —
 provided the receiving host can reach what it names at all (see Creation and
 Attachment on reachability), and allowing that a transport which cannot know
@@ -366,8 +388,9 @@ honor — **reader** (`cursor`, `next`), **writer** (`append!`), **closable**
 (`close!`) — and the transport declares which. The Cursors, Reading, and
 Retention and Gaps sections govern handles with a reader surface only.
 
-`descriptor` belongs to no surface: every handle answers it, because identity
-is universal and outlives any attachment. An operation a handle does not
+`descriptor` belongs to no surface: every handle answers it with both
+reachability and logical-stream identity, because both outlive any attachment.
+An operation a handle does not
 declare is not part of that handle at all: there is nothing to call, so there
 is no operation for this contract to give an outcome. What a host does when
 asked for a method that is not there is the host's, and no transport may
@@ -464,6 +487,10 @@ A cursor is an immutable value owned by the interpreter that holds it.
   `cursor`'s outcome set is therefore `:dao.stream/ok` (with
   `:dao.stream/cursor`), `:dao.stream/invalid-anchor`,
   `:dao.stream/closed`, and `:dao.stream/transport-error`.
+- A composition that intends to observe events caused by an operation mints
+  its `:dao.stream/newest` cursor **before** invoking that operation. Minting
+  after `attach!`, endpoint bind, handoff installation, or any other operation
+  that can deposit would intentionally skip events deposited in between.
 - Every valid cursor comes from the stream: minted by `cursor`, received as
   a successor from `next`, or recovered from a gap outcome. Consumers never
   construct cursor internals or fabricate positions — there is no `seek`. A
@@ -473,8 +500,9 @@ A cursor is an immutable value owned by the interpreter that holds it.
   works with that interpreter's own handle. Whether a cursor survives
   serialization to another host is transport-owned and TBD, like the
   descriptor envelope.
-- A cursor carries enough identity to detect misuse — the mismatch outcomes
-  in the Reading table depend on it.
+- A cursor carries the logical-stream identity, not a reachability descriptor.
+  `cursor-mismatch` compares that identity, so handles reached through distinct
+  descriptors for the same logical stream accept the same cursor.
 - Advancing is receiving a successor cursor from `next`. The stream never
   advances a reader; the stream holds no reader positions at all. Dropping a
   cursor is how a reader detaches — there is nothing to unregister.
@@ -540,8 +568,10 @@ declares where that failure surfaces — an ordinary deposit on a channel it
 names — because the outcome set has no room for it and the transition has
 already happened.
 
-`close!` closes **what the handle is on**. A handle that owns a stream — its
-creator, or its server-side host — closes the logical stream. An attached
+`close!` closes **what the handle is on**. A handle explicitly designated by
+the transport as the logical stream's owner closes that logical stream; a
+server-side accepted-connection handle is an attachment and does not gain
+ownership merely by being on the serving host. An attached
 handle is on an attachment: closing it ends that attachment only — the
 stream persists, its descriptor remains valid, and `attach!` may rejoin
 later. Which scope a transport's handles carry is part of its declared
@@ -551,7 +581,7 @@ nature.
 what *this handle* is on. (Not every outcome is: `gap` is retention-relative
 and `cursor-mismatch` is logical-stream-relative.) After an attachment
 closes, the handle's `append!` answers `closed`; `descriptor` still answers
-`ok` — identity outlives any attachment; a reader surface, where the
+`ok` with reachability and identity — both outlive any attachment; a reader surface, where the
 handle has one, answers `end` from `next` once observation through this
 handle is exhausted, and `closed` from `cursor` — no new cursors are
 minted through a closed attachment. Cursors bind to the logical stream,
