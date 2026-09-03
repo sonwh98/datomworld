@@ -133,6 +133,8 @@ Every prompt begins with real timestamps and an extensible implementer list:
 ```text
 Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+Coding-Agent: <claude|codex|agy|glm|cmd|muse|deepseek|interactive>
+Session-ID: <exact resumable id or none (reason)>
 
 # Task: <Task Name>
 
@@ -147,6 +149,8 @@ Every requested report begins with:
 ```text
 Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Completed-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+Coding-Agent: <same coding agent used for the run>
+Session-ID: <same exact session id or none (reason)>
 ```
 
 Rules:
@@ -155,6 +159,11 @@ Rules:
   decisions belong in `docs/`.
 - Findings and prompt bodies are never deleted or truncated. On reassignment,
   update the prior implementer's status and append the new implementer.
+- Every prompt, findings report, stdout log, heartbeat, and progress log records
+  the coding agent and exact session ID used for that run. Preassign a session ID
+  when the CLI supports it. If the provider is intentionally sessionless, record
+  `Session-ID: none (<reason>)`; never omit the field or write an ambiguous
+  placeholder in a completed trace.
 - `.stdout.log` is an intermediate capture, not a report. Promote the final
   response to the model-tagged `.findings.md` before treating work as complete or
   overwriting output; use `.attempt-<n>.stdout.log` for retries.
@@ -222,6 +231,17 @@ claude --resume <session-id> --permission-mode plan --tools Read \
   --output-format text -p "Read <follow-up-path> and reassess it now."
 ```
 
+**Managed-seat permission note:** a sandboxed Claude invocation can report
+`Not logged in` even when the user's interactive CLI is authenticated, because
+the default host sandbox cannot read the account state or complete provider
+network access. Treat that first as a sandbox diagnostic: rerun the same
+read-only command through the host command tool with
+`sandbox_permissions: require_escalated` and request a narrowly scoped prefix
+such as `["claude", "--model"]`. Preserve `--permission-mode plan --tools Read`;
+host escalation restores the user's CLI environment and does not authorize
+Claude to write the repository. Only call it an authentication failure if the
+elevated retry also fails that way.
+
 ### Gemini through AGY
 
 ```sh
@@ -270,6 +290,16 @@ codex exec -s read-only resume <session-id> - \
 
 For Codex, `-m` precedes the subcommand, while `-s` belongs after `exec` and
 before `resume`.
+
+**Managed-seat permission note:** the Codex CLI may fail before starting with
+`failed to initialize in-process app-server client: Operation not permitted`
+when launched under the default command sandbox. In that case, rerun the same
+command through the host command tool with `sandbox_permissions:
+require_escalated`, ask the user for that narrowly scoped approval, and use the
+prefix rule `["codex", "exec"]`. Keep Codex's own `-s read-only` for reviews (or
+`-s workspace-write` for authorized implementation); this host-level
+escalation is for CLI initialization and is not permission to broaden the
+Codex sandbox or use `danger-full-access`.
 
 ### Muse
 

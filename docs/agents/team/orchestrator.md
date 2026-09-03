@@ -53,6 +53,8 @@ coordination and the authority granted to every participant.
 ```text
 Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+Coding-Agent: <coding-agent-or-cli>
+Session-ID: <exact resumable id or none (reason)>
 
 # Task: <Task Name>
 
@@ -82,6 +84,8 @@ merely because it is slow or temporarily quiet.
 Begin the final response exactly with:
 Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Completed-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+Coding-Agent: <same coding agent used for the run>
+Session-ID: <same exact session id or none (reason)>
 
 Then report delegated roles/models, prompts and session IDs, verified findings,
 test outcomes, unresolved risks, and whether the phase is ready to commit.
