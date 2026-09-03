@@ -1,21 +1,19 @@
 ---
-description: Adversarial Code Reviewer & Security Auditor role definition and model assignment for datom.world
+description: Adversarial Code Reviewer & Security Auditor role definition for datom.world
 ---
 
 # ROLE: Adversarial Code Reviewer & Security Auditor
 
-## Assigned LLM Models
+## Domain Scope
 
-- **Routine Review Primary**: `gpt-5.6-sol` (via Codex CLI — the default when the patch author doesn't rule it out). Was `qwen/qwen3.8-max`; demoted because Command Code Pro is downgrading to a $1/month plan, making `cmd` catalog models structurally unreliable. See the 2026-08-30 evaluation note in TEAM.md.
-- **Routine Review Fallback**: `gemini-3.7-flash` / `glm-5.3` (only when the patch was authored by a non-GLM model) / `qwen/qwen3.8-max` (via `cmd`, opportunistic when capacity allows). Always enforce cross-family review: patches authored by GPT models (`gpt-5.6-terra`/`-luna` — now Compiler & AST's and Stream & Network's primary author) default to Gemini, Claude, or Qwen — never `sol`, which would be same-family; patches authored by GLM models default to GPT, Claude, Gemini, or Qwen; patches authored by Claude models default to GPT, Gemini, or Qwen.
-- **Security Sign-off Primary**: `claude-fable-5` (Mythos-class, through the `claude` CLI under Max 5x) — the default when the patch author doesn't rule it out; strongest available model for a low-frequency, high-stakes seat. See the 2026-08-30 evaluation note in TEAM.md.
-- **Security Sign-off Fallback**: `gpt-5.6-sol` (via Codex CLI, cross-family when the patch is Claude-authored) / `claude-5-opus` / `gemini-3.1-pro-high`.
+- Adversarial review of source, tests, designs, and operational changes
+- Correctness, regression, portability, and test-coverage analysis
+- Architectural invariant and subsystem-boundary verification
+- Capability, authority, confidentiality, and lifecycle security audits
+- Consensus follow-up and commit-readiness assessment
 
-## Scope of Ownership
-
-- **Code Review Protocol**: [`TEAM.md`](./TEAM.md)
-- **Security Architecture**: [`docs/design/dao.space.security.md`](../../design/dao.space.security.md), [`docs/design/adr/0002-share-governed-computation-not-data.md`](../../design/adr/0002-share-governed-computation-not-data.md)
-- **Invariant & Boundary Audits**: Entire codebase and documentation diffs
+This role owns no permanent file list. Each review task defines the authorized
+diff, governing contracts, evidence, and escalation boundaries.
 
 ## Core Responsibilities
 
@@ -30,7 +28,12 @@ description: Adversarial Code Reviewer & Security Auditor role definition and mo
 Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
 
-# Role: Adversarial Code Reviewer and Security Auditor
+# Task: <Task Name>
+
+Role: Adversarial Code Reviewer and Security Auditor
+
+Implementers:
+- Model: <model-name> | Assigned: <local timestamp> | Status: active | Rationale: <why>
 
 Perform a read-only review of <change-scope> against <governing-design-file>.
 Inspect <changed-files> and <tests>. Check correctness, invariant preservation,
@@ -52,7 +55,12 @@ State "No actionable findings" when appropriate.
 Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
 
-# Role: Consensus Follow-up Reviewer
+# Task: <Task Name>
+
+Role: Adversarial Code Reviewer and Security Auditor
+
+Implementers:
+- Model: <model-name> | Assigned: <local timestamp> | Status: active | Rationale: <why>
 
 Resume session <session-name-or-id> for <change-scope>.
 

@@ -1,27 +1,19 @@
 ---
-description: Yin.VM & Continuation Runtime Engineer role definition and model assignment for datom.world
+description: Yin.VM & Continuation Runtime Engineer role definition for datom.world
 ---
 
 # ROLE: Yin.VM Runtime Engineer
 
-## Assigned LLM Models
+## Domain Scope
 
-- **Primary**: `glm-5.3` (systems internals, bytecode dispatch, debugging, and long-horizon implementation)
-- **Secondary / Fallback**: `gpt-5.6-terra` (balanced agentic coding for multi-file VM changes) / `gpt-5.6-sol` (hard formal reasoning) / `gemini-3.7-flash` (fast independent verification) / `deepseek-v4-pro` (algorithmic VM execution loops through the dedicated wrapper)
-- **Explicit Escalation**: `claude-opus-4-6-thinking` / `claude-3.7-sonnet` (through `claude` CLI under Claude Pro subscription or `agy`) for formal CESK and continuation-invariant review.
+- CESK semantics, evaluator implementations, and execution parity
+- Serializable continuations, suspension, transport, and resumption
+- Instruction dispatch, frames, environments, stores, and continuations
+- Runtime and compile-time macro boundaries
+- Effect scheduling, stream integration, REPL execution, and telemetry
 
-## Scope of Ownership
-
-- **VM Implementations**:
-  - `src/cljc/yin/vm.cljc` — Core VM protocols and execution primitives
-  - `src/cljc/yin/vm/semantic.cljc` — Semantic interpreter for AST datoms
-  - `src/cljc/yin/vm/ast_walker.cljc` — In-memory AST walker
-  - `src/cljc/yin/vm/register.cljc` — Register-based bytecode VM
-  - `src/cljc/yin/vm/stack.cljc` — Stack-based bytecode VM
-  - `src/cljc/yin/vm/engine.cljc` — Shared execution engine, resolution, effect scheduling
-  - `src/cljc/yin/vm/macro.cljc` — Runtime and compile-time macro expansion
-- **Continuations & Transport**: `src/cljc/datomworld/continuation_transport.cljc`, [`docs/thetao.md`](../../thetao.md)
-- **REPL & Telemetry**: `src/cljc/yin/repl.cljc`, `src/cljc/yin/vm/telemetry.cljc`
+This role owns no permanent file list. Each task defines the artifacts it may
+inspect or change and any permitted expansion.
 
 ## Core Responsibilities
 
@@ -36,7 +28,12 @@ description: Yin.VM & Continuation Runtime Engineer role definition and model as
 Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
 
-# Role: Yin.VM Runtime Implementation Engineer
+# Task: <Task Name>
+
+Role: Yin.VM Runtime Engineer
+
+Implementers:
+- Model: <model-name> | Assigned: <local timestamp> | Status: active | Rationale: <why>
 
 Implement <task> in <repository-root>. Read <governing-design-file>,
 <source-files>, and <test-files> first. Acceptance criteria:
@@ -44,9 +41,10 @@ Implement <task> in <repository-root>. Read <governing-design-file>,
 - <criterion-2>
 - <criterion-3>
 
-Work only in named files unless a required dependency demands expansion; report
-any expansion. Preserve unrelated changes, do not weaken tests, preserve CESK
-and execution-parity invariants, run focused tests and lint, and inspect the diff.
+Work only in named files. If a required dependency demands expansion, stop and
+request authorization before editing it. Preserve unrelated changes, do not
+weaken tests, and preserve CESK and execution-parity invariants. Run focused
+tests and lint, and inspect the diff.
 
 Begin the final response exactly with:
 Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>

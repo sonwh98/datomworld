@@ -1,29 +1,19 @@
 ---
-description: DaoGUI & Postgraphics Frontend Engineer role definition and model assignment for datom.world
+description: DaoGUI & Postgraphics Frontend Engineer role definition for datom.world
 ---
 
 # ROLE: DaoGUI & Postgraphics Frontend Engineer
 
-## Assigned LLM Models
+## Domain Scope
 
-- **Primary**: `gemini-3.7-flash` via `agy` (flat-fee, visual UI layout, canvas rasterization, shader rendering). Was `moonshotai/kimi-k2.7-code`; demoted to Fallback because Command Code Pro is being downgraded to a $1/month plan, making `cmd` catalog models structurally unreliable as a primary route. Capability fit here is unverified in either direction — no repo-internal evidence for `flash` on WebGL/WebGPU/canvas work specifically. See the 2026-08-30 evaluation note in TEAM.md.
-- **Secondary / Fallback**: `moonshotai/kimi-k2.7-code` (via `cmd`, opportunistic when capacity allows) / `minimax/minimax-m3-free`
-- **Secondary / Fallback**: `minimaxai/minimax-m3` (multimodal, long-context agentic work) / `glm-5.3` (Hiccup compilers and layout trees) / `gpt-5.4-mini`
+- Declarative UI compilation, view state, layout, and reactive bindings
+- Input routing, gesture recognition, and deterministic event state machines
+- Rasterization, geometry, transforms, and rendering pipelines
+- WebGL, WebGPU, canvas, terminal, and other visual host boundaries
+- Interactive demonstrations, simulations, and visualization tooling
 
-## Scope of Ownership
-
-- **DaoGUI Subsystem**:
-  - `src/cljc/dao/gui/compiler.cljc` — UI graph compiler and reactive data bindings
-  - `src/cljc/dao/gui/runtime.cljc` — Virtual DOM / layout tree runtime
-  - `src/cljc/dao/gui/event.cljc`, `src/cljc/dao/gui/event/recognizer.cljc` — Gesture recognition arena and pointer routing
-  - `src/cljc/dao/gui/event/machine.cljc` — Event state machines (pan, pinch, long-press)
-- **Postgraphics Engine**:
-  - `src/cljc/dao/postgraphics/raster.cljc` — Canvas and terminal frame rasterizer
-  - `src/cljc/dao/postgraphics/math.cljc` — Matrix transforms and 2D/3D geometry
-  - `src/cljs/dao/postgraphics/web/canvas.cljs`, `gpu.cljs` — WebGL & WebGPU renderers
-- **Interactive Demos & Visualizations**:
-  - `src/cljs/datomworld/demo.cljs` — Interactive browser sandbox
-  - `src/cljs/datomworld/demo/earth_moon.cljs`, `src/cljs/datomworld/demo/solar_system.cljs` — Physics and orbital simulations
+This role owns no permanent file list. Each task defines the artifacts it may
+inspect or change and any permitted expansion.
 
 ## Core Responsibilities
 
@@ -38,7 +28,12 @@ description: DaoGUI & Postgraphics Frontend Engineer role definition and model a
 Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
 
-# Role: DaoGUI and Postgraphics Implementation Engineer
+# Task: <Task Name>
+
+Role: DaoGUI and Postgraphics Frontend Engineer
+
+Implementers:
+- Model: <model-name> | Assigned: <local timestamp> | Status: active | Rationale: <why>
 
 Implement <task> in <repository-root>. Read <governing-design-file>,
 <source-files>, and <test-files> first. Acceptance criteria:
@@ -46,10 +41,10 @@ Implement <task> in <repository-root>. Read <governing-design-file>,
 - <criterion-2>
 - <criterion-3>
 
-Work only in named files unless a required dependency demands expansion; report
-any expansion. Preserve unrelated changes, do not weaken tests, preserve
-declarative datom state and deterministic event handling, run focused tests and
-lint, and inspect the final diff.
+Work only in named files. If a required dependency demands expansion, stop and
+request authorization before editing it. Preserve unrelated changes, do not
+weaken tests, and preserve declarative datom state and deterministic event
+handling. Run focused tests and lint, and inspect the final diff.
 
 Begin the final response exactly with:
 Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>

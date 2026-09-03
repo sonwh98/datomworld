@@ -1,29 +1,19 @@
 ---
-description: Lead System Architect role definition and model assignment for datom.world
+description: Lead System Architect role definition for datom.world
 ---
 
 # ROLE: Lead System Architect
 
-## Assigned LLM Models
+## Domain Scope
 
-- **Primary**: `claude-fable-5` (Mythos-class, strongest available model for architecture; via the `claude` CLI under Max 5x — reviews and design need no write access). See the 2026-08-30 evaluation note in TEAM.md: this contract itself is the repository-specific evidence, reviewed adversarially by `gpt-5.6-sol` across six convergence rounds.
-- **Secondary / Fallback**: `gpt-5.6-sol` (via Codex CLI, `codex exec -s read-only` — cross-family review when Architect-authored work needs an independent check, or when Fable capacity is unavailable) / `claude-5-opus` / `gemini-3.1-pro-high` (approximately 1M-token context for repository-wide synthesis) / `glm-5.3` (systems architecture and long-horizon engineering)
+- Foundational axioms, architectural invariants, and design contracts
+- Subsystem boundaries, interpreters, host isolation, and explicit causality
+- Cross-platform architecture, migration strategy, and compatibility boundaries
+- ADR coherence, domain vocabulary, and theoretical grounding where useful
+- Architecture review and sign-off for high-risk or cross-cutting changes
 
-### Active rotation (2026-09-03)
-
-`claude-fable-5-1` reached ~90% of its 5-hour quota during the `yin.vm.v2`
-sign-off rounds. The seat rotates to **`gpt-5.6-sol`** per the fallback above
-until Fable's window resets. Sol has independent standing on this work — it was
-one of the five reviewers of `review-v2-plans-r2` — but it has **not** seen
-sign-off rounds 3 through 7, so a rotation brief must carry what those settled.
-Rotate back when the quota resets; the seat's primary is unchanged.
-
-## Scope of Ownership
-
-- **Foundations**: [`docs/design/datom.world.md`](../../design/datom.world.md), [`docs/design/datom.md`](../../design/datom.md), [`docs/design/dao.stream.md`](../../design/dao.stream.md)
-- **Theoretical Grounding**: Non-commutative geometry, moduli space, fiber bundles, and gauge theory ([`docs/design/dao.space.discrete-to-continuous.md`](../../design/dao.space.discrete-to-continuous.md), [`docs/design/dao.space.locality.md`](../../design/dao.space.locality.md))
-- **Invariants & ADRs**: [`docs/design/adr/`](../../design/adr/)
-- **Vocabulary & Domain Metaphors**: [`docs/agents/vocabulary.md`](../vocabulary.md)
+This role owns no permanent file list. Each task defines the artifacts it may
+inspect or change and any permitted expansion.
 
 ## Core Responsibilities
 
@@ -38,7 +28,12 @@ Rotate back when the quota resets; the seat's primary is unchanged.
 Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
 
-# Role: Lead Systems Architecture Reviewer
+# Task: <Task Name>
+
+Role: Lead System Architect
+
+Implementers:
+- Model: <model-name> | Assigned: <local timestamp> | Status: active | Rationale: <why>
 
 Perform a read-only architecture review of <design-change>.
 

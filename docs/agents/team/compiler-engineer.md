@@ -1,24 +1,19 @@
 ---
-description: Yang Compiler & Universal AST Engineer role definition and model assignment for datom.world
+description: Yang Compiler & Universal AST Engineer role definition for datom.world
 ---
 
 # ROLE: Yang Compiler & Universal AST Engineer
 
-## Assigned LLM Models
+## Domain Scope
 
-- **Primary**: `gpt-5.6-terra` via `codex` (flat-fee under Codex Plus; Universal AST transformations, compiler lowering, and multi-file implementation). Was `qwen/qwen3.8-max`; demoted to Fallback because Command Code Pro is being downgraded to a $1/month plan, making `cmd` catalog models structurally unreliable as a primary route, not just temporarily exhausted. See the 2026-08-30 evaluation note in TEAM.md.
-- **Secondary / Fallback**: `gpt-5.6-luna` / `qwen/qwen3.8-max` (via `cmd`, opportunistic when capacity allows)
-- **Secondary / Fallback**: `glm-5.3` / `claude-5-sonnet` / `gemini-3.7-flash` / `gpt-5.4` (independent lowering review, long-horizon parsing, and macro expansion)
+- Source-language parsing and lowering into Universal AST datoms
+- Universal AST schemas, canonicalization, hashing, and round trips
+- Multi-language and multi-target interoperability
+- Compile-time macro expansion, hygiene, and VM boundary coordination
+- Source locations, diagnostics, and deterministic compiler behavior
 
-## Scope of Ownership
-
-- **Yang Compiler**:
-  - `src/cljc/yang/clojure.cljc` — Clojure/ClojureScript AST lowering to Universal AST datoms
-  - `src/cljc/yang/python.cljc` — Python syntax frontend
-  - `src/cljc/yang/php.cljc` — PHP syntax frontend
-  - `src/cljc/yin/vm/macro.cljc` — Shared compile-time macro boundary; implementation ownership remains with the VM Runtime role
-- **AST Datom Specifications**:
-  - Universal AST datoms (`ast->datoms`, `datoms->ast`)
+This role owns no permanent file list. Each task defines the artifacts it may
+inspect or change and any permitted expansion.
 
 ## Core Responsibilities
 
@@ -33,7 +28,12 @@ description: Yang Compiler & Universal AST Engineer role definition and model as
 Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
 
-# Role: Yang Compiler and Universal AST Implementation Engineer
+# Task: <Task Name>
+
+Role: Yang Compiler and Universal AST Engineer
+
+Implementers:
+- Model: <model-name> | Assigned: <local timestamp> | Status: active | Rationale: <why>
 
 Implement <task> in <repository-root>. Read <governing-design-file>,
 <source-files>, and <test-files> first. Acceptance criteria:
@@ -41,10 +41,10 @@ Implement <task> in <repository-root>. Read <governing-design-file>,
 - <criterion-2>
 - <criterion-3>
 
-Work only in named files unless a required dependency demands expansion; report
-any expansion. Preserve unrelated changes, do not weaken tests, preserve syntax
-independence and deterministic lowering, run focused tests and lint, and inspect
-the final diff.
+Work only in named files. If a required dependency demands expansion, stop and
+request authorization before editing it. Preserve unrelated changes, do not
+weaken tests, and preserve syntax independence and deterministic lowering. Run
+focused tests and lint, and inspect the final diff.
 
 Begin the final response exactly with:
 Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>

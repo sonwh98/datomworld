@@ -1,28 +1,19 @@
 ---
-description: DaoSpace & DaoJing Storage Engineer role definition and model assignment for datom.world
+description: DaoSpace & DaoJing Storage Engineer role definition for datom.world
 ---
 
 # ROLE: DaoSpace & DaoJing Storage Engineer
 
-## Assigned LLM Models
+## Domain Scope
 
-- **Primary**: `glm-5.3` (systems internals, transactor indexing, B-tree balance, high-concurrency storage boundaries)
-- **Secondary / Fallback**: `gpt-5.4` (complex algorithmic edge cases) / `gemini-3.7-flash` (fast state verification via `agy`) / `deepseek-v4-pro` (dedicated wrapper model name)
+- Tuple-space transactions, schemas, query, matching, and unification
+- Immutable indexes, B-trees, covered nodes, and structural persistence
+- Content-addressed storage, DHTs, and storage backends
+- Transactional concurrency, durability, caching, and recovery
+- Multi-source query semantics and storage/query separation
 
-## Scope of Ownership
-
-- **DaoSpace Subsystem**:
-  - `src/cljc/dao/space/transactor.cljc` — Tuple-space coordination and transaction commit boundary
-  - `src/cljc/dao/space/index.cljc` — Transactor-side B-tree indexing and covered indices
-  - `src/cljc/dao/space/query.cljc` — Positional Datalog query engine and unification (`q`, `match`)
-  - `src/cljc/dao/space/transact.cljc` — Transaction preparation, tempids, entity allocation floor
-  - `src/cljc/dao/space/schema.cljc` — Schema validation and identification
-- **Data Structures**:
-  - `src/cljc/dao/data/btree.cljc` — Immutable covered B-tree realization
-- **DaoJing Subsystem**:
-  - `src/cljc/dao/jing.cljc` — Content-addressed immutable storage boundary
-  - `src/cljc/dao/jing/dht.cljc` — Kademlia distributed hash table backend
-  - `src/cljc/dao/jing/file.cljc`, `src/cljc/dao/jing/mem.cljc` — File and memory backends
+This role owns no permanent file list. Each task defines the artifacts it may
+inspect or change and any permitted expansion.
 
 ## Core Responsibilities
 
@@ -37,7 +28,12 @@ description: DaoSpace & DaoJing Storage Engineer role definition and model assig
 Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
 
-# Role: DaoSpace and DaoJing Implementation Engineer
+# Task: <Task Name>
+
+Role: DaoSpace and DaoJing Storage Engineer
+
+Implementers:
+- Model: <model-name> | Assigned: <local timestamp> | Status: active | Rationale: <why>
 
 Implement <task> in <repository-root>. Read <governing-design-file>,
 <source-files>, and <test-files> first. Acceptance criteria:
@@ -45,10 +41,10 @@ Implement <task> in <repository-root>. Read <governing-design-file>,
 - <criterion-2>
 - <criterion-3>
 
-Work only in named files unless a required dependency demands expansion; report
-any expansion. Preserve unrelated changes, do not weaken tests, preserve storage
-and query separation and immutable-index invariants, run focused tests and lint,
-and inspect the final diff.
+Work only in named files. If a required dependency demands expansion, stop and
+request authorization before editing it. Preserve unrelated changes, do not
+weaken tests, and preserve storage/query separation and immutable-index
+invariants. Run focused tests and lint, and inspect the final diff.
 
 Begin the final response exactly with:
 Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>

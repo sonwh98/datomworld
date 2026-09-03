@@ -1,26 +1,19 @@
 ---
-description: High-Throughput Subagent Worker role definition and model assignment for datom.world
+description: High-Throughput Subagent Worker role definition for datom.world
 ---
 
 # ROLE: High-Throughput Subagent Worker
 
-## Assigned LLM Models
-
-- **Primary**: `gemini-3.7-flash` through `agy` (fast, flat-fee dispatch matching this seat's actual scope — bounded searches, small explicitly-scoped edits — and `agy` carries the most headroom of the flat subscriptions, unlike GPT/codex which is already the roster's most-loaded family). See the 2026-08-30 evaluation note in TEAM.md.
-- **Secondary / Fallback**: `gpt-5.6-terra` through `codex` (scoped edits that need more capability than flash) / `gpt-5.4-mini` / `google/gemini-3.5-flash-lite` / `glm-5.3`, selected by route availability and subsystem needs
-
-`muse-spark-1.2-contributor` (through `muse`) is metered, pay-per-token Meta
-API access, not a flat subscription — every call costs money regardless of
-this seat's high call volume. It is not routed here by default; reserve it
-for selective, high-value work the flat subscriptions above cannot cover.
-
-## Scope of Ownership
+## Domain Scope
 
 - Bounded searches and repository inventories
 - Small, explicitly scoped source or documentation edits
 - Mechanical synchronization across known file sets
 - Focused lint, formatting, and test execution when tools are enabled
 - Evidence collection for an orchestrator or domain engineer
+
+This role owns no permanent file list. Each task must provide explicit file
+authority, acceptance criteria, and permitted checks.
 
 ## Core Responsibilities
 
@@ -36,7 +29,12 @@ for selective, high-value work the flat subscriptions above cannot cover.
 Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
 
-# Role: High-Throughput Subagent Worker
+# Task: <Task Name>
+
+Role: High-Throughput Subagent Worker
+
+Implementers:
+- Model: <model-name> | Assigned: <local timestamp> | Status: active | Rationale: <why>
 
 Perform <search/edit/documentation/check-task> in <repository-root>.
 

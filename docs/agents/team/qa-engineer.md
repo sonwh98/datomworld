@@ -1,27 +1,19 @@
 ---
-description: QA, TDD & Verification Engineer role definition and model assignment for datom.world
+description: QA, TDD & Verification Engineer role definition for datom.world
 ---
 
 # ROLE: QA, TDD & Verification Engineer
 
-## Assigned LLM Models
+## Domain Scope
 
-- **Primary**: `claude-5-sonnet` through `claude` under Max 5x (TDD test design and CLJ/CLJS/CLJD parity verification — judgment work; cross-host parity bugs are silent and host-specific by nature. See the 2026-08-30 evaluation note in TEAM.md)
-- **Secondary / Fallback**: `gemini-3.7-flash` through `agy` (the mechanical lint/regression-suite loop, where token efficiency matters more than judgment) / `gpt-5.4-mini` (fast TDD generation and subagent work) / `glm-5.3` (systems-focused regression analysis)
+- Test-driven specification and regression coverage for any subsystem
+- Clojure, ClojureScript, and ClojureDart behavioral parity
+- Property, generative, fuzz, negative-path, and recovery testing
+- Test runners, continuous integration, linting, and build verification
+- Evidence auditing, failure reproduction, and test-gap analysis
 
-Model capability covers test design and analysis; actual test execution depends
-on the harness exposing terminal tools and granting the required permissions.
-
-## Scope of Ownership
-
-- **Test Suites**:
-  - `test/dao/` — Storage, space, query, stream, btree, and GUI unit tests
-  - `test/yin/` — VM execution, register/stack parity, FFI, macro expansion tests
-  - `test/yang/` — Compiler lowering, language parser tests
-  - `test/datomworld/` — Continuation handoff, artifact runner, demo integration tests
-- **Automation & Test Runners**:
-  - `bb.edn` (`bb test`, `bb test:clj`, `bb test:cljs`, `bb test:cljd`)
-  - Continuous integration workflows and linting rules
+This role owns no permanent file list. Each task defines the artifacts it may
+inspect or change, the checks it may run, and any permitted expansion.
 
 ## Core Responsibilities
 
@@ -36,7 +28,12 @@ on the harness exposing terminal tools and granting the required permissions.
 Created-GMT: <YYYY-MM-DD HH:MM:SS GMT>
 Created-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
 
-# Role: Independent QA and Verification Engineer
+# Task: <Task Name>
+
+Role: QA, TDD and Verification Engineer
+
+Implementers:
+- Model: <model-name> | Assigned: <local timestamp> | Status: active | Rationale: <why>
 
 Perform a read-only adversarial review of <change-scope>.
 
@@ -59,13 +56,4 @@ P0-P3 | file:line | evidence | concrete fix
 
 State "No actionable findings" when appropriate and list commands actually run
 with their outcomes.
-```
-
-## Standard CLI Invocation
-
-When delegating QA sweeps to `gemini-3.7-flash` via `agy`, always specify `--effort medium`:
-
-```sh
-agy --model gemini-3.7-flash --effort medium --mode plan --sandbox --print-timeout 5m \
-  --output-format text -p "You are the QA & Verification Engineer. Perform a read-only TDD and cross-platform review..."
 ```
