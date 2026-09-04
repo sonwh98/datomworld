@@ -9,15 +9,9 @@ agents. Coordination is through repository artifacts, not hidden context.
 
 ## Roster
 
-The Orchestrator is deliberately absent from this table. It is not routed and has
-no primary or fallback: it is whichever coding agent the user starts and assigns
-the role to. Judge a seat by the four capabilities in
-[`orchestrator.md`](./orchestrator.md) — read the tree, write files, run each
-host's suite, shell out to the delegate CLIs — never by roster position. A seat
-that cannot run the suites cannot verify, whatever model fills it. The sandboxed
-AGY delegate in the invocation reference is the worked example of a seat that
-looks like it is verifying and is not — a restriction of that delegate
-configuration, not of any model.
+The Orchestrator is deliberately absent from this table: it is not routed and has
+no primary or fallback, but is whichever coding agent the user starts and assigns
+the role to. See [`orchestrator.md`](./orchestrator.md).
 
 | Role                | Primary            | Fallbacks                                                          | Responsibility                                               |
 |---------------------|--------------------|--------------------------------------------------------------------|--------------------------------------------------------------|
