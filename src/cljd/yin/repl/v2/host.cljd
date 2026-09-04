@@ -7,7 +7,9 @@
 
 
 (def missing-text
-  "no host WebSocket package is composed for this build")
+  (str "no host WebSocket package is composed for this build: the v2 REPL "
+       "boundary needs {:connect! …} for (connect …) and {:bind! … :unbind! …} "
+       "for --port"))
 
 
 (defn adapter?
