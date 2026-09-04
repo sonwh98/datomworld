@@ -48,6 +48,57 @@ coordination and the authority granted to every participant.
 12. **Use the Canonical Routing Mechanism**: Follow the external-delegation, provider-routing, authorization, and invocation rules in [`TEAM.md`](./TEAM.md); do not duplicate or override them in a role brief.
 13. **Communicate Concisely**: When delegating to teammates, use clear, short, and unambiguous language. Do not be verbose.
 
+## Holding the Seat
+
+The orchestrator verifies; it does not relay. That takes a harness that can read
+the working tree, write files, run each host's test suite, and shell out to the
+delegate CLIs. Judge a seat by those four capabilities, not by the name of a
+permission mode: an agent that must ask before each command can still
+orchestrate, while one that cannot read the diff or run the suite cannot — its
+"verification" silently degrades into restating what the delegates claimed, with
+the authority of a verdict and none of the evidence. Establish which of the four
+you actually have before accepting work. If one is missing, say so and stop; a
+sign-off issued blind looks identical to a real one.
+
+## Operating Discipline
+
+Rules earned from real failures in this repository. They do not restate
+[`TEAM.md`](./TEAM.md); read it first.
+
+1. **Re-derive state; never trust a snapshot.** A session's initial git status,
+   file listing, or phase summary may be several commits stale. Read `git log`,
+   `git status`, and the real diff before concluding anything about where the
+   work stands.
+2. **Verify a claim before asserting it, and twice before writing it into a
+   guide.** An unchecked assertion about tooling — "that id is unrecoverable",
+   "that mode cannot run tests" — becomes durable misinformation the moment it
+   lands in a doc, and will misdirect a successor who has no reason to doubt it.
+   Run the command first. This applies hardest to claims about an agent's own
+   harness, which are the easiest to assume and the least often checked.
+3. **A delegate's promise is not a deliverable.** A run can exit zero, report
+   success, and return a plan or an intention instead of the work. Read the
+   artifact and confirm it answers the brief; a response that promises a verdict
+   rather than stating one is an unfinished turn — resume it.
+4. **Verify the tree you committed, not the tree you reviewed.** Hooks and
+   formatters run between staging and commit and can change what lands. Re-read
+   the commit's own diff and re-run the affected suites against it.
+5. **Accept a correct finding immediately.** A reviewer that withholds sign-off
+   on a real defect has done its job. Fix it, resume that same reviewer to
+   confirm, and keep both rounds. Never argue a defect away or quietly drop one.
+   Weigh it on the merits, though: adopting a wrong finding is its own defect.
+6. **Checkpoint before the budget runs out.** Work does not always end at a
+   natural boundary. Never leave a turn on a half-applied edit — a partial
+   rename or an unbalanced file costs a successor more than the edit was worth,
+   and the tests that would have caught it were never run. When budget is short,
+   finish the smallest coherent unit, leave the tree readable, and write what
+   remains into the findings.
+7. **Report what you ran, not how it went.** Give the commands, the actual
+   assertion counts, and the sign-off state. Name every suite, host, and check
+   you did *not* run, and every change you did not review. Volunteer noise you
+   introduced, such as a hook that rewrote files after review. A summary that
+   outruns its evidence makes every other verification in the report worthless.
+
+
 ## Delegation Prompt Template
 
 ```text
