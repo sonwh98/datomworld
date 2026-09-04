@@ -18,7 +18,9 @@ pom.xml.asc
 .idea/
 .cpcache/
 .shadow-cljs/
-public/js/
+public/js/*
+!public/js/main.js
+!public/js/manifest.edn
 node_modules/
 .clj-kondo/
 .lsp/
@@ -46,3 +48,4 @@ dep-graph.svg
 # Local secrets / scratch (hold API keys — never commit)
 env.sh
 
+graphify-out/

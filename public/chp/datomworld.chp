@@ -1,111 +1,183 @@
 (let [template (load-file "public/chp/template.chp")]
   (clojure.walk/postwalk-replace
-    {:template/title "Datom.World: Share data wthout losing control"
+    {:template/title "Datom.World: Sovereign Computing with Immutable Tuples & Continuous Streams"
      :template/content
      (list
        [:section.hero
         [:div.section-inner
-         [:div.hero-copy
-          [:h1 "Share data without losing control"]
-          [:p.lead
-           "Data has to be shared to be useful, but once it is shared, control is easy to lose. "
-           "Datom.World solves that tension with mobile continuations running inside the Yin.VM sandbox: execution stays local, explicit, and interpretable, while append-only streams of facts carry context to wherever work happens next."]
-          [:div.hero-actions
-           [:a.btn {:href "/demo.html"} "Try the Live Demo"]]]]]
+         [:div.hero-grid
+          [:div.hero-copy
+           [:div.hero-badge
+            [:span.hero-badge-dot]
+            [:span "Beyond the Client-Server Web"]]
+           [:h1 "Share data without losing control."]
+           [:p.lead
+            "Computation should move freely, but state must remain sovereign. "
+            "Datom.World is an open architecture built on mobile continuations running inside sandboxed Yin.VMs, "
+            "where immutable fact-streams carry context wherever work travels next."]
+           [:div.hero-actions
+            [:a.btn.btn-primary {:href "/demo.html"} "Explore the Live Demo"]
+            [:a.btn.btn-secondary {:href "#axioms"} "Read the 4 Axioms"]]]
+          [:div.hero-specimen
+           [:div.specimen-header
+            [:span.specimen-tag "Canonical Primitive"]
+            [:span.specimen-meta "Moduli Dimension: d5"]]
+           [:div.tuple-display
+            [:div.tuple-bracket "["]
+            [:div.tuple-item
+             [:span.tuple-sym "e"]
+             [:span.tuple-name "entity"]
+             [:span.tuple-sub "identity"]]
+            [:div.tuple-item
+             [:span.tuple-sym "a"]
+             [:span.tuple-name "attribute"]
+             [:span.tuple-sub "dimension"]]
+            [:div.tuple-item
+             [:span.tuple-sym "v"]
+             [:span.tuple-name "value"]
+             [:span.tuple-sub "payload"]]
+            [:div.tuple-item
+             [:span.tuple-sym "t"]
+             [:span.tuple-name "time/tx"]
+             [:span.tuple-sub "causality"]]
+            [:div.tuple-item
+             [:span.tuple-sym "m"]
+             [:span.tuple-name "meta"]
+             [:span.tuple-sub "provenance"]]
+            [:div.tuple-bracket "]"]]
+           [:p.specimen-caption "Every message, file, database record, and execution trace collapses into an append-only datom stream."]]]]]
+
        [:section.section-dark
         [:div.section-inner
-         [:h2 "Memory Agents Can Share"]
-         [:p
-          "For AI agents, the implications are concrete. Short-term context, durable history, and multiagent coordination all become queries over the same stream of facts, rather than hidden runtime state buried inside prompts or opaque caches. "
-          "Nothing important is stuck inside a session."]
-         [:p
-          "DaoSpace extends that into collaboration. Multiple agents share an environment of datoms they can query and modify, so work is coordinated through explicit traces rather than accidental handoffs. "
-          "Datom.World is therefore infrastructure for systems that need reliable shared facts, and for agents that need to remember, reason over history, and work together without losing causality."]
-         [:p.learn-more "Learn more: "
-          [:a {:href "/blog/containing-agent-smith.blog"} "Containing Agent Smith in a Pocket Universe"]
-          " and "
-          [:a {:href "/blog/agent-smith-hippocampus.blog"} "Agent Smith as the Hippocampus"]
-          "."]]]
+         [:div.section-header-block
+          [:span.section-kicker "Shared Intelligence"]
+          [:h2 "Durable Memory for Autonomous Agents"]]
+         [:div.text-columns-2
+          [:div
+           [:p.prose-text
+            "For modern AI agents, context lost is reasoning destroyed. Short-term prompts, ephemeral scratchpads, and opaque cache vectors fail when multi-agent swarms attempt rigorous long-horizon coordination. "
+            "In Datom.World, memory is never trapped inside an ephemeral inference session."]
+           [:p.prose-text
+            "Every state transition, belief update, and execution trace is materialized as an immutable datom in an append-only stream. "
+            "Agents reason over time-traveling Datalog facts with mathematical certainty, eliminating accidental context clobbering."]]
+          [:div
+           [:p.prose-text
+            "Through " [:strong "DaoSpace"] ", multiple sovereign agents coordinate stigmergically over a shared environment of immutable tuples. "
+            "Rather than fragile RPC handoffs, agents deposit facts and observe stream transformations—mirroring biological swarm intelligence."]
+           [:div.callout-link-box
+            [:span "In-depth research:"]
+            [:a {:href "/blog/containing-agent-smith.blog"} "Containing Agent Smith in a Pocket Universe"]
+            [:a {:href "/blog/agent-smith-hippocampus.blog"} "Agent Smith as the Hippocampus"]]]]]]
+
        [:section.section-light
         [:div.section-inner
-         [:h2 {:id "axioms"} "The Axioms"]
-         [:p "Datom.World is built on four foundational axioms that create a new paradigm for computing. These axioms are woven throughout our architecture, from the Yin.VM to the DaoSpace database. Each axiom has links to more detailed articles for deeper exploration."]
-         [:div.concept-grid
-          [:article.concept-card
-           [:h3 "1. Everything is a Stream"]
-           [:p "The foundational axiom: " [:strong "everything is a stream"] ". Streams transport whatever values each layer requires. Persistent facts are datoms: immutable facts represented as " [:code "[e a v t m]"] " (entity, attribute, value, transaction ID, metadata). Transaction IDs are monotonic within each stream; cross-stream causality is determined via metadata. Code, data, state changes, execution traces, all are append-only logs of datoms in the knowledge base."]
-           [:p "Benefits: total auditability (nothing deleted, perfect history), time travel (query any past state), and a unified data model. Everything, messages, files, databases, APIs, collapses into a single primitive: the stream."]
-           [:p.learn-more "Learn more: " [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms with Transducers"] ", " [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "AST as Higher Dimensional Datom Streams"] ", " [:a {:href "/blog/stream-vs-interface-architecture.blog"} "Beyond Interfaces: Why Stream-Based Architecture Mirrors Evolution"] ", " [:a {:href "/blog/libc-as-streams.blog"} "Reimagining LibC: The Standard Library as a Stream"] ", " [:a {:href "/blog/daospace-distributed-database-immutable-streams.blog"} "DaoSpace: A Distributed Database Built on Immutable Streams"] ", and " [:a {:href "/blog/code-entropy-evolution.blog"} "Code Entropy and Evolution"] " (why distributing complexity to boundaries creates resilient systems)."]]
-          [:article.concept-card
-           [:h3 "2. Interpretation Creates Semantics"]
-           [:p [:strong "Semantics only emerge through interpretation"] ". Data is just syntax; semantics are created when an interpreter observes and acts on it. This is the " [:strong "\"one truth, many perspectives\""] " principle: a single stream of datoms (one truth) can be interpreted differently by different observers (many perspectives), each extracting their own valid meaning."]
-           [:p "This enables semantic evolution (new interpreters do not break old ones), multiple perspectives (different teams interpret the same stream differently), and AI collaboration (agents evolve their understanding without rigid schemas)."]
-           [:p.learn-more "Learn more: " [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] ", " [:a {:href "/blog/semantics-structure-interpretation.blog"} "Semantics is Structure Through Interpretation"] ", " [:a {:href "/blog/dimensional-gradients-recursive-interpreters.blog"} "Dimensional Gradients, Recursive Interpreters, and the Emergence of Work"] ", and " [:a {:href "/blog/datom-world-wave-function-collapse.blog"} "Datom.World and the Collapse of the Wave Function"] "."]]
-          [:article.concept-card
-           [:h3 "3. Code and State are Datoms"]
-           [:p "Because " [:strong "code and state are datoms"] ", the Universal Abstract Syntax Tree (AST) is the canonical representation of a program. The text you see is just one rendering of this AST. Like Chinese characters providing a shared semantic layer for different dialects, the Universal AST enables bijective translation between languages (Python to C++ with no meaning loss), syntax as preference (view/edit in your preferred language), and no parse errors (editing the structure itself)."]
-           [:p.learn-more "Learn more: " [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"] ", " [:a {:href "/blog/semantic-impedance-mismatch.blog"} "The Semantic Impedance Mismatch"] ", " [:a {:href "/blog/ide-edits-ast-not-text.blog"} "When the IDE Edits AST, Not Text"] ", " [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"] ", and " [:a {:href "/blog/many-syntaxes-one-ast.blog"} "Many Syntaxes, One AST"] "."]]
-          [:article.concept-card
-           [:h3 "4. Everything is a Continuation"]
-           [:p "If streams are how data flows, continuations are how computation flows. Every running process is a " [:strong "continuation"] ": a serializable snapshot that can pause, migrate, and resume anywhere."]
-           [:p "Built on " [:a {:href "/yin.chp"} "Yin"] ", your code becomes portable and secure. Start on your phone, continue on an edge server, finish on a GPU cluster. Enables true code mobility (Python to C++ with state intact), extreme fault tolerance, Airbnb-style compute (rent anyone's hardware with mutual security), and never losing context (resume on any device)."]
-           [:p.learn-more "Learn more: " [:a {:href "/blog/computation-moves-data-stays.blog"} "Computation Moves, Data Stays"] ", " [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Why Continuations Are the Universal Semantic Kernel"] ", " [:a {:href "/blog/why-udp-not-tcp.blog"} "Why TCP Is Too Semantic for Datom.world"] ", and " [:a {:href "/blog/devils-advocate.blog"} "Why yin.vm Succeeds Where Previous Attempts Failed"] "."]]]]]
+         [:div.section-header-block
+          [:span.section-kicker "Foundational Principles"]
+          [:h2 {:id "axioms"} "The Four Axioms"]
+          [:p.section-subtitle "Datom.World discards accidental software complexity in favor of four immutable principles."]]
+         [:div.axioms-flow
+          [:article.axiom-row
+           [:div.axiom-num "01"]
+           [:div.axiom-body
+            [:h3 "Everything is a Stream"]
+            [:p "Streams transport whatever values each computational layer requires. Persistent facts are datoms: immutable tuples formatted as " [:code "[e a v t m]"] ". Transaction IDs are strictly monotonic within each stream; cross-stream causality is preserved via metadata."]
+            [:p "Benefits: Complete provenance, time-travel queries across historical states, and a unified substrate where messages, files, and state changes collapse into the same primitive."]
+            [:div.axiom-links
+             [:span "Read:"]
+             [:a {:href "/blog/datoms-as-streams.blog"} "Streaming Datoms with Transducers"]
+             [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "AST as Higher Dimensional Streams"]
+             [:a {:href "/blog/daospace-distributed-database-immutable-streams.blog"} "DaoSpace on Immutable Streams"]]]]
+
+          [:article.axiom-row
+           [:div.axiom-num "02"]
+           [:div.axiom-body
+            [:h3 "Interpretation Creates Semantics"]
+            [:p "Data in isolation is pure syntax. Semantics emerge only when an interpreter observes and evaluates it. This is the " [:strong "One Truth, Many Perspectives"] " principle: a single immutable stream of datoms can be projected into a 3D visual scene, a relational table, or a state machine without mutating the underlying truth."]
+            [:p "New interpreters never break existing models, enabling backward-compatible evolution and synthetic agents that learn and re-interpret history freely."]
+            [:div.axiom-links
+             [:span "Read:"]
+             [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"]
+             [:a {:href "/blog/semantics-structure-interpretation.blog"} "Semantics as Structure Through Observers"]
+             [:a {:href "/blog/datom-world-wave-function-collapse.blog"} "Datom.World & Wave Function Collapse"]]]]
+
+          [:article.axiom-row
+           [:div.axiom-num "03"]
+           [:div.axiom-body
+            [:h3 "Code and State are Datoms"]
+            [:p "Because code and runtime state are both datoms, the " [:strong "Universal Abstract Syntax Tree (AST)"] " is the canonical program representation. Code text is merely one projection of this AST. Like ideographic characters providing a semantic bridge across dialects, Universal AST enables loss-less cross-language translation (Python to C++) and structural editing without parse errors."]
+            [:div.axiom-links
+             [:span "Read:"]
+             [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Universal Ideographs for Code"]
+             [:a {:href "/blog/ide-edits-ast-not-text.blog"} "When the IDE Edits AST, Not Text"]
+             [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"]]]]
+
+          [:article.axiom-row
+           [:div.axiom-num "04"]
+           [:div.axiom-body
+            [:h3 "Everything is a Continuation"]
+            [:p "If streams are how data flows, continuations are how computation flows. Every executing process in the Yin VM is a " [:strong "first-class continuation"] "—a serializable snapshot that can pause, travel across physical networks, and resume with state intact."]
+            [:p "Enables code mobility: start execution on a mobile device, offload compute to a high-density GPU cluster, and return results without losing thread context."]
+            [:div.axiom-links
+             [:span "Read:"]
+             [:a {:href "/blog/computation-moves-data-stays.blog"} "Computation Moves, Data Stays"]
+             [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Continuations as the Universal Kernel"]
+             [:a {:href "/blog/why-udp-not-tcp.blog"} "Why TCP is Too Semantic"]]]]]]]
+
        [:section.section-dark
         [:div.section-inner
-         [:h2 "Recomposing the Web around the Axioms"]
-         [:p
-          "Datom.World can be thought of as a decomposition of the modern web browser into its elemental technologies, then recomposed around a new philosophy to build a new world wide web: everything is a stream, and everything is a continuation."]
-         [:p
-          "In the traditional web stack, the JavaScript VM drives execution, HTTP defines communication, the DOM structures the UI, and local storage keeps data persistent. "
-          "Each of these layers was built to serve a client-server world, where the browser is a consumer of remote computation. "
-          "Datom.World reverses this assumption. Every device, from a phone to a cluster, becomes a sovereign node capable of computation, storage, and visualization."]
-         [:p
-          "Where the JavaScript VM once stood, Datom.World introduces "
-          [:a {:href "/yin.chp"} "Yin"]
-          ", a continuation-based virtual machine that treats computation as an evolving process rather than a sequence of calls. "
-          "HTTP's request-response model dissolves into "
-          [:a {:href "/dao-stream.chp"} "DaoStream"]
-          ", the universal streaming API where data flows continuously between entangled peers through append-only datom streams. "
-          "LocalStorage and the shared coordination space become "
-          [:a {:href "/dao-space.chp"} "DaoSpace"]
-          ", a tuple space that materializes queryable indexes from those streams and enables stigmergic coordination between agents via Datalog queries. "
-          "For graphics, "
-          [:a {:href "/post-graphics.chp"} "PostGraphics"]
-          " defines a frame vocabulary that consumers paint, treating drawn output as the realization of a stream of explicit frame programs."]
-         [:p
-          "Each component corresponds to its web counterpart, but their composition is entirely different. "
-          "Instead of a client viewing a remote world, every node in Datom.World participates in creating that world. "
-          "The result is not a web of documents or servers, but a web of processes, a distributed organism of computation and collaboration."]
-         [:p
-          "The same recomposition applies beyond browsing. "
-          [:a {:href "/blog/datalog-compiler-infrastructure.blog"} "Compilers and languages"] " themselves are being rebuilt as queryable datom fabrics: Yin.VM expresses programs as Datalog facts, DaoSpace turns optimizations into queries, and DaoStream carries execution as continuations. "
-          "Recomposing the web therefore also means recomposing the tools that build it."]
-         [:p
-          "The same decomposition can even be recomposed into a single address space operating system. As described in "
-          [:a {:href "/blog/tao-kernel.blog"} "The Tao Kernel"]
-          ", discarding the legacy abstractions of virtual memory and context switching in favor of stream interpretation and first-class continuations allows the OS to operate as a unified semantic heap, where security is enforced by fine-grained capabilities rather than hardware rings."]
-         [:p
-          "Any software, whether it is an operating system, a compiler, a database, a GPU calculation, a 3D game, or an AI agent, fundamentally boils down to writing interpreters of datom streams. "
-          "Where the old web is limited to HTML, Datom.World interpreters can visualize the same datom streams as anything: 3D video games, traditional web pages, VR environments, or any other form. "
-          "This unifies the entire stack into a single, cohesive fabric where data flows through time, continuations flow through space, and intelligence emerges from the network itself."]]]
+         [:div.section-header-block
+          [:span.section-kicker "Architectural Shift"]
+          [:h2 "Recomposing the Web Stack"]
+          [:p.section-subtitle "How legacy client-server mechanisms transform into sovereign stream primitives."]]
+         [:div.table-container
+          [:table.recomposition-table
+           [:thead
+            [:tr
+             [:th "Legacy Web Paradigm"]
+             [:th "Datom.World Primitive"]
+             [:th "Structural Shift"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "JavaScript VM"] [:br] [:span.dim "Imperative runtime on remote host"]]
+             [:td [:strong "Yin VM"] [:br] [:a {:href "/yin.chp"} "Continuation Engine"]]
+             [:td "Computation is serializable, pauseable, and travels across sovereign machines."]]
+            [:tr
+             [:td [:strong "HTTP Request / Response"] [:br] [:span.dim "Stateless client-server fetch"]]
+             [:td [:strong "DaoStream"] [:br] [:a {:href "/dao-stream.chp"} "Causal Stream Transport"]]
+             [:td "Data streams continuously between entangled nodes through append-only facts."]]
+            [:tr
+             [:td [:strong "LocalStorage / SQL RDBMS"] [:br] [:span.dim "Centralized relational tables"]]
+             [:td [:strong "DaoSpace + DaoJing"] [:br] [:a {:href "/dao-space.chp"} "Stigmergic Tuple Space"]]
+             [:td "Content-addressed immutable storage queried via reactive Datalog expressions."]]
+            [:tr
+             [:td [:strong "DOM / HTML Layout"] [:br] [:span.dim "Rigid document tree render"]]
+             [:td [:strong "PostGraphics"] [:br] [:a {:href "/post-graphics.chp"} "Frame Program Stream"]]
+             [:td "Terminals interpret frame data into WebGPU, canvas, or Flutter GPU surfaces."]]]]]
+         [:div.quote-panel
+          [:p "“Any software—operating system, compiler, database, 3D world, or AI agent—is fundamentally an interpreter of datom streams.”"]]]]
+
        [:section.section-light
         [:div.section-inner
-         [:h2 "Keeping Open Networks Open"]
-         [:p
-          "Open networks face an inevitable challenge: as they grow, spam threatens to make them unusable. "
-          "Email proved this. The traditional solutions, centralized moderation or algorithmic filtering, either create gatekeepers or opacity."]
-         [:p
-          "Datom.World takes a different approach. "
-          [:a {:href "/shibi.chp"} "Shibi"]
-          " is a capability-based economic layer that makes spam costly without requiring censorship. "
-          "You issue your own purpose-specific tokens. To reach you or append to your streams, others need your tokens. "
-          "You give them freely to trusted contacts, or set a price for strangers. "
-          "Attention becomes a tradable asset you control, and spam gets priced out naturally."]
-         [:p
-          "Shibi is not money and deliberately avoids being money-like. It is an anti-spam mechanism that keeps the network open without gatekeepers. "
-          "Learn more about "
-          [:a {:href "/shibi.chp"} "how Shibi works"]
-          " and "
-          [:a {:href "/blog/shibi-as-money.blog"} "why it cannot be like money"]
-          "."]]])}
+         [:div.anti-spam-grid
+          [:div
+           [:span.section-kicker "Economic Sovereignty"]
+           [:h2 "Keeping Open Networks Spam-Free"]
+           [:p.prose-text
+            "Open decentralized protocols face an existential problem: as network utility grows, spam and Sybil traffic overwhelm participants. Traditional platforms react with centralized gatekeeping or black-box moderation algorithms."]
+           [:p.prose-text
+            "Datom.World deploys " [:strong "Shibi"] ": a capability-based economic layer that makes abusive spam computationally and economically unviable without censorship."]
+           [:p.prose-text
+            "Nodes mint customized, purpose-specific capabilities. To append to a stream or request compute, callers present valid Shibi tokens. Attention becomes a sovereign, cryptographically secured boundary."]
+           [:div.axiom-links
+            [:span "Learn more:"]
+            [:a {:href "/shibi.chp"} "How Shibi Works"]
+            [:a {:href "/blog/shibi-as-money.blog"} "Why Shibi is Capability, Not Money"]]]
+          [:div.shibi-specimen
+           [:div.shibi-card
+            [:div.shibi-header
+             [:span.shibi-symbol "§"]
+             [:span.shibi-title "Shibi Capability Token"]]
+            [:div.shibi-code
+             "[:shibi/capability {:issuer \"did:datom:node-8f2\" :scope :stream/append :cost-factor 1.0}]"]
+            [:p.shibi-note "Peer authorization without centralized token registries."]]]]]])}
     template))
