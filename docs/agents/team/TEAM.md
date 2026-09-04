@@ -215,6 +215,14 @@ commit tokens/configuration.
 Prompts contain authorized paths, not source text. Headless plan agents must be
 told to produce the complete deliverable without waiting for a human.
 
+`claude`, `glm`, `deepseek` and `muse` are one Claude Code CLI behind different
+model wrappers, so none of them needs a PTY and all accept redirected stdin
+under `-p`; the `script -q /dev/null` prefix once carried here was unnecessary.
+Verified 2026-09-04 against `glm`, which ran headless with no PTY and again with
+`< /dev/null`; the `deepseek` recipe below already closes stdin without a PTY.
+Their `claude-code:unrecognized_model` startup warnings follow from that shared
+basis.
+
 ```sh
 # Claude
 claude --model <model> --session-id <uuid> --name <task> \
@@ -235,14 +243,14 @@ agy --conversation <id> --model <model> --effort <effort> \
   --mode plan --sandbox --print-timeout 5m --output-format json \
   -p "Read <follow-up-prompt> and complete it now." > collab/<task>-r<n>.<model>.stdout.log
 
-# GLM (PTY; keep -p last; do not redirect stdin)
-GLM_MODEL=glm-5.3 script -q /dev/null ~/.local/bin/glm \
+# GLM (Claude Code-based; keep -p last)
+GLM_MODEL=glm-5.3 ~/.local/bin/glm \
   --session-id <uuid> --name <task> --bare \
   --permission-mode plan --allowed-tools Read \
   --output-format text -p "Read <prompt> and complete it now." > collab/<task>.glm-5.3.stdout.log
 
 # GLM follow-up: keep GLM_MODEL and the original UUID
-GLM_MODEL=glm-5.3 script -q /dev/null ~/.local/bin/glm \
+GLM_MODEL=glm-5.3 ~/.local/bin/glm \
   --resume <uuid> --bare --permission-mode plan --allowed-tools Read \
   --output-format text -p "Read <follow-up-prompt> and complete it now." > collab/<task>-r<n>.glm-5.3.stdout.log
 
@@ -256,14 +264,14 @@ codex exec -m gpt-5.6-sol -s read-only --json - < <prompt> \
 codex exec resume <id> --json - \
   < <follow-up-prompt> > collab/<task>-r<n>.gpt-5.6-sol.stdout.log
 
-# Muse (PTY; keep -p last; do not redirect stdin)
-MUSE_MODEL=muse-spark-1.3-contributor script -q /dev/null ~/.local/bin/muse \
+# Muse (Claude Code-based; keep -p last)
+MUSE_MODEL=muse-spark-1.3-contributor ~/.local/bin/muse \
   --session-id <uuid> --name <task> --bare \
   --permission-mode plan --allowed-tools Read \
   --output-format text -p "Read <prompt> and complete it now." > collab/<task>.muse-spark-1.3-contributor.stdout.log
 
 # Muse follow-up: keep MUSE_MODEL and the original UUID
-MUSE_MODEL=muse-spark-1.3-contributor script -q /dev/null ~/.local/bin/muse \
+MUSE_MODEL=muse-spark-1.3-contributor ~/.local/bin/muse \
   --resume <uuid> --bare --permission-mode plan --allowed-tools Read \
   --output-format text -p "Read <follow-up-prompt> and complete it now." > collab/<task>-r<n>.muse-spark-1.3-contributor.stdout.log
 
