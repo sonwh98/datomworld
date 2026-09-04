@@ -168,6 +168,26 @@ those selectors ambiguous.
 Every resumed turn gets a new prompt and output artifact name (for example,
 `<task>-r2...`); never redirect a follow-up into the prior append-only log.
 
+Reviewer conversations are the ones most worth resuming. A reviewer that has
+already examined a subsystem retains its seams, invariants, and prior findings,
+so a re-review costs a delta instead of a cold re-derivation of the same
+architecture. Route a later review of the same subsystem back into its existing
+conversation whenever that reviewer's family is still independent of the new
+change's author; start a fresh conversation only when independence or subject
+actually changes.
+
+An ID that a run failed to capture is not lost: recover it from the provider's
+session store rather than paying for a cold re-review. AGY names each store
+directory after its conversation ID, so the task's own brief locates it:
+
+```sh
+grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transcript.jsonl \
+  | sed 's|.*/brain/||; s|/.system_generated.*||'
+```
+
+Record a recovered value with an append-only provenance correction, as for a
+Claude UUID, and resume it.
+
 | CLI      | Session store                         | New-session ID source                 | Related follow-up                         |
 |----------|---------------------------------------|---------------------------------------|-------------------------------------------|
 | claude   | `~/.claude`                           | caller UUID via `--session-id`        | `--resume <uuid>`                         |
@@ -270,6 +290,10 @@ Claude `Not logged in` and Codex app-server `Operation not permitted` under the
 default command sandbox are likewise host diagnostics: retry via host escalation
 with the documented narrow prefixes, preserving their own read-only/write modes.
 GLM and Muse `claude-code:unrecognized_model` startup warnings are expected for
-their wrappers; verify the resulting artifact before declaring failure. DeepSeek
-may also be quiet for several minutes; do not kill it absent process exit or an
-explicit error.
+their wrappers; verify the resulting artifact before declaring failure. AGY in
+`--mode plan` may answer a headless brief with a plan artifact and a request for
+approval, exiting `SUCCESS` with no deliverable; a response that promises a
+verdict rather than stating one is an unfinished turn, so resume that
+conversation instructing it to answer directly instead of accepting the promise.
+DeepSeek may also be quiet for several minutes; do not kill it absent process
+exit or an explicit error.
