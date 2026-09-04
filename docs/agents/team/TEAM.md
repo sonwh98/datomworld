@@ -9,9 +9,16 @@ agents. Coordination is through repository artifacts, not hidden context.
 
 ## Roster
 
+The Orchestrator is deliberately absent from this table. It is not routed and has
+no primary or fallback: it is whichever coding agent the user starts and assigns
+the role to. Judge a seat by the four capabilities in
+[`orchestrator.md`](./orchestrator.md) — read the tree, write files, run each
+host's suite, shell out to the delegate CLIs — never by roster position. A seat
+that cannot run the suites cannot verify, whatever model fills it; the sandboxed
+AGY pitfall in the invocation reference is the worked example.
+
 | Role                | Primary            | Fallbacks                                                          | Responsibility                                               |
 |---------------------|--------------------|--------------------------------------------------------------------|--------------------------------------------------------------|
-| Orchestrator        | `gpt-5.6-sol`      | `claude-sonnet-5`                                                  | Scope, delegation, consensus, verification, commit readiness |
 | Architect           | `claude-fable-5-1` | `gpt-5.6-sol`, `claude-opus-5`                                     | Axioms, invariants, boundaries, architecture                 |
 | VM Runtime          | `glm-5.3`          | `claude-sonnet-5`, `gpt-5.6-terra`                                 | CESK, VMs, continuations, macros, loops                      |
 | Storage & Indexing  | `glm-5.3`          | `claude-sonnet-5`, `deepseek-v4-pro`                               | B-trees, indexing, DHT, storage, query                       |
@@ -28,10 +35,7 @@ Any model may fill any role; promote/demote using representative work, findings,
 tests, latency, and cost. `gemini-3.8-flash` supersedes 3.7; `claude-fable-5-1`
 supersedes fable-5. Use the verified `claude-sonnet-5` identifier; the reversed
 `claude-5-sonnet` form is not recognized by Claude Code. The 2026-08-29 GLM
-quota override expired 2026-09-01. `gemini-3.1-pro-high` was removed from the
-Orchestrator fallbacks on 2026-09-04: it runs only through sandboxed AGY, which
-cannot execute this host's JVM, so it cannot verify a test result — see the
-pitfall in the invocation reference before restoring it.
+quota override expired 2026-09-01.
 
 ## Routing and independence
 
