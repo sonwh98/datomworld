@@ -24,7 +24,7 @@
             [dao.stream.v2.ws :as ws]
             [yin.repl.v2.connect :as connect]
             [yin.repl.v2.core :as core]
-            [yin.repl.v2.host :as host]))
+            [yin.repl.v2.host.common :as host-common]))
 
 
 ;; =============================================================================
@@ -249,10 +249,10 @@
               :message "bind/advertised configuration does not name a servable stream"}
              (str "cannot serve " (pr-str path) " on port " (pr-str bind-port)))
 
-      (not (host/binder? host))
+      (not (host-common/binder? host))
       (inert base :bind-failed
-             {:code host/missing-code :message host/missing-text}
-             (host/missing-message "--port is not served"))
+             {:code host-common/missing-code :message host-common/missing-text}
+             (host-common/missing-message "--port is not served"))
 
       :else
       (let [ws-endpoint (ws/make-endpoint {:served {path descriptor}
@@ -278,7 +278,7 @@
                                  :bind-host bind-host
                                  :bind-port bind-port
                                  :path path
-                                 ;; Exactly the 3-arity `host/websocket`
+                                 ;; Exactly the 3-arity `yin.repl.v2.host/websocket`
                                  ;; documents.  A clock-omitting arity would let
                                  ;; host glue stamp a pending acceptance with
                                  ;; nil and silently disable expiry; the host

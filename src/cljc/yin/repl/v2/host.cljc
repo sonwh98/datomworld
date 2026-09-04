@@ -7,31 +7,14 @@
    listener is likewise host policy.  Each supported build composes that host
    policy behind the same `{:connect! :bind! :unbind!}` value: this portable
    namespace selects the JVM adapter, while host-specific `.cljs` and `.cljd`
-   shadows select Node and dart:io."
+   shadows select Node and dart:io.
+
+   A shadow replaces this namespace wholesale, so it holds only `websocket` —
+   the one thing that differs per build.  The portable contract every build
+   shares lives in `yin.repl.v2.host.common`."
   (:require #?@(:cljd []
                 :clj [[yin.repl.v2.host.jvm :as jvm]]
                 :default [])))
-
-
-(def missing-code :yin.repl.v2.host/no-websocket-package)
-
-
-(def missing-text
-  (str "no host WebSocket package is composed for this build: the v2 REPL "
-       "boundary needs {:connect! …} for (connect …) and {:bind! … :unbind! …} "
-       "for --port"))
-
-
-(defn adapter?
-  "True for a host adapter this slice can compose a client boundary from.
-   `:bind!` and `:unbind!` are additionally required to serve."
-  [x]
-  (and (map? x) (fn? (:connect! x))))
-
-
-(defn binder?
-  [x]
-  (and (map? x) (fn? (:bind! x)) (fn? (:unbind! x))))
 
 
 (defn websocket
@@ -52,8 +35,3 @@
   #?(:cljd nil
      :clj (jvm/websocket)
      :default nil))
-
-
-(defn missing-message
-  [what]
-  (str what ": " missing-text))

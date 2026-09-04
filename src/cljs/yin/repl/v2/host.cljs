@@ -1,31 +1,12 @@
 (ns yin.repl.v2.host
   "The Node composition of the v2 Yin REPL host WebSocket seam.
 
-   This CLJS namespace shadows the portable, deliberately-uncomposed `.cljc`
-   namespace.  It presents the existing Node transport edge as the three
-   operations the REPL driver consumes.  Host callbacks do no interpretation:
-   they classify host-only values into plain lifecycle data, deposit one fact,
-   and return."
+   This CLJS namespace shadows the `.cljc` namespace, so it carries only
+   `websocket`; the portable contract is `yin.repl.v2.host.common`.  It presents
+   the existing Node transport edge as the three operations the REPL driver
+   consumes.  Host callbacks do no interpretation: they classify host-only
+   values into plain lifecycle data, deposit one fact, and return."
   (:require [dao.stream.v2.ws.node :as node]))
-
-
-(def missing-code :yin.repl.v2.host/no-websocket-package)
-
-
-(def missing-text
-  (str "no host WebSocket package is composed for this build: the v2 REPL "
-       "boundary needs {:connect! …} for (connect …) and {:bind! … :unbind! …} "
-       "for --port"))
-
-
-(defn adapter?
-  [x]
-  (and (map? x) (fn? (:connect! x))))
-
-
-(defn binder?
-  [x]
-  (and (map? x) (fn? (:bind! x)) (fn? (:unbind! x))))
 
 
 (defn- bound-address
@@ -75,8 +56,3 @@
   {:connect! node/connect!
    :bind! bind!
    :unbind! unbind!})
-
-
-(defn missing-message
-  [what]
-  (str what ": " missing-text))

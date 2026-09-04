@@ -7,7 +7,7 @@
             [dao.stream.v2.rpc :as rpc]
             [yin.repl.v2-adapter :as adapter]
             [yin.repl.v2.driver :as driver]
-            [yin.repl.v2.host :as host]))
+            [yin.repl.v2.host.common :as host-common]))
 
 
 (defn- handle
@@ -179,8 +179,8 @@
 
 (deftest the-default-host-is-ready-for-a-real-connection
   (let [state (driver/create-state)]
-    (is (host/adapter? (:host state)))
-    (is (host/binder? (:host state)))))
+    (is (host-common/adapter? (:host state)))
+    (is (host-common/binder? (:host state)))))
 
 
 (deftest connect-without-a-url-answers-with-its-usage

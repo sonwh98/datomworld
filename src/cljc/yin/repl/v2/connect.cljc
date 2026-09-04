@@ -19,7 +19,7 @@
             [dao.stream.v2.rpc :as rpc]
             [dao.stream.v2.rpc.ws :as rpc-ws]
             [dao.stream.v2.ws :as ws]
-            [yin.repl.v2.host :as host]))
+            [yin.repl.v2.host.common :as host-common]))
 
 
 ;; =============================================================================
@@ -337,9 +337,9 @@
     (if-not (= :yin.repl.v2.connect/parsed (get parsed outcome-key))
       parsed
       (let [descriptor (get parsed descriptor-key)]
-        (if-not (host/adapter? host)
+        (if-not (host-common/adapter? host)
           (failure :yin.repl.v2.connect/no-host-adapter
-                   (host/missing-message "(connect …) is not wired"))
+                   (host-common/missing-message "(connect …) is not wired"))
           (let [{:keys [traffic response-cursor lifecycle-cursor]} (boundary traffic)
                 attach! (try (attacher traffic (:connect! host))
                              (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))]

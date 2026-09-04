@@ -3,7 +3,7 @@
             [clojure.test :refer [deftest is testing]]
             [yin.repl.v2 :as repl]
             [yin.repl.v2.driver :as driver]
-            [yin.repl.v2.host :as host]
+            [yin.repl.v2.host.common :as host-common]
             [yin.repl.v2.serve :as serve]))
 
 
@@ -36,7 +36,7 @@
   (let [state (repl/boot (repl/parse-args []))]
     (is (some? (:input state)))
     (is (some? (:input-cursor state)))
-    (is (host/adapter? (:host state)))
+    (is (host-common/adapter? (:host state)))
     (is (true? (:running? state)))
     (is (empty? (repl/banner (repl/parse-args []))))
     (testing "the composition is drivable without any host loop"
