@@ -14,8 +14,10 @@ no primary or fallback: it is whichever coding agent the user starts and assigns
 the role to. Judge a seat by the four capabilities in
 [`orchestrator.md`](./orchestrator.md) — read the tree, write files, run each
 host's suite, shell out to the delegate CLIs — never by roster position. A seat
-that cannot run the suites cannot verify, whatever model fills it; the sandboxed
-AGY pitfall in the invocation reference is the worked example.
+that cannot run the suites cannot verify, whatever model fills it. The sandboxed
+AGY delegate in the invocation reference is the worked example of a seat that
+looks like it is verifying and is not — a restriction of that delegate
+configuration, not of any model.
 
 | Role                | Primary            | Fallbacks                                                          | Responsibility                                               |
 |---------------------|--------------------|--------------------------------------------------------------------|--------------------------------------------------------------|
@@ -313,15 +315,22 @@ their wrappers; verify the resulting artifact before declaring failure. AGY in
 approval, exiting `SUCCESS` with no deliverable; a response that promises a
 verdict rather than stating one is an unfinished turn, so resume that
 conversation instructing it to answer directly instead of accepting the promise.
-A sandboxed AGY could not execute this host's JVM: `clojure` died with `java:
-Operation not permitted` when probed 2026-09-04 under `--mode plan --sandbox`,
-which does read files, run read-only shell, and write files even outside the
-repository; by AGY's own account the `BypassSandbox` that would lift the block
-needs an approval no headless `-p` run can obtain. Unlike the host diagnostics
-above, no host escalation reaches inside a delegate's own session, so the
-orchestrator must run such suites itself. Such an agent can therefore appear to
-be verifying while unable to check any Clojure test claim it passes on: give it
-static analysis, never a deliverable that depends on running tests, and never
-the Orchestrator seat.
+A sandboxed AGY **delegate** could not execute this host's JVM: `clojure` died
+with `java: Operation not permitted` when probed 2026-09-04 under `--mode plan
+--sandbox`, which does read files, run read-only shell, and write files even
+outside the repository. The denial covers `~/.local` as a whole, so it reaches
+the mise-installed JDK and most delegate CLIs alike; by AGY's own account the
+`BypassSandbox` that would lift it needs an approval no headless `-p` run can
+obtain. Unlike the host diagnostics above, no host escalation reaches inside a
+delegate's own session, so the orchestrator must run such suites itself. A
+delegate in that configuration can appear to be verifying while unable to check
+any Clojure test claim it passes on: give it static analysis, never a deliverable
+that depends on running tests.
+
+This is a property of the sandboxed headless delegate configuration, not of AGY.
+An AGY session the user starts in the Orchestrator seat with the necessary
+permissions is not so restricted; like any seat it is judged by the capabilities
+in [`orchestrator.md`](./orchestrator.md), which it should establish for itself
+rather than assume from this entry.
 DeepSeek may also be quiet for several minutes; do not kill it absent process
 exit or an explicit error.
