@@ -11,14 +11,14 @@ agents. Coordination is through repository artifacts, not hidden context.
 
 | Role                | Primary            | Fallbacks                                                          | Responsibility                                               |
 |---------------------|--------------------|--------------------------------------------------------------------|--------------------------------------------------------------|
-| Orchestrator        | `gpt-5.6-sol`      | `gemini-3.1-pro-high`, `claude-5-sonnet`                           | Scope, delegation, consensus, verification, commit readiness |
+| Orchestrator        | `gpt-5.6-sol`      | `gemini-3.1-pro-high`, `claude-sonnet-5`                           | Scope, delegation, consensus, verification, commit readiness |
 | Architect           | `claude-fable-5-1` | `gpt-5.6-sol`, `claude-opus-5`                                     | Axioms, invariants, boundaries, architecture                 |
-| VM Runtime          | `glm-5.3`          | `claude-5-sonnet`, `gpt-5.6-terra`                                 | CESK, VMs, continuations, macros, loops                      |
-| Storage & Indexing  | `glm-5.3`          | `claude-5-sonnet`, `deepseek-v4-pro`                               | B-trees, indexing, DHT, storage, query                       |
+| VM Runtime          | `glm-5.3`          | `claude-sonnet-5`, `gpt-5.6-terra`                                 | CESK, VMs, continuations, macros, loops                      |
+| Storage & Indexing  | `glm-5.3`          | `claude-sonnet-5`, `deepseek-v4-pro`                               | B-trees, indexing, DHT, storage, query                       |
 | Compiler & AST      | `claude-opus-5`    | `gpt-5.6-sol`, `glm-5.3`, `gpt-5.6-terra`, `qwen/qwen3.8-max`      | AST, lowering, compile-time macros                           |
 | Stream & Network    | `claude-opus-5`    | `glm-5.3`, `gpt-5.6-terra`, `gpt-5.6-luna`, `deepseek-v4-pro`      | Streams, framing, concurrency, transports, codecs, RPC       |
 | Frontend & Graphics | `gpt-5.6-sol`      | `claude-opus-5`, `gemini-3.8-flash`, `moonshotai/kimi-k2.7-code`   | Events, WebGL/WebGPU, canvas, terminal                       |
-| QA & Verification   | `claude-5-sonnet`  | `gemini-3.8-flash`, `gpt-5.4-mini`                                 | TDD, parity, lint, regression                                |
+| QA & Verification   | `claude-sonnet-5`  | `gemini-3.8-flash`, `gpt-5.4-mini`                                 | TDD, parity, lint, regression                                |
 | Routine Review      | `gpt-5.6-sol`      | `gemini-3.8-flash`, `glm-5.3` (non-GLM only), `qwen/qwen3.8-max`   | Correctness, invariants, portability                         |
 | Adversarial Review  | `deepseek-v4-pro`  | `gpt-5.6-sol`, `gemini-3.1-pro-high`                               | Independent defect discovery, cross-host challenge           |
 | Security Sign-off   | `claude-fable-5-1` | `gpt-5.6-sol`, `claude-opus-5`                                     | Capability boundaries, high-risk review                      |
@@ -26,7 +26,9 @@ agents. Coordination is through repository artifacts, not hidden context.
 
 Any model may fill any role; promote/demote using representative work, findings,
 tests, latency, and cost. `gemini-3.8-flash` supersedes 3.7; `claude-fable-5-1`
-supersedes fable-5. The 2026-08-29 GLM quota override expired 2026-09-01.
+supersedes fable-5. Use the verified `claude-sonnet-5` identifier; the reversed
+`claude-5-sonnet` form is not recognized by Claude Code. The 2026-08-29 GLM
+quota override expired 2026-09-01.
 
 ## Routing and independence
 
@@ -77,7 +79,7 @@ Keep all artifacts flat under `collab/`:
 Created-GMT: <actual timestamp>
 Created-Local: <actual timestamp and named timezone>
 Coding-Agent: <claude|codex|agy|glm|cmd|muse|deepseek|interactive>
-Session-ID: <exact id or none (reason)>
+Session-ID: <exact caller UUID | pending (provider-generated)>
 # Task: <name>
 Role: <constant role>
 Implementers:
@@ -85,11 +87,21 @@ Implementers:
 ```
 
 Every report starts with the same Completed-GMT/Local, Coding-Agent, and exact
-Session-ID fields. `collab/` is append-only, never staged/committed; never delete
-or truncate prompts/findings. On reassignment update status and append an
-implementer. Promote final responses to `.findings.md`; `.stdout.log` is only an
-intermediate capture. Non-trivial delegates maintain a concise heartbeat. Use
-actual timestamps; never fabricate them.
+Session-ID fields. For every Claude Code-based CLI (`claude`, `glm`, `deepseek`,
+and `muse`), generate the UUID before launch, put it in the prompt, and pass it
+with `--session-id`; text output does not expose the ID reliably. `--name` is a
+display label, not a session ID. Codex, AGY, and Command Code generate the ID
+themselves; their initial prompt records `Session-ID: pending
+(provider-generated)`, their structured output captures it, and every report
+and follow-up uses the exact captured value. Because the agent cannot know an
+ID assigned outside its turn, the orchestrator writes the promoted findings
+header with the captured ID. Never record `none` merely because
+plain-text output omitted session metadata. `collab/` is append-only, never
+staged/committed; never delete or truncate prompts/findings. On reassignment
+update status and append an implementer. Promote final responses to
+`.findings.md`; `.stdout.log` is only an intermediate capture. Non-trivial
+delegates maintain a concise heartbeat. Use actual timestamps; never fabricate
+them.
 
 Read-only reviewers may share the main tree. Concurrent editors use separate
 worktrees from a committed base; uncommitted bases require serialization or
@@ -102,13 +114,69 @@ Quiet output is not failure: inspect process/heartbeat and wait for completion o
 an explicit error. Batch complete briefs, reuse sessions for related follow-ups,
 start new sessions for unrelated work, and never rely on `--last`.
 
-| CLI    | Store            | Resume                                 |
-|--------|------------------|----------------------------------------|
-| claude | `~/.claude`      | `--resume <id>`                        |
-| glm    | `~/.claude-glm`  | `--resume <id>`                        |
-| cmd    | `~/.commandcode` | `--resume <name-or-id>`                |
-| codex  | `~/.codex`       | `codex exec [-s <mode>] resume <id> -` |
-| muse   | `~/.claude-muse` | `--resume <id>`                        |
+### Session continuity
+
+Agents preserve conversational context only when a related follow-up resumes
+the exact session/conversation/thread ID. Reading earlier prompts, logs,
+findings, and diffs reconstructs task context but is not equivalent to resuming
+the session.
+
+Before the first invocation, generate and record an ID:
+
+```sh
+TASK_SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+```
+
+Write that exact value into the prompt's `Session-ID:` field, then invoke the
+agent with `--session-id "$TASK_SESSION_ID"`. Instruct its report to repeat the
+same value. For every correction, clarification, or verification performed by
+the same agent, use `--resume "$TASK_SESSION_ID"`; do not start a new named
+session. Do not combine `--session-id` and `--resume`.
+
+Claude Code session persistence is enabled by default. Never pass
+`--no-session-persistence` when the work may require review, correction, or
+follow-up. If an older run failed to record its UUID, recover it from the
+provider-specific Claude configuration store by matching the custom title in
+the project JSONL, record an append-only provenance correction, and resume that
+UUID. Do not treat the process ID, `--name`, log filename, or wrapper name as a
+session ID.
+
+Codex, AGY, and Command Code do not accept a caller-selected ID for a new run in
+the installed versions. Run them with structured output, capture the generated
+ID immediately, and put it in the findings before any follow-up:
+
+```sh
+# Codex JSONL: first thread.started event
+TASK_SESSION_ID="$(jq -r 'select(.type == "thread.started") | .thread_id' \
+  collab/<task>.<model>.stdout.log | head -1)"
+
+# AGY JSON: top-level conversation_id
+TASK_SESSION_ID="$(jq -r '.conversation_id' \
+  collab/<task>.<model>.stdout.log)"
+
+# Command Code NDJSON: final result (also present on event.run_start)
+TASK_SESSION_ID="$(jq -r 'select(.type == "result") | .sessionId' \
+  collab/<task>.<model>.stdout.log | tail -1)"
+```
+
+Fail the handoff if the extracted value is empty or `null`. Do not use Codex
+`--ephemeral`, Command Code `--no-session`, or any provider's non-persistent
+mode for follow-up-capable work. Never substitute `--last`, `--continue`, AGY
+`-c`, or a display name when an exact ID is available: concurrent runs make
+those selectors ambiguous.
+
+Every resumed turn gets a new prompt and output artifact name (for example,
+`<task>-r2...`); never redirect a follow-up into the prior append-only log.
+
+| CLI      | Session store                         | New-session ID source                 | Related follow-up                         |
+|----------|---------------------------------------|---------------------------------------|-------------------------------------------|
+| claude   | `~/.claude`                           | caller UUID via `--session-id`        | `--resume <uuid>`                         |
+| glm      | `~/.claude-glm`                       | caller UUID via `--session-id`        | `--resume <uuid>`                         |
+| deepseek | `~/.claude-deepseek`                  | caller UUID via `--session-id`        | `--resume <uuid>`                         |
+| muse     | `~/.claude-muse`                      | caller UUID via `--session-id`        | `--resume <uuid>`                         |
+| codex    | `~/.codex`                            | JSONL `thread.started.thread_id`       | `codex exec resume <id> --json -`          |
+| agy      | `~/.gemini/antigravity-cli`           | JSON `conversation_id`                | `--conversation <id>`                     |
+| cmd      | `~/.commandcode`                      | NDJSON `result.sessionId`             | `--resume <id>` or `--session <id|path>`  |
 
 ## Security
 
@@ -126,33 +194,73 @@ told to produce the complete deliverable without waiting for a human.
 
 ```sh
 # Claude
-claude --model <model> --permission-mode plan --tools Read \
+claude --model <model> --session-id <uuid> --name <task> \
+  --permission-mode plan --tools Read \
   --output-format text -p "Read <prompt> and complete it now."
+
+# Claude follow-up: preserve the original model conversation
+claude --resume <uuid> --permission-mode plan --tools Read \
+  --output-format text -p "Read <follow-up-prompt> and complete it now."
 
 # Gemini / AGY
 agy --model <model> --effort <effort> --mode plan --sandbox \
-  --print-timeout 5m --output-format text -p "Read <prompt> and complete it now."
+  --print-timeout 5m --output-format json \
+  -p "Read <prompt> and complete it now." > collab/<task>.<model>.stdout.log
+
+# AGY follow-up: preserve the generated conversation ID
+agy --conversation <id> --model <model> --effort <effort> \
+  --mode plan --sandbox --print-timeout 5m --output-format json \
+  -p "Read <follow-up-prompt> and complete it now." > collab/<task>-r<n>.<model>.stdout.log
 
 # GLM (PTY; keep -p last; do not redirect stdin)
 GLM_MODEL=glm-5.3 script -q /dev/null ~/.local/bin/glm \
-  --name <task> --bare --permission-mode plan --allowed-tools Read \
+  --session-id <uuid> --name <task> --bare \
+  --permission-mode plan --allowed-tools Read \
   --output-format text -p "Read <prompt> and complete it now." > collab/<task>.glm-5.3.stdout.log
 
-# Codex review (stdin; read-only)
-codex exec -m gpt-5.6-sol -s read-only - < <prompt> > collab/<task>.gpt-5.6-sol.stdout.log
+# GLM follow-up: keep GLM_MODEL and the original UUID
+GLM_MODEL=glm-5.3 script -q /dev/null ~/.local/bin/glm \
+  --resume <uuid> --bare --permission-mode plan --allowed-tools Read \
+  --output-format text -p "Read <follow-up-prompt> and complete it now." > collab/<task>-r<n>.glm-5.3.stdout.log
+
+# Codex review (stdin; read-only; JSONL captures thread_id)
+codex exec -m gpt-5.6-sol -s read-only --json - < <prompt> \
+  > collab/<task>.gpt-5.6-sol.stdout.log
+
+# Codex follow-up: `resume` exposes no sandbox flag. Resume only a thread that
+# was created read-only; if its effective policy cannot be verified, start a
+# new read-only review thread instead of implying an override here.
+codex exec resume <id> --json - \
+  < <follow-up-prompt> > collab/<task>-r<n>.gpt-5.6-sol.stdout.log
 
 # Muse (PTY; keep -p last; do not redirect stdin)
 MUSE_MODEL=muse-spark-1.3-contributor script -q /dev/null ~/.local/bin/muse \
-  --name <task> --bare --permission-mode plan --allowed-tools Read \
+  --session-id <uuid> --name <task> --bare \
+  --permission-mode plan --allowed-tools Read \
   --output-format text -p "Read <prompt> and complete it now." > collab/<task>.muse-spark-1.3-contributor.stdout.log
 
+# Muse follow-up: keep MUSE_MODEL and the original UUID
+MUSE_MODEL=muse-spark-1.3-contributor script -q /dev/null ~/.local/bin/muse \
+  --resume <uuid> --bare --permission-mode plan --allowed-tools Read \
+  --output-format text -p "Read <follow-up-prompt> and complete it now." > collab/<task>-r<n>.muse-spark-1.3-contributor.stdout.log
+
 # Command Code
-cmd -p -m <model> --plan --output-format text < <prompt> > collab/<task>.<model>.stdout.log
+cmd -p -m <model> --plan --output-format json < <prompt> \
+  > collab/<task>.<model>.stdout.log
+
+# Command Code follow-up: preserve the generated session ID
+cmd --resume <id> -p -m <model> --plan --output-format json \
+  < <follow-up-prompt> > collab/<task>-r<n>.<model>.stdout.log
 
 # DeepSeek (close stdin; quiet startup is normal)
 ~/.local/bin/deepseek --bare --permission-mode plan --allowed-tools Read \
-  --no-session-persistence --output-format text \
+  --session-id <uuid> --name <task> --output-format text \
   -p "Read <prompt> and complete it now." < /dev/null
+
+# DeepSeek follow-up: close stdin and resume the original UUID
+~/.local/bin/deepseek --resume <uuid> --bare --permission-mode plan \
+  --allowed-tools Read --output-format text \
+  -p "Read <follow-up-prompt> and complete it now." < /dev/null
 ```
 
 AGY language-server bind/log failures are host sandbox restrictions: rerun the
