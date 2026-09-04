@@ -16,11 +16,183 @@ description: Lead Engineering Orchestrator role definition for datom.world
 This role owns no permanent file list. Each task defines the artifacts under
 coordination and the authority granted to every participant.
 
+## Coordination contract
+
+The orchestrator owns scope, authorization, verification, consensus, and
+readiness. Each task uses tests or an equally precise contract, a timestamped
+and bounded role brief when delegated, local verification of the real diff,
+independent review, and evidence-backed readiness reporting. Never stage or
+commit without user instruction; when authorized, stage only requested files
+and commit only staged changes.
+
+Commit subjects use `<type>[(<scope>)]: <lowercase imperative summary>` with
+types `docs|feat|fix|refactor|perf|test|build|chore`; an optional body explains
+non-obvious behavior or invariants. Use no trailing period, allow merge
+exceptions, and never add `Co-Authored-By`, including LLM attribution.
+
+Delegated claims are untrusted: verify artifacts, expected files, actual tests
+and assertion counts, and fresh generated CLJD output; read unfiltered output
+first. If local tests already pass, ask reviewers to spend their budget on
+static analysis rather than rerunning the full suite, except when security
+review requires a rerun. See [`build-n-test.md`](../build-n-test.md).
+
+Prefer flat subscriptions (`claude`, `agy`, `codex`, `glm`); Command Code is
+opportunistic. Reserve Muse/DeepSeek for work worth metered cost. Confirm a
+model exists through its CLI before invoking it. Claude is invoked only through
+`claude` or `agy`; Muse only through `~/.local/bin/muse` with
+`muse-spark-1.3-contributor`; never use AGY `invoke_subagent`; shell out to the
+listed CLIs. The interactive session is the actual orchestrator. GLM peak hours
+are weekdays 14:00–18:00 UTC+8; schedule large jobs off-peak when possible.
+
+## Artifact protocol
+
+Coordination is through repository artifacts, not hidden context. Keep all
+artifacts flat under `collab/`:
+`<role>-<task>.prompt.md`, `.<sanitized-model>.findings.md`, and `.stdout.log`.
+Every prompt starts with:
+
+```text
+Created-GMT: <actual timestamp>
+Created-Local: <actual timestamp and named timezone>
+Coding-Agent: <claude|codex|agy|glm|cmd|muse|deepseek|interactive>
+Session-ID: <exact caller UUID | pending (provider-generated) | not-applicable (interactive seat)>
+# Task: <name>
+Role: <constant role>
+Implementers:
+- Model: <model> | Assigned: <timestamp> | Status: active | Rationale: <why>
+```
+
+Every report starts with the same Completed-GMT/Local, Coding-Agent, and exact
+Session-ID fields. For an interactive orchestrator seat with no delegated CLI
+session, record and repeat `Session-ID: not-applicable (interactive seat)`.
+For every Claude Code-based CLI (`claude`, `glm`, `deepseek`, and `muse`),
+generate the UUID before launch, record it in the prompt, and pass it with
+`--session-id`; text output does not expose the ID reliably. `--name` is a
+display label, not a session ID. Codex, AGY, and Command Code generate their IDs;
+record `Session-ID: pending (provider-generated)` in the initial prompt, capture
+the exact ID from structured output, and use it in every report and follow-up.
+The orchestrator writes that captured ID into the promoted findings header.
+Never record `none` merely because plain-text output omitted session metadata.
+
+`collab/` is append-only and never staged or committed. Never delete or truncate
+prompts or findings. Promote final responses to `.findings.md`; `.stdout.log` is
+only an intermediate capture. Use actual timestamps; never fabricate them.
+After work is committed, move its artifacts under their exact filenames into
+the flat, gitignored root `archive/`, as specified by the workflow below.
+
+On reassignment, append history inside `Implementers:`; never rewrite an earlier
+`Status:` line:
+
+```text
+- Status-Event: <timestamp> | Model: <prior-model> | Status: <failed|timed-out|reassigned> | Rationale: <why>
+- Model: <new-model> | Assigned: <timestamp> | Status: active | Rationale: <why>
+```
+
+Read-only reviewers may share the main tree. Concurrent editors use separate
+worktrees from a committed base; uncommitted bases require serialization or
+explicit disjoint ownership. Only one process owns the CLJD lane because
+`bb test:cljd` writes shared generated output. Auxiliary worktrees lack
+`collab/`, so briefs use absolute paths. Never merge or delete worktrees or
+branches without user authority.
+
+Quiet output is not failure: inspect the process and wait for completion or an
+explicit error. Batch complete briefs, reuse sessions for related follow-ups,
+start new sessions for unrelated work, and never rely on `--last`.
+
+### Session continuity
+
+Agents preserve conversational context only when a related follow-up resumes
+the exact session, conversation, or thread ID. Reading earlier prompts, logs,
+findings, and diffs reconstructs task context but is not equivalent to resuming
+the session.
+
+Before the first invocation of a Claude Code-based CLI (`claude`, `glm`,
+`deepseek`, or `muse`), generate and record an ID:
+
+```sh
+TASK_SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+```
+
+Write that exact value into the prompt's `Session-ID:` field, then invoke the
+agent with `--session-id "$TASK_SESSION_ID"`. For every correction,
+clarification, or verification by the same agent, use
+`--resume "$TASK_SESSION_ID"`; do not start a new named session or combine
+`--session-id` with `--resume`.
+
+Claude Code session persistence is enabled by default. Never pass
+`--no-session-persistence` when work may require review, correction, or
+follow-up. If an older run failed to record its UUID, recover it from the
+provider-specific Claude configuration store by matching the custom title in
+the project JSONL, record an append-only provenance correction, and resume that
+UUID. A process ID, `--name`, log filename, or wrapper name is not a session ID.
+
+Codex, AGY, and Command Code do not accept a caller-selected ID for a new run in
+the installed versions. Run them with structured output and capture the
+generated ID immediately:
+
+```sh
+# Codex JSONL: first thread.started event
+TASK_SESSION_ID="$(jq -r 'select(.type == "thread.started") | .thread_id' \
+  collab/<task>.<model>.stdout.log | head -1)"
+
+# AGY JSON: top-level conversation_id
+TASK_SESSION_ID="$(jq -r '.conversation_id' \
+  collab/<task>.<model>.stdout.log)"
+
+# Command Code NDJSON: final result (also present on event.run_start)
+TASK_SESSION_ID="$(jq -r 'select(.type == "result") | .sessionId' \
+  collab/<task>.<model>.stdout.log | tail -1)"
+```
+
+Fail the handoff if the extracted value is empty or `null`. Do not use Codex
+`--ephemeral`, Command Code `--no-session`, or any provider's non-persistent
+mode for follow-up-capable work. Never substitute `--last`, `--continue`, AGY
+`-c`, or a display name when an exact ID is available. Give every resumed turn
+a new prompt and output artifact name, such as `<task>-r2...`; never redirect a
+follow-up into the prior append-only log.
+
+Reviewer conversations are the ones most worth resuming. Route a later review
+of the same subsystem back into its existing conversation whenever that
+reviewer's family remains independent of the new change's author; start a fresh
+conversation only when independence or subject changes.
+
+An ID that a run failed to capture can be recovered from the provider's session
+store. AGY names each store directory after its conversation ID, so the task's
+own brief locates it:
+
+```sh
+grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transcript.jsonl \
+  | sed 's|.*/brain/||; s|/.system_generated.*||'
+```
+
+Record a recovered value with an append-only provenance correction and resume
+it.
+
+| CLI      | Session store                         | New-session ID source                 | Related follow-up                         |
+|----------|---------------------------------------|---------------------------------------|-------------------------------------------|
+| claude   | `~/.claude`                           | caller UUID via `--session-id`        | `--resume <uuid>`                         |
+| glm      | `~/.claude-glm`                       | caller UUID via `--session-id`        | `--resume <uuid>`                         |
+| deepseek | `~/.claude-deepseek`                  | caller UUID via `--session-id`        | `--resume <uuid>`                         |
+| muse     | `~/.claude-muse`                      | caller UUID via `--session-id`        | `--resume <uuid>`                         |
+| codex    | `~/.codex`                            | JSONL `thread.started.thread_id`      | `codex exec resume <id> --json -`         |
+| agy      | `~/.gemini/antigravity-cli`           | JSON `conversation_id`                | `--conversation <id>`                     |
+| cmd      | `~/.commandcode`                      | NDJSON `result.sessionId`             | `--resume <id>` or `--session <id|path>`  |
+
+## Authorization and security
+
+Private repository content may be sent externally only with explicit user
+authorization for the exact payload and destination. Invoke from the authorized
+agent; consent does not carry over. Pass prompt paths or stdin, never private
+diffs or credentials in arguments. Use read-only/plan review and minimum write
+scope; never bypass permission checks. Preserve unrelated changes and never
+expose or commit tokens or configuration.
+
 ## Workflow
 
-Read [`TEAM.md`](./TEAM.md) first; it is canonical for roster, routing,
-independence, artifact/session protocol, authorization, and commit-message
-format. This role owns the execution sequence and the CLI recipes below.
+Read [`TEAM.md`](./TEAM.md) first; it is canonical for the roster, role routing,
+and reviewer independence. This role document owns coordination, authorization,
+artifact and session protocol, the execution sequence, commit-message format,
+and CLI recipes.
 
 1. **Establish the seat.** The harness must be able to read and write the working
    tree, run every affected host's checks, and invoke delegate CLIs. Establish
@@ -57,7 +229,7 @@ format. This role owns the execution sequence and the CLI recipes below.
    files and commit only the staged diff. Inspect that staged diff immediately
    before committing. If it differs from the reviewed diff, review the delta and
    repeat any checks invalidated by it. Do not rerun unchanged checks merely
-   because a commit is imminent. Use the commit format in `TEAM.md` and never add
+   because a commit is imminent. Use the commit format above and never add
    coauthor attribution.
 10. **Verify what landed.** Compare the commit's diff with the reviewed staged
     diff. If hooks or formatters changed what landed, review that delta and rerun
@@ -70,7 +242,7 @@ format. This role owns the execution sequence and the CLI recipes below.
     name is resolved. Archive only committed work and only when no uncommitted
     tracked changes could make task ownership ambiguous.
 
-Follow the append-only artifact protocol in `TEAM.md`. In particular, record a
+Follow the append-only artifact protocol above. In particular, record a
 reassignment by appending a new status event and implementer entry; never rewrite
 an earlier `Status:` line. Findings use
 `collab/<role>-<task>.<sanitized-model-name>.findings.md` so parallel reviewers
@@ -146,7 +318,7 @@ provider defaults are not an implementation policy.
 Reviewers need the actual diff, not only the resulting files. The Claude-based
 recipes therefore admit narrowly matched, read-only `git diff` and `git status`
 commands. The review brief must identify the authorized revision/path scope and,
-for private content, satisfy the external-payload authorization in `TEAM.md`.
+for private content, satisfy the authorization rules above.
 
 `claude`, `glm`, `deepseek` and `muse` are one Claude Code CLI behind different
 model wrappers, so none of them needs a PTY and all accept redirected stdin
