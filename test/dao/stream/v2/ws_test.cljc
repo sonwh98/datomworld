@@ -74,7 +74,10 @@
                                   :close! (fn [& args] (swap! closed conj args))})}) descriptor))]
     ((:opened! @adapter))
     (is (= :dao.stream/invalid-value
-           (:dao.stream/outcome (stream/append! handle #?(:clj (Object.) :cljs (js-obj))))))
+           (:dao.stream/outcome
+             (stream/append! handle #?(:clj (Object.)
+                                       :cljs (js-obj)
+                                       :cljd (Object.))))))
     ((:message! @adapter) "not-transit")
     ((:closed! @adapter) ws/protocol-close-code "dao.stream/protocol-error")
     (is (= [[:ws/opened nil] [:ws/error :ws/decode-failure] [:ws/closed nil]]
@@ -136,7 +139,9 @@
     (let [handle (:dao.stream/handle (attacher descriptor))]
       ;; No accept control has arrived, and a nonportable value must not send.
       (is (= :dao.stream/full (:dao.stream/outcome
-                                (stream/append! handle #?(:clj (Object.) :cljs (js-obj))))))
+                                (stream/append! handle #?(:clj (Object.)
+                                                          :cljs (js-obj)
+                                                          :cljd (Object.))))))
       (is (zero? @sends)))))
 
 

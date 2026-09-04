@@ -137,6 +137,36 @@
            (get-in state [:completed 0 :dao.stream.v2.rpc/reason])))))
 
 
+(deftest an-abandoned-unsent-request-is-completed-with-its-reason-and-never-resent
+  (let [request-handle (handle)
+        response-handle (handle)
+        full-writer (reify stream/IDaoStreamWriter
+                      (append! [_ _] {:dao.stream/outcome :dao.stream/full}))
+        pending (:dao.stream.v2.rpc/state
+                  (rpc/request! (rpc/client-state full-writer response-handle
+                                                  (cursor response-handle))
+                                :yin/eval ["(+ 1 2)"]))
+        abandoned (rpc/abandon-unsent pending :yin.repl.v2.driver/operator-disconnect)
+        next-request (rpc/request! (assoc abandoned :writer request-handle)
+                                   :yin/eval ["(+ 2 2)"])]
+    (is (true? (rpc/unsent? pending)))
+    (is (false? (rpc/unsent? abandoned)))
+    (is (empty? (:outstanding abandoned)) "an unsent request was never outstanding")
+    (is (= [{:dao.stream.v2.rpc/id 0
+             :dao.stream.v2.rpc/op :yin/eval
+             :dao.stream.v2.rpc/args ["(+ 1 2)"]
+             :dao.stream.v2.rpc/reason :yin.repl.v2.driver/operator-disconnect}]
+           (:completed abandoned))
+        "the loss is reported on the ordinary completion path, not swallowed")
+    (is (= ["(+ 2 2)"]
+           (apply/request-args
+             (:dao.stream/value (stream/next request-handle (cursor request-handle)))))
+        "the next request is the caller's own, not the abandoned envelope")
+    (is (= 1 (:dao.stream.v2.rpc/id next-request)) "the abandoned id is retired")
+    (is (identical? abandoned (rpc/abandon-unsent abandoned))
+        "abandoning nothing changes nothing")))
+
+
 (deftest server-step-is-the-apply-step-and-rebind-never-reuses-ids
   (let [request-handle (handle)
         response-handle (handle)

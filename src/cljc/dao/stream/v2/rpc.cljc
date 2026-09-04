@@ -256,6 +256,33 @@
         allocated))))
 
 
+(defn unsent?
+  "True while an allocated request is still owed one accepted append.  A caller
+   that allocates ids from this state must not submit new work while it holds:
+   `request!` retries the unsent envelope and ignores the operation it is given."
+  [state]
+  (some? (:unsent state)))
+
+
+(defn abandon-unsent
+  "Give up on an allocated-but-unsent request, appending its completion with
+   `reason`.
+
+   A composition that changes what the writer *is* — an operator disconnect, a
+   rebind onto a fresh attachment — owns the decision that the retained
+   envelope no longer belongs to the new binding.  Abandoning it here reports
+   the loss on the ordinary completion path, so it is neither silently dropped
+   nor resent in place of the caller's next request.  The id is retired with
+   it; `:next-id` never goes back."
+  ([state] (abandon-unsent state :dao.stream.v2.rpc/abandoned))
+  ([state reason]
+   (if-let [request (:unsent state)]
+     (-> state
+         (assoc :unsent nil)
+         (append-completion request :reason reason))
+     state)))
+
+
 ;; =============================================================================
 ;; Response decoding and correlation
 ;; =============================================================================

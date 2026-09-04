@@ -176,9 +176,17 @@
                          "Not connected")))))
 
 
-(deftest connect-reports-its-unmet-prerequisite
+(deftest connect-reports-the-unmet-host-prerequisite
   (let [state (driver/create-state)]
+    (is (nil? (:host state)) "no host WebSocket package is composed in this tree")
     (driver/submit-line! (:input state) "(connect \"daostream:ws://localhost:8080\")")
     (let [stepped (driver/repl-step state 0)]
       (is (nil? (:adapter stepped)))
-      (is (str/includes? (text-of stepped) "dao.stream.v2.rpc.ws")))))
+      (is (nil? (:connection stepped)))
+      (is (str/includes? (text-of stepped) "no host WebSocket package")))))
+
+
+(deftest connect-without-a-url-answers-with-its-usage
+  (let [state (driver/create-state)]
+    (driver/submit-line! (:input state) "(connect)")
+    (is (str/includes? (text-of (driver/repl-step state 0)) "daostream:ws://"))))

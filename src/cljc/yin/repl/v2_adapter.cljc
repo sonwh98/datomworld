@@ -60,18 +60,23 @@
      :cljs (reader/read-string (str "[" input "]"))))
 
 
-(defn- command-head
-  "The head symbol of exactly one well-formed shell-command form, otherwise nil.
-   Reader failures intentionally mean remote input: ordinary language source
-   must reach the remote evaluator unchanged."
+(defn command-form
+  "Exactly one well-formed shell-command form, otherwise nil.  Reader failures
+   intentionally mean remote input: ordinary language source must reach the
+   remote evaluator unchanged."
   [input]
   (when (string? input)
     (try
       (let [forms (read-forms input)
-            form (when (= 1 (count forms)) (first forms))
-            head (when (seq? form) (first form))]
-        (when (symbol? head) head))
+            form (when (= 1 (count forms)) (first forms))]
+        (when (and (seq? form) (symbol? (first form))) form))
       (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))))
+
+
+(defn- command-head
+  "The head symbol of one well-formed shell-command form, otherwise nil."
+  [input]
+  (first (command-form input)))
 
 
 (defn local-command
