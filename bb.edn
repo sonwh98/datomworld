@@ -6,7 +6,16 @@
              :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile slice-peer test")}
   
   test:cljd {:doc "Run Dart tests (via clojure -M:cljd)"
-             :task (shell "clojure -M:cljd test")}
+             ;; Process B of the Phase 5 slice is a whole program rather than a
+             ;; test namespace, and this project's cljd.core carries the
+             ;; Flutter extensions, so only an ahead-of-time build is a peer
+             ;; the plain Dart VM can start.  It is compiled alone and first:
+             ;; the test build rewrites the same cljd-out tree, so a peer built
+             ;; after it would import a tree it does not match.
+             :task (do (shell "mkdir -p build")
+                       (shell "clojure -M:cljd compile dao.stream.v2.slice-peer")
+                       (shell "dart compile exe lib/cljd-out/dao/stream/v2/slice-peer.dart -o build/slice-peer")
+                       (shell "clojure -M:cljd test"))}
   
   test {:doc "Run all tests"
         :depends [test:clj test:cljs test:cljd]}}}

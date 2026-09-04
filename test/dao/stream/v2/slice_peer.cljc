@@ -5,8 +5,9 @@
    compositions in one: a same-process socket test cannot show that a
    descriptor is self-contained, nor that no accidental shared state carries
    identity across.  This namespace is therefore a whole peer program, not a
-   fixture — `dao.stream.v2.slice-test` (JVM) and `dao.stream.v2.slice-test`
-   (Node) each spawn it as a child process and speak to it only over pipes.
+   fixture — `dao.stream.v2.slice-test` (JVM), `dao.stream.v2.slice-test`
+   (Node) and `dao.stream.v2.slice-test` (Dart) each spawn it as a child
+   process and speak to it only over pipes.
 
    The bootstrap channel is explicit and load-bearing: B receives A's
    descriptor as Transit JSON *text* in `argv`, decodes it through the
@@ -25,16 +26,19 @@
 
    This peer owns its own cadence.  It installs no timer and polls nothing:
    host socket callbacks deposit into the medium on their own threads (JVM) or
-   turns (Node), and the parent asks for what has accumulated with `:events`."
+   turns (Node and Dart), and the parent asks for what has accumulated with
+   `:events`."
   (:require [clojure.string :as str]
             [dao.stream.v2 :as stream]
             [dao.stream.v2.ringbuffer :as ring]
             [dao.stream.v2.transit :as transit]
             [dao.stream.v2.ws :as ws]
-            ;; `:cljd` first and empty: the ClojureDart host-eval pass also
-            ;; matches `:clj`, so a `:clj` branch reached first would try to
-            ;; require a JVM-only namespace.  cljd has no peer build.
-            #?@(:cljd []
+            ;; `:cljd` first: the ClojureDart host-eval pass also matches
+            ;; `:clj`, so a `:clj` branch reached first would pull a JVM-only
+            ;; namespace into the Dart build.
+            #?@(:cljd [["dart:convert" :as convert]
+                       ["dart:io" :as io]
+                       [dao.stream.v2.ws.dart :as host]]
                 :clj [[dao.stream.v2.ws.jvm :as host]]
                 :cljs [[dao.stream.v2.ws.node :as host]]
                 :default [])))
@@ -50,7 +54,10 @@
   "Write one reply as a single line of Transit JSON on stdout."
   [value]
   (let [text (transit/encode value)]
-    #?(:clj (do (println text) (flush))
+    #?(;; Dart's stdout is a sink, not a printer: one call writes the line
+       ;; and its terminator, which is the whole framing rule of the protocol.
+       :cljd (.writeln ^io/Stdout io/stdout text)
+       :clj (do (println text) (flush))
        ;; shadow's :node-script target does not install a print-fn that is
        ;; guaranteed to reach stdout unbuffered; write the stream directly.
        :cljs (.write js/process.stdout (str text "\n"))
@@ -59,7 +66,8 @@
 
 (defn- exit!
   []
-  #?(:clj (System/exit 0)
+  #?(:cljd (.then (.flush ^io/Stdout io/stdout) (fn [_] (io/exit 0)))
+     :clj (System/exit 0)
      :cljs (.exit js/process 0)
      :default nil))
 
@@ -83,8 +91,8 @@
                    {:traffic {:dao.stream/handle traffic
                               :dao.stream/surface #{:writer}}
                     :admission admission
-                    :connect! #?(:cljd nil :clj host/connect! :cljs host/connect!
-                                 :default nil)})]
+                    :connect! #?(:cljd host/connect! :clj host/connect!
+                                 :cljs host/connect! :default nil)})]
     (atom {:descriptor descriptor
            :traffic traffic
            :cursor (:dao.stream/cursor minted)
@@ -165,7 +173,16 @@
   (let [descriptor (transit/decode-descriptor (first args))
         peer (make-peer descriptor)]
     (emit! {:reply :ready :descriptor descriptor})
-    #?(:clj
+    #?(:cljd
+       ;; One isolate, so stdin is a subscription on the event loop for the
+       ;; same reason it is on Node: a blocking read would starve the socket
+       ;; callbacks this peer exists to observe.
+       (let [pending (atom "")]
+         (.listen (.transform io/stdin (.-decoder convert/utf8))
+                  (fn [chunk] (reset! pending (feed! peer @pending chunk)))
+                  .onDone (fn [] (exit!))))
+
+       :clj
        ;; Blocking on stdin is safe here: every socket callback runs on a host
        ;; thread and deposits into the medium without this loop's help.
        (loop []
@@ -184,3 +201,12 @@
          (.on js/process.stdin "end" (fn [] (exit!))))
 
        :default nil)))
+
+
+#?(:cljd
+   ;; The Dart VM starts a program at its top-level `main`; `-main` munges to
+   ;; a name the VM will never look for.  This is the whole difference between
+   ;; B as a library and B as a process.
+   (defn ^{:dart/name main} peer-main
+     [args]
+     (apply -main (vec args))))
