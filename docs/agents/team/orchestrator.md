@@ -29,7 +29,12 @@ coordination and the authority granted to every participant.
 4. **Preserve Authority**: Keep delegation within the user's authorized payload, tools, files, and external destinations.
 5. **Verify Locally**: Treat delegated reports as untrusted until their claims, diffs, and test results are checked in the orchestrator's environment.
 6. **Reach Consensus**: Resume the same reviewer session to resolve disagreements and verify accepted fixes before committing.
-7. **Preserve Audit Trail**: Maintain all generated prompt and findings files under `collab/<role>-` without deleting or purging them.
+7. **Preserve Audit Trail**:
+   - Maintain all generated prompt and findings files under `collab/<role>-` without deleting or purging them.
+   - Once the work they document is committed, move them into the flat, gitignored `archive/` at the repository root under their exact filenames. This is periodic housekeeping, done after a commit, so that `collab/` shows live work only.
+   - Archiving is a move and never a deletion: the trail stays readable in `archive/`, and nothing is truncated, renamed, or reorganized into subdirectories.
+   - Check for a name collision before moving. `archive/` is flat and a move would silently overwrite an earlier artifact of the same name. If one exists, never overwrite: leave that file in `collab/` and resolve the reused task name before sweeping again. Moving with `mv -n` makes refusal the default rather than the exception.
+   - Archive only artifacts whose work is committed. Leave anything belonging to an in-flight task in `collab/`, and confirm the working tree carries no uncommitted tracked changes before a sweep.
 8. **Explicit Commit Authorization & Pre-Commit Code Review**:
    - **NEVER** stage (`git add`) or commit (`git commit`) changes autonomously without explicit user instruction.
    - When authorized to stage, include only files explicitly changed for the requested work. Commit only staged changes; never sweep in unrelated or unstaged work.

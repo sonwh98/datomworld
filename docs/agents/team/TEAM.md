@@ -100,7 +100,10 @@ and follow-up uses the exact captured value. Because the agent cannot know an
 ID assigned outside its turn, the orchestrator writes the promoted findings
 header with the captured ID. Never record `none` merely because
 plain-text output omitted session metadata. `collab/` is append-only, never
-staged/committed; never delete or truncate prompts/findings. On reassignment
+staged/committed; never delete or truncate prompts/findings. Artifacts of
+committed work are moved, never deleted, into the flat gitignored `archive/`;
+that lifecycle is owned by the role that commits, in
+[`orchestrator.md`](./orchestrator.md). On reassignment
 update status and append an implementer. Promote final responses to
 `.findings.md`; `.stdout.log` is only an intermediate capture. Non-trivial
 delegates maintain a concise heartbeat. Use actual timestamps; never fabricate
