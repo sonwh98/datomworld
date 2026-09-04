@@ -18,12 +18,21 @@
             [yang.clojure :as yang.clojure]
             [yang.php :as yang.php]
             [yang.python :as yang.python]
-            [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
+            [yin.vm.v2 :as vm]
+            [yin.vm.v2.ast-walker :as ast-walker]
+            [yin.vm.v2.module :as module]))
 
 
 (def output-capacity
   "Declared capacity of the composition-owned output medium, in elements."
+  4096)
+
+
+(def ingress-capacity
+  "Declared capacity of the VM-owned ingress medium, in elements.  The shell is
+   the only appender and its one step owner serializes evaluation, so eviction
+   can only follow a producer the composition does not make; a gap is therefore
+   fatal to the current evaluation rather than a normal operating condition."
   4096)
 
 
@@ -34,8 +43,8 @@
 
 
 (def vm-constructors
-  "One entry.  The remaining evaluators (`:semantic`, `:register`, `:stack`,
-   `:space`) follow in the VM plan, not here."
+  "One entry, on `yin.vm.v2`.  The remaining evaluators (`:semantic`,
+   `:register`, `:stack`, `:space`) follow in the VM plan, not here."
   {:ast-walker ast-walker/create-vm})
 
 
@@ -70,8 +79,8 @@
   "Telemetry is not part of the DaoStream v2 REPL slice; run yin.repl for it")
 
 
-(def datom-eval-text
-  "Datom-literal evaluation needs a VM-owned v2 ingress medium, which arrives with yin.vm.v2")
+(def ingress-loss-text
+  "One or more program batches were never ingested by the VM's ingress medium; (reset) is required before more evaluation")
 
 
 ;; =============================================================================
@@ -220,15 +229,40 @@
 ;; The VM
 ;; =============================================================================
 
-(defn make-vm
-  "Construct the shell's evaluator.
+(defn- make-ring-stream
+  "The `:make-stream` the shell hands the VM: one v2 ring buffer per call.  A
+   nil capacity is the VM's default, not an unbounded stream; v2 has no
+   unbounded mode."
+  [capacity]
+  (ring/create! {:dao.stream/type ring/transport-type
+                 ring/capacity-key (or capacity vm/default-stream-capacity)}))
 
-   The v2 slice runs the ast-walker with no VM-owned stream: `yin.vm.v2`, which
-   would give the VM a v2 ingress medium, does not exist in this tree, so datom
-   ingestion is reported as an unmet prerequisite rather than wired to v1."
+
+(defn- make-ingress-medium!
+  "The VM-owned v2 ingress medium `eval-datoms` appends program batches to."
+  []
+  (:dao.stream/handle
+    (ring/create! {:dao.stream/type ring/transport-type
+                   ring/capacity-key ingress-capacity})))
+
+
+(defn make-vm
+  "Construct the shell's evaluator on `yin.vm.v2`.
+
+   The shell is the composition that chooses the VM's transport: the
+   ast-walker is handed `:make-stream` bound to the v2 ring buffer, the v2
+   `stream` module registered in its registry, and its own v2 ingress medium
+   of `ingress-capacity` elements.  No telemetry stream is installed."
   [vm-type output-stream]
+  (when-not (contains? vm-constructors vm-type)
+    (throw (ex-info "Unknown Yin REPL VM type"
+                    {:vm-type vm-type
+                     :supported (vec (keys vm-constructors))})))
   ((get vm-constructors vm-type)
-   {:primitives (make-repl-primitives output-stream)}))
+   {:primitives (make-repl-primitives output-stream)
+    :modules (module/register-stream-module (module/default-registry))
+    :make-stream make-ring-stream
+    :in-stream (make-ingress-medium!)}))
 
 
 (defn create-state
@@ -243,6 +277,7 @@
       :output-stream output-stream
       :output-cursor output-cursor
       :ledger {:output :untried}
+      :ingress-loss? false
       :last-value nil
       :last-value-2 nil
       :last-value-3 nil
@@ -334,8 +369,46 @@
 
 (defn- eval-ast
   [state ast]
-  (let [state' (inject-last-value state)]
-    (finalize-eval state state' (vm/eval (:vm state') ast))))
+  (if (:ingress-loss? state)
+    [state (str "Error: " ingress-loss-text)]
+    (let [state' (inject-last-value state)]
+      (finalize-eval state state' (vm/eval (:vm state') ast)))))
+
+
+(defn- eval-datoms
+  "Evaluate one datom-literal program by appending it to the VM's v2 ingress
+   medium and running the VM, which ingests between batches.
+
+   A gap is fatal to the current evaluation: the batches the medium evicted
+   were never run, so resuming as though execution were complete would report
+   a result built on programs the VM never saw.  The loss is reported and the
+   shell refuses further evaluation until `(reset)`."
+  [state datoms]
+  (if (:ingress-loss? state)
+    [state (str "Error: " ingress-loss-text)]
+    (let [state' (inject-last-value state)
+          vm0 (:vm state')
+          append (stream/append! (:in-stream vm0) (vec datoms))]
+      (if-not (= :dao.stream/ok (:dao.stream/outcome append))
+        [state (str "Error: datom batch not ingested: "
+                    (name (:dao.stream/outcome append)))]
+        (let [gaps-before (:ingress-gaps vm0 0)
+              vm' (vm/run vm0)]
+          (cond
+            (> (:ingress-gaps vm' 0) gaps-before)
+            [(assoc state' :ingress-loss? true)
+             (str "Error: " ingress-loss-text)]
+
+            (vm/halted? vm')
+            (finalize-eval state state' vm')
+
+            :else
+            (throw
+              (ex-info
+                "Datom stream did not form a complete, runnable Yin VM program.
+Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+                {:root-id (:root-id (vm/index-datoms datoms))
+                 :datom-count (count datoms)}))))))))
 
 
 (defn- compile-clojure-forms
@@ -385,7 +458,8 @@
            (if (contains? vm-constructors vm-type)
              [(assoc state
                      :vm-type vm-type
-                     :vm (make-vm vm-type (:output-stream state)))
+                     :vm (make-vm vm-type (:output-stream state))
+                     :ingress-loss? false)
               (str "Switched to " (get vm-labels vm-type) " (store cleared)")]
              [state (str "Error: Unknown Yin REPL VM type " (pr-str vm-type)
                          "; supported: " (pr-str (vec (keys vm-constructors))))]))
@@ -395,7 +469,9 @@
                [state (str "Error: Unknown Yin REPL language " (pr-str lang)
                            "; supported: " (pr-str (vec (keys lang-labels))))]))
       compile [state (render-compile-output (compile-command-ast state (first args)))]
-      reset [(assoc state :vm (make-vm (:vm-type state) (:output-stream state)))
+      reset [(assoc state
+                    :vm (make-vm (:vm-type state) (:output-stream state))
+                    :ingress-loss? false)
              (str (get vm-labels (:vm-type state)) " reset")]
       help [state help-text]
       repl-state [state (format-value (repl-state state))]
@@ -411,7 +487,7 @@
           form (when (= 1 (count forms)) (first forms))]
       (cond
         (and form (command-form? form)) (handle-command state form)
-        (and form (datom-stream? form)) [state (str "Error: " datom-eval-text)]
+        (and form (datom-stream? form)) (eval-datoms state form)
         (and form (ast-map? form)) (eval-ast state form)
         forms (if (= :clojure (:lang state))
                 (eval-ast state (compile-clojure-forms forms))
@@ -447,13 +523,18 @@
   "A serializable summary of shell state.
 
    The stream summaries read the ledger rather than asking a handle whether it
-   is closed: v2 has no `closed?`, and an idle medium has no last operation."
+   is closed: v2 has no `closed?`, and an idle medium has no last operation.
+   The ingress medium is the VM's own, so the shell reports what it knows of
+   it — the declared capacity, the gaps the VM counted, and whether a loss has
+   already refused further evaluation."
   [state]
   {:lang (:lang state)
    :vm {:type (:vm-type state)
         :halted? (vm/halted? (:vm state))
         :blocked? (vm/blocked? (:vm state))
-        :in-stream :absent}
+        :in-stream {:capacity ingress-capacity
+                    :gaps (:ingress-gaps (:vm state) 0)
+                    :lost? (boolean (:ingress-loss? state))}}
    :running? (:running? state)
    :output {:cursor (:output-cursor state)
             :last-outcome (get-in state [:ledger :output] :untried)}

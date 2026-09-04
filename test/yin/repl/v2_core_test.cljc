@@ -34,8 +34,9 @@
     (is (true? (:running? state)))
     (is (= :untried (get-in state [:ledger :output]))
         "an idle medium has no last operation, so the ledger says so")
-    (is (nil? (:in-stream (:vm state)))
-        "the v1 ast-walker is constructed with no VM-owned stream")))
+    (is (some? (:in-stream (:vm state)))
+        "the v2 ast-walker owns its v2 ingress medium")
+    (is (false? (:ingress-loss? state)))))
 
 
 (deftest ordinary-source-evaluates-locally
@@ -112,12 +113,43 @@
       (is (str/includes? rendered ":ast-walker")))))
 
 
-(deftest datom-literal-evaluation-reports-its-prerequisite
-  (let [[state result] (core/eval-input (core/create-state)
-                                        "[[1 :a 1 0 true] [1 :b 2 0 true]]")]
-    (is (str/includes? result "yin.vm.v2"))
-    (is (true? (:running? state))
-        "an unavailable feature is reported, never thrown at the host")))
+(deftest datom-literal-evaluation-runs-on-the-v2-ingress-medium
+  (testing "a runnable datom program evaluates to its value, as in v1"
+    (let [[state result] (core/eval-input (core/create-state)
+                                          "[[-1 :yin/type :literal 0 1]
+                                            [-1 :yin/value 99 0 1]]")]
+      (is (= "99" result))
+      (is (= 99 (:last-value state)))))
+  (testing "a non-program datom stream is reported, never thrown at the host"
+    (let [[state result] (core/eval-input (core/create-state)
+                                          "[[1 :a 1 0 true] [1 :b 2 0 true]]")]
+      (is (str/starts-with? result "Error: "))
+      (is (true? (:running? state))))))
+
+
+(deftest an-ingress-gap-is-fatal-to-evaluation-until-reset
+  (let [state (core/create-state)
+        ingress (get-in state [:vm :in-stream])]
+    ;; Evict one batch the VM never sees: the shell is the only appender, so
+    ;; only a flood beyond the declared capacity can produce the gap.
+    (doseq [_ (range (inc core/ingress-capacity))]
+      (stream/append! ingress [[-1 :yin/type :literal 0 1] [-1 :yin/value 1 0 1]]))
+    (let [[state' result] (core/eval-input state
+                                           "[[-1 :yin/type :literal 0 1]
+                                             [-1 :yin/value 2 0 1]]")]
+      (is (str/starts-with? result "Error: ") "the loss is reported")
+      (is (str/includes? result "(reset)"))
+      (is (true? (:ingress-loss? state')))
+      (testing "further evaluation is refused rather than resumed as if complete"
+        (let [[_ refused] (core/eval-input state' "(+ 1 2)")]
+          (is (str/starts-with? refused "Error: "))))
+      (testing "commands still answer, and (reset) recovers the shell"
+        (let [[state'' message] (core/eval-input state' "(reset)")]
+          (is (= "ASTWalkerVM reset" message))
+          (is (false? (:ingress-loss? state'')))
+          (is (zero? (get-in (core/repl-state state'') [:vm :in-stream :gaps])))
+          (let [[_ recovered] (core/eval-input state'' "(+ 1 2)")]
+            (is (= "3" recovered))))))))
 
 
 (deftest unknown-commands-and-reader-failures-are-reported-not-thrown
