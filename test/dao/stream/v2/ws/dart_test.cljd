@@ -1,0 +1,114 @@
+(ns dao.stream.v2.ws.dart-test
+  (:require [clojure.test :refer [deftest is]]
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.ringbuffer :as ring]
+            [dao.stream.v2.transit :as transit]
+            [dao.stream.v2.ws :as ws]
+            [dao.stream.v2.ws.dart :as dart]
+            [yin.repl.v2.host :as host]))
+
+
+(def descriptor
+  {:dao.stream/type :dao.stream/ws
+   :dao.stream/identity "dart-host-test"
+   :ws/host "127.0.0.1"
+   :ws/port 9182
+   :ws/path "/repl"})
+
+
+(def admission
+  {:retention :evict-oldest :capacity 16 :value-domain :portable-values})
+
+
+(defn- buffer
+  []
+  (:dao.stream/handle
+    (ring/create! {:dao.stream/type :dao.stream/ringbuffer
+                   :dao.stream.ringbuffer/capacity 16})))
+
+
+(defn- values
+  [handle]
+  (loop [cursor (:dao.stream/cursor (stream/cursor handle stream/anchor-oldest))
+         seen []]
+    (let [result (stream/next handle cursor)]
+      (if (= :dao.stream/ok (:dao.stream/outcome result))
+        (recur (:dao.stream/cursor result)
+               (conj seen (:dao.stream/value result)))
+        seen))))
+
+
+(deftest production-factory-has-the-whole-host-seam
+  (let [host (dart/websocket)]
+    (is (= #{:connect! :bind! :unbind!} (set (keys host))))
+    (is (every? fn? (vals host)))
+    (is (= (set (keys host)) (set (keys (host/websocket)))))))
+
+
+(deftest canonical-request-targets-match-the-wire-contract
+  (is (= "/repl" (dart/canonical-path "/repl?a=1#ignored")))
+  (is (= "/a/" (dart/canonical-path "/a/b/..")))
+  (is (= "/a%2Fb" (dart/canonical-path "/a%2fb")))
+  (is (= "/A" (dart/canonical-path "/%41")))
+  (is (nil? (dart/canonical-path "relative")))
+  (is (nil? (dart/canonical-path "/bad/%"))))
+
+
+(deftest lifecycle-is-plain-deposit-data-and-post-close-is-closed
+  (let [traffic (buffer)
+        adapter-ref (atom nil)
+        closes (atom [])
+        attach! (ws/make-attacher
+                  {:traffic {:dao.stream/handle traffic
+                             :dao.stream/surface #{:writer}}
+                   :admission admission
+                   :connect! (fn [_ adapter]
+                               (reset! adapter-ref adapter)
+                               (dart/socket-view (fn [_] nil)
+                                                 (fn [code reason]
+                                                   (swap! closes conj [code reason]))))})
+        attached (attach! descriptor)
+        handle (:dao.stream/handle attached)
+        adapter @adapter-ref]
+    ((:message! adapter) (transit/encode {:ws/frame :ws/accept}))
+    ((:error! adapter))
+    ((:closed! adapter) 1006 "gone")
+    (is (= [[:ws/opened nil] [:ws/error :ws/socket-error] [:ws/closed nil]]
+           (mapv (juxt :ws/event :ws/reason) (values traffic))))
+    (is (= :dao.stream/closed
+           (:dao.stream/outcome (stream/append! handle :after-close))))
+    (is (= :dao.stream/ok (:dao.stream/outcome (stream/close! handle))))
+    ;; The completed host close made the later generic close idempotent.
+    (is (empty? @closes))))
+
+
+(deftest accepted-handle-owns-the-supplied-socket-close-operation
+  (let [control (buffer)
+        offer (buffer)
+        ack (buffer)
+        closes (atom [])
+        raw (dart/socket-view (fn [_] nil)
+                              (fn [code reason]
+                                (swap! closes conj [code reason])))
+        endpoint (ws/make-endpoint
+                   {:served {"/repl" descriptor}
+                    :control {:dao.stream/handle control
+                              :dao.stream/surface #{:writer}}
+                    :control-admission admission
+                    :slots [{:offer {:dao.stream/handle offer
+                                     :dao.stream/surface #{:writer}}
+                             :offer-admission (assoc admission
+                                                     :capacity 1
+                                                     :value-domain :host-values)
+                             :ack {:dao.stream/handle ack
+                                   :dao.stream/surface #{:writer}}
+                             :ack-admission (assoc admission
+                                                   :capacity 1
+                                                   :value-domain :host-values)
+                             :ack-cursor (:dao.stream/cursor
+                                          (stream/cursor ack stream/anchor-newest))}]})
+        accepted (ws/accept-connection! endpoint "/repl" raw 0)]
+    (is (= :ws/pending (:ws/status accepted)))
+    (is (= :dao.stream/ok
+           (:dao.stream/outcome (stream/close! (:ws/handle accepted)))))
+    (is (= [[1000 "dao.stream/detached"]] @closes))))

@@ -1,0 +1,294 @@
+(ns dao.stream.v2.ws.dart
+  "The dart:io host edge for the portable DaoStream v2 WebSocket boundary.
+
+   Host objects live only in this namespace.  Socket callbacks immediately
+   become calls to the transport adapter, whose only observable effect is a
+   plain-data deposit.  The returned `websocket` value is the complete host
+   seam consumed by `yin.repl.v2.connect` and `yin.repl.v2.serve`."
+  (:require ["dart:async" :as async]
+            ["dart:core" :as core]
+            ["dart:io" :as io]
+            [clojure.string :as str]
+            [dao.stream.v2.ws :as ws]))
+
+
+(def binary-message-text
+  "An invalid Transit text value used to route a binary frame through the
+   transport's ordinary decode-failure teardown."
+  (core/String.fromCharCode 0))
+
+
+(def ^:private unreserved
+  (set (concat (map core/String.fromCharCode
+                    (concat (range 48 58) (range 65 91) (range 97 123)))
+               ["-" "." "_" "~"])))
+
+
+(defn- normalize-percent-escapes
+  [s]
+  (let [n (count s)]
+    (loop [i 0 out []]
+      (if (>= i n)
+        (apply str out)
+        (if-not (= \% (nth s i))
+          (recur (inc i) (conj out (nth s i)))
+          (let [pair (when (<= (+ i 3) n) (subs s (inc i) (+ i 3)))]
+            (if-not (and pair (re-matches #"[0-9A-Fa-f]{2}" pair))
+              nil
+              (let [decoded (core/String.fromCharCode
+                              (core/int.parse pair .radix 16))]
+                (if (contains? unreserved decoded)
+                  (recur (+ i 3) (conj out decoded))
+                  (recur (+ i 3) (conj out "%" (str/upper-case pair))))))))))))
+
+
+(defn- remove-dot-segments
+  [segments]
+  (let [kept (reduce (fn [xs segment]
+                       (cond
+                         (= "." segment) xs
+                         (= ".." segment) (if (seq xs) (pop xs) xs)
+                         :else (conj xs segment)))
+                     [] segments)]
+    (if (contains? #{"." ".."} (last segments)) (conj kept "") kept)))
+
+
+(defn canonical-path
+  "Canonicalize a request target according to dao.stream.ws.md."
+  [target]
+  (when (string? target)
+    (let [without-fragment (first (str/split target #"#"))
+          without-query (first (str/split without-fragment #"\?"))
+          decoded (normalize-percent-escapes without-query)]
+      (when (some? decoded)
+        (cond
+          (= "" decoded) "/"
+          (str/starts-with? decoded "/")
+          (str "/" (str/join "/" (remove-dot-segments
+                                     (str/split (subs decoded 1) #"/" -1))))
+          :else nil)))))
+
+
+(defn socket-url
+  [descriptor]
+  (str "ws://" (:ws/host descriptor) ":" (:ws/port descriptor)
+       (:ws/path descriptor)))
+
+
+(defn socket-view
+  "Build the raw `{:send! :close!}` boundary from host operations.
+
+   Kept host-agnostic so focused CLJD tests can prove that accepted handles own
+   and invoke their socket close operation without manufacturing dart:io
+   objects."
+  [send! close!]
+  {:send! send! :close! close!})
+
+
+(defn- raw-socket
+  [socket]
+  (let [socket ^io/WebSocket socket]
+    (socket-view (fn [text] (.add socket text))
+                 (fn [code reason] (.close socket code reason)))))
+
+
+(defn- wire!
+  "Install the sole subscription on one dart:io WebSocket."
+  ([socket adapter] (wire! socket adapter nil))
+  ([socket adapter on-done]
+  (let [socket ^io/WebSocket socket]
+    (.listen socket
+             (fn [value]
+               ((:message! adapter)
+                (if (string? value) value binary-message-text)))
+             .onError (fn [_error] ((:error! adapter)))
+             .onDone (fn []
+                       ((:closed! adapter)
+                        (or (.-closeCode socket) 1006)
+                        (or (.-closeReason socket) ""))
+                       (when on-done (on-done)))))
+   socket))
+
+
+(defn connect!
+  "Begin a Dart WebSocket connection and synchronously return its raw view.
+
+   Dart creates the socket asynchronously, so the view closes over one private
+   boundary atom.  No message can be sent before the transport receives the
+   peer's accept frame; by then the socket has been installed."
+  [descriptor adapter]
+  (let [socket-ref (atom nil)
+        close-request (atom nil)
+        raw (socket-view
+              (fn [text]
+                (if-let [^io/WebSocket socket @socket-ref]
+                  (.add socket text)
+                  (throw (core/StateError. "WebSocket is not connected"))))
+              (fn [code reason]
+                (if-let [^io/WebSocket socket @socket-ref]
+                  (.close socket code reason)
+                  (reset! close-request [code reason]))))]
+    (-> (io/WebSocket.connect (socket-url descriptor)
+                              .protocols [ws/subprotocol])
+        (.then (fn [socket]
+                 (reset! socket-ref socket)
+                 (wire! socket adapter)
+                 (when-let [[code reason] @close-request]
+                   (.close ^io/WebSocket socket code reason))))
+        (.catchError (fn [_error]
+                       ;; Host errors are classified at the boundary; the
+                       ;; original error object never becomes stream data.
+                       ((:error! adapter))
+                       ((:closed! adapter) 1006 "dao.stream/connect-failed"))))
+    raw))
+
+
+(defn- now-ms
+  []
+  (.-millisecondsSinceEpoch (core/DateTime.now)))
+
+
+(defn- plain-error
+  [code message]
+  {:code code :message message})
+
+
+(defn- request-summary
+  [request]
+  (let [request ^io/HttpRequest request]
+    {:method (.-method request)
+     :path (str (.-uri request))}))
+
+
+(defn- reject-upgrade!
+  [request]
+  (let [response (.-response ^io/HttpRequest request)]
+    (set! (.-statusCode response) 400)
+    (.write response "dao.stream/subprotocol-required")
+    (.close response)))
+
+
+(defn- offered-subprotocol?
+  [request]
+  (let [header (.value (.-headers ^io/HttpRequest request)
+                       "sec-websocket-protocol")]
+    (boolean
+      (and header
+           (some #(= ws/subprotocol (str/trim %))
+                 (str/split header #","))))))
+
+
+(defn- handle-request!
+  [{:keys [accept! deposit!] :as config} request]
+  (let [request ^io/HttpRequest request
+        summary (request-summary request)]
+    (if-not (and (io/WebSocketTransformer.isUpgradeRequest request)
+                 (offered-subprotocol? request))
+      (do
+        (reject-upgrade! request)
+        (deposit! :upgrade-failed
+                  (assoc summary
+                         :code :yin.repl.v2.endpoint/subprotocol-required
+                         :message "the WebSocket upgrade did not offer the v2 subprotocol")))
+      (-> (io/WebSocketTransformer.upgrade
+            request .protocolSelector (fn [_protocols] ws/subprotocol))
+          (.then (fn [socket]
+                   (try
+                     (let [connections (:ws.dart/connections config)
+                           raw (raw-socket socket)
+                           path (or (canonical-path (str (.-uri request)))
+                                    (str (.-uri request)))
+                           accepted (accept! path raw (now-ms))]
+                       ;; A pending offer owns the accepted handle.  This is
+                       ;; the server-side socket-close wiring v1 omitted.
+                       (when-let [handle (:ws/handle accepted)]
+                         (swap! connections conj socket)
+                         (wire! socket (ws/adapter handle)
+                                #(swap! connections disj socket))))
+                     (catch Object _
+                       ;; If endpoint admission itself fails, no portable
+                       ;; handle exists to own teardown yet.
+                       (.close ^io/WebSocket socket 1011
+                               "dao.stream/upgrade-failed")
+                       (deposit! :upgrade-failed
+                                 (assoc summary
+                                        :code :yin.repl.v2.endpoint/upgrade-failed
+                                        :message "endpoint admission failed"))))))
+          (.catchError
+            (fn [_error]
+              (deposit! :upgrade-failed
+                        (assoc summary
+                               :code :yin.repl.v2.endpoint/upgrade-failed
+                               :message "the WebSocket upgrade failed"))))))))
+
+
+(defn bind!
+  "Begin binding one dart:io listener and return its explicit resource value."
+  [{:keys [bind-host bind-port deposit!] :as config}]
+  (let [server-ref (atom nil)
+        connections (atom #{})
+        config (assoc config :ws.dart/connections connections)
+        bind-future ^async/Future (io/HttpServer.bind bind-host bind-port)]
+    (-> bind-future
+        (.then (fn [server]
+                 (let [server ^io/HttpServer server]
+                   (reset! server-ref server)
+                   (.listen server
+                            (fn [request] (handle-request! config request))
+                            .onError
+                            (fn [_error]
+                              (deposit! :listener-error
+                                        (plain-error
+                                          :yin.repl.v2.endpoint/listener-error
+                                          "the host listener reported an error"))))
+                   (deposit! :bind-succeeded
+                             {:host (.-address (.-address server))
+                              :port (.-port server)}))))
+        (.catchError
+          (fn [_error]
+            (deposit! :bind-failed
+                      (plain-error :yin.repl.v2.endpoint/bind-failed
+                                   "the host listener failed to bind")))))
+    {:ws.dart/server server-ref
+     :ws.dart/bind bind-future
+     :ws.dart/connections connections}))
+
+
+(defn unbind!
+  "Release a listener; only the close Future's completion deposits stopped."
+  [resources deposit!]
+  ;; HttpServer.close does not own upgraded sockets.  The host boundary does,
+  ;; so pending connections that the portable serving driver has not adopted
+  ;; are explicitly released here; established sessions have already received
+  ;; their transport-owned close from the driver and this is idempotent.
+  (doseq [socket @(:ws.dart/connections resources)]
+    (try
+      (.close ^io/WebSocket socket 1000 "dao.stream/endpoint-stopped")
+      (catch Object _ nil)))
+  (if-let [^io/HttpServer server @(:ws.dart/server resources)]
+    (-> (.close server)
+        (.then (fn [_]
+                 (deposit! :stopped {:reason :yin.repl.v2.endpoint/stopped})))
+        (.catchError
+          (fn [_error]
+            (deposit! :listener-error
+                      (plain-error :yin.repl.v2.endpoint/unbind-failed
+                                   "the host listener failed to stop")))))
+    ;; A stop requested while bind is still pending is sequenced after bind.
+    (-> ^async/Future (:ws.dart/bind resources)
+        (.then (fn [server]
+                 (-> (.close ^io/HttpServer server)
+                     (.then (fn [_]
+                              (deposit! :stopped
+                                        {:reason :yin.repl.v2.endpoint/stopped}))))))
+        (.catchError
+          (fn [_error]
+            (deposit! :listener-error
+                      (plain-error :yin.repl.v2.endpoint/unbind-failed
+                                   "the host listener failed to stop")))))))
+
+
+(defn websocket
+  "Return the complete Dart host seam for the v2 Yin REPL."
+  []
+  {:connect! connect! :bind! bind! :unbind! unbind!})
