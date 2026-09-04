@@ -3,7 +3,7 @@
             :task (shell "clojure -M:test")}
   
   test:cljs {:doc "Run Node tests (via shadow-cljs with :cljs alias)"
-             :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile test")}
+             :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile slice-peer test")}
   
   test:cljd {:doc "Run Dart tests (via clojure -M:cljd)"
              :task (shell "clojure -M:cljd test")}
