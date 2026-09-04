@@ -1,7 +1,6 @@
 (ns yin.repl.v2.host
   "ClojureDart composition of the Yin REPL v2 host seam."
-  (:require [clojure.string :as str]
-            [dao.stream.v2.ws.dart :as dart]))
+  (:require [dao.stream.v2.ws.dart :as dart]))
 
 
 (def missing-code :yin.repl.v2.host/no-websocket-package)
@@ -9,10 +8,6 @@
 
 (def missing-text
   "no host WebSocket package is composed for this build")
-
-
-(def owed
-  {:cljd "dart:io WebSocket and HttpServer are composed by dao.stream.v2.ws.dart"})
 
 
 (defn adapter?
@@ -33,5 +28,4 @@
 
 (defn missing-message
   [what]
-  (str what ": " missing-text
-       " (" (str/join "; " (map (fn [[k v]] (str (name k) " owes " v)) owed)) ")"))
+  (str what ": " missing-text))

@@ -6,7 +6,8 @@
             [dao.stream.v2.ringbuffer :as ring]
             [dao.stream.v2.rpc :as rpc]
             [yin.repl.v2-adapter :as adapter]
-            [yin.repl.v2.driver :as driver]))
+            [yin.repl.v2.driver :as driver]
+            [yin.repl.v2.host :as host]))
 
 
 (defn- handle
@@ -176,14 +177,10 @@
                          "Not connected")))))
 
 
-(deftest connect-reports-the-unmet-host-prerequisite
+(deftest the-default-host-is-ready-for-a-real-connection
   (let [state (driver/create-state)]
-    (is (nil? (:host state)) "no host WebSocket package is composed in this tree")
-    (driver/submit-line! (:input state) "(connect \"daostream:ws://localhost:8080\")")
-    (let [stepped (driver/repl-step state 0)]
-      (is (nil? (:adapter stepped)))
-      (is (nil? (:connection stepped)))
-      (is (str/includes? (text-of stepped) "no host WebSocket package")))))
+    (is (host/adapter? (:host state)))
+    (is (host/binder? (:host state)))))
 
 
 (deftest connect-without-a-url-answers-with-its-usage

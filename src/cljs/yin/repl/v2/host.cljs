@@ -16,9 +16,6 @@
   "no host WebSocket package is composed for this build")
 
 
-(def owed {})
-
-
 (defn adapter?
   [x]
   (and (map? x) (fn? (:connect! x))))

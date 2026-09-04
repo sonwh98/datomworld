@@ -3,6 +3,7 @@
             [clojure.test :refer [deftest is testing]]
             [yin.repl.v2 :as repl]
             [yin.repl.v2.driver :as driver]
+            [yin.repl.v2.host :as host]
             [yin.repl.v2.serve :as serve]))
 
 
@@ -35,6 +36,7 @@
   (let [state (repl/boot (repl/parse-args []))]
     (is (some? (:input state)))
     (is (some? (:input-cursor state)))
+    (is (host/adapter? (:host state)))
     (is (true? (:running? state)))
     (is (empty? (repl/banner (repl/parse-args []))))
     (testing "the composition is drivable without any host loop"
@@ -43,9 +45,9 @@
         (is (= ["42"] (mapv :yin.repl.v2.driver/text entries)))))))
 
 
-(deftest port-composes-an-endpoint-that-reports-its-own-bind
+(deftest an-uncomposed-port-reports-the-missing-host
   (let [opts (repl/parse-args ["--port" "8080"])
-        server (repl/boot-server opts)]
+        server (serve/serve! {:bind-port 8080 :host nil})]
     (is (some? (:lifecycle server)) "serve! returns immediately with its medium")
     (is (= :failed (:status server)))
     (testing "and the ticker prints why, without a banner guessing at it"
@@ -78,7 +80,7 @@
 
 
 (deftest an-endpoint-that-never-bound-is-not-waited-on
-  (let [server (repl/boot-server (repl/parse-args ["--port" "8080"]))
+  (let [server (serve/serve! {:bind-port 8080 :host nil})
         [server' lines stopped?] (repl/stop-tick (serve/stop! server) 1)]
     (is (true? stopped?)
         "no host close completion can arrive for a listener that never bound")
