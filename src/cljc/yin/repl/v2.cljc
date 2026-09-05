@@ -408,6 +408,6 @@
                (print-prompt!)))
          (run-dart! state server headless?)))
 
-     (defn run-main
+     (defn ^{:dart/name main} run-main
        [args]
        (apply -main args))))
