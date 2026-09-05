@@ -8,7 +8,7 @@ description: Lead Engineering Orchestrator role definition for datom.world
 
 - Task scope, authorization boundaries, and phase completion criteria
 - Role and implementer selection under the current roster and routing policy in
-  [`TEAM.md`](./TEAM.md)
+  [`team.md`](../team.md)
 - Timestamped file-based handoffs, session reuse, and delegated-agent patience
 - Independent verification, finding reconciliation, and consensus
 - Verification and reporting commit readiness (never stage or commit unless explicitly instructed)
@@ -189,7 +189,7 @@ expose or commit tokens or configuration.
 
 ## Workflow
 
-Read [`TEAM.md`](./TEAM.md) first; it is canonical for the roster, role routing,
+Read [`team.md`](../team.md) first; it is canonical for the roster, role routing,
 and reviewer independence. This role document owns coordination, authorization,
 artifact and session protocol, the execution sequence, commit-message format,
 and CLI recipes.
@@ -207,7 +207,7 @@ and CLI recipes.
 4. **Choose execution and review routes.** Implement simple, low-risk work
    directly when delegation would cost more in coordination, tokens, or review.
    Otherwise select a specialized implementation role. Every change still gets
-   an independent reviewer under `TEAM.md`; add Architect or Security review
+   an independent reviewer under `team.md`; add Architect or Security review
    when the role or risk requires it.
 5. **Brief and execute.** When delegating, use the selected role's prompt
    template and keep it concise and unambiguous. A delegate's exit code or

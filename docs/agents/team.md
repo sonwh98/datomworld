@@ -7,13 +7,13 @@ description: Team roster, role routing, and reviewer-independence rules for dato
 Canonical guide for the shared roster, role routing, and reviewer independence.
 The Lead Engineering Orchestrator owns coordination, authorization, artifact and
 session protocol, verification, and operational CLI recipes in
-[`orchestrator.md`](./orchestrator.md).
+[`orchestrator.md`](./team/orchestrator.md).
 
 ## Roster
 
 The Orchestrator is deliberately absent from this table: it is not routed and has
 no primary or fallback, but is whichever coding agent the user starts and assigns
-the role to. See [`orchestrator.md`](./orchestrator.md).
+the role to. See [`orchestrator.md`](./team/orchestrator.md).
 
 | Role                | Primary            | Fallbacks                                                          | Responsibility                                               |
 |---------------------|--------------------|--------------------------------------------------------------------|--------------------------------------------------------------|
@@ -43,4 +43,4 @@ Routine review applies only when independent; architectural or security review
 is mandatory when the role or risk requires it.
 
 Operational routing constraints and all coordination procedures are defined by
-the [`Lead Engineering Orchestrator`](./orchestrator.md).
+the [`Lead Engineering Orchestrator`](./team/orchestrator.md).
