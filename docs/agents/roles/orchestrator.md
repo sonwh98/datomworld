@@ -280,7 +280,7 @@ Read first:
 - <relevant-source-and-test-files>
 
 Required workflow:
-- Follow `docs/agents/team/orchestrator.md#workflow` in order.
+- Follow `docs/agents/roles/orchestrator.md#workflow` in order.
 - Run <focused-test-command> and <lint-command> locally.
 
 Do not broaden scope, stage or commit without explicit user instruction, trust

@@ -8,7 +8,7 @@ Branch `dao.stream-redesign-v2`, HEAD `488b497` when written (2026-09-04).
 **Re-derive before acting** — the user commits to this branch directly, so HEAD
 moves without an orchestrator turn.
 
-Read [`orchestrator.md`](./agents/team/orchestrator.md) and
+Read [`orchestrator.md`](./agents/roles/orchestrator.md) and
 [`team.md`](./agents/team.md) first; this document does not restate them. It
 says where the work stands, what remains, and what will cost you time.
 
