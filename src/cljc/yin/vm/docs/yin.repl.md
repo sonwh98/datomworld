@@ -1,5 +1,8 @@
 # Yin REPL Usage Guide
 
+> [!NOTE]
+> A next-generation REPL (v2) has been implemented on `yin.vm.v2`. For details on the new capabilities and how to start the v2 REPL (e.g. `clj -M:clj-yin-repl-v2`), see [yin.repl.v2.md](yin.repl.v2.md).
+
 The Yin REPL can operate as both a local interactive shell and a WebSocket server, allowing remote connections for evaluation.
 
 ## Starting the REPL Server
