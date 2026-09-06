@@ -9,7 +9,8 @@ description: Lead Engineering Orchestrator role definition for datom.world
 - Task scope, authorization boundaries, and phase completion criteria
 - Role and implementer selection under the current roster and routing policy in
   [`team.md`](../team.md)
-- Timestamped file-based handoffs, session reuse, and delegated-agent patience
+- Timestamped file-based handoffs, the append-only work log, session reuse,
+  and delegated-agent patience
 - Independent verification, finding reconciliation, and consensus
 - Verification and reporting commit readiness (never stage or commit unless explicitly instructed)
 
@@ -178,6 +179,42 @@ it.
 | agy      | `~/.gemini/antigravity-cli`           | JSON `conversation_id`                | `--conversation <id>`                     |
 | cmd      | `~/.commandcode`                      | NDJSON `result.sessionId`             | `--resume <id>` or `--session <id|path>`  |
 
+## Work log
+
+[`docs/orchestrator-log.md`](../../orchestrator-log.md) is the seat's durable
+memory. Conversational context dies with its session; the log is what lets a
+different model, in a fresh session with no shared history, continue the work.
+The log has three entry kinds, no more: an entry per coherent unit (a
+delegated round, a fix, a review reconciliation, a readiness report), an
+unfinished-work entry when work stops before the next unit finishes, and a
+final handoff entry when the seat itself is passed on. It records completed
+and stopped units only; in-flight state lives in `collab/`, which entries
+reference by filename and session ID rather than duplicate.
+
+Start every entry with actual timestamps and identity fields (never fabricate
+them), then state what `git log` alone cannot re-derive:
+
+```text
+## <YYYY-MM-DD HH:MM:SS local-timezone-name> — <task name>
+Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Coding-Agent: <claude|codex|agy|glm|cmd|muse|deepseek|interactive>
+Session-ID: <exact Session-ID | not-applicable (interactive seat)>
+Tree: <branch>@<short-sha>, <committed | uncommitted changes: <files>>
+Done: <what changed and why, with paths>
+Decisions: <choices made, alternatives rejected, and their reasons>
+Verification: <exact commands with outcomes and assertion counts; name unrun checks>
+Delegates: <role/model, prompt and findings filenames, session IDs> | none
+Next: <the next coherent unit, open risks, blockers>
+```
+
+The log is append-only: never edit, reorder, or delete an earlier entry; a
+correction is a new entry that names what it corrects. When an entry names a
+`collab/` artifact, repeat its session ID so a successor can resume that
+session under the continuity rules above. The log may describe work that was
+never committed or has since been superseded: the tree is canonical, so a
+successor still re-derives state from `git log`, `git status`, and the real
+diff, and treats every log entry as a claim to verify rather than authority.
+
 ## Authorization and security
 
 Private repository content may be sent externally only with explicit user
@@ -199,8 +236,10 @@ and CLI recipes.
    those capabilities before accepting work. If a required capability is
    missing, report it and do not issue a blind sign-off.
 2. **Re-derive state and authority.** Read `git log`, `git status`, and the real
-   diff; snapshots and phase summaries may be stale. Bound the user's authorized
-   files, tools, payloads, and external destinations.
+   diff; snapshots and phase summaries may be stale. Read the tail of
+   [`docs/orchestrator-log.md`](../../orchestrator-log.md) for the previous
+   seat's record. Bound the user's authorized files, tools, payloads, and
+   external destinations.
 3. **Define the contract.** Express the task as tests or equally precise
    acceptance criteria, invariants, phase-completion criteria, and bounded file
    ownership.
@@ -224,7 +263,8 @@ and CLI recipes.
    reviewer to confirm the correction. Preserve every round.
 8. **Report readiness.** Report exact commands, assertion counts, reviewer
    sign-off, unrun checks, unreviewed changes, unresolved risks, and any tool or
-   hook noise. Do not let the summary outrun the evidence.
+   hook noise. Do not let the summary outrun the evidence. Append the unit's
+   entry to `docs/orchestrator-log.md` in the same terms.
 9. **Stage and commit only when explicitly authorized.** Stage only requested
    files and commit only the staged diff. Inspect that staged diff immediately
    before committing. If it differs from the reviewed diff, review the delta and
@@ -250,7 +290,8 @@ cannot collide.
 
 If the remaining budget cannot finish the next coherent unit, leave the tree
 readable and record incomplete work in the findings rather than leaving a
-half-applied edit.
+half-applied edit, and append the unfinished-work entry naming what remains
+so a successor can continue it.
 
 ## Orchestrator Seat Handoff Template
 
@@ -278,6 +319,7 @@ Read first:
 - <governing-design-file>
 - <current-phase-status>
 - <relevant-source-and-test-files>
+- `docs/orchestrator-log.md` (tail — the previous seat's running record)
 
 Required workflow:
 - Follow `docs/agents/roles/orchestrator.md#workflow` in order.
@@ -295,6 +337,8 @@ Session-ID: <exact initial Session-ID value, with provider-generated value promo
 
 Then report delegated roles/models, prompts and session IDs, verified findings,
 test outcomes, unresolved risks, and whether the phase is ready to commit.
+Append the final handoff entry to `docs/orchestrator-log.md` before
+responding.
 ```
 
 ## Review Invocation Reference
