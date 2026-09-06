@@ -35,6 +35,34 @@
              (get-in resumed [:store :cursor-0]))))))
 
 
+(deftest gap-wake-replaces-the-stored-cursor-with-the-recovery-cursor-test
+  (testing "A reader woken with :status :dao.stream/gap resumes from the
+            transport's recovery cursor, not from the cursor it lost ground
+            at"
+    (let [entry {:k :cont,
+                 :reason :next,
+                 :stream-id :stream-0,
+                 :cursor-ref {:type :cursor-ref, :id :cursor-0}}
+          task (adapter/vm-task entry restore)
+          rt {:store {:cursor-0 {:stream-id :stream-0, :cursor :lost}},
+              :blocked? true}
+          resumed ((:resume task)
+                   rt
+                   (assoc task
+                          :status :dao.stream/gap
+                          :value :dao.stream/gap
+                          :cursor :recovery)
+                   :dao.stream/gap)]
+      (is (false? (:blocked? resumed)))
+      (is (= {:k :cont, :value :dao.stream/gap} (:restored resumed))
+          "A gap is not terminal: the continuation resumes with the gap
+           value so the program can see what happened")
+      (is (= {:stream-id :stream-0, :cursor :recovery}
+             (get-in resumed [:store :cursor-0]))
+          "The stored cursor is replaced by the recovery cursor, so a
+           program that resumes after a gap resumes from the right place"))))
+
+
 (deftest writer-entries-keep-their-own-updates-test
   (testing "A writer has no cursor-ref, so its :store-updates are used as-is"
     (let [entry {:k :cont, :store-updates {:k1 :v1}}

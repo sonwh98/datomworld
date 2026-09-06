@@ -1,5 +1,50 @@
 (ns dao.runtime.v2
-  "Cooperative scheduler over DaoStream v2.
+  "Cooperative scheduler over DaoStream v2 — the scheduler slice, and
+   nothing else: a ready queue, a wait set, the two outcome classifiers, the
+   three operation handlers, and the loop. Its contract:
+
+   - **State is a value.** `{:ready-queue [] :wait-set [] :blocked? false}`
+     from `initial-state`. Every function takes that map and returns it, or
+     returns nil where \"no work\" is the answer. No atom, no `defonce`, no
+     host dependency; requires only `dao.stream.v2`. A composition that
+     needs the state to persist across host callbacks holds it; the runtime
+     does not.
+   - **A task is a map with `:resume`.** `(resume rt entry value)` returns
+     the next runtime state. Ready entries carry `:value`, `:status`, and
+     for a woken reader `:cursor`. Wait entries additionally carry `:reason`
+     (`:next` or `:put`), `:stream` (a live v2 handle), and either `:cursor`
+     or `:datom`. The runtime resolves nothing: the caller that parks a task
+     hands it the handle and cursor it will be polled with. Cursors are
+     opaque; no arithmetic on one, and the successor is stored exactly as
+     `next` returned it.
+   - **Classification is total.** `read-outcome->task` and
+     `write-outcome->task` map every outcome in the contract's closed sets
+     to `[:wait]` or `[:ready updates]`. Exactly two outcomes wait —
+     `blocked` for a reader and `full` for a writer — because they are the
+     only two that can change on their own. Every other outcome resolves
+     the task: `ok` with the value and successor, `end` as
+     `{:value nil :status :end}`, `gap` as `{:value :dao.stream/gap
+     :status :dao.stream/gap :cursor recovery}`, the terminal outcomes under
+     their own keyword, and a writer's `closed` as `:end`. An outcome
+     outside the closed set is terminal, not a wait: waiting on an answer
+     the runtime cannot interpret would spin.
+   - **The polling wait set is the mechanism.** `check-wait-set` polls each
+     parked entry against its transport — `next` for `:next`, `append!` for
+     `:put` — and moves resolved entries to the ready queue in wait-set
+     order. There is no other path: no transport is waitable, `append!`
+     returns no wake list, `close!` wakes nothing. A reader parked on a
+     stream that is then closed learns of it from its own next `next`.
+   - **A parked writer retries by appending.** A `:put` entry re-attempts
+     `append!` on every poll. The append is an effect of polling, and the
+     state a poll returns is the only record that the append happened — no
+     polled state is ever discarded.
+   - **The loop is a step.** `run-once` resumes one ready task — the head of
+     the ready queue, if it has `:resume` — and never polls. `run-loop`
+     drains the ready queue, then polls once; if the poll moved anything it
+     continues, else it returns. Entries without `:resume` are host-owned:
+     whenever the ready queue's head is one, the state that holds it is
+     returned, so the composition that put it on the queue is the one that
+     reads it off. Neither schedules itself; cadence belongs to the driver.
 
    Three things v1 had are gone here, and their absence is the point:
 
@@ -200,25 +245,38 @@
 ;; =============================================================================
 
 (defn run-once
-  "Fetch one ready task and resume it.
-   Returns updated state or nil if no work.
-   If the next entry has no :resume function, it is not runnable by
-   run-once; returns nil so the host can handle the entry itself."
+  "Pop and resume the head of the ready queue.
+   Returns the state the resume returned, or nil when the queue is empty or
+   its head has no :resume — a host-owned entry this namespace must not run,
+   and must not poll past. Never polls the wait set: check-wait-set is the
+   only function that polls."
   [rt]
-  (let [take-one (fn [state]
-                   (let [queue (or (:ready-queue state) [])]
-                     (when (seq queue)
-                       (let [entry (first queue)]
-                         (when (:resume entry)
-                           (let [[entry state'] (pop-ready state)]
-                             ((:resume entry) state' entry (:value entry))))))))]
-    (or (take-one rt) (take-one (check-wait-set rt)))))
+  (let [queue (or (:ready-queue rt) [])]
+    (when (seq queue)
+      (let [entry (first queue)]
+        (when (:resume entry)
+          (let [[_entry state'] (pop-ready rt)]
+            ((:resume entry) state' entry (:value entry))))))))
 
 
 (defn run-loop
-  "Drain ready tasks, then check wait-set, until quiescent."
+  "Drain the ready queue, then poll the wait set, until quiescent.
+
+   One round: run ready entries until one cannot run, then poll once. A poll
+   that moved anything from the wait set starts another round; a poll that
+   moved nothing ends the loop. When the ready queue's head is host-owned
+   (no :resume) the state that holds it is returned — the composition that
+   put it on the queue is the one that reads it off — and the poll's state
+   is returned with it, never discarded: a writer the poll resolved sits in
+   the returned ready queue behind the host-owned head, appended exactly
+   once."
   [rt]
   (loop [curr-rt rt]
-    (if-let [next-rt (run-once curr-rt)]
-      (recur next-rt)
-      curr-rt)))
+    (let [drained (loop [v curr-rt]
+                    (if-let [v' (run-once v)]
+                      (recur v')
+                      v))
+          polled (check-wait-set drained)]
+      (if (< (count (:wait-set polled)) (count (:wait-set drained)))
+        (recur polled)
+        polled))))

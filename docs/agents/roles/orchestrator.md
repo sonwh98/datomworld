@@ -328,6 +328,9 @@ Verified 2026-09-04 against `glm`, which ran headless with no PTY and again with
 Their `claude-code:unrecognized_model` startup warnings follow from that shared
 basis.
 
+> [!CAUTION]
+> **Never use the `--bare` flag with any CLI in these recipes.** The `--bare` flag forces Claude Code to ignore user settings files, which wipes its memory of the OAuth login token and causes it to fail with "Not logged in".
+
 ```sh
 # Claude
 claude --model <model> --session-id <uuid> --name <task> \
@@ -352,14 +355,14 @@ agy --conversation <id> --model <model> --effort <effort> \
 
 # GLM (Claude Code-based; keep -p last)
 GLM_MODEL=glm-5.3 ~/.local/bin/glm \
-  --session-id <uuid> --name <task> --bare \
+  --session-id <uuid> --name <task> \
   --permission-mode plan --allowed-tools Read \
   "Bash(git diff *)" "Bash(git status *)" \
   --output-format text -p "Read <prompt> and complete it now." > collab/<task>.glm-5.3.stdout.log
 
 # GLM follow-up: keep GLM_MODEL and the original UUID
 GLM_MODEL=glm-5.3 ~/.local/bin/glm \
-  --resume <uuid> --bare --permission-mode plan --allowed-tools Read \
+  --resume <uuid> --permission-mode plan --allowed-tools Read \
   "Bash(git diff *)" "Bash(git status *)" \
   --output-format text -p "Read <follow-up-prompt> and complete it now." > collab/<task>-r<n>.glm-5.3.stdout.log
 
@@ -375,14 +378,14 @@ codex exec resume <id> --json - \
 
 # Muse (Claude Code-based; keep -p last)
 MUSE_MODEL=muse-spark-1.3-contributor ~/.local/bin/muse \
-  --session-id <uuid> --name <task> --bare \
+  --session-id <uuid> --name <task> \
   --permission-mode plan --allowed-tools Read \
   "Bash(git diff *)" "Bash(git status *)" \
   --output-format text -p "Read <prompt> and complete it now." > collab/<task>.muse-spark-1.3-contributor.stdout.log
 
 # Muse follow-up: keep MUSE_MODEL and the original UUID
 MUSE_MODEL=muse-spark-1.3-contributor ~/.local/bin/muse \
-  --resume <uuid> --bare --permission-mode plan --allowed-tools Read \
+  --resume <uuid> --permission-mode plan --allowed-tools Read \
   "Bash(git diff *)" "Bash(git status *)" \
   --output-format text -p "Read <follow-up-prompt> and complete it now." > collab/<task>-r<n>.muse-spark-1.3-contributor.stdout.log
 
@@ -395,13 +398,13 @@ cmd --resume <id> -p -m <model> --plan --output-format json \
   < <follow-up-prompt> > collab/<task>-r<n>.<model>.stdout.log
 
 # DeepSeek (close stdin; quiet startup is normal)
-~/.local/bin/deepseek --bare --permission-mode plan --allowed-tools Read \
+~/.local/bin/deepseek --permission-mode plan --allowed-tools Read \
   "Bash(git diff *)" "Bash(git status *)" \
   --session-id <uuid> --name <task> --output-format text \
   -p "Read <prompt> and complete it now." < /dev/null
 
 # DeepSeek follow-up: close stdin and resume the original UUID
-~/.local/bin/deepseek --resume <uuid> --bare --permission-mode plan \
+~/.local/bin/deepseek --resume <uuid> --permission-mode plan \
   --allowed-tools Read "Bash(git diff *)" "Bash(git status *)" \
   --output-format text \
   -p "Read <follow-up-prompt> and complete it now." < /dev/null
