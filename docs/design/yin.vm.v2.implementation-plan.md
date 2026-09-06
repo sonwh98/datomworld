@@ -388,7 +388,7 @@ engine's handlers move:
 | Effect | v1 | v2 |
 |---|---|---|
 | `:stream/make` | `ds/open!` with a hardcoded `:ringbuffer` descriptor | the host's `:make-stream`, total over `ok`, `invalid-spec`, `not-found`, `transport-error` |
-| `:stream/put` | `ds/append!`, parks on `:full` | `append!`, total over `ok`, `full`, `invalid-value`, `closed`, `transport-error`; `full` **parks in the polling wait set**, which `runtime.cljc:114` already retries |
+| `:stream/put` | `ds/append!`, parks on `:full` | `append!`, total over `ok`, `full`, `invalid-value`, `closed`, `transport-error`; `full` **parks in the polling wait set**, which `dao.runtime.v2`'s `check-wait-set` retries by re-attempting the append on every poll |
 | `:stream/cursor` | fabricates `{:position 0}` | `cursor` with `:dao.stream/oldest`; adds `invalid-anchor`, `closed`, `transport-error` |
 | `:stream/next` | bare `:blocked`/`:end`/`:daostream/gap` | outcome map, total over the closed set |
 | `:stream/take` | `ds/drain-one!` | **removed** |
@@ -682,7 +682,7 @@ deliberately not mirrored *is* the register.
 
 ### V7 — Separate program observation from execution
 
-Status: approved, pending implementation. Implement the contract in
+Status: fully implemented (2026-09-06). Implements the contract in
 [Program observation and ownership](#program-observation-and-ownership).
 The migration work is:
 

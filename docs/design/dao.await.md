@@ -14,8 +14,8 @@ blocking stream API. The implementation reuses the existing pipeline:
 -> yin.vm/ast->datoms emits semantic datoms
 -> Yin VM executes semantic datoms
 -> Yin VM owns continuations and parks on stream effects
--> dao.runtime schedules resumable VM task maps
--> dao.stream provides readiness-based transport
+-> dao.runtime.v2 schedules resumable VM task maps
+-> dao.stream.v2 provides non-blocking, outcome-returning transport
 ```
 
 The name `go` is intentionally familiar to users who know `core.async`, but the
@@ -33,7 +33,7 @@ Structurally, `dao.await` is a *homomorphism* of `core.async`. It is a structure
 - **The Process:** `core.async/go` state machines map to Yin VM state maps
 - **The Read Operation:** Parking on a channel callback maps to Yin parking on a `:stream/next` effect
 - **The Write Operation:** Parking on a full channel maps to Yin parking on a `:stream/put` effect
-- **The Scheduler:** Host Thread Pool / Event Loop maps to the `dao.runtime` task queue
+- **The Scheduler:** Host Thread Pool / Event Loop maps to the `dao.runtime.v2` ready queue and its polling wait set
 
 Because the structure is preserved, developers gain the proven ergonomics of Communicating Sequential Processes (CSP) without violating the system invariant that **runtime state must be data**. While `core.async` compiles code into an opaque host-level state machine, `dao.await` compiles code into pure datoms interpreted by the Yin VM, leaving the entire execution state explicitly queryable and serializable.
 
@@ -41,9 +41,10 @@ Because the structure is preserved, developers gain the proven ergonomics of Com
 
 The implementation must preserve these boundaries:
 
-- `dao.stream` exposes readiness operations such as `next`, `put!`,
-  `drain-one!`, and `close!`.
-- `dao.runtime` schedules resumable task maps. It must remain unaware of
+- `dao.stream.v2` exposes non-blocking operations — `cursor`, `next`,
+  `append!`, `close!` — each returning an outcome from its closed set. There
+  is no `drain-one!` and no readiness query.
+- `dao.runtime.v2` schedules resumable task maps. It must remain unaware of
   continuations and must not gain await-specific control flow.
 - `yin.vm` interprets semantic datoms, owns continuations, and handles parking
   and resumption for stream effects.
@@ -54,11 +55,11 @@ The implementation must preserve these boundaries:
 The key invariant is:
 
 ```text
-dao.await/go targets Universal AST, not dao.runtime.
+dao.await/go targets Universal AST, not dao.runtime.v2.
 ```
 
 Any continuation produced by an await block is a Yin VM continuation. It is not
-a `dao.await` continuation and not a `dao.runtime` continuation.
+a `dao.await` continuation and not a `dao.runtime.v2` continuation.
 
 ## Public API
 
@@ -199,7 +200,8 @@ It should lower through the same semantics as existing stream cursor support:
 (await/cursor s)
 ```
 
-is equivalent to the existing stream cursor operation:
+is equivalent to the existing stream cursor operation, `cursor` on
+`dao.stream.v2`:
 
 ```clojure
 (stream/cursor s)
@@ -224,11 +226,15 @@ is equivalent to:
 (stream/next c)
 ```
 
+(`dao.stream.v2`'s read operation; `next` is also the operation a parked
+reader is polled with.)
+
 If the stream has a value at the cursor position, Yin returns that value and
-advances the cursor. If the stream is empty and open, Yin parks the current
-continuation using existing stream effect handling. When a later write satisfies
-the wait condition, the stream wakeup resumes the Yin task through
-`dao.runtime`.
+stores the successor cursor `next` returned. If the read returns `blocked`, Yin
+parks the current continuation using existing stream effect handling. Nothing
+wakes the parked task: it resumes when the next poll of `dao.runtime.v2`'s
+wait set returns a value for its cursor. A value written after the park is
+seen by that poll, not by a wakeup from the write.
 
 On stream end, v1 should preserve the existing Yin stream behavior. Do not
 invent a new end-of-stream contract in `dao.await`.
@@ -241,16 +247,19 @@ invent a new end-of-stream contract in `dao.await`.
 (await/>! out value)
 ```
 
-is equivalent to:
+is equivalent to the write operation of `dao.stream.v2`, `append!` — the
+Universal AST node stays `:stream/put`:
 
 ```clojure
-(stream/put out value)
+(stream/append! out value)
 ```
 
 If the stream accepts the value, the expression returns the written value under
-the existing stream effect behavior. If the stream is full, Yin parks the
-current continuation. When space becomes available, the parked Yin task resumes
-through `dao.runtime`.
+the existing stream effect behavior. If `append!` answers `full`, Yin parks the
+current continuation. Nothing wakes it: `dao.runtime.v2` re-attempts the append
+on every poll of the wait set, and the task resumes when a poll's append
+succeeds. Over the v2 ring buffer `append!` never answers `full`, so parking a
+writer is reachable only over a transport that rejects.
 
 ## Compilation Strategy
 
@@ -354,7 +363,7 @@ test helpers. Existing paths include:
 - `yin.vm/eval`, which compiles AST through `ast->datoms`.
 - VM-specific load-program functions in the AST walker, stack VM, register VM,
   and semantic VM.
-- `dao.runtime` task maps with a `:resume` function.
+- `dao.runtime.v2` task maps with a `:resume` function.
 
 V1 should choose the smallest integration that allows tests to drive an await
 program through an existing VM implementation. Avoid adding a global default VM
@@ -409,12 +418,19 @@ VM run.
 If a read is blocked or a write is full:
 
 - Yin parks the current continuation.
-- The park entry is wrapped as a `dao.runtime` task using the existing VM
+- The park entry is wrapped as a `dao.runtime.v2` task using the existing VM
   adapter path.
-- `dao.runtime` records the task in the wait set or registers a transport-local
-  waiter when the stream supports `IDaoStreamWaitable`.
-- Later stream writes, drains, or closes wake the task.
-- `dao.runtime` invokes the task's `:resume` function.
+- `dao.runtime.v2` records the task in the wait set. There are no
+  transport-local waiters: the polling wait set is the only mechanism.
+- Nothing wakes the task. Each poll resolves the entry against its transport —
+  `next` for a parked read, `append!` for a parked write — and a poll that
+  resolves it moves it to the ready queue. A stream that is written to,
+  drained, or closed wakes nothing: there are no drains, and `close!` returns
+  no wake list. A reader parked on a stream that is then closed learns of it
+  from its own next `next` answering `end`; a parked writer from `append!`
+  answering `closed`.
+- `dao.runtime.v2` invokes the task's `:resume` function with the polled
+  outcome.
 - The VM restores the Yin continuation and continues evaluating the await body.
 
 `dao.await` must not implement these steps itself. It relies on the existing
@@ -429,7 +445,7 @@ V1 must not include:
 - JVM-only `!!` operations as the primary behavior.
 - A new await interpreter with its own program counter, local environment, or
   continuation data structure.
-- A new `dao.runtime` continuation abstraction.
+- A new `dao.runtime.v2` continuation abstraction.
 - Implicit cursor creation or cursor reuse.
 - Cross-process migration or durable flow scheduling.
 
@@ -468,17 +484,20 @@ Test cases:
 - Prefilled input stream: `await/<!` returns the first value.
 - Output write: `await/>!` appends to the output stream.
 - Sequencing: a go body can read, transform, write, and return the final value.
-- Empty read: the VM blocks, then resumes after `ds/append!` writes a value.
-- Full write: the VM blocks, then resumes after `ds/drain-one!` frees space.
+- Empty read: the VM blocks, then resumes on the next wait-set poll after
+  `ds/append!` writes a value. The append itself wakes nothing.
+- Parked writer: over a reified handle scripted to answer `full` once and `ok`
+  thereafter, the VM blocks and the wait set's retry append resolves it. (The
+  v2 ring buffer never answers `full`, and there is no drain to free space.)
 - Closed stream behavior follows the existing `:stream/next` and `:stream/put`
   contracts without await-specific translation.
 
 ### Runtime Boundary Tests
 
-Verify that `dao.runtime` remains generic:
+Verify that `dao.runtime.v2` remains generic:
 
 - Runtime queue entries are ordinary task maps with `:resume`.
-- No await-specific continuation fields are required by `dao.runtime`.
+- No await-specific continuation fields are required by `dao.runtime.v2`.
 - Existing Yin VM scheduling tests continue to pass.
 
 ## Future Work
@@ -510,8 +529,9 @@ tested.
 4. Implement `await/go` as a thin wrapper around `yang.clojure` compilation and
    the existing Yin AST-to-datoms path.
 5. Drive await programs through an existing VM implementation in tests.
-6. Verify blocking read/write behavior through `dao.runtime` and ringbuffer
-   wakeups.
+6. Verify blocking read/write behavior through `dao.runtime.v2` and wait-set
+   polling: a parked task is resumed by the poll that resolves it, never by a
+   write, drain, or close.
 7. Run targeted tests:
 
 ```text

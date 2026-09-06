@@ -10,7 +10,9 @@ whose phase V2 created `dao.runtime.v2` as a dependency of the VM port. This
 plan takes over ownership of that namespace, states the contract the VM plan
 left implicit, and names the phases between "the scheduler exists" and
 "legacy `dao.runtime` is deleted". This document is transient: it is consumed
-as its phases complete. Drafted 2026-09-06.
+as its phases complete. Drafted 2026-09-06. R0 landed under the VM plan's V2;
+R1 and R2 are fully implemented; R3 is done 2026-09-06. R4 remains, gated on
+the v1 VM's deletion.
 
 ## The problem
 
@@ -211,9 +213,9 @@ Who requires legacy `dao.runtime` today, and what that means for deletion.
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `yin.vm.engine` (v1 VM)  | `src/cljc/yin/vm/engine.cljc:5`                                                                                                                | `yin.vm.v2` plan — its engine already requires `dao.runtime.v2`; the v1 engine is deleted with v1 `yin.vm`, not migrated |
 | `yin.vm.runtime-adapter` | `src/cljc/yin/vm/runtime_adapter.cljc:3`                                                                                                       | same: `yin.vm.v2.runtime-adapter` exists; the v1 adapter is deleted with the v1 VM                                       |
-| `dao.runtime.driver` ×3  | `src/{clj,cljs,cljd}/dao/runtime/driver.*`                                                                                                     | **this plan**, R2                                                                                                        |
+| `dao.runtime.driver` ×3  | `src/{clj,cljs,cljd}/dao/runtime/driver.*`                                                                                                     | **this plan**, R2 — done 2026-09-06; `dao.runtime.v2.driver` exists per host                                             |
 | tests                    | `test/dao/runtime_test.cljc`, `test/dao/runtime/driver_*`, `test/yin/vm/runtime_adapter_test.cljc`, `test/yin/vm/runtime_regression_test.cljc` | deleted with what they test, R4                                                                                          |
-| design prose             | `docs/design/dao.await.md` (lines 17, 36, 46, 357, 412-417)                                                                                    | **this plan**, R3                                                                                                        |
+| design prose             | `docs/design/dao.await.md`                                                                                                                     | **this plan**, R3 — done 2026-09-06; the prose names `dao.runtime.v2` and states the v2 rules                            |
 
 The v1 VM's own consumers, which gate the v1 VM's deletion and therefore
 gate R4, are not this plan's to migrate but are named so the gate is
@@ -245,6 +247,8 @@ description of what V2 would build.
   `check-wait-set` and `run-loop`.
 
 ## Phase R1 — Scheduler totality and the poll/ready split
+
+Status: fully implemented (2026-09-06).
 
 The scheduler as the contract above states it, with the one defect fixed and
 the totality made checkable.
@@ -284,6 +288,8 @@ Deliverable: `v2_test.cljc` green on clj, cljs and cljd with the new cases;
 
 ## Phase R2 — Host drivers (`dao.runtime.v2.driver`)
 
+Status: fully implemented (2026-09-06).
+
 One namespace name, three host files, as v1 has them:
 `src/clj/dao/runtime/v2/driver.clj`, `src/cljs/dao/runtime/v2/driver.cljs`,
 `src/cljd/dao/runtime/v2/driver.cljd`. Host isolation by file, so no
@@ -321,6 +327,8 @@ would be narrowing the deliverable by silence.
 
 ## Phase R3 — Design prose and stale references
 
+Status: fully implemented (2026-09-06).
+
 `docs/design/dao.await.md` describes the v1 scheduler: it says `dao.runtime`
 "records the task in the wait set or registers a transport-local waiter when
 the stream supports `IDaoStreamWaitable`" and that "stream writes, drains, or
@@ -332,6 +340,12 @@ built against the scheduler that will exist.
 
 `src/cljc/dao/stream.cljc:205,281` mention `dao.runtime`'s take in v1
 docstrings. They go with v1 `dao.stream` and are not edited here.
+
+R3 also brings the VM plan's scheduler prose with it: the port table's
+`:stream/put` row names `dao.runtime.v2`'s `check-wait-set` as what retries a
+parked writer, and the V7 section's status line now matches the header. The v1
+mechanism names in `yin.vm.streams-all-the-way-down.md` stay — that note is
+marked as written against v1 and read with the v2 contract in mind.
 
 ## Phase R4 — Deletion and the naming decision
 

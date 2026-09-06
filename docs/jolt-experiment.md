@@ -82,3 +82,55 @@ The heaviest batch (`tb-am`: yin.vm semantic/space/stack tests) needed ~11 CPU-m
 2. Add a `:jolt` branch supply of SHA-256 (pure Clojure or `jolt.ffi`) — that alone clears 230 errors.
 3. Re-evaluate after the transit and `pprint` shims land.
 4. Keep it out of `bb test` until (1)–(3) land; a `jolt smoke` task covering the loadable pure namespaces is the useful interim signal.
+
+## Is the port cost really "JVM interop behind dao.stream"?
+
+Claim under test: most of the porting problem is JVM interop, and datom.world isolates host dependencies behind a dao.stream abstraction, so only a small interop surface needs porting. Checked against the source tree on 2026-09-06.
+
+### Legacy `dao.stream` (v1)
+
+Half right. I/O host dependencies are behind v1's `open!` multimethod and `defopen` registry, with `#?(:clj … :cljs … :cljd …)` branches in every transport (file, log, udp, ws, http, transit, runtime driver). Only 10 files declare Java imports and 8 of them are dao.stream or dao.runtime. But most of the jolt failure taxonomy lands outside the stream layer:
+
+| Jolt error (count) | Source location | Behind dao.stream? |
+|---|---|---|
+| MessageDigest (230) | one call in `dao.jing`, already reader-conditional per host | No |
+| subseq on BTSet (129) | `dao.data.btree` implements `clojure.lang.Sorted` | No, jolt dispatch bug |
+| transit classes (60) | `dao.stream.transit`, `dao.stream.v2.transit` | Yes, but a Java library, not an interop line |
+| Double/isFinite (29) | `dao.postgraphics.math`, `validation`, `v2.transit`, demo scenes | Mostly no |
+| parallelSort (25) | `dao.data.arrays` | Already a host shim, one site |
+| RandomAccessFile (25) | `dao.stream.log` only | Yes |
+| DatagramSocket (13) | `dao.stream.udp` and `dao.jing.dht.node` | Half: dht.node duplicates the socket code |
+| LinkedBlockingQueue (3) | `dao.runtime.driver`, `dao.runtime.v2.driver` | Yes |
+| http-kit load failures | `dao.stream.http`, `world.server`, `ollama` | Yes, but a Java library |
+
+Two abstraction leaks: `dao.jing.dht.node` reimplements sockets instead of opening a udp stream, and `dao.jing.file` reaches into the log stream record's `:raf` field to fsync.
+
+### `dao.stream.v2`
+
+The claim holds much better against v2, which is already built as a pure portable core plus per-host edge files:
+
+- Core namespaces (`dao.stream.v2`, `apply`, `forward`, `ringbuffer`, `serving`, `rpc`, `rpc.ws`, `dao.runtime.v2`) contain no JDK interop; the only reader conditionals are `catch` clauses.
+- Host edges are separate files selected by extension: `ws/jvm.clj`, `ws/node.cljs`, `ws/dart.cljd`, `runtime/v2/driver.{clj,cljs,cljd}`, `transit/cljd.cljd`. `dao.stream.v2.ws` knows no WebSocket library and receives `:connect!`/`:send!`/`:close!` from the adapter.
+- The v2 plan removes the registry on purpose: no multimethod, no load-time side effect, dispatch is a host-owned map.
+- The cljs and cljd drivers (timers/microtasks instead of a queue) prove the blocking queue is swappable.
+
+The v2 jolt port surface is three files:
+
+| File | JVM dependency | Jolt errors it explains |
+|---|---|---|
+| `src/cljc/dao/stream/v2/transit.cljc` `:clj` branch | cognitect transit-clj, ByteArray streams, `Double/isFinite` | 60 |
+| `src/clj/dao/runtime/v2/driver.clj` | `LinkedBlockingQueue`, `TimeUnit` | 3 |
+| `src/clj/dao/stream/v2/ws/jvm.clj` | `java.net.http` client, http-kit, ring protocols | load failure |
+
+Because jolt reads `.clj` files and gives `:jolt` branches precedence over `:clj`, the port is a `:jolt` branch in `transit.cljc`, a `:jolt` (timer-based) branch in the driver, and a ws adapter for whatever socket library jolt provides. The transit branch has a ready donor: `src/cljd/dao/stream/v2/transit/cljd.cljd` is a pure tree-walking Transit JSON codec that touches only `dart:convert` and a few Dart types; lifted to `.cljc` it gives jolt a codec with no bytecode dependency.
+
+### What v2 does not cover
+
+The v2 plan explicitly defers file, UDP, log, relation and RPC transports and every consumer migration. `dao.jing`, `dao.jing.file`, `dao.jing.dht`, `dao.space` and `dao.runtime` (v1) still require legacy `dao.stream`, so the largest jolt error groups sit outside v2:
+
+- MessageDigest (230) is one call in `dao.jing`, unrelated to any stream version.
+- RandomAccessFile (25) is v1's log stream, which `dao.jing.file` also reaches into directly.
+- DatagramSocket (13) is v1's udp stream, duplicated inside `dao.jing.dht.node`.
+- parallelSort (25) and the BTSet `Sorted` dispatch (129) are `dao.data`, not stream.
+
+Accurate statement: v2 has already reduced the stream-layer port to roughly three small files, but the storage and content-addressing layers have not moved onto v2 and still carry their own interop. When file and log transports land in v2, the same host-edge layout absorbs RandomAccessFile and the dht socket code. SHA-256, parallelSort and isFinite need a separate host shim in the style of `dao.data.arrays`, since they are not stream concerns and will never sit behind any dao.stream.
