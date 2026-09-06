@@ -33,14 +33,25 @@
       (is (contains? (vm/store vm) vm/call-out-cursor-key))
       (is (not (contains? (vm/store vm) :yin/call-in-cursor))
           "call-in-cursor-key is dropped: v1 wrote it and nothing read it")
+      (is (nil? (:in-stream vm))
+          "program observation state left with V7: the VM holds no stream")
       (is (nil? (vm/control vm)))
       (is (nil? (vm/continuation vm)))))
-  (testing "Queued ingress is consumed on step"
-    (let [vm (-> (create-vm) (queue-ast! {:type :literal, :value 42}) (vm/step))]
-      (is (vm/halted? vm))
-      (is (= 42 (vm/value vm)))))
-  (testing "After run, continuation is nil and the pair survives"
-    (let [vm (-> (create-vm) (queue-ast! {:type :literal, :value 42}) (vm/run))]
+  (testing "An idle step is identity: queued input waits for the observer"
+    (let [session (-> (tu/make-observer-session)
+                      (queue-ast! {:type :literal, :value 42}))]
+      (is (= (:vm session) (vm/step (:vm session))))))
+  (testing "A loaded program executes one step"
+    (let [vm (ast-walker/vm-load-program
+               (:vm (tu/make-observer-session))
+               (vm/ast->datoms {:type :literal, :value 42}))
+          vm' (vm/step vm)]
+      (is (vm/halted? vm'))
+      (is (= 42 (vm/value vm')))))
+  (testing "After a session run, continuation is nil and the pair survives"
+    (let [vm (:vm (-> (tu/make-observer-session)
+                      (queue-ast! {:type :literal, :value 42})
+                      tu/run-session))]
       (is (nil? (vm/continuation vm)))
       (is (contains? (vm/store vm) vm/call-in-stream-key))
       (is (contains? (vm/store vm) vm/call-out-stream-key))
@@ -69,12 +80,15 @@
 
 
 (deftest literal-single-step-test
-  (testing "Literal evaluation completes in one step"
-    (let [vm (-> (create-vm) (queue-ast! {:type :literal, :value 42}) (vm/step))]
-      (is (= 42 (vm/value vm)))
-      (is (vm/halted? vm))
-      (is (nil? (vm/control vm)))
-      (is (nil? (vm/continuation vm))))))
+  (testing "A loaded literal completes in one step"
+    (let [vm (ast-walker/vm-load-program
+               (:vm (tu/make-observer-session))
+               (vm/ast->datoms {:type :literal, :value 42}))
+          vm' (vm/step vm)]
+      (is (= 42 (vm/value vm')))
+      (is (vm/halted? vm'))
+      (is (nil? (vm/control vm')))
+      (is (nil? (vm/continuation vm'))))))
 
 
 (defn- binop
@@ -280,29 +294,54 @@
 
 
 ;; =============================================================================
-;; Ingress
+;; Program observation, composed beside the VM
 ;; =============================================================================
 
 (deftest ingress-runs-successive-batches-test
   (testing "Two queued programs both run"
-    (let [vm (-> (create-vm)
-                 (queue-ast! {:type :literal, :value 1})
-                 (queue-ast! (binop '+ 2 3)))]
-      (is (= 5 (vm/value (vm/run vm)))))))
+    (let [session (-> (tu/make-observer-session)
+                      (queue-ast! {:type :literal, :value 1})
+                      (queue-ast! (binop '+ 2 3))
+                      tu/run-session)]
+      (is (= 5 (vm/value (:vm session)))))))
 
 
 (deftest ingress-across-a-gap-test
-  (testing "An evicted batch is counted and the next one still runs"
-    (let [in-stream (tu/new-stream 2)
-          vm (ast-walker/create-vm {:make-stream tu/make-stream,
-                                    :in-stream in-stream})]
+  (testing "An evicted batch is counted by the observer and the next one
+            still runs"
+    (let [session (tu/make-observer-session (create-vm) 2)]
       (doseq [ast [{:type :literal, :value 1} {:type :literal, :value 2}
                    {:type :literal, :value 3}]]
-        (stream/append! in-stream (vec (vm/ast->datoms ast))))
-      (let [result (vm/run (assoc vm :halted? false))]
-        (is (= 1 (:ingress-gaps result)))
-        (is (= 3 (vm/value result))
+        (queue-ast! session ast))
+      (let [session' (tu/run-session session)]
+        (is (= 1 (:ingress-gaps (:observer session'))))
+        (is (= 3 (vm/value (:vm session')))
             "Evaluation continues from the recovery cursor")))))
+
+
+(deftest direct-eval-does-not-drain-queued-program-input-test
+  (testing "eval runs its supplied program while malformed input sits queued"
+    (let [session (tu/make-observer-session)]
+      (stream/append! (:stream (:observer session)) [[1 :not/yin 1 0 true]])
+      (is (= 7 (vm/value (vm/eval (:vm session) {:type :literal, :value 7}))))
+      (is (throws? (fn [] (tu/run-session session)))
+          "Coordination still hands the queued batch to the loader, which
+              rejects it"))))
+
+
+(deftest obsolete-in-stream-option-is-rejected-test
+  (testing "A VM no longer accepts :in-stream, and says so before allocating
+            FFI streams"
+    (let [created (atom 0)
+          make (fn [capacity]
+                 (swap! created inc)
+                 (tu/make-stream capacity))]
+      (is (throws? (fn []
+                     (ast-walker/create-vm
+                       {:make-stream make,
+                        :in-stream (tu/new-stream 4)}))))
+      (is (zero? @created)
+          "The rejection precedes FFI resource allocation"))))
 
 
 ;; =============================================================================

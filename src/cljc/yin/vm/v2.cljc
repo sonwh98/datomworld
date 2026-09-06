@@ -11,6 +11,11 @@
      no default, because a default would smuggle the hardcoded transport back
      in: absent a supplied constructor, `:stream/make` is unsupported and says
      so.
+   - **Program observation lives outside the VM.** The program stream handle,
+     cursor, and gap count belong to `yin.vm.v2.stream-observer`; the VM never
+     polls a program stream and no longer accepts `:in-stream` at
+     construction. Language-level stream effects and FFI still operate their
+     own streams and cursors inside the VM.
    - **Cursors are opaque.** The VM's internal cursor representation is
      `{:stream-id id :cursor <opaque>}`. There is no position and no seek.
    - **Construction is all-or-nothing.** Creating the FFI pair and minting its
@@ -33,15 +38,17 @@
 
   (step
     [vm]
-    "Execute one step of the VM. Reads from :in-stream if idle.")
+    "Execute one step of already-loaded work. An idle VM is returned
+     unchanged; program input arrives through an attached stream observer.")
 
   (run
     [vm]
-    "Run VM until halted or blocked.")
+    "Run already-loaded work until halted or blocked.")
 
   (eval
     [vm ast]
-    "Compile and evaluate an AST.")
+    "Convert and evaluate a supplied AST. Does not drain any independently
+     queued program input; explicit observer coordination does that.")
 
   (reset
     [vm]
@@ -609,8 +616,12 @@
    matching v1's precedence, so a composition handing over streams directly is
    never silently overridden — else from `:make-stream`, else the store holds
    no pair at all. A VM with no pair is coherent: it still operates streams the
-   composition handed it, exactly as it runs today with `:in-stream nil`. What
-   it cannot do is make a `:dao.stream.apply/call`."
+   composition handed it. What it cannot do is make a
+   `:dao.stream.apply/call`.
+
+   This state holds no program-observation fields. The program stream handle,
+   cursor, and gap count belong to `yin.vm.v2.stream-observer`, which a host
+   composes beside the VM rather than inside it."
   ([] (empty-state {}))
   ([opts]
    (telemetry/reject-telemetry-opt! (:telemetry opts))

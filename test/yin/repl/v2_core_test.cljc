@@ -3,7 +3,8 @@
             [clojure.test :refer [deftest is testing]]
             [dao.stream.v2 :as stream]
             [dao.stream.v2.ringbuffer :as ring]
-            [yin.repl.v2.core :as core]))
+            [yin.repl.v2.core :as core]
+            [yin.vm.v2.stream-observer :as observer]))
 
 
 (defn- handle
@@ -34,8 +35,11 @@
     (is (true? (:running? state)))
     (is (= :untried (get-in state [:ledger :output]))
         "an idle medium has no last operation, so the ledger says so")
-    (is (some? (:in-stream (:vm state)))
-        "the v2 ast-walker owns its v2 ingress medium")
+    (is (some? (:program-stream state))
+        "the shell owns the program medium's writer handle")
+    (is (some? (:observer state))
+        "an observer is attached beside the VM, not inside it")
+    (is (zero? (:ingress-gaps (:observer state))))
     (is (false? (:ingress-loss? state)))))
 
 
@@ -81,13 +85,31 @@
     (is (str/includes? compiled "Datoms:"))))
 
 
-(deftest reset-rebuilds-the-vm
+(deftest reset-rebuilds-the-vm-and-its-attachment
   (let [[state _] (evaluate (core/create-state) ["(+ 1 2)"])
         [state' message] (core/eval-input state "(reset)")]
     (is (= "ASTWalkerVM reset" message))
     (is (not (identical? (:vm state) (:vm state'))))
+    (is (not (identical? (:program-stream state) (:program-stream state')))
+        "the program medium is rebuilt with the VM")
+    (is (not (identical? (:observer state) (:observer state')))
+        "the observer is reattached to the new medium")
+    (is (zero? (:ingress-gaps (:observer state'))))
     (is (identical? (:output-stream state) (:output-stream state'))
         "the output medium belongs to the composition, not to the VM")))
+
+
+(deftest the-program-medium-attaches-by-descriptor
+  (let [state (core/create-state)
+        writer (:program-stream state)
+        descriptor (:dao.stream/descriptor (stream/descriptor writer))
+        attach! (ring/make-attacher {(:dao.stream/identity descriptor) writer})
+        observer (observer/attach attach! descriptor)]
+    (stream/append! writer [[:batch]])
+    (let [observed (observer/observe-next observer)]
+      (is (= :ok (:status observed)))
+      (is (= [[:batch]] (:batch observed))
+          "the resolver maps the descriptor's identity to the owner handle"))))
 
 
 (deftest quit-stops-the-shell-without-touching-the-host
@@ -113,7 +135,7 @@
       (is (str/includes? rendered ":ast-walker")))))
 
 
-(deftest datom-literal-evaluation-runs-on-the-v2-ingress-medium
+(deftest datom-literal-evaluation-runs-through-the-program-medium
   (testing "a runnable datom program evaluates to its value, as in v1"
     (let [[state result] (core/eval-input (core/create-state)
                                           "[[-1 :yin/type :literal 0 1]
@@ -129,11 +151,12 @@
 
 (deftest an-ingress-gap-is-fatal-to-evaluation-until-reset
   (let [state (core/create-state)
-        ingress (get-in state [:vm :in-stream])]
-    ;; Evict one batch the VM never sees: the shell is the only appender, so
-    ;; only a flood beyond the declared capacity can produce the gap.
+        writer (:program-stream state)]
+    ;; Evict one batch the observer never sees: the shell is the only
+    ;; appender, so only a flood beyond the declared capacity can produce the
+    ;; gap.
     (doseq [_ (range (inc core/ingress-capacity))]
-      (stream/append! ingress [[-1 :yin/type :literal 0 1] [-1 :yin/value 1 0 1]]))
+      (stream/append! writer [[-1 :yin/type :literal 0 1] [-1 :yin/value 1 0 1]]))
     (let [[state' result] (core/eval-input state
                                            "[[-1 :yin/type :literal 0 1]
                                              [-1 :yin/value 2 0 1]]")]
@@ -149,7 +172,12 @@
           (is (false? (:ingress-loss? state'')))
           (is (zero? (get-in (core/repl-state state'') [:vm :in-stream :gaps])))
           (let [[_ recovered] (core/eval-input state'' "(+ 1 2)")]
-            (is (= "3" recovered))))))))
+            (is (= "3" recovered)))
+          (let [[_ datoms] (core/eval-input state''
+                                            "[[-1 :yin/type :literal 0 1]
+                                              [-1 :yin/value 8 0 1]]")]
+            (is (= "8" datoms)
+                "datom evaluation succeeds on the rebuilt attachment")))))))
 
 
 (deftest unknown-commands-and-reader-failures-are-reported-not-thrown

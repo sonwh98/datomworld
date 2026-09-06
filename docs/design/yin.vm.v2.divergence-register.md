@@ -1,14 +1,21 @@
 # yin.vm.v2 — the divergence register
 
 Status: deliverable of phase V6 of
-[`yin.vm.v2.implementation-plan.md`](./yin.vm.v2.implementation-plan.md).
-Subordinate to [`dao.stream.md`](./dao.stream.md) and
-[`datom.world.md`](./datom.world.md).
+[`yin.vm.v2.implementation-plan.md`](./yin.vm.v2.implementation-plan.md),
+amended by its phase V7. Subordinate to [`dao.stream.md`](./dao.stream.md)
+and [`datom.world.md`](./datom.world.md).
 
 Every place `yin.vm.v2` deliberately differs from `yin.vm`, with the reason.
 Saying which v1 behaviours are deliberately not mirrored *is* the register: a
 v2 suite that "covers the same programs" proves nothing unless the places it
 cannot cover are named.
+
+The sections below record the original V6 baseline except where a *V7* note
+amends them: V7 moved program observation out of the VM (see
+[Program observation](#program-observation)), obsoleted the `:in-stream`
+construction option, and decoupled direct `eval` from queued program input.
+Each such note states what changed after the baseline, not a second
+baseline.
 
 Scope is the ast-walker slice. `semantic`, `register`, `stack`, `space`,
 `macro` and `wasm` are not ported, so nothing here speaks for them.
@@ -87,8 +94,14 @@ VM, so v2 chooses `oldest` deliberately and
 
 **Three mints, not four.** `call-in-cursor-key` (`vm.cljc:542`) is dropped:
 nothing in `src` read it, and the bridge cursor already covers reading
-`call-in`. Four v1 tests asserted only its presence. The three mints are the
-call-out cursor, the ingress cursor, and the bridge cursor.
+`call-in`. Four v1 tests asserted only its presence. In the V6 baseline the
+three mints were the call-out cursor, the ingress cursor, and the bridge
+cursor.
+
+*V7:* the VM's mints are the call-out cursor (construction) and the bridge
+cursor (`ffi/attach`). The program cursor belongs to observer attachment and
+is minted inside `yin.vm.v2.stream-observer/attach`, which requires only
+`dao.stream.v2` rather than `vm/mint-oldest`.
 
 **Construction is all-or-nothing.** Creating the FFI pair and minting its
 cursors are stream operations with their own outcomes; any non-`ok` outcome
@@ -205,19 +218,53 @@ and `open-local-stream` (`vm.cljc:134-139`) — and those were the only reason
   nothing to mint against. `attach` runs where the store is visible — and on
   a built VM, so with no pair it errors exactly as construction does.
 
-## Ingress
+## Program observation
+
+v1 polled its `:in-stream` from inside the VM: `engine/run-on-stream` drove
+ingestion between evaluations, the VM carried `:in-stream`, `:in-cursor`, and
+`:ingress-gaps`, and `step` consumed a queued batch on an idle VM.
+
+*V7 moved this out of the VM.* `yin.vm.v2.stream-observer` owns the attached
+program handle, the program cursor, and the gap count; host composition
+attaches it through a unary capability and a portable descriptor, and drives
+it with `run-on-stream` over a `{:observer observer :vm vm}` session using the
+evaluator's own readiness predicate, loader, and runner. Three consequences
+are divergences in their own right:
+
+- **Observer-owned program cursors and gaps.** `ASTWalkerVM` has no
+  `:in-stream`, `:in-cursor`, or `:ingress-gaps` field, and no constructor
+  accepts `:in-stream`: the obsolete option is rejected before FFI resource
+  allocation rather than silently ignored. Walker `step` and `run` execute
+  already-loaded work only; an idle `step` is the identity under
+  `engine/ready-for-ingress?`.
+- **Direct `eval` is decoupled from queued program input.** v1's `eval`
+  drained the program stream as a side effect of `run`. v2's `eval` converts
+  its supplied AST, loads it, and runs it; independently queued batches reach
+  the VM only through explicit observer coordination. A program that used to
+  observe the queue as an evaluation side effect cannot be mirrored.
+- **Gap handling splits by owner.** The generic observer treats a `gap` as
+  recoverable: it commits the recovery cursor, counts the loss, and continues
+  with the next retained batch. Terminal read outcomes (`cursor-mismatch`,
+  `invalid-cursor`, `transport-error`) are errors naming their outcome. A
+  *host policy* may be stricter: the REPL shell reads the gap count around
+  each round, reports the loss, and refuses further evaluation until reset.
+  That latch is shell behaviour about evaluation completeness, not a second
+  observer semantics — an evicted batch is a program that never ran either
+  way.
+
+Capacity on the program medium is a correctness parameter, not a tuning knob:
+an evicted batch is a program that never ran. The medium is created and owned
+by the host composition; the VM requires none.
+
+### The V6 baseline record
 
 v1 threw on `:daostream/gap` at ingress, because its transport could not
 evict. Under an evict-oldest v2 transport a gap is reachable, and a lost batch
-is a program the VM never ingested.
-
-v2 **advances to the recovery cursor, counts the loss in `:ingress-gaps`, and
-continues** with the next retained batch. The alternative — pretending the
-stream was contiguous — hides a missing program. Terminal read outcomes
-(`cursor-mismatch`, `invalid-cursor`, `transport-error`) are still errors.
-
-Capacity on the ingress stream is a correctness parameter, not a tuning knob:
-an evicted batch is a program that never ran.
+is a program the VM never ingested. The V6 port therefore advanced to the
+recovery cursor, counted the loss in the VM's `:ingress-gaps`, and continued
+with the next retained batch, inside the VM. V7 kept that recovery rule
+unchanged and moved where it lives; nothing in the generic machinery recovers
+differently than the baseline described.
 
 ## Telemetry, precisely
 

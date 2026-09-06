@@ -1,15 +1,21 @@
 (ns yin.vm.v2.ast-walker
   "Direct AST interpreter for the Yin Abstract Machine on DaoStream v2.
 
-   The evaluator itself is v1's, unchanged: a CESK machine over raw AST maps
-   with a linked continuation, a ready queue and a wait set. What the port
-   changed lives below it — opaque cursors, outcome maps, a supplied stream
-   constructor, a registry value, and no waiters.
+   A CESK machine over raw AST maps with a linked continuation, a ready queue
+   and a wait set. `step` and `run` execute already-loaded work only: program
+   input is observed above the VM by `yin.vm.v2.stream-observer`, which hands
+   each batch to `vm-load-program` through `run-on-stream`. `eval` converts
+   its supplied AST, loads it, and runs it without draining any independently
+   queued program input. v1's evaluator was driven through its own
+   `:in-stream`; removing that coupling is what V7 changed, so this evaluator
+   is v1's kernel, not v1 unchanged.
 
-   The one deletion inside this namespace is v1's transport-local waiter
-   registration in `park-and-call`. An FFI call now places its continuation in
-   the polling wait set like every other blocked read, and the ordinary
-   scheduler wakes it when the response arrives on the call-out stream.
+   The port's other changes below the evaluator survive: opaque cursors,
+   outcome maps, a supplied stream constructor, a registry value, and no
+   waiters — the one deletion inside this namespace is v1's transport-local
+   waiter registration in `park-and-call`, whose continuation now parks in the
+   polling wait set like every other blocked read until the response arrives
+   on the call-out stream.
 
    There is no `macro-expand` branch here, exactly as in v1: this evaluator
    runs macro-free programs."
@@ -31,12 +37,9 @@
 (defrecord ASTWalkerVM
   [blocked?       ; boolean, true if blocked
    bridge         ; explicit host-side FFI bridge state
-   in-stream      ; ingress DaoStream carrying AST programs
-   in-cursor      ; opaque ingress cursor
-   ingress-gaps   ; count of program batches lost to eviction
    halted?        ; boolean, true when active continuation has completed
    k              ; reified continuation or nil
-   program        ; last ingested AST program
+   program        ; last loaded AST program
    control        ; current AST node or nil
    env            ; persistent lexical scope map
    id-counter     ; integer counter for unique IDs
@@ -64,9 +67,6 @@
   (let [blocked (:blocked? vm)]
     (->ASTWalkerVM blocked
                    (:bridge vm)
-                   (:in-stream vm)
-                   (:in-cursor vm)
-                   (:ingress-gaps vm)
                    (and (not blocked) (nil? control) (nil? k))
                    k
                    (:program vm)
@@ -711,8 +711,11 @@
   (engine/vm-value vm))
 
 
-(defn- vm-load-program
-  "Load one datom transaction into the VM."
+(defn vm-load-program
+  "Load one datom batch into the VM: the existing datom-to-AST conversion
+   plus the execution-field updates. This is the loader host composition
+   hands to `yin.vm.v2.stream-observer/run-on-stream` alongside
+   `engine/ready-for-ingress?` and the VM's runner."
   [^ASTWalkerVM vm datoms]
   (let [ast (vm/datoms->ast datoms)]
     (assoc vm
@@ -735,7 +738,9 @@
 
 
 (defn- ast-walker-run-scheduler
-  "Thin wrapper over engine/run-loop with vm-step (slow path)."
+  "The raw runner: already-loaded work only, through the shared scheduler
+   loop. `ffi/maybe-run` wraps this for bridge dispatch, and `vm/run` stops
+   here — no program stream is polled."
   [vm]
   (engine/run-loop vm
                    engine/active-continuation?
@@ -745,8 +750,11 @@
 
 
 (defn- vm-eval
-  "Evaluate an AST. Owns the step loop with scheduler.
-   When ast is non-nil, loads it first. When nil, resumes from current state."
+  "Evaluate an AST: convert it to datoms, load it, and run. When ast is
+   non-nil it is loaded first; when nil, the current state resumes. Either
+   way this is direct evaluation of supplied work: it does not observe or
+   drain any independently queued program input, which is the observer
+   composition's job."
   [^ASTWalkerVM vm ast]
   (let [initial-env (:env vm)
         res (if ast
@@ -757,23 +765,13 @@
     (engine/restore-initial-env initial-env res)))
 
 
-(defn- ast-walker-run-on-stream
-  [vm]
-  (engine/run-on-stream vm
-                        (:in-stream vm)
-                        vm-load-program
-                        vm-step
-                        resume-from-run-queue
-                        ast-walker-restore))
-
-
 (extend-type ASTWalkerVM
   vm/IVM
   (step [vm]
     (telemetry/emit-snapshot
-      (engine/step-on-stream vm (:in-stream vm) vm-load-program vm-step)
+      (if (engine/ready-for-ingress? vm) vm (vm-step vm))
       :step))
-  (run [vm] (ffi/maybe-run vm ast-walker-run-on-stream))
+  (run [vm] (ffi/maybe-run vm ast-walker-run-scheduler))
   (eval [vm ast] (vm-eval vm ast))
   (reset [vm] (vm-reset vm))
   (halted? [vm] (vm-halted? vm))
@@ -802,27 +800,30 @@
      :call-out      explicit outbound response handle
      :call-capacity capacity for a constructed FFI pair
      :bridge        host FFI handlers
-     :in-stream     ingress stream carrying program batches
 
-   Construction is all-or-nothing: creating the FFI pair and minting the three
-   cursors are stream operations, and any non-`ok` outcome fails here rather
-   than leaving a half-built VM."
+   There is no `:in-stream`: program observation belongs to
+   `yin.vm.v2.stream-observer`, and an obsolete `:in-stream` option is
+   rejected here, before any FFI resource is allocated.
+
+   Construction is all-or-nothing: creating the FFI pair and minting the
+   call-out cursor are stream operations, and any non-`ok` outcome fails here
+   rather than leaving a half-built VM. The bridge cursor is minted by
+   `ffi/attach` below; the program cursor belongs to observer attachment."
   ([] (create-vm {}))
   ([opts]
+   (when (contains? opts :in-stream)
+     (throw (ex-info
+              "Program observation moved to yin.vm.v2.stream-observer: a VM no longer accepts :in-stream"
+              {:in-stream (:in-stream opts)})))
    (let [env (or (:env opts) {})
          base (vm/empty-state
                 (assoc (select-keys opts
                                     [:primitives :modules :make-stream :call-in
                                      :call-out :call-capacity])
                        :telemetry (:telemetry opts)
-                       :vm-model :ast-walker))
-         in-stream (:in-stream opts)
-         in-cursor (when in-stream (vm/mint-oldest in-stream :in-stream))]
+                       :vm-model :ast-walker))]
      (-> (map->ASTWalkerVM (merge base
                                   {:bridge nil,
-                                   :in-stream in-stream,
-                                   :in-cursor in-cursor,
-                                   :ingress-gaps 0,
                                    :program nil,
                                    :control nil,
                                    :env env,

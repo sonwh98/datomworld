@@ -17,7 +17,11 @@
    - **`:stream/take` is gone.** Destructive read needs a reader position in
      the medium, which the contract retired.
    - **The module registry is a value** carried in VM state, so effect
-     dispatch and `resolve-var` read a supplied registry rather than a global."
+     dispatch and `resolve-var` read a supplied registry rather than a global.
+   - **Program observation is not engine work.** `ready-for-ingress?` lives
+     here because it speaks the scheduler's own vocabulary, but the program
+     handle, cursor, and gap count belong to `yin.vm.v2.stream-observer`;
+     nothing in this namespace polls a program stream."
   (:refer-clojure :exclude [gensym])
   (:require [clojure.set]
             [dao.datom :as datom]
@@ -26,7 +30,6 @@
             [yin.vm.v2 :as vm]
             [yin.vm.v2.module :as module]
             [yin.vm.v2.runtime-adapter :as adapter]
-            [yin.vm.v2.stream-driver :as stream-driver]
             [yin.vm.v2.telemetry :as telemetry]))
 
 
@@ -99,13 +102,24 @@
   (and (not (:blocked? vm)) (not (:halted? vm))))
 
 
-(def ready-for-ingress? stream-driver/ready-for-ingress?)
+(defn ready-for-ingress?
+  "Returns true when the VM is between evaluations and can accept another
+   program batch: not blocked, nothing scheduled or waiting, no active
+   continuation, and no loaded work.
 
-
-(def ingest-next-program stream-driver/ingest-next-program)
-
-
-(def step-on-stream stream-driver/step-on-stream)
+   This predicate gates observer coordination above the VM. The VM itself
+   never polls a program stream: `step` and `run` execute loaded work only."
+  [vm]
+  (let [has-bytecode? (contains? vm :bytecode)
+        bytecode (:bytecode vm)
+        no-bytecode? (and has-bytecode?
+                          (or (nil? bytecode)
+                              (and (sequential? bytecode) (empty? bytecode))))]
+    (and (not (:blocked? vm))
+         (empty? (or (:ready-queue vm) []))
+         (empty? (or (:wait-set vm) []))
+         (nil? (:k vm))
+         (or (:halted? vm) (nil? (:control vm)) no-bytecode?))))
 
 
 (defn make-woken-run-queue-entries
@@ -327,27 +341,6 @@
                       (recur resumed)
                       v)
             :else (if (:halted? v) (telemetry/emit-snapshot v :halt) v)))))
-
-
-(defn run-on-stream
-  "Run a VM while polling its ingress DaoStream between evaluations.
-   Internal VM blocking still returns immediately; ingress polling only
-   happens when the VM is idle between program batches."
-  [vm in-stream load-fn step-fn resume-fn restore-fn]
-  (loop [v vm]
-    (if (and in-stream (ready-for-ingress? v))
-      (let [{:keys [status state]} (ingest-next-program v in-stream load-fn)]
-        (case status
-          :ok (recur state)
-          ;; A gap loses a batch but not the stream: keep ingesting.
-          :gap (recur state)
-          state))
-      (if (ready-for-ingress? v)
-        v
-        (let [v' (run-loop v active-continuation? step-fn resume-fn restore-fn)]
-          (if (and in-stream (not (:blocked? v')) (ready-for-ingress? v'))
-            (recur v')
-            v'))))))
 
 
 (defn resume-from-run-queue

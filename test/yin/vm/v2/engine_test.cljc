@@ -196,6 +196,33 @@
 
 
 ;; =============================================================================
+;; Readiness gating for observer coordination
+;; =============================================================================
+
+(deftest ready-for-ingress-gates-program-input-test
+  (let [idle {:halted? true, :blocked? false, :ready-queue [], :wait-set []}]
+    (testing "An idle VM is ready for the next batch"
+      (is (engine/ready-for-ingress? idle)))
+    (testing "Not ready while blocked, scheduled, waiting, or mid-continuation"
+      (is (not (engine/ready-for-ingress? (assoc idle :blocked? true))))
+      (is (not (engine/ready-for-ingress? (assoc idle :ready-queue [:x]))))
+      (is (not (engine/ready-for-ingress? (assoc idle :wait-set [:x]))))
+      (is (not (engine/ready-for-ingress? (assoc idle :k {:type :frame})))))
+    (testing "Loaded work holds the VM until it halts or clears its control"
+      (is (not (engine/ready-for-ingress?
+                 (assoc idle :halted? false :control {:type :literal}))))
+      (is (engine/ready-for-ingress?
+            (assoc idle :halted? false :control nil))))
+    (testing "Empty bytecode does not hold a VM that has cleared its control"
+      (is (engine/ready-for-ingress? (assoc idle :bytecode []
+                                            :halted? false
+                                            :control :some-control)))
+      (is (not (engine/ready-for-ingress? (assoc idle :bytecode [:op]
+                                                 :halted? false
+                                                 :control :some-control)))))))
+
+
+;; =============================================================================
 ;; The polling wait set is the mechanism
 ;; =============================================================================
 

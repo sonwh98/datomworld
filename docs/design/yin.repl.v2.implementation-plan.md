@@ -59,8 +59,12 @@ built on v2 streams throughout, requiring no v1 namespace.
 
 What follows from it:
 
-- **Datom-literal evaluation works**, because the v2 VM's in-stream is a v2 ring
-  buffer the REPL can append to.
+- **Datom-literal evaluation works**, because the shell owns a v2 program ring
+  buffer and appends datom batches through its writer. Since the VM plan's V7,
+  the shell — not the VM — owns that medium: it composes the descriptor, the
+  unary attacher, and an attached `yin.vm.v2.stream-observer` beside the VM,
+  and datom evaluation drives `observer/run-on-stream`; the VM accepts no
+  `:in-stream` of its own.
 - **`(telemetry)` is out**, in every form. The VM plan ships a stub telemetry
   namespace — every `emit-snapshot` is already a no-op when no stream is
   installed — which defers the emit path's stream work and its classification
@@ -504,15 +508,27 @@ No socket, no wire, no RPC.
 - **The function-level inventory** of `yin/repl.cljc` first; then
   `yin.repl.v2.core` and `yin.repl.v2`.
 - `make-vm` constructs a `yin.vm.v2.ast-walker`, supplies `:make-stream` bound
-  to the v2 ring buffer, registers the v2 `stream` module, and hands it a v2
-  ingress ring buffer with a **declared capacity of 4096 elements**, so
-  `eval-datoms` appends to it. The REPL is the composition that chooses the VM's
-  transport; the VM requires none. Its one step owner prevents intentional
-  producer overrun. A `gap` nevertheless means one or more program batches were
-  never ingested and is fatal to the current evaluation: report the loss and
-  require `(reset)` before accepting more evaluation, rather than resuming as if
+  to the v2 ring buffer, and registers the v2 `stream` module. Per the VM
+  plan's V7 it hands the VM **no program stream**: instead the shell creates
+  the program ring buffer with a **declared capacity of 4096 elements**,
+  retains its writer handle, builds the resolver and unary attacher beside
+  that medium, attaches a `yin.vm.v2.stream-observer` through the composed
+  descriptor-only entry, and stores `:program-stream`, `:observer`, and `:vm`
+  separately in shell state. `eval-datoms` appends through the writer and
+  drives `run-on-stream` with `engine/ready-for-ingress?`,
+  `ast-walker/vm-load-program`, and the VM's runner; source and AST
+  evaluation use direct `eval`. Reset and `(vm …)` selection rebuild the
+  medium, descriptor, resolver, attacher, observer, and VM together, and the
+  attachment capability is bound once per medium lifetime. The REPL is the
+  composition that chooses the VM's transport; the VM requires none. Its one
+  step owner prevents intentional producer overrun. A `gap` nevertheless
+  means one or more program batches were never observed and is fatal to the
+  current evaluation: the observer recovers its cursor on its own, but the
+  shell reads the gap count around the round, reports the loss, and requires
+  `(reset)` before accepting more evaluation, rather than resuming as if
   execution were complete. No telemetry stream is installed and the
-  `(telemetry)` command is absent, per *The VM*. `vm-constructors` has one entry.
+  `(telemetry)` command is absent, per *The VM*. `vm-constructors` has one
+  entry.
 - The output stream is a v2 ring buffer with a **declared capacity of 4096
   elements**; its drain loop mints a cursor with `cursor` and advances by the
   successor `next` returns. A `gap` there prints an explicit loss notice and

@@ -1,20 +1,18 @@
 # Yin VM on DaoStream v2 — the ast-walker slice
 
-Status: implementation plan, subordinate to `dao.stream.md` (the contract) and
-`datom.world.md` (the axioms and invariants). Sibling of
-`dao.stream.v2.implementation-plan.md`, which owns the transport. Prerequisite
-of `yin.repl.v2.implementation-plan.md`, its first consumer.
+Status: V1–V6 describe the original port baseline; V7 is approved and awaiting
+implementation. Updated 2026-09-06. This plan is subordinate to
+[`dao.stream.md`](./dao.stream.md) and [`datom.world.md`](./datom.world.md).
+Its transport prerequisite is
+[`dao.stream.v2.implementation-plan.md`](./dao.stream.v2.implementation-plan.md);
+its first consumer is
+[`yin.repl.v2.implementation-plan.md`](./yin.repl.v2.implementation-plan.md).
 
-Revised after a five-model review of 2026-09-02
-(`collab/review-v2-plans-r2.*.stdout.log`), which found the first draft's
-central claim false: it asserted a closed dependency closure and "six v1
-idioms," having traced namespace *names* without checking whether the named code
-uses features v2 removed. It does, extensively. The census below replaces that
-claim and was produced by direct inspection.
-
-**Nothing existing is modified.** `yin.vm`, everything under `src/cljc/yin/vm/`,
-`dao.datom`, `dao.runtime`, `dao.stream.apply`, `yin.module` and their tests are
-untouched and keep their fifteen consumers.
+The target architecture below governs program observation. The current port
+still stores program-observation state in the AST walker and drives it through
+VM `step` and `run`; V7 moves that responsibility to the stream observer. The
+original port census and phases retain historical rationale, not a second
+ownership contract.
 
 ## Scope
 
@@ -41,17 +39,135 @@ REPL evaluates `def`, `defn`, `fn`, `if`, `let`, `do`, `quote`, arithmetic,
 streams, FFI and datom literals — **and throws on any `defmacro` or macro
 call**.
 
-So there are **five** user-visible changes, not one, and both plans state all
-five: the evaluator set shrinks and its default changes; user-defined macros
+The original port groups its main user-visible changes into five categories:
+the evaluator set shrinks and its default changes; user-defined macros
 stop evaluating; `stream/take!` is removed; programs relying on park-on-full
 backpressure behave differently **under a ring-buffer composition**, since that
 transport never returns `full` — the VM itself still parks when one does; and
-telemetry is absent (see *The census* and *Telemetry is a stub*).
+telemetry is absent (see *Original port census* and *Telemetry is a stub*).
 
-## The closure
+V7 adds a deliberate evaluation change: direct `eval` runs its supplied program
+without draining independently queued program input. It also removes the VM's
+`:in-stream` construction option; hosts attach an observer instead. These
+changes must be recorded alongside the original port divergences.
 
-Corrected. The first draft omitted the ring buffer and wrongly proposed reusing
-`yin.module`.
+## Program observation and ownership
+
+This section specifies the target after V7.
+
+| Owner | Responsibility |
+|---|---|
+| DaoStream medium | Retain values independently of observers and VMs, according to its transport policy |
+| Stream observer | Own the attached reader handle, program cursor, and gap count; observe program batches |
+| AST walker | Interpret supplied datoms and own evaluation, scheduler, and FFI state |
+| Host composition | Supply attachment capabilities and retain the observer/VM session; the REPL also owns its program writer |
+
+The observer owns observation of the program stream. Language-level stream
+effects and FFI still operate their own streams and cursors inside the VM;
+V7 separates program input only.
+
+### Attachment and observation
+
+The program stream exists independently of any evaluator. Host composition
+supplies a unary `attach!` capability and a portable DaoStream descriptor to
+`yin.vm.v2.stream-observer`; the observer calls `attach!`, validates the returned
+handle with `stream/reader?`, and mints its cursor directly with
+`(stream/cursor handle :dao.stream/oldest)`. It never creates, appends to, or
+closes the stream. Its complete initial state is
+`{:stream handle :cursor cursor :ingress-gaps 0}`.
+
+`attach` calls the supplied attachment capability exactly once and never falls
+back to stream creation. Non-`ok` attachment and cursor outcomes throw `ex-info`
+preserving the original `:dao.stream/outcome`. A handle without the reader
+surface is a host assembly error reported with the descriptor and the handle's
+declared surfaces, without inventing a DaoStream outcome.
+
+The observer requires only `dao.stream.v2`. Its implementation cannot depend on
+a ring-buffer, WebSocket adapter, resolver representation, transport key or
+state, or VM namespace. Transport-specific
+composition constructs the unary attacher outside this boundary, for example by
+partially applying a dispatch table or a transport resolver. Once composed, the
+per-stream attachment entry receives only the descriptor:
+
+```clojure
+(let [attach-observer (partial stream-observer/attach host-attach!)]
+  (attach-observer descriptor))
+```
+
+The observer exports exactly these three public functions:
+
+```clojure
+(attach attach! descriptor)                       ; observer state or throws
+(observe-next observer)                           ; observation outcome
+(run-on-stream session ready? load-program run-vm) ; updated session
+```
+
+`observe-next` calls `stream/next` with the retained handle and cursor. On
+`ok`, it returns the program batch and successor observer state; on `blocked`
+or `end`, it retains the cursor; on `gap`, it returns the recovery cursor and
+increments `:ingress-gaps`. Terminal or unexpected read outcomes throw with
+the original outcome preserved.
+
+A failed attachment never produces partial observer state. Cursor-construction
+failure and reset drop local attachment values without calling `close!`;
+attachment cleanup remains deferred.
+
+### Coordination and interpretation
+
+`run-on-stream` owns coordination, not interpretation. Its session is
+`{:observer observer :vm vm}`, retained by the host. It inspects no
+evaluator-specific fields. It reads only when `ready?` permits, passes an
+observed datom batch to the evaluator's existing program loader, and invokes
+the evaluator's existing runner. If the VM is not ready, it runs the VM first
+and observes only if execution becomes ready. `blocked` and `end` return the
+session; `gap` commits the recovery cursor and continues. If loading throws, no
+successor session is returned, so the caller retains the old observer cursor
+and the same malformed batch is retried. If execution suspends, return the
+session without reading another batch.
+
+Readiness, loading, and execution are function arguments, so the observer can
+drive semantic, register, stack, or other VM implementations without knowing
+their representation. Porting those additional evaluators is outside this
+slice.
+
+For the AST walker, host composition supplies `engine/ready-for-ingress?`,
+`ast-walker/vm-load-program`, and `vm/run`. The loader performs the existing
+datom-to-AST conversion and updates execution fields. Walker `step` and `run`
+execute already-loaded work without polling the program stream. An idle `step`
+returns the VM unchanged according to the existing readiness predicate.
+
+Direct `eval` keeps its AST-to-datoms conversion, loader, and runner. It no
+longer drains independent queued program input; explicit observer coordination
+does that. No `accept-datoms`, `ready-for-program?`, new VM protocol, or operation
+registry is introduced.
+
+### REPL composition
+
+For the current ring-buffer realization, the host creates the program medium,
+retains its writer/owner handle, and obtains `stream/descriptor`. It builds
+the resolver and unary attacher beside that medium, mapping descriptor identity
+to the owner handle on CLJ, CLJS, and CLJD. The observer receives the descriptor
+through the composed attachment entry; transport details stay in host code.
+
+REPL state stores `:program-stream`, `:observer`, and `:vm` separately.
+Datom literals append through the writer and invoke `run-on-stream`; source
+and AST evaluation use direct `eval`. Reset and VM selection rebuild the
+medium, descriptor, resolver, attacher, observer, and VM together. The host
+binds the attachment capability once per medium lifetime.
+
+Preserve the existing REPL loss policy: after observer coordination, an increase
+in the observer's gap count makes the current evaluation incomplete. The REPL
+reports the loss and refuses further evaluation until reset. This shell policy
+does not change the generic observer's recovery-and-continue rule. Gap counts
+come from observer state; the rendered state summary, output, and result
+history retain their existing shape and behavior.
+
+## Original port dependency closure
+
+The following table records the source closure inspected for the original
+port. Line counts and unqualified source references in the port rationale refer
+to that v1 inspection, not the current v2 implementation. The observer's target
+role is defined in *Program observation and ownership*.
 
 | v2 namespace | ported from | lines |
 |---|---|---|
@@ -61,7 +177,7 @@ Corrected. The first draft omitted the ring buffer and wrongly proposed reusing
 | `yin.vm.v2` | `yin.vm` | 554 |
 | `yin.vm.v2.telemetry` *(stub)* | `yin/vm/telemetry` | ~40 of 282 |
 | `yin.vm.v2.runtime-adapter` | `yin/vm/runtime_adapter` | 47 |
-| `yin.vm.v2.stream-driver` | `yin/vm/stream_driver` | 59 |
+| `yin.vm.v2.stream-observer` | `yin/vm/stream_driver` | 59 |
 | `yin.vm.v2.engine` | `yin/vm/engine` | 671 |
 | `yin.vm.v2.ffi` | `yin/vm/ffi` | 154 |
 | `yin.vm.v2.ast-walker` | `yin/vm/ast_walker` | 795 |
@@ -102,10 +218,10 @@ since they belong to the VM's vocabulary rather than to any transport. A
 composition that wires a VM supplies `:make-stream` and registers the module
 together, or Yin source reaches no streams.
 
-## The census
+## Original port census
 
-Verified by direct inspection across the ten ported namespaces. This is the
-work, and it is larger than a rename.
+The 2026-09-02 review established this census by inspecting the ten v1 source
+namespaces above. It records the migration work behind V1–V6.
 
 | idiom | sites | where |
 |---|---|---|
@@ -138,22 +254,23 @@ adding a branch at every append site.
 documents itself as "the universal fallback for transports that do not support
 local registration." Under v2 no transport is waitable, every `satisfies?` guard
 goes false, and the existing polling wait-set is the path taken. This is a
-deletion of an optimisation branch. Cadence comes from the driver above the VM,
-per the DaoStream contract's *The IO Model*.
+deletion of an optimisation branch. Cadence comes from the observer composition
+above the VM, per the DaoStream contract's *The IO Model*.
 
 **`:stream/take` is removed from the v2 `stream` module.** Destructive read is
 gone deliberately — "one reader's progress every other reader's data loss." v1's
 `take!` takes a stream ref, not a cursor, so a v2 `take!` would need an implicit
 per-stream reader position held somewhere — which is precisely the
 reader-position-in-the-medium the contract retired. Programs use `cursor` and
-`next!` instead. This is a removal, not a reinterpretation, and it is the fourth
-user-visible change. An above-the-stream queue interpreter with explicit consume
-accounting is the deferred way back, named here so it is not reinvented.
+`next!` instead. This is a deliberate removal. An above-the-stream queue
+interpreter with explicit consume accounting is the deferred way back, named
+here so it is not reinvented.
 
-**Every fabricated cursor is minted `:dao.stream/oldest` the moment the VM first
-holds its handle** — whether as a store entry, as the `:in-stream` field
-(`stream_driver.cljc:25`, `ast_walker.cljc:785`), or at a bridge attach
-(`ffi.cljc:31-32,96`, which can run on an already-built VM). `dao.stream.v2.apply`
+**Every fabricated cursor is minted `:dao.stream/oldest` when its owner first
+holds the corresponding handle.** The VM does this for handles in its store and
+at an FFI bridge attach (`ffi.cljc:31-32,96`, which can run on an already-built
+VM). The stream observer separately mints the program cursor after attaching to
+the descriptor; program observation state is not VM state. `dao.stream.v2.apply`
 has **no cursorless arities**, so `apply.cljc:170,184` lose their defaults
 rather than gaining a mint site. The fabricated-cursor sites are all semantically "absolute position
 zero", which equals `:dao.stream/oldest` on a fresh stream but diverges from
@@ -172,7 +289,7 @@ reads the answer.
 problem, and the surface-classification changes beside it, belong to the real
 emit path, which this slice does not build (see *Telemetry is a stub*).
 
-### The host supplies streams
+## The host supplies streams
 
 v1 hardcodes its transport. `handle-make` builds
 `{:dao.stream/type :ringbuffer, :mode :create, :capacity capacity}` and calls
@@ -180,6 +297,11 @@ v1 hardcodes its transport. `handle-make` builds
 the FFI pair (`vm.cljc:134-139`, with a direct
 `ringbuffer/make-ring-buffer-stream` on cljd). Those two sites are the *only*
 reason `vm.cljc:7-9` and `engine.cljc:7` require `dao.stream.ringbuffer` at all.
+
+Program observation and language-created streams use two distinct host
+capabilities. For an existing program stream, the host supplies its descriptor
+and an attachment capability as described above. For streams created by Yin
+effects or for the FFI pair, the host supplies a constructor.
 
 **In v2 the host supplies a stream constructor, exactly as it supplies `+`.**
 `vm/empty-state` already takes `:primitives` from its options
@@ -208,11 +330,11 @@ Three consequences:
 - **`:make-stream` has no default.** `:primitives` has one; this must not,
   because a default would smuggle the hardcoded transport and its require back
   in. Absent a supplied constructor, `:stream/make` is unsupported and says so —
-  a coherent VM that still operates streams the composition handed it, exactly
-  as it runs today with `:in-stream nil`. Silent fallback to a private transport
-  is the failure mode this rule exists to prevent.
+  a coherent VM can still evaluate programs and operate stream handles already
+  present in its store. Silent fallback to a private transport is the failure
+  mode this rule exists to prevent.
 
-**The FFI pair, precisely.** `empty-state` builds `call-in` and `call-out`
+**The FFI pair, precisely.** v1's `empty-state` builds `call-in` and `call-out`
 unconditionally (`vm.cljc:539-540`), and both are used without a guard —
 `park-and-call` appends to `call-in` (`ast_walker.cljc:121-152`) and
 `bridge-step` calls `next` on it (`ffi.cljc:95-99`). So "unsupported and says
@@ -229,8 +351,9 @@ so" needs a rule, or a `:dao.stream.apply/call` is a protocol call on nil:
   continuation in `:parked` and consumes an id-counter.
 - **Construction is all-or-nothing.** Creating the pair calls `:make-stream`,
   whose outcomes are `ok`, `invalid-spec`, `not-found`, `transport-error`;
-  minting the call-out cursor, the in-cursor (`ast_walker.cljc:786`) and the
-  bridge cursor each call `cursor`, which adds `closed` and `transport-error`.
+  minting the call-out and bridge cursors calls `cursor`, which adds `closed`
+  and `transport-error`. The program cursor belongs to observer attachment and
+  is not part of VM construction.
   Any non-`ok` outcome **fails construction** with an error carrying it. A VM
   cannot be half-built.
 - **The bridge cursor moves.** `ffi/normalize` (`ffi.cljc:28-36`) fabricates
@@ -241,8 +364,9 @@ so" needs a rule, or a `:dao.stream.apply/call` is a protocol call on nil:
   mint against and errors exactly as construction does.
 - **`call-in-cursor-key` is dropped.** `vm.cljc:542` writes it and nothing in
   `src` reads it — four v1 tests assert only its presence — and the bridge
-  cursor already covers reading `call-in`. So the mints are three, not four,
-  and the store loses a key that was never observed.
+  cursor already covers reading `call-in`. After V7, the VM/FFI path has two
+  mint sites: call-out and bridge. The program observer owns its separate mint
+  site during attachment. The store loses a key that was never observed.
 
 `open-local-stream`'s cljd branch goes with the require.
 
@@ -281,7 +405,7 @@ names a transport, so it must handle every outcome the contract defines —
 including `full`, which a bounded transport a composition supplies will return.
 What a *given* composition observes follows from the transport it chose.
 
-### Telemetry is a stub
+## Telemetry is a stub
 
 `emit-snapshot` short-circuits on `(if-not (enabled? state) state …)`, and
 `enabled?` is `(boolean (get-in state [:telemetry :stream]))`
@@ -320,7 +444,7 @@ it is needed to prove the VM runs on v2 streams.
 The real emit path is a later phase against the same v2 contract, and its
 absence changes no evaluation result.
 
-### The retention divergence, and a request to the sibling plan
+## The retention divergence
 
 **v1 VM streams are reject-mode.** `ringbuffer.cljc:21` sets
 `default-eviction-policy :reject`; `engine.cljc:137` passes no policy, so
@@ -329,8 +453,8 @@ absence changes no evaluation result.
 The sibling plan's v2 ring buffer is evict-oldest with `append!` never returning
 `full` (stream v2 plan, *Phase 2 — Ring buffer reference*).
 
-Ported as-is, puts never park, slow readers get gaps instead, and Phase V5's
-"same results as v1" is false for any program that relies on backpressure. The
+Ported as-is, puts never park and slow readers get gaps instead, so parity
+cannot cover programs that rely on backpressure. The
 v1 FFI pair is worse: it is *unbounded* (`vm.cljc:139`, `apply.cljc:35-36`), and
 v2 has no unbounded mode, so eviction there silently loses host calls.
 
@@ -359,12 +483,13 @@ flow control above the stream — the same place the sibling plan sends them.
 
 **Two capacity decisions, on the right streams.** The first draft named the
 wrong one. `open-local-stream` (`vm.cljc:134-139`) creates the **FFI call-in and
-call-out pair**, not the in-stream; the in-stream is caller-supplied
-(`ast_walker.cljc:782`, `repl.cljc:160-166`). Both need declared capacities and
-both are correctness parameters: an evicted FFI response leaves `park-and-call`
-(`ast_walker.cljc:144`) parked forever, and an evicted in-stream batch is a
-program the VM never ingested. Each phase that creates a stream states its
-capacity and what eviction means there.
+call-out pair**, not the program stream. The program stream is owned outside the
+VM and may already exist before this composition attaches; the current REPL
+realization creates and owns one. Both stream roles need declared capacities and
+both are correctness parameters: an evicted FFI response leaves
+`park-and-call` (`ast_walker.cljc:144`) parked forever, and an evicted program
+batch appears to the observer as a gap. Each composition that creates a stream
+states its capacity and what eviction means there.
 
 **`append!` reports no backpressure on the ring buffer specifically.** That
 transport evicts oldest and never returns `full`, so under a ring-buffer
@@ -408,16 +533,22 @@ separate VM capability, not something this RPC state machine pretends to add.
 
 ## Prerequisites
 
-From `dao.stream.v2.implementation-plan.md`: **Phase 1 completed** — protocols,
-result convention, conformance harness — which is all `yin.vm.v2` itself
-requires. **Phase 2, the ring buffer**, is needed by this plan's *tests and
-compositions*, which must supply a `:make-stream`, but not by the VM namespaces.
-Nothing else: no Phase 3, no Phase 4, no gates.
+The original port required Phase 1 of `dao.stream.v2.implementation-plan.md` —
+protocols, result convention, and conformance harness. Its tests and concrete
+compositions additionally required Phase 2's ring buffer, although VM
+namespaces did not. Those prerequisites are now present.
 
-Neither exists yet (`src/cljc/dao/stream/v2*` is absent), so **that is the first
-blocker for this plan and for the REPL's**.
+V7 additionally requires the DaoStream descriptor, attachment, surface
+inspection, cursor, and `next` operations. The generic observer still requires
+only `dao.stream.v2`; a ring buffer is needed only by the current REPL
+realization and transport-specific tests.
 
-## Phases
+## Implementation phases
+
+V1–V6 retain the original port sequence and its acceptance criteria. V7 is the
+pending migration to the target ownership boundary. Historical descriptions of
+VM-owned program input below explain the starting point; new implementations
+follow *Program observation and ownership*.
 
 **V1 — Envelope, RPC core, and module.** `dao.stream.v2.apply` per above.
 **Dependency check**: it takes handles and requires only `dao.stream.v2`, never
@@ -497,19 +628,22 @@ retired, and the wait set made cursor-opaque. It is not a leaf and does not
 belong in a first phase. Deliverable: park and wake against a v2 ring buffer,
 with the polling wait set as the only mechanism.
 
-**V3 — VM kernel.** `yin.vm.v2`, including `:make-stream` as a construction
-option and the FFI pair created through it when no explicit
+**V3 — VM kernel (original port).** `yin.vm.v2`, including `:make-stream` as a
+construction option and the FFI pair created through it when no explicit
 `:call-in`/`:call-out` pair is supplied, with a declared capacity —
 the once-only state machine bounds outstanding requests to one per parked call
 and already-read responses are harmlessly evictable, so the rule is **capacity
 at least maximum-outstanding plus one, and a `gap` at the bridge cursor is
 fatal, not resumable** —
-the stub `yin.vm.v2.telemetry`, and `yin.vm.v2.stream-driver`. Deliverable:
-ingesting a program batch across a `gap`, and a VM that runs with telemetry
-disabled on every host.
+the stub `yin.vm.v2.telemetry`, and the original ingress helper, now named
+`yin.vm.v2.stream-observer`. In that baseline, the VM retained the program
+stream and cursor. The observer owns them in the V7 target; the VM continues
+to run with telemetry disabled on every host.
 
-**V4 — Engine and FFI.** `yin.vm.v2.engine` with its ingress guard preserved
-(`engine.cljc:310`) and module-based effect dispatch reading the registry value;
+**V4 — Engine and FFI.** The original port preserved the ingress readiness
+guard (`engine.cljc:310`) and engine-driven program ingestion. V7 moves program
+coordination to the observer and places the readiness predicate in the engine.
+Module-based effect dispatch reads the registry value;
 `yin.vm.v2.ffi` with an explicit once-only state machine — retain the unsent
 request before parking, retain the computed response and its successor cursor
 until the append succeeds, classify every terminal outcome. Deliverable: a host
@@ -526,9 +660,10 @@ condition governs namespaces under `yin.vm.v2` and `dao.*.v2`, not test
 namespaces. The repo already co-loads five VMs in one process
 (`parity_test.cljc`, `test_utils.cljc:20-27`).
 
-**Every v2 test supplies `:make-stream`.** v1's suite calls
-`(ast-walker/create-vm)` bare; the v2 side needs a test-side constructor closing
-over the ring buffer, or the shared corpus cannot run.
+**Every evaluator or FFI test that needs stream creation supplies
+`:make-stream`.** v1's suite calls `(ast-walker/create-vm)` bare; the v2 side
+needs a test-side constructor closing over the ring buffer where the shared
+corpus exercises stream creation. V7 adds separate generic observer tests.
 
 Two forms, and the second is not optional: run a shared **macro-free** AST
 corpus through v1 and v2 and compare normalized results (process-isolate if
@@ -538,12 +673,70 @@ because a fresh suite "covering the same programs" passes under silent
 divergence. Drop the one case requiring `dao.space.transact` (4, 406).
 
 **The divergence register** is a deliverable of this phase: every place v2
-deliberately differs from v1, with the reason. It opens with the five
-user-visible changes — telemetry's absence among them — then the retention
+deliberately differs from v1, with the reason. Its original baseline opens with
+the five user-visible categories — telemetry's absence among them — then the retention
 decision above, the FFI pair's bounded outstanding-call count where v1 was
 unbounded, and the v1-only behaviours no v2 test can mirror — `engine_test.cljc:263,365,386,419` assert park-on-full,
 close-wakes-writer and take-wakes-reader. Saying which behaviours are
 deliberately not mirrored *is* the register.
+
+### V7 — Separate program observation from execution
+
+Status: approved, pending implementation. Implement the contract in
+[Program observation and ownership](#program-observation-and-ownership).
+The migration work is:
+
+1. **Observer:** replace VM-coupled `ingest-next-program` with `observe-next`;
+   implement descriptor attachment and session coordination. Mint directly
+   through `dao.stream.v2` rather than requiring `vm/mint-oldest`. Delete
+   single-step coordination or keep it private if needed internally.
+2. **VM and engine:** remove `:in-stream`, `:in-cursor`, and `:ingress-gaps`
+   from `ASTWalkerVM` and its constructor paths. Reject obsolete `:in-stream`
+   before FFI resource allocation. Move the existing `ready-for-ingress?`
+   predicate into `yin.vm.v2.engine` unchanged and expose the existing
+   `vm-load-program`. Route walker `run` through its raw scheduler and
+   `ffi/maybe-run`; guard idle `step` with that predicate. Remove engine
+   observer forwarding and stream-aware VM runners while retaining
+   `engine/run-loop`, queues, waits, environment restoration, and FFI behavior.
+3. **REPL:** replace VM-owned ingress with the writer/observer/VM composition
+   above. Rebuild descriptor resolution and attachment on reset and VM selection.
+   Read loss accounting from observer state and preserve the shell's loss latch,
+   output, result history, and rendered summary.
+4. **Documentation:** update `yin.vm.v2` protocol and constructor documentation,
+   plus observer, engine, and walker docstrings, including the walker's
+   misleading “v1's, unchanged” wording. Update
+   [REPL phase R2](./yin.repl.v2.implementation-plan.md#phase-r2--yinreplv2-and-its-driver-local-only)
+   to attach the observer instead of handing program input to the VM. Update the
+   [divergence register](./yin.vm.v2.divergence-register.md) to distinguish its
+   original V6 baseline from V7: observer-owned program cursors and gaps,
+   obsolete VM construction options, and direct-eval decoupling. Keep the
+   observer's recoverable gap behavior distinct from REPL evaluation failure.
+   Those companion descriptions of VM-owned ingress remain pre-V7 records until
+   this migration updates them.
+
+Acceptance requires generic observer tests with a fake conforming unary
+attacher: descriptor-only composed input, exactly one attach call, original
+failure outcomes, reader validation, cursor-construction failure, no
+create/append/close, and independent observers/cursors. A minimal alternate
+VM-shaped consumer must prove no inspection of walker state.
+
+Migrate stream-based test helpers to carry `{:observer observer :vm vm}`
+sessions. Remove helpers' ad hoc `:in-stream`/`:in-cursor` associations and
+forced `:halted? false`; readiness is determined by the VM's existing predicate.
+
+Keep ring-buffer realization tests separate from generic tests. Verify that
+resolvers return owner handles on every host, that reset rebuilds attachment,
+and that datom evaluation succeeds after reset. Retain batch order,
+blocked/end/gap transitions, readiness gating, idle-step identity,
+loader-failure cursor retention, direct evaluation with queued malformed code,
+FFI suspension/resumption, parity, and REPL output/history/loss handling.
+
+Run the affected JVM observer, engine, walker, FFI, parity, DaoStream attachment,
+and REPL suites, the affected CLJS and CLJD lanes, lint, stale-reference checks,
+and fresh generated CLJD inspection. Verify the observer requires only
+`dao.stream.v2` and program attachment/reads stay outside the AST loop.
+Obtain independent review of the implementation diff before reporting V7
+complete. Plan approval does not establish implementation completion.
 
 ## Host matrix
 
@@ -556,8 +749,9 @@ deliberate. Full cljd namespace compilation gates each phase.
 
 ## Boundary
 
-**Untouched:** `yin.vm` and everything under `src/cljc/yin/vm/`, `dao.datom`
-(reused as-is), `dao.runtime`, `dao.stream.apply`, `yin.module`, and their tests.
+**Untouched:** `yin.vm` and the v1 namespaces under `src/cljc/yin/vm/`
+(excluding the v2 subtree), `dao.datom` (reused as-is), `dao.runtime`,
+`dao.stream.apply`, `yin.module`, and their v1 tests.
 The fifteen existing `yin.vm` consumers keep using v1.
 
 **Not in this plan:**
@@ -566,18 +760,31 @@ The fifteen existing `yin.vm` consumers keep using v1.
   a stub*; `semantic`, `register`, `stack`; `macro`, `space`, `wasm`;
   `dao.space` in any form; migration of any existing consumer; an
   above-the-stream queue interpreter to restore destructive-take semantics.
+- Fan-out, other v2 evaluator ports, stream-only evaluation, explicit attachment
+  cleanup, and new scheduling or loss policies are outside V7.
 - **Internal state as streams** — the log-structured CESK end-state,
   ready-queue-as-stream, stream fusion, and the store-the-irreducible
   storage invariant explored in
   [`yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md).
   The port keeps scheduler queues as plain data by design (the note's own
   calibration: synchronous-singular consumers pay boundary tax); those
-  tiers get their own plans after V6 lands.
+  tiers have their own plans; V7 adds no dependency on them.
 
 ## End condition
 
-Complete when, on clj, cljs (Node) and cljd, `yin.vm.v2.ast-walker` evaluates a
-macro-free program corpus and exercises its ingress and FFI paths over v2
-streams with telemetry disabled, with parity agreeing with v1 except where the divergence
-register says otherwise — and with no namespace under `yin.vm.v2` or `dao.*.v2`
-requiring v1 `dao.stream`, `dao.runtime`, `dao.stream.apply` or `yin.module`.
+Complete when all of the following hold on CLJ, CLJS (Node), and CLJD:
+
+- The observer attaches to an existing DaoStream by descriptor, owns program
+  observation state, and hands datoms to the evaluator through the supplied
+  loading and execution functions. Its sole namespace dependency is
+  `dao.stream.v2`.
+- The AST walker evaluates the macro-free corpus and exercises FFI with
+  telemetry disabled. VM `step`, `run`, and `eval` do not poll the program
+  stream; language stream effects and FFI retain their own stream behavior.
+- Host composition retains writer, observer, and VM separately, with REPL
+  reset, loss reporting, and summary behavior preserved.
+- Parity agrees with v1 except where the updated divergence register says
+  otherwise; the REPL plan describes the same ownership boundary; and V7's
+  verification and independent review are complete.
+- No namespace under `yin.vm.v2` or `dao.*.v2` requires v1 `dao.stream`,
+  `dao.runtime`, `dao.stream.apply`, or `yin.module`.
