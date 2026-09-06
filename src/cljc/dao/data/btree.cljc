@@ -1234,7 +1234,7 @@
         (let [st storage]
           (when (or (nil? address) (nil? st))
             (throw (ex-info "no resident root and no address to restore from"
-                            {:address address})))
+                            (array-map :address address))))
           (let [n (-restore st address)]
             (set! root (make-ref settings n))
             n)))))
