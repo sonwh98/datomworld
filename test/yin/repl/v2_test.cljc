@@ -3,10 +3,11 @@
             [clojure.test :refer [deftest is testing]]
             #?@(:cljd []
                 :clj [[clojure.java.io :as io]
-                      [dao.stream.v2.transit :as transit]
                       [yin.repl.v2.host :as host]]
-                :cljs [[dao.stream.v2.transit :as transit]
-                       [yin.repl.v2.connect :as connect]])
+                :cljs [[yin.repl.v2.connect :as connect]])
+            [dao.stream.v2.apply :as apply]
+            [dao.stream.v2.transit :as transit]
+            [dao.stream.v2.ws :as ws]
             [yin.repl.v2 :as repl]
             [yin.repl.v2.driver :as driver]
             [yin.repl.v2.host.common :as host-common]
@@ -111,6 +112,74 @@
         [_ server' lines] (repl/step-all (repl/boot {}) server 0)]
     (is (= :failed (:status server')))
     (is (str/includes? (str/join " " lines) "ephemeral-port-unsupported"))))
+
+
+;; =============================================================================
+;; One shared shell — `--port` serves the shell the local prompt evaluates
+;; against, as v1's atom did.  The composition is the real one: `repl/boot`
+;; beside `serve!`, both advanced only by `step-all`, with a captured socket
+;; standing in for the remote client.
+;; =============================================================================
+
+(defn- socket
+  "A captured socket: every frame the endpoint sends."
+  []
+  (let [sent (atom [])]
+    {:sent sent
+     :socket {:send! (fn [text] (swap! sent conj text) nil)}}))
+
+
+(defn- reply-values
+  "The `:ws/value` frames a captured socket received, decoded."
+  [s]
+  (->> @(:sent s)
+       (mapv transit/decode)
+       (filter #(= :ws/value (:ws/frame %)))
+       (mapv :ws/value)))
+
+
+(defn- remote-request!
+  "Deliver one `:op/eval` request through a connected socket handle."
+  [handle id source]
+  (ws/receive! handle (transit/encode
+                        {:ws/frame :ws/value
+                         :ws/value (apply/request id :op/eval [source])})))
+
+
+(deftest the-served-endpoint-shares-the-local-shells-shell
+  (let [server (serve/serve! {:bind-port 8080 :host (host-adapter)})
+        state (repl/boot {:adapter (host-adapter)})
+        [_ server _] (repl/step-all state server 0)
+        s (socket)
+        accepted (ws/accept-connection! (:ws-endpoint server)
+                                        (:path server)
+                                        (:socket s)
+                                        2)
+        ;; Adoption is observed on the step after the upgrade, as the serve
+        ;; composition's own tests drive it.
+        [_ server _] (repl/step-all state server 3)
+        [state server _] (repl/step-all state server 4)]
+    (is (some? (:ws/handle accepted)))
+    (is (contains? (:sessions server) (:ws/attachment accepted)))
+    (driver/submit-line! (:input state) "(defn twice [x] (* 2 x))")
+    (let [[state server lines] (repl/step-all state server 5)]
+      (is (str/includes? (str/join " " lines) ":closure")
+          "the local prompt defined the function against its own shell")
+      (testing "a definition typed at the local prompt answers a remote request"
+        (remote-request! (:ws/handle accepted) 0 "(twice 21)")
+        (let [[state server _] (repl/step-all state server 6)
+              response (last (reply-values s))]
+          (is (= 0 (apply/response-id response)))
+          (is (= "42" (apply/response-ok response))
+              "the endpoint must evaluate against the shell the local prompt shares, not a private one")
+          (testing "a remote definition answers the local prompt on a later tick"
+            (remote-request! (:ws/handle accepted) 1 "(def answer 7)")
+            (let [[state server _] (repl/step-all state server 7)]
+              (is (= "7" (apply/response-ok (last (reply-values s)))))
+              (driver/submit-line! (:input state) "answer")
+              (let [[_state _server lines] (repl/step-all state server 8)]
+                (is (some #(= "7" %) lines)
+                    "the local prompt must see what a remote client defined")))))))))
 
 
 ;; =============================================================================

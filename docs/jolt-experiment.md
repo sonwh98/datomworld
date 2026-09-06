@@ -1,5 +1,7 @@
 # Jolt Experiment (2026-09-06)
 
+Follow-up: [`jolt-vs-jank.md`](./jolt-vs-jank.md) covers the port plan to run on jolt and the jolt-vs-jank comparison.
+
 ## Overview
 
 We evaluated whether the `dao.stream-redesign-v2` branch passes tests using `jolt` (https://github.com/jolt-lang/jolt) instead of `bb test:clj` on the JVM.
@@ -70,7 +72,7 @@ Everything above is a *jolt-side* gap except the last row. The JVM run of the sa
 
 ## Performance
 
-The heaviest batch (`tb-am`: yin.vm semantic/space/stack tests) needed ~11 CPU-minutes for 100 tests that run in seconds on the JVM, and the 154k-assertion btree property sweep also dominated its batch. Interpreted-Scheme execution makes jolt impractical for the VM-engine and property-sweep-heavy suites even where semantics are correct.
+The heaviest batch (`tb-am`: yin.vm semantic/space/stack tests) needed ~11 CPU-minutes for 100 tests that run in seconds on the JVM, and the 154k-assertion btree property sweep also dominated its batch. Interpreted-Scheme execution makes jolt impractical for the VM-engine and property-sweep-heavy suites even where semantics are correct. (Correction 2026-09-06: jolt runs on Chez, which compiles to native machine code, so this gap is jolt runtime overhead rather than interpretation; `jolt build` AOT was not measured. See [`jolt-vs-jank.md`](./jolt-vs-jank.md).)
 
 ## Is jolt a viable test runner for datom.world?
 

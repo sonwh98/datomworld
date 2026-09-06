@@ -89,15 +89,22 @@
 
 (defn step-all
   "One tick of the single step owner: the local shell first, then the served
-   endpoint.  Returns `[state server lines]`; the caller only prints."
+   endpoint — against the same shell value.  A `--port` process serves one
+   shared shell, as v1's atom made it: the driver evaluates this tick's local
+   lines first, so a definition typed at the local prompt is already in the
+   shell the endpoint evaluates remote requests against in the same tick, and
+   the endpoint's shell — remote definitions included — is threaded back before
+   the next tick.  Returns `[state server lines]`; the caller only prints."
   [state server now]
   (let [stepped (driver/repl-step state now)
         [entries state'] (driver/take-outbox stepped)
-        server' (when server (serve/step server now))
+        server' (when server (serve/step (assoc-in server [:repl] (:repl state'))
+                                         now))
         [server-entries server''] (if server'
                                     (serve/take-outbox server')
-                                    [[] nil])]
-    [state' server'' (mapv entry-text (into (vec entries) server-entries))]))
+                                    [[] nil])
+        state'' (if server'' (assoc state' :repl (:repl server'')) state')]
+    [state'' server'' (mapv entry-text (into (vec entries) server-entries))]))
 
 
 ;; =============================================================================

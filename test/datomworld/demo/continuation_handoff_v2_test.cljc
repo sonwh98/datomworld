@@ -93,21 +93,21 @@
                                  {:type :application,
                                   :operator {:type :variable, :name '+},
                                   :operands [{:type :variable, :name 'acc}
-                                             {:type :variable, :name 'n}]}]}}}]
-            call-ast {:type :application,
-                      :operator {:type :variable, :name 'step},
-                      :operands [{:type :literal, :value 5}
-                                 {:type :literal, :value 0}]}
-            ;; 'step is defined in vm-a's store; the call is loaded onto the
-            ;; same VM so the store carries over.
-            vm-a (vm/eval (make-vm :vm-a) define-ast)
-            loaded (ast-walker/vm-load-program vm-a (vec (vm/ast->datoms
-                                                           call-ast)))
-            ;; Step part of the way, then lift the live state out.
-            mid (nth (iterate vm/step loaded) 9)
-            payload (handoff/vm-state->handoff :vm-a mid)
-            vm-b (handoff/handoff->vm-state :vm-b payload make-vm)
-            resumed (vm/run vm-b)]
+                                             {:type :variable, :name 'n}]}]}}}]}
+          call-ast {:type :application,
+                    :operator {:type :variable, :name 'step},
+                    :operands [{:type :literal, :value 5}
+                               {:type :literal, :value 0}]}
+          ;; 'step is defined in vm-a's store; the call is loaded onto the
+          ;; same VM so the store carries over.
+          vm-a (vm/eval (make-vm :vm-a) define-ast)
+          loaded (ast-walker/vm-load-program vm-a (vec (vm/ast->datoms
+                                                         call-ast)))
+          ;; Step part of the way, then lift the live state out.
+          mid (nth (iterate vm/step loaded) 9)
+          payload (handoff/vm-state->handoff :vm-a mid)
+          vm-b (handoff/handoff->vm-state :vm-b payload make-vm)
+          resumed (vm/run vm-b)]
       (is (not (vm/halted? mid)))
       ;; step(5, 0) = 5 + 4 + 3 + 2 + 1
       (is (= 15 (vm/value resumed)))

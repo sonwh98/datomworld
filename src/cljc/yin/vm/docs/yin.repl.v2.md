@@ -13,6 +13,26 @@ The entry points are the v2 aliases; the flags behave as they do in v1:
 clj -M:clj-yin-repl-v2 --port 8080 --headless
 ```
 
+For ClojureDart (`cljd`), use the `v2-build` alias to compile the Dart source, and then run the generated executable natively via `dart run`:
+
+```bash
+clj -M:cljd-yin-repl-v2-build compile
+dart run lib/cljd-out/yin/repl/v2.dart --port 8080 --headless
+```
+
+For ClojureScript (`cljs` on Node), you can run it directly using the shadow-cljs alias:
+
+```bash
+clj -M:cljs-yin-repl-v2 --port 8080 --headless
+```
+
+Or you can compile it to a standalone Node script:
+
+```bash
+npx shadow-cljs release yin-repl-v2
+node target/yin-repl-v2.js --port 8080 --headless
+```
+
 ```clojure
 yin> (connect "daostream:ws://localhost:8080/repl")
 Attaching to daostream:ws://localhost:8080/repl
@@ -88,7 +108,11 @@ These follow from the VM plan's divergence register:
 
 `--port` serves one shared shell (as v1 does): every connected client
 evaluates against one serially threaded REPL state, and two clients each get
-their own answers. The endpoint evaluates locally or reports that it does not
+their own answers. That shell is the server's own local prompt's shell — the
+one step owner threads the same value through both, so a definition typed at
+the server's `yin>` prompt answers a remote request in the same tick, and a
+definition a remote client makes is visible at the local prompt on the next
+tick. The endpoint evaluates locally or reports that it does not
 proxy — v1's chain-forwarding through a server's own remote connection is not
 part of this slice. `--host 127.0.0.1` remains the only boundary, as in v1.
 
