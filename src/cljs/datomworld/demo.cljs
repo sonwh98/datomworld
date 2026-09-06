@@ -1,9 +1,12 @@
 (ns datomworld.demo
   (:require [datomworld.demo.compilation-pipeline :as pipeline]
+            [datomworld.demo.compilation-pipeline-v2 :as pipeline-v2]
             [datomworld.demo.continuation-stream :as cont-demo]
+            [datomworld.demo.continuation-stream-v2 :as cont-demo-v2]
             [datomworld.demo.artifact :as artifact-demo]
             [datomworld.demo.earth-moon :as earth-moon-demo]
             [datomworld.demo.equation-plotter :as plotter-demo]
+            [datomworld.demo.equation-plotter-v2 :as plotter-demo-v2]
             [datomworld.demo.responsive :as responsive]
             [datomworld.demo.solar-system :as solar-demo]
             [datomworld.demo.voxel :as voxel-demo]
@@ -40,6 +43,18 @@
     :icon "⤱",
     :desc
     "Step through a single continuation executed by two different VM backends: Register and Stack."}
+   {:id :pipeline-v2,
+    :label "Pipeline v2",
+    :icon "⚙",
+    :desc "The Yin compilation pipeline on Yin VM v2 and DaoStream v2: Source -> AST -> canonical datoms -> ast-walker execution."}
+   {:id :continuation-v2,
+    :label "Continuation v2",
+    :icon "⤱",
+    :desc "Two Yin VM v2 evaluators share one continuation across a DaoStream v2 medium."}
+   {:id :plotter-v2,
+    :label "Equation Plotter v2",
+    :icon "📈",
+    :desc "Equation plotter on Yin VM v2: the dao.stream.apply bridge dispatches through explicit v2 FFI state."}
    {:id :yin-repl,
     :label "Yin REPL",
     :icon "λ",
@@ -60,8 +75,11 @@
   (case hash-value
     "#yin-repl" :yin-repl
     "#pipeline" :pipeline
+    "#pipeline-v2" :pipeline-v2
     "#plotter" :plotter
+    "#plotter-v2" :plotter-v2
     "#continuation" :continuation
+    "#continuation-v2" :continuation-v2
     "#telemetry" :telemetry
     "#solar-system" :solar-system
     "#earth-moon" :earth-moon
@@ -75,8 +93,11 @@
   (case demo-id
     :yin-repl "#yin-repl"
     :pipeline "#pipeline"
+    :pipeline-v2 "#pipeline-v2"
     :plotter "#plotter"
+    :plotter-v2 "#plotter-v2"
     :continuation "#continuation"
+    :continuation-v2 "#continuation-v2"
     :telemetry "#telemetry"
     :solar-system "#solar-system"
     :earth-moon "#earth-moon"
@@ -207,8 +228,11 @@
      (case selected-demo
        :yin-repl [yin-repl-demo/main-view]
        :pipeline [pipeline/main-view]
+       :pipeline-v2 [pipeline-v2/main-view]
        :plotter [plotter-demo/main-view]
+       :plotter-v2 [plotter-demo-v2/main-view]
        :continuation [cont-demo/main-view]
+       :continuation-v2 [cont-demo-v2/main-view]
        :telemetry [tv/main-panel]
        :solar-system [solar-demo/main-view]
        :earth-moon [earth-moon-demo/main-view]
