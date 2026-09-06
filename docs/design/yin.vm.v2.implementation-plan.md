@@ -1,16 +1,16 @@
 # Yin VM on DaoStream v2 — the ast-walker slice
 
-Status: V1–V6 describe the original port baseline; V7 is approved and awaiting
-implementation. Updated 2026-09-06. This plan is subordinate to
+Status: V1–V6 describe the original port baseline; V7 is fully implemented.
+Updated 2026-09-06. This plan is subordinate to
 [`dao.stream.md`](./dao.stream.md) and [`datom.world.md`](./datom.world.md).
 Its transport prerequisite is
 [`dao.stream.v2.implementation-plan.md`](./dao.stream.v2.implementation-plan.md);
 its first consumer is
 [`yin.repl.v2.implementation-plan.md`](./yin.repl.v2.implementation-plan.md).
 
-The target architecture below governs program observation. The current port
-still stores program-observation state in the AST walker and drives it through
-VM `step` and `run`; V7 moves that responsibility to the stream observer. The
+The target architecture below governs program observation. As of V7, program
+observation state is stored in the stream observer rather than the AST walker,
+and observation is driven decoupled from VM execution. The
 original port census and phases retain historical rationale, not a second
 ownership contract.
 
