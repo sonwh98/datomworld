@@ -24,7 +24,8 @@
    boundary. Terminal read outcomes are errors.
 
    Exports exactly `attach`, `observe-next`, and `run-on-stream`."
-  (:require [dao.stream.v2 :as stream]))
+  (:require [dao.stream.v2 :as stream]
+            [dao.stream.v2.observe :as observe]))
 
 
 ;; =============================================================================
@@ -81,6 +82,47 @@
                    :ingress-gaps (:ingress-gaps observer)})))
 
 
+(def ^:private uncontinuable-read-outcomes
+  "The contract's read outcomes this observer cannot continue from."
+  #{:dao.stream/cursor-mismatch
+    :dao.stream/invalid-cursor
+    :dao.stream/transport-error})
+
+
+(defn- answered-outcome
+  "The outcome the transport actually answered with.
+
+   `observe/step` classifies an answer outside the contract as
+   `transport-error` and retains the raw answer, so the observer reports what
+   it was told rather than the classification."
+  [read]
+  (if (contains? read :dao.stream/answer)
+    (:dao.stream/outcome (:dao.stream/answer read))
+    (:dao.stream/outcome read)))
+
+
+(defn- observation-terminal
+  "This observer's policy for a step defect: throw, naming the outcome the
+   transport answered with."
+  [observed observer]
+  (let [outcome (answered-outcome (:read observed))]
+    (if (contains? uncontinuable-read-outcomes outcome)
+      (terminal "Program observation cannot continue from this cursor"
+                outcome
+                observer)
+      (terminal "Unexpected DaoStream outcome while observing the program stream"
+                outcome
+                observer))))
+
+
+(defn- adopt-gap
+  "This observer's gap policy: commit the recovery cursor and count the loss."
+  [observer observed]
+  (-> observer
+      (assoc :cursor (:recovery observed))
+      (update :ingress-gaps (fnil inc 0))))
+
+
 (defn observe-next
   "Observe one program batch from the attached stream.
 
@@ -92,31 +134,19 @@
    outcomes (`cursor-mismatch`, `invalid-cursor`, `transport-error`) and
    unexpected ones throw with the original outcome preserved."
   [observer]
-  (let [result (stream/next (:stream observer) (:cursor observer))
-        outcome (:dao.stream/outcome result)]
-    (case outcome
-      :dao.stream/ok
-      {:status :ok,
-       :batch (:dao.stream/value result),
-       :observer (assoc observer :cursor (:dao.stream/cursor result))}
+  (let [observed (observe/step (:stream observer)
+                               (:cursor observer)
+                               (fn [_value] {:dao.stream/outcome :dao.stream/ok}))]
+    (case (:status observed)
+      :advance {:status :ok,
+                :batch (:dao.stream/value (:read observed)),
+                :observer (assoc observer :cursor (:cursor observed))}
 
-      :dao.stream/blocked {:status :blocked, :observer observer}
-      :dao.stream/end {:status :end, :observer observer}
+      :retry {:status :blocked, :observer observer}
+      :ended {:status :end, :observer observer}
+      :gap {:status :gap, :observer (adopt-gap observer observed)}
 
-      :dao.stream/gap
-      {:status :gap,
-       :observer (-> observer
-                     (assoc :cursor (:dao.stream/cursor result))
-                     (update :ingress-gaps (fnil inc 0)))}
-
-      (:dao.stream/cursor-mismatch
-        :dao.stream/invalid-cursor
-        :dao.stream/transport-error)
-      (terminal "Program observation cannot continue from this cursor"
-                outcome observer)
-
-      (terminal "Unexpected DaoStream outcome while observing the program stream"
-                outcome observer))))
+      (observation-terminal observed observer))))
 
 
 ;; =============================================================================
@@ -148,12 +178,22 @@
         (if (ready? vm')
           (recur {:observer observer, :vm vm'})
           {:observer observer, :vm vm'}))
-      (let [observation (observe-next observer)]
-        (case (:status observation)
-          :ok (let [vm' (run-vm (load-program vm (:batch observation)))]
-                (if (ready? vm')
-                  (recur {:observer (:observer observation), :vm vm'})
-                  {:observer (:observer observation), :vm vm'}))
-          :gap (recur {:observer (:observer observation), :vm vm})
-          ;; :blocked and :end retain the cursor and end the round.
-          {:observer (:observer observation), :vm vm})))))
+      ;; The load is the step's effect, so the cursor advances only once it has
+      ;; returned: a throwing loader propagates before any successor exists.
+      (let [observed (observe/step (:stream observer)
+                                   (:cursor observer)
+                                   (fn [batch]
+                                     {:dao.stream/outcome :dao.stream/ok,
+                                      :yin.vm.v2.stream-observer/loaded
+                                      (load-program vm batch)}))]
+        (case (:status observed)
+          :advance (let [vm' (run-vm (:yin.vm.v2.stream-observer/loaded
+                                       (:effect observed)))
+                         observer' (assoc observer :cursor (:cursor observed))]
+                     (if (ready? vm')
+                       (recur {:observer observer', :vm vm'})
+                       {:observer observer', :vm vm'}))
+          :gap (recur {:observer (adopt-gap observer observed), :vm vm})
+          ;; :retry (blocked) and :ended retain the cursor and end the round.
+          (:retry :ended) {:observer observer, :vm vm}
+          (observation-terminal observed observer))))))

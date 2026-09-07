@@ -4,7 +4,8 @@
   `forward-step` owns no scheduler, callback, registry, or mutable state.  A
   caller supplies the source cursor and calls the step again with the returned
   state when its driver chooses."
-  (:require [dao.stream.v2 :as stream]))
+  (:require [dao.stream.v2 :as stream]
+            [dao.stream.v2.observe :as observe]))
 
 
 (def default-options
@@ -25,18 +26,6 @@
            :status status
            :forwarded forwarded}
     outcome (assoc :outcome outcome)))
-
-
-(defn- malformed-result
-  "Turn a defective host implementation answer into the total outcome algebra.
-  A conforming operation already returns one of the contract outcomes; this
-  guard keeps the interpreter's branch total if a composition supplies a bad
-  handle."
-  [operation result]
-  (if (stream/valid-outcome? operation result)
-    result
-    {:dao.stream/outcome :dao.stream/transport-error
-     :dao.stream/error :dao.stream/invalid-operation-result}))
 
 
 (defn- terminal-status
@@ -115,40 +104,32 @@
               forwarded 0]
          (if (zero? remaining)
            (result-state cursor :continue forwarded nil)
-           (let [read-result (malformed-result :next (stream/next source cursor))
-                 read-outcome (:dao.stream/outcome read-result)]
-             (case read-outcome
-               :dao.stream/ok
-               (let [next-cursor (:dao.stream/cursor read-result)
-                     write-result (malformed-result
-                                    :append!
-                                    (stream/append! destination
-                                                    (:dao.stream/value read-result)))
-                     write-outcome (:dao.stream/outcome write-result)]
-                 (case write-outcome
-                   :dao.stream/ok
-                   (recur next-cursor (dec remaining) resumes (inc forwarded))
+           (let [observed (observe/step source
+                                        cursor
+                                        (fn [value]
+                                          (stream/append! destination value)))
+                 outcome (:outcome observed)]
+             (case (:status observed)
+               ;; The cursor advanced only because the append answered ok;
+               ;; `observe/step` owns that ordering.
+               :advance
+               (recur (:cursor observed) (dec remaining) resumes (inc forwarded))
 
-                   :dao.stream/full
-                   (result-state cursor :retry forwarded write-outcome)
+               ;; Source `blocked` and destination `full` are the same answer
+               ;; to this interpreter: no progress, cursor kept, step again.
+               :retry
+               (result-state cursor :retry forwarded outcome)
 
-                   (result-state cursor
-                                 (terminal-status :destination write-outcome)
-                                 forwarded
-                                 write-outcome)))
-
-               :dao.stream/blocked
-               (result-state cursor :retry forwarded read-outcome)
-
-               :dao.stream/gap
-               (let [recovery (:dao.stream/cursor read-result)]
+               :gap
+               (let [recovery (:recovery observed)]
                  (cond
                    ;; A recovery cursor that does not move cannot be observed
                    ;; from, whatever the policy asks for.  Terminating keeps the
                    ;; step total against a defective transport.
-                   (or (not= :resume (gap-action (:gap-policy options) read-result))
+                   (or (not= :resume
+                             (gap-action (:gap-policy options) (:read observed)))
                        (= recovery cursor))
-                   (result-state cursor :source-gap forwarded read-outcome)
+                   (result-state cursor :source-gap forwarded outcome)
 
                    (pos? resumes)
                    (recur recovery remaining (dec resumes) forwarded)
@@ -158,9 +139,16 @@
                    ;; to step again.
                    :else (result-state recovery :continue forwarded nil)))
 
+               ;; A destination answer that is neither ok nor full.
+               :failed
+               (result-state cursor
+                             (terminal-status :destination outcome)
+                             forwarded
+                             outcome)
+
                ;; end and every source-side failure are terminal. No close is
                ;; implied: the composition decides transport-specific teardown.
                (result-state cursor
-                             (terminal-status :source read-outcome)
+                             (terminal-status :source outcome)
                              forwarded
-                             read-outcome)))))))))
+                             outcome)))))))))
