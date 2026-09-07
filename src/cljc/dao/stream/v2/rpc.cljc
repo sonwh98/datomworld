@@ -152,10 +152,15 @@
       (boolean (some #(= id (:dao.stream.v2.rpc/id %)) (:completed state)))))
 
 
+;; Defined below with the other completion bookkeeping; allocation failure is
+;; a terminal transition and owes the same conservative loss as every other.
+(declare lose-outstanding)
+
+
 (defn- allocation-failure
   [state code]
   (let [state (-> state
-                  (assoc :terminal :dao.stream.v2.rpc/allocator-error)
+                  (lose-outstanding :dao.stream.v2.rpc/allocator-error true)
                   (append-diagnostic code (:next-id state)))]
     (rpc-result :dao.stream.v2.rpc/allocator-error state
                 :dao.stream.v2.rpc/diagnostic (last (:diagnostics state)))))

@@ -184,3 +184,70 @@
            (:dao.stream.v2.apply/outcome
              (rpc/serve-once! {} request-handle response-handle
                               (rpc/server-state (cursor request-handle))))))))
+
+
+(deftest allocation-failure-reports-outstanding-requests-lost-before-going-terminal
+  (let [request-handle (handle)
+        response-handle (handle)
+        requested (rpc/request! (client request-handle response-handle) :math/add [20 22])
+        outstanding (:dao.stream.v2.rpc/state requested)
+        ;; Force the next allocation onto an id already in use: :outstanding
+        ;; holds 0, so rewinding :next-id collides.
+        collided (rpc/request! (assoc outstanding :next-id 0) :op/b [])
+        state (:dao.stream.v2.rpc/state collided)
+        [completions consumed] (rpc/take-completed state)]
+    (is (= :dao.stream.v2.rpc/allocator-error
+           (:dao.stream.v2.rpc/outcome collided)))
+    (is (= :dao.stream.v2.rpc/allocator-error (:terminal state))
+        "the client is terminal, as before")
+    (is (empty? (:outstanding state))
+        "no id is left outstanding for a poll that will never run again")
+    (is (= 0 (:next-id state))
+        "the failed allocation consumes no id; ids stay monotonic")
+    (is (= [{:dao.stream.v2.rpc/id 0
+             :dao.stream.v2.rpc/op :math/add
+             :dao.stream.v2.rpc/args [20 22]
+             :dao.stream.v2.rpc/reason :dao.stream.v2.rpc/allocator-error}]
+           completions)
+        "the stranded request is reported lost on the ordinary completion path")
+    (is (empty? (:completed consumed)))
+    (is (= {:dao.stream.v2.rpc/code :dao.stream.v2.rpc/id-collision
+            :dao.stream.v2.rpc/value 0}
+           (:dao.stream.v2.rpc/diagnostic collided))
+        "the allocation diagnostic is preserved")))
+
+
+(deftest id-exhaustion-reports-outstanding-requests-lost
+  (let [request-handle (handle)
+        response-handle (handle)
+        requested (rpc/request! (client request-handle response-handle) :op/a [])
+        outstanding (:dao.stream.v2.rpc/state requested)
+        exhausted (rpc/request! (assoc outstanding :next-id (inc rpc/max-safe-id))
+                                :op/b [])
+        state (:dao.stream.v2.rpc/state exhausted)]
+    (is (= :dao.stream.v2.rpc/allocator-error
+           (:dao.stream.v2.rpc/outcome exhausted)))
+    (is (= :dao.stream.v2.rpc/allocator-error (:terminal state)))
+    (is (empty? (:outstanding state)))
+    (is (= (inc rpc/max-safe-id) (:next-id state))
+        "the failed allocation consumes no id; ids stay monotonic")
+    (is (= [{:dao.stream.v2.rpc/id 0
+             :dao.stream.v2.rpc/op :op/a
+             :dao.stream.v2.rpc/args []
+             :dao.stream.v2.rpc/reason :dao.stream.v2.rpc/allocator-error}]
+           (:completed state)))
+    (is (= :dao.stream.v2.rpc/id-exhausted
+           (:dao.stream.v2.rpc/code (:dao.stream.v2.rpc/diagnostic exhausted))))))
+
+
+(deftest allocation-failure-with-nothing-outstanding-publishes-no-completion
+  (let [request-handle (handle)
+        response-handle (handle)
+        initial (client request-handle response-handle)
+        exhausted (rpc/request! (assoc initial :next-id (inc rpc/max-safe-id)) :op/a [])
+        state (:dao.stream.v2.rpc/state exhausted)]
+    (is (= :dao.stream.v2.rpc/allocator-error
+           (:dao.stream.v2.rpc/outcome exhausted)))
+    (is (= :dao.stream.v2.rpc/allocator-error (:terminal state)))
+    (is (empty? (:completed state))
+        "conservative loss reports what was owed, and nothing was owed")))
