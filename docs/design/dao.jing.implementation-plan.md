@@ -323,6 +323,29 @@ core has none, so `:ingress-gaps` never enters the seam); coordination
 (`forward`'s budget loop, the VM's `run-on-stream`, DaoJing's round-robin
 pool — three different loops over one step).
 
+**The boundary, examined after P0 landed.** The step is not the common core
+of every stream interpreter, and the reason is not the one first proposed. A
+two-family hypothesis — at-least-once interpreters advancing after the effect,
+at-most-once ones advancing before it — collapses on `apply/serve-once!`,
+which does both inside one function: it advances after delivery for a
+correlatable request (`apply.cljc:259-263`), on the diagnostic for an
+uncorrelatable one (`328-334`), and on terminal loss for an undeliverable
+response (`274-281`). The law that survives is that **an element's cursor
+advances exactly when its disposition has been durably recorded**. Where the
+disposition is an external, refusable effect that is advance-after-ok, which
+is this step; where it is a local, total state transition, advancing first and
+advancing after the commit are the same fact. `rpc/poll!`, `serve-once!` and
+`dao.runtime.v2`'s wait set stay off the step for dataflow shape, not
+ordering: they thread whole caller state under a budget with terminal
+short-circuits, while this step's effect is state-blind. No ordering parameter
+exists or is needed — a consumer wanting consume-anyway writes a total effect.
+Read-and-classify is reimplemented at four sites with four different policies,
+so it is not a layer; the one real duplication is the seven-line fold
+(`observe/valid-or-transport-error`, `rpc/valid-operation-result`). It is not
+unified here, and the deferred trace design below expects it to be *replaced*
+rather than unified, so nothing should be invested in merging the two copies
+in the meantime.
+
 **Layering.** `dao.stream.v2.observe` sits where `forward` sits: an
 interpreter over the contract, owned by neither storage nor the VM, requiring
 only `dao.stream.v2`. `forward` keeps its namespace as the thin layer that
@@ -367,6 +390,31 @@ Signal table:
 What the pool adds to the step is exactly E1, E3, E6, E8 and the reporting
 half of E9; what it inherits is E2's successor discipline, E4's totality, E5
 structurally, E9's raw read and recovery cursor as data, and E10.
+
+**An unrecognized answer is reported, not folded — deferred design, honoured
+here.** A transport that answers outside the contract has not said
+`transport-error`; it has performed something and reported it in a vocabulary
+this interpreter does not speak, and naming it `transport-error` assigns a
+meaning nobody chose. The pool therefore reports such an answer as a defect
+signal carrying the **raw answer** under `:result`, exactly as it came, and
+takes no action on its behalf beyond declining to advance — there is no
+successor to advance to. It supplies no policy parameter for the case, because
+there is nothing to decide: what an unrecognized answer *means* belongs to
+whoever reads the report.
+
+This is one half of a larger design that is **deliberately deferred**. The
+full form — a seventh invariant in `datom.world.md` ("do not interpret what
+you cannot interpret"), an `:unrecognized` status in `observe/step` carrying a
+trace, and the same correction in `forward`, `yin.vm.v2.stream-observer`,
+`dao.runtime.v2`, `rpc` and `apply` — waits on `dao.space`'s writer face
+answering with data, because the point of a trace is that many interpreters
+read it with different semantics, and until ADR-0003's exception closes there
+is no medium in which they can. Landing the invariant before the shipped code
+satisfies it would make an axiom that its own system violates. What is
+recorded here is only the convention this plan's new interpreter is written
+to, so that it needs no retrofit on the day the rest lands. See
+`collab/architect-traces-not-policy.claude-fable-5-1.findings.md` and its
+adversarial review for the full argument and the reworded invariant.
 
 ### Decision 2 — The durable log is not a stream
 

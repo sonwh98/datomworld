@@ -18,7 +18,26 @@
    Callers are `dao.stream.v2.forward` (effect: append to another stream),
    `yin.vm.v2.stream-observer` (effect: load a program into a VM) and
    `dao.jing` (effect: materialize content).  Each adds its own loop and its
-   own policy above this step."
+   own policy above this step.
+
+   The law every interpreter here obeys is that an element's cursor advances
+   exactly when its disposition has been durably recorded.  This step serves
+   the interpreters whose disposition is an external, refusable effect -- an
+   append, a load, a materialization -- where that means advancing only after
+   the effect answered ok.  Interpreters whose disposition is a local, total
+   state transition keep their own read loops: `dao.stream.v2.rpc/poll!`,
+   `dao.stream.v2.apply/serve-once!` and `dao.runtime.v2`'s wait set thread
+   whole caller state under a budget with terminal short-circuits, and for
+   them advancing first and advancing after the commit are the same fact,
+   because no window exists in which one happened and the other did not.
+   `serve-once!` is the proof that this is one law and not two families: it
+   advances after delivery for a correlatable request, on the diagnostic for
+   an uncorrelatable one, and on terminal loss for an undeliverable response.
+
+   There is no ordering parameter here and none is needed.  A consumer that
+   wants an element consumed even when its interpretation is defective writes
+   a *total* effect -- one that classifies every element as data and so always
+   answers ok -- and gets consume-exactly-once through this same step."
   (:require [dao.stream.v2 :as stream]))
 
 
