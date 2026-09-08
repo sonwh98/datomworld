@@ -686,7 +686,17 @@ Absent from the public surface, by derivation from the invariants:
 - **a `closed?` predicate** — a predicate answer is stale the moment it
   returns; operation results are authoritative.
 - **destructive reads** — a read that removes what it observes makes one
-  reader's progress every other reader's data loss.
+  reader's progress every other reader's data loss. It is coherent only while
+  exactly one observer exists; a forwarder, an indexer, or a DHT replica makes
+  it theft. Where the capability went, so no later plan reinvents it: **taking
+  is a write.** Removing a tuple from an append-only log is not a mutation but
+  an assertion that it no longer holds, which `dao.space` already expresses as
+  a retraction datom — Linda's `in` is observe-then-retract, not a stream
+  operation. And the hard part of a take was never the removal but the
+  *exclusion* of competing takers, which is a lease over datoms
+  (`dao.lease.md`), not something a stream can promise. v1's `drain-one!`
+  appeared to solve exclusion only because it ran in one process against a
+  local ring buffer.
 - **`seek`** — every valid cursor comes from the stream; anchored minting and
   kept cursors cover repositioning.
 - **a blocking take** — no operation waits.

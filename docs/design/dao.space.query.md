@@ -180,8 +180,17 @@ total effect — retain the value, answer `ok` — until the step stops.
   is `step`'s effect-before-commit discipline, and `snapshot` never closes the
   handle.
 
-`snapshot` stays here until a second consumer needs it, at which point it
-belongs in `dao.stream.v2.observe` as `drain`.
+`snapshot` stays here until a second consumer needs it. If it is ever shared,
+it moves to `dao.stream.v2.observe` under **this** name — not as a `drain`.
+Nothing is drained: cursors are values, the source is append-only and
+retained, and reading to the tail leaves the sequence exactly as it was for
+every other observer. `drain` is the vocabulary of the destructive read that
+`dao.stream.md` lists as *Explicitly Absent*, and it would teach the wrong
+model inside the namespace named for observation. What may be shared is the
+mechanism — mint, `step` to the first non-advance, retain what was seen, and
+return the values with the terminal status as data. What may not is the policy
+above it: query treats a `gap` as a usable partial relation, and
+`dao.space.index` aborts publication on one. Each caller keeps its own.
 
 ## Reading a manifest
 
