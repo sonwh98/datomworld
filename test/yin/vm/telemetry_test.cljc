@@ -6,8 +6,7 @@
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.register :as register]
             [yin.vm.semantic :as semantic]
-            [yin.vm.stack :as stack]
-            #?(:cljs [yin.vm.wasm :as wasm])))
+            [yin.vm.stack :as stack]))
 
 
 (defn- make-stream
