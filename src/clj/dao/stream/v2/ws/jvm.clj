@@ -76,7 +76,7 @@
           (empty? decoded) "/"
           (str/starts-with? decoded "/")
           (str "/" (str/join "/" (remove-dot-segments
-                                      (str/split (subs decoded 1) #"/" -1))))
+                                   (str/split (subs decoded 1) #"/" -1))))
           :else nil)))))
 
 
@@ -98,13 +98,15 @@
         text (StringBuilder.)
         listener
         (reify WebSocket$Listener
-          (onOpen [_ socket]
+          (onOpen
+            [_ socket]
             (swap! connection assoc :socket socket)
             (when-let [[code reason] (:close-request @connection)]
               (.sendClose ^WebSocket socket code reason))
             (.request ^WebSocket socket 1))
 
-          (onText [_ socket data last?]
+          (onText
+            [_ socket data last?]
             (.append text ^CharSequence data)
             (when last?
               (let [message (str text)]
@@ -113,7 +115,8 @@
             (.request ^WebSocket socket 1)
             (completed))
 
-          (onBinary [_ socket _data last?]
+          (onBinary
+            [_ socket _data last?]
             ;; Java may fragment one binary message across callbacks.  The
             ;; transport must see one rejected message, not one per fragment.
             (when last?
@@ -121,19 +124,23 @@
             (.request ^WebSocket socket 1)
             (completed))
 
-          (onPing [_ socket data]
+          (onPing
+            [_ socket data]
             (.request ^WebSocket socket 1)
             (.sendPong ^WebSocket socket ^ByteBuffer data))
 
-          (onPong [_ socket _data]
+          (onPong
+            [_ socket _data]
             (.request ^WebSocket socket 1)
             (completed))
 
-          (onClose [_ _socket code reason]
+          (onClose
+            [_ _socket code reason]
             ((:closed! adapter) code (str reason))
             (completed))
 
-          (onError [_ _socket _error]
+          (onError
+            [_ _socket _error]
             ((:error! adapter))))
         builder (-> (HttpClient/newHttpClient)
                     (.newWebSocketBuilder)
@@ -142,7 +149,8 @@
     (swap! connection assoc :future future)
     (.whenComplete future
                    (reify java.util.function.BiConsumer
-                     (accept [_ _socket error]
+                     (accept
+                       [_ _socket error]
                        (when error
                          ((:closed! adapter) 1006 "dao.stream/connect-failed")))))
     {:send! (fn [message]
@@ -172,7 +180,8 @@
   [request accept! clock deposit!]
   (let [adapter (atom nil)]
     (reify wsp/Listener
-      (on-open [_ socket]
+      (on-open
+        [_ socket]
         (try
           (let [target (or (canonical-path (:uri request)) (:uri request))
                 result (accept! target (server-socket socket) (clock))]
@@ -184,20 +193,23 @@
                        :message "the host failed while accepting an upgrade"})
             (wsp/-close socket 1011 "dao.stream/upgrade-failed"))))
 
-      (on-message [_ _socket message]
+      (on-message
+        [_ _socket message]
         (when-let [a @adapter]
           ((:message! a) (if (string? message) message binary-message-text))))
 
       (on-pong [_ _socket _data] nil)
 
-      (on-error [_ _socket _error]
+      (on-error
+        [_ _socket _error]
         (if-let [a @adapter]
           ((:error! a))
           (deposit! :upgrade-failed
                     {:code :yin.repl.v2.endpoint/socket-error
                      :message "the upgraded socket failed before acceptance"})))
 
-      (on-close [_ _socket code reason]
+      (on-close
+        [_ _socket code reason]
         (when-let [a @adapter]
           ((:closed! a) code reason))))))
 
@@ -244,7 +256,8 @@
   (try
     (let [server (:ws.jvm/server listener)
           stopped? (.stop ^org.httpkit.server.HttpServer server 100
-                          ^Runnable (reify Runnable (run [_] (on-closed))))]
+                          ^Runnable (reify Runnable
+                                      (run [_] (on-closed))))]
       (if stopped?
         {:dao.stream/outcome :dao.stream/ok}
         {:dao.stream/outcome :dao.stream/transport-error}))

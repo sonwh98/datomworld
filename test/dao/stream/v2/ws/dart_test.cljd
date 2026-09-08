@@ -106,7 +106,7 @@
                                                    :capacity 1
                                                    :value-domain :host-values)
                              :ack-cursor (:dao.stream/cursor
-                                          (stream/cursor ack stream/anchor-newest))}]})
+                                           (stream/cursor ack stream/anchor-newest))}]})
         accepted (ws/accept-connection! endpoint "/repl" raw 0)]
     (is (= :ws/pending (:ws/status accepted)))
     (is (= :dao.stream/ok

@@ -125,9 +125,11 @@
   (testing "defn inside a lambda body (nested use via macro path)"
     (is (= 42
            (compile-program-and-run-macros
-             '((def make-adder (fn [n] (defn adder
-                                         [x]
-                                         (+ x n)) adder))
+             '((def make-adder
+                 (fn [n]
+                   (defn adder
+                     [x]
+                     (+ x n)) adder))
                ((make-adder 2) 40))))))
   (testing "user (defmacro defn ...) overrides the native defn special case"
     ;; Reviewer finding: once (defmacro defn ...) is in scope, subsequent
@@ -168,9 +170,11 @@
                  (vm/value))))))
   (testing "compile-program handles nested defn without any preamble"
     (let [ast (yang/compile-program
-                '((def make-adder (fn [n] (defn adder
-                                            [x]
-                                            (+ x n)) adder))
+                '((def make-adder
+                    (fn [n]
+                      (defn adder
+                        [x]
+                        (+ x n)) adder))
                   ((make-adder 2) 40)))
           datoms (vec (vm/ast->datoms ast))]
       (is (= 42
@@ -183,9 +187,11 @@
   (testing "compile-program handles nested defn on the AST walker path"
     (is (= 42
            (compile-program-and-run
-             '((def make-adder (fn [n] (defn adder
-                                         [x]
-                                         (+ x n)) adder))
+             '((def make-adder
+                 (fn [n]
+                   (defn adder
+                     [x]
+                     (+ x n)) adder))
                ((make-adder 2) 40)))))))
 
 

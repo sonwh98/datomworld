@@ -65,7 +65,7 @@
           (= "" decoded) "/"
           (str/starts-with? decoded "/")
           (str "/" (str/join "/" (remove-dot-segments
-                                     (str/split (subs decoded 1) #"/" -1))))
+                                   (str/split (subs decoded 1) #"/" -1))))
           :else nil)))))
 
 
@@ -96,17 +96,17 @@
   "Install the sole subscription on one dart:io WebSocket."
   ([socket adapter] (wire! socket adapter nil))
   ([socket adapter on-done]
-  (let [socket ^io/WebSocket socket]
-    (.listen socket
-             (fn [value]
-               ((:message! adapter)
-                (if (string? value) value binary-message-text)))
-             .onError (fn [_error] ((:error! adapter)))
-             .onDone (fn []
-                       ((:closed! adapter)
-                        (or (.-closeCode socket) 1006)
-                        (or (.-closeReason socket) ""))
-                       (when on-done (on-done)))))
+   (let [socket ^io/WebSocket socket]
+     (.listen socket
+              (fn [value]
+                ((:message! adapter)
+                 (if (string? value) value binary-message-text)))
+              .onError (fn [_error] ((:error! adapter)))
+              .onDone (fn []
+                        ((:closed! adapter)
+                         (or (.-closeCode socket) 1006)
+                         (or (.-closeReason socket) ""))
+                        (when on-done (on-done)))))
    socket))
 
 
