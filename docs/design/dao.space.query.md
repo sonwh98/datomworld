@@ -1,9 +1,13 @@
 # dao.space.query — The Reader-Side Index Consumer
 
-Status: implemented. The read coordinate is an explicit bounded DaoStream descriptor, interpretation enters only through explicit immutable
-views (`current`, `history`) or explicit stream wrappers (`query/relation`, `query/entity-map-relation`), the index realization is owned
-by `dao.space.index`, and `match` / `q` / `pull` run over one evaluator on
-every platform, returning local closed bounded result DaoStreams. This
+Status: implemented, on DaoStream v2. Every database input is a **value**:
+a relation value (`query/relation`, `query/entity-map-relation`), a datom
+view over one (`current`, `history`), or a published covered index the caller
+opened (`open-published!`). `q` opens nothing and closes nothing. A live
+DaoStream enters only through `snapshot`, the single interpreter over
+`dao.stream.v2.observe/step`. The index realization is owned by
+`dao.space.index`, and `match` / `q` / `pull` run over one evaluator on every
+platform, returning a local result value that `collect` materializes. This
 document records the read model, the source model, the index-realization
 decision, the query surface, and the open items. The executable contract is
 `test/dao/space/query_test.cljc`.
@@ -23,25 +27,31 @@ decision, the query surface, and the open items. The executable contract is
 
 ## Architecture
 
-The query library is an embeddable Peer over bounded DaoStreams. It opens each
-explicit descriptor, consumes its logical tuples, and runs matching / Datalog /
-pull above them. A published-index stream resolves its content-store coordinate
-and manifest address below this boundary. The query library is pure
-and stateless — it owns no durable state, never writes, and enforces no
-schema; any schema policy belongs on the write side.
+The query library is an embeddable Peer over finite relations of tuples. It
+consumes the logical tuples of each value it is handed and runs matching /
+Datalog / pull above them. An opened published index resolves its content-store
+coordinate and manifest address below this boundary; the caller opens it and
+the caller closes it. The query library is pure and stateless — it owns no
+durable state, never writes, opens nothing, and enforces no schema; any schema
+policy belongs on the write side.
 
 ```
 dao.space.query/q …/match …/pull         ← the TUPLE SPACE reads
-     │  consumes exact-bounded logical tuple streams
+     │  consumes finite relation values and opened indexes
      ▼
 dao.jing content store (content handles) ← STORAGE boundary
      ▲
 dao.space.index/publish-index!  (write side, a separate library)
 ```
 
-## The read coordinate: bounded DaoStream descriptor
+## The read coordinate: a serializable name, opened by the caller
 
-A published covered index must be exposed as a bounded DaoStream descriptor/realization whose logical elements are canonical d5, with physical B-tree segments hidden below the adapter. The descriptor contains a resolvable content-store coordinate plus manifest address, not necessarily a live handle; its portability is conditional on that coordinate being resolvable by the receiving runtime.
+A published covered index is named by a **serializable coordinate** whose
+logical elements are canonical d5, with physical B-tree segments hidden below
+it. The coordinate contains a resolvable content-store coordinate plus manifest
+address, never a live handle; its portability is conditional on that coordinate
+being resolvable by the receiving runtime. It is data, and may travel through a
+stream like any other data.
 
 ```clojure
 (index/published-index
@@ -49,7 +59,9 @@ A published covered index must be exposed as a bounded DaoStream descriptor/real
    :path "/srv/datom-world/content.log"}
   :segment/sha256-<manifest-hash>)
 
-;; The resulting descriptor has this exact data shape:
+;; The resulting coordinate has this exact data shape. The :dao.stream/*
+;; keys are dao.space.index's. `open-published!` validates that exact
+;; shape before opening anything; `q` dispatches on neither key.
 {:dao.stream/type :dao.space.index/published
  :dao.stream/bound {:manifest-address :segment/sha256-<manifest-hash>}
  :dao.stream/comparator :dao.space.index/eavt
@@ -58,18 +70,19 @@ A published covered index must be exposed as a bounded DaoStream descriptor/real
  :manifest-address :segment/sha256-<manifest-hash>}
 ```
 
-A query may receive several descriptors as separate `:in` database values. A DaoStream descriptor is itself data and may be transported through another DaoStream.
-Source identity is interpreter context and never a tuple slot. It is never
-inferred from a DaoJing intake stream, and **a bare content-store handle
-carries no source**: it must be wrapped in a valid DaoStream descriptor before
-`q`/`match`/`pull` will read it, and passing one unwrapped throws.
+A query may receive several opened indexes as separate `:in` database values.
+The coordinate is itself data and may be transported through a stream, then
+opened by whoever receives it. Source identity is interpreter context and never
+a tuple slot. It is never inferred from a DaoJing intake stream, and **a bare
+content-store handle carries no source**: it names no manifest, so
+`q`/`match`/`pull` reject it like any other loose value.
 
 Two kinds of pools must not be confused:
 
 - **DaoJing intake pools** are physical ingestion topology — which streams an
   observer materializes into content storage.
-- **Query db-values** are semantic composition — which bounded streams a
-  reader names independently in `:in`.
+- **Query db-values** are semantic composition — which relation values and
+  opened indexes a reader names independently in `:in`.
 
 They never need to coincide, and DaoJing never learns the latter. A manifest
 address is a content address like any other; it is a snapshot-at-read of an
@@ -79,56 +92,109 @@ as such.
 ## Source polymorphism
 
 `dao.space.query/q` accepts database values only as:
-1. A serializable exact-bounded DaoStream descriptor carrying `:dao.stream/type` and `:dao.stream/bound`
-2. An already-opened closed fully-retained realization satisfying Reader+Bound.
 
-Raw maps/vectors are not `q` database inputs; callers explicitly wrap arbitrary mixed-dimensional tuples with `query/relation` and entity maps with `query/entity-map-relation`.
+1. A **relation value** — `(query/relation tuples)` or
+   `(query/entity-map-relation maps)`.
+2. A **datom view** over one — `(current src)` / `(history src)`, where `src`
+   is a relation value, a `snapshot` result, or an opened published index.
+3. An **opened published index** — `(query/open-published! coordinate)`.
+
+Raw maps and vectors are not `q` database inputs, and neither is anything else
+loose: an unrecognized value throws before evaluation, naming what is accepted.
+Callers explicitly wrap arbitrary mixed-dimensional tuples with
+`query/relation` and entity maps with `query/entity-map-relation`.
 
 Each database input is one logical relation:
 
-- **A published index** — a bounded DaoStream descriptor. `q` opens the
-  descriptor and owns the realization for that query. A realization supplied
-  directly by the caller is borrowed and is never closed by `q`.
+- **A published index** — the caller opens the serializable coordinate with
+  `open-published!`, holds the content-store handle, and releases it with
+  `close-published!`. `q` borrows it and never closes it. There is no
+  registry and no dispatch on a transport type: opening a coordinate is
+  `dao.jing.coordinate/open!` plus a manifest read, a function call the caller
+  makes, not a stream operation.
 - **An explicit datom view** — `current` and `history` are semantic view
-  values interpreted by `q`/`match`/`pull`; their nested source remains the
-  bounded DaoStream descriptor or realization. `(current source)` resolves a canonical d5 history and
-  projects it to d3; `(history source)` preserves exact d5. Independent
-  physical sources stay separate database inputs.
-- **A wrapped relation** — `(query/relation [[...] ...])` wrapping arbitrary and mixed arities. Arity never selects an interpretation.
-- **A wrapped entity-map collection** — `(query/entity-map-relation [{:db/id e, :work/status :todo, ...} ...])`. Normalized to datoms first: each `k v` pair becomes an `[e k v]` fact. Identity is explicit: the read side is pure and never mints an entity id, so every entity map must carry `:db/id`, and a map without one throws an informative `ex-info` rather than inventing a tempid.
+  values interpreted by `q`/`match`/`pull`; their nested source is a relation
+  value, a `snapshot` result (its relation is taken), or an opened published
+  index.
+  `(current source)` resolves a canonical d5 history and projects it to d3;
+  `(history source)` preserves exact d5. Independent physical sources stay
+  separate database inputs.
+- **A wrapped relation** — `(query/relation [[...] ...])` wrapping arbitrary
+  and mixed arities. Arity never selects an interpretation.
+- **A wrapped entity-map collection** —
+  `(query/entity-map-relation [{:db/id e, :work/status :todo, ...} ...])`.
+  Normalized to datoms first: each `k v` pair becomes an `[e k v]` fact.
+  Identity is explicit: the read side is pure and never mints an entity id, so
+  every entity map must carry `:db/id`, and a map without one throws an
+  informative `ex-info` rather than inventing a tempid.
 
-`q` consumes each input exactly as far as evaluation requires. It interprets
-datom views, opens and closes descriptor-owned source realizations during
-evaluation, and directly opens ordinary stream descriptors. A `current` view
-(`as-of` nil) over a published covered index is realized **lazily**: the
+`q` consumes each input exactly as far as evaluation requires, and **opens and
+closes nothing** — it is a pure function of its arguments. A `current` view
+(`as-of` nil) over an opened published index is realized **lazily**: the
 covered sets are re-attached as restored B-trees and only the slices the plan
-touches are fetched; every other input — history views, `as-of` bounds, raw
-streams, in-process relations — is consumed eagerly before returning.
-Already-opened realizations are borrowed and never closed. It performs
+touches are fetched; every other input — history views, `as-of` bounds,
+in-process relations — is consumed eagerly before returning. It performs
 arbitrary-dimensional exact positional matching/unification (with explicit `&`
-tail syntax) and returns a local closed bounded result DaoStream.
-`query/collect` materializes conventional Datalog shapes.
+tail syntax) and returns a local **result value** carrying the find spec.
+`query/collect` materializes conventional Datalog shapes from it.
 
-The local result realization and derived realizations returned when a view is
-applied to an already-open source are intentionally not DaoStream descriptors:
-they are not serializable or reopenable transport identities. To transport a
-result, first materialize it with `query/collect`, then wrap the retained tuples
-explicitly with `query/relation`.
+Relation values, view values and result values are values, not transports.
+They carry no `:dao.stream/type` and no bound: a finite collection computed in
+full has no second observer, no future appends and no eviction, so nothing
+about the DaoStream reader surface would describe it (see *Decisions*). None of
+them carries a reopenable transport identity — a result names nothing another
+runtime could resolve. Their *contents*, being ordinary data, can of course
+travel through a stream that carries data; to hand a result on that way,
+materialize it with `query/collect` and wrap the retained tuples explicitly
+with `query/relation`.
 
 Source polymorphism is an ergonomic property of the query *function*, not a
-second medium — a local realization is by definition not shared, and
-coordination between agents still runs through shared content storage.
+second medium — a query value is not itself a shared medium, and coordination
+between agents still runs through shared content storage.
+
+## Snapshots: the one stream interpreter
+
+Query never reads a live stream during evaluation. A DaoStream v2 reader
+becomes a query input only by an explicit snapshot, and `snapshot` is the only
+function in this namespace that requires `dao.stream.v2`:
+
+```clojure
+(query/snapshot handle)
+;; => {:relation {:dao.space.query/relation [v …]}
+;;     :status   :ended | :blocked | :gap | :defect
+;;     :cursor   c            ; the cursor reached; on :gap the last retained
+;;     :recovery c'           ; :gap only
+;;     :read     raw}         ; :defect only
+```
+
+It mints at `:dao.stream/oldest` and loops `dao.stream.v2.observe/step` with a
+total effect — retain the value, answer `ok` — until the step stops.
+
+- **Every stopping outcome is data, never an exception.** `:ended` is a closed
+  stream fully read; `:blocked` is an open stream caught up, which is a
+  snapshot at call time; `:gap` carries the values read before the hole and the
+  recovery cursor; `:defect` carries the raw answer. The caller decides whether
+  a partial snapshot is a relation it can query — query has no basis to decide
+  that for it.
+- **A cursor never advances past a value the snapshot did not retain**, which
+  is `step`'s effect-before-commit discipline, and `snapshot` never closes the
+  handle.
+
+`snapshot` stays here until a second consumer needs it, at which point it
+belongs in `dao.stream.v2.observe` as `drain`.
 
 ## Reading a manifest
 
-A bounded DaoStream descriptor is opened into a realization.
+The caller opens a coordinate with `query/open-published!` and releases it with
+`query/close-published!`; a second close is a no-op.
 
-- **The implemented published-index DaoStream adapter** opens the declared
-  DaoJing coordinate, validates the manifest address, fetches only the
-  manifest, and re-attaches the four covered sets lazily through
-  `index/restored-indexes` (zero node fetches at open). The EAVT row vector is
-  deferred behind a delay in the realization and forced only by row consumers.
-  This gives `q` one uniform Reader+Bound surface.
+- **`open-published!`** validates the coordinate against
+  `index/published-index`, opens the declared DaoJing content store, validates
+  the manifest address, fetches only the manifest, and re-attaches the four
+  covered sets lazily through `index/restored-indexes` (zero node fetches at
+  open). The EAVT row vector is deferred behind a delay and forced only by row
+  consumers. If anything after the store opens throws, the store is closed
+  before the error propagates. This gives `q` one uniform opened-index value.
 - **The engine consumes those sets directly for selective reads.** A `current`
   view with `as-of` nil routes `::fact-index` to the restored sets, so
   3-fixed clauses slice through `subseq-from` and fault only the seek path
@@ -170,15 +236,22 @@ database interpreters.
   stream advances its own cursor.
 - **Owner-built, peers compose (implemented)** — each stream's owner indexes
   its own stream (`dao.space.index/publish-index!`) and persists the segments;
-  readers consume explicitly supplied descriptors as independent db-values. A
-  published index descriptor is opened as a logical d5 stream; query composition
+  readers consume explicitly supplied coordinates as independent db-values. A
+  reader opens a published index into a d5 relation it owns; query composition
   stays in the interpreter. Index-once, reuse-by-many, and available
   when the author is offline — the decentralized analog of Datomic's
   transactor-built index. Implemented on JVM,
   ClojureScript, and ClojureDart on `dao.data.btree` (see
-  `dao.space.index.md`). The stream adapter opens lazily and `current`
+  `dao.space.index.md`). `open-published!` opens lazily and `current`
   (as-of nil) selective reads run on the restored trees; eager walks serve
   `history`, `as-of`, and full scans.
+
+**Planning never forces the deferred relation.** The clause-cost estimator
+reads a relation's truthiness without forcing it, and a deferred relation is
+always truthy, so a multi-clause query plans without draining its source and
+each clause faults only the slices it touches. This is what makes the lazy
+route exist for multi-clause queries at all, rather than being a property of
+single-clause reads.
 
 ## The `read-datoms` contract
 
@@ -216,9 +289,8 @@ before building indexes from them — `dao.jing` itself never decodes meaning.
   that supplies `t = 0` and `m = dao.datom/default-op` (*Source
   polymorphism*).
 
-The published-index DaoStream adapter opens lazily (manifest only) and the
-engine uses the restored sets directly for `current` (as-of nil) selective
-reads. This eager path remains the contract for `history`, for every `as-of`
+`open-published!` opens lazily (manifest only) and the engine uses the restored
+sets directly for `current` (as-of nil) selective reads. This eager path remains the contract for `history`, for every `as-of`
 bound (the clause-level index route has no as-of plumbing; `bound-datoms`
 applies the bound at the relation level), and for any query whose clauses
 genuinely scan. Two observable consequences of the lazy route:
@@ -233,13 +305,14 @@ genuinely scan. Two observable consequences of the lazy route:
   resolves current state on the fly, where the eager path scans pre-resolved
   current-only facts. Same fetches, more per-row work — a cost note, not a
   correctness difference.
-- **After close, loudness is the backend's.** A deferred row seq faulted
-  after `close!` has run reads through the closed store: real backends throw
-  (`"missing index segment"` when a get returns the absent sentinel, or the
-  backend's own read error); a backend whose close is a no-op (an in-memory
-  test handle) keeps serving. Never silently empty. Exposure is limited to
-  manually forcing rows after `close!` — `q`/`match`/`pull` consume and close
-  inside one dynamic extent.
+- **After close, loudness is the backend's — and closing is the caller's.** A
+  deferred row seq faulted after `close-published!` has run reads through the
+  closed store: real backends throw (`"missing index segment"` when a get
+  returns the absent sentinel, or the backend's own read error); a backend
+  whose close is a no-op (an in-memory test handle) keeps serving. Never
+  silently empty. Because `q` opens and closes nothing, the extent in which an
+  opened index is usable is the caller's to bound: it opens before the query
+  and closes after it is done with the results.
 - **Planning never forces.** The clause-cost estimator reads the relation's
   truthiness without forcing it; a deferred relation is always truthy, so
   multi-clause queries plan without draining the source and each clause
@@ -374,7 +447,7 @@ force:
   (e.g. `dao.jing.dht` batching) stays possible but lives entirely inside that
   backend's own transport.
 - **Coordinate semantics: reference at naming, snapshot at read.** A
-  published index descriptor names a manifest by content address; each read resolves
+  published index coordinate names a manifest by content address; each read resolves
   the immutable value at that address. This is Datomic's `d/db` pattern
   exactly (a db value is immutable; calling `d/db` again gets a fresher one) —
   no new mechanism, just "immutable segments + explicit address."
@@ -390,15 +463,34 @@ force:
   the observer design, and the tuple space all depend on `dao.stream` staying
   upstream plumbing and `dao.jing` staying the dumb boundary; unifying them
   would undo that.
+- **Bounded realizations are values, not streams.** The DaoStream reader
+  surface exists so independent cursors can observe one positioned,
+  append-only, retained sequence *over time*, so a descriptor can name it
+  across a serialization boundary, and so eviction is reported as a gap. A row
+  vector computed in full has none of those needs — no second observer, no
+  future appends, no eviction, no reachability. Dressing one as a reader would
+  owe a manifest, an exclusion reason for every outcome it cannot produce, and
+  the conformance harness, and would buy a `next` loop over `nth`. So
+  relations, views and results are plain tagged values, and `rows` gives a
+  view's resolved rows to a caller that wants them.
+- **The relation transport is eliminated.** The v1
+  `:dao.stream/relation` descriptor carried its tuples *inside itself* and
+  "opened" into a record that read them back by index. A descriptor names a
+  stream; a descriptor that *is* the data is not reachability data, it is a
+  value with a transport type stamped on it. `query/relation` returns that
+  value directly, and a relation value travels through any stream that can
+  carry data — which is all the transport ever provided.
 
 ## Open items
 
-- **Published indexed snapshots and K-way merge** — several explicitly scoped manifests
-  could be exposed as an explicit derived relation without flattening source
-  identity, then answered by merging N restored B-trees in index order.
+- **Published indexed snapshots and K-way merge** — several explicitly scoped
+  manifests could be exposed as an explicit derived relation without flattening
+  source identity, then answered by merging N restored B-trees in index order.
+  Passing several opened indexes as separate `:in` values is already supported;
+  what remains is merging them into one relation.
 - **Generic relation positional indexes** — a positional index orders a
   relation by explicitly selected tuple positions without assigning meaning to
-  those positions. The bounded tuples, their exact bound, and their explicitly
+  those positions. A relation value's tuples together with their explicitly
   requested positional indexes form an **indexed snapshot**. Arbitrary tuples
   currently use a relation scan. An explicit
   datom interpreter automatically supplies the covered indexes for canonical
