@@ -7,14 +7,16 @@
    :put-content-fn, :get-content-fn, and :close-fn, and is consumed by
    dao.jing/materialize!, dao.jing/get, and dao.jing/close!. It embeds no
    intake stream and no source identity: addresses are derived solely from
-   payloads, equal payloads from a pool of intake streams converge on
-   exactly one entry, and an unequal payload at an existing address is an
-   integrity failure, never an overwrite."
+   payloads, equal payloads from a pool of dao.stream.v2 intake streams
+   converge on exactly one entry, and an unequal payload at an existing
+   address is an integrity failure, never an overwrite. The store's content
+   is observed through mem/entries, the backend's test-facing view — the
+   private state's shape is pinned nowhere."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]))
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.ringbuffer :as ringbuffer]))
 
 
 (defn throws?
@@ -30,11 +32,13 @@
 
 
 (defn open-stream
-  "Open a ringbuffer transport pre-loaded with vals."
+  "A dao.stream.v2 ringbuffer reader handle pre-loaded with vals."
   [& vals]
-  (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 8})]
-    (doseq [v vals] (ds/append! s v))
-    s))
+  (let [{:dao.stream/keys [handle]}
+        (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
+                             :dao.stream.ringbuffer/capacity 8})]
+    (doseq [v vals] (stream/append! handle v))
+    handle))
 
 
 ;; ---------------------------------------------------------------------------
@@ -43,19 +47,16 @@
 
 (deftest create-content-mem-returns-a-stream-free-content-handle
   (testing
-    "the handle is plain data with explicit private state and the
-            three backend effects"
+    "the handle is plain data carrying the three backend effects"
     (let [h (mem/create-content-mem)]
       (is (map? h))
       (is (fn? (:put-content-fn h)))
       (is (fn? (:get-content-fn h)))
-      (is (fn? (:close-fn h)))
-      (is (= {:closed? false, :content {}} @(:state h)))))
-  (testing "the handle embeds no intake stream and stores no source identity"
+      (is (fn? (:close-fn h)))))
+  (testing "a fresh store holds nothing and identifies no source"
     (let [h (mem/create-content-mem)]
-      (is (not (contains? h :stream))
-          "a content store carries no intake stream")
-      (is (empty? (:content @(:state h)))))))
+      (is (empty? (mem/entries h))
+          "a content store starts with no entries and no provenance"))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -73,7 +74,7 @@
       (is (= "segment" (namespace address)))
       (is (= payload (jing/get h address ::missing)))
       (is
-        (= {address payload} (:content @(:state h)))
+        (= {address payload} (mem/entries h))
         "exactly the payload is stored: no provenance stamp, no source identity"))))
 
 
@@ -99,12 +100,12 @@
       (is (= :inserted ((:put-content-fn h) address payload)))
       (is (= :present ((:put-content-fn h) address payload)))
       (is (= payload (jing/get h address ::missing)))
-      (is (= {address payload} (:content @(:state h))))))
+      (is (= {address payload} (mem/entries h)))))
   (testing "materialize! is idempotent end to end"
     (let [h (mem/create-content-mem)
           payload {:x 42}]
       (is (= (jing/materialize! h payload) (jing/materialize! h payload)))
-      (is (= 1 (count (:content @(:state h))))))))
+      (is (= 1 (count (mem/entries h)))))))
 
 
 (deftest put-rejects-invalid-content-addresses
@@ -117,7 +118,7 @@
                    42 "abc" nil [1 2] {:k :v}]]
         (is (throws? #((:put-content-fn h) bad {:x 1}))
             (str "must reject " (pr-str bad))))
-      (is (= {} (:content @(:state h)))))))
+      (is (empty? (mem/entries h))))))
 
 
 (deftest put-rejects-address-payload-hash-mismatch
@@ -127,7 +128,7 @@
     (let [h (mem/create-content-mem)
           address (jing/segment-key {:a 1})]
       (is (throws? #((:put-content-fn h) address {:a 2})))
-      (is (= {} (:content @(:state h))))))
+      (is (empty? (mem/entries h)))))
   (testing "an address that does hash to the payload is accepted"
     (let [h (mem/create-content-mem)]
       (is (= :inserted
@@ -143,7 +144,7 @@
           address (jing/segment-key payload)]
       (swap! (:state h) assoc-in [:content address] {:a 1})
       (is (throws? #((:put-content-fn h) address payload)))
-      (is (= {:a 1} (get-in @(:state h) [:content address]))
+      (is (= {:a 1} (get (mem/entries h) address))
           "the existing value is untouched")))
   (testing
     "the collision is visible through materialize! as an integrity
@@ -153,7 +154,7 @@
           address (jing/segment-key payload)]
       (swap! (:state h) assoc-in [:content address] {:a 1})
       (is (throws? #(jing/materialize! h payload)))
-      (is (= {:a 1} (get-in @(:state h) [:content address]))
+      (is (= {:a 1} (get (mem/entries h) address))
           "materialize! never overwrites"))))
 
 
@@ -163,22 +164,24 @@
       (is (nil? (jing/close! h)))
       (is (nil? (jing/close! h)))
       (is (nil? ((:close-fn h))))
-      (is (true? (:closed? @(:state h))))))
+      (is (throws? #((:put-content-fn h)
+                     (jing/segment-key {:probe 1})
+                     {:probe 1}))
+          "a closed store accepts no puts")))
   (testing
     "get/put through every entry point throw after close and never
             mutate content"
     (let [h (mem/create-content-mem)
           payload {:a 1}
           address (jing/materialize! h payload)
-          content-before (:content @(:state h))]
+          content-before (mem/entries h)]
       (jing/close! h)
       (is (throws? #(jing/materialize! h payload)))
       (is (throws? #(jing/get h address ::missing)))
       (is (throws? #((:put-content-fn h) address payload)))
       (is (throws? #((:get-content-fn h) address ::missing)))
-      (is (= content-before (:content @(:state h)))
-          "close neither clears nor rewrites stored content")
-      (is (true? (:closed? @(:state h)))))))
+      (is (= content-before (mem/entries h))
+          "close neither clears nor rewrites stored content"))))
 
 
 (deftest get-distinguishes-absence-from-stored-nil
@@ -203,23 +206,27 @@
 
 (deftest observer-pool-equal-payloads-converge-to-one-entry
   (testing
-    "equal payloads arriving through two intake streams land on
-            exactly one stored entry carrying no source identity"
+    "equal payloads arriving through two dao.stream.v2 intake streams
+            land on exactly one stored entry carrying no source identity"
     (let [h (mem/create-content-mem)
           payload {:nested {:v [1 2 3]}}
           address (jing/segment-key payload)
           a (open-stream payload)
           b (open-stream payload)
-          state (jing/observer-state [a b])
+          enter (fn [s]
+                  {:stream s
+                   :cursor (:dao.stream/cursor
+                             (stream/cursor s :dao.stream/oldest))})
+          state (jing/observer-state (mapv enter [a b]))
           r1 (jing/observe-step! h state)
           r2 (jing/observe-step! h (:state r1))]
-      (is (= :ok (:signal r1)))
-      (is (= :ok (:signal r2)))
+      (is (= :dao.stream/ok (:signal r1)))
+      (is (= :dao.stream/ok (:signal r2)))
       (is (= address (:address r1)))
       (is (= address (:address r2))
           "both intake streams converge on the same content address")
       (is
-        (= {address payload} (:content @(:state h)))
+        (= {address payload} (mem/entries h))
         "exactly one entry: no duplicates, no provenance, no source identity"))))
 
 
@@ -252,7 +259,7 @@
          (let [rs (into [] results)]
            (is (= 1 (count (filter #(= :inserted %) rs))))
            (is (= (dec n) (count (filter #(= :present %) rs))))
-           (is (= 1 (count (:content @(:state h)))))
-           (is (= {address payload} (:content @(:state h)))))))
+           (is (= 1 (count (mem/entries h))))
+           (is (= {address payload} (mem/entries h))))))
      :cljs (is true)
      :cljd (is true)))

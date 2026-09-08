@@ -17,7 +17,8 @@
             #?@(:clj [[dao.jing.remote :as jing-remote]])
             [dao.space.index :as index]
             [dao.stream :as ds]
-            [dao.stream.ringbuffer]
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.ringbuffer :as ringbuffer]
             #?@(:cljd [["dart:io" :as dart-io]])))
 
 
@@ -70,9 +71,36 @@
 
 
 (defn- open-intake
-  "Open a ringbuffer intake stream with capacity large enough for the
-   multi-node tests."
-  ([] (ds/open! {:dao.stream/type :ringbuffer, :capacity 4096})))
+  "A dao.stream.v2 ringbuffer intake writer with capacity large enough for
+   the multi-node tests."
+  ([] (open-intake 4096))
+  ([capacity]
+   (:dao.stream/handle
+     (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
+                          :dao.stream.ringbuffer/capacity capacity}))))
+
+
+(defn- intake-values
+  "Every value currently on a v2 intake stream, read from its oldest
+   cursor — the test's view of what publication enqueued."
+  [s]
+  (loop [cursor (:dao.stream/cursor (stream/cursor s :dao.stream/oldest))
+         acc []]
+    (let [r (stream/next s cursor)]
+      (if (= :dao.stream/ok (:dao.stream/outcome r))
+        (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))
+        acc))))
+
+
+(defn- pool-state
+  "Observer state over v2 intake handles, each entered at its oldest
+   cursor."
+  [intakes]
+  (jing/observer-state
+    (mapv (fn [s]
+            {:stream s
+             :cursor (:dao.stream/cursor (stream/cursor s :dao.stream/oldest))})
+          intakes)))
 
 
 (defn- temp-content-path
@@ -95,18 +123,19 @@
 
 
 (defn- materialize-through-observer
-  "Drain intake streams through a dao.jing observer into a fresh content
-   store; returns the store."
+  "Drain v2 intake streams through a dao.jing observer into a fresh content
+   store; returns the store. Draining runs until blocked or end; a gap or
+   defect is fatal to this composition (E11)."
   [intakes]
   (let [h (content-handle)]
-    (loop [st (jing/observer-state intakes)]
+    (loop [st (pool-state intakes)]
       (let [r (jing/observe-step! h st)]
         (case (:signal r)
-          :ok (recur (:state r))
-          :blocked h
-          :end h
-          :daostream/gap (throw (ex-info "test observer hit a gap"
-                                         {:result r})))))))
+          :dao.stream/ok (recur (:state r))
+          :dao.stream/blocked h
+          :dao.stream/end h
+          (throw (ex-info "test observer hit a gap or defect"
+                          {:result r})))))))
 
 
 (defn- datoms
@@ -174,7 +203,7 @@
                                  :default Exception)
                               #"transaction"
               (index/publish-index! local [intake])))
-        (is (empty? (ds/->seq nil intake)))))))
+        (is (empty? (intake-values intake)))))))
 
 
 (deftest publish-index-rejects-noncanonical-local-datom-slots
@@ -191,7 +220,7 @@
                                  :default Exception)
                               #"datom"
               (index/publish-index! local [intake])))
-        (is (empty? (ds/->seq nil intake)))))))
+        (is (empty? (intake-values intake)))))))
 
 
 (deftest publish-index-address-is-content-derived-and-stream-invariant
@@ -220,15 +249,15 @@
           a (open-intake)
           b (open-intake)]
       (index/publish-index! local [a b])
-      (is (seq (ds/->seq nil a)))
-      (is (empty? (ds/->seq nil b)))))
+      (is (seq (intake-values a)))
+      (is (empty? (intake-values b)))))
   (testing "a custom :select-stream receives the pool and may pick any member"
     (let [local (open-local (datoms 8))
           a (open-intake)
           b (open-intake)]
       (index/publish-index! local [a b] {:select-stream second})
-      (is (empty? (ds/->seq nil a)))
-      (is (seq (ds/->seq nil b))))))
+      (is (empty? (intake-values a)))
+      (is (seq (intake-values b))))))
 
 
 (deftest publish-index-emits-only-to-the-selected-stream
@@ -241,9 +270,9 @@
           c (open-intake)
           {:keys [manifest]}
           (index/publish-index! local [a b c] {:select-stream (fn [_] c)})]
-      (is (empty? (ds/->seq nil a)))
-      (is (empty? (ds/->seq nil b)))
-      (let [emitted (vec (ds/->seq nil c))]
+      (is (empty? (intake-values a)))
+      (is (empty? (intake-values b)))
+      (let [emitted (vec (intake-values c))]
         (is (seq emitted))
         (is (= manifest (last emitted)))))))
 
@@ -259,7 +288,7 @@
     (let [local (open-local [[1 :test/a "x" 0 1] [2 :test/a "y" 0 1]])
           intake (open-intake)
           {:keys [manifest]} (index/publish-index! local [intake])
-          emitted (vec (ds/->seq nil intake))]
+          emitted (vec (intake-values intake))]
       (is (= 2 (count emitted)) "one shared node blob, then the manifest")
       (is (node-blob? (first emitted)))
       (is (= manifest (second emitted)))
@@ -294,7 +323,7 @@
           intake (open-intake)
           {:keys [manifest]}
           (index/publish-index! local [intake] {:branching-factor 4})
-          emitted (vec (ds/->seq nil intake))
+          emitted (vec (intake-values intake))
           blobs (vec (butlast emitted))
           by-address
           (into {} (map-indexed (fn [i b] [(jing/segment-key b) i]) blobs))]
@@ -327,7 +356,7 @@
           intake (open-intake)
           {:keys [manifest-address manifest]} (index/publish-index! local
                                                                     [intake])
-          emitted (vec (ds/->seq nil intake))
+          emitted (vec (intake-values intake))
           store (materialize-through-observer [intake])]
       (is (= [manifest] emitted) "only the manifest is appended")
       (is (every? nil? (vals (:indexes manifest))))
@@ -357,7 +386,7 @@
                                :default Exception)
                             #"gap"
             (index/publish-index! gap [intake])))
-      (is (empty? (ds/->seq nil intake))
+      (is (empty? (intake-values intake))
           "nothing reaches the intake stream before the snapshot completes"))))
 
 
@@ -370,7 +399,7 @@
                                :default Exception)
                             #"malformed"
             (index/publish-index! bad [intake])))
-      (is (empty? (ds/->seq nil intake)))))
+      (is (empty? (intake-values intake)))))
   (testing "an unknown signal is malformed"
     (let [bad (->MalformedResultStream :bogus)
           intake (open-intake)]
@@ -379,25 +408,37 @@
                                :default Exception)
                             #"malformed"
             (index/publish-index! bad [intake])))
-      (is (empty? (ds/->seq nil intake))))))
+      (is (empty? (intake-values intake))))))
 
 
 (deftest publish-index-full-intake-stream-throws
   (testing
-    "a :full append throws with the result; only a partial immutable prefix
-          of node blobs lands, never the manifest"
+    "an intake append answering :dao.stream/full throws with the result;
+          only a partial immutable prefix of node blobs lands, never the
+          manifest"
     (let [local (open-local (datoms 64))
-          intake (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})]
+          ;; the v2 ringbuffer always evicts rather than answering full, so
+          ;; a full intake is scripted: a writer acknowledging exactly one
+          ;; append, recording what it accepted
+          accepted (atom [])
+          intake (reify
+                   stream/IDaoStreamWriter
+                   (append!
+                     [_ payload]
+                     (if (empty? @accepted)
+                       (do (swap! accepted conj payload)
+                           {:dao.stream/outcome :dao.stream/ok})
+                       {:dao.stream/outcome :dao.stream/full})))]
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
                                :default Exception)
                             #"append failed"
-            (index/publish-index! local [intake])))
-      (let [emitted (vec (ds/->seq nil intake))]
-        (is
-          (every? node-blob? emitted)
-          "only node blobs landed: the manifest is appended last, so it is
-            never part of a :full prefix")))))
+            (index/publish-index! local [intake] {:branching-factor 4})))
+      (is (= 1 (count @accepted))
+          "exactly one append was acknowledged before the full answer")
+      (is (node-blob? (first @accepted))
+          "only a node blob landed: the manifest is appended last, so it is
+            never part of a full prefix"))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -498,8 +539,11 @@
                 drain (fn drain
                         [state]
                         (let [r (jing/observe-step! store state)]
-                          (when (= :ok (:signal r)) (drain (:state r)))))]
-            (drain (jing/observer-state [intake]))
+                          (case (:signal r)
+                            :dao.stream/ok (drain (:state r))
+                            (:dao.stream/blocked :dao.stream/end) nil
+                            (throw (ex-info "test observer hit a gap or defect" r)))))]
+            (drain (pool-state [intake]))
             {:store store,
              :path path,
              :manifest-address manifest-address,
@@ -719,10 +763,13 @@
         intake (open-intake)
         store (jing-file/create-content-file path)]
     (try (let [{:keys [manifest-address]} (index/publish-index! local [intake])
-               _ (loop [state (jing/observer-state [intake])]
-                   (let [{:keys [signal state]} (jing/observe-step! store
-                                                                    state)]
-                     (when (= :ok signal) (recur state))))
+               _ (loop [state (pool-state [intake])]
+                   (let [{:keys [signal state] :as r} (jing/observe-step! store
+                                                                          state)]
+                     (case signal
+                       :dao.stream/ok (recur state)
+                       (:dao.stream/blocked :dao.stream/end) nil
+                       (throw (ex-info "test observer hit a gap or defect" r)))))
                descriptor (index/published-index {:dao.jing/type :dao.jing/file,
                                                   :path path}
                                                  manifest-address)
@@ -751,7 +798,7 @@
           each other and with the source snapshot, on every covered order"
     (let [datoms (datoms 600)
           local (open-local datoms)
-          intake (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
+          intake (open-intake 1024)
           {:keys [manifest-address manifest]}
           (index/publish-index! local [intake] {:branching-factor 32})
           store (materialize-through-observer [intake])

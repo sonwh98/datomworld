@@ -30,7 +30,9 @@
             [dao.space.transactor :as transactor]
             [dao.stream :as ds]
             [dao.stream.ringbuffer]
-            [dao.stream.rpc.ws :as rpc-ws])
+            [dao.stream.rpc.ws :as rpc-ws]
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.ringbuffer :as ringbuffer])
   (:import (java.io File)))
 
 
@@ -59,16 +61,21 @@
     (.mkdirs (.getParentFile fl))
     (when (.exists fl) (.delete fl)))
   (let [store (file/create-content-file space-path)
-        intake (ds/open! {:dao.stream/type :ringbuffer}) ; unbounded:
-        ;; position 0 never
-        ;; evicts
+        ;; capacity chosen so position 0 never evicts during a run: the
+        ;; simulation enqueues at most a few hundred payloads per agent
+        intake (:dao.stream/handle
+                 (ringbuffer/create!
+                   {:dao.stream/type :dao.stream/ringbuffer
+                    :dao.stream.ringbuffer/capacity 65536}))
         srv (rpc-ws/start! (remote/default-handlers store)
                            (+ 10000 (rand-int 50000)))]
     (try (binding [*store* store
                    *url* (str "ws://127.0.0.1:" (:port srv))
                    *shared-intake* intake]
            (f))
-         (finally ((:stop! srv)) (ds/close! intake) (jing/close! store)))))
+         (finally ((:stop! srv))
+                  (stream/close! intake)
+                  (jing/close! store)))))
 
 
 (use-fixtures :once space-fixture)
@@ -129,14 +136,17 @@
   [agents]
   (let [addresses (mapv (comp :manifest-address transactor/publish! :log)
                         agents)]
-    (loop [st (jing/observer-state [*shared-intake*])]
+    (loop [st (jing/observer-state
+                [{:stream *shared-intake*
+                  :cursor (:dao.stream/cursor
+                            (stream/cursor *shared-intake* :dao.stream/oldest))}])]
       (let [r (jing/observe-step! *store* st)]
         (case (:signal r)
-          :ok (recur (:state r))
-          :blocked addresses
-          :end addresses
-          :daostream/gap (throw (ex-info "test observer hit a gap"
-                                         {:result r})))))))
+          :dao.stream/ok (recur (:state r))
+          :dao.stream/blocked addresses
+          :dao.stream/end addresses
+          (throw (ex-info "test observer hit a gap or defect"
+                          {:result r})))))))
 
 
 (defn- published-source-pool

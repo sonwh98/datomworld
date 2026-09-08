@@ -37,7 +37,8 @@
             [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.jing.coordinate :as jing-coordinate]
-            [dao.stream :as ds]))
+            [dao.stream :as ds]
+            [dao.stream.v2 :as stream]))
 
 
 ;; =============================================================================
@@ -505,7 +506,7 @@
   (when-not (coll? intake-pool)
     (throw
       (ex-info
-        "publish-index! intake-pool must be a collection of writable dao.stream values"
+        "publish-index! intake-pool must be a collection of writable dao.stream.v2 values"
         {:intake-pool intake-pool})))
   (when (empty? intake-pool)
     (throw (ex-info "publish-index! intake-pool must be non-empty"
@@ -524,11 +525,12 @@
 
 
 (defn- append-ok!
-  "Append one opaque payload to an intake stream; every ds/append! must
-   answer `{:result :ok}`, anything else throws with the result attached."
+  "Append one opaque payload to an intake stream; every stream.v2/append!
+   must answer `:dao.stream/ok`, anything else throws with the result
+   attached."
   [stream payload]
-  (let [result (ds/append! stream payload)]
-    (when-not (and (map? result) (= :ok (:result result)))
+  (let [result (stream/append! stream payload)]
+    (when-not (and (map? result) (= :dao.stream/ok (:dao.stream/outcome result)))
       (throw (ex-info (str "publish-index! stream append failed: "
                            (pr-str result))
                       {:stream stream, :result result, :payload payload})))

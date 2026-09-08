@@ -1,14 +1,15 @@
 (ns dao.space.transactor
   "The `:transactor` stream: a single-writer wrapper over an explicit local
-   `dao.stream` plus an explicit DaoJing intake pool (docs/design/dao.jing.md,
-   Publication from an agent).
+   `dao.stream` plus an explicit intake pool of `dao.stream.v2` writers
+   (docs/design/dao.jing.md, Publication from an agent).
 
    Descriptor:
 
      {:dao.stream/type :transactor
       :local-stream s   ; must satisfy IDaoStreamReader and IDaoStreamWriter;
                         ; supplied, never created, registered, or closed
-      :intake-pool [p]  ; non-empty; every member satisfies IDaoStreamWriter;
+      :intake-pool [p]  ; non-empty; every member satisfies the dao.stream.v2
+                        ; writer surface (stream/writer?);
                         ; supplied, never created, registered, or closed
       :name n}          ; optional, diagnostic only
 
@@ -40,7 +41,8 @@
    neither closes nor erases the local stream."
   (:require [dao.datom :as datom]
             [dao.space.index :as index]
-            [dao.stream :as ds])
+            [dao.stream :as ds]
+            [dao.stream.v2 :as stream])
   #?(:cljs (:require-macros [dao.stream])))
 
 
@@ -192,10 +194,10 @@
     (when-not (and (coll? intake-pool) (seq intake-pool))
       (throw
         (ex-info
-          ":transactor descriptor requires a non-empty :intake-pool of streams satisfying IDaoStreamWriter"
+          ":transactor descriptor requires a non-empty :intake-pool of streams satisfying the dao.stream.v2 writer surface"
           {:descriptor descriptor})))
     (doseq [intake intake-pool]
-      (when-not (satisfies? ds/IDaoStreamWriter intake)
+      (when-not (stream/writer? intake)
         (throw
           (ex-info
             ":transactor :intake-pool members must satisfy IDaoStreamWriter"

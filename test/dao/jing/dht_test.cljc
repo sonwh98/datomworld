@@ -12,8 +12,8 @@
             [dao.jing.mem :as mem]
             [dao.jing.dht :as dht]
             [dao.jing.dht.kad :as kad]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]))
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.ringbuffer :as ringbuffer]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -128,11 +128,13 @@
 
 
 (defn- open-stream
-  "Open a ringbuffer transport pre-loaded with vals."
+  "A dao.stream.v2 ringbuffer reader handle pre-loaded with vals."
   [& vals]
-  (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 8})]
-    (doseq [v vals] (ds/append! s v))
-    s))
+  (let [{:dao.stream/keys [handle]}
+        (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
+                             :dao.stream.ringbuffer/capacity 8})]
+    (doseq [v vals] (stream/append! handle v))
+    handle))
 
 
 ;; ---------------------------------------------------------------------------
@@ -390,8 +392,9 @@
 
 (deftest observer-equal-payloads-converge-and-replicate
   (testing
-    "equal payloads arriving through two ringbuffers materialize
-            through the DHT into one local entry and replicate to the grid"
+    "equal payloads arriving through two dao.stream.v2 ringbuffers
+            materialize through the DHT into one local entry and replicate
+            to the grid"
     (let [{:keys [stores]} (grid 2)
           [a b] stores
           local (:local a)
@@ -399,14 +402,18 @@
           address (jing/segment-key payload)
           s1 (open-stream payload)
           s2 (open-stream payload)
-          r1 (jing/observe-step! a (jing/observer-state [s1 s2]))
+          enter (fn [s]
+                  {:stream s
+                   :cursor (:dao.stream/cursor
+                             (stream/cursor s :dao.stream/oldest))})
+          r1 (jing/observe-step! a (jing/observer-state (mapv enter [s1 s2])))
           r2 (jing/observe-step! a (:state r1))]
-      (is (= :ok (:signal r1)))
-      (is (= :ok (:signal r2)))
+      (is (= :dao.stream/ok (:signal r1)))
+      (is (= :dao.stream/ok (:signal r2)))
       (is (= address (:address r1)))
       (is (= address (:address r2))
           "both intake streams converge on the same content address")
-      (is (= {address payload} (:content @(:state local)))
+      (is (= {address payload} (mem/entries local))
           "exactly one local entry: no duplicates, no provenance")
       (is (= payload (jing/get (:local b) address ::miss))
           "DHT replication fanned the payload out to the peer's local"))))

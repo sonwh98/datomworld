@@ -13,7 +13,9 @@
             [dao.space.index :as index]
             [dao.space.transactor :as transactor]
             [dao.stream :as ds]
-            [dao.stream.ringbuffer]))
+            [dao.stream.ringbuffer]
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.ringbuffer :as ringbuffer]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -112,8 +114,28 @@
 ;; Helpers
 ;; ---------------------------------------------------------------------------
 
+(defn- open-intake
+  "A dao.stream.v2 ringbuffer intake writer."
+  [capacity]
+  (:dao.stream/handle
+    (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
+                         :dao.stream.ringbuffer/capacity capacity})))
+
+
+(defn- intake-values
+  "Every value currently on a v2 intake stream, read from its oldest
+   cursor — the test's view of what publication enqueued."
+  [s]
+  (loop [cursor (:dao.stream/cursor (stream/cursor s :dao.stream/oldest))
+         acc []]
+    (let [r (stream/next s cursor)]
+      (if (= :dao.stream/ok (:dao.stream/outcome r))
+        (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))
+        acc))))
+
+
 (defn- open-with-intake
-  ([local] (open-with-intake local (ds/open! {:dao.stream/type :ringbuffer})))
+  ([local] (open-with-intake local (open-intake 4096)))
   ([local intake]
    (ds/open! {:dao.stream/type :transactor,
               :local-stream local,
@@ -133,18 +155,24 @@
 
 
 (defn- materialize-through-observer
-  "Drain intake streams through a dao.jing observer into a fresh content
-   store; returns the store."
+  "Drain v2 intake streams through a dao.jing observer into a fresh content
+   store; returns the store. Draining runs until blocked or end; a gap or
+   defect is fatal to this composition (E11)."
   [intakes]
   (let [h (content-handle)]
-    (loop [st (jing/observer-state intakes)]
+    (loop [st (jing/observer-state
+                (mapv (fn [s]
+                        {:stream s
+                         :cursor (:dao.stream/cursor
+                                   (stream/cursor s :dao.stream/oldest))})
+                      intakes))]
       (let [r (jing/observe-step! h st)]
         (case (:signal r)
-          :ok (recur (:state r))
-          :blocked h
-          :end h
-          :daostream/gap (throw (ex-info "test observer hit a gap"
-                                         {:result r})))))))
+          :dao.stream/ok (recur (:state r))
+          :dao.stream/blocked h
+          :dao.stream/end h
+          (throw (ex-info "test observer hit a gap or defect"
+                          {:result r})))))))
 
 
 (defn- tx-ts
@@ -158,7 +186,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest descriptor-validation
-  (let [intake (ds/open! {:dao.stream/type :ringbuffer})]
+  (let [intake (open-intake 4096)]
     (testing "a missing or non-stream :local-stream throws"
       (is (thrown-with-msg? #?(:cljd Object
                                :clj Exception
@@ -244,14 +272,16 @@
                          :next-t 99})))))
     (testing "opening creates, registers, or closes nothing"
       (let [local (ds/open! {:dao.stream/type :ringbuffer})
-            pool (ds/open! {:dao.stream/type :ringbuffer})]
+            pool (open-intake 4096)]
         (ds/open! {:dao.stream/type :transactor,
                    :local-stream local,
                    :intake-pool [pool]})
         (is (false? (ds/closed? local)))
-        (is (false? (ds/closed? pool)))
         (is (empty? (ds/->seq nil local)))
-        (is (empty? (ds/->seq nil pool)))))))
+        (is (empty? (intake-values pool)))
+        (is (= :dao.stream/ok
+               (:dao.stream/outcome (stream/append! pool ::probe)))
+            "the intake pool was neither closed nor written by the open")))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -260,7 +290,7 @@
 
 (deftest reopen-derives-next-t-from-retained-history
   (let [local (ds/open! {:dao.stream/type :ringbuffer})
-        intake (ds/open! {:dao.stream/type :ringbuffer})
+        intake (open-intake 4096)
         a (ds/open! {:dao.stream/type :transactor,
                      :local-stream local,
                      :intake-pool [intake]})]
@@ -285,7 +315,7 @@
 
 
 (deftest malformed-or-gapped-retained-history-throws
-  (let [intake (ds/open! {:dao.stream/type :ringbuffer})
+  (let [intake (open-intake 4096)
         open-on (fn [local]
                   (ds/open! {:dao.stream/type :transactor,
                              :local-stream local,
@@ -553,7 +583,7 @@
 
 (deftest close-is-per-handle-and-does-not-touch-local-stream
   (let [local (ds/open! {:dao.stream/type :ringbuffer})
-        intake (ds/open! {:dao.stream/type :ringbuffer})
+        intake (open-intake 4096)
         log (ds/open! {:dao.stream/type :transactor,
                        :local-stream local,
                        :intake-pool [intake]})]
@@ -563,7 +593,8 @@
     (is (true? (ds/closed? log)))
     (is (false? (ds/closed? local))
         "closing the wrapper must not close the supplied local stream")
-    (is (false? (ds/closed? intake))
+    (is (= :dao.stream/ok
+           (:dao.stream/outcome (stream/append! intake ::probe)))
         "closing the wrapper must not close the supplied intake pool")
     (is (thrown-with-msg? #?(:cljd Object
                              :clj Exception
@@ -627,7 +658,7 @@
             next-t and silently write colliding records: documented hazard,
             no coordination is possible without shared mutable state"
     (let [local (ds/open! {:dao.stream/type :ringbuffer})
-          intake (ds/open! {:dao.stream/type :ringbuffer})
+          intake (open-intake 4096)
           a (ds/open! {:dao.stream/type :transactor,
                        :local-stream local,
                        :intake-pool [intake]})
@@ -649,8 +680,8 @@
 
 (deftest publish-enqueues-indexes-into-the-pool
   (let [local (ds/open! {:dao.stream/type :ringbuffer})
-        a (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
-        b (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
+        a (open-intake 1024)
+        b (open-intake 1024)
         log (ds/open! {:dao.stream/type :transactor,
                        :local-stream local,
                        :intake-pool [a b]})]
@@ -662,17 +693,19 @@
         (is (= manifest-address (jing/segment-key manifest)))
         (is (= #{:indexes :count :branching-factor} (set (keys manifest))))
         (is (= 2 (:count manifest)))
-        (is (seq (ds/->seq nil a)) "the default :select-stream is first")
-        (is (empty? (ds/->seq nil b)))))
+        (is (seq (intake-values a)) "the default :select-stream is first")
+        (is (empty? (intake-values b)))))
     (testing "publication touches no stream lifecycle"
       (is (false? (ds/closed? local)))
-      (is (false? (ds/closed? a)))
-      (is (false? (ds/closed? b))))
+      (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! a ::probe)))
+          "intake a was not closed")
+      (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! b ::probe)))
+          "intake b was not closed"))
     (testing "opts route through: :select-stream picks the pool member"
       (let [{:keys [manifest]} (transactor/publish! log
                                                     {:select-stream second})]
         (is (= 2 (:count manifest)))
-        (is (seq (ds/->seq nil b)))))
+        (is (seq (intake-values b)))))
     (testing "opts route through: :branching-factor"
       (let [{:keys [manifest]} (transactor/publish! log {:branching-factor 16})]
         (is (= 16 (:branching-factor manifest)))))
@@ -682,7 +715,7 @@
 
 (deftest publish-materializes-through-observer-and-reads-back
   (let [local (ds/open! {:dao.stream/type :ringbuffer})
-        intake (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
+        intake (open-intake 1024)
         log (open-with-intake local intake)]
     (ds/append! log {:db/id 1, :work/status :todo})
     (ds/append! log {:db/id 2, :work/status :done})
@@ -694,7 +727,7 @@
           "observer materialization makes the published datoms readable"))
     (testing "an empty local stream publishes an empty manifest"
       (let [local2 (ds/open! {:dao.stream/type :ringbuffer})
-            intake2 (ds/open! {:dao.stream/type :ringbuffer, :capacity 1024})
+            intake2 (open-intake 1024)
             log2 (open-with-intake local2 intake2)
             {:keys [manifest-address manifest]} (transactor/publish! log2)
             store (materialize-through-observer [intake2])]

@@ -16,6 +16,8 @@
             [dao.space.query :as query]
             [dao.stream :as ds]
             [dao.stream.ringbuffer]
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.ringbuffer :as ringbuffer]
             #?@(:cljd [["dart:io" :as dart-io]]))
   #?(:cljs (:require-macros [dao.stream])))
 
@@ -638,8 +640,19 @@
 
 
 (defn- open-intake
+  "A dao.stream.v2 ringbuffer intake writer."
   []
-  (ds/open! {:dao.stream/type :ringbuffer, :capacity 4096}))
+  (:dao.stream/handle
+    (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
+                         :dao.stream.ringbuffer/capacity 4096})))
+
+
+(defn- pool-state
+  "Observer state over one v2 intake handle, entered at its oldest cursor."
+  [s]
+  (jing/observer-state
+    [{:stream s
+      :cursor (:dao.stream/cursor (stream/cursor s :dao.stream/oldest))}]))
 
 
 (defn- publish-into-file
@@ -655,8 +668,11 @@
                 drain (fn drain
                         [state]
                         (let [r (jing/observe-step! store state)]
-                          (when (= :ok (:signal r)) (drain (:state r)))))]
-            (drain (jing/observer-state [intake]))
+                          (case (:signal r)
+                            :dao.stream/ok (drain (:state r))
+                            (:dao.stream/blocked :dao.stream/end) nil
+                            (throw (ex-info "test observer hit a gap or defect" r)))))]
+            (drain (pool-state intake))
             {:store store,
              :path path,
              :manifest-address manifest-address,

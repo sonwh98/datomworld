@@ -8,15 +8,17 @@
    after the backend reports durability. get reads only :segment/sha256-...
    content addresses; arbitrary keys and mutable roots are outside DaoJing.
 
-   The observer (observer-state / observe-step!) polls an explicit intake
-   pool of dao.stream values and materializes every payload. Pool membership
-   is supplied by the caller; cursors, statuses, and the scheduling index
-   are ordinary immutable data. There are no atoms, globals, registration,
-   or discovery, and the source stream never enters an address or a stored
-   value."
+   The observer (observer-state / observe-step! / adopt-cursor) coordinates
+   an explicit intake pool of dao.stream.v2 reader handles and materializes
+   every payload through dao.stream.v2.observe/step. Pool membership and
+   every member's initial cursor are supplied by the caller; statuses and
+   the scheduling index are ordinary immutable data. There are no atoms,
+   globals, registration, or discovery, and the source stream never enters
+   an address or a stored value."
   (:refer-clojure :exclude [get])
   (:require [clojure.string :as str]
-            [dao.stream :as ds]
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.observe :as observe]
             #?@(:cljs [[goog.crypt :as crypt] goog.crypt.Sha256])
             #?@(:cljd [["dart:convert" :as convert]])))
 
@@ -329,94 +331,135 @@
 ;; =============================================================================
 
 (defn observer-state
-  "Construct the immutable observer state for an explicit intake pool.
+  "Construct the observer state for an explicit intake pool.
 
+   members is a sequence of {:stream <dao.stream.v2 reader handle> :cursor
+   <opaque>} entries. The composition mints each cursor itself, from an
+   anchor of its choosing, and hands it in; DaoJing never fabricates one.
    Returns plain data, no atoms or registration:
 
-     {:members [{:stream <ref>, :cursor {:position 0}, :status :pending} ...]
+     {:members [{:stream s, :cursor c, :status :pending} ...]
       :next 0}
 
-   :members has one entry per pool stream; each entry holds only the stream
-   reference, its operational cursor (initialized to position 0), and its
-   explicit status. :next is the fair round-robin index of the member the
-   next observe-step! polls first. Member status is one of :pending (never
-   polled), :ok, :blocked, :end, or :daostream/gap.
-
-   Pool membership is supplied here; DaoJing performs no registration or
-   discovery. The source stream is operational state only and never becomes
-   part of any address or stored payload."
-  [streams]
-  {:members (mapv (fn [s] {:stream s, :cursor {:position 0}, :status :pending})
-                  streams),
+   A member without a :cursor, or whose :stream lacks the reader surface,
+   is a composition defect and throws here, before any operation. :next is
+   the fair round-robin index observe-step! polls first; :pending is the
+   never-polled status. Because the state is plain data,
+   (observer-state (:members state)) rebuilds one from its members."
+  [members]
+  {:members (mapv (fn [member]
+                    (when-not (map? member)
+                      (throw (ex-info
+                               "dao.jing pool members are {:stream s :cursor c} maps"
+                               {:member member})))
+                    (when-not (contains? member :cursor)
+                      (throw (ex-info
+                               "dao.jing pool member requires a cursor minted by its stream"
+                               {:member member})))
+                    (when-not (stream/reader? (:stream member))
+                      (throw (ex-info
+                               "dao.jing pool member requires a dao.stream.v2 reader"
+                               {:member member})))
+                    {:stream (:stream member),
+                     :cursor (:cursor member),
+                     :status :pending})
+                  members),
    :next 0})
 
 
+(defn adopt-cursor
+  "Set member index's cursor to one the stream handed out. Beside a
+   successful observation this is the only way a member's cursor changes:
+   the pool performs no cursor arithmetic, inspects no cursor shape, and
+   mints nothing. Recovering a gap is the caller's decision, made on the
+   recovery cursor a gap report carries; nothing here resynchronizes
+   anything on its own."
+  [state index cursor]
+  (assoc-in state [:members index :cursor] cursor))
+
+
 (defn observe-step!
-  "Poll the intake pool round-robin and process at most one payload.
+  "Walk the intake pool once from (:next state) and process at most one
+   payload, through dao.stream.v2.observe/step with materialize! as the
+   effect. Returns {:state next-state :signal s ...} where the signal is
+   drawn from the same seven outcomes dao.stream.v2 declares for next:
 
-   Starts polling at the member selected by (:next state) and walks the pool
-   once, so every active member is checked within the call. Returns:
+     {:signal :dao.stream/ok, :address a}
+       a payload was materialized; the member advanced to the successor
+       cursor its stream returned, and yields its turn;
+     {:signal :dao.stream/blocked}
+       the pool is empty, or every non-ended member answered blocked;
+     {:signal :dao.stream/end}
+       every member has ended;
+     {:signal :dao.stream/gap, :member i, :cursor recovery}
+       member i's position was evicted;
+     {:signal k, :member i, :result read}
+       k is :dao.stream/cursor-mismatch, :dao.stream/invalid-cursor, or
+       :dao.stream/transport-error.
 
-     {:state next-state, :signal :ok, :address address}
-       a payload was materialized and that member's cursor advanced;
-     {:state next-state, :signal :blocked}
-       the pool is empty, or no member had anything to read;
-     {:state next-state, :signal :end}
-       every member has explicitly ended;
-     {:state next-state, :signal :daostream/gap, :member i}
-       member i's cursor is behind the retention boundary. The gap is
-       returned immediately, its cursor is left unchanged, and it is never
-       auto-resynchronized: resync is the caller's decision.
+   gap and defect reports leave the member's cursor unchanged and move
+   :next past the member, so the same condition is reported again on that
+   member's next turn; nothing is auto-resynchronized. A defect carries the
+   raw read under :result exactly as the step classified it — a transport
+   that answered outside the contract is reported with its answer retained,
+   never folded into a meaning nobody chose. Blocked and ended members
+   never prevent later members from being checked, and a member that
+   yielded a payload loses its turn, so a continuously ready member cannot
+   starve another.
 
-   On {:ok payload :cursor next-cursor} the payload is materialized before
-   the member cursor advances; if materialization throws, the exception
-   propagates and the caller-owned state is untouched. Blocked and ended
-   members never prevent later members from being checked, and a member
-   that produced a payload yields its turn, so a continuously ready member
-   cannot starve another."
+   The effect is materialize!, which answers ok or throws: :failed is
+   unreachable, and a throwing effect propagates before any cursor moves,
+   so the caller's state is untouched and the same payload is reprocessed
+   from the same cursor once the backend succeeds."
   [handle state]
-  (let [{:keys [members next]} state
-        n (count members)]
+  (let [n (count (:members state))]
     (if (zero? n)
-      {:state state, :signal :blocked}
-      (loop [i next
-             scanned 0
-             state' state]
-        (if (>= scanned n)
-          (let [all-ended? (every? #(= :end (:status %)) (:members state'))]
-            {:state state', :signal (if all-ended? :end :blocked)})
-          (let [member (nth members i)]
-            (if (= :end (:status member))
-              (recur (mod (inc i) n) (inc scanned) state')
-              (let [res (ds/next (:stream member) (:cursor member))]
-                (cond
-                  (map? res)
-                  (if (and (contains? res :ok) (contains? res :cursor))
-                    (let [address (materialize! handle (:ok res))]
-                      {:state (-> state'
-                                  (assoc-in [:members i :cursor]
-                                            (:cursor res))
-                                  (assoc-in [:members i :status] :ok)
-                                  (assoc :next (mod (inc i) n))),
-                       :signal :ok,
-                       :address address})
-                    (throw
-                      (ex-info
-                        "unexpected stream result: a successful read must carry both :ok and :cursor"
-                        {:result res, :member i})))
-                  (= res :blocked)
-                  (recur (mod (inc i) n)
-                         (inc scanned)
-                         (assoc-in state' [:members i :status] :blocked))
-                  (= res :end) (recur
-                                 (mod (inc i) n)
-                                 (inc scanned)
-                                 (assoc-in state' [:members i :status] :end))
-                  (= res :daostream/gap)
-                  {:state (-> state'
-                              (assoc-in [:members i :status] :daostream/gap)
-                              (assoc :next (mod (inc i) n))),
-                   :signal :daostream/gap,
-                   :member i}
-                  :else (throw (ex-info "unexpected stream signal"
-                                        {:signal res, :member i})))))))))))
+      {:state state, :signal :dao.stream/blocked}
+      (let [effect (fn [payload]
+                     {:dao.stream/outcome :dao.stream/ok
+                      :address (materialize! handle payload)})]
+        (loop [i (:next state)
+               scanned 0
+               state' state]
+          (if (>= scanned n)
+            {:state state'
+             :signal (if (every? #(= :dao.stream/end (:status %))
+                                 (:members state'))
+                       :dao.stream/end
+                       :dao.stream/blocked)}
+            (let [member (nth (:members state') i)
+                  r (observe/step (:stream member) (:cursor member) effect)]
+              (case (:status r)
+                :advance
+                {:state (-> state'
+                            (assoc-in [:members i :cursor] (:cursor r))
+                            (assoc-in [:members i :status] :dao.stream/ok)
+                            (assoc :next (mod (inc i) n)))
+                 :signal :dao.stream/ok
+                 :address (get-in r [:effect :address])}
+                :retry
+                (recur (mod (inc i) n)
+                       (inc scanned)
+                       (assoc-in state' [:members i :status] :dao.stream/blocked))
+                :ended
+                (recur (mod (inc i) n)
+                       (inc scanned)
+                       (assoc-in state' [:members i :status] :dao.stream/end))
+                :gap
+                {:state (-> state'
+                            (assoc-in [:members i :status] :dao.stream/gap)
+                            (assoc :next (mod (inc i) n)))
+                 :signal :dao.stream/gap
+                 :member i
+                 :cursor (:recovery r)}
+                :defect
+                {:state (-> state'
+                            (assoc-in [:members i :status] (:outcome r))
+                            (assoc :next (mod (inc i) n)))
+                 :signal (:outcome r)
+                 :member i
+                 :result (:read r)}
+                :failed
+                (throw (ex-info
+                         "unreachable: the DaoJing effect answers ok or throws"
+                         {:result r, :member i}))))))))))

@@ -4,8 +4,8 @@ Status: implemented. The observer (`observer-state` / `observe-step!`) and the
 plain-data content-store handles described here are the current
 `src/cljc/dao/jing*.cljc` code. What remains open — the final canonical
 encoding, durable observer checkpoints, explicit materialization
-acknowledgement, garbage collection, and async hydration — is listed under
-*Open items and current limitations*.
+acknowledgement, the content write path as an effect stream, garbage collection,
+and async hydration — is listed under *Open items and current limitations*.
 
 **Related documents:**
 
@@ -92,8 +92,10 @@ DaoJing must distinguish pool members operationally long enough to maintain a
 cursor for each one. That association is observer state only. It is not
 written into the content address or materialized payload and has no semantic
 meaning. In the implemented observer each member entry is plain data —
-`{:stream <ref>, :cursor {:position n}, :status s}` — an operational record,
-nothing more.
+`{:stream <v2 reader handle>, :cursor <opaque>, :status s}` — an operational
+record, nothing more. `observer-state` rejects a member that lacks a cursor
+or a v2 reader before any operation. Besides successful observation, the only
+way a member's cursor changes is through `adopt-cursor`.
 
 If a storage backend partitions content into physical buckets or shards, that
 placement is a backend concern, normally derived from the content hash. It is
@@ -159,18 +161,24 @@ different pool streams is also a no-op after the first insertion. Consequently:
 
 The implemented write is `dao.jing/materialize!`: it derives the address from
 the payload alone (`segment-key`) and asks the backend's `:put-content-fn`
-for an explicit verdict. `:inserted` means the value is durably stored now;
+for an explicit verdict. A backend validates before it writes: the address must
+be a segment address and must hash to the payload, else it throws and stores
+nothing. `:inserted` means the value is durably stored now;
 `:present` means an equal value is already stored there, in which case the
 stored value is read back and verified. A collision in which an existing
 address contains different canonical bytes is an integrity failure, not an
-overwrite, and throws loudly.
+overwrite, and throws loudly. `nil` is a legal payload distinct from absence:
+`get` takes a caller-supplied not-found and returns stored `nil` as `nil`.
 
 ### Canonical encoding
 
 Content addressing is meaningful only when equal supported values produce the
-same bytes on every participating platform. The canonical encoder is therefore
-part of the storage contract even though the meaning of the encoded value is
-not.
+same bytes on every participating platform. Distinct values must address
+distinctly, both across types (`42` and `"42"` do not collide) and within one
+type (`{:a 1}` and `{:a 2}` do not). Minted addresses are readable EDN: the
+name never starts with a digit, and a key survives `pr-str` → `read-string`.
+The canonical encoder is therefore part of the storage contract even though the
+meaning of the encoded value is not.
 
 Canonicalization may understand representation-level structure such as maps,
 sets, numbers, strings, and byte arrays. It must not understand domain concepts
@@ -237,29 +245,34 @@ ever treated as a mutable root.
 
 ## Cursor tracking and recovery
 
-An observer retains one cursor per active pool member and repeatedly calls
-`ds/next`:
+The observation step is `dao.stream.v2.observe`, shared with `forward` and
+the VM. `dao.jing/observe-step!` polls the pool round-robin and processes at
+most one payload per pool walk.
 
-- `{:ok payload, :cursor next-cursor}`: materialize the payload and advance
-  that stream's cursor;
-- `:blocked`: no payload is currently available from that stream;
-- `:end`: that stream is closed; and
-- `:daostream/gap`: the cursor is behind the retention boundary and that
-  stream requires resynchronization.
+The `dao.stream.v2.observe/step` core runs the materialization effect before
+advancing the cursor. If materialization throws, the exception propagates
+before the cursor is advanced, so the caller's state is untouched and the
+same payload is reprocessed from the same cursor once the backend succeeds.
 
-The implemented observer is `dao.jing/observer-state` (build the immutable
-state for an explicit pool, one entry per member) and
-`dao.jing/observe-step!` (poll the pool round-robin and process at most one
-payload; on success it materializes the payload before advancing the member
-cursor). The `:next` scheduling index keeps a continuously ready member from
+The pool's signals and cursor disciplines are:
+
+| signal                                                    | when                                                       | extra keys                                      | member cursor            |
+| --------------------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------- | ------------------------ |
+| `:dao.stream/ok`                                          | a payload was materialized                                 | `:address`                                      | successor, from the step |
+| `:dao.stream/blocked`                                     | empty pool, or every non-ended member blocked              | —                                               | unchanged                |
+| `:dao.stream/end`                                         | every member has ended                                     | —                                               | unchanged                |
+| `:dao.stream/gap`                                         | member `i`'s position was evicted                          | `:member i`, `:cursor` (the step's `:recovery`) | unchanged                |
+| `/cursor-mismatch`, `/invalid-cursor`, `/transport-error` | member `i`'s read failed, or answered outside the contract | `:member i`, `:result` (the step's `:read`)     | unchanged                |
+
+An unrecognized transport answer is reported as a defect signal under
+`:dao.stream/transport-error`, carrying the classified read under `:result`
+with the raw answer retained inside it, and no action is taken
+beyond declining to advance. Recovery is the caller's decision, made by
+`adopt-cursor` with the reported `:cursor`.
+
+The `:next` scheduling index keeps a continuously ready member from
 starving another. Scheduling does not affect the resulting content set,
 because materialization is content-addressed, commutative, and idempotent.
-
-A durable checkpoint records operational progress — a cursor per pool entry —
-separately from the content-addressed KV data. Source identity may be needed
-by a checkpoint mechanism to resume the correct transport, but it must not
-enter the materialized content identity. Persisting such checkpoints and
-running the observer loop over time are open items (see below).
 
 ## Resource lifecycle
 
@@ -267,8 +280,10 @@ The observer itself is a value: `observe-step!` owns no resources and has
 nothing to close — streams and storage handles retain responsibility for
 releasing their transport, file, database, or network resources.
 `dao.jing/close!` delegates to a handle's optional `:close-fn`; a handle
-without one has nothing to release. A long-running runner that drives the pool
-loop, and its resource policy, are open items (see below).
+without one has nothing to release. A backend's close is idempotent; after
+close, every entry point throws, and stored content is neither cleared nor
+rewritten. A long-running runner that drives the pool loop, and its resource
+policy, are open items (see below).
 
 ## Implemented surface
 
@@ -294,19 +309,16 @@ Implemented backends:
   content-addressed in-memory store. Put is an atomic insert-if-absent; an
   address already holding the same payload reports `:present` and is never
   overwritten.
-- `dao.jing.file/create-content-file` — a content-addressed store backed by an
-  append-only log stream. Each log record is `[address payload]`, written
+- `dao.jing.file/create-content-file` — a content-addressed store backed by a
+  private framed append-only file. Each log record is `[address payload]`, written
   through a write lock, acknowledged only after the log is flushed, and
   replayed on open to rebuild the in-memory content map. The framing layer
   truncates an incomplete tail before replay; Jing then fails closed on any
   complete record that cannot be decoded, validated, or matched to its content
-  address.
-- `dao.jing.remote` — exposes a local content handle as the `:jing/put-content`
-  and `:jing/get-content` RPC ops (`default-handlers`) and wraps an RPC client
-  as a content handle (`content-client`); `connect-content!` is the
-  synchronous WebSocket constructor, JVM-only. `:jing/get-content` returns the
-  exact wire envelope `{:found? boolean, :value value}`; caller-local
-  not-found sentinels never cross the RPC boundary.
+  address. The store guarantees idempotent close, throws after close, and
+  serializes concurrent puts with exactly one record written.
+- `dao.jing.remote` — currently on v1, awaiting `dao.space`'s plan to
+  implement the stepped client design that replaces its synchronous handles.
 - `dao.jing.dht/create-content-dht` and
   `dao.jing.dht.node/create-content-dht-udp` — the distributed backend over an
   `IDhtNet` transport; see `docs/design/dao.jing.dht.md`.
@@ -330,13 +342,19 @@ encoder is transitional until the pinned canonical byte encoding lands.
   exact print rule; when the encoding lands, `content-hash`, `segment-key`,
   and every minted address change together.
 - **Durable observer checkpoints / long-running runner.** `observer-state`
-  and `observe-step!` are single-step and in-process. The checkpoint format
-  for resuming pool cursors across restarts, and a runner that drives the
-  loop over time, remain to be built.
+  and `observe-step!` are single-step and in-process. The checkpoint records,
+  per member, the stream coordinate plus the transport-minted cursor; the
+  coordinate is operational and never enters an address (serializability TBD in
+  the contract). A runner that drives the loop over time remains to be built.
 - **Explicit materialization acknowledgement.** A publisher observes only
   that its payloads were appended to an intake stream. The mechanism by which
   it observes that those payloads have been materialized must be expressed
   explicitly, potentially as a response stream.
+- **The content write path as an effect stream.** A synchronous handle that
+  accepts a write and blocks until durable keeps the storage coupling. The
+  content write path as an effect stream (durability as data, `materialize!`
+  no longer returning an address synchronously) is deferred to a larger
+  write-path redesign.
 - **Garbage collection.** Content reachability and reclamation belong to a
   higher-level retention policy; immutable content otherwise accumulates
   forever.

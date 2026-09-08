@@ -15,6 +15,8 @@
             [dao.space.schema :as schema]
             [dao.space.schema-fixtures :as fixtures]
             [dao.stream :as ds]
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.ringbuffer :as ringbuffer]
             #?@(:cljd [["dart:io" :as dart-io]]))
   #?(:cljs (:require-macros [dao.stream])))
 
@@ -637,10 +639,13 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- fresh-streams
-  "Create a fresh local-stream + intake-pool pair from ringbuffers."
+  "Create a fresh v1 local-stream + v2 intake-pool pair from ringbuffers."
   []
   (let [local  (ds/open! {:dao.stream/type :ringbuffer})
-        intake (ds/open! {:dao.stream/type :ringbuffer, :capacity 4096})]
+        intake (:dao.stream/handle
+                 (ringbuffer/create!
+                   {:dao.stream/type :dao.stream/ringbuffer
+                    :dao.stream.ringbuffer/capacity 4096}))]
     {:local local :intake [intake]}))
 
 
@@ -1374,18 +1379,24 @@
 
 
 (defn- materialize-to-file-store
-  "Drain intake streams through a dao.jing observer into a file-backed
-   content store; returns the store handle."
+  "Drain v2 intake streams through a dao.jing observer into a file-backed
+   content store; returns the store handle. Draining runs until blocked or
+   end; a gap or defect is fatal to this composition (E11)."
   [intakes path]
   (let [h (jing-file/create-content-file path)]
-    (loop [st (jing/observer-state intakes)]
+    (loop [st (jing/observer-state
+                (mapv (fn [s]
+                        {:stream s
+                         :cursor (:dao.stream/cursor
+                                   (stream/cursor s :dao.stream/oldest))})
+                      intakes))]
       (let [r (jing/observe-step! h st)]
         (case (:signal r)
-          :ok (recur (:state r))
-          :blocked h
-          :end h
-          :daostream/gap (throw (ex-info "test observer hit a gap"
-                                         {:result r})))))))
+          :dao.stream/ok (recur (:state r))
+          :dao.stream/blocked h
+          :dao.stream/end h
+          (throw (ex-info "test observer hit a gap or defect"
+                          {:result r})))))))
 
 
 ;; ---------------------------------------------------------------------------
