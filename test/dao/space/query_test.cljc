@@ -1,7 +1,6 @@
 (ns dao.space.query-test
   "Contract tests for dao.space.query over values
-   (docs/design/dao.space.query.md; the invariants I/V/E/L/R/O/S are listed
-   in docs/design/dao.space.query.implementation-plan.md).
+   (docs/design/dao.space.query.md).
 
    `q` accepts only query values as database inputs: a relation value, a
    datom view over one, or an opened published index. Raw vectors and raw
