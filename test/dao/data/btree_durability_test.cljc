@@ -208,7 +208,7 @@
 
 (deftest file-close-reopen-recovery-test
   ;; durability across the handle boundary: a tree stored through a content
-  ;; file reads back after close + reopen (append-log replay)
+  ;; file reads back after close + reopen (framed-file replay)
   (let [path (temp-path "roundtrip")]
     (try (let [h (jing-file/create-content-file path)
                storage (bts/kv-storage h {:branching-factor 16})
