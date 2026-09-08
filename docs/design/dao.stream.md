@@ -692,3 +692,25 @@ Absent from the public surface, by derivation from the invariants:
 - **a blocking take** — no operation waits.
 - **waiter registration** — there is no readiness extension.
 - **throwing conveniences** — operational outcomes are data.
+
+## The v2 namespace is transient
+
+`dao.stream.v2` exists to protect a working system while its consumers move,
+not to live forever. When the last consumer has migrated under its own plan
+and legacy `dao.stream` is deleted, **`dao.stream.v2` is renamed to
+`dao.stream`** — decided, not left open. An undecided coexistence of both
+namespaces is a defect of the migration, not a steady state.
+
+This is recorded here because the plan that carried it,
+`dao.stream.v2.implementation-plan.md`, was consumed when its phases
+completed; the decision it left open outlived it, and a transient plan is
+safe to delete only once nothing in it is still owed.
+
+The remaining v1 consumers, each migrating under its own plan: `dao.space`
+(index, schema, transactor — `query` migrated, and the `dao.stream.relation`
+transport was eliminated with it), `dao.jing`'s remote adapter and DHT node,
+`yin.io`'s file transports with `dao.gui.event` and
+`dao.postgraphics.terminal`, `dao.runtime` (gated on the v1 VM's deletion),
+`agent.tools`, and the demo and server surfaces. The v1 VM lineage is deleted
+rather than migrated, under `yin.vm.v2-consumers.implementation-plan.md`,
+because a v2 twin already exists for every one of its consumers.
