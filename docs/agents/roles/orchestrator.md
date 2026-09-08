@@ -49,7 +49,8 @@ are weekdays 14:00–18:00 UTC+8; schedule large jobs off-peak when possible.
 
 Coordination is through repository artifacts, not hidden context. Keep all
 artifacts flat under `collab/`:
-`<role>-<task>.prompt.md`, `.<sanitized-model>.findings.md`, and `.stdout.log`.
+`<timestamp>-<role>-<task>.prompt.md`, `<timestamp>-<role>-<task>.<sanitized-model>.findings.md`, and `<timestamp>-<role>-<task>.<sanitized-model>.stdout.log`.
+The prefix `<timestamp>` must be a UNIX timestamp in milliseconds (e.g. `1725791234567`) so that files automatically sort chronologically in Git's untracked view.
 Every prompt starts with:
 
 ```text
@@ -75,7 +76,7 @@ the exact ID from structured output, and use it in every report and follow-up.
 The orchestrator writes that captured ID into the promoted findings header.
 Never record `none` merely because plain-text output omitted session metadata.
 
-`collab/` is append-only and never staged or committed. Never delete or truncate
+`collab/` is append-only and never staged or committed. It must explicitly NOT be added to `.gitignore` or `.git/info/exclude` so its files remain visible and chronologically sorted in the user's Magit untracked view. Never delete or truncate
 prompts or findings. Promote final responses to `.findings.md`; `.stdout.log` is
 only an intermediate capture. Use actual timestamps; never fabricate them.
 After work is committed, move its artifacts under their exact filenames into
@@ -134,15 +135,15 @@ generated ID immediately:
 ```sh
 # Codex JSONL: first thread.started event
 TASK_SESSION_ID="$(jq -r 'select(.type == "thread.started") | .thread_id' \
-  collab/<task>.<model>.stdout.log | head -1)"
+  collab/<timestamp>-<role>-<task>.<model>.stdout.log | head -1)"
 
 # AGY JSON: top-level conversation_id
 TASK_SESSION_ID="$(jq -r '.conversation_id' \
-  collab/<task>.<model>.stdout.log)"
+  collab/<timestamp>-<role>-<task>.<model>.stdout.log)"
 
 # Command Code NDJSON: final result (also present on event.run_start)
 TASK_SESSION_ID="$(jq -r 'select(.type == "result") | .sessionId' \
-  collab/<task>.<model>.stdout.log | tail -1)"
+  collab/<timestamp>-<role>-<task>.<model>.stdout.log | tail -1)"
 ```
 
 Fail the handoff if the extracted value is empty or `null`. Do not use Codex
@@ -285,7 +286,7 @@ and CLI recipes.
 Follow the append-only artifact protocol above. In particular, record a
 reassignment by appending a new status event and implementer entry; never rewrite
 an earlier `Status:` line. Findings use
-`collab/<role>-<task>.<sanitized-model-name>.findings.md` so parallel reviewers
+`collab/<timestamp>-<role>-<task>.<sanitized-model-name>.findings.md` so parallel reviewers
 cannot collide.
 
 If the remaining budget cannot finish the next coherent unit, leave the tree
@@ -390,56 +391,56 @@ claude --resume <uuid> --permission-mode plan --allowed-tools Read \
 # Gemini / AGY
 agy --model <model> --effort <effort> --mode plan --sandbox \
   --print-timeout 5m --output-format json \
-  -p "Read <prompt> and complete it now." > collab/<task>.<model>.stdout.log
+  -p "Read <prompt> and complete it now." > collab/<timestamp>-<role>-<task>.<model>.stdout.log
 
 # AGY follow-up: preserve the generated conversation ID
 agy --conversation <id> --model <model> --effort <effort> \
   --mode plan --sandbox --print-timeout 5m --output-format json \
-  -p "Read <follow-up-prompt> and complete it now." > collab/<task>-r<n>.<model>.stdout.log
+  -p "Read <follow-up-prompt> and complete it now." > collab/<timestamp>-<role>-<task>-r<n>.<model>.stdout.log
 
 # GLM (Claude Code-based; keep -p last)
 GLM_MODEL=glm-5.3 ~/.local/bin/glm \
   --session-id <uuid> --name <task> \
   --permission-mode plan --allowed-tools Read \
   "Bash(git diff *)" "Bash(git status *)" \
-  --output-format text -p "Read <prompt> and complete it now." > collab/<task>.glm-5.3.stdout.log
+  --output-format text -p "Read <prompt> and complete it now." > collab/<timestamp>-<role>-<task>.glm-5.3.stdout.log
 
 # GLM follow-up: keep GLM_MODEL and the original UUID
 GLM_MODEL=glm-5.3 ~/.local/bin/glm \
   --resume <uuid> --permission-mode plan --allowed-tools Read \
   "Bash(git diff *)" "Bash(git status *)" \
-  --output-format text -p "Read <follow-up-prompt> and complete it now." > collab/<task>-r<n>.glm-5.3.stdout.log
+  --output-format text -p "Read <follow-up-prompt> and complete it now." > collab/<timestamp>-<role>-<task>-r<n>.glm-5.3.stdout.log
 
 # Codex review (stdin; read-only; JSONL captures thread_id)
 codex exec -m gpt-5.6-sol -s read-only --json - < <prompt> \
-  > collab/<task>.gpt-5.6-sol.stdout.log
+  > collab/<timestamp>-<role>-<task>.gpt-5.6-sol.stdout.log
 
 # Codex follow-up: `resume` exposes no sandbox flag. Resume only a thread that
 # was created read-only; if its effective policy cannot be verified, start a
 # new read-only review thread instead of implying an override here.
 codex exec resume <id> --json - \
-  < <follow-up-prompt> > collab/<task>-r<n>.gpt-5.6-sol.stdout.log
+  < <follow-up-prompt> > collab/<timestamp>-<role>-<task>-r<n>.gpt-5.6-sol.stdout.log
 
 # Muse (Claude Code-based; keep -p last)
 MUSE_MODEL=muse-spark-1.3-contributor ~/.local/bin/muse \
   --session-id <uuid> --name <task> \
   --permission-mode plan --allowed-tools Read \
   "Bash(git diff *)" "Bash(git status *)" \
-  --output-format text -p "Read <prompt> and complete it now." > collab/<task>.muse-spark-1.3-contributor.stdout.log
+  --output-format text -p "Read <prompt> and complete it now." > collab/<timestamp>-<role>-<task>.muse-spark-1.3-contributor.stdout.log
 
 # Muse follow-up: keep MUSE_MODEL and the original UUID
 MUSE_MODEL=muse-spark-1.3-contributor ~/.local/bin/muse \
   --resume <uuid> --permission-mode plan --allowed-tools Read \
   "Bash(git diff *)" "Bash(git status *)" \
-  --output-format text -p "Read <follow-up-prompt> and complete it now." > collab/<task>-r<n>.muse-spark-1.3-contributor.stdout.log
+  --output-format text -p "Read <follow-up-prompt> and complete it now." > collab/<timestamp>-<role>-<task>-r<n>.muse-spark-1.3-contributor.stdout.log
 
 # Command Code
 cmd -p -m <model> --plan --output-format json < <prompt> \
-  > collab/<task>.<model>.stdout.log
+  > collab/<timestamp>-<role>-<task>.<model>.stdout.log
 
 # Command Code follow-up: preserve the generated session ID
 cmd --resume <id> -p -m <model> --plan --output-format json \
-  < <follow-up-prompt> > collab/<task>-r<n>.<model>.stdout.log
+  < <follow-up-prompt> > collab/<timestamp>-<role>-<task>-r<n>.<model>.stdout.log
 
 # DeepSeek (close stdin; quiet startup is normal)
 ~/.local/bin/deepseek --permission-mode plan --allowed-tools Read \
