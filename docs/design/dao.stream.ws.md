@@ -400,7 +400,7 @@ cursor is minted before listener start, as are the handoff cursors.
   domain. A WebSocket traffic medium may use either; a handoff offer medium
   must use `:host-values` because it carries a live handle. It never answers
   `:dao.stream/full`; under
-  pressure, loss surfaces as reported `gap`s at lagging readers — the one
+  pressure, loss surfaces as reported `gap`s to lagging cursors — the one
   loss mode the contract blesses. Unbounded in-memory retention is not an
   alternative: it trades a refused deposit for eventual host death, the
   most silent failure of all. (A genuinely durable medium — a disk-backed
@@ -426,7 +426,7 @@ cursor is minted before listener start, as are the handoff cursors.
   re-attaching after the host repairs its composition is ordinary
   `attach!`.
 
-Sizing the window is choosing how much reader lag to tolerate before gaps
+Sizing the window is choosing how much cursor lag to tolerate before gaps
 appear — an explicit engineering decision in the host's composition. Whether
 that window can be resized after the fact is the destination transport's
 declared nature, not this transport's business. An adaptive policy — grow on
@@ -434,7 +434,8 @@ rising gap rate, shrink when quiet — is an interpreter reading its own
 telemetry, not a transport behavior.
 
 The accounting is then honest, though not complete: declared retention
-pressure surfaces as reader-visible `gap`s, and a dead destination tears the
+pressure surfaces as `gap`s to cursors that span the eviction, and a dead
+destination tears the
 attachment down. But a deposit that fails is a deposit that did not land, and
 neither can the teardown event land in the destination that just refused it —
 so in that one case the local failure is observable only through the deposit

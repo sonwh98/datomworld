@@ -443,8 +443,8 @@ A transport also declares **which outcomes it produces**, and for each one it
 excludes, why. There are three honest reasons: the outcome's precondition is
 impossible by the transport's nature (an unbounded log never evicts, so never
 reports `gap`); another policy answers the same condition, named (a ring buffer
-evicts rather than refusing, so pressure surfaces as a reported `gap` and never
-as `full`); or the answer is displaced to another channel, named (a transport
+evicts rather than refusing, so pressure surfaces as a `gap` to a cursor that
+spans the eviction, and never as `full`); or the answer is displaced to another channel, named (a transport
 that cannot know a remote answer at call time reports it as data elsewhere). An
 exclusion with no stated reason is an unimplemented outcome, not a declaration.
 
@@ -493,6 +493,23 @@ A cursor is an immutable value owned by the interpreter that holds it.
   its `:dao.stream/newest` cursor **before** invoking that operation. Minting
   after `attach!`, endpoint bind, handoff installation, or any other operation
   that can deposit would intentionally skip events deposited in between.
+- **A freshly minted `:dao.stream/oldest` is a position, not a claim about
+  completeness.** The anchor names the earliest *retained* position, which on
+  an evicting transport advances as values are lost. A `gap` is reported to a
+  cursor that spans an eviction; a cursor minted after one is a valid cursor
+  onto the surviving suffix and reports nothing, because nothing is wrong with
+  the cursor. Retained history is not complete history, and no anchor can make
+  it so. A consumer that requires complete history gets it from the transport's
+  declared retention (see *Retention and Gaps*), never from an anchor.
+- A composition on a transport that **can evict**, intending to detect whether
+  history was lost, mints an **origin cursor** — `:dao.stream/oldest` before
+  the first append — and keeps it, exactly as a composition that intends to
+  observe events caused by an operation mints `:dao.stream/newest` before
+  invoking it. A kept origin cursor converts a silent loss into a reported
+  `gap`. It cannot be minted afterwards and cannot be reconstructed: a consumer
+  that arrives later holds no evidence about what preceded it. On a transport
+  that declares complete retention this is unnecessary — a fresh `:oldest` is
+  the origin there, however late the consumer arrives.
 - Every valid cursor comes from the stream: minted by `cursor`, received as
   a successor from `next`, or recovered from a gap outcome. Consumers never
   construct cursor internals or fabricate positions — there is no `seek`. A
@@ -647,15 +664,71 @@ positions, so it cannot be held back by a slow one. A transport that deferred
 eviction until every reader had passed a position would make one reader's
 absence every other reader's unbounded growth: a single stalled or departed
 reader would hold the stream open forever, and a hostile one could do it
-deliberately. Bounded retention is bounded, and a reader that falls behind is
-told what it missed.
+deliberately. Bounded retention is bounded, and a cursor that falls behind
+receives a `gap`.
 
 When bounded retention evicts a value, a cursor still pointing at it gets the
 gap outcome from the Reading table. The stream reports honestly and decides
 nothing: an interpreter replaying a log may treat a gap as fatal; a live
 telemetry viewer may adopt the returned cursor and continue. Silently
-skipping evicted history is forbidden — a reader must be able to know it
-missed values.
+skipping evicted history is forbidden — a reader holding a cursor across an
+eviction is told it missed values. This is a promise to a **cursor**, not to a
+handle: it is precisely what a kept cursor is worth, and it is why a consumer
+that must know mints one at origin rather than asking later (see *Cursors*).
+
+### Complete history
+
+Some consumers require *complete* history rather than *retained* history: an
+interpreter that derives state by replaying a log from its beginning is wrong,
+not merely stale, if it replays a suffix. The contract already carries what
+such a consumer needs, in two mechanisms that answer different questions.
+
+**A transport that excludes `gap` gives completeness.** This is the existing
+declaration in its existing form — the outcome's precondition is impossible by
+the transport's nature, an unbounded log never evicts, so never reports `gap`
+(see *Surfaces*). Retention is declared through the transport's nature and, for
+a locally created stream, through its creation specification; it is
+configuration provenance. There is no way to ask a handle about it and none is
+added. A consumer requiring complete history therefore requires *a transport of
+that declared nature*, and the composition that wires it is what supplies one.
+
+**A kept origin cursor gives detection.** On a transport that can evict, an
+origin cursor turns a loss that would otherwise be invisible into a reported
+`gap`, and the consumer aborts or recovers on its own policy. It does not make
+the history complete; it makes incompleteness observable.
+
+Both stand, and they are not substitutes. Where completeness is a correctness
+requirement, only the declared transport delivers it, and a kept origin cursor
+is the honest failure mode that remains when completeness was not wired. Where
+a consumer can proceed on a suffix but must know that it is on one, the origin
+cursor is right and sufficient.
+
+**Wiring a log onto an evicting transport is a host assembly defect**, of the
+same kind as wiring a deposit destination that can refuse. A durable log is not
+a window: if a consumer treats a stream as the record of everything that
+happened, the transport under it must declare that it retains everything.
+Capacity is the wrong knob for this — a larger window makes loss less likely
+and never makes it reported — so sizing never substitutes for the declaration.
+
+The obligation a complete-history transport takes on is one sentence: **a
+complete-history reader begins at its logical sequence's origin and never
+evicts an element of that sequence.** Every element present at creation, and
+every value an append places on that same sequence with `ok`, remains part of
+it for as long as the logical stream exists. If the medium cannot serve
+retained history it reports `transport-error`; it never silently substitutes a
+suffix. Everything else follows. Its `:oldest` anchor stays at the origin, so
+`gap` is impossible and is excluded for that reason.
+
+What it owes on the writing side depends on what it is. A complete-history
+transport need not be writable at all — a finite immutable history is a valid
+one, and owes no writer outcome. A writable one that declares a finite capacity
+returns `full` on reaching it, without appending and without evicting: refusing
+and evicting are the two answers to the same condition, and a transport that has
+given up one owes the other. A writable one with no declared capacity — a
+logically unbounded log, however it grows or spills beneath — may exclude
+`full`. Logically unbounded is not physically infinite: unexpected exhaustion of
+the underlying medium is `transport-error`, never the eviction of acknowledged
+history.
 
 ## Composition
 
@@ -673,9 +746,9 @@ yielding execution as needed by the host runtime.
 Flow control (a reader pausing a sender) is an interpreter's concern. A pause
 has to be a lease and not a switch to avoid permanently stuck states. Those
 semantics live in `dao.lease.md`, whose facts are datoms on a medium
-(`dao.space`). DaoStream provides the honest baseline: a reader that falls
-behind is evicted past and told so with a `gap`, and the reader decides what
-that means.
+(`dao.space`). DaoStream provides the honest baseline: a cursor that falls
+behind is evicted past and told so with a `gap`, and the reader holding it
+decides what that means.
 
 ## Explicitly Absent
 
@@ -702,6 +775,11 @@ Absent from the public surface, by derivation from the invariants:
 - **a blocking take** — no operation waits.
 - **waiter registration** — there is no readiness extension.
 - **throwing conveniences** — operational outcomes are data.
+- **a retention or completeness predicate** — retention is declared, through
+  the transport's nature and the creation specification. Asking a handle would
+  be the same defect as asking whether it is closed: the answer is
+  configuration the composition already holds, and reading it back at runtime
+  invites code that branches on what it should have been wired with.
 
 ## The v2 namespace is transient
 
