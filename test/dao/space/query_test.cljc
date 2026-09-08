@@ -1,17 +1,19 @@
 (ns dao.space.query-test
-  "Contract tests for dao.space.query: the reader-side DaoStream consumer
-   (docs/design/dao.space.query.md).
+  "Contract tests for dao.space.query over values
+   (docs/design/dao.space.query.md; the invariants I/V/E/L/R/O/S are listed
+   in docs/design/dao.space.query.implementation-plan.md).
 
-   `q` accepts only bounded DaoStreams as database inputs: an exact-bound
-   descriptor (`:dao.stream/type` + `:dao.stream/bound`) or an already-opened,
-   closed realization. Raw vectors and maps are rejected. `q` returns a local
-   bounded distinct-result DaoStream realization and `collect` materializes it
-   into the relation/scalar/tuple/coll/return-map shapes. `current` and
-   `history` are the explicit d5 interpreters."
+   `q` accepts only query values as database inputs: a relation value, a
+   datom view over one, or an opened published index. Raw vectors and raw
+   maps are rejected. `q` opens nothing and closes nothing; it returns a
+   local result value carrying the find spec, and `collect` materializes
+   it. `current` and `history` are the explicit d5 interpreters. A live
+   dao.stream.v2 handle becomes an input only through `snapshot`."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.coordinate :as jing-coordinate]
             [dao.jing.file :as jing-file]
+            [dao.jing.mem :as jing-mem]
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.stream :as ds]
@@ -27,7 +29,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- rel
-  "An inline bounded relation descriptor over arbitrary tuples."
+  "An inline relation value over arbitrary tuples."
   [tuples]
   (query/relation tuples))
 
@@ -44,32 +46,21 @@
   (apply qq form (query/current (rel datoms)) inputs))
 
 
-(defn- open-closed
-  "An already-opened, closed, fully-retained ringbuffer realization pre-loaded
-   with tuples — the borrowed-input path."
-  [tuples]
-  (let [s (ds/open! {:dao.stream/type :ringbuffer})]
-    (doseq [t tuples] (ds/append! s t))
-    (ds/close! s)
-    s))
-
-
-(defn- drain
-  "Drain a realization to a set of values via cursor reads."
-  [stream]
-  (loop [cursor {:position 0}
-         acc #{}]
-    (let [r (ds/next stream cursor)]
-      (if (map? r) (recur (:cursor r) (conj acc (:ok r))) acc))))
-
-
 (def sample-datoms
   [[1 :work/status :todo 0 1] [1 :work/task "write tests" 0 1]
    [2 :work/status :done 0 1] [2 :work/task "ship it" 0 1]])
 
 
+(defn- ring-handle
+  "A dao.stream.v2 ringbuffer owner handle."
+  [capacity]
+  (:dao.stream/handle
+    (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
+                         :dao.stream.ringbuffer/capacity capacity})))
+
+
 ;; ---------------------------------------------------------------------------
-;; R1: structural input dispatch — realization first, then descriptor
+;; I: inputs — raw data is not a database input
 ;; ---------------------------------------------------------------------------
 
 (deftest raw-vectors-and-maps-are-rejected
@@ -78,100 +69,126 @@
           #?(:cljs js/Error
              :cljd Object
              :default Exception)
-          #"raw vectors and maps are rejected|descriptor|realization"
+          #"raw vectors and maps are rejected"
           (qq '[:find ?e :where [?e _ _]] [[1 :a 1 0 1]]))))
   (testing "a raw entity map is not a db-value"
     (is (thrown-with-msg?
           #?(:cljs js/Error
              :cljd Object
              :default Exception)
-          #"raw vectors and maps are rejected|descriptor|realization"
-          (qq '[:find ?e :where [?e :a 1]] {:db/id 1, :a 1})))))
+          #"raw vectors and maps are rejected"
+          (qq '[:find ?e :where [?e :a 1]] {:db/id 1, :a 1}))))
+  (testing "a bare content-store handle carries no source and is not a db-value"
+    (is (thrown-with-msg?
+          #?(:cljs js/Error
+             :cljd Object
+             :default Exception)
+          #"raw vectors and maps are rejected"
+          (qq '[:find ?e :where [?e _ _]] (jing-mem/create-content-mem))))))
 
 
-(deftest descriptors-require-type-and-bound
-  (testing "a descriptor without :dao.stream/type is rejected"
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #":dao.stream/type"
+(deftest loose-stream-type-maps-are-rejected
+  (testing "a map with :dao.stream/type is neither a value query built nor an opened index"
+    (is (thrown-with-msg?
+          #?(:cljs js/Error
+             :cljd Object
+             :default Exception)
+          #"raw vectors and maps are rejected"
           (qq '[:find ?e :where [?e _ _]]
-              {:dao.stream/bound {:count 0}}))))
-  (testing
-    "a create-only/unbounded descriptor without :dao.stream/bound is rejected"
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #":dao.stream/bound"
-          (qq '[:find ?e :where [?e _ _]]
-              {:dao.stream/type :ringbuffer}))))
-  (testing "a boolean :dao.stream/bound is rejected (bound is never a boolean)"
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #":dao.stream/bound"
+              {:dao.stream/type :ringbuffer})))
+    (is (thrown-with-msg?
+          #?(:cljs js/Error
+             :cljd Object
+             :default Exception)
+          #"raw vectors and maps are rejected"
           (qq '[:find ?e :where [?e _ _]]
               {:dao.stream/type :dao.stream/relation,
                :tuples [],
                :dao.stream/bound true})))))
 
 
-(deftest descriptors-require-an-exact-not-symbolic-bound
-  (doseq [bound [:open :closed false]]
+(deftest unrecognized-host-objects-are-rejected
+  ;; No legacy path exists: an arbitrary host object is not silently
+  ;; classified as a v1 reader and drained — it receives the same I1
+  ;; rejection as raw vectors and raw maps.
+  (testing "an atom is not a source"
+    (is (thrown-with-msg?
+          #?(:cljs js/Error
+             :cljd Object
+             :default Exception)
+          #"raw vectors and maps are rejected"
+          (query/history (atom [[1 :a 1 0 1]]))))
+    (is (thrown-with-msg?
+          #?(:cljs js/Error
+             :cljd Object
+             :default Exception)
+          #"raw vectors and maps are rejected"
+          (query/current (atom nil)))))
+  (testing "a delay is not a source"
+    (is (thrown-with-msg?
+          #?(:cljs js/Error
+             :cljd Object
+             :default Exception)
+          #"raw vectors and maps are rejected"
+          (query/current (delay [[1 :a 1 0 1]])))))
+  #?(:clj
+     (testing "a host object (a Date) is not a source"
+       (is (thrown-with-msg?
+             Exception
+             #"raw vectors and maps are rejected"
+             (query/history (java.util.Date.)))))))
+
+
+(deftest relation-and-entity-map-relation-are-accepted
+  (is (= #{[1] [2]}
+         (qq '[:find ?e :where [?e :work/status _]]
+             (query/current (rel sample-datoms)))))
+  (is (query/value? (rel sample-datoms)))
+  (is (query/value? (query/current (rel sample-datoms))))
+  (is (nil? (:dao.stream/type (rel sample-datoms)))
+      "a relation value claims no transport type")
+  (is (not (query/value? [[1 :a 1]])))
+  (is (not (query/value? {:db/id 1}))))
+
+
+(deftest entity-map-relation-projects-to-d3-facts
+  (let [maps [{:db/id 1, :work/status :todo, :work/task "a"}
+              {:db/id 2, :work/status :done, :work/task "b"}]]
+    (is (= #{["a"] ["b"]}
+           (qq '[:find ?task :where [_ :work/task ?task]]
+               (query/entity-map-relation maps)))))
+  (testing "a map without :db/id throws"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
-                          #"exact :dao.stream/bound"
-          (qq '[:find ?e :where [?e _ _]]
-              {:dao.stream/type :dao.stream/relation,
-               :tuples [],
-               :dao.stream/bound bound})))))
-
-
-(deftest borrowed-realizations-require-bound-and-closed
-  (testing "an open (not closed) borrowed realization is rejected"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer})]
-      (ds/append! s [1 :a 1 0 1])
-      (is (thrown-with-msg? #?(:cljs js/Error
-                               :cljd Object
-                               :default Exception)
-                            #"closed"
-            (qq '[:find ?e :where [?e _ _]]
-                (query/current s))))))
-  (testing "a closed borrowed realization is accepted"
-    (is (= #{[1] [2]}
-           (qq '[:find ?e :where [?e :work/status _]]
-               (query/current (open-closed sample-datoms)))))))
-
-
-(deftest dispatch-checks-realization-before-descriptor
-  (testing
-    "a value satisfying IDaoStreamReader is treated as a borrowed realization"
-    (let [s (open-closed [[1 :name "Ada" 0 1]])]
-      (is (= #{["Ada"]}
-             (qq '[:find ?n :where [1 :name ?n]] (query/current s)))))))
+                          #"explicit :db/id"
+          (qq '[:find ?task :where [_ :work/task ?task]]
+              (query/entity-map-relation [{:work/task
+                                           "a"}]))))))
 
 
 ;; ---------------------------------------------------------------------------
-;; R2: current / history — pure derived descriptors and derived realizations
+;; V: views — current / history over values
 ;; ---------------------------------------------------------------------------
 
-(deftest current-is-a-derived-descriptor-for-descriptor-input
+(deftest current-is-a-view-value-over-a-relation
   (let [d (rel sample-datoms)
         v (query/current d)]
-    (is (= :dao.space/current (:dao.stream/type v)))
+    (is (= :current (:dao.space.query/view v)))
     (is (= d (:source v)))
-    (is (= (:dao.stream/bound d) (:dao.stream/bound v)))
-    (testing "and is openable by q into current d3 facts"
+    (is (nil? (:as-of v)))
+    (is (nil? (:dao.stream/type v)) "a view value claims no transport type")
+    (testing "and is interpreted by q into current d3 facts"
       (is (= #{[1 "write tests"] [2 "ship it"]}
              (qq '[:find ?id ?task :where [?id :work/task ?task]] v))))))
 
 
-(deftest history-is-a-derived-descriptor-for-descriptor-input
+(deftest history-is-a-view-value-over-a-relation
   (let [d (rel sample-datoms)
         v (query/history d)]
-    (is (= :dao.space/history (:dao.stream/type v)))
+    (is (= :history (:dao.space.query/view v)))
     (is (= d (:source v)))
+    (is (nil? (:dao.stream/type v)) "a view value claims no transport type")
     (testing "history exposes exact d5 rows"
       (is (= #{[1 :work/status :todo 0 1] [2 :work/status :done 0 1]}
              (qq '[:find ?e ?a ?v ?t ?m :where [?e ?a ?v ?t ?m]
@@ -179,14 +196,17 @@
                  v))))))
 
 
-(deftest current-over-a-realization-is-a-borrowed-derived-realization
-  (let [s (open-closed [[1 :color "red" 1 1] [1 :color "blue" 2 1]])
-        v (query/current s)]
-    (is (satisfies? ds/IDaoStreamReader v))
-    (is (ds/closed? v) "the derived realization is closed and bounded")
-    (is (= #{[1 :color "red"] [1 :color "blue"]} (drain v))
-        "the derived realization carries the resolved current d3 facts")
-    (testing "the borrowed source is left untouched" (is (ds/closed? s)))))
+(deftest rows-resolves-a-view
+  (let [datoms [[1 :color "red" 1 1]       ; assert
+                [1 :color "red" 2 0]       ; retract
+                [1 :color "blue" 2 1]      ; assert
+                [2 :status "active" 1 1] [2 :status "active" 3 0]]]
+    (is (= [[1 :color "blue"]]
+           (query/rows (query/current (rel datoms)))))
+    (is (= (mapv vec datoms)
+           (query/rows (query/history (rel datoms)))))
+    (testing "rows over a plain relation value returns its tuples"
+      (is (= sample-datoms (query/rows (rel sample-datoms)))))))
 
 
 (deftest current-resolves-retractions-and-supersessions
@@ -212,7 +232,7 @@
 
 
 (deftest conflicting-d5-rows-are-rejected
-  (testing "same [e a v t] with different m throws when the view is opened"
+  (testing "same [e a v t] with different m throws when the view is interpreted"
     (is (thrown-with-msg? #?(:cljs js/Error
                              :cljd Object
                              :default Exception)
@@ -231,6 +251,7 @@
 
 (deftest as-of-is-an-explicit-view-bound
   (let [datoms [[1 :work/status :todo 0 1] [1 :work/status :done 5 1]]]
+    (is (= 0 (:as-of (query/current (rel datoms) 0))))
     (is (= #{[:todo]}
            (qq '[:find ?v :where [1 :work/status ?v]]
                (query/current (rel datoms) 0))))
@@ -240,27 +261,21 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; R3: q returns a bounded distinct result stream; collect materializes
+;; R: results — a tagged local value, materialized by collect
 ;; ---------------------------------------------------------------------------
 
-(deftest q-returns-a-result-stream
+(deftest q-returns-a-result-value
   (let [result (query/q '[:find ?e ?task :where [?e :work/task ?task]]
                         (query/current (rel sample-datoms)))]
-    (is (satisfies? ds/IDaoStreamReader result))
-    (is (ds/closed? result) "the result is a closed bounded snapshot")
-    (is (= #{[1 "write tests"] [2 "ship it"]} (drain result)))))
-
-
-(deftest q-result-is-a-bounded-stream-value
-  (let [result (query/q '[:find ?e :where [?e :work/status _]]
-                        (query/current (rel sample-datoms)))]
-    (is (ds/realization? result))
-    (is (ds/closed? result) "the result is a closed bounded snapshot")
-    (is
-      (nil? (ds/descriptor result))
-      "the result advertises no descriptor; it is a local realization, not a reopenable transport")
-    (is (nil? (ds/bound result))
-        "no descriptor means no external bound claim")))
+    (is (map? result))
+    (is (contains? result :dao.space.query/result))
+    (is (= :relation (:spec result)))
+    (is (= #{[1 "write tests"] [2 "ship it"]}
+           (:dao.space.query/result result)
+           (query/collect result)))
+    (testing "a result is not a coordinate and claims no stream type"
+      (is (not (contains? result :dao.stream/type)))
+      (is (not (contains? result :dao.space.query/published))))))
 
 
 (deftest collect-materializes-the-relation-shape
@@ -313,179 +328,102 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; R4: ownership — opened descriptors are owned and closed; borrowed are not
+;; O: ownership — the caller owns every handle (proved with the published
+;; helpers further down; deftest bodies resolve at run time)
 ;; ---------------------------------------------------------------------------
-
-(deftype OwnedSource
-  [values closed?]
-
-  ds/IDaoStreamReader
-
-  (next
-    [_ cursor]
-    (let [pos (:position cursor)]
-      (if (< pos (count values))
-        {:ok (nth values pos), :cursor {:position (inc pos)}}
-        :end)))
-
-
-  ds/IDaoStreamBound
-
-  (close! [_] (reset! closed? true) {:woke []})
-
-
-  (closed? [_] @closed?))
-
-
-(def owned-close-state (atom nil))
-
-
-(ds/defopen :test/owned-source
-            [d]
-            (let [closed? (atom false)]
-              (reset! owned-close-state closed?)
-              (->OwnedSource (vec (:tuples d)) closed?)))
-
-
-(deftest q-closes-owned-sources-and-never-borrowed
-  (testing "q opens and closes an owned descriptor"
-    (reset! owned-close-state nil)
-    (is (= #{[1]}
-           (qq '[:find ?e :where [?e :work/status :todo]]
-               (query/current {:dao.stream/type :test/owned-source,
-                               :dao.stream/bound {:count 1},
-                               :tuples [[1 :work/status :todo 0 1]]}))))
-    (is (true? @@owned-close-state) "q closed the realization it opened"))
-  (testing "a borrowed realization is never closed by q"
-    (let [s (open-closed [[1 :work/status :todo 0 1]])]
-      (is (= #{[1]}
-             (qq '[:find ?e :where [?e :work/status :todo]] (query/current s))))
-      (is (ds/closed? s)
-          "the borrowed stream is still the caller's to manage"))))
-
-
-(deftype BlockedOwnedSource
-  [closed?]
-
-  ds/IDaoStreamReader
-
-  (next [_ _cursor] :blocked)
-
-
-  ds/IDaoStreamBound
-
-  (close! [_] (reset! closed? true) {:woke []})
-
-
-  (closed? [_] @closed?))
-
-
-(def blocked-close-state (atom nil))
-
-
-(ds/defopen :test/blocked-source
-            [_]
-            (let [closed? (atom false)]
-              (reset! blocked-close-state closed?)
-              (->BlockedOwnedSource closed?)))
-
-
-(deftest descriptor-open-is-exception-safe
-  (testing "an owned realization opened by q is closed when strict-vec fails"
-    (reset! blocked-close-state nil)
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #":blocked"
-          (qq '[:find ?e :where [?e _ _]]
-              {:dao.stream/type :test/blocked-source,
-               :dao.stream/bound {:count 1}})))
-    (is (true? @@blocked-close-state)
-        "q closed the realization even though traversal threw :blocked")))
-
-
-(deftest open-db-inputs-is-exception-safe
-  (testing
-    "previously opened owned inputs are closed when a later db input fails"
-    (reset! owned-close-state nil)
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #":blocked"
-          (qq '[:find ?e :in $a $b :where [$a ?e _ _]]
-              {:dao.stream/type :test/owned-source,
-               :dao.stream/bound {:count 1},
-               :tuples [[1 :work/status :todo 0 1]]}
-              {:dao.stream/type :test/blocked-source,
-               :dao.stream/bound {:count 1}})))
-    (is (true? @@owned-close-state)
-        "the earlier opened input was closed when the later one failed")))
 
 
 ;; ---------------------------------------------------------------------------
-;; R5: stream control — validation throws synchronously; never error tuples
+;; S: snapshot — the one dao.stream.v2 interpreter
 ;; ---------------------------------------------------------------------------
 
-(deftest validation-throws-synchronously-from-q
-  (testing "a malformed descriptor throws before any traversal"
-    (is (thrown? #?(:cljs js/Error
-                    :cljd Object
-                    :default Exception)
-          (query/q '[:find ?e :where [?e _ _]] 42)))))
+(deftest snapshot-of-an-open-buffer-is-blocked
+  (let [h (ring-handle 4096)]
+    (doseq [v [:a :b :c]] (stream/append! h v))
+    (let [snap (query/snapshot h)]
+      (is (= :blocked (:status snap)) "an open stream caught up")
+      (is (= [:a :b :c] (:dao.space.query/relation (:relation snap))))
+      (is (= :dao.stream/blocked
+             (:dao.stream/outcome (stream/next h (:cursor snap))))
+          "the snapshot's cursor sits after the third value"))))
 
 
-(deftest blocked-and-gap-throw-during-traversal
-  (let [blocked (reify
-                  ds/IDaoStreamReader
-                  (next [_ _cursor] :blocked)
+(deftest snapshot-of-a-closed-buffer-ends
+  (let [h (ring-handle 4096)]
+    (doseq [v [:a :b]] (stream/append! h v))
+    (stream/close! h)
+    (let [snap (query/snapshot h)]
+      (is (= :ended (:status snap)))
+      (is (= [:a :b] (:dao.space.query/relation (:relation snap)))))))
 
 
-                  ds/IDaoStreamBound
+(deftest snapshot-of-a-gap-is-data
+  ;; A snapshot mints at :dao.stream/oldest, which by construction never
+  ;; trails a quiescent ringbuffer's first retained position, so a real
+  ;; values-then-hole gap is pinned with a scripted reader: :a is read and
+  ;; retained, then the position is evicted.
+  (let [h (reify stream/IDaoStreamReader
+            (cursor
+              [_ _]
+              {:dao.stream/outcome :dao.stream/ok
+               :dao.stream/cursor {::pos 0}})
 
-                  (close! [_] {:woke []})
+            (next
+              [_ c]
+              (case (::pos c)
+                0 {:dao.stream/outcome :dao.stream/ok
+                   :dao.stream/value :a
+                   :dao.stream/cursor {::pos 1}}
+                1 {:dao.stream/outcome :dao.stream/gap
+                   :dao.stream/cursor {::pos 2}})))
+        snap (query/snapshot h)]
+    (is (= :gap (:status snap)))
+    (is (= [:a] (:dao.space.query/relation (:relation snap)))
+        "the values read before the hole are retained")
+    (is (= {::pos 1} (:cursor snap)) "the last retained position")
+    (is (= {::pos 2} (:recovery snap)) "the recovery cursor")))
 
-                  (closed? [_] true))]
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #":blocked"
-          (qq '[:find ?e :where [?e _ _]] blocked))))
-  (let [gapped (reify
-                 ds/IDaoStreamReader
-                 (next [_ _cursor] :daostream/gap)
+
+(deftest snapshot-of-a-defect-carries-the-raw-answer
+  (let [h (reify stream/IDaoStreamReader
+            (cursor
+              [_ _]
+              {:dao.stream/outcome :dao.stream/ok
+               :dao.stream/cursor {::pos 0}})
+
+            (next
+              [_ _]
+              {:dao.stream/outcome :dao.stream/cursor-mismatch}))
+        snap (query/snapshot h)]
+    (is (= :defect (:status snap)))
+    (is (= :dao.stream/cursor-mismatch
+           (:dao.stream/outcome (:read snap))))))
 
 
-                 ds/IDaoStreamBound
+(deftest snapshot-never-closes-the-handle
+  (let [h (ring-handle 4096)]
+    (stream/append! h :a)
+    (query/snapshot h)
+    (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! h :b)))
+        "the handle still accepts appends after a snapshot")))
 
-                 (close! [_] {:woke []})
 
-                 (closed? [_] true))]
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #":daostream/gap"
-          (qq '[:find ?e :where [?e _ _]] gapped)))))
+(deftest snapshot-relation-feeds-current-and-q
+  (let [h (ring-handle 4096)]
+    (doseq [d [[1 :sensor/x 1.0 0 1] [2 :sensor/x 2.0 0 1]]]
+      (stream/append! h d))
+    (let [snap (query/snapshot h)]
+      (is (= [[1 :sensor/x 1.0] [2 :sensor/x 2.0]]
+             (query/rows (query/current (:relation snap)))))
+      (is (= #{[1.0] [2.0]}
+             (query/collect
+               (query/q '[:find ?x :where [_ :sensor/x ?x]]
+                        (query/current (:relation snap)))))))))
 
 
 ;; ---------------------------------------------------------------------------
-;; R6: entity-map relation + generic relation descriptors (raw ontology gone)
+;; E: the evaluator surface (match / pull / :in / negation / aggregation)
 ;; ---------------------------------------------------------------------------
-
-(deftest entity-map-relation-projects-to-d3-facts
-  (let [maps [{:db/id 1, :work/status :todo, :work/task "a"}
-              {:db/id 2, :work/status :done, :work/task "b"}]]
-    (is (= #{["a"] ["b"]}
-           (qq '[:find ?task :where [_ :work/task ?task]]
-               (query/entity-map-relation maps)))))
-  (testing "a map without :db/id throws"
-    (is (thrown-with-msg? #?(:cljs js/Error
-                             :cljd Object
-                             :default Exception)
-                          #"explicit :db/id"
-          (qq '[:find ?task :where [_ :work/task ?task]]
-              (query/entity-map-relation [{:work/task
-                                           "a"}]))))))
-
 
 (deftest generic-relation-tuples-carry-arbitrary-dimensions
   (let [tuples [[42] [1 :edge/to 2] [7 :sensor/x 1.0 2.0]]]
@@ -514,22 +452,17 @@
               source)))))
 
 
-;; ---------------------------------------------------------------------------
-;; R7: match / pull are ergonomic materializers over bounded streams
-;; ---------------------------------------------------------------------------
-
 (deftest match-materializes-over-a-current-view
   (let [src (query/current (rel sample-datoms))]
     (is (= [[1 :work/status :todo] [2 :work/status :done]]
            (query/match src ['_ :work/status '_])))))
 
 
-(deftest match-accepts-a-descriptor-and-a-borrowed-realization
+(deftest match-accepts-a-relation-value-and-a-view
   (is (= [[1 :work/status :todo]]
          (query/match (query/current (rel sample-datoms)) [1 :work/status '_])))
   (is (= [[1 :work/status :todo]]
-         (query/match (query/current (open-closed sample-datoms))
-           [1 :work/status '_]))))
+         (query/match (rel [[1 :work/status :todo]]) [1 :work/status '_]))))
 
 
 (deftest pull-materializes-over-a-current-view
@@ -604,7 +537,7 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; Step 3: Lazy covered-index query pushdown tests
+;; L: the lazy published path over opened covered indexes
 ;; ---------------------------------------------------------------------------
 
 (defn- counting-content-store
@@ -656,6 +589,11 @@
 
 
 (defn- publish-into-file
+  "Publish datoms into a fresh file content store and return
+   {:store scratch-store :path path :manifest-address addr
+    :coordinate published-index :opened opened-query-value}. The caller
+   closes :opened through query/close-published!, :store through
+   jing/close!, and removes :path."
   ([datoms] (publish-into-file datoms "pub"))
   ([datoms prefix] (publish-into-file datoms prefix nil))
   ([datoms prefix opts]
@@ -673,12 +611,14 @@
                             (:dao.stream/blocked :dao.stream/end) nil
                             (throw (ex-info "test observer hit a gap or defect" r)))))]
             (drain (pool-state intake))
-            {:store store,
-             :path path,
-             :manifest-address manifest-address,
-             :descriptor (index/published-index {:dao.jing/type :dao.jing/file,
-                                                 :path path}
-                                                manifest-address)})
+            (let [coordinate (index/published-index
+                               {:dao.jing/type :dao.jing/file, :path path}
+                               manifest-address)]
+              {:store store,
+               :path path,
+               :manifest-address manifest-address,
+               :coordinate coordinate,
+               :opened (query/open-published! coordinate)}))
           (catch #?(:clj Throwable
                     :cljs :default
                     :cljd Object)
@@ -697,7 +637,7 @@
          [42 :user/status :active 1 1] [42 :user/status :active 2 0]]
         fx (publish-into-file test-datoms)
         eager-cur (query/current (rel test-datoms))
-        lazy-cur (query/current (:descriptor fx))]
+        lazy-cur (query/current (:opened fx))]
     (try (testing "q point-clause equivalence: lazy current matches eager"
            (let [query-form '[:find ?v :where [$ 42 :user/email ?v]]]
              (is (= (query/collect (query/q query-form eager-cur))
@@ -740,7 +680,59 @@
                     (query/pull lazy-cur 42 pattern)))
              (is (= (query/pull-many eager-cur [42 43 99] pattern)
                     (query/pull-many lazy-cur [42 43 99] pattern)))))
-         (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+         (finally (query/close-published! (:opened fx))
+                  (jing/close! (:store fx))
+                  (cleanup-file (:path fx))))))
+
+
+(deftest opened-published-index-stays-open-across-queries
+  (let [fx (publish-into-file [[42 :user/email "ada@example.com" 1 1]])
+        form '[:find ?v :where [$ 42 :user/email ?v]]]
+    (try
+      #?(:cljd
+         (do (is (= #{["ada@example.com"]}
+                    (query/collect (query/q form (query/current (:opened fx))))))
+             (is (= #{["ada@example.com"]}
+                    (query/collect (query/q form (query/current (:opened fx)))))
+                 "the same opened index answers a second query"))
+         :default
+         (let [closes (atom 0)
+               orig-close jing/close!]
+           (with-redefs [jing/close! (fn [handle]
+                                       (swap! closes inc)
+                                       (orig-close handle))]
+             (is (= #{["ada@example.com"]}
+                    (query/collect (query/q form (query/current (:opened fx))))))
+             (is (zero? @closes)
+                 "neither q nor collect closed the caller's store")
+             (is (= #{["ada@example.com"]}
+                    (query/collect (query/q form (query/current (:opened fx)))))
+                 "the same opened index answers a second query after q and collect"))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
+
+
+(deftest close-published-closes-once-and-is-idempotent
+  (let [fx (publish-into-file [[1 :work/task "Code" 10 1]])]
+    (try
+      #?(:cljd
+         (is true
+             "the close-count spy needs with-redefs, unavailable on ClojureDart; the opened-value flow is covered by the equivalence tests")
+         :default
+         (let [closes (atom 0)
+               orig-close jing/close!]
+           (with-redefs [jing/close! (fn [handle]
+                                       (swap! closes inc)
+                                       (orig-close handle))]
+             (query/close-published! (:opened fx))
+             (is (= 1 @closes)
+                 "close-published! closes the store it opened, exactly once")
+             (query/close-published! (:opened fx))
+             (is (= 1 @closes)
+                 "a second close is a no-op"))))
+      (finally (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 (deftest lazy-published-node-budget-is-strictly-bounded
@@ -755,10 +747,11 @@
              "counting harness requires with-redefs, unavailable on ClojureDart")
            :default (with-redefs [jing-coordinate/open! (fn [_]
                                                           (:store counter))]
-                      (let [query-form '[:find ?v :where [$ 42 :user/email ?v]]
+                      (let [opened (query/open-published! (:coordinate fx))
+                            query-form '[:find ?v :where [$ 42 :user/email ?v]]
                             res (query/collect (query/q query-form
                                                         (query/current
-                                                          (:descriptor fx))))
+                                                          opened)))
                             total-gets ((:gets counter))]
                         (is (= #{["user-42@example.com"]} res))
                         ;; Total gets includes: 1 (manifest) + seek path to
@@ -771,8 +764,11 @@
                                  total-gets
                                  " gets, strictly bounded <= 4"))
                         (is (< total-gets 10)
-                            "strictly fewer gets than reading full index")))))
-      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+                            "strictly fewer gets than reading full index")
+                        (query/close-published! opened)))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 (deftest lazy-published-multi-clause-budget-is-strictly-bounded
@@ -798,11 +794,11 @@
              ;; force the deferred relation, or planning alone would
              ;; drain the whole source and the lazy path would exist only
              ;; for single-clause queries.
-             (let [query-form '[:find ?v ?age :where [$ 42 :user/email ?v]
+             (let [opened (query/open-published! (:coordinate fx))
+                   query-form '[:find ?v ?age :where [$ 42 :user/email ?v]
                                 [$ 42 :user/age ?age]]
                    res (query/collect (query/q query-form
-                                               (query/current (:descriptor
-                                                                fx))))
+                                               (query/current opened)))
                    total-gets ((:gets counter))]
                (is (= #{["user-42@example.com" 42]} res))
                ;; 1 manifest + two seek paths (tree height ~5 at bf 4) +
@@ -815,19 +811,22 @@
                    " gets, bounded <= 15: the planner must not drain the source"))
                (is
                  (< total-gets 50)
-                 "a full drain of this ~135-node tree would exceed 50 gets")))))
-      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+                 "a full drain of this ~135-node tree would exceed 50 gets")
+               (query/close-published! opened)))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 (deftest lazy-published-rest-pattern-regression
   (testing
-    "a non-3-fixed / rest pattern clause falls back to non-nil shared delay ::relation"
+    "a non-3-fixed / rest pattern clause falls back to the deferred rows and answers"
     (let [test-datoms [[1 :person/name "Ada" 0 1] [2 :person/name "Grace" 0 1]]
           fx (publish-into-file test-datoms)
-          lazy-cur (query/current (:descriptor fx))
           eager-cur (query/current (rel test-datoms))]
       (try
-        (let [query-form '[:find ?e ?name :where
+        (let [lazy-cur (query/current (:opened fx))
+              query-form '[:find ?e ?name :where
                            [?e :person/name ?name & ?rest]]]
           (is
             (= #{[1 "Ada"] [2 "Grace"]}
@@ -836,13 +835,16 @@
           (is (= (query/collect (query/q query-form eager-cur))
                  (query/collect (query/q query-form lazy-cur)))))
         (testing
-          "match over a lazy current view forces the shared relation and returns real tuples"
-          (let [pattern ['_ :person/name "Ada"]]
+          "match over a lazy current view forces the deferred rows and returns real tuples"
+          (let [lazy-cur (query/current (:opened fx))
+                pattern ['_ :person/name "Ada"]]
             (is (= [[1 :person/name "Ada"]] (query/match lazy-cur pattern))
                 "literal anchor for match, not an eager/lazy-only parity")
             (is (= (query/match eager-cur pattern)
                    (query/match lazy-cur pattern)))))
-        (finally (jing/close! (:store fx)) (cleanup-file (:path fx)))))))
+        (finally (query/close-published! (:opened fx))
+                 (jing/close! (:store fx))
+                 (cleanup-file (:path fx)))))))
 
 
 (deftest lazy-published-mixed-multi-source-join
@@ -851,7 +853,7 @@
     (let [users [[1 :user/name "Alice" 0 1] [2 :user/name "Bob" 0 1]]
           roles [[1 :user/role :admin] [2 :user/role :member]]
           fx (publish-into-file users)
-          lazy-users (query/current (:descriptor fx))
+          lazy-users (query/current (:opened fx))
           eager-roles (query/relation roles)]
       (try (let [query-form '[:find ?name ?role :in $users $roles :where
                               [$users ?e :user/name ?name]
@@ -859,7 +861,9 @@
              (is (= #{["Alice" :admin] ["Bob" :member]}
                     (query/collect
                       (query/q query-form lazy-users eager-roles)))))
-           (finally (jing/close! (:store fx)) (cleanup-file (:path fx)))))))
+           (finally (query/close-published! (:opened fx))
+                    (jing/close! (:store fx))
+                    (cleanup-file (:path fx)))))))
 
 
 (deftest lazy-published-history-and-as-of-stay-eager-and-correct
@@ -867,85 +871,55 @@
                      [1 :item/status :published 2 1]
                      [1 :item/status :archived 3 1]]
         fx (publish-into-file test-datoms)
-        desc (:descriptor fx)
+        opened (:opened fx)
         eager-source (rel test-datoms)]
     (try
-      (testing "history view over published descriptor matches eager history"
+      (testing "history view over the opened index matches eager history"
         (let [q-hist '[:find ?v ?t ?op :where [1 :item/status ?v ?t ?op]]]
           (is (= (query/collect (query/q q-hist (query/history eager-source)))
-                 (query/collect (query/q q-hist (query/history desc)))))))
+                 (query/collect (query/q q-hist (query/history opened)))))))
       (testing
-        "as-of current view over published descriptor matches eager as-of"
+        "as-of current view over the opened index matches eager as-of"
         (let [q-cur '[:find ?v :where [1 :item/status ?v]]]
           (is (= (query/collect (query/q q-cur (query/current eager-source 2)))
-                 (query/collect (query/q q-cur (query/current desc 2)))))
+                 (query/collect (query/q q-cur (query/current opened 2)))))
           (is (= #{[:published]}
-                 (query/collect (query/q q-cur (query/current desc 2)))))))
+                 (query/collect (query/q q-cur (query/current opened 2)))))))
       (testing
-        "as-of history view over published descriptor matches eager as-of history"
+        "as-of history view over the opened index matches eager as-of history"
         (let [q-hist '[:find ?v ?t ?op :where [1 :item/status ?v ?t ?op]]]
           (is (= (query/collect (query/q q-hist (query/history eager-source 2)))
-                 (query/collect (query/q q-hist (query/history desc 2)))))))
-      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+                 (query/collect (query/q q-hist (query/history opened 2)))))))
+      (finally (query/close-published! opened)
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 (deftest lazy-published-datoms-projections-match-eager
   (let [test-datoms [[1 :work/task "Code" 10 1] [1 :work/owner "Ada" 11 1]
                      [2 :work/task "Review" 12 1]]
         fx (publish-into-file test-datoms)
-        lazy-cur (query/current (:descriptor fx))
+        lazy-cur (query/current (:opened fx))
         eager-cur (query/current (rel test-datoms))]
     (try
-      (let [{lazy-idx ::query/fact-index, lazy-owned ::query/owned}
+      (let [{lazy-idx ::query/fact-index}
             (query/realize-db-value! lazy-cur)
-            {eager-idx ::query/fact-index, eager-owned ::query/owned}
+            {eager-idx ::query/fact-index}
             (query/realize-db-value! eager-cur)]
-        (try
-          (testing
-            "datoms [e a v] projections match eager (note: t/m differ by design: eager has synthetic t=0 m=1, lazy has real provenance t/m)"
-            (let [project-eav (fn [d-seq]
-                                (mapv (fn [d]
-                                        [(index/datom-e d)
-                                         (index/datom-a d)
-                                         (index/datom-v d)])
-                                      d-seq))]
-              (is (= (project-eav (query/datoms eager-idx 1 '_ '_))
-                     (project-eav (query/datoms lazy-idx 1 '_ '_))))
-              (is (= (project-eav (query/datoms eager-idx '_ :work/task '_))
-                     (project-eav (query/datoms lazy-idx '_ :work/task '_))))
-              (is (= (project-eav (query/datoms eager-idx '_ '_ "Ada"))
-                     (project-eav (query/datoms lazy-idx '_ '_ "Ada"))))))
-          (finally (query/close-owned! lazy-owned)
-                   (query/close-owned! eager-owned))))
-      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
-
-
-(deftest lazy-published-current-closes-owned-store-once
-  (let [test-datoms [[1 :work/task "Code" 10 1]]
-        fx (publish-into-file test-datoms)]
-    (try
-      #?(:cljd
-         (is
-           true
-           "the close-once spy needs with-redefs, unavailable on ClojureDart; equivalence tests cover correctness there")
-         :default
-         (let [closes (atom 0)
-               orig-close jing/close!]
-           (with-redefs [jing/close! (fn [handle]
-                                       (swap! closes inc)
-                                       (orig-close handle))]
-             (is (= #{[1]}
-                    (query/collect (query/q
-                                     '[:find ?e :where [?e :work/task "Code"]]
-                                     (query/current (:descriptor fx))))))
-             (is
-               (= 1 @closes)
-               "index-routed query: one owned realization means exactly one store close")
-             (reset! closes 0)
-             (is (= #{[1 :work/task "Code"]}
-                    (query/collect (query/q
-                                     '[:find ?e ?a ?v :where [?e ?a ?v & _]]
-                                     (query/current (:descriptor fx))))))
-             (is (= 1 @closes)
-                 "scan query over the lazy view: also exactly one close"))))
-      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+        (testing
+          "datoms [e a v] projections match eager (note: t/m differ by design: eager has synthetic t=0 m=1, lazy has real provenance t/m)"
+          (let [project-eav (fn [d-seq]
+                              (mapv (fn [d]
+                                      [(index/datom-e d)
+                                       (index/datom-a d)
+                                       (index/datom-v d)])
+                                    d-seq))]
+            (is (= (project-eav (query/datoms eager-idx 1 '_ '_))
+                   (project-eav (query/datoms lazy-idx 1 '_ '_))))
+            (is (= (project-eav (query/datoms eager-idx '_ :work/task '_))
+                   (project-eav (query/datoms lazy-idx '_ :work/task '_))))
+            (is (= (project-eav (query/datoms eager-idx '_ '_ "Ada"))
+                   (project-eav (query/datoms lazy-idx '_ '_ "Ada")))))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))

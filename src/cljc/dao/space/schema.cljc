@@ -226,17 +226,18 @@
 ;; =============================================================================
 
 (defn- validate-not-nested-view!
-  "Reject descriptors whose :dao.stream/type is a query-layer view or
-   another schema view — these are not open!-dispatchable d5 sources."
+  "Reject nested views — a query current/history view value (tagged
+   :dao.space.query/view) or a legacy schema/current view descriptor.
+   Neither is an open!-dispatchable d5 source nor a raw query value."
   [d]
-  (let [t (:dao.stream/type d)]
-    (when (or (= t :dao.space/current)
-              (= t :dao.space/history)
+  (let [v (:dao.space.query/view d)
+        t (:dao.stream/type d)]
+    (when (or (#{:current :history} v)
               (= t :dao.space.schema/current))
       (throw (ex-info
                (str "schema/current source must be an open!-dispatchable d5 "
-                    "descriptor, not a nested view: " (pr-str t))
-               {:dao.stream/type t})))))
+                    "descriptor, not a nested view: " (pr-str (or v t)))
+               {:dao.space.query/view v, :dao.stream/type t})))))
 
 
 #_{:clj-kondo/ignore [:unresolved-var]}
@@ -247,14 +248,20 @@
 (defn- interpret-view
   "Shared interpretation core for the schema/current view. Given an
    already-opened (and closed) source realization plus as-of /
-   schema-as-of bounds, returns a closed ViewStream of d3 facts with
+   schema-as-of bounds, returns a fact relation of d3 facts with
    card-one collapse applied. Composition of public interpretations:
    history view for data, history view for schema, extract-schema,
    current-state-seq, then card-one collapse per [e a]."
   [source as-of schema-as-of]
-  (let [data-rows   (ds/strict-vec (query/history source as-of))
-        schema-rows (ds/strict-vec (query/history source
-                                                  (or schema-as-of as-of)))
+  ;; A v1 realization is drained here, where dao.stream already lives: the
+  ;; query read side takes values only, and the published defopen pre-forces
+  ;; its rows so the drain never touches the closed store.
+  (let [source (if (ds/realization? source)
+                 (query/relation (ds/strict-vec source))
+                 source)
+        data-rows   (query/rows (query/history source as-of))
+        schema-rows (query/rows (query/history source
+                                               (or schema-as-of as-of)))
         schema (extract-schema schema-rows)
         ;; Seed with axiom idents: the five :db/* attrs are card-one by
         ;; axiom, with or without bootstrap/ident rows present.
@@ -291,19 +298,19 @@
         all-rows (sort index/eavt-cmp
                        (into (vec collapsed) pass-through))
         d3-rows (mapv #(subvec (vec %) 0 3) all-rows)]
-    (query/->ViewStream d3-rows true)))
+    (query/fact-relation d3-rows)))
 
 
 #_{:clj-kondo/ignore [:unresolved-var]}
 
 
 (defn current
-  "The schema-aware current view. Given a descriptor, returns a pure
-   semantic view value `{:dao.stream/type :dao.space.schema/current ...}`
-   interpreted by q; given an already-opened closed realization, returns
-   a read-only, closed, derived ViewStream of d3 facts with card-one
-   collapse applied. Opts map: {:as-of n :schema-as-of n}, both optional.
-   Dual-path: descriptor returns view value, realization interprets directly."
+  "The schema-aware current view: d3 facts with card-one collapse applied,
+   as a query fact-relation value q accepts directly. A query value source
+   (relation value, opened published index) and an already-opened closed
+   realization interpret immediately; a v1 open!-dispatchable descriptor
+   is opened, closed, and interpreted through the defopen route.
+   Opts map: {:as-of n :schema-as-of n}, both optional."
   ([source] (current source nil))
   ([source opts]
    (let [as-of       (when (map? opts) (:as-of opts))
@@ -323,16 +330,25 @@
            (throw (ex-info
                     "source must be a descriptor or a closed realization"
                     {:source source})))
-         (when-not (keyword? (:dao.stream/type d))
+         ;; Either a query value (relation value, opened published index,
+         ;; not a nested view) or a legacy descriptor carrying a keyword
+         ;; :dao.stream/type.
+         (when-not (or (query/value? d) (keyword? (:dao.stream/type d)))
            (throw (ex-info
                     "descriptor must carry :dao.stream/type"
                     {:source source})))
          (validate-not-nested-view! d)
-         (cond-> {:dao.stream/type :dao.space.schema/current
-                  :source d
-                  :dao.stream/bound (:dao.stream/bound d)}
-           (some? as-of)        (assoc :as-of as-of)
-           (some? schema-as-of) (assoc :schema-as-of schema-as-of)))))))
+         ;; query/q opens nothing, so the schema view is interpreted here,
+         ;; not by its consumer: a query value interprets directly; a v1
+         ;; open!-dispatchable descriptor keeps the defopen route.
+         (if (query/value? d)
+           (interpret-view d as-of schema-as-of)
+           (let [view (cond-> {:dao.stream/type :dao.space.schema/current
+                               :source d
+                               :dao.stream/bound (:dao.stream/bound d)}
+                        (some? as-of)        (assoc :as-of as-of)
+                        (some? schema-as-of) (assoc :schema-as-of schema-as-of))]
+             (ds/open! view))))))))
 
 
 #_{:clj-kondo/ignore [:unresolved-symbol :unresolved-var]}
@@ -675,7 +691,7 @@
                              (pr-str v))
                         {:value v})))
       nil)
-      ;; Rule 2: :db/ident uniqueness
+    ;; Rule 2: :db/ident uniqueness
     (when (= a :db/ident)
       (let [existing-es (disj (get-in (:unique state) [:db/ident v] #{}) e)]
         (when (seq existing-es)

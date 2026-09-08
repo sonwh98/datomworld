@@ -521,6 +521,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest borrowed-and-descriptor-paths-agree
+  ;; query/history takes values only now, so the borrowed leg passes the
+  ;; closed realization directly to schema/current, whose interpret-view
+  ;; drains it where dao.stream lives. What the test pins is unchanged:
+  ;; the borrowed (realization) path and the value path interpret the same
+  ;; rows the same way.
   (let [data (into schema-rows
                    [[7 :person/name "Alice" 0 1]
                     [7 :person/name "Alicia" 1 1]])
@@ -528,17 +533,23 @@
         borrowed (open-closed data)
         q-form '[:find ?v :where [7 :person/name ?v]]]
     (is (= (qq q-form (schema/current rel))
-           (qq q-form (schema/current (query/history borrowed)))))))
+           (qq q-form (schema/current borrowed))))))
 
 
 ;; ---------------------------------------------------------------------------
-;; W11: bound inherited from source
+;; W11: schema/current's result is a fact-relation value
 ;; ---------------------------------------------------------------------------
 
-(deftest bound-inherited-from-source
+(deftest schema-current-returns-a-fact-relation-value
+  ;; The v1 bound-inheritance property this site used to pin is gone with
+  ;; descriptors: relation values carry no :dao.stream/bound to inherit,
+  ;; so the old assertion compared two nils. What is real at this site:
+  ;; schema/current's result is a query fact-relation value q accepts
+  ;; directly, with the current-fact marker set.
   (let [rel (query/relation schema-rows)
         v   (schema/current rel)]
-    (is (= (:dao.stream/bound rel) (:dao.stream/bound v)))))
+    (is (query/value? v))
+    (is (true? (:fact? v)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -598,14 +609,17 @@
 
 (deftest borrowed-path-does-not-close-again
   ;; Use a RecordingStream closed by hand (close-count 1). schema/current
-  ;; over it must NOT close it again — close-count stays 1.
+  ;; over it must NOT close it again — close-count stays 1. The borrowed
+  ;; realization is passed directly to schema/current (query/history takes
+  ;; values only now); interpret-view drains it read-only via ds/strict-vec,
+  ;; so the count proves neither the drain nor the interpretation closed it.
   (let [rows    (atom schema-rows)
         cc      (atom 0)
         closed  (atom false)
         stream  (fixtures/->RecordingStream rows cc closed)]
     (ds/close! stream)
     (is (= 1 @cc) "precondition: hand-close fired once")
-    (schema/current (query/history stream))
+    (schema/current stream)
     (is (= 1 @cc)
         "schema/current never closes a borrowed source")))
 

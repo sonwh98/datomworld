@@ -2,7 +2,6 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as ds]
             [dao.stream.link :as link]
-            [dao.stream.relation :as relation]
             [dao.stream.ringbuffer]))
 
 
@@ -506,50 +505,6 @@
       (is (true? (ds/realization? stream)))
       (is (= desc (ds/descriptor stream)))
       (is (= desc (ds/descriptor desc))))))
-
-
-(deftest relation-descriptor-contract-test
-  (testing "read-only closed exact-bound inline relation descriptor"
-    (let [tuples [[1 "a"] [2 "b"] [3 "c"]]
-          bound (relation/relation-bound tuples)
-          desc {:dao.stream/type :dao.stream/relation,
-                :tuples tuples,
-                :dao.stream/bound bound}
-          stream (ds/open! desc)]
-      (is (ds/realization? stream))
-      (is (ds/closed? stream))
-      (is (= {:woke []} (ds/close! stream)))
-      (is (false? (satisfies? ds/IDaoStreamWriter stream)))
-      (is (= desc (ds/descriptor stream)))
-      (is (= bound (ds/bound stream)))
-      (is (= {:dao.stream/descriptor desc} (meta stream)))
-      (is (= {:ok [1 "a"], :cursor {:position 1}}
-             (ds/next stream {:position 0})))
-      (is (= {:ok [2 "b"], :cursor {:position 2}}
-             (ds/next stream {:position 1})))
-      (is (= {:ok [3 "c"], :cursor {:position 3}}
-             (ds/next stream {:position 2})))
-      (is (= :end (ds/next stream {:position 3})))
-      (is (= tuples (ds/strict-vec stream)))))
-  (testing "supports arbitrary mixed-dimensional :tuples"
-    (let [tuples [[] [1] ["a" "b"] [1 2 3 4]]
-          desc (relation/relation-descriptor tuples)
-          stream (ds/open! desc)]
-      (is (= tuples (ds/strict-vec stream)))))
-  (testing "rejects missing :dao.stream/bound"
-    (is (thrown? #?(:clj Exception
-                    :cljs js/Error
-                    :cljd Object)
-          (ds/open! {:dao.stream/type :dao.stream/relation,
-                     :tuples [[1 2]]}))))
-  (testing "rejects bound mismatch"
-    (is (thrown? #?(:clj Exception
-                    :cljs js/Error
-                    :cljd Object)
-          (ds/open! {:dao.stream/type :dao.stream/relation,
-                     :tuples [[1 2]],
-                     :dao.stream/bound (relation/relation-bound
-                                         [[9 9]])})))))
 
 
 (deftest strict-vec-utility-contract-test

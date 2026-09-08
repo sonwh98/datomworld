@@ -369,29 +369,35 @@
         {before :e} (put-entity! agent {:marker/id "pre-index"})
         addr-a (first (publish-and-materialize! [agent]))]
     (testing "a published manifest is an immutable snapshot of its stream"
-      (is (= #{[before "pre-index"]}
-             (qv '[:find ?e ?id :where [?e :marker/id ?id]]
-                 (query/current (index/published-index {:dao.jing/type
-                                                        :dao.jing/file,
-                                                        :path space-path}
-                                                       addr-a))))))
+      (let [opened (query/open-published!
+                     (index/published-index {:dao.jing/type :dao.jing/file,
+                                             :path space-path}
+                                            addr-a))]
+        (try (is (= #{[before "pre-index"]}
+                    (qv '[:find ?e ?id :where [?e :marker/id ?id]]
+                        (query/current opened))))
+             (finally (query/close-published! opened)))))
     (let [{after :e} (put-entity! agent {:marker/id "post-index"})
           addr-b (first (publish-and-materialize! [agent]))]
       (testing "a fresh manifest after more appends folds old and new data"
         (is (not= addr-a addr-b))
-        (is (= #{[before "pre-index"] [after "post-index"]}
-               (qv '[:find ?e ?id :where [?e :marker/id ?id]]
-                   (query/current (index/published-index {:dao.jing/type
-                                                          :dao.jing/file,
-                                                          :path space-path}
-                                                         addr-b))))))
+        (let [opened (query/open-published!
+                       (index/published-index {:dao.jing/type :dao.jing/file,
+                                               :path space-path}
+                                              addr-b))]
+          (try (is (= #{[before "pre-index"] [after "post-index"]}
+                      (qv '[:find ?e ?id :where [?e :marker/id ?id]]
+                          (query/current opened))))
+               (finally (query/close-published! opened)))))
       (testing "the earlier snapshot is untouched"
-        (is (= #{[before "pre-index"]}
-               (qv '[:find ?e ?id :where [?e :marker/id ?id]]
-                   (query/current (index/published-index {:dao.jing/type
-                                                          :dao.jing/file,
-                                                          :path space-path}
-                                                         addr-a)))))))))
+        (let [opened (query/open-published!
+                       (index/published-index {:dao.jing/type :dao.jing/file,
+                                               :path space-path}
+                                              addr-a))]
+          (try (is (= #{[before "pre-index"]}
+                      (qv '[:find ?e ?id :where [?e :marker/id ?id]]
+                          (query/current opened))))
+               (finally (query/close-published! opened))))))))
 
 
 (deftest transport-transparency
@@ -405,19 +411,22 @@
                     server-side file content handle and the remote content
                     client — the rpc is invisible, and the datoms are durable
                     in the file store"
-            (is (= (qv '[:find ?e ?a ?v :where [?e ?a ?v]]
-                       (query/current (index/published-index {:dao.jing/type
-                                                              :dao.jing/file,
-                                                              :path space-path}
-                                                             address)))
-                   (qv '[:find ?e ?a ?v :where [?e ?a ?v]]
-                       (query/current (index/published-index
-                                        {:dao.jing/type :dao.jing/remote,
-                                         :url *url*}
-                                        address)))))
-            (is (contains? (qv '[:find ?id :where [_ :probe/id ?id]]
-                               (query/current
-                                 (index/published-index
-                                   {:dao.jing/type :dao.jing/remote, :url *url*}
-                                   address)))
-                           ["wire"]))))))))
+            (let [file-opened (query/open-published!
+                                (index/published-index
+                                  {:dao.jing/type :dao.jing/file,
+                                   :path space-path}
+                                  address))
+                  remote-opened (query/open-published!
+                                  (index/published-index
+                                    {:dao.jing/type :dao.jing/remote,
+                                     :url *url*}
+                                    address))]
+              (try (is (= (qv '[:find ?e ?a ?v :where [?e ?a ?v]]
+                              (query/current file-opened))
+                          (qv '[:find ?e ?a ?v :where [?e ?a ?v]]
+                              (query/current remote-opened))))
+                   (is (contains? (qv '[:find ?id :where [_ :probe/id ?id]]
+                                      (query/current remote-opened))
+                                  ["wire"]))
+                   (finally (query/close-published! file-opened)
+                            (query/close-published! remote-opened))))))))))
