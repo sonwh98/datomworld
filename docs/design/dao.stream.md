@@ -252,8 +252,7 @@ own keys returns `:dao.stream/invalid-spec`.
 
 The **portable descriptor** is inspired by CORBA's interoperable object
 reference. It is reachability data, not the logical-stream identity itself.
-Its exact definition is not designed yet; these properties are settled, and
-the key set that realizes them is TBD:
+Its properties are settled:
 
 - It carries `:dao.stream/type` — the transport, as above — as its dispatch
   key.
@@ -424,8 +423,11 @@ host's adapter onto the stream the host composition wired for that boundary
 transport, composed explicitly by the host, never hidden inside the
 transport. A deposit destination must admit every valid boundary event per
 its declared retention; wiring one that can refuse is a host assembly
-defect. (`dao.stream.ws.md` specifies one such transport and the admission
-rule in detail.)
+defect. Deposit admission is declared, never interrogated: the contract's
+public surface has no way to ask a handle its retention policy. A constructor
+takes the deposit destination and its admission declaration as data. This is
+configuration provenance, not runtime introspection. (`dao.stream.ws.md`
+specifies one such transport and the admission rule in detail.)
 
 A boundary that can no longer deposit must make itself **observably gone**. Its
 one permitted action is closing the host resource it itself holds; it invokes
@@ -662,6 +664,18 @@ that transforms one stream into another is an interpreter — it reads via its
 own cursor and appends to an ordinary output stream — and that lives entirely
 outside this contract, needing no support from it. As in a Unix pipeline, the
 pipe is dumb; the transforming happens in the processes on either end.
+
+A forwarder between streams is a single step (not a callback loop) over the
+transport-agnostic stream algebra. Because the stream never blocks, cadence is
+owned by the composition-supplied driver that repeatedly calls the step,
+yielding execution as needed by the host runtime.
+
+Flow control (a reader pausing a sender) is an interpreter's concern. A pause
+has to be a lease and not a switch to avoid permanently stuck states. Those
+semantics live in `dao.lease.md`, whose facts are datoms on a medium
+(`dao.space`). DaoStream provides the honest baseline: a reader that falls
+behind is evicted past and told so with a `gap`, and the reader decides what
+that means.
 
 ## Explicitly Absent
 

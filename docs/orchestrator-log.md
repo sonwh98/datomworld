@@ -593,3 +593,14 @@ The work for P2 and P3 is now complete, verified, and ready to commit.
 - Review-Round-2 | gpt-5.6-sol | reviewer-jing-p2-r2.{prompt.md,gpt-5.6-sol.stdout.log}
 
 `gpt-5.6-sol` verified the corrections in Round 2 and confirmed that no blocking findings remain. The implementation is fully verified, clean, and explicitly marked "ready to commit".
+
+## 2026-09-08 15:50:37 +07 — dao.stream: integrate v2 decisions and remove completed plan
+Completed-GMT: 2026-09-08 08:50:37 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: dao.stream-redesign-v2, committed
+Done: Integrated the key design decisions from the completed `dao.stream.v2.implementation-plan.md` into the master `dao.stream.md` contract: the portable descriptor key set (mandating `:dao.stream/type` and `:dao.stream/identity`), explicit deposit admission configuration (declared, never interrogated), single-step forwarder composition, and deferred flow control to `dao.lease.md`. The fully executed `dao.stream.v2.implementation-plan.md` file was then deleted.
+Decisions: The end condition of `dao.stream.v2.implementation-plan.md` (renaming `v2` back to `dao.stream` and deleting legacy) remains deferred until the remaining consumers (`dao.runtime`, `yin.vm`) are migrated under their own plans. 
+Delegates: none
+Next: Execute the implementation plan for the next subsystem, either `dao.runtime.v2` or `yin.repl.v2`, to continue migrating consumers away from legacy `dao.stream`.
+
