@@ -185,7 +185,13 @@ Each carries the side of the seam that guarantees it: **[step]** the core
   acknowledged `:inserted` only after the write is flushed.
 - F2 [D] On open, the file is replayed into the content map. An equal
   duplicate record is tolerated; an unequal record at an existing address
-  is a collision and the open fails.
+  fails the open. Note what the observable test can reach: B6 requires every
+  frame's address to hash its payload, so two *individually valid* frames at
+  one address are necessarily equal, and an unequal duplicate is rejected by
+  F4's hash check before any collision branch sees it. The collision branch is
+  retained as defensive depth against a frame that passed F4 by some other
+  route; the test reaches this property through F4, and F2 does not promise a
+  case that valid frames can produce.
 - F3 [D] An incomplete tail is truncated before replay — shorter than the
   length prefix, a negative length, a length past end of file. After
   truncation the surviving records replay and a subsequent put lands clean.
@@ -586,7 +592,9 @@ open or create, truncate an incomplete tail, replay, append-and-sync — with
 `fs`, `dart:io` `RandomAccessFile`), `#?(:cljd … :clj … :cljs …)` with `:cljd`
 first; `#?(:clj …)` alone does not exclude code from the cljd build.
 
-**Delete** `src/cljc/dao/stream/log.cljc` and `test/dao/stream/log_test.cljc`
+**Delete** — and note the generated-output rule below, which cost this phase a
+verification round — `src/cljc/dao/stream/log.cljc` and
+`test/dao/stream/log_test.cljc`
 — its only consumer was this backend, and its `defopen :append-log` is a
 load-time registration into the ambient v1 registry. `dao.stream.file`
 (live-tail `:file`, consumed by `yin.io.file`) is a different transport and
@@ -664,6 +672,19 @@ contract; add **"the content write path as an effect stream"** per
 Decision 2. Untouched: *Definition*, *Publication*, *Storage ignorance*,
 *Physical intake versus semantic composition*, *Reads*, *Lineage*,
 `dao.jing.dht.md`.
+
+## Deleting a namespace
+
+`test/cljd-out/` and `lib/cljd-out/` are generated per namespace and are **not
+cleaned when a source namespace disappears**. A phase that deletes a namespace
+must delete its generated Dart too — `test/cljd-out/<path>-test_test.dart` and
+`lib/cljd-out/<path>.dart` — or regenerate the tree, *before* the cljd lane is
+run. Otherwise the lane keeps compiling and running code that no longer has a
+source, and reports failures for the deleted namespace that look like defects
+in the new work. P1 lost a verification round to exactly this: six cljd
+failures, all in `dao.stream.log-test`, after its source had been deleted.
+Both directories are gitignored build output, so the removal changes nothing
+tracked. This applies to every deletion in this plan, including J5's.
 
 ## Host matrix
 
