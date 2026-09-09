@@ -726,9 +726,15 @@ returns `full` on reaching it, without appending and without evicting: refusing
 and evicting are the two answers to the same condition, and a transport that has
 given up one owes the other. A writable one with no declared capacity — a
 logically unbounded log, however it grows or spills beneath — may exclude
-`full`. Logically unbounded is not physically infinite: unexpected exhaustion of
-the underlying medium is `transport-error`, never the eviction of acknowledged
-history.
+`full`. Logically unbounded is not physically infinite, and the line runs
+between failures an operation can observe and return from and those it cannot:
+unexpected exhaustion the transport can observe and return from is
+`transport-error`, while fatal host or runtime exhaustion, from which the
+operation produces no result at all, lies outside the outcome algebra
+altogether. Neither is ever converted into the eviction of acknowledged
+history. A transport whose every operation either completes its state
+transition or does not return therefore has no firing condition for
+`transport-error` and excludes it like any other outcome.
 
 ## Composition
 
