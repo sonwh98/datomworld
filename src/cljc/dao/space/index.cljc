@@ -408,7 +408,7 @@
 ;; publish-index! — build, record, append
 ;; =============================================================================
 
-(defn- stream-payload-datoms
+(defn- element-datoms
   [payload]
   (if (and (map? payload) (contains? payload :dao.space/transaction))
     (let [tx (:dao.space/transaction payload)
@@ -439,6 +439,17 @@
           {:payload payload})))))
 
 
+(defn datoms-from-elements
+  "Flatten a seq of local-stream elements to canonical local d5 datoms —
+   the payload vocabulary's public, seq-level spelling. Each element is
+   validated and flattened by the same per-element rule snapshot-datoms
+   applies inside its read loop: a canonical datom vector passes through, an
+   atomic {:dao.space/transaction {:t n :datoms [...]}} record flattens to
+   its datoms, and anything malformed throws."
+  [elements]
+  (into [] (mapcat element-datoms) elements))
+
+
 (defn snapshot-datoms
   "Eagerly snapshot an agent-local stream by walking `{:position 0}` with
    ds/next. A stream element is either one canonical datom vector or one
@@ -455,7 +466,7 @@
         (map? result)
         (if (and (contains? result :ok) (contains? result :cursor))
           (recur (:cursor result)
-                 (into datoms (stream-payload-datoms (:ok result))))
+                 (into datoms (element-datoms (:ok result))))
           (throw
             (ex-info
               "malformed stream result: a successful read must carry both :ok and :cursor"

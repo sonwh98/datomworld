@@ -136,6 +136,9 @@ trees therefore report the same O(1) count they actually contain.
 ;; the snapshot (reads and validates a local stream)
 (index/snapshot-datoms local-stream)              ; => flattened datom seq
 
+;; the payload vocabulary's public, seq-level spelling
+(index/datoms-from-elements elements)             ; => flattened datom vector
+
 ;; the format's readers (every platform)
 (index/published-index {:dao.jing/type :dao.jing/file :path path}
                        manifest-address)                  ; bounded d5 descriptor
@@ -152,6 +155,18 @@ trees therefore report the same O(1) count they actually contain.
 (index/datom-e d) (index/datom-a d) (index/datom-v d)
 (index/datom-t d) (index/datom-m d)
 ```
+
+**`datoms-from-elements` is the payload vocabulary's public spelling.** A
+local-stream element is one canonical d5 datom vector or one atomic
+`{:dao.space/transaction {:t n :datoms [...]}}` record; `datoms-from-elements`
+flattens a seq of them, validating each element through the same private
+per-element rule (`element-datoms`) that rejects malformed datoms, malformed
+transaction records, and non-elements with distinct diagnostics. It has no
+`src` caller, by design — do not "clean it up": `snapshot-datoms` deliberately
+uses the per-element form inside its read loop rather than this seq-level one,
+so each element is validated and flattened as it is read (the first defect in
+stream order is the one reported, and no read happens past it), and both
+spellings go through the same `element-datoms`.
 
 `publish-index!` semantics worth pinning:
 

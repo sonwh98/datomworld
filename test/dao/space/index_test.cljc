@@ -223,6 +223,69 @@
         (is (empty? (intake-values intake)))))))
 
 
+(deftest datoms-from-elements-is-the-local-stream-vocabulary
+  (testing
+    "an element is one canonical d5 datom vector or one atomic transaction
+          record; the seq-level spelling flattens both, in stream order"
+    (let [d1 [1 :person/name "Ada" 0 1]
+          d2 [1 :person/role :architect 7 1]
+          d3 [2 :work/status :todo 7 1]]
+      (is (= [] (index/datoms-from-elements [])))
+      (is (= [d1] (index/datoms-from-elements [d1])))
+      (is (= [d1 d2 d3]
+             (index/datoms-from-elements
+               [d1 {:dao.space/transaction {:t 7, :datoms [d2 d3]}}])))))
+  (testing "a transaction record is exactly {:t n :datoms [canonical d5]}"
+    (let [tx-datoms [[1 :person/name "Ada" 7 1] [1 :person/role :architect 7 1]]]
+      (is (= tx-datoms
+             (index/datoms-from-elements
+               [{:dao.space/transaction {:t 7, :datoms tx-datoms}}]))))
+    (doseq [packet [{:dao.space/transaction {:t 1, :datoms :not-a-vector}}
+                    {:dao.space/transaction {:t 1, :datoms []}}
+                    {:dao.space/transaction {:t 1,
+                                             :datoms [[1 :test/a :v 2 1]]}}
+                    {:dao.space/transaction
+                     {:t 1, :datoms [[1 :test/a :v 1 1 :source/forbidden]]}}
+                    {:dao.space/transaction {:t -1,
+                                             :datoms [[1 :test/a :v -1 1]]}}
+                    {:dao.space/transaction
+                     {:t 1, :datoms [[1 :test/a :v 1 1]], :extra :key}}]]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"malformed dao\.space transaction record"
+            (index/datoms-from-elements [packet]))
+          (str "must reject " (pr-str packet)))))
+  (testing
+    "a malformed element throws its distinct diagnostic — a malformed datom
+          is not a malformed transaction record, and a non-element is neither"
+    (doseq [bad-datom [[:entity :test/a :v 0 1] [-16 :test/a :v 0 1]
+                       [1 :unqualified :v 0 1] [1 "test/a" :v 0 1]
+                       [1 :test/a :v -1 1] [1 :test/a :v 0 :db/assert]]]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"malformed local datom"
+            (index/datoms-from-elements [bad-datom]))
+          (str "must reject datom " (pr-str bad-datom))))
+    (doseq [bad ["not-an-element" [1 :test/a :v] {:not :a-transaction}]]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"local stream payload must be"
+            (index/datoms-from-elements [bad]))
+          (str "must reject " (pr-str bad)))))
+  (testing
+    "the public spelling and the snapshot read agree on the same elements:
+          both go through the same per-element rule"
+    (let [d1 [1 :person/name "Ada" 0 1]
+          d2 [1 :person/role :architect 7 1]
+          d3 [2 :work/status :todo 7 1]
+          elements [d1 {:dao.space/transaction {:t 7, :datoms [d2 d3]}}]]
+      (is (= (index/datoms-from-elements elements)
+             (index/snapshot-datoms (open-local elements)))))))
+
+
 (deftest publish-index-address-is-content-derived-and-stream-invariant
   (testing
     "the manifest address derives from the manifest alone: identical local
