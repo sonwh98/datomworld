@@ -226,7 +226,9 @@
      (def ^:private process-a (atom nil))
 
 
-     (defn- start-process-a!
+     (defn- start-attempt!
+       "One bind attempt.  Answers the process map, or ::bind-failed after
+        shutting its own ticker down so a retry leaks no thread."
        []
        (let [port (free-port!)
              endpoint (atom (serve/serve! {:bind-port port :host (host/websocket)}))
@@ -241,46 +243,101 @@
                                 ;; depositing, so a request can sit accepted
                                 ;; but unanswered while the driver holds.
                                 (when-not @paused
-                                  (let [stepped (serve/step @endpoint
-                                                            (System/currentTimeMillis))
-                                        [entries next] (serve/take-outbox stepped)]
-                                    (reset! endpoint next)
+                                  ;; One atomic read-step-write.  A `reset!`
+                                  ;; of a value derived from an earlier
+                                  ;; `@endpoint` silently loses whatever a
+                                  ;; test wrote in between — a `stop!` from
+                                  ;; the test thread would vanish and the
+                                  ;; endpoint would stay :running.  `swap!`
+                                  ;; re-runs on contention, so the step is
+                                  ;; always applied to the value that wins.
+                                  (let [drained (volatile! nil)]
+                                    (swap! endpoint
+                                           (fn [ep]
+                                             (let [stepped (serve/step
+                                                             ep
+                                                             (System/currentTimeMillis))
+                                                   [entries next]
+                                                   (serve/take-outbox stepped)]
+                                               (vreset! drained entries)
+                                               next)))
                                     (swap! notices
                                            into
-                                           (keep serve/text-key entries))))
+                                           (keep serve/text-key @drained))))
                                 (Thread/sleep 5)))
                             "yin-repl-v2-slice-server")
                       (.setDaemon true)
                       (.start))
-             deadline (+ (System/currentTimeMillis) 10000)]
+             deadline (+ (System/currentTimeMillis) 10000)
+             abandon! (fn []
+                        (reset! running false)
+                        (.join ^Thread ticker 2000))]
          (loop []
-           (when (and (not= :running (:status @endpoint))
-                      (< deadline (System/currentTimeMillis)))
-             (throw (ex-info "the R5 endpoint never reported :running"
-                             {:status (:status @endpoint)
-                              :notices @notices})))
-           (when (and (not= :running (:status @endpoint))
-                      (> deadline (System/currentTimeMillis)))
-             (Thread/sleep 20)
-             (recur)))
-         {:port port
-          :url (str "daostream:ws://127.0.0.1:" port "/repl")
-          :endpoint endpoint
-          :paused paused
-          :running running
-          :ticker ticker
-          :notices notices}))
+           (let [status (:status @endpoint)]
+             (cond
+               (= :running status)
+               {:port port
+                :url (str "daostream:ws://127.0.0.1:" port "/repl")
+                :endpoint endpoint
+                :paused paused
+                :running running
+                :ticker ticker
+                :notices notices}
+
+               ;; A lost free-port! race, not a defect under test: the probe
+               ;; socket is closed before serve! binds, so another process can
+               ;; take the port in between.  Abandon this attempt and let the
+               ;; caller retry on a fresh one.
+               (= :failed status) (do (abandon!) ::bind-failed)
+
+               (< deadline (System/currentTimeMillis))
+               (do (abandon!)
+                   (throw (ex-info "the R5 endpoint never reported :running"
+                                   {:status status, :notices @notices})))
+
+               :else (do (Thread/sleep 20) (recur)))))))
+
+
+     (defn- start-process-a!
+       "Bind an endpoint, retrying a lost port race with a fresh port.  The
+        collision used to fail the fixture loudly, which made every test in
+        this namespace intermittently red for a reason that has nothing to do
+        with what they assert."
+       []
+       (loop [attempts 5]
+         (let [a (start-attempt!)]
+           (cond
+             (not= ::bind-failed a) a
+             (pos? attempts) (do (Thread/sleep 25) (recur (dec attempts)))
+             :else (throw (ex-info "no free port survived five bind attempts"
+                                   {}))))))
 
 
      (defn- stop-process-a!
+       "Stop the ticker, then drive the endpoint to :stopped so its listening
+        socket is released before the next fixture binds a port.  The old
+        loop gave up silently after 200 steps and left the port bound, which
+        a later `free-port!` could then hand out; it now reports what it was
+        still waiting on.  Always writes the final endpoint back, so a caller
+        that inspects it after the stop sees the stopped value."
        [a]
        (reset! (:running a) false)
        (.join ^Thread (:ticker a) 2000)
-       (loop [endpoint (serve/stop! @(:endpoint a))
-              remaining 200]
-         (let [endpoint' (serve/step endpoint (System/currentTimeMillis))]
-           (when (and (not (serve/stopped? endpoint')) (pos? remaining))
-             (recur endpoint' (dec remaining))))))
+       (let [deadline (+ (System/currentTimeMillis) 5000)
+             final (loop [endpoint (serve/stop! @(:endpoint a))]
+                     (let [endpoint' (serve/step endpoint
+                                                 (System/currentTimeMillis))]
+                       (cond
+                         (serve/stopped? endpoint') endpoint'
+                         (< deadline (System/currentTimeMillis))
+                         (throw (ex-info
+                                  "the endpoint never reached :stopped; its port may still be bound"
+                                  {:status (:status endpoint')
+                                   :port (:port a)
+                                   :notices @(:notices a)}))
+                         :else (do (Thread/sleep 5) (recur endpoint')))))]
+         (reset! (:endpoint a) final)
+         final))
 
 
      (clojure.test/use-fixtures :once
