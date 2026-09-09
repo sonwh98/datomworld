@@ -9,6 +9,8 @@
    it. `current` and `history` are the explicit d5 interpreters. A live
    dao.stream.v2 handle becomes an input only through `snapshot`."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.edn :as edn]
+            [dao.data.btree :as bt]
             [dao.jing :as jing]
             [dao.jing.coordinate :as jing-coordinate]
             [dao.jing.file :as jing-file]
@@ -918,6 +920,188 @@
                    (project-eav (query/datoms lazy-idx '_ :work/task '_))))
             (is (= (project-eav (query/datoms eager-idx '_ '_ "Ada"))
                    (project-eav (query/datoms lazy-idx '_ '_ "Ada")))))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
+
+
+;; ---------------------------------------------------------------------------
+;; L2: open-published!'s own contract — coordinate rejection, ownership of
+;; the store it opens, and the opened value's shape. Moved here from the
+;; index_test published-adapter deftests when the v1 adapter was deleted
+;; (each property keeps its pin; the adapter's protocol vocabulary died
+;; with it).
+;; ---------------------------------------------------------------------------
+
+(deftest open-published-rejects-unresolvable-and-malformed-coordinates
+  (let [empty-manifest-addr (jing/segment-key
+                              {:indexes
+                               {:eavt nil, :aevt nil, :avet nil, :vaet nil},
+                               :count 0,
+                               :branching-factor 512})]
+    (testing "an unsupported coordinate type fails closed at open"
+      (let [c (index/published-index {:dao.jing/type :dao.jing/missing,
+                                      :path "x"}
+                                     empty-manifest-addr)]
+        (is (thrown-with-msg? #?(:cljs js/Error
+                                 :cljd Object
+                                 :default Exception)
+                              #"unsupported DaoJing content-store coordinate"
+              (query/open-published! c))
+            "the store coordinate is resolved explicitly, never inferred")))
+    (testing "a malformed published-index coordinate is rejected at open"
+      (let [bogus (assoc (index/published-index {:dao.jing/type :dao.jing/file,
+                                                 :path "x"}
+                                                empty-manifest-addr)
+                         :extra/key :noise)]
+        (is (thrown-with-msg? #?(:cljs js/Error
+                                 :cljd Object
+                                 :default Exception)
+                              #"invalid published-index coordinate"
+              (query/open-published! bogus)))))))
+
+
+(deftest open-published-of-an-empty-manifest-yields-an-empty-relation
+  (let [fx (publish-into-file [])]
+    (try (let [opened (:opened fx)]
+           (is (= [] (query/rows opened))
+               "an empty manifest reads as no datoms, not an error")
+           (is (= #{} (query/collect
+                        (query/q '[:find ?e :where [?e _ _]]
+                                 (query/current opened))))))
+         (finally (query/close-published! (:opened fx))
+                  (jing/close! (:store fx))
+                  (cleanup-file (:path fx))))))
+
+
+(deftest open-published-fetches-only-the-manifest
+  (let [datoms (mapv (fn [i] [i :user/email (str "user-" i "@example.com") 0 1])
+                     (range 64))
+        fx (publish-into-file datoms)]
+    (try
+      (let [counter (counting-content-store (:store fx))]
+        #?(:cljd
+           (is true
+               "the counting harness needs with-redefs, unavailable on ClojureDart")
+           :default
+           (with-redefs [jing-coordinate/open! (fn [_] (:store counter))]
+             (let [opened (query/open-published! (:coordinate fx))]
+               (is (= 1 ((:gets counter)))
+                   "opening a published coordinate performs exactly one content fetch after open and before any read: the manifest, with zero tree nodes faulted")
+               (query/close-published! opened)))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
+
+
+(deftest open-published-carries-the-four-covered-sets
+  (let [datoms (mapv (fn [i]
+                       [i (keyword "work" (str "a" (mod i 7)))
+                        (str "task-" i) 0 1])
+                     (range 8))
+        fx (publish-into-file datoms)]
+    (try (let [idx (index/covered-indexes (:opened fx))]
+           (is (map? idx))
+           (is (= #{:eavt :aevt :avet :vaet} (set (keys idx))))
+           (doseq [order [:eavt :aevt :avet :vaet]]
+             (is (= (count datoms) (bt/count (order idx)))
+                 (str order " covers the snapshot"))))
+         (finally (query/close-published! (:opened fx))
+                  (jing/close! (:store fx))
+                  (cleanup-file (:path fx))))))
+
+
+(deftest open-published-rows-match-the-eager-walk
+  (let [datoms (vec (reverse
+                      (mapv (fn [i]
+                              [i :user/email
+                               (str "user-" i "@example.com") 0 1])
+                            (range 24))))         ; non-EAVT insertion order
+        fx (publish-into-file datoms)]
+    (try
+      (let [eager (index/read-datoms (:store fx) (:manifest-address fx))]
+        (is (= eager (query/rows (:opened fx)))
+            "the opened index's deferred rows yield the eager EAVT walk")
+        (is (= (sort index/eavt-cmp datoms) (query/rows (:opened fx)))
+            "rows are EAVT order regardless of insertion order"))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
+
+
+(deftest published-index-is-transportable-plain-data
+  (let [path (temp-content-path "descriptor")
+        source-datoms [[2 :work/status :done 1 1] [1 :work/status :todo 0 1]]
+        local (open-local source-datoms)
+        intake (open-intake)
+        store (jing-file/create-content-file path)]
+    (try (let [{:keys [manifest-address]} (index/publish-index! local [intake])
+               _ (loop [state (pool-state intake)]
+                   (let [{:keys [signal state] :as r} (jing/observe-step! store
+                                                                          state)]
+                     (case signal
+                       :dao.stream/ok (recur state)
+                       (:dao.stream/blocked :dao.stream/end) nil
+                       (throw (ex-info "test observer hit a gap or defect" r)))))
+               coordinate (index/published-index {:dao.jing/type :dao.jing/file,
+                                                  :path path}
+                                                 manifest-address)
+               transported (edn/read-string (pr-str coordinate))]
+           (is (= coordinate transported) "the coordinate is plain EDN")
+           (is (= {:dao.stream/type :dao.space.index/published,
+                   :dao.stream/bound {:manifest-address manifest-address},
+                   :dao.stream/comparator :dao.space.index/eavt,
+                   :content-store {:dao.jing/type :dao.jing/file, :path path},
+                   :manifest-address manifest-address}
+                  transported)
+               "the complete exact coordinate map — an explicit finite bound
+                carried as data, not a lifecycle flag")
+           (testing "the coordinate survives a stream round-trip unchanged"
+             (let [carrier (ring-handle 4)]
+               (is (= :dao.stream/ok
+                      (:dao.stream/outcome (stream/append! carrier transported))))
+               (let [r (stream/next carrier
+                                    (:dao.stream/cursor
+                                      (stream/cursor carrier
+                                                     :dao.stream/oldest)))]
+                 (is (= :dao.stream/ok (:dao.stream/outcome r)))
+                 (is (= transported (:dao.stream/value r))))))
+           (let [opened (query/open-published! transported)]
+             (try (is (= (sort index/eavt-cmp source-datoms) (query/rows opened))
+                      "the transported coordinate opens and reads normally")
+                  (finally (query/close-published! opened)))))
+         (finally (jing/close! store) (cleanup-file path)))))
+
+
+(deftest failed-open-closes-the-store-it-opened
+  (let [fx (publish-into-file [[1 :work/task "Code" 10 1]])]
+    (try
+      #?(:cljd
+         (is true
+             "the close-count harness needs with-redefs, unavailable on ClojureDart")
+         :default
+         (let [closes (atom 0)
+               boom (ex-info "scripted manifest fetch failure"
+                             {:mode :scripted})
+               base (:store fx)
+               base-close (:close-fn base)
+               store (assoc base
+                            :get-content-fn (fn [_address _not-found]
+                                              (throw boom))
+                            :close-fn (fn []
+                                        (swap! closes inc)
+                                        (base-close)))]
+           (with-redefs [jing-coordinate/open! (fn [_] store)]
+             (let [thrown (try (query/open-published! (:coordinate fx))
+                               (catch #?(:clj Throwable
+                                         :cljs :default
+                                         :cljd Object)
+                                      error
+                                 error))]
+               (is (identical? boom thrown)
+                   "the original error propagates, not a wrapper")
+               (is (= 1 @closes)
+                   "the store opened during the failed open is closed exactly once before the error propagates")))))
       (finally (query/close-published! (:opened fx))
                (jing/close! (:store fx))
                (cleanup-file (:path fx))))))

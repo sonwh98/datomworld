@@ -567,10 +567,12 @@ provenance of an interpretation is the source itself, optionally `as-of`'d.
 The manifest is schema-independent — a complete covered set over the d5 log.
 
 The published descriptor is its own type, realized by a registered
-`(ds/defopen :dao.space.schema/published …)` that delegates to the
-`published-index` realization — it cannot reuse that opener directly, since
-`open!` dispatches on `:dao.stream/type` and the index opener demands exact
-descriptor equality. The shape carries what `validate-descriptor!` requires:
+`(ds/defopen :dao.space.schema/published …)` that reads the manifest's rows
+directly with `index/read-datoms` over a content-store handle it opens and
+closes itself, returning a small closed reader (`PublishedSchemaRows`) over
+the forced row vector — schema interprets the whole history at once anyway,
+so it never needed the lazy restored trees or a retained store handle. The
+shape carries what `validate-descriptor!` requires:
 
 ```clojure
 {:dao.stream/type :dao.space.schema/published

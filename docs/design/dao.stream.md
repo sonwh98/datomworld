@@ -801,7 +801,7 @@ completed; the decision it left open outlived it, and a transient plan is
 safe to delete only once nothing in it is still owed.
 
 The remaining v1 consumers, each migrating under its own plan: `dao.space`
-(index and schema — `query` and `transactor` migrated, and the
+(`schema` only — `query`, `index` and `transactor` migrated, and the
 `dao.stream.relation` transport was eliminated with `query`), `dao.jing`'s
 remote adapter and DHT node,
 `yin.io`'s file transports with `dao.gui.event` and

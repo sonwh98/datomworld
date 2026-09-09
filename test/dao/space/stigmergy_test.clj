@@ -2,8 +2,8 @@
   "Agents collaborating by stigmergy over dao.space: every write is one
   atomic transaction through transactor/transact! on the agent's own
   transactor value over a memory-log local stream, every read is query/q or
-  query/match over explicit
-  bounded covered-index DaoStream descriptors. There is no coordinator and no
+  query/match over bounded covered-index coordinates opened with
+  query/open-published!. There is no coordinator and no
   stigmergy API — the conventions (self-stamped provenance, wall-clock
   leases, the [t agent] winner rule) are expressed by the datoms agents
   build and the query forms below (docs/dao.space.stigmergy.md).
@@ -19,7 +19,7 @@
   wall-clock).
 
   The space persists after the run for inspection at target/stigmergy-space.db;
-  readers reach it through explicit bounded DaoStream descriptors."
+  readers reach it through explicit bounded published-index coordinates."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [dao.datom :as datom]
@@ -29,7 +29,6 @@
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.transactor :as transactor]
-            [dao.stream :as ds]
             [dao.stream.rpc.ws :as rpc-ws]
             [dao.stream.v2 :as stream]
             [dao.stream.v2.memory-log :as memory-log]
@@ -185,9 +184,9 @@
       (mapcat (fn [source]
                 (mapcat (fn [[e a v t _m]]
                           (cond-> [[e a v]] (= a :claim/by) (conj [e a v t])))
-                        (let [stream (ds/open! source)]
-                          (try (query/current-state-seq (ds/strict-vec stream))
-                               (finally (ds/close! stream)))))))
+                        (let [opened (query/open-published! source)]
+                          (try (query/current-state-seq (query/rows opened))
+                               (finally (query/close-published! opened)))))))
       (published-source-pool content-store (publish-and-materialize! agents)))))
 
 

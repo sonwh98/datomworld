@@ -34,9 +34,10 @@ library the same way querying does:
   build the covered indexes, and enqueue them as immutable content-addressed
   segments plus a manifest through a DaoJing intake stream. The write-side
   counterpart of the pair.
-- `dao.space.query` — the embeddable Peer: open bounded source descriptors,
-  match, run Datalog, and pull. The covered-index DaoStream adapter belongs to
-  `dao.space.index`; query consumes only its logical d5 elements.
+- `dao.space.query` — the embeddable Peer: open bounded source coordinates,
+  match, run Datalog, and pull. The transportable read coordinate belongs to
+  `dao.space.index`; query's `open-published!` opens it, consuming only its
+  logical d5 rows and covered sets.
 
 The boundary is strict: **query never writes; index owns the realization both
 sides share.** It is the same move Datomic makes between transactor and peer —
@@ -97,12 +98,13 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
   `jing/get`; `restored-indexes` re-attaches a published manifest's trees
   lazily on every platform.
 - **The transportable read coordinate** — `published-index` constructs a
-  serializable exact-bounded descriptor from a DaoJing coordinate and an
-  immutable manifest address. Opening it validates the descriptor, opens the
-  coordinate, fetches only the manifest, re-attaches the covered sets
-  lazily (restored-indexes), and returns a read-only closed realization whose
-  EAVT rows are deferred behind a delay. Physical B-tree nodes never cross
-  the stream boundary.
+  serializable exact-bounded coordinate from a DaoJing coordinate and an
+  immutable manifest address. Opening it is the reader's move:
+  `dao.space.query`'s `open-published!` validates the coordinate, opens the
+  store, fetches only the manifest, re-attaches the covered sets lazily
+  (restored-indexes), and defers the EAVT rows behind a delay the reader
+  owns; `read-datoms` here walks those rows eagerly. Physical B-tree nodes
+  never cross the boundary.
 - **The transactor entry point** — `publish-index!`: snapshot the stream,
   build the four covered indexes, append the node blobs and the manifest to
   one intake stream selected from an explicit pool. DaoJing itself is never
@@ -154,7 +156,10 @@ trees therefore report the same O(1) count they actually contain.
 
 ;; the format's readers (every platform)
 (index/published-index {:dao.jing/type :dao.jing/file :path path}
-                       manifest-address)                  ; bounded d5 descriptor
+                       manifest-address)                  ; transportable read
+                                                          ; coordinate — open it
+                                                          ; with query's
+                                                          ; open-published!
 (index/read-manifest content-store manifest-address)     ; validated manifest
 (index/read-datoms content-store manifest-address)       ; eager EAVT walk
 (index/walk-index-datoms content-store segment-address)  ; eager node-graph walk
@@ -266,11 +271,12 @@ Two lifecycle facts are deliberate:
   answer identically before and after (pinned by
   `publish-index-snapshot-reads-local-stream-and-reads-back` and the
   observer-materialization parity tests).
-- The published-index DaoStream adapter opens lazily (manifest fetch plus
-  restored sets) and defers its EAVT rows; query consumes the restored sets
-  directly for selective current reads, forces the rows for rest-pattern and
-  4+-slot scans, and walks the restored tree for unselective 3-fixed scans.
-  Query does not dispatch on manifests, pools, or B-tree segments. Publishing changes access cost, never
+- `query/open-published!` opens the published coordinate lazily (manifest
+  fetch plus restored sets) and defers the EAVT rows behind `query/rows`;
+  query consumes the restored sets directly for selective current reads,
+  forces the rows for rest-pattern and 4+-slot scans, and walks the restored
+  tree for unselective 3-fixed scans. Query does not dispatch on manifests,
+  pools, or B-tree segments. Publishing changes access cost, never
   the datoms.
 
 ## Dependency picture
@@ -278,9 +284,9 @@ Two lifecycle facts are deliberate:
 ```
 dao.space.transactor  ──►  dao.space.index  ◄──  dao.space.query
    (write path:          (realization:          (the Peer:
-    append!/transact!      B-tree values,          open DaoStream descriptor,
+    append!/transact!      B-tree values,          open published coordinate,
     write transaction      publish-index!,         match, q, pull —
-    records; publish!      sort orders,            reads wrapped raw datom sources
+    records; publish!      sort orders,            reads relations and views
     delegates here)        node blobs)             or published manifests)
                                 │
                                 ▼
@@ -309,12 +315,12 @@ there is no mutable root for it to maintain.
 
 ## Platform status
 
-Build, the eager published-stream adapter, lazy lower-level restoration, and
-range slicing are all
+Build, the eager published read (`read-datoms`), lazy lower-level
+restoration, and range slicing are all
 **cross-platform**. `dao.data.btree` and `dao.data.btree.storage` are `.cljc`
 implementations shared by JVM, ClojureScript, and ClojureDart.
 
-The published-stream path uses `walk-index-datoms`, which understands the plain EDN node
+The eager published path uses `walk-index-datoms`, which understands the plain EDN node
 blobs using only `jing/get`. The separate lazy API uses
 `dao.data.btree/restore-tree` through
 `dao.data.btree.storage/kv-storage`; traversal faults only the required nodes.
@@ -322,15 +328,16 @@ The manifest's `:count` and `:branching-factor` are threaded through
 `restore-tree` deliberately: count keeps O(1) `count` on restored trees
 without faulting the graph, and the branching factor reaches every restored
 node so mutation splits at the published thresholds. Tests in
-`test/dao/space/index_test.cljc` pins both contracts, including lazy
-point-lookup fetch counts for the lower-level restored tree and descriptor
-transport/eager logical d5 reads for the DaoStream adapter.
+`test/dao/space/index_test.cljc` and `test/dao/space/query_test.cljc` pin
+both contracts, including lazy point-lookup fetch counts for the
+lower-level restored tree and, in `query_test`, coordinate transport and
+eager logical d5 reads through the opened published value.
 
 ## Open items
 
 - **Segment GC** — superseded index segments accumulate forever.
 - **Published indexed snapshots and K-way merge** — queries currently consume
-  each published manifest through the eager logical stream adapter.
+  each published manifest through one opened coordinate at a time.
 - **Incremental indexing** — the natural next increment for long-lived agent
   transactors: today an owner republishes wholesale from the full datom seq. A
   future builder could retain the previous manifest, insert only the appended

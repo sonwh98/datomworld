@@ -9,18 +9,14 @@
    read-datoms / restored-indexes consume them. Everything runs on JVM,
    ClojureScript, and ClojureDart."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.edn :as edn]
             [dao.data.btree :as bt]
             [dao.jing :as jing]
-            [dao.jing.coordinate :as jing-coordinate]
-            [dao.jing.file :as jing-file]
-            #?@(:clj [[dao.jing.remote :as jing-remote]])
+            #?@(:clj [[dao.jing.coordinate :as jing-coordinate]
+                      [dao.jing.remote :as jing-remote]])
             [dao.space.index :as index]
-            [dao.stream :as ds]
             [dao.stream.v2 :as stream]
             [dao.stream.v2.memory-log :as memory-log]
-            [dao.stream.v2.ringbuffer :as ringbuffer]
-            #?@(:cljd [["dart:io" :as dart-io]])))
+            [dao.stream.v2.ringbuffer :as ringbuffer]))
 
 
 (defrecord MalformedResultStream
@@ -57,8 +53,8 @@
 (defn- counting-content-store
   "Wrap a content-store handle so every :get-content-fn invocation is counted.
    Returns {:store wrapped-handle, :gets (fn [] count)} — a minimal counting
-   harness for observing that the published open path fetches only the
-   manifest (one get) and faults no tree nodes."
+   harness for fetch-count assertions (restoration faults no nodes at
+   construction, a seek loads only its path)."
   [store]
   (let [gets (atom 0)
         get-fn (:get-content-fn store)]
@@ -109,25 +105,6 @@
             {:stream s
              :cursor (:dao.stream/cursor (stream/cursor s :dao.stream/oldest))})
           intakes)))
-
-
-(defn- temp-content-path
-  [prefix]
-  (str "target/test-index-stream-" prefix "-" (random-uuid) ".log"))
-
-
-(defn- cleanup-file
-  [path]
-  #?(:clj (let [f (java.io.File. path)] (when (.exists f) (.delete f)))
-     :cljs (try (.unlinkSync (js/require "fs") path) (catch :default _))
-     :cljd (try (let [f (dart-io/File path)]
-                  (when (.existsSync f) (.deleteSync f)))
-                (catch Object _ nil))))
-
-
-(defn- stream-values
-  [stream]
-  (ds/strict-vec stream))
 
 
 (defn- materialize-through-observer
@@ -612,42 +589,6 @@
                     (vals (:indexes manifest))))))))
 
 
-(defn- publish-into-file
-  "Publish datoms through an in-memory intake and observe them into a fresh
-   file-backed content store; return the live store, its temp path, the
-   manifest address, and a published-index descriptor over that store. The
-   caller must close (:store ...) and clean up (:path ...). On failure the
-   store is closed and the temp file removed before rethrowing."
-  ([datoms] (publish-into-file datoms "pub"))
-  ([datoms prefix]
-   (let [path (temp-content-path prefix)
-         store (jing-file/create-content-file path)]
-     (try (let [local (open-local datoms)
-                intake (open-intake)
-                {:keys [manifest-address]} (index/publish-index! local [intake])
-                drain (fn drain
-                        [state]
-                        (let [r (jing/observe-step! store state)]
-                          (case (:signal r)
-                            :dao.stream/ok (drain (:state r))
-                            (:dao.stream/blocked :dao.stream/end) nil
-                            (throw (ex-info "test observer hit a gap or defect" r)))))]
-            (drain (pool-state [intake]))
-            {:store store,
-             :path path,
-             :manifest-address manifest-address,
-             :descriptor (index/published-index {:dao.jing/type :dao.jing/file,
-                                                 :path path}
-                                                manifest-address)})
-          (catch #?(:clj Throwable
-                    :cljs :default
-                    :cljd Object)
-                 e
-            (jing/close! store)
-            (cleanup-file path)
-            (throw e))))))
-
-
 (deftest published-index-constructor-validates-its-arguments
   (testing "the content-store coordinate must name a DaoJing backend type"
     (is (thrown-with-msg? #?(:cljs js/Error
@@ -672,34 +613,6 @@
                                  :not/a-segment)))))
 
 
-(deftest open-published-rejects-unresolvable-and-malformed-descriptors
-  (let [empty-manifest-addr (jing/segment-key
-                              {:indexes
-                               {:eavt nil, :aevt nil, :avet nil, :vaet nil},
-                               :count 0,
-                               :branching-factor 512})]
-    (testing "an unsupported coordinate type fails closed at open"
-      (let [d (index/published-index {:dao.jing/type :dao.jing/missing,
-                                      :path "x"}
-                                     empty-manifest-addr)]
-        (is (thrown-with-msg? #?(:cljs js/Error
-                                 :cljd Object
-                                 :default Exception)
-                              #"unsupported DaoJing content-store coordinate"
-              (ds/open! d))
-            "the store coordinate is resolved explicitly, never inferred")))
-    (testing "a malformed published-index descriptor is rejected at open"
-      (let [bogus (assoc (index/published-index {:dao.jing/type :dao.jing/file,
-                                                 :path "x"}
-                                                empty-manifest-addr)
-                         :extra/key :noise)]
-        (is (thrown-with-msg? #?(:cljs js/Error
-                                 :cljd Object
-                                 :default Exception)
-                              #"invalid published-index descriptor"
-              (ds/open! bogus)))))))
-
-
 (deftest remote-coordinate-allows-an-explicit-nil-options-entry
   #?(:clj (with-redefs [jing-remote/connect-content!
                         (fn [url options] {:url url, :options options})]
@@ -710,175 +623,25 @@
      :default (is true "the synchronous remote coordinate is JVM-only")))
 
 
-(deftest open-published-rejects-missing-and-invalid-manifests
-  (let [fx (publish-into-file (datoms 8))]
-    (try (testing "a manifest address absent from the store throws at open"
-           (let [d (index/published-index
-                     {:dao.jing/type :dao.jing/file, :path (:path fx)}
-                     (jing/segment-key
-                       {:indexes {:eavt nil, :aevt nil, :avet nil, :vaet nil},
-                        :count 0,
-                        :branching-factor 512}))]
-             (is (thrown-with-msg? #?(:cljs js/Error
-                                      :cljd Object
-                                      :default Exception)
-                                   #"missing index manifest"
-                   (ds/open! d)))))
-         (testing "a stored non-manifest value throws at open"
-           (let [bad-addr (jing/materialize! (:store fx) {:not :a-manifest})
-                 d (index/published-index {:dao.jing/type :dao.jing/file,
-                                           :path (:path fx)}
-                                          bad-addr)]
-             (is (thrown-with-msg? #?(:cljs js/Error
-                                      :cljd Object
-                                      :default Exception)
-                                   #"invalid index manifest"
-                   (ds/open! d)))))
-         (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
-
-
-(deftest published-realization-is-read-only-with-a-stable-lifecycle
-  (let [published-input (vec (reverse (datoms 12))) ; non-EAVT insertion
-        ;; order
-        expected-eavt (vec (sort index/eavt-cmp published-input))
-        fx (publish-into-file published-input)]
-    (try (let [published (ds/open! (:descriptor fx))]
-           (testing "read-only: a reader and bound, never a writer"
-             (is (satisfies? ds/IDaoStreamReader published))
-             (is (satisfies? ds/IDaoStreamBound published))
-             (is (not (satisfies? ds/IDaoStreamWriter published))))
-           (testing "logical elements are canonical d5 in EAVT order"
-             (is (= expected-eavt (stream-values published))))
-           (testing
-             "closed from construction; close is idempotent and non-erasing"
-             (is (ds/closed? published))
-             (is (= {:woke []} (ds/close! published)))
-             (is (= {:woke []} (ds/close! published)) "close! is idempotent")
-             (is (= expected-eavt (stream-values published))
-                 "close does not erase retained elements"))
-           (testing "two cursors advance independently over one realization"
-             (let [r1 (ds/next published {:position 0})
-                   r2 (ds/next published {:position 0})
-                   r1' (ds/next published (:cursor r1))]
-               (is (= (first expected-eavt) (:ok r1)))
-               (is (= (:ok r1) (:ok r2)) "both cursors read position 0")
-               (is (= (second expected-eavt) (:ok r1'))
-                   "advancing one cursor reads the next element"))))
-         (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
-
-
-(deftest published-empty-index-drains-to-end
-  (let [fx (publish-into-file [])]
-    (try (let [published (ds/open! (:descriptor fx))]
-           (is (ds/closed? published))
-           (is (= [] (stream-values published)))
-           (is (= :end (ds/next published {:position 0}))))
-         (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
-
-
-(deftest published-open-fetches-only-the-manifest
-  (let [fx (publish-into-file (datoms 64))]
-    (try
-      (let [counter (counting-content-store (:store fx))]
-        #?(:cljd
-           (is
-             true
-             "the counting harness needs with-redefs, unavailable on ClojureDart")
-           :default
-           (with-redefs [jing-coordinate/open! (fn [_] (:store counter))]
-             (let [published (ds/open! (:descriptor fx))]
-               (is
-                 (= 1 ((:gets counter)))
-                 "opening a published descriptor performs exactly one content fetch: the manifest, with zero tree nodes faulted")
-               (ds/close! published)))))
-      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
-
-
 (deftest covered-indexes-returns-the-four-covered-sets
-  (let [fx (publish-into-file (datoms 8))]
-    (try (let [published (ds/open! (:descriptor fx))]
-           (try
-             (testing "an opened published realization carries the four sets"
-               (let [idx (index/covered-indexes published)]
-                 (is (map? idx))
-                 (is (= #{:eavt :aevt :avet :vaet} (set (keys idx))))
-                 (doseq [order [:eavt :aevt :avet :vaet]]
-                   (is (= (count (datoms 8)) (bt/count (order idx)))
-                       (str order " covers the snapshot")))))
-             (testing "nil when the realization carries no covered sets"
-               (is (nil? (index/covered-indexes nil)))
-               (is (nil? (index/covered-indexes {})))
-               (is (nil? (index/covered-indexes :not-a-realization)))
-               (is (nil? (index/covered-indexes {:indexes :not-a-map})))
-               (is (nil? (index/covered-indexes {:indexes {:eavt 1, :aevt 2}})))
-               (is (nil? (index/covered-indexes
-                           {:indexes {:eavt 1, :aevt 2, :avet 3}}))))
-             (testing "a structural check, never a type check"
-               (is (= {:eavt :a, :aevt :b, :avet :c, :vaet :d}
-                      (index/covered-indexes
-                        {:indexes {:eavt :a, :aevt :b, :avet :c, :vaet :d}}))
-                   "a plain map with the four keys passes, no instance check"))
-             (finally (ds/close! published))))
-         (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
-
-
-(deftest published-next-yields-the-same-eavt-rows-as-the-eager-walk
-  (let [datoms (vec (reverse (datoms 24))) ; non-EAVT insertion order
-        fx (publish-into-file datoms)]
-    (try
-      (let [eager (index/read-datoms (:store fx) (:manifest-address fx))
-            published (ds/open! (:descriptor fx))]
-        (try
-          (is (= eager (stream-values published))
-              "strict-vec forces the deferred EAVT and yields the eager rows")
-          (is (= eager
-                 (loop [cursor {:position 0}
-                        acc []]
-                   (let [r (ds/next published cursor)]
-                     (if (map? r) (recur (:cursor r) (conj acc (:ok r))) acc))))
-              "stepwise next over the forced delay yields the eager rows")
-          (finally (ds/close! published))))
-      (finally (jing/close! (:store fx)) (cleanup-file (:path fx))))))
+  (testing "nil when the realization carries no covered sets"
+    (is (nil? (index/covered-indexes nil)))
+    (is (nil? (index/covered-indexes {})))
+    (is (nil? (index/covered-indexes :not-a-realization)))
+    (is (nil? (index/covered-indexes {:indexes :not-a-map})))
+    (is (nil? (index/covered-indexes {:indexes {:eavt 1, :aevt 2}})))
+    (is (nil? (index/covered-indexes
+                {:indexes {:eavt 1, :aevt 2, :avet 3}}))))
+  (testing "a structural check, never a type check"
+    (is (= {:eavt :a, :aevt :b, :avet :c, :vaet :d}
+           (index/covered-indexes
+             {:indexes {:eavt :a, :aevt :b, :avet :c, :vaet :d}}))
+        "a plain map with the four keys passes, no instance check")))
 
 
 ;; ---------------------------------------------------------------------------
 ;; Observer materialization, then read / restore parity
 ;; ---------------------------------------------------------------------------
-
-(deftest published-index-is-a-transportable-bounded-stream
-  (let [path (temp-content-path "descriptor")
-        source-datoms [[2 :work/status :done 1 1] [1 :work/status :todo 0 1]]
-        local (open-local source-datoms)
-        intake (open-intake)
-        store (jing-file/create-content-file path)]
-    (try (let [{:keys [manifest-address]} (index/publish-index! local [intake])
-               _ (loop [state (pool-state [intake])]
-                   (let [{:keys [signal state] :as r} (jing/observe-step! store
-                                                                          state)]
-                     (case signal
-                       :dao.stream/ok (recur state)
-                       (:dao.stream/blocked :dao.stream/end) nil
-                       (throw (ex-info "test observer hit a gap or defect" r)))))
-               descriptor (index/published-index {:dao.jing/type :dao.jing/file,
-                                                  :path path}
-                                                 manifest-address)
-               transported (edn/read-string (pr-str descriptor))
-               carrier (ds/open! {:dao.stream/type :ringbuffer})]
-           (is (= descriptor transported) "descriptor is plain EDN")
-           (is (ds/exact-bound? (:dao.stream/bound descriptor)))
-           (is (= :dao.space.index/eavt (:dao.stream/comparator descriptor)))
-           (ds/append! carrier transported)
-           (is (= descriptor (:ok (ds/next carrier {:position 0}))))
-           (let [published (ds/open! transported)]
-             (try (is (satisfies? ds/IDaoStreamReader published))
-                  (is (satisfies? ds/IDaoStreamBound published))
-                  (is (not (satisfies? ds/IDaoStreamWriter published)))
-                  (is (ds/closed? published))
-                  (is (= (sort index/eavt-cmp source-datoms)
-                         (stream-values published)))
-                  (finally (ds/close! published)))))
-         (finally (jing/close! store) (cleanup-file path)))))
-
 
 (deftest observer-materialization-read-restore-parity
   (testing

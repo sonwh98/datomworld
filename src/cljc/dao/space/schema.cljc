@@ -12,6 +12,7 @@
    publisher (publish!, published, :dao.space.schema/published opener)."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
+            [dao.jing.coordinate :as jing-coordinate]
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.transactor :as tx]
@@ -1170,6 +1171,34 @@
    :manifest-address manifest-address})
 
 
+;; A private v1 reader over the forced published row vector — simpler than
+;; the index adapter it replaced, because schema forces the whole vector at
+;; open anyway: read-datoms walks the manifest's EAVT node graph while the
+;; store is open, and the store is closed before the value is returned, so
+;; nothing on this path needs the lazy restored trees or a retained store
+;; handle. next reads the vector by position; the value is closed from
+;; construction (a published manifest is an immutable snapshot).
+(defrecord PublishedSchemaRows
+  [rows]
+
+  ds/IDaoStreamReader
+
+  (next
+    [_ cursor]
+    (let [position (or (:position cursor) 0)]
+      (if (< position (count rows))
+        {:ok (nth rows position), :cursor {:position (inc position)}}
+        :end)))
+
+
+  ds/IDaoStreamBound
+
+  (close! [_] {:woke []})
+
+
+  (closed? [_] true))
+
+
 #_{:clj-kondo/ignore [:unresolved-symbol :unresolved-var :private-call]}
 
 
@@ -1180,11 +1209,7 @@
               (when-not (= expected descriptor)
                 (throw (ex-info "invalid schema/published descriptor"
                                 {:descriptor descriptor, :expected expected})))
-              (let [r (ds/open! (index/published-index content-store manifest-address))]
-                ;; The btree is lazily loaded from the store.  Eagerly force all
-                ;; datoms now so the data is cached in memory.  When schema/current
-                ;; later calls ds/close! (which closes the jing store) and then
-                ;; interpret-view, the datoms delay is already realized and next()
-                ;; reads from the cached vector — no store access needed.
-                (ds/strict-vec r)
-                r)))
+              (let [store (jing-coordinate/open! content-store)]
+                (try (->PublishedSchemaRows
+                       (index/read-datoms store manifest-address))
+                     (finally (jing/close! store))))))

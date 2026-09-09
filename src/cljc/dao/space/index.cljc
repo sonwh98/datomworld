@@ -36,8 +36,6 @@
             [dao.data.btree.storage :as bts]
             [dao.datom :as datom]
             [dao.jing :as jing]
-            [dao.jing.coordinate :as jing-coordinate]
-            [dao.stream :as ds]
             [dao.stream.v2 :as stream]))
 
 
@@ -320,13 +318,16 @@
 
 
 ;; =============================================================================
-;; Published covered index as a bounded logical d5 stream
+;; The published read coordinate
 ;; =============================================================================
 
 (defn published-index
   "Construct a transportable descriptor for one immutable covered-index
    manifest. `content-store` is a serializable DaoJing coordinate, not a live
-   handle. The manifest address is the exact stream bound."
+   handle. The manifest address is the exact bound; opening the coordinate is
+   the reader's move — dao.space.query's open-published! re-attaches the
+   covered sets lazily and defers the EAVT rows, read-datoms below walks them
+   eagerly."
   [content-store manifest-address]
   (when-not (and (map? content-store) (keyword? (:dao.jing/type content-store)))
     (throw (ex-info "published index requires a DaoJing store coordinate"
@@ -339,28 +340,6 @@
    :dao.stream/comparator :dao.space.index/eavt,
    :content-store content-store,
    :manifest-address manifest-address})
-
-
-(defrecord PublishedIndexStream
-  [descriptor datoms indexes store]
-
-  ds/IDaoStreamReader
-
-  (next
-    [_ cursor]
-    (let [rows (force datoms)
-          position (or (:position cursor) 0)]
-      (if (< position (count rows))
-        {:ok (nth rows position), :cursor {:position (inc position)}}
-        :end)))
-
-
-  ds/IDaoStreamBound
-
-  (close! [_] (jing/close! store) {:woke []})
-
-
-  (closed? [_] true))
 
 
 (defn covered-indexes
@@ -378,30 +357,6 @@
       (when (and (map? indexes)
                  (= #{:eavt :aevt :avet :vaet} (set (keys indexes))))
         indexes))))
-
-
-(ds/defopen :dao.space.index/published
-            [descriptor]
-            (let [{:keys [content-store manifest-address]} descriptor
-                  expected (published-index content-store manifest-address)]
-              (when-not (= expected descriptor)
-                (throw (ex-info "invalid published-index descriptor"
-                                {:descriptor descriptor, :expected expected})))
-              (let [store (jing-coordinate/open! content-store)]
-                (try (let [manifest (read-manifest store manifest-address)
-                           indexes (restored-indexes store manifest)]
-                       (with-meta (->PublishedIndexStream
-                                    descriptor
-                                    (delay (vec (bt/seq (:eavt indexes))))
-                                    indexes
-                                    store)
-                         {:dao.stream/descriptor descriptor}))
-                     (catch #?(:clj Throwable
-                               :cljs :default
-                               :cljd Object)
-                            error
-                       (jing/close! store)
-                       (throw error))))))
 
 
 ;; =============================================================================
