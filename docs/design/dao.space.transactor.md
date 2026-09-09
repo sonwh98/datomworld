@@ -82,7 +82,7 @@ Pinned by `test/dao/space/transactor_test.cljc` unless noted:
 | T16 | Intake pool members are validated with v2 `stream/writer?`; a non-empty collection is required |
 | T18 | The local stream is on a transport declaring complete retention (below) |
 | T19 | `dao.space.schema` installs its next state only when the transactor answered ok (pinned in `schema_test`) |
-| T20 | Schema's v1 public results keep their v1 shape until schema's own plan — the D10 rule (`dao.space.schema.md`) |
+| T20 | Retired 2026-09-09 under schema's plan; schema returns the transactor's receipt unchanged and adopts its closed-precedence rule |
 
 ## Operational outcomes are data; argument defects throw
 
@@ -172,6 +172,3 @@ already ruled out.
   own checkpoint, from which the watermark and incremental indexes resume —
   rather than adding a second stored counter that can disagree with the
   record. Not designed here.
-- **Schema's migration** (`dao.space.schema.md`, D10) collapses the
-  transitional mixed return — v1 `{:result :ok …}` on success, v2 outcome map
-  on refusal — to the v2 receipt under schema's own plan.

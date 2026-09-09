@@ -14,6 +14,7 @@
             [dao.space.query :as query]
             [dao.space.schema :as schema]
             [dao.space.schema-fixtures :as fixtures]
+            [dao.space.transactor :as tx]
             [dao.stream :as ds]
             [dao.stream.v2 :as stream]
             [dao.stream.v2.memory-log :as memory-log]
@@ -674,12 +675,11 @@
 
 
 (defn- wrapper-state
-  "The SchemaWrapper's state map. Type-hinted member access, as with
-   ringbuffer-state-atom in dao.stream-test."
+  "The wrapper's state map — the white-box seam behind the T19
+   state-identity assertion. The wrapper is a plain map, so this is a
+   keyword read with no reader conditional (D8)."
   [w]
-  #?(:clj @(.-state ^dao.space.schema.SchemaWrapper w)
-     :cljs @(.-state ^dao.space.schema.SchemaWrapper w)
-     :cljd @(.-state ^dao.space.schema/SchemaWrapper w)))
+  @(:state w))
 
 
 (defn- bootstrap-tx
@@ -705,20 +705,19 @@
 (deftest wrapper-opens-and-transacts
   (let [{:keys [local intake]} (fresh-streams)
         w (schema/transactor local intake)]
-    (is (not (ds/closed? w)))
     ;; Bootstrap
     (let [r1 (schema/transact! w (bootstrap-tx))]
-      (is (= :ok (:result r1)))
-      (is (integer? (:t r1))))
+      (is (= :dao.stream/ok (:dao.stream/outcome r1)))
+      (is (integer? (:dao.space/t r1))))
     ;; Data
     (let [r2 (schema/transact! w [[7 :person/name "Alice"]])]
-      (is (= :ok (:result r2))))
+      (is (= :dao.stream/ok (:dao.stream/outcome r2))))
     ;; Datoms landed in local-stream
     (let [all (datoms-of local)
           names (filterv #(= :person/name (index/datom-a %)) all)]
       (is (seq names))
       (is (= "Alice" (index/datom-v (last names)))))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -753,7 +752,7 @@
       (is (= #{["new"]}
              (qq '[:find ?v :where [7 :person/name ?v]]
                  (query/current rel)))))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -770,20 +769,20 @@
             #?(:cljs js/Error :cljd Object :default Exception)
             #"card-one collision"
             (schema/transact! w [[:db/add 7 :person/name "new"]])))
-      (ds/close! w)))
+      (schema/close! w)))
   (testing "lax: same collision appends"
     (let [{:keys [local intake]} (fresh-streams)
           w (schema/transactor local intake)]
       (schema/transact! w (bootstrap-tx))
       (schema/transact! w [[7 :person/name "old"]])
       (let [r (schema/transact! w [[:db/add 7 :person/name "new"]])]
-        (is (= :ok (:result r))))
+        (is (= :dao.stream/ok (:dao.stream/outcome r))))
       ;; Raw current sees both (no supersession emission from bare :db/add)
       (let [rel (query/relation (datoms-of local))]
         (is (= 2
                (count (qq '[:find ?v :where [7 :person/name ?v]]
                           (query/current rel))))))
-      (ds/close! w))))
+      (schema/close! w))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -799,13 +798,13 @@
             #?(:cljs js/Error :cljd Object :default Exception)
             #"valueType mismatch"
             (schema/transact! w [[7 :person/name 42]])))
-      (ds/close! w)))
+      (schema/close! w)))
   (testing "lax: mismatch appends, audit finds it"
     (let [{:keys [local intake]} (fresh-streams)
           w (schema/transactor local intake)]
       (schema/transact! w (bootstrap-tx))
       (let [r (schema/transact! w [[7 :person/name 42]])]
-        (is (= :ok (:result r))))
+        (is (= :dao.stream/ok (:dao.stream/outcome r))))
       ;; Audit: find valueType violations using type predicate
       (let [rel (query/relation (datoms-of local))
             ;; Get all person/name values
@@ -817,7 +816,7 @@
             ;; Filter for non-string violations
             violations (set (filter #(not (string? (second %))) all-names))]
         (is (= #{[7 42]} violations)))
-      (ds/close! w))))
+      (schema/close! w))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -833,15 +832,15 @@
             #?(:cljs js/Error :cljd Object :default Exception)
             #"dangling ref"
             (schema/transact! w [[8 :person/friends 999]])))
-      (ds/close! w)))
+      (schema/close! w)))
   (testing "strict: ref to entity created earlier in same record passes"
     (let [{:keys [local intake]} (fresh-streams)
           w (schema/transactor local intake {:strict true})]
       (schema/transact! w (bootstrap-tx))
       (let [r (schema/transact! w [{:db/id 8 :person/name "Target"}
                                    {:db/id 9 :person/friends 8}])]
-        (is (= :ok (:result r))))
-      (ds/close! w)))
+        (is (= :dao.stream/ok (:dao.stream/outcome r))))
+      (schema/close! w)))
   (testing "strict: an empty entity map does not create a ref target"
     (let [{:keys [local intake]} (fresh-streams)
           w (schema/transactor local intake {:strict true})]
@@ -851,14 +850,14 @@
             #"dangling ref"
             (schema/transact! w [{:db/id 8}
                                  {:db/id 9 :person/friends 8}])))
-      (ds/close! w)))
+      (schema/close! w)))
   (testing "lax: dangling ref appends"
     (let [{:keys [local intake]} (fresh-streams)
           w (schema/transactor local intake)]
       (schema/transact! w (bootstrap-tx))
       (let [r (schema/transact! w [[8 :person/friends 999]])]
-        (is (= :ok (:result r))))
-      (ds/close! w))))
+        (is (= :dao.stream/ok (:dao.stream/outcome r))))
+      (schema/close! w))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -881,7 +880,7 @@
                            all)]
         (is (= 1 (count names)))
         (is (= 7 (index/datom-e (first names)))))
-      (ds/close! w)))
+      (schema/close! w)))
   (testing "unmatched lookup ref throws in both modes"
     (doseq [strict? [true false]]
       (let [{:keys [local intake]} (fresh-streams)
@@ -892,7 +891,7 @@
               #"unmatched lookup ref"
               (schema/transact! w [{:db/id [:person/email "nope"]
                                     :person/name "X"}])))
-        (ds/close! w)))))
+        (schema/close! w)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -924,7 +923,7 @@
       (is (= 2 (count friends9))
           "bare entity-id vector expands element-wise")
       (is (= #{7 8} (set (map index/datom-v friends9)))))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -937,12 +936,12 @@
     (schema/transact! w (bootstrap-tx))
     ;; Retract an absent fact — appends as told
     (let [r1 (schema/transact! w [[:db/retract 7 :person/name "ghost"]])]
-      (is (= :ok (:result r1))))
+      (is (= :dao.stream/ok (:dao.stream/outcome r1))))
     ;; Re-assert the live value — appends (no dedup)
     (schema/transact! w [[7 :person/name "Alice"]])
     (let [r2 (schema/transact! w [[:db/add 7 :person/name "Alice"]])]
-      (is (= :ok (:result r2))))
-    (ds/close! w)))
+      (is (= :dao.stream/ok (:dao.stream/outcome r2))))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -958,7 +957,7 @@
           friends (filterv #(= :person/friends (index/datom-a %)) all)]
       (is (= 2 (count friends)))
       (is (= #{8 9} (set (map index/datom-v friends)))))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -973,13 +972,13 @@
     (schema/transact! w [{:db/id 7 :person/friends [8 9]}])
     ;; Retract attribute-wide
     (let [r (schema/transact! w [[:db/retract 7 :person/friends]])]
-      (is (= :ok (:result r))))
+      (is (= :dao.stream/ok (:dao.stream/outcome r))))
     ;; Both retracted
     (let [all (datoms-of local)
           friends (filterv #(= :person/friends (index/datom-a %)) all)
           live (filterv datom/asserted? (query/current-state-seq friends))]
       (is (= 0 (count live))))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1003,22 +1002,20 @@
           (schema/transact! w [[7 :person/name 42]])))
     ;; But a good value passes
     (let [r (schema/transact! w [[7 :person/name "Alice"]])]
-      (is (= :ok (:result r))))
-    (ds/close! w)))
+      (is (= :dao.stream/ok (:dao.stream/outcome r))))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
-;; W26: closed wrapper throws
+;; W26: a closed wrapper answers closed as data (L5′, D1)
 ;; ---------------------------------------------------------------------------
 
-(deftest closed-wrapper-throws
+(deftest closed-wrapper-answers-closed
   (let [{:keys [local intake]} (fresh-streams)
         w (schema/transactor local intake)]
-    (ds/close! w)
-    (is (thrown-with-msg?
-          #?(:cljs js/Error :cljd Object :default Exception)
-          #"closed"
-          (schema/transact! w [[7 :person/name "X"]])))
+    (schema/close! w)
+    (is (= {:dao.stream/outcome :dao.stream/closed}
+           (schema/transact! w [[7 :person/name "X"]])))
     ;; local stream NOT closed (caller owns it): an open memory-log blocks at
     ;; its tail; a closed one would answer :dao.stream/end
     (is (= :dao.stream/blocked
@@ -1026,6 +1023,66 @@
              (stream/next local
                           (:dao.stream/cursor
                             (stream/cursor local :dao.stream/newest))))))))
+
+
+;; ---------------------------------------------------------------------------
+;; close! is idempotent and closes the inner value (L1, L2). The inner-value
+;; assertion is the direct pin that tx/close! was called: an assertion on
+;; the wrapper alone would pass even if the inner value were never closed.
+;; ---------------------------------------------------------------------------
+
+(deftest close-is-idempotent-and-closes-the-inner-value
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake)]
+    (is (= {:dao.stream/outcome :dao.stream/ok} (schema/close! w)))
+    (is (= {:dao.stream/outcome :dao.stream/ok} (schema/close! w))
+        "close! is idempotent")
+    (is (= {:dao.stream/outcome :dao.stream/closed}
+           (tx/transact! (:inner w) [[7 :x 1]]))
+        "the inner transactor value is closed — tx/close! was called")
+    (is (= {:dao.stream/outcome :dao.stream/closed}
+           (schema/transact! w [[7 :x 1]]))
+        "the wrapper answers closed after its inner value does")
+    ;; local stream NOT closed (caller owns it): an open memory-log blocks at
+    ;; its tail; a closed one would answer :dao.stream/end
+    (is (= :dao.stream/blocked
+           (:dao.stream/outcome
+             (stream/next local
+                          (:dao.stream/cursor
+                            (stream/cursor local :dao.stream/newest))))))))
+
+
+;; ---------------------------------------------------------------------------
+;; The closed-precedence rule (L10, D1): the wrapper adopts the
+;; transactor's precedence rather than inventing a schema-specific order.
+;; Empty tx-data throws above the lock, regardless of state; every other
+;; argument answers closed before it is examined. The same two calls on
+;; the inner value give the same two answers.
+;; ---------------------------------------------------------------------------
+
+(deftest closed-precedence-matches-the-transactor
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake)]
+    (schema/close! w)
+    (is (thrown-with-msg?
+          #?(:cljs js/Error :cljd Object :default Exception)
+          #"at least one"
+          (schema/transact! w [])))
+    (is (= {:dao.stream/outcome :dao.stream/closed}
+           (schema/transact! w [[:db/add 30 :db/foo :bar]]))
+        "closed answers before the unknown :db/* defect is examined")
+    (is (thrown-with-msg?
+          #?(:cljs js/Error :cljd Object :default Exception)
+          #"at least one"
+          (tx/transact! (:inner w) [])))
+    (is (= {:dao.stream/outcome :dao.stream/closed}
+           (tx/transact! (:inner w) [[:db/add 30 :db/foo :bar]])))
+    (is (= :dao.stream/blocked
+           (:dao.stream/outcome
+             (stream/next local
+                          (:dao.stream/cursor
+                            (stream/cursor local :dao.stream/newest)))))
+        "the wrapper's precedence is data: the local stream is untouched")))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1059,7 +1116,7 @@
                    {:dao.stream/type :dao.stream/ringbuffer
                     :dao.stream.ringbuffer/capacity 4096}))
         w (schema/transactor local [intake])]
-    (is (= :ok (:result (schema/transact! w (bootstrap-tx))))
+    (is (= :dao.stream/ok (:dao.stream/outcome (schema/transact! w (bootstrap-tx))))
         "precondition: the bootstrap commits at t 0 through the double")
     (let [st (wrapper-state w)]
       (is (= {:dao.stream/outcome :dao.stream/full}
@@ -1068,74 +1125,34 @@
       (is (= st (wrapper-state w))
           "schema, uniqueness, and current-value state are identical to
            before the refused append")
-      (is (= {:result :ok, :t 1, :datoms [[7 :person/name "Alice" 1 1]]}
+      (is (= {:dao.stream/outcome :dao.stream/ok
+              :dao.space/t 1
+              :dao.space/datoms [[7 :person/name "Alice" 1 1]]}
              (schema/transact! w [[7 :person/name "Alice"]]))
           "the retry commits at the same t the refused attempt planned, and
-           the successful receipt keeps schema's v1 public shape (D10)")
+           the receipt is the inner transactor's, unchanged")
       (is (not= st (wrapper-state w))
           "state advances only on the successful commit"))))
 
 
 ;; ---------------------------------------------------------------------------
-;; W44: publish! serializes against close (T8's lock extension, JVM-only).
-;; The closedness guard and tx/publish! run under one wrapper lock, so a
-;; publication can never straddle a close: close cannot return while a
-;; publish is in flight, and a publish that starts after close returns is
-;; refused.
+;; W44: publication after close is permitted (D7). The v1 guard — a closed
+;; wrapper refusing publish! under the wrapper lock — is deleted: close
+;; rejects further writes, and publication is a read of the caller's
+;; still-open local stream plus an enqueue into the caller-owned pool.
 ;; ---------------------------------------------------------------------------
 
-(deftest publish-serializes-against-close
-  #?(:clj (let [inner (:dao.stream/handle
-                        (memory-log/create!
-                          {:dao.stream/type :dao.stream/memory-log}))
-                entered (promise)
-                release (promise)
-                slow-local (reify
-                             stream/IDaoStreamWriter
-                             (append! [_ val] (stream/append! inner val))
-
-
-                             stream/IDaoStreamReader
-
-                             (cursor [_ anchor] (stream/cursor inner anchor))
-
-                             (next
-                               [_ cursor]
-                               (let [r (stream/next inner cursor)]
-                                 (when (and (= :dao.stream/ok
-                                               (:dao.stream/outcome r))
-                                            (some #(= :race/block (nth % 1))
-                                                  (get-in (:dao.stream/value r)
-                                                          [:dao.space/transaction
-                                                           :datoms])))
-                                   (deliver entered true)
-                                   @release)
-                                 r)))
-                intake (:dao.stream/handle
-                         (ringbuffer/create!
-                           {:dao.stream/type :dao.stream/ringbuffer
-                            :dao.stream.ringbuffer/capacity 4096}))
-                w (schema/transactor slow-local [intake])]
-            (is (= :ok (:result (schema/transact! w (bootstrap-tx)))))
-            (is (= :ok (:result (schema/transact! w [[:db/add 7 :race/block true]]))))
-            (let [publishing (future (schema/publish! w))]
-              @entered
-              (let [closing (future (ds/close! w))]
-                (try
-                  (is (= ::timeout (deref publishing 50 ::timeout))
-                      "the publication is in flight, blocked inside its snapshot")
-                  (is (= ::timeout (deref closing 50 ::timeout))
-                      "close waits for the serialized publish boundary — it
-                       cannot return while a publication is in flight")
-                  (finally (deliver release true)))
-                (is (= (count (datoms-of slow-local))
-                       (:count (:manifest @publishing)))
-                    "the in-flight publication completes with the full history")
-                (is (= {:woke []} @closing))
-                (is (thrown-with-msg? Exception #"closed" (schema/publish! w))
-                    "a publication starting after close returned is refused"))))
-     :default (is true
-                  "shared-memory publish/close races are a JVM-only execution mode")))
+(deftest publish-after-close-reads-the-callers-stream
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake)]
+    (schema/transact! w (bootstrap-tx))
+    (schema/transact! w [[7 :person/name "Alice"]])
+    (schema/close! w)
+    (let [{:keys [manifest]} (schema/publish! w)]
+      (is (= (count (datoms-of local))
+             (:count manifest))
+          "a publication after close reads the full history of the
+           caller's still-open local stream"))))
 
 
 ;; ===========================================================================
@@ -1162,7 +1179,7 @@
       (is (= (set (keys schema/axioms)) (set (keys schema))))
       (is (= (get-in schema/axioms [:db/ident :db/valueType])
              (get-in schema [:db/ident :db/valueType]))))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1176,8 +1193,8 @@
             w (schema/transactor local intake {:strict strict?})]
         (schema/transact! w (schema/bootstrap))
         (let [r (schema/transact! w (schema/bootstrap))]
-          (is (= :ok (:result r))))
-        (ds/close! w)))))
+          (is (= :dao.stream/ok (:dao.stream/outcome r))))
+        (schema/close! w)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1193,7 +1210,7 @@
               #?(:cljs js/Error :cljd Object :default Exception)
               #"unknown :db/\*"
               (schema/transact! w [[:db/add 30 :db/foo :bar]])))
-        (ds/close! w)))))
+        (schema/close! w)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1210,7 +1227,7 @@
               #"illegal :db/valueType"
               (schema/transact! w [[:db/add 21 :db/ident :test/x]
                                    [:db/add 21 :db/valueType :db.type/bogus]])))
-        (ds/close! w)))
+        (schema/close! w)))
     (testing (str "strict=" strict? ": illegal :db/cardinality")
       (let [{:keys [local intake]} (fresh-streams)
             w (schema/transactor local intake {:strict strict?})]
@@ -1219,7 +1236,7 @@
               #"illegal :db/cardinality"
               (schema/transact! w [[:db/add 21 :db/ident :test/x]
                                    [:db/add 21 :db/cardinality :db.cardinality/seven]])))
-        (ds/close! w)))
+        (schema/close! w)))
     (testing (str "strict=" strict? ": illegal :db/unique (not boolean)")
       (let [{:keys [local intake]} (fresh-streams)
             w (schema/transactor local intake {:strict strict?})]
@@ -1228,7 +1245,7 @@
               #"illegal :db/unique"
               (schema/transact! w [[:db/add 21 :db/ident :test/x]
                                    [:db/add 21 :db/unique "yes"]])))
-        (ds/close! w)))
+        (schema/close! w)))
     (testing (str "strict=" strict? ": non-namespaced :db/ident")
       (let [{:keys [local intake]} (fresh-streams)
             w (schema/transactor local intake {:strict strict?})]
@@ -1236,7 +1253,7 @@
               #?(:cljs js/Error :cljd Object :default Exception)
               #"illegal :db/ident"
               (schema/transact! w [[:db/add 21 :db/ident :name]])))
-        (ds/close! w)))))
+        (schema/close! w)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1253,7 +1270,7 @@
               #"duplicate :db/ident"
               (schema/transact! w [[:db/add 21 :db/ident :test/a]
                                    [:db/add 22 :db/ident :test/a]])))
-        (ds/close! w)))
+        (schema/close! w)))
     (testing (str "strict=" strict? ": duplicate ident vs live vocabulary")
       (let [{:keys [local intake]} (fresh-streams)
             w (schema/transactor local intake {:strict strict?})]
@@ -1262,7 +1279,7 @@
               #?(:cljs js/Error :cljd Object :default Exception)
               #"duplicate :db/ident"
               (schema/transact! w [[:db/add 99 :db/ident :person/name]])))
-        (ds/close! w)))))
+        (schema/close! w)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1279,7 +1296,7 @@
               #?(:cljs js/Error :cljd Object :default Exception)
               #"axiom protection"
               (schema/transact! w [[:db/add 16 :db/cardinality :db.cardinality/many]])))
-        (ds/close! w)))
+        (schema/close! w)))
     (testing (str "strict=" strict? ": new property on axiom entity")
       (let [{:keys [local intake]} (fresh-streams)
             w (schema/transactor local intake {:strict strict?})]
@@ -1288,7 +1305,7 @@
               #?(:cljs js/Error :cljd Object :default Exception)
               #"axiom protection"
               (schema/transact! w [[:db/add 16 :db/doc "description"]])))
-        (ds/close! w)))
+        (schema/close! w)))
     (testing (str "strict=" strict? ": retract axiom property")
       (let [{:keys [local intake]} (fresh-streams)
             w (schema/transactor local intake {:strict strict?})]
@@ -1297,7 +1314,7 @@
               #?(:cljs js/Error :cljd Object :default Exception)
               #"axiom protection"
               (schema/transact! w [[:db/retract 16 :db/unique true]])))
-        (ds/close! w)))
+        (schema/close! w)))
     (testing (str "strict=" strict? ": axiom identity cannot be renamed")
       (let [{:keys [local intake]} (fresh-streams)
             w (schema/transactor local intake {:strict strict?})]
@@ -1315,7 +1332,7 @@
               #"axiom protection"
               (schema/transact! w [{:db/id 16
                                     :db/ident :evil/map-renamed}])))
-        (ds/close! w)))
+        (schema/close! w)))
     (testing (str "strict=" strict?
                   ": same-record axiom declaration cannot mutate its axiom")
       (let [{:keys [local intake]} (fresh-streams)
@@ -1330,9 +1347,9 @@
                  [:db/add 99 :db/cardinality :db.cardinality/many]])))
         (is (= before (datoms-of local))
             "a same-record axiom mutation appends nothing")
-        (is (= 0 (:t (schema/transact! w [[7 :person/value :ok]])))
+        (is (= 0 (:dao.space/t (schema/transact! w [[7 :person/value :ok]])))
             "an axiom rejection consumes no transaction time")
-        (ds/close! w)))))
+        (schema/close! w)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1345,8 +1362,8 @@
     (schema/transact! w (bootstrap-tx))
     ;; Re-declare :person/name as card-many at new t
     (let [r (schema/transact! w [[:db/add 21 :db/cardinality :db.cardinality/many]])]
-      (is (= :ok (:result r))))
-    (ds/close! w)
+      (is (= :dao.stream/ok (:dao.stream/outcome r))))
+    (schema/close! w)
     ;; A new wrapper over the stream reads card-many
     (let [w2 (schema/transactor local intake)]
       ;; Two values for same entity + attr should not collapse
@@ -1360,7 +1377,7 @@
                           (query/current-state-seq names))]
         (is (= 2 (count live))
             "card-many: both values survive"))
-      (ds/close! w2))))
+      (schema/close! w2))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1380,9 +1397,9 @@
                                    [:db/add 21 :db/unique true]])))
         (is (= before (datoms-of local))
             "rejection leaves the append-only history unchanged")
-        (is (= 0 (:t (schema/transact! w [[30 :test/value :ok]])))
+        (is (= 0 (:dao.space/t (schema/transact! w [[30 :test/value :ok]])))
             "a rejected plan consumes no transaction time")
-        (ds/close! w)))
+        (schema/close! w)))
     (testing (str "strict=" strict? ": unique on card-many")
       (let [{:keys [local intake]} (fresh-streams)
             w (schema/transactor local intake {:strict strict?})
@@ -1395,7 +1412,7 @@
                                    [:db/add 21 :db/unique true]])))
         (is (= before (datoms-of local))
             "rejection leaves the append-only history unchanged")
-        (ds/close! w)))))
+        (schema/close! w)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1422,7 +1439,7 @@
       (is (= 1 (count friends)))
       (is (= 7 (index/datom-v (first friends)))
           "lookup ref resolved via same-record unique index"))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1445,7 +1462,7 @@
                          [:db/add 30 :db/cardinality :db.cardinality/one]])
     (is (contains? (:schema (wrapper-state w)) :test/x)
         "schema updated after schema-row transact")
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1485,7 +1502,7 @@
                      {:fns {'not-string? (complement string?)}}))]
       (is (= #{[7 42 1 1]} (set violations))
           "audit finds the violation with transaction and metadata provenance"))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ===========================================================================
@@ -1557,7 +1574,7 @@
                 "q answers identically before and after publish"))
           (finally
             (cleanup-file path))))
-      (ds/close! w))))
+      (schema/close! w))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1589,7 +1606,7 @@
                 "published descriptor answers same raw query as drained relation"))
           (finally
             (cleanup-file path))))
-      (ds/close! w))))
+      (schema/close! w))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1630,7 +1647,7 @@
                   (ds/open! bad-desc))))
           (finally
             (cleanup-file path))))
-      (ds/close! w))))
+      (schema/close! w))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1655,7 +1672,7 @@
               "published descriptor is accepted as :source by schema/current"))
         (finally
           (cleanup-file path))))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1683,12 +1700,12 @@
                 #?(:cljs js/Error :cljd Object :default Exception)
                 #"valueType mismatch"
                 (schema/transact! w2 [[8 :person/name 42]])))
-          (ds/close! w2)))
+          (schema/close! w2)))
       (testing "q over a raw view sees schema rows as ordinary tuples"
         (is (= #{[:db.type/string]}
                (qq '[:find ?v :where [21 :db/valueType ?v]]
                    (query/current rel))))))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1706,7 +1723,7 @@
             #"unique duplicate"
             (schema/transact! w [{:db/id 7 :person/email "dup@x.com"}
                                  {:db/id 8 :person/email "dup@x.com"}])))
-      (ds/close! w)))
+      (schema/close! w)))
   (testing "duplicate against the live index: different entity, later record"
     (let [{:keys [local intake]} (fresh-streams)
           w (schema/transactor local intake {:strict true})]
@@ -1716,7 +1733,7 @@
             #?(:cljs js/Error :cljd Object :default Exception)
             #"unique duplicate"
             (schema/transact! w [{:db/id 8 :person/email "a@b.com"}])))
-      (ds/close! w)))
+      (schema/close! w)))
   (testing "lax appends the duplicate; the raw audit view sees both"
     (let [{:keys [local intake]} (fresh-streams)
           w (schema/transactor local intake)]
@@ -1726,7 +1743,7 @@
       (is (= #{[7] [8]}
              (qq '[:find ?e :where [?e :person/email "a@b.com"]]
                  (query/current (query/relation (datoms-of local))))))
-      (ds/close! w))))
+      (schema/close! w))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1747,7 +1764,7 @@
                                   :person/name "Nobody"}])))
       (is (= before (datoms-of local))
           "an ambiguous address has no value to append"))
-    (ds/close! w)
+    (schema/close! w)
     (testing "a strict wrapper reopening lax history retains the ambiguity"
       (let [strict-wrapper (schema/transactor local intake {:strict true})
             before (datoms-of local)]
@@ -1759,7 +1776,7 @@
                 [{:db/id [:person/email "dup@x.com"]
                   :person/name "Nobody"}])))
         (is (= before (datoms-of local)))
-        (ds/close! strict-wrapper)))))
+        (schema/close! strict-wrapper)))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1772,14 +1789,14 @@
     (schema/transact! w (bootstrap-tx))
     (schema/transact! w [{:db/id 7 :person/email "reuse@x.com"}])
     (schema/transact! w [[:db/retract 7 :person/email "reuse@x.com"]])
-    (is (= :ok (:result
-                 (schema/transact! w
-                                   [{:db/id 8
-                                     :person/email "reuse@x.com"}]))))
+    (is (= :dao.stream/ok (:dao.stream/outcome
+                            (schema/transact! w
+                                              [{:db/id 8
+                                                :person/email "reuse@x.com"}]))))
     (is (= #{[8]}
            (qq '[:find ?e :where [?e :person/email "reuse@x.com"]]
                (query/current (query/relation (datoms-of local))))))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1793,7 +1810,7 @@
     (schema/transact! w [[:db/add 7 :person/name "old-a"]])
     (schema/transact! w [[:db/add 7 :person/name "old-b"]])
     (let [result (schema/transact! w [{:db/id 7 :person/name "new"}])
-          repaired (:datoms result)]
+          repaired (:dao.space/datoms result)]
       (is (= 3 (count repaired))
           "repair retracts both predecessors and asserts desired state")
       (is (= #{"old-a" "old-b"}
@@ -1804,7 +1821,7 @@
     (is (= #{["new"]}
            (qq '[:find ?v :where [7 :person/name ?v]]
                (query/current (query/relation (datoms-of local))))))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1834,7 +1851,7 @@
                         :where [?e :person/email "race@x.com"]]
                       (query/current
                         (query/relation (datoms-of local))))))))
-       (ds/close! w))
+       (schema/close! w))
      :default
      (is true)))
 
@@ -1855,7 +1872,7 @@
                                  {:db/id 9 :person/friends 8}])))
       (is (= before (datoms-of local))
           "a zero-emission map cannot create a transient phantom entity"))
-    (ds/close! w)))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1878,9 +1895,9 @@
               (schema/transact! w tx-data)))
         (is (= before (datoms-of local))
             "a record rejected by current-state semantics appends nothing")
-        (is (= 1 (:t (schema/transact! w [[8 :person/name "valid"]])))
+        (is (= 1 (:dao.space/t (schema/transact! w [[8 :person/name "valid"]])))
             "a rejected plan consumes no transaction time"))
-      (ds/close! w))))
+      (schema/close! w))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1902,11 +1919,11 @@
              [8 "shared@x.com"]}
            (qq '[:find ?e ?v :where [?e :person/email ?v]]
                (schema/current (query/relation (datoms-of local))))))
-    (ds/close! w)
+    (schema/close! w)
     (let [reopened (schema/transactor local intake {:strict true})]
-      (is (= :ok (:result
-                   (schema/transact! reopened
-                                     [[9 :person/email "shared@x.com"]]))))
+      (is (= :dao.stream/ok (:dao.stream/outcome
+                              (schema/transact! reopened
+                                                [[9 :person/email "shared@x.com"]]))))
       (is (thrown-with-msg?
             #?(:cljs js/Error :cljd Object :default Exception)
             #"unmatched lookup ref"
@@ -1914,7 +1931,7 @@
               reopened
               [{:db/id [:person/email "shared@x.com"]
                 :person/name "Nobody"}])))
-      (ds/close! reopened))))
+      (schema/close! reopened))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1937,9 +1954,9 @@
                           (index/datom-a d)
                           (index/datom-v d)
                           (index/datom-m d)])
-                       (:datoms result))))
+                       (:dao.space/datoms result))))
           "reopened state repairs the metadata-backed live value")
-      (ds/close! w))))
+      (schema/close! w))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1954,14 +1971,14 @@
     (schema/transact! wa (bootstrap-tx))
     (schema/transact! wb (bootstrap-tx))
     (testing "the same unique value commits on two independent streams"
-      (is (= :ok (:result (schema/transact!
-                            wa [{:db/id 7 :person/email "dup@x.com"}]))))
-      (is (= :ok (:result (schema/transact!
-                            wb [{:db/id 8 :person/email "dup@x.com"}])))))
+      (is (= :dao.stream/ok (:dao.stream/outcome (schema/transact!
+                                                   wa [{:db/id 7 :person/email "dup@x.com"}]))))
+      (is (= :dao.stream/ok (:dao.stream/outcome (schema/transact!
+                                                   wb [{:db/id 8 :person/email "dup@x.com"}])))))
     (testing "each stream still enforces its own uniqueness"
       (is (thrown-with-msg?
             #?(:cljs js/Error :cljd Object :default Exception)
             #"unique duplicate"
             (schema/transact! wb [{:db/id 9 :person/email "dup@x.com"}]))))
-    (ds/close! wa)
-    (ds/close! wb)))
+    (schema/close! wa)
+    (schema/close! wb)))

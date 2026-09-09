@@ -382,25 +382,29 @@ emission and becomes effective for the following transaction. Assertions and
 retractions both update the running wrapper's schema and derived indexes; no
 reopen is required. Ownership is explicit: `schema/transactor`
 creates the inner transactor value (`dao.space.transactor/create!`) and owns
-it — its `close!` closes the inner value and returns the wrapper's own
-v1 shape `{:woke []}`, and the inner value never leaks. The wrapper owns its
-own closedness flag rather than delegating inward: the inner transactor has
-no `closed?` to delegate to (v2 lists a closed? predicate as *Explicitly
-Absent*), so the flag lives in the wrapper's per-wrapper state atom. The
+it — its `close!` closes the inner value, returns the v2 close outcome
+`{:dao.stream/outcome :dao.stream/ok}`, and is idempotent — and the inner
+value never leaks. The wrapper owns its own closedness flag rather than
+delegating inward: the inner transactor has no `closed?` to delegate to
+(v2 lists a closed? predicate as *Explicitly Absent*), so the flag lives in
+the wrapper's per-wrapper state atom — and the wrapper exposes no `closed?`
+predicate either, for the transactor's own reason: a predicate answer is
+stale the moment it returns, and operation results are authoritative.
+`transact!` on a closed wrapper answers
+`{:dao.stream/outcome :dao.stream/closed}` as data, in the inner
+transactor's own precedence rather than a schema-specific order: empty
+`tx-data` throws regardless of any state, above the lock; every other
+argument answers `closed` before it is examined — precisely what a closed
+inner transactor does with the same arguments. The
 wrapper's state advances only when the inner append answered
 `:dao.stream/ok` — a refused or thrown append leaves schema, uniqueness, and
 current-value state exactly as it was, and the same `t` is retried.
 
-**Schema's v1 public results keep their v1 shape until schema's own plan**
-(the D10 rule). `dao.space.schema` is not yet on dao.stream.v2, so every
-value it returns through a v1 public surface keeps the v1 shape whatever the
-callee's shape becomes: `transact!` re-wraps the inner transactor's ok
-receipt to `{:result :ok :t t :datoms datoms}`; `SchemaWrapper.close!`
-returns `{:woke []}`; `publish!` returns the unchanged
-`{:manifest-address … :manifest …}`. A conforming non-ok inner outcome —
-new, since v1 threw — is returned unchanged and is distinguishable by
-`:dao.stream/outcome` versus `:result`; schema's own plan later collapses
-both to the v2 receipt. Schema's migration starts from this stable surface.
+**`transact!` returns the inner transactor's receipt unchanged** — ok,
+refused, or closed — and throws only for defects in the caller's argument.
+Publication after close is permitted and reads the caller's still-open
+local stream — close rejects further writes, and publication is a read of
+that stream plus an enqueue into the caller-owned pool.
 
 ### 3.2 The crucial non-check: cardinality
 
@@ -636,6 +640,8 @@ openers register at namespace load, so opening a schema descriptor requires
 ;; install: schema tuples are transacted through the ordinary write path,
 ;; bootstrap rows first, then user attributes — the same vocabulary as data
 (schema/transact! log (schema/bootstrap))
+;; => {:dao.stream/outcome :dao.stream/ok
+;;     :dao.space/t t :dao.space/datoms ds}          ; the transactor's receipt
 (schema/transact! log [{:db/id 21 :db/ident :person/name
                         :db/valueType :db.type/string
                         :db/cardinality :db.cardinality/one}])
@@ -651,12 +657,17 @@ openers register at namespace load, so opening a schema descriptor requires
 ;; write — same stream, validated against the schema it carries
 (schema/transact! log [{:db/id 22 :person/name "…"}
                       {:db/id 23 :person/friend [:person/email "…@…"]}])
+;; => {:dao.stream/outcome :dao.stream/ok :dao.space/t t :dao.space/datoms ds}
 ;; one atomic record; the lookup ref resolves before emission and may
 ;; target an entity created earlier in the same record
 
 ;; publish — complete covered sets over the same d5 log
 (schema/publish! log)
-;; => {:manifest-address …}
+;; => {:manifest-address … :manifest …}
+
+;; close — rejects further writes; the caller's local stream stays open
+(schema/close! log)
+;; => {:dao.stream/outcome :dao.stream/ok}
 ```
 
 

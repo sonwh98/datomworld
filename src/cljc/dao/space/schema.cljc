@@ -940,31 +940,16 @@
      :default (f)))
 
 
-(deftype SchemaWrapper
-  [inner local-stream strict? state]
-
-  ds/IDaoStreamBound
-
-  (close!
-    [_]
-    (with-write-lock
-      state
-      #(do (swap! state assoc :closed true)
-           (tx/close! inner)
-           {:woke []})))
-
-
-  (closed?
-    [_]
-    (:closed @state)))
-
-
 (defn transactor
   "Open a schema-validating wrapper over a local stream and intake pool.
-   opts: {:strict true} for strict mode (default lax). OWNS the inner
-   transactor value; closing the wrapper delegates inward and returns
-   {:woke []}. The wrapper owns its own closedness flag — the inner
-   transactor has no closed? to delegate to."
+   opts: {:strict true} for strict mode (default lax). Returns a plain map
+   — {:dao.space.schema/transactor true, :inner <transactor value>,
+   :local-stream local-stream, :strict? strict?, :state (atom …)} — that
+   OWNS the inner transactor value (dao.space.transactor/create!): close!
+   closes it. The wrapper's closedness flag is its own, living in the
+   per-wrapper state atom because the inner transactor has no closed? to
+   delegate to — and the wrapper exposes no closed? predicate either:
+   transact! answers closed as data."
   ([local-stream intake-pool]
    (transactor local-stream intake-pool nil))
   ([local-stream intake-pool opts]
@@ -974,8 +959,12 @@
                             :name "schema"})
          rows (index/snapshot-datoms local-stream)
          schema (extract-schema rows)]
-     (->SchemaWrapper inner local-stream strict?
-                      (atom (rows->state rows schema strict?))))))
+     {:dao.space.schema/transactor true
+      :inner inner
+      :local-stream local-stream
+      :strict? strict?
+      :state (atom (assoc (rows->state rows schema strict?)
+                          :closed false))})))
 
 
 (defn- contains-schema-row?
@@ -1062,70 +1051,90 @@
 
 
 (defn transact!
-  "Translate, validate, and commit tx-data as one atomic record. Returns
-   {:result :ok :t t :datoms datoms} on success — schema's v1 public shape,
-   kept until schema's own plan (D10) — and the inner transactor's
-   conforming non-ok outcome map unchanged otherwise. One per-wrapper
-   serialized transition plans and validates the complete next state before
-   the single append, then installs that already-planned state only when the
-   append answered :dao.stream/ok; a failed or thrown append leaves the
-   wrapper's schema, uniqueness, and current-value state exactly as it was.
-   Schema changes become effective for the next transaction."
-  [^SchemaWrapper wrapper tx-data]
-  (let [lock (.-state wrapper)]
+  "Translate, validate, and commit tx-data as one atomic record. Returns the
+   inner transactor's receipt unchanged —
+   {:dao.stream/outcome :dao.stream/ok :dao.space/t t :dao.space/datoms ds}
+   on success, the inner conforming non-ok outcome map (full | closed |
+   invalid-value | transport-error) on refusal — and
+   {:dao.stream/outcome :dao.stream/closed} on a closed wrapper. Throws
+   only for defects in the caller's argument, in the inner transactor's own
+   precedence: empty tx-data throws regardless of any state, above the
+   lock; on a closed wrapper every other argument answers closed before it
+   is examined. One per-wrapper serialized transition plans and validates
+   the complete next state before the single append, then installs that
+   already-planned state only when the append answered :dao.stream/ok; a
+   failed or thrown append leaves the wrapper's schema, uniqueness, and
+   current-value state exactly as it was. Schema changes become effective
+   for the next transaction."
+  [wrapper tx-data]
+  (when (empty? tx-data)
+    (throw (ex-info "transact! requires at least one item"
+                    {:tx-data tx-data})))
+  (let [lock (:state wrapper)]
     (with-write-lock
       lock
       (fn []
-        (when (ds/closed? wrapper)
-          (throw (ex-info "cannot transact! on closed wrapper" {})))
-        (when (empty? tx-data)
-          (throw (ex-info "transact! requires at least one item"
-                          {:tx-data tx-data})))
-        (let [st @lock
-              schema (:schema st)
-              strict? (.-strict? wrapper)
-              translated
-              (loop [items (vec tx-data)
-                     datoms []
-                     state st]
-                (if (empty? items)
-                  {:datoms datoms, :state state}
-                  (let [item (first items)
-                        result (translate-record item state schema strict?)]
-                    ;; Both-mode schema structure validation is part of the
-                    ;; plan, before any append can occur.
-                    (doseq [d (:datoms result)]
-                      (validate-schema-row! (nth d 0) (nth d 1) (nth d 2)
-                                            (:state result)))
-                    (recur (rest items)
-                           (into datoms (:datoms result))
-                           (:state result)))))
-              datoms (:datoms translated)]
-          (when (empty? datoms)
-            (throw (ex-info "transact! produced no datoms"
-                            {:tx-data tx-data})))
-          (validate-record-ops! datoms)
-          (validate-axiom-datoms! datoms st)
-          (let [schema-change? (boolean (contains-schema-row? datoms))
-                next-schema (proposed-schema (.-local-stream wrapper)
-                                             schema
-                                             datoms)
-                _ (validate-unique-card-one! next-schema)
-                next-state (if schema-change?
-                             (reindex-state (:state translated)
-                                            next-schema
-                                            strict?)
-                             (-> (:state translated)
-                                 (dissoc :datoms)
-                                 (assoc :schema next-schema
-                                        :strict? strict?)))
-                result (tx/transact! (.-inner wrapper) datoms)]
-            (if (= :dao.stream/ok (:dao.stream/outcome result))
-              (do (reset! lock next-state)
-                  {:result :ok
-                   :t (:dao.space/t result)
-                   :datoms (:dao.space/datoms result)})
-              result)))))))
+        (if (:closed @lock)
+          {:dao.stream/outcome :dao.stream/closed}
+          (let [st @lock
+                schema (:schema st)
+                strict? (:strict? wrapper)
+                translated
+                (loop [items (vec tx-data)
+                       datoms []
+                       state st]
+                  (if (empty? items)
+                    {:datoms datoms, :state state}
+                    (let [item (first items)
+                          result (translate-record item state schema strict?)]
+                      ;; Both-mode schema structure validation is part of the
+                      ;; plan, before any append can occur.
+                      (doseq [d (:datoms result)]
+                        (validate-schema-row! (nth d 0) (nth d 1) (nth d 2)
+                                              (:state result)))
+                      (recur (rest items)
+                             (into datoms (:datoms result))
+                             (:state result)))))
+                datoms (:datoms translated)]
+            (when (empty? datoms)
+              (throw (ex-info "transact! produced no datoms"
+                              {:tx-data tx-data})))
+            (validate-record-ops! datoms)
+            (validate-axiom-datoms! datoms st)
+            (let [schema-change? (boolean (contains-schema-row? datoms))
+                  next-schema (proposed-schema (:local-stream wrapper)
+                                               schema
+                                               datoms)
+                  _ (validate-unique-card-one! next-schema)
+                  next-state (if schema-change?
+                               (reindex-state (:state translated)
+                                              next-schema
+                                              strict?)
+                               (-> (:state translated)
+                                   (dissoc :datoms)
+                                   (assoc :schema next-schema
+                                          :strict? strict?)))
+                  result (tx/transact! (:inner wrapper) datoms)]
+              (if (= :dao.stream/ok (:dao.stream/outcome result))
+                (do (reset! lock next-state)
+                    result)
+                result))))))))
+
+
+(defn close!
+  "Close the wrapper: set its own closed flag and close the inner
+   transactor value it owns. Returns {:dao.stream/outcome :dao.stream/ok}.
+   Idempotent — the inner tx/close! is, and the flag is a swap! to true —
+   and per wrapper: neither the caller's local stream nor the intake pool
+   is closed or erased (transactor T7)."
+  [wrapper]
+  (let [lock (:state wrapper)]
+    (with-write-lock
+      lock
+      (fn []
+        (swap! lock assoc :closed true)
+        (tx/close! (:inner wrapper))
+        {:dao.stream/outcome :dao.stream/ok}))))
 
 
 ;; =============================================================================
@@ -1135,21 +1144,13 @@
 (defn publish!
   "Build and enqueue covered indexes over the wrapper's local stream.
    Thin passthrough to the inner handle's dao.space.transactor/publish!.
-   Returns {:manifest-address ... :manifest ...}. The closedness guard is
-   serialized with tx/publish! under the wrapper lock, so a concurrent
-   close cannot land between the check and the publication — the cost is
-   that the lock is held across an index build, and on a single-writer
-   wrapper a concurrent transact! would serialize against the publish's
-   snapshot anyway."
-  ([^SchemaWrapper wrapper] (publish! wrapper nil))
-  ([^SchemaWrapper wrapper opts]
-   (let [lock (.-state wrapper)]
-     (with-write-lock
-       lock
-       (fn []
-         (when (:closed @lock)
-           (throw (ex-info "cannot publish! on closed wrapper" {})))
-         (tx/publish! (.-inner wrapper) opts))))))
+   Returns {:manifest-address ... :manifest ...}. Publication after close
+   is permitted and reads the caller's still-open local stream: close
+   rejects further writes, and publication is a read of that stream plus
+   an enqueue into the caller-owned pool."
+  ([wrapper] (publish! wrapper nil))
+  ([wrapper opts]
+   (tx/publish! (:inner wrapper) opts)))
 
 
 (defn published
