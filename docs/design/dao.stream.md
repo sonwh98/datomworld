@@ -807,4 +807,12 @@ remote adapter and DHT node,
 `dao.postgraphics.terminal`, `dao.runtime` (gated on the v1 VM's deletion),
 `agent.tools`, and the demo and server surfaces. The v1 VM lineage is deleted
 rather than migrated, under `yin.vm.v2-consumers.implementation-plan.md`,
-because a v2 twin already exists for every one of its consumers.
+because a v2 twin already exists for every one of its consumers. So are the v1
+transports themselves — `dao.stream.{apply, file, file-input-stream,
+file-output-stream, http, link, ringbuffer, udp, ws}` and `dao.stream.rpc.*`,
+with their ClojureDart siblings: they are v1's own implementation, not
+consumers of it, and they go when it does rather than acquiring v2 twins one
+by one.
+
+`dao.space` is done: `query`, `index` and `transactor` require `dao.stream.v2`,
+and `schema` and `transact` require no stream namespace at all.

@@ -29,7 +29,7 @@ schema-structure and data violations (§3, §8), and `:source` openability
 (§4). The motivation
 is stated in the doc itself: what schema buys an adopter, and why optional
 is the only coherent form (§1). Migrated to dao.stream.v2 on 2026-09-09
-(plan: `docs/design/dao.space.schema.implementation-plan.md`): the wrapper
+(`bdbe6f9`, `6ea8bb5`): the wrapper
 is a plain map returning the transactor's receipts, and `schema/current`
 takes d5 values — relation, opened published index, or snapshot result —
 with both v1 opener registrations and the schema-typed published
