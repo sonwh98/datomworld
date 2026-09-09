@@ -244,8 +244,9 @@ Consequences:
 ## 3. The write boundary: a validating wrapper
 
 Datomic's schema is enforced by its transactor. Here the schema interpreter
-is a library duty wrapping `dao.space.transactor`'s `:transactor` stream
-wrapper — the same layering `yin.vm` already demonstrates with its own
+is a library duty wrapping `dao.space.transactor`'s value — the transactor
+created by `transactor/create!`, over which the wrapper is the single
+writer — the same layering `yin.vm` already demonstrates with its own
 Datomic-style schema map and `datoms->tx-data`
 (`src/cljc/yin/vm.cljc`, `schema`): a client above the space declaring and
 enforcing a vocabulary at its own write boundary.
@@ -380,8 +381,26 @@ extraction function, two interpreters. The stream carries its own schema
 emission and becomes effective for the following transaction. Assertions and
 retractions both update the running wrapper's schema and derived indexes; no
 reopen is required. Ownership is explicit: `schema/transactor`
-opens the inner `:transactor` and owns it — its `close!` delegates inward,
-and the inner wrapper never leaks.
+creates the inner transactor value (`dao.space.transactor/create!`) and owns
+it — its `close!` closes the inner value and returns the wrapper's own
+v1 shape `{:woke []}`, and the inner value never leaks. The wrapper owns its
+own closedness flag rather than delegating inward: the inner transactor has
+no `closed?` to delegate to (v2 lists a closed? predicate as *Explicitly
+Absent*), so the flag lives in the wrapper's per-wrapper state atom. The
+wrapper's state advances only when the inner append answered
+`:dao.stream/ok` — a refused or thrown append leaves schema, uniqueness, and
+current-value state exactly as it was, and the same `t` is retried.
+
+**Schema's v1 public results keep their v1 shape until schema's own plan**
+(the D10 rule). `dao.space.schema` is not yet on dao.stream.v2, so every
+value it returns through a v1 public surface keeps the v1 shape whatever the
+callee's shape becomes: `transact!` re-wraps the inner transactor's ok
+receipt to `{:result :ok :t t :datoms datoms}`; `SchemaWrapper.close!`
+returns `{:woke []}`; `publish!` returns the unchanged
+`{:manifest-address … :manifest …}`. A conforming non-ok inner outcome —
+new, since v1 threw — is returned unchanged and is distinguishable by
+`:dao.stream/outcome` versus `:result`; schema's own plan later collapses
+both to the v2 receipt. Schema's migration starts from this stable surface.
 
 ### 3.2 The crucial non-check: cardinality
 

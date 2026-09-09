@@ -16,6 +16,7 @@
             [dao.space.schema-fixtures :as fixtures]
             [dao.stream :as ds]
             [dao.stream.v2 :as stream]
+            [dao.stream.v2.memory-log :as memory-log]
             [dao.stream.v2.ringbuffer :as ringbuffer]
             #?@(:cljd [["dart:io" :as dart-io]]))
   #?(:cljs (:require-macros [dao.stream])))
@@ -653,9 +654,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- fresh-streams
-  "Create a fresh v1 local-stream + v2 intake-pool pair from ringbuffers."
+  "Create a fresh memory-log local-stream + v2 intake-pool pair."
   []
-  (let [local  (ds/open! {:dao.stream/type :ringbuffer})
+  (let [local  (:dao.stream/handle
+                 (memory-log/create!
+                   {:dao.stream/type :dao.stream/memory-log}))
         intake (:dao.stream/handle
                  (ringbuffer/create!
                    {:dao.stream/type :dao.stream/ringbuffer
@@ -1016,8 +1019,123 @@
           #?(:cljs js/Error :cljd Object :default Exception)
           #"closed"
           (schema/transact! w [[7 :person/name "X"]])))
-    ;; local stream NOT closed (caller owns it)
-    (is (not (ds/closed? local)))))
+    ;; local stream NOT closed (caller owns it): an open memory-log blocks at
+    ;; its tail; a closed one would answer :dao.stream/end
+    (is (= :dao.stream/blocked
+           (:dao.stream/outcome
+             (stream/next local
+                          (:dao.stream/cursor
+                            (stream/cursor local :dao.stream/newest))))))))
+
+
+;; ---------------------------------------------------------------------------
+;; W43: a refused inner append leaves the wrapper's state untouched (T19/T20).
+;; The real transport excludes full, so a memory-log-backed writer double
+;; answering full once is the only way to exercise the non-ok path.
+;; ---------------------------------------------------------------------------
+
+(deftest failed-inner-append-leaves-wrapper-state-unchanged
+  (let [inner (:dao.stream/handle
+                (memory-log/create! {:dao.stream/type :dao.stream/memory-log}))
+        calls (atom 0)
+        local (reify
+                stream/IDaoStreamWriter
+                (append!
+                  [_ val]
+                  ;; fail exactly the second append: the bootstrap passes,
+                  ;; the first data transaction is refused, the retry passes
+                  (if (= 2 (swap! calls inc))
+                    {:dao.stream/outcome :dao.stream/full}
+                    (stream/append! inner val)))
+
+
+                stream/IDaoStreamReader
+
+                (cursor [_ anchor] (stream/cursor inner anchor))
+
+                (next [_ cursor] (stream/next inner cursor)))
+        intake (:dao.stream/handle
+                 (ringbuffer/create!
+                   {:dao.stream/type :dao.stream/ringbuffer
+                    :dao.stream.ringbuffer/capacity 4096}))
+        w (schema/transactor local [intake])]
+    (is (= :ok (:result (schema/transact! w (bootstrap-tx))))
+        "precondition: the bootstrap commits at t 0 through the double")
+    (let [st (wrapper-state w)]
+      (is (= {:dao.stream/outcome :dao.stream/full}
+             (schema/transact! w [[7 :person/name "Alice"]]))
+          "the conforming non-ok outcome is returned as data, not thrown")
+      (is (= st (wrapper-state w))
+          "schema, uniqueness, and current-value state are identical to
+           before the refused append")
+      (is (= {:result :ok, :t 1, :datoms [[7 :person/name "Alice" 1 1]]}
+             (schema/transact! w [[7 :person/name "Alice"]]))
+          "the retry commits at the same t the refused attempt planned, and
+           the successful receipt keeps schema's v1 public shape (D10)")
+      (is (not= st (wrapper-state w))
+          "state advances only on the successful commit"))))
+
+
+;; ---------------------------------------------------------------------------
+;; W44: publish! serializes against close (T8's lock extension, JVM-only).
+;; The closedness guard and tx/publish! run under one wrapper lock, so a
+;; publication can never straddle a close: close cannot return while a
+;; publish is in flight, and a publish that starts after close returns is
+;; refused.
+;; ---------------------------------------------------------------------------
+
+(deftest publish-serializes-against-close
+  #?(:clj (let [inner (:dao.stream/handle
+                        (memory-log/create!
+                          {:dao.stream/type :dao.stream/memory-log}))
+                entered (promise)
+                release (promise)
+                slow-local (reify
+                             stream/IDaoStreamWriter
+                             (append! [_ val] (stream/append! inner val))
+
+
+                             stream/IDaoStreamReader
+
+                             (cursor [_ anchor] (stream/cursor inner anchor))
+
+                             (next
+                               [_ cursor]
+                               (let [r (stream/next inner cursor)]
+                                 (when (and (= :dao.stream/ok
+                                               (:dao.stream/outcome r))
+                                            (some #(= :race/block (nth % 1))
+                                                  (get-in (:dao.stream/value r)
+                                                          [:dao.space/transaction
+                                                           :datoms])))
+                                   (deliver entered true)
+                                   @release)
+                                 r)))
+                intake (:dao.stream/handle
+                         (ringbuffer/create!
+                           {:dao.stream/type :dao.stream/ringbuffer
+                            :dao.stream.ringbuffer/capacity 4096}))
+                w (schema/transactor slow-local [intake])]
+            (is (= :ok (:result (schema/transact! w (bootstrap-tx)))))
+            (is (= :ok (:result (schema/transact! w [[:db/add 7 :race/block true]]))))
+            (let [publishing (future (schema/publish! w))]
+              @entered
+              (let [closing (future (ds/close! w))]
+                (try
+                  (is (= ::timeout (deref publishing 50 ::timeout))
+                      "the publication is in flight, blocked inside its snapshot")
+                  (is (= ::timeout (deref closing 50 ::timeout))
+                      "close waits for the serialized publish boundary — it
+                       cannot return while a publication is in flight")
+                  (finally (deliver release true)))
+                (is (= (count (datoms-of slow-local))
+                       (:count (:manifest @publishing)))
+                    "the in-flight publication completes with the full history")
+                (is (= {:woke []} @closing))
+                (is (thrown-with-msg? Exception #"closed" (schema/publish! w))
+                    "a publication starting after close returned is refused"))))
+     :default (is true
+                  "shared-memory publish/close races are a JVM-only execution mode")))
 
 
 ;; ===========================================================================
@@ -1809,7 +1927,7 @@
         rows (conj (mapv #(assoc % 4 metadata-e) schema-rows)
                    [7 :person/name "old" 0 metadata-e])]
     (doseq [row rows]
-      (ds/append! local row))
+      (stream/append! local row))
     (let [w (schema/transactor local intake {:strict true})
           result (schema/transact! w [{:db/id 7 :person/name "new"}])]
       (is (= #{[7 :person/name "old" (:db/retract datom/reserved)]

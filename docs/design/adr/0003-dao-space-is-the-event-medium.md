@@ -105,6 +105,32 @@ being handed a stream. From that moment this section is void. The trigger is
 deliberately stated as those two facts and not as "`dao.space` migrates":
 `dao.space` is emergent, not a component, and cannot migrate as a unit.
 
+## Amendment (2026-09-09): the dao.stream v2 swap reached the transactor
+
+The decision above is untouched. Two *Consequences* bullets and the 2026-09-01
+exception's first trigger go stale as described:
+
+- `dao.space.transactor/DaoStreamLog` no longer exists, and the deposit target
+  is no longer a `dao.stream` protocol face: it is
+  `dao.space.transactor/append!`, a plain function on a value created by
+  `transactor/create!` over a spec. The layering claim is unchanged and now
+  simpler — the transactor was never a transport, and as an interpreter over
+  one it never required protocol support.
+- The writer-face precondition is now met for operational outcomes: since the
+  v2 swap, `append!`/`transact!` answer `closed`, `full`, `invalid-value` and
+  `transport-error` as data rather than throwing (argument defects still
+  throw, which is a different class — a defect in the caller's own value).
+  The exception's second trigger — a composition that indexes and publishes
+  boundary deposits — remains open, so the exception stands.
+- The retention bullet's "`:dao.stream/full`, `:dao.stream/gap` so loss is
+  never silent" needs its v2 counterpart stated: the local log
+  (`dao.stream.v2.memory-log`) that `dao.space` now wires **excludes both** —
+  it has no capacity to refuse and never evicts — and its completeness comes
+  from that declared complete retention, not from outcome observability. See
+  `dao.stream.md`, *Complete history*, and `dao.space.transactor.md` (T18):
+  supplying an evicting transport where the composition owes a memory-log is
+  a host-assembly defect, detectable and deliberately not checked.
+
 ## References
 
 - `docs/design/datom.world.md` (invariant 3, Host Boundaries, axiom 2)

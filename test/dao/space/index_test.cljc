@@ -18,16 +18,23 @@
             [dao.space.index :as index]
             [dao.stream :as ds]
             [dao.stream.v2 :as stream]
+            [dao.stream.v2.memory-log :as memory-log]
             [dao.stream.v2.ringbuffer :as ringbuffer]
             #?@(:cljd [["dart:io" :as dart-io]])))
 
 
 (defrecord MalformedResultStream
   [result]
-  ;; Test double: a reader whose every ds/next answer is the configured
-  ;; result, used to feed malformed responses into publish-index!'s
-  ;; snapshot reading.
-  ds/IDaoStreamReader
+  ;; Test double: a v2 reader whose cursor answers a conforming ok mint and
+  ;; whose every next answer is the configured result, used to feed
+  ;; malformed responses into publish-index!'s snapshot reading.
+  stream/IDaoStreamReader
+
+  (cursor
+    [_this _anchor]
+    {:dao.stream/outcome :dao.stream/ok
+     :dao.stream/cursor {:position 0}})
+
 
   (next [_this _cursor] result))
 
@@ -63,10 +70,11 @@
 
 
 (defn- open-local
-  "Open a ringbuffer local (agent) stream pre-loaded with datoms."
+  "Open a memory-log local (agent) stream pre-loaded with datoms."
   [datoms]
-  (let [s (ds/open! {:dao.stream/type :ringbuffer})]
-    (doseq [d datoms] (ds/append! s d))
+  (let [s (:dao.stream/handle
+            (memory-log/create! {:dao.stream/type :dao.stream/memory-log}))]
+    (doseq [d datoms] (stream/append! s d))
     s))
 
 
@@ -435,26 +443,8 @@
 ;; Failure before emission
 ;; ---------------------------------------------------------------------------
 
-(deftest publish-index-gap-local-stream-throws-before-emission
-  (testing
-    "a local stream whose position 0 has been evicted reports :daostream/gap:
-          publish-index! throws and nothing reaches the intake stream"
-    (let [gap (ds/open! {:dao.stream/type :ringbuffer,
-                         :capacity 2,
-                         :eviction-policy :evict-oldest})
-          _ (doseq [i (range 3)] (ds/append! gap [i :test/a i 0 1]))
-          intake (open-intake)]
-      (is (thrown-with-msg? #?(:cljs js/Error
-                               :cljd Object
-                               :default Exception)
-                            #"gap"
-            (index/publish-index! gap [intake])))
-      (is (empty? (intake-values intake))
-          "nothing reaches the intake stream before the snapshot completes"))))
-
-
 (deftest publish-index-malformed-local-stream-throws-before-emission
-  (testing "a map without :cursor is malformed"
+  (testing "a map that is not an outcome map is malformed"
     (let [bad (->MalformedResultStream {:ok [1 :test/a "x" 0 1]})
           intake (open-intake)]
       (is (thrown-with-msg? #?(:cljs js/Error
@@ -470,6 +460,42 @@
                                :cljd Object
                                :default Exception)
                             #"malformed"
+            (index/publish-index! bad [intake])))
+      (is (empty? (intake-values intake)))))
+  (testing
+    "a repeated ok carrying :dao.stream/value but no :dao.stream/cursor
+          terminates by throwing, not by recurring on a nil cursor"
+    (let [bad (->MalformedResultStream {:dao.stream/outcome :dao.stream/ok,
+                                        :dao.stream/value [1 :test/a "x" 0 1]})
+          intake (open-intake)]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"malformed"
+            (index/publish-index! bad [intake])))
+      (is (empty? (intake-values intake)))))
+  (testing
+    "a conforming gap — outcome plus its required :dao.stream/cursor — is a
+          violated precondition: the local stream is not the
+          complete-retention transport the composition owes (S10)"
+    (let [bad (->MalformedResultStream {:dao.stream/outcome :dao.stream/gap,
+                                        :dao.stream/cursor {:position 99}})
+          intake (open-intake)]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"complete-retention"
+            (index/publish-index! bad [intake])))
+      (is (empty? (intake-values intake)))))
+  (testing
+    "a conforming cursor-mismatch is the same violated precondition"
+    (let [bad (->MalformedResultStream {:dao.stream/outcome
+                                        :dao.stream/cursor-mismatch})
+          intake (open-intake)]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"complete-retention"
             (index/publish-index! bad [intake])))
       (is (empty? (intake-values intake))))))
 

@@ -801,8 +801,9 @@ completed; the decision it left open outlived it, and a transient plan is
 safe to delete only once nothing in it is still owed.
 
 The remaining v1 consumers, each migrating under its own plan: `dao.space`
-(index, schema, transactor — `query` migrated, and the `dao.stream.relation`
-transport was eliminated with it), `dao.jing`'s remote adapter and DHT node,
+(index and schema — `query` and `transactor` migrated, and the
+`dao.stream.relation` transport was eliminated with `query`), `dao.jing`'s
+remote adapter and DHT node,
 `yin.io`'s file transports with `dao.gui.event` and
 `dao.postgraphics.terminal`, `dao.runtime` (gated on the v1 VM's deletion),
 `agent.tools`, and the demo and server surfaces. The v1 VM lineage is deleted

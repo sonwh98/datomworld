@@ -7,6 +7,8 @@ boundary between it and the query library. The executable contract is
 `test/dao/space/index_test.cljc`.
 
 **Related documents:**
+- `docs/design/dao.space.transactor.md` — the write path that calls
+  `publish-index!`; the local-stream wiring requirement lives there and here
 - `docs/design/dao.space.query.md` — the reader-side consumer of the
   realization this library owns
 - `docs/design/dao.space.md` — the tuple space; *Three Boundaries* maps
@@ -64,15 +66,26 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
   delegates to `dao.data.btree/slice`: a log-n descent that, on a restored
   tree, loads only the seek path plus the matching range. The implementation
   is the same on JVM, ClojureScript, and ClojureDart.
-- **The snapshot** — `snapshot-datoms` reads an agent-local stream from
-  cursor zero with `ds/next`. A stream element is either one canonical datom
-  vector `[e a v t m]` or one atomic transaction record
-  `{:dao.space/transaction {:t n :datoms [...]}}`; transaction records are
-  validated and flattened into their datoms. `:blocked` and `:end` finish the
-  snapshot at the current tail; `:daostream/gap` and malformed stream results,
-  datoms, or transaction records throw. Because the snapshot starts at
-  position zero, the local stream must retain its complete history — a
-  retention gap aborts publication before anything is emitted.
+- **The snapshot** — `snapshot-datoms` reads an agent-local stream in full
+  through the dao.stream.v2 reader surface: mint an `:oldest` cursor, then
+  `next` to the tail. The local stream must be on a complete-retention
+  transport — a handle created by `dao.stream.v2.memory-log/create!`; its
+  declared complete retention is why a fresh `:oldest` cursor is the origin,
+  so the read starts at the logical sequence's beginning and `gap` cannot
+  occur. `stream/reader?`/`stream/writer?` check *surfaces*, not retention —
+  they do not establish the completeness this read depends on. A stream
+  element is either one canonical datom vector `[e a v t m]` or one atomic
+  transaction record `{:dao.space/transaction {:t n :datoms [...]}}`;
+  transaction records are validated and flattened into their datoms. Each
+  element is validated and flattened as it is read, so the first defect in
+  stream order is the one reported and no read happens past it. Every result
+  is validated with `stream/validate-outcome` before it is interpreted — a
+  malformed result (say, an `ok` carrying no cursor) throws instead of
+  recurring on a nil cursor. `blocked` (an open stream caught up) and `end`
+  (a closed one fully read) finish the snapshot at the tail; a well-formed
+  outcome outside `ok`/`blocked`/`end` means the handle is not the
+  complete-retention transport the composition owes, and throws before
+  anything is emitted.
 - **The persisted node-blob format, both directions** — a
   `dao.data.btree/IStorage` adapter over a DaoJing content-store handle
   (`dao.data.btree.storage/kv-storage`): nodes store as plain-EDN
@@ -201,34 +214,45 @@ spellings go through the same `element-datoms`.
 
 ## The agent-transactor loop
 
-The write path runs through `dao.space.transactor`'s `:transactor` stream
-wrapper (see `dao.space.md`, *The Write Path*). Its descriptor is
-`{:dao.stream/type :transactor :local-stream s :intake-pool [...] optional :name}`; it
-owns neither stream lifecycle — the local stream and intake pool are
+The write path runs through `dao.space.transactor`'s value — a plain map
+created by `transactor/create!` over a spec, not a stream and not a
+descriptor (see `dao.space.transactor.md`, and `dao.space.md`, *The Write
+Path*). Its spec is `{:local-stream s :intake-pool [...] optional :name}`;
+it owns neither stream lifecycle — the local stream and intake pool are
 supplied, never created, registered, or closed:
 
 ```clojure
-(require '[dao.stream :as ds]
+(require '[dao.stream.v2.memory-log :as memory-log]
+         '[dao.stream.v2.ringbuffer :as ringbuffer]
          '[dao.space.transactor :as transactor])
 
-(def local (ds/open! {:dao.stream/type :ringbuffer}))          ; the agent's own log
-(def intake-pool [(ds/open! {:dao.stream/type :ringbuffer})])  ; DaoJing intake streams
+(def local (:dao.stream/handle                        ; the agent's own log, a
+            (memory-log/create!                       ; complete-retention
+              {:dao.stream/type :dao.stream/memory-log})))  ; memory-log
+(def intake-pool [(:dao.stream/handle
+                    (ringbuffer/create!
+                      {:dao.stream/type :dao.stream/ringbuffer
+                       :dao.stream.ringbuffer/capacity 4096}))])
 
-(def log (ds/open! {:dao.stream/type :transactor
-                    :local-stream local
-                    :intake-pool intake-pool
-                    :name "worker-7"}))             ; one wrapper per local stream
+(def log (transactor/create! {:local-stream local
+                              :intake-pool intake-pool
+                              :name "worker-7"}))     ; one wrapper per local stream
 
-(ds/append! log {:db/id id :work/claims task})      ; 1. deposit — one atomic
-;; ... more appends ...                             ;    transaction record
-(transactor/publish! log)                           ; 2. snapshot, build, enqueue
+(transactor/append! log {:db/id id :work/claims task}) ; 1. deposit — one atomic
+;; ... more appends ...                                ;    transaction record
+(transactor/publish! log)                              ; 2. snapshot, build, enqueue
 ```
 
-The wrapper's `ds/append!` / `transact!` write exactly one atomic transaction
+The value's `append!` / `transact!` write exactly one atomic transaction
 record to the local stream per call, so no reader observes a torn transaction.
-On open it scans the retained history from cursor zero and derives the next
-`t` (0 for an empty history, else 1 + the maximum datom t); full retention is
-therefore currently required. One wrapper per local stream is a hard
+On `create!` it reads the retained history from its origin and derives the
+next `t` (0 for an empty history, else 1 + the maximum datom t); the local
+stream must therefore be on a complete-retention transport —
+`dao.stream.v2.memory-log/create!`. `create!` validates reader/writer
+*surfaces*, never retention: a `stream/reader?`/`stream/writer?` check does
+not establish complete retention, and supplying an evicting transport is a
+host-assembly defect (detectable, deliberately not checked — see
+`dao.space.transactor.md`, T18). One wrapper per local stream is a hard
 single-writer invariant. Calls through one wrapper serialize timestamp
 allocation and append on shared-memory hosts; two wrappers over the same
 stream still each derive the same `t` and write colliding records, which

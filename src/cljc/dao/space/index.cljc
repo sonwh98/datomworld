@@ -450,33 +450,45 @@
   (into [] (mapcat element-datoms) elements))
 
 
+(defn- checked
+  "Fold a defective result into an exception before anything is read from it.
+   The contract's own validator (dao.stream.v2/validate-outcome) answers nil
+   for a conforming result and a defect map otherwise; interpreting an
+   unvalidated result is how a loop ends up recurring on a nil cursor."
+  [operation result]
+  (if-let [defect (stream/validate-outcome operation result)]
+    (throw (ex-info "malformed local stream result"
+                    {:operation operation, :result result, :defect defect}))
+    result))
+
+
 (defn snapshot-datoms
-  "Eagerly snapshot an agent-local stream by walking `{:position 0}` with
-   ds/next. A stream element is either one canonical datom vector or one
-   atomic `{:dao.space/transaction {:t n :datoms [...]}}` record; transaction
-   records are flattened into their datoms. :blocked and :end finish the
-   snapshot at the current tail; :daostream/gap and malformed stream results,
-   datoms, or transaction records throw. publish-index! calls this to
-   completion before appending anything to an intake stream."
+  "Read an agent-local stream in full and flatten it to canonical local d5
+   datoms.
+
+   The local stream is on a complete-retention transport
+   (dao.stream.v2.memory-log), so a fresh :oldest cursor is the origin and
+   `gap` cannot occur — completeness comes from the transport's declared
+   retention, never from the anchor (dao.stream.md, *Complete history*).
+   `blocked` (an open stream caught up) and `end` (a closed one fully read)
+   finish the read at the tail. Each element is validated and flattened as it
+   is read, so the first defect in stream order is the one reported and no
+   read happens past it. A well-formed but unexpected outcome means the handle
+   is not the transport the composition owes."
   [local-stream]
-  (loop [cursor {:position 0}
-         datoms []]
-    (let [result (ds/next local-stream cursor)]
-      (cond
-        (map? result)
-        (if (and (contains? result :ok) (contains? result :cursor))
-          (recur (:cursor result)
-                 (into datoms (element-datoms (:ok result))))
-          (throw
-            (ex-info
-              "malformed stream result: a successful read must carry both :ok and :cursor"
-              {:result result})))
-        (= result :blocked) datoms
-        (= result :end) datoms
-        (= result :daostream/gap)
-        (throw (ex-info "stream snapshot gap: position evicted before read"
-                        {:cursor cursor}))
-        :else (throw (ex-info "malformed stream signal" {:signal result}))))))
+  (let [mint (checked :cursor (stream/cursor local-stream :dao.stream/oldest))]
+    (when-not (= :dao.stream/ok (:dao.stream/outcome mint))
+      (throw (ex-info "local stream refused an :oldest cursor" {:result mint})))
+    (loop [cursor (:dao.stream/cursor mint)
+           datoms []]
+      (let [r (checked :next (stream/next local-stream cursor))]
+        (case (:dao.stream/outcome r)
+          :dao.stream/ok
+          (recur (:dao.stream/cursor r)
+                 (into datoms (element-datoms (:dao.stream/value r))))
+          (:dao.stream/blocked :dao.stream/end) datoms
+          (throw (ex-info "local stream is not a complete-retention transport"
+                          {:outcome (:dao.stream/outcome r), :result r})))))))
 
 
 (defn- recording-content-handle
@@ -571,8 +583,10 @@
    Success acknowledges that every payload was appended to the selected
    intake stream. It does not acknowledge that an asynchronous DaoJing
    observer has materialized those payloads yet. Because the build starts at
-   cursor position zero and reconstructs complete indexes, local-stream must
-   retain its complete datom history; a retention gap throws before emission.
+   the retained history's origin and reconstructs complete indexes,
+   local-stream must be on a complete-retention transport
+   (dao.stream.v2.memory-log); the snapshot is complete before anything is
+   emitted.
 
    Usage:
      (publish-index! local-stream intake-pool)

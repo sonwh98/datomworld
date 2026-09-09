@@ -15,12 +15,10 @@
             [dao.jing.mem :as jing-mem]
             [dao.space.index :as index]
             [dao.space.query :as query]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
             [dao.stream.v2 :as stream]
+            [dao.stream.v2.memory-log :as memory-log]
             [dao.stream.v2.ringbuffer :as ringbuffer]
-            #?@(:cljd [["dart:io" :as dart-io]]))
-  #?(:cljs (:require-macros [dao.stream])))
+            #?@(:cljd [["dart:io" :as dart-io]])))
 
 
 ;; ---------------------------------------------------------------------------
@@ -566,8 +564,9 @@
 
 (defn- open-local
   [datoms]
-  (let [s (ds/open! {:dao.stream/type :ringbuffer})]
-    (doseq [d datoms] (ds/append! s d))
+  (let [s (:dao.stream/handle
+            (memory-log/create! {:dao.stream/type :dao.stream/memory-log}))]
+    (doseq [d datoms] (stream/append! s d))
     s))
 
 

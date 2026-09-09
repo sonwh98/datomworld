@@ -1,7 +1,8 @@
 (ns dao.space.stigmergy-test
   "Agents collaborating by stigmergy over dao.space: every write is one
   atomic transaction through transactor/transact! on the agent's own
-  :transactor wrapper, every read is query/q or query/match over explicit
+  transactor value over a memory-log local stream, every read is query/q or
+  query/match over explicit
   bounded covered-index DaoStream descriptors. There is no coordinator and no
   stigmergy API — the conventions (self-stamped provenance, wall-clock
   leases, the [t agent] winner rule) are expressed by the datoms agents
@@ -29,9 +30,9 @@
             [dao.space.query :as query]
             [dao.space.transactor :as transactor]
             [dao.stream :as ds]
-            [dao.stream.ringbuffer]
             [dao.stream.rpc.ws :as rpc-ws]
             [dao.stream.v2 :as stream]
+            [dao.stream.v2.memory-log :as memory-log]
             [dao.stream.v2.ringbuffer :as ringbuffer])
   (:import (java.io File)))
 
@@ -90,23 +91,34 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Agent-side write convention (test code, not API): one atomic transaction
-;; per entity through the agent's own :transactor wrapper — the wrapper owns
+;; per entity through the agent's own transactor value — the transactor owns
 ;; datom t. Fresh stream-local integer entity id, :dao/agent self-stamp, and
 ;; wall-clock
 ;; :claim/expires = now + lease-ms on claims are ordinary attributes.
 ;; ---------------------------------------------------------------------------
 
+(defn- local-values
+  "Every value currently on a v2 local stream, read from its oldest cursor."
+  [s]
+  (loop [cursor (:dao.stream/cursor (stream/cursor s :dao.stream/oldest))
+         acc []]
+    (let [r (stream/next s cursor)]
+      (if (= :dao.stream/ok (:dao.stream/outcome r))
+        (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))
+        acc))))
+
+
 (defn- open-agent
-  "One logical agent as plain data: its own local ringbuffer stream plus a
-   single-writer :transactor wrapper publishing into the shared intake pool."
+  "One logical agent as plain data: its own local memory-log stream plus a
+   single-writer transactor value publishing into the shared intake pool."
   [id]
-  (let [local (ds/open! {:dao.stream/type :ringbuffer})]
+  (let [local (:dao.stream/handle
+                (memory-log/create! {:dao.stream/type :dao.stream/memory-log}))]
     {:id id,
      :local local,
-     :log (ds/open! {:dao.stream/type :transactor,
-                     :local-stream local,
-                     :intake-pool [*shared-intake*],
-                     :name (str id)})}))
+     :log (transactor/create! {:local-stream local,
+                               :intake-pool [*shared-intake*],
+                               :name (str id)})}))
 
 
 (defn- put-entity!
@@ -115,7 +127,7 @@
    for lease arithmetic, because the transactor owns datom t."
   ([agent entity] (put-entity! agent entity {}))
   ([agent entity {:keys [lease-ms], :or {lease-ms 300000}}]
-   (let [e (+ datom/first-user-id (count (ds/->seq nil (:local agent))))
+   (let [e (+ datom/first-user-id (count (local-values (:local agent))))
          wall-t (System/currentTimeMillis)
          entity (cond-> (assoc entity
                                :db/id e
@@ -127,7 +139,7 @@
 
 
 (defn- publish-and-materialize!
-  "Explicitly publish every agent's :transactor into the shared intake pool,
+  "Explicitly publish every agent's transactor into the shared intake pool,
    then run the DaoJing observer over that pool into the server-side file
    content store until quiescent. Publication enqueue alone is not
    visibility; observer materialization is. Returns the manifest addresses,
