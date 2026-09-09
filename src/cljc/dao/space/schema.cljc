@@ -9,15 +9,11 @@
    value-type predicates, the extraction function that reads schema from a
    d5 source through the public q surface, the resolve-props seam used
    by the view and wrapper, the validating write wrapper, and the
-   publisher (publish!, published, :dao.space.schema/published opener)."
+   publisher (publish!)."
   (:require [dao.datom :as datom]
-            [dao.jing :as jing]
-            [dao.jing.coordinate :as jing-coordinate]
             [dao.space.index :as index]
             [dao.space.query :as query]
-            [dao.space.transactor :as tx]
-            [dao.stream :as ds])
-  #?(:cljs (:require-macros [dao.stream])))
+            [dao.space.transactor :as tx]))
 
 
 ;; =============================================================================
@@ -228,39 +224,26 @@
 
 (defn- validate-not-nested-view!
   "Reject nested views — a query current/history view value (tagged
-   :dao.space.query/view) or a legacy schema/current view descriptor.
-   Neither is an open!-dispatchable d5 source nor a raw query value."
+   :dao.space.query/view) or a schema/current fact relation (tagged
+   :fact?). Neither is a d5 source value."
   [d]
-  (let [v (:dao.space.query/view d)
-        t (:dao.stream/type d)]
+  (let [v (:dao.space.query/view d)]
     (when (or (#{:current :history} v)
-              (= t :dao.space.schema/current))
+              (:fact? d))
       (throw (ex-info
-               (str "schema/current source must be an open!-dispatchable d5 "
-                    "descriptor, not a nested view: " (pr-str (or v t)))
-               {:dao.space.query/view v, :dao.stream/type t})))))
+               (str "schema/current source must be a d5 source value, not a "
+                    "nested view: " (pr-str (or v :fact?)))
+               {:dao.space.query/view v, :fact? (:fact? d)})))))
 
 
-#_{:clj-kondo/ignore [:unresolved-var]}
-
-
-;; kondo cannot resolve dao.stream vars defined behind :clj reader
-;; conditionals; query.cljc/transactor.cljc carry these unsuppressed.
 (defn- interpret-view
-  "Shared interpretation core for the schema/current view. Given an
-   already-opened (and closed) source realization plus as-of /
-   schema-as-of bounds, returns a fact relation of d3 facts with
-   card-one collapse applied. Composition of public interpretations:
-   history view for data, history view for schema, extract-schema,
-   current-state-seq, then card-one collapse per [e a]."
+  "Shared interpretation core for the schema/current view. Given a d5
+   source value plus as-of / schema-as-of bounds, returns a fact relation
+   of d3 facts with card-one collapse applied. Composition of public
+   interpretations: history view for data, history view for schema,
+   extract-schema, current-state-seq, then card-one collapse per [e a]."
   [source as-of schema-as-of]
-  ;; A v1 realization is drained here, where dao.stream already lives: the
-  ;; query read side takes values only, and the published defopen pre-forces
-  ;; its rows so the drain never touches the closed store.
-  (let [source (if (ds/realization? source)
-                 (query/relation (ds/strict-vec source))
-                 source)
-        data-rows   (query/rows (query/history source as-of))
+  (let [data-rows   (query/rows (query/history source as-of))
         schema-rows (query/rows (query/history source
                                                (or schema-as-of as-of)))
         schema (extract-schema schema-rows)
@@ -302,77 +285,41 @@
     (query/fact-relation d3-rows)))
 
 
-#_{:clj-kondo/ignore [:unresolved-var]}
+(defn- snapshot-result?
+  [x]
+  (and (map? x) (contains? x :relation) (contains? x :status)))
 
 
 (defn current
   "The schema-aware current view: d3 facts with card-one collapse applied,
-   as a query fact-relation value q accepts directly. A query value source
-   (relation value, opened published index) and an already-opened closed
-   realization interpret immediately; a v1 open!-dispatchable descriptor
-   is opened, closed, and interpreted through the defopen route.
-   Opts map: {:as-of n :schema-as-of n}, both optional."
+   as a query fact-relation value q accepts directly. source is a d5
+   source value — a relation value, an opened published index, or a
+   query/snapshot result; schema opens nothing, reads nothing live, and
+   never closes a source it is handed. A snapshot whose status is :gap or
+   :defect is rejected: that is an observed read failure — a hole opened
+   while the snapshot was reading, or a transport that answered outside
+   its contract — and the read is known-incomplete. A prefix evicted
+   BEFORE the snapshot is indistinguishable from complete history:
+   query/snapshot mints a fresh :dao.stream/oldest, which on an evicting
+   transport is the earliest retained position, so completeness is the
+   caller's declaration — a transport declaring complete retention, or a
+   kept origin cursor minted before the first append and read through
+   with no gap — never schema's check. Opts map: {:as-of n :schema-as-of
+   n}, both optional."
   ([source] (current source nil))
   ([source opts]
-   (let [as-of       (when (map? opts) (:as-of opts))
-         schema-as-of (when (map? opts) (:schema-as-of opts))]
-     (if (ds/realization? source)
-       (do (when-not (satisfies? ds/IDaoStreamBound source)
-             (throw (ex-info
-                      "borrowed input must satisfy IDaoStreamBound"
-                      {:source source})))
-           (when-not (ds/closed? source)
-             (throw (ex-info
-                      "borrowed input must be closed"
-                      {:source source})))
-           (interpret-view source as-of schema-as-of))
-       (let [d (when (map? source) source)]
-         (when-not d
-           (throw (ex-info
-                    "source must be a descriptor or a closed realization"
-                    {:source source})))
-         ;; Either a query value (relation value, opened published index,
-         ;; not a nested view) or a legacy descriptor carrying a keyword
-         ;; :dao.stream/type.
-         (when-not (or (query/value? d) (keyword? (:dao.stream/type d)))
-           (throw (ex-info
-                    "descriptor must carry :dao.stream/type"
-                    {:source source})))
-         (validate-not-nested-view! d)
-         ;; query/q opens nothing, so the schema view is interpreted here,
-         ;; not by its consumer: a query value interprets directly; a v1
-         ;; open!-dispatchable descriptor keeps the defopen route.
-         (if (query/value? d)
-           (interpret-view d as-of schema-as-of)
-           (let [view (cond-> {:dao.stream/type :dao.space.schema/current
-                               :source d
-                               :dao.stream/bound (:dao.stream/bound d)}
-                        (some? as-of)        (assoc :as-of as-of)
-                        (some? schema-as-of) (assoc :schema-as-of schema-as-of))]
-             (ds/open! view))))))))
-
-
-#_{:clj-kondo/ignore [:unresolved-symbol :unresolved-var]}
-
-
-(ds/defopen :dao.space.schema/current
-            [desc]
-            (let [src (:source desc)]
-              (when-not (map? src)
-                (throw (ex-info "schema/current descriptor must carry :source"
-                                {:descriptor desc})))
-              (let [r (ds/open! src)]
-                (try (when-not (satisfies? ds/IDaoStreamReader r)
-                       (throw (ex-info "open! did not produce a reader realization"
-                                       {:descriptor desc})))
-                     (ds/close! r)
-                     (interpret-view r (:as-of desc) (:schema-as-of desc))
-                     (catch #?(:clj Throwable
-                               :cljs :default
-                               :cljd Object)
-                            error
-                       (ds/close! r)
-                       (throw error))))))
+   (let [as-of        (when (map? opts) (:as-of opts))
+         schema-as-of (when (map? opts) (:schema-as-of opts))
+         source (if (snapshot-result? source)
+                  (do (when-not (#{:ended :blocked} (:status source))
+                        (throw (ex-info (str "schema/current rejects a snapshot that reported "
+                                             (name (:status source))
+                                             ": the read was incomplete or defective")
+                                        {:status (:status source)})))
+                      (:relation source))
+                  source)]
+     (validate-not-nested-view! source)             ; query views, :fact? relations
+     (interpret-view source as-of schema-as-of))))  ; query/history rejects the rest
 
 
 ;; =============================================================================
@@ -1138,7 +1085,7 @@
 
 
 ;; =============================================================================
-;; Publisher: publish! and published descriptor (§5)
+;; Publisher: publish! (§5)
 ;; =============================================================================
 
 (defn publish!
@@ -1151,66 +1098,3 @@
   ([wrapper] (publish! wrapper nil))
   ([wrapper opts]
    (tx/publish! (:inner wrapper) opts)))
-
-
-(defn published
-  "Construct a §5 published descriptor for one immutable covered-index
-   manifest. content-store is a serializable DaoJing coordinate (map with
-   :dao.jing/type); manifest-address is a segment content address.
-   Validates like index/published-index but carries the schema type."
-  [content-store manifest-address]
-  (when-not (and (map? content-store) (keyword? (:dao.jing/type content-store)))
-    (throw (ex-info "published requires a DaoJing store coordinate"
-                    {:content-store content-store})))
-  (when-not (jing/segment-address? manifest-address)
-    (throw (ex-info "published requires a manifest content address"
-                    {:manifest-address manifest-address})))
-  {:dao.stream/type :dao.space.schema/published
-   :dao.stream/bound {:manifest-address manifest-address}
-   :dao.stream/comparator :dao.space.index/eavt
-   :content-store content-store
-   :manifest-address manifest-address})
-
-
-;; A private v1 reader over the forced published row vector — simpler than
-;; the index adapter it replaced, because schema forces the whole vector at
-;; open anyway: read-datoms walks the manifest's EAVT node graph while the
-;; store is open, and the store is closed before the value is returned, so
-;; nothing on this path needs the lazy restored trees or a retained store
-;; handle. next reads the vector by position; the value is closed from
-;; construction (a published manifest is an immutable snapshot).
-(defrecord PublishedSchemaRows
-  [rows]
-
-  ds/IDaoStreamReader
-
-  (next
-    [_ cursor]
-    (let [position (or (:position cursor) 0)]
-      (if (< position (count rows))
-        {:ok (nth rows position), :cursor {:position (inc position)}}
-        :end)))
-
-
-  ds/IDaoStreamBound
-
-  (close! [_] {:woke []})
-
-
-  (closed? [_] true))
-
-
-#_{:clj-kondo/ignore [:unresolved-symbol :unresolved-var :private-call]}
-
-
-(ds/defopen :dao.space.schema/published
-            [descriptor]
-            (let [{:keys [content-store manifest-address]} descriptor
-                  expected (published content-store manifest-address)]
-              (when-not (= expected descriptor)
-                (throw (ex-info "invalid schema/published descriptor"
-                                {:descriptor descriptor, :expected expected})))
-              (let [store (jing-coordinate/open! content-store)]
-                (try (->PublishedSchemaRows
-                       (index/read-datoms store manifest-address))
-                     (finally (jing/close! store))))))

@@ -5,7 +5,7 @@
    Covers schema representation (axioms, bootstrap, type-pred),
    extraction (extract-schema, resolve-props), the schema/current view,
    the validating write wrapper, schema-row validation, and the
-   publisher (publish!, published descriptor, parity tests)."
+   publisher (publish!, parity tests)."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.datom :as datom]
             [dao.jing :as jing]
@@ -13,14 +13,11 @@
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.schema :as schema]
-            [dao.space.schema-fixtures :as fixtures]
             [dao.space.transactor :as tx]
-            [dao.stream :as ds]
             [dao.stream.v2 :as stream]
             [dao.stream.v2.memory-log :as memory-log]
             [dao.stream.v2.ringbuffer :as ringbuffer]
-            #?@(:cljd [["dart:io" :as dart-io]]))
-  #?(:cljs (:require-macros [dao.stream])))
+            #?@(:cljd [["dart:io" :as dart-io]])))
 
 
 ;; ---------------------------------------------------------------------------
@@ -297,18 +294,6 @@
 ;; Read view helpers
 ;; ---------------------------------------------------------------------------
 
-#_{:clj-kondo/ignore [:unresolved-var]}
-
-
-(defn- open-closed
-  "Build a closed ringbuffer realization from d5 tuples (borrowed-input path)."
-  [tuples]
-  (let [s (ds/open! {:dao.stream/type :ringbuffer})]
-    (doseq [t tuples] (ds/append! s t))
-    (ds/close! s)
-    s))
-
-
 (defn- qq
   "Collect a q result: (qq form & inputs)."
   [form & inputs]
@@ -519,26 +504,6 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; W10: borrowed and descriptor paths agree
-;; ---------------------------------------------------------------------------
-
-(deftest borrowed-and-descriptor-paths-agree
-  ;; query/history takes values only now, so the borrowed leg passes the
-  ;; closed realization directly to schema/current, whose interpret-view
-  ;; drains it where dao.stream lives. What the test pins is unchanged:
-  ;; the borrowed (realization) path and the value path interpret the same
-  ;; rows the same way.
-  (let [data (into schema-rows
-                   [[7 :person/name "Alice" 0 1]
-                    [7 :person/name "Alicia" 1 1]])
-        rel  (query/relation data)
-        borrowed (open-closed data)
-        q-form '[:find ?v :where [7 :person/name ?v]]]
-    (is (= (qq q-form (schema/current rel))
-           (qq q-form (schema/current borrowed))))))
-
-
-;; ---------------------------------------------------------------------------
 ;; W11: schema/current's result is a fact-relation value
 ;; ---------------------------------------------------------------------------
 
@@ -565,65 +530,24 @@
             #?(:cljs js/Error
                :cljd Object
                :default Exception)
-            #"nested view|not an open!-dispatchable"
+            #"nested view"
             (schema/current (query/current rel)))))
     (testing "nested query/history is rejected"
       (is (thrown-with-msg?
             #?(:cljs js/Error
                :cljd Object
                :default Exception)
-            #"nested view|not an open!-dispatchable"
+            #"nested view"
             (schema/current (query/history rel)))))
-    (testing "nested schema/current is rejected"
-      ;; Need to test that a schema/current descriptor is rejected
-      ;; when passed as source to schema/current again.
-      ;; This is a descriptor test, not a realization test.
-      (let [schema-desc {:dao.stream/type :dao.space.schema/current
-                         :source rel
-                         :dao.stream/bound (:dao.stream/bound rel)}]
-        (is (thrown-with-msg?
-              #?(:cljs js/Error
-                 :cljd Object
-                 :default Exception)
-              #"nested view|not an open!-dispatchable"
-              (schema/current schema-desc)))))))
-
-
-;; ---------------------------------------------------------------------------
-;; W13: inner stream closed after descriptor path
-;; ---------------------------------------------------------------------------
-;; The recording stream and its :schema.test/recording open! registration
-;; live in dao.space.schema-fixtures: defopen must not be emitted from a
-;; test namespace (see that namespace's docstring).
-
-
-(deftest inner-stream-closed-after-descriptor-path
-  (let [data schema-rows]
-    (reset! fixtures/recording-rows data)
-    (let [desc {:dao.stream/type :schema.test/recording
-                :dao.stream/bound {:schema.test/recording true}}
-          schema-desc (schema/current desc)]
-      (testing "q over the schema view works"
-        (is (some? (qq '[:find ?v :where [21 :db/ident ?v]] schema-desc))))
-      (testing "inner recording stream was closed exactly once"
-        (is (= 1 @@fixtures/recording-close-count))))))
-
-
-(deftest borrowed-path-does-not-close-again
-  ;; Use a RecordingStream closed by hand (close-count 1). schema/current
-  ;; over it must NOT close it again — close-count stays 1. The borrowed
-  ;; realization is passed directly to schema/current (query/history takes
-  ;; values only now); interpret-view drains it read-only via ds/strict-vec,
-  ;; so the count proves neither the drain nor the interpretation closed it.
-  (let [rows    (atom schema-rows)
-        cc      (atom 0)
-        closed  (atom false)
-        stream  (fixtures/->RecordingStream rows cc closed)]
-    (ds/close! stream)
-    (is (= 1 @cc) "precondition: hand-close fired once")
-    (schema/current stream)
-    (is (= 1 @cc)
-        "schema/current never closes a borrowed source")))
+    (testing "a schema/current result is rejected as a source"
+      ;; The view's own output is a :fact? relation, not a d5 source
+      ;; value (V6, restated on the value).
+      (is (thrown-with-msg?
+            #?(:cljs js/Error
+               :cljd Object
+               :default Exception)
+            #"nested view"
+            (schema/current (schema/current rel)))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -631,8 +555,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest unknown-db-type-throws-at-realization
-  ;; Schema rows carrying :db.type/instant. The error surfaces when q
-  ;; opens the view descriptor (the defopen body runs extract-schema).
+  ;; Schema rows carrying :db.type/instant. The error surfaces when the
+  ;; view is built: schema/current's interpretation runs extract-schema
+  ;; over the source's history view.
   (let [data [[21 :db/ident :test/attr 0 1]
               [21 :db/valueType :db.type/instant 0 1]
               [21 :db/cardinality :db.cardinality/one 0 1]]
@@ -644,6 +569,128 @@
           #"unknown :db.type"
           (qq '[:find ?v :where [21 :db/valueType ?v]]
               (schema/current rel))))))
+
+
+;; ---------------------------------------------------------------------------
+;; V13a: snapshot read failures are rejected (D4). A snapshot whose status
+;; is :gap or :defect is an observed read failure — a hole opened while
+;; the snapshot was reading, or a transport answering outside its
+;; contract — and the read is known-incomplete, so schema/current refuses
+;; to interpret it. Scripted readers, not a ring buffer: a fresh
+;; :oldest cursor never trails a quiescent ringbuffer's first retained
+;; position, so overflowing a buffer before snapshotting cannot produce
+;; the values-then-hole gap this test needs. Eviction concurrent with a
+;; snapshot's read can (query_test's snapshot-of-a-gap-is-data carries
+;; the same note); scripting it keeps the test deterministic.
+;; ---------------------------------------------------------------------------
+
+(deftest snapshot-read-failures-are-rejected
+  (testing "a :gap snapshot is rejected, naming the status"
+    (let [h (reify
+              stream/IDaoStreamReader
+
+              (cursor
+                [_ _]
+                {:dao.stream/outcome :dao.stream/ok
+                 :dao.stream/cursor {::pos 0}})
+
+              (next
+                [_ c]
+                (case (::pos c)
+                  0 {:dao.stream/outcome :dao.stream/ok
+                     :dao.stream/value [21 :db/ident :person/name 0 1]
+                     :dao.stream/cursor {::pos 1}}
+                  1 {:dao.stream/outcome :dao.stream/gap
+                     :dao.stream/cursor {::pos 2}})))
+          snap (query/snapshot h)]
+      (is (= :gap (:status snap)) "precondition: the snapshot observed a gap")
+      (is (thrown-with-msg?
+            #?(:cljs js/Error :cljd Object :default Exception)
+            #"rejects a snapshot that reported gap"
+            (schema/current snap)))))
+  (testing "a :defect snapshot is rejected, naming the status"
+    (let [h (reify
+              stream/IDaoStreamReader
+
+              (cursor
+                [_ _]
+                {:dao.stream/outcome :dao.stream/ok
+                 :dao.stream/cursor {::pos 0}})
+
+              (next
+                [_ _]
+                {:dao.stream/outcome :dao.stream/cursor-mismatch}))
+          snap (query/snapshot h)]
+      (is (= :defect (:status snap))
+          "precondition: the transport answered outside its contract")
+      (is (thrown-with-msg?
+            #?(:cljs js/Error :cljd Object :default Exception)
+            #"rejects a snapshot that reported defect"
+            (schema/current snap))))))
+
+
+;; ---------------------------------------------------------------------------
+;; V13b: complete snapshots are accepted (D4). :ended and :blocked are
+;; complete-at-call-time reads; both interpret identically to the same
+;; rows handed over as a relation value.
+;; ---------------------------------------------------------------------------
+
+(deftest complete-snapshots-are-accepted
+  (let [rows (into schema-rows
+                   [[7 :person/name "old" 1 1]
+                    [7 :person/name "new" 2 1]])
+        expected (schema/current (query/relation rows))]
+    (testing "an open memory-log answers :blocked; accepted"
+      (let [h (:dao.stream/handle
+                (memory-log/create! {:dao.stream/type :dao.stream/memory-log}))]
+        (doseq [r rows] (stream/append! h r))
+        (let [snap (query/snapshot h)]
+          (is (= :blocked (:status snap)))
+          (is (= expected (schema/current snap))
+              "card-one collapse fires over the snapshot's relation"))))
+    (testing "a closed memory-log answers :ended; accepted, same answer"
+      (let [h (:dao.stream/handle
+                (memory-log/create! {:dao.stream/type :dao.stream/memory-log}))]
+        (doseq [r rows] (stream/append! h r))
+        (stream/close! h)
+        (let [snap (query/snapshot h)]
+          (is (= :ended (:status snap)))
+          (is (= expected (schema/current snap))
+              "the closed log's snapshot interprets identically"))))))
+
+
+;; ---------------------------------------------------------------------------
+;; V15: an evicted prefix is not detectable through a snapshot — a
+;; DOCUMENTED LIMIT, not a guarantee (D4). A v2 ring buffer of capacity 4
+;; evicted the schema vocabulary before the snapshot was taken;
+;; query/snapshot mints a fresh :oldest, which on a ring buffer is the
+;; earliest RETAINED position, so the surviving suffix reads as :blocked
+;; and schema/current cannot distinguish it from complete history.
+;; Completeness is the caller's declaration — a transport declaring
+;; complete retention (dao.stream.v2.memory-log), or a kept origin cursor
+;; minted before the first append and read through with no observed gap —
+;; never schema's check. This test pins the limit so that a future change
+;; which makes it detectable has to change a test and therefore the
+;; design. The (is (= :blocked …)) assertion is a cross-layer pin on
+;; query/snapshot's own status: a query-side refactor that changes it
+;; also trips this test — read the failing assertion first.
+;; ---------------------------------------------------------------------------
+
+(deftest evicted-prefix-is-not-detectable-through-snapshot
+  (let [h (:dao.stream/handle
+            (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
+                                 :dao.stream.ringbuffer/capacity 4}))]
+    (doseq [r schema-rows] (stream/append! h r))
+    (stream/append! h [7 :person/name "old" 1 1])
+    (stream/append! h [7 :person/name "new" 2 1])
+    (let [snap (query/snapshot h)]
+      (is (= :blocked (:status snap))
+          "the ring buffer answers over its surviving suffix")
+      (is (= #{["old"] ["new"]}
+             (qq '[:find ?v :where [7 :person/name ?v]]
+                 (schema/current snap)))
+          "the vocabulary was evicted: card-one collapse did not fire, and
+           the evicted prefix is indistinguishable from complete history"))))
 
 
 ;; ===========================================================================
@@ -1568,10 +1615,15 @@
             path (temp-content-path "parity")]
         (try
           (materialize-to-file-store intake path)
-          (let [store-coord {:dao.jing/type :dao.jing/file :path path}
-                pub-desc (schema/published store-coord manifest-address)]
-            (is (= live-result (qq q-form (schema/current pub-desc)))
-                "q answers identically before and after publish"))
+          (let [opened (query/open-published!
+                         (index/published-index
+                           {:dao.jing/type :dao.jing/file :path path}
+                           manifest-address))]
+            (try
+              (is (= live-result (qq q-form (schema/current opened)))
+                  "q answers identically before and after publish")
+              (finally
+                (query/close-published! opened))))
           (finally
             (cleanup-file path))))
       (schema/close! w))))
@@ -1592,59 +1644,22 @@
           rel (query/relation all)
           raw-q '[:find ?e ?n :where [?e :person/name ?n]]
           raw-result (qq raw-q (query/current rel))]
-      ;; Publish and query over published via schema/current —
-      ;; the published descriptor is open!-dispatchable and carries
-      ;; covered indexes; schema/current interprets it as a source.
+      ;; Publish and query over published via schema/current — the opened
+      ;; published index is a query value carrying covered indexes;
+      ;; schema/current interprets it as a source.
       (let [{:keys [manifest-address]} (schema/publish! w)
             path (temp-content-path "raw-input")]
         (try
           (materialize-to-file-store intake path)
-          (let [store-coord {:dao.jing/type :dao.jing/file :path path}
-                pub-desc (schema/published store-coord manifest-address)
-                schema-result (qq raw-q (schema/current pub-desc))]
-            (is (= raw-result schema-result)
-                "published descriptor answers same raw query as drained relation"))
-          (finally
-            (cleanup-file path))))
-      (schema/close! w))))
-
-
-;; ---------------------------------------------------------------------------
-;; W40: published-descriptor-validation (§5)
-;; ---------------------------------------------------------------------------
-
-(deftest published-descriptor-validation
-  (testing "non-map content-store throws"
-    (is (thrown-with-msg?
-          #?(:cljs js/Error :cljd Object :default Exception)
-          #"DaoJing store coordinate"
-          (schema/published "not-a-map" :segment/sha256-abc))))
-  (testing "content-store without :dao.jing/type throws"
-    (is (thrown-with-msg?
-          #?(:cljs js/Error :cljd Object :default Exception)
-          #"DaoJing store coordinate"
-          (schema/published {:path "/tmp/x"} :segment/sha256-abc))))
-  (testing "non-segment manifest-address throws"
-    (is (thrown-with-msg?
-          #?(:cljs js/Error :cljd Object :default Exception)
-          #"manifest content address"
-          (schema/published {:dao.jing/type :dao.jing/file :path "/tmp/x"}
-                            :not-an-address))))
-  (testing "extra keys in published descriptor rejected at open"
-    (let [{:keys [local intake]} (fresh-streams)
-          w (schema/transactor local intake)]
-      (schema/transact! w (bootstrap-tx))
-      (let [{:keys [manifest-address]} (schema/publish! w)
-            path (temp-content-path "validation")]
-        (try
-          (materialize-to-file-store intake path)
-          (let [store-coord {:dao.jing/type :dao.jing/file :path path}
-                good-desc (schema/published store-coord manifest-address)
-                bad-desc (assoc good-desc :extra-key true)]
-            (is (thrown-with-msg?
-                  #?(:cljs js/Error :cljd Object :default Exception)
-                  #"invalid schema/published descriptor"
-                  (ds/open! bad-desc))))
+          (let [opened (query/open-published!
+                         (index/published-index
+                           {:dao.jing/type :dao.jing/file :path path}
+                           manifest-address))]
+            (try
+              (is (= raw-result (qq raw-q (schema/current opened)))
+                  "published source answers same raw query as drained relation")
+              (finally
+                (query/close-published! opened))))
           (finally
             (cleanup-file path))))
       (schema/close! w))))
@@ -1663,13 +1678,60 @@
           path (temp-content-path "current-source")]
       (try
         (materialize-to-file-store intake path)
-        (let [store-coord {:dao.jing/type :dao.jing/file :path path}
-              pub-desc (schema/published store-coord manifest-address)]
-          ;; schema/current must NOT reject :dao.space.schema/published
-          (is (= #{["Alice"]}
-                 (qq '[:find ?n :where [7 :person/name ?n]]
-                     (schema/current pub-desc)))
-              "published descriptor is accepted as :source by schema/current"))
+        (let [opened (query/open-published!
+                       (index/published-index
+                         {:dao.jing/type :dao.jing/file :path path}
+                         manifest-address))]
+          (try
+            ;; schema/current must NOT reject the opened published index
+            (is (= #{["Alice"]}
+                   (qq '[:find ?n :where [7 :person/name ?n]]
+                       (schema/current opened)))
+                "the opened published index is accepted as :source by
+                 schema/current")
+            (finally
+              (query/close-published! opened))))
+        (finally
+          (cleanup-file path))))
+    (schema/close! w)))
+
+
+;; ---------------------------------------------------------------------------
+;; V14: the schema view is self-contained and never closes the store
+;; (D6's seam). schema/current over an opened published index forces the
+;; rows before returning and closes nothing — the ownership counter
+;; proves it, where a re-query after close-published! could not
+;; (close-published! is idempotent, so an early close would hide). The
+;; counter wraps the store's :close-fn, to which jing/close! delegates;
+;; plain data, no with-redefs, so it runs on every host.
+;; ---------------------------------------------------------------------------
+
+(deftest schema-view-is-self-contained-and-never-closes-the-store
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake)]
+    (schema/transact! w (bootstrap-tx))
+    (schema/transact! w [[7 :person/name "Alice"]])
+    (let [form '[:find ?n :where [7 :person/name ?n]]
+          expected (qq form (schema/current
+                              (query/relation (datoms-of local))))
+          {:keys [manifest-address]} (schema/publish! w)
+          path (temp-content-path "self-contained")]
+      (try
+        (materialize-to-file-store intake path)
+        (let [opened (query/open-published!
+                       (index/published-index
+                         {:dao.jing/type :dao.jing/file :path path}
+                         manifest-address))
+              closes  (atom 0)
+              base    (:close-fn (:store opened))
+              opened' (assoc-in opened [:store :close-fn]
+                                (fn [] (swap! closes inc) (when base (base))))
+              view    (schema/current opened')]
+          (is (zero? @closes) "schema/current closed nothing")
+          (query/close-published! opened')
+          (is (= 1 @closes) "the owner's close reached the store exactly once")
+          (is (= expected (qq form view)) "the view is self-contained after close")
+          (is (= expected (qq form view)) "and stays so"))
         (finally
           (cleanup-file path))))
     (schema/close! w)))

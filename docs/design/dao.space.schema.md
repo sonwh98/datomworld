@@ -28,7 +28,12 @@ and the unique-requires-card-one ruling (§3), the mode split between
 schema-structure and data violations (§3, §8), and `:source` openability
 (§4). The motivation
 is stated in the doc itself: what schema buys an adopter, and why optional
-is the only coherent form (§1).
+is the only coherent form (§1). Migrated to dao.stream.v2 on 2026-09-09
+(plan: `docs/design/dao.space.schema.implementation-plan.md`): the wrapper
+is a plain map returning the transactor's receipts, and `schema/current`
+takes d5 values — relation, opened published index, or snapshot result —
+with both v1 opener registrations and the schema-typed published
+coordinate deleted.
 
 **Related documents:**
 
@@ -495,44 +500,38 @@ retraction), leaving `v2` live; step 2 collapses nothing further. The
 same-`t` assert+retract update resolves correctly because the retraction
 cancels `v_old` in step 1, before any collapse.
 
-The descriptor is a pure semantic view value:
+**The view's contract is the value model** (query's Decision 1, applied
+here): `schema/current` is a function from a d5 source value to a
+fact-relation value. A source is a relation value (`query/relation`), an
+opened published index (`query/open-published!`), or a `query/snapshot`
+result. The view finds the schema in the same source: rows whose attribute
+is one of the fixed `:db/*` names (§2), resolved through the bootstrap.
+`:as-of` applies to data and schema alike by default; `:schema-as-of`
+optionally resolves the schema at a different point of the same `t` axis.
+It opens nothing and closes nothing, and **never closes a source it is
+handed**: an opened published index is closed by whoever opened it, and
+because `schema/current` forces the rows before returning, the caller may
+close the store immediately after it returns and the answer stays valid
+(V14). Nested views — a `query/current` or `query/history` view — and the
+view's own output (a `:fact?` relation) are rejected as sources; any other
+value falls through to `query/history`'s own rejection.
 
-```clojure
-{:dao.stream/type :dao.space.schema/current
- :source <bounded d5 descriptor>          ; data and schema rows together
- :dao.stream/bound <inherited from :source>}   ; schema constrains
-                                               ; interpretation, not extent
-```
-
-The view finds the schema in the same source: rows whose attribute is one of
-the fixed `:db/*` names (§2), resolved through the bootstrap. `:as-of` applies
-to data and schema alike by default; `:schema-as-of` optionally resolves the
-schema at a different point of the same `t` axis. Neither key is part of the
-bound, which inherits from `:source` exactly as `current`'s descriptor does.
-
-**Realization — the first view through the `defopen` seam.** `current` and
-`history` are *not* realized through `defopen`; they are special-cased in
-`realize-db-value!` / `realize-datom-view!`. The schema view instead
-registers `(ds/defopen :dao.space.schema/current …)`, whose body opens
-`:source` once with `ds/open!` (`:source` is any d5 descriptor `open!`
-dispatches — a relation, a published index, a raw stream type — never a
-`current`/`history` view, which are query-layer interpreters), drains it
-via `strict-vec`, **closes the inner stream**, interprets (the extraction
-and steps 1–3 above), and returns a self-contained closed
-`ViewStream`
-advertising `:fact? true`. Because a closed realization satisfying
-Reader+Bound flows through `realize-db-value!`'s existing borrowed path —
-`fact-view-realization?` builds the fact-index from its rows — **`query.cljc`
-needs zero changes**. The ownership clause is load-bearing:
-`ViewStream`'s `close!` closes nothing, and the query layer's `::owned`
-tracks only the returned realization — so the `defopen` body itself must
-close the inner source or it leaks.
-
-Like `current`, the view is dual-path: given a descriptor it returns the view
-value above; given an already-opened closed realization it validates it as
-borrowed (`validate-borrowed!`), interprets through the same steps, and
-returns the derived `ViewStream` directly. Both paths share one
-interpretation function; source polymorphism is preserved.
+**D4, in full.** A snapshot result whose status is `:gap` or `:defect` is
+rejected as an **observed read failure** — a hole opened while the
+snapshot was reading, or a transport that answered outside its contract:
+the read is known-incomplete and the schema rows may be in the hole. This
+detects an observed failure, not completeness. **Completeness is the
+caller's declaration, never schema's check** (`dao.stream.md`, *Complete
+history*): a suffix read from a transport that evicted before the
+snapshot is indistinguishable from complete history — `query/snapshot`
+mints a fresh `:oldest`, which on an evicting transport is the earliest
+*retained* position — and wiring an evicting transport where complete
+history is required is a host-assembly defect of the same kind as the
+transactor's T18, knowable at wiring time by the composition that created
+the stream and caught at read time by nothing. The two instruments that
+make the declaration good are a transport declaring complete retention
+(`dao.stream.v2.memory-log`) and a kept origin cursor minted before the
+first append and read through with no observed `gap`.
 
 One pull caveat, stated narrowly: card-one attributes now read unambiguously
 as scalars, but a card-many attribute holding a single value still presents
@@ -570,21 +569,14 @@ there is no standalone schema segment to content-address, and the
 provenance of an interpretation is the source itself, optionally `as-of`'d.
 The manifest is schema-independent — a complete covered set over the d5 log.
 
-The published descriptor is its own type, realized by a registered
-`(ds/defopen :dao.space.schema/published …)` that reads the manifest's rows
-directly with `index/read-datoms` over a content-store handle it opens and
-closes itself, returning a small closed reader (`PublishedSchemaRows`) over
-the forced row vector — schema interprets the whole history at once anyway,
-so it never needed the lazy restored trees or a retained store handle. The
-shape carries what `validate-descriptor!` requires:
-
-```clojure
-{:dao.stream/type :dao.space.schema/published
- :dao.stream/bound {:manifest-address :segment/sha256-…}  ; the exact bound
- :dao.stream/comparator :dao.space.index/eavt
- :content-store <coordinate>
- :manifest-address :segment/sha256-…}
-```
+The published coordinate is `index/published-index` — the same value a raw
+agent's reader hands to `query/open-published!` — opened by
+`query/open-published!` and closed by its caller. `schema/current` over an
+opened index forces the rows before returning and does not close the store,
+so the caller may close immediately (V14). There is no schema-typed
+coordinate, because the lens is the reader's, not the data's name: "a raw
+dao.space agent and a schema'd agent share one medium and read the same log
+differently" (§1), and both read the same manifest address.
 
 
 ## 6. Enforcement scope: who is bound
@@ -625,9 +617,7 @@ The interpreter is four moving parts — schema representation conventions
 (§2), the validating wrapper (§3), the read view (§4), the publisher (§5).
 The dependency direction is one-way: `dao.space.schema` requires
 `dao.space.query` and `dao.space.transactor`; neither ever requires it. The
-schema interpreter is two clients of dao.space, not a fork of it. Both
-openers register at namespace load, so opening a schema descriptor requires
-`dao.space.schema` to be `require`d first — it fails closed otherwise:
+schema interpreter is two clients of dao.space, not a fork of it:
 
 ```clojure
 (require '[dao.space.query :as query]
@@ -648,9 +638,10 @@ openers register at namespace load, so opening a schema descriptor requires
 ;; 21, not 16: the bootstrap's five entities occupy the genesis ids 16-20
 ;; by convention (§2); entity ids are a stream-local gauge
 
-;; read — one source (any bounded descriptor of the stream's datoms: a
-;; published manifest, or a drained relation in tests); the view finds the
-;; schema rows by vocabulary
+;; read — one d5 source value: a drained relation in tests, or a published
+;; index opened by query and closed by its caller (open-published! →
+;; schema/current → close-published!); the view finds the schema rows by
+;; vocabulary and never closes what it is handed
 (query/q '[:find ?n :where [?e :person/name ?n]]
          (schema/current data-source))             ; bounded d3 db-value
 
@@ -688,7 +679,7 @@ openers register at namespace load, so opening a schema descriptor requires
   `compare-vals`) — arbitrary-but-deterministic, never a rejection. Pin both
   by test.
 - **Schema epochs.** Wrappers and views name their source — a bounded d5
-  descriptor, optionally `as-of`'d — and read the schema from it. Evolution
+  source value, optionally `as-of`'d — and read the schema from it. Evolution
   never rewrites history; each `as-of` sees the schema it names. A manifest
   does not encode its schema; there is no `:schema-address` (§5). A wrapper
   validates schema tx N as a candidate epoch and adopts it only after tx N
@@ -707,17 +698,25 @@ openers register at namespace load, so opening a schema descriptor requires
   presents as a scalar under the count convention. A cardinality marker on
   the view, or a schema-aware pull, is a follow-up — noted, not designed
   here.
-- **Implementation verification.** The `defopen`/`ViewStream`/`::owned` seam
-  flows a closed
-  `:fact? true` realization through `q` with zero changes; the extraction's
+- **The evicted-prefix limit (D4, pinned by V15).** `schema/current` cannot
+  detect a prefix evicted before the snapshot: `query/snapshot` mints a
+  fresh `:oldest`, which on an evicting transport is the earliest retained
+  position, so a surviving suffix is indistinguishable from complete
+  history. Completeness is the caller's declaration — a complete-retention
+  transport or a kept origin cursor — never schema's check; the test pins
+  the limit so a future change that makes it detectable must change a test
+  and therefore this design.
+- **Implementation verification.** The view is a value: `schema/current`
+  takes relation values, opened published indexes and `query/snapshot`
+  results (V13a/V13b/V14/V15); the extraction's
   5-ary pattern rides the relation path (history carries no fact-index);
   `select-by-index` has no completeness fallback and the manifest a single
   `:count` (the §5 deferral stands); the transactor preserves explicit `m`
   and owns `t`. Pinned rulings: bootstrap ids 16–20 as convention and the
   verbatim-axiom carve-out (§2); `[:db/retract e a]` emits one retract row
   per live value (§3); `:db/unique` requires declared card-one (§3.1); the
-  schema-structure / data-violation mode split (§3); `:source` is an
-  `open!`-dispatchable d5 descriptor, never a nested view (§4).
+  schema-structure / data-violation mode split (§3); `:source` is a
+  d5 source value, never a nested view (§4).
 
 
 ## 9. The executable contract
@@ -748,9 +747,13 @@ openers register at namespace load, so opening a schema descriptor requires
 - extraction: both interpreters fetch the schema through the public `q`
   surface — the same query, pinned once; property collapse supersedes
   re-declarations.
-- view: descriptor bound inherited from `:source`; the borrowed-realization
-  path answers identically to the descriptor path; no inner-stream leak
-  after `close!` (the ownership trap).
+- view: the source is a d5 value — a relation, an opened published index,
+  or a `query/snapshot` result; `:gap`/`:defect` snapshots are rejected as
+  observed read failures while `:ended`/`:blocked` interpret identically to
+  the same rows as a relation (V13a/V13b); `schema/current` closes nothing
+  it is handed and its answer stays valid after the owner closes the store
+  (V14); an evicted prefix is not detectable — completeness is the
+  caller's declaration (V15).
 - extraction surface: the schema query runs over the history view and binds
   `?t ?m` — a `current`-view extraction cannot supersede; the fold applies
   retraction, then greatest `t`, with `m` retained as metadata only.
@@ -768,6 +771,6 @@ openers register at namespace load, so opening a schema descriptor requires
 - the guarantee boundary (§3.1): the same unique value commits on two
   streams through two wrappers — no cross-wrapper or global state exists —
   while each wrapper still rejects its own stream's duplicates (§6).
-- publisher parity: the published descriptor opens through its registered
-  opener and answers as a `q` db-input; `q` answers identically before and
-  after publish.
+- publisher parity: the published coordinate opens through
+  `query/open-published!` and answers as a `q` db-input; `q` answers
+  identically before and after publish.

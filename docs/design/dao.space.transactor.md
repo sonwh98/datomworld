@@ -13,7 +13,7 @@ requirement a host composition must honour. The executable contract is
 - `docs/design/dao.space.index.md` — `publish!` delegates here from the
   transactor; the snapshot reads this namespace's local stream
 - `docs/design/dao.space.schema.md` — the validating wrapper that owns a
-  transactor value; its D10 rule governs the shapes it re-wraps
+  transactor value
 - `docs/design/dao.jing.md` — the storage boundary publication targets
 - `docs/design/dao.stream.md` and `docs/design/dao.stream.v2.md` — the
   contract this namespace consumes
