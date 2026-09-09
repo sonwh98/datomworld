@@ -7,7 +7,11 @@
 
    The JVM WebSocket APIs expose no useful outbound high-water signal.  A send
    accepted by the host is therefore `:dao.stream/ok`; transient
-   `:dao.stream/full` is excluded by nature on this host."
+   `:dao.stream/full` is excluded by nature on this host.  Acceptance is not
+   delivery: `send!` returns as soon as the host has taken the message, and a
+   send that fails afterwards is reported on the stream as `:ws/error` then a
+   terminal `:ws/closed`.  Nothing here joins, parks, or sleeps — the operation
+   must return what is true when it is called."
   (:require [clojure.string :as str]
             [dao.stream.v2.ws :as ws]
             [org.httpkit.server :as http]
@@ -91,10 +95,89 @@
   (CompletableFuture/completedFuture nil))
 
 
+(defn client-socket
+  "The `{:send! :close!}` boundary over an asynchronous client connection.
+
+   `java.net.http.WebSocket` completes a `sendText` exceptionally while an
+   earlier one is still pending, so outbound messages are chained behind the
+   connection's `:pending` future rather than joined: the submitter returns as
+   soon as the host has accepted the message (J1, J2). A send that fails after
+   acceptance is reported on the stream — `:ws/error`, then the terminal
+   `:ws/closed` after the socket is aborted — never as a return value (J3).
+
+   Two disciplines make that safe. The chain is built under `locking` rather
+   than `swap!`, whose retry would issue a second `sendText` for one message.
+   And failure is a once-only connection transition claimed under the same
+   lock: every future in a chain completes exceptionally when its predecessor
+   does, so without the claim one lost socket would abort and report N times,
+   and a teardown that re-entered through the adapter would report again. The
+   first claimant reports; the connection then stays failed and accepts no
+   further chaining."
+  [connection adapter]
+  (letfn [(claim-failure!
+            []
+            (locking connection
+              (when-not (:failed? @connection)
+                (swap! connection assoc :failed? true)
+                true)))
+          (fail!
+            []
+            ;; Outside the lock: the adapter entries may re-enter through
+            ;; close!, which must find the connection already failed rather
+            ;; than block on a lock this thread holds.
+            (when (claim-failure!)
+              ((:error! adapter))
+              (when-let [socket (:socket @connection)]
+                (.abort ^WebSocket socket))
+              ((:closed! adapter) 1006 "dao.stream/send-failed")))
+          (chain!
+            [f]
+            ;; The successor is built and installed under the lock; its
+            ;; completion observer is registered after leaving it. An
+            ;; already-exceptional future runs that observer inline, and
+            ;; reporting a failure while holding the submission monitor would
+            ;; block every other submitter across the adapter's deposits.
+            (let [next (locking connection
+                         (when-not (:failed? @connection)
+                           (let [pending (or (:pending @connection) (completed))
+                                 next (.thenCompose
+                                        ^CompletableFuture pending
+                                        (reify java.util.function.Function
+                                          (apply [_ _] (f))))]
+                             (swap! connection assoc :pending next)
+                             next)))]
+              (if next
+                (do (.whenComplete
+                      ^CompletableFuture next
+                      (reify java.util.function.BiConsumer
+                        (accept [_ _v error] (when error (fail!)))))
+                    nil)
+                ::failed)))]
+    {:send! (fn [message]
+              (if-let [socket (:socket @connection)]
+                (let [result (chain! #(.sendText ^WebSocket socket message true))]
+                  ;; A failed connection is permanently gone, so it answers
+                  ;; `closed`, not the retryable `full` that `false` would
+                  ;; mean: an append that read the handle's open phase before
+                  ;; the failure claim must not leave a request retained as
+                  ;; unsent for a socket that is never coming back.
+                  (if (= ::failed result)
+                    {:dao.stream/outcome :dao.stream/closed}
+                    nil))
+                false))
+     :close! (fn [code reason]
+               (if-let [socket (:socket @connection)]
+                 ;; Closing something already gone is satisfied, not
+                 ;; refused, so close! answers nil either way.
+                 (do (chain! #(.sendClose ^WebSocket socket code reason)) nil)
+                 (do (swap! connection assoc :close-request [code reason]) nil)))}))
+
+
 (defn connect!
   "Start an asynchronous JVM client attachment and return its raw socket seam."
   [descriptor adapter]
-  (let [connection (atom {:socket nil :future nil :close-request nil})
+  (let [connection (atom {:socket nil :future nil :close-request nil
+                          :pending nil :failed? false})
         text (StringBuilder.)
         listener
         (reify WebSocket$Listener
@@ -153,14 +236,7 @@
                        [_ _socket error]
                        (when error
                          ((:closed! adapter) 1006 "dao.stream/connect-failed")))))
-    {:send! (fn [message]
-              (if-let [socket (:socket @connection)]
-                (do (.join (.sendText ^WebSocket socket message true)) nil)
-                false))
-     :close! (fn [code reason]
-               (if-let [socket (:socket @connection)]
-                 (do (.sendClose ^WebSocket socket code reason) nil)
-                 (do (swap! connection assoc :close-request [code reason]) nil)))}))
+    (client-socket connection adapter)))
 
 
 (defn- offered-subprotocol?
