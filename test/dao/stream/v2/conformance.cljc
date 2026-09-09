@@ -9,6 +9,21 @@
      - Close laws (idempotent close, frozen availability, post-close outcomes)
      - Manifest outcome exhaustiveness and induction coverage
 
+   The exclusion principle:
+     Induction proves that every outcome a manifest declares is inducible.
+     It cannot prove that an outcome a manifest excludes is impossible —
+     an exclusion is discharged by the absence of a fixture, and absence
+     proves nothing.  Each exclusion is therefore a proof obligation,
+     discharged by one of three things: a structural argument about the
+     transport (there is no code path that could produce it), a property
+     law such as complete retention that would observe the outcome if it
+     fired, or a transport-specific falsification test.  Fixtures must
+     never be required for excluded outcomes: a fixture inducing one
+     would contradict the exclusion it is meant to support.  A law that
+     performs operations of its own is bound by the same declaration it
+     is checking, and must classify what it observes against the manifest
+     before interpreting it.
+
    Concurrency oracle:
      Bounded offline linearizability checking over recorded invocation intervals
      respecting happens-before real-time precedence and checking against an
