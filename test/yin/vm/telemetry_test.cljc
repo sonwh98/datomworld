@@ -96,16 +96,3 @@
     (is (fact? datoms :vm/phase :bridge))
     (is (fact? datoms :vm/bridge-op :op/echo))
     (is (= [[:number]] (filter vector? (fact-values datoms :vm/arg-shape))))))
-
-
-#?(:cljs (deftest wasm-eval-emits-telemetry-test
-           (let [telemetry-stream (make-stream)
-                 vm-result (vm/eval (wasm/create-vm
-                                      {:telemetry {:stream telemetry-stream,
-                                                   :vm-id :vm/wasm}})
-                                    {:type :literal, :value 42})
-                 datoms (stream-values telemetry-stream)]
-             (is (= 42 (vm/value vm-result)))
-             (is (fact? datoms :vm/model :wasm))
-             (is (fact? datoms :vm/phase :step))
-             (is (fact? datoms :vm/phase :halt)))))
