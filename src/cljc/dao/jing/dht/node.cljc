@@ -27,7 +27,7 @@
                     [dao.jing.mem :as mem]
                     [dao.jing.dht :as dht]
                     [dao.jing.dht.kad :as kad]
-                    [dao.stream.transit :as transit]))
+                    [dao.stream.v2.transit :as transit]))
   ;; :cljd nil must come FIRST: reader conditionals take the first
   ;; matching branch, and the cljd host pass also matches :clj, so with
   ;; :clj written first the import still reaches the Dart compiler.

@@ -16,7 +16,21 @@
                     [dao.jing.mem :as mem]
                     [dao.jing.dht :as dht]
                     [dao.jing.dht.node :as node]
-                    [dao.stream.transit :as transit])))
+                    [dao.stream.v2.transit :as transit]
+                    [cognitect.transit :as raw-transit])))
+
+
+#?(:cljd nil
+   :clj
+   (defn- raw-encode
+     "Encode straight through cognitect.transit, bypassing v2's
+      `ensure-portable!` on the outbound side too, so a datagram carrying a
+      tag v2 rejects (e.g. uuid) can be constructed as a hostile peer
+      unconstrained by the portable domain would send it."
+     ^bytes [msg]
+     (let [out (java.io.ByteArrayOutputStream.)]
+       (raw-transit/write (raw-transit/writer out :json) msg)
+       (.getBytes (.toString out "UTF-8") "UTF-8"))))
 
 
 #?(:cljd nil
@@ -150,6 +164,37 @@
              ;; b's receiver must survive to deliver the reply to the
              ;; forced fetch, whose value never replicated off a
              (let [v {:bytes [42]}
+                   k (jing/materialize! (:local a) v)]
+               (is (= v (jing/get b k nil))))))))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest non-portable-tag-decode-failure-is-dropped-not-fatal
+     (testing
+       "a datagram outside dao.stream.v2's portable domain is dropped on
+        decode, drawing no reply; the node keeps serving (D8: v2 decode
+        throws where v1 did not, for a uuid/bigint/bigdec/uri/quoted/link
+        tag)"
+       (with-cluster
+         2
+         (fn [[a b]]
+           (let [port (:port (dht/self-peer (:net b)))
+                 payload (raw-encode
+                           {:op :ping, :rpc 0, :id (java.util.UUID/randomUUID)})]
+             (with-open [s (java.net.DatagramSocket.)]
+               (.send s
+                      (java.net.DatagramPacket.
+                        payload
+                        (alength payload)
+                        (java.net.InetAddress/getByName "127.0.0.1")
+                        (int port)))
+               (.setSoTimeout s 200)
+               (is (thrown? java.net.SocketTimeoutException
+                     (.receive s (java.net.DatagramPacket.
+                                   (byte-array 65536) 65536)))
+                   "a datagram carrying a non-portable tag draws no reply: decode throws before the ping is ever handled"))
+             (let [v {:bytes [43]}
                    k (jing/materialize! (:local a) v)]
                (is (= v (jing/get b k nil))))))))))
 
