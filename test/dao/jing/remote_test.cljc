@@ -10,6 +10,11 @@
   (:require [clojure.test :refer [deftest is]]
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.apply :as apply]
+            [dao.stream.v2.ringbuffer :as ring]
+            [dao.stream.v2.rpc :as rpc]
+            [dao.stream.v2.ws :as ws]
             #?(:clj [dao.jing.file :as jing.file])
             [dao.jing.remote :as remote]
             #?(:clj [dao.stream.rpc.ws :as rpc-ws])))
@@ -379,3 +384,345 @@
                       (jing/get client absent-addr local-sentinel))))))
      :cljd (is true "network tests are JVM-only")
      :cljs (is true "network tests are JVM-only")))
+
+
+;; =============================================================================
+;; The DaoStream v2 portable core (migration Phase 1)
+;; =============================================================================
+
+(defn- ring-handle
+  "A fresh ring-buffer stream handle for the in-process media below."
+  ([] (ring-handle 16))
+  ([capacity]
+   (:dao.stream/handle
+     (ring/create! {:dao.stream/type ring/transport-type
+                    ring/capacity-key capacity}))))
+
+
+(defn- ring-cursor
+  [handle]
+  (:dao.stream/cursor (stream/cursor handle :dao.stream/oldest)))
+
+
+(defn- ring-client
+  "rpc/client-state over two ring buffers with no decoder: bare apply
+   responses and bare lifecycle values are accepted as-is."
+  [request-handle response-handle]
+  (rpc/client-state request-handle response-handle (ring-cursor response-handle)))
+
+
+(defn- serve-request!
+  "The hand-turned server step: dispatch `handlers` over the sole request the
+   writer carries and append the response to the reader."
+  [handlers request-handle response-handle]
+  (stream/append!
+    response-handle
+    (apply/dispatch-request
+      handlers
+      (:dao.stream/value (stream/next request-handle (ring-cursor request-handle))))))
+
+
+(deftest content-descriptor-derives-a-servable-descriptor
+  (let [derived (remote/content-descriptor "ws://127.0.0.1:7070")]
+    (is (= {:dao.stream/type :dao.stream/ws
+            :dao.stream/identity "dao.jing.remote/content"
+            :ws/host "127.0.0.1"
+            :ws/port 7070
+            :ws/path "/jing"}
+           derived)
+        "host, port, the default path and the fixed identity are derived")
+    (is (ws/descriptor? derived) "the derived descriptor is servable"))
+  (is (= 80 (:ws/port (remote/content-descriptor "ws://example.com")))
+      "an absent port means the WebSocket scheme's own")
+  (is (= "/jing" (:ws/path (remote/content-descriptor "ws://example.com")))
+      "an absent path names the content path")
+  (is (= "/" (:ws/path (remote/content-descriptor "ws://example.com:7070/")))
+      "an explicit / stays /")
+  (is (= "/elsewhere"
+         (:ws/path (remote/content-descriptor "ws://example.com:7070/elsewhere")))
+      "an explicit path is kept as written")
+  (is (ws/descriptor? (remote/content-descriptor "ws://example.com:7070/elsewhere")))
+  (is (ws/descriptor? (remote/content-descriptor "ws://example.com?query=1#frag"))
+      "query and fragment are ignored, not part of the request target")
+  (doseq [url ["wss://example.com"
+               "http://example.com"
+               "daostream:ws://example.com"
+               "example.com:7070"
+               "ws:///no-host"
+               "ws://:7070"
+               "ws://example.com:0"
+               "ws://example.com:7zero"
+               "ws://[::1]:7070"]]
+    (is (thrown? #?(:clj Exception
+                    :cljd Object
+                    :cljs js/Error)
+          (remote/content-descriptor url))
+        (str "must throw before any socket: " url))))
+
+
+(deftest call-step-completes-one-request-over-in-process-media
+  ;; One request crosses the writer, a hand-turned dispatch over
+  ;; default-handlers answers it, and the step completes with the value.
+  (let [request-handle (ring-handle)
+        response-handle (ring-handle)
+        store (mem/create-content-mem)
+        handlers (remote/default-handlers store)
+        payload {:hello "world"}
+        address (jing/segment-key payload)]
+    (try
+      (is (= :inserted ((:jing/put-content handlers) address payload)))
+      (let [requested (rpc/request! (ring-client request-handle response-handle)
+                                    :jing/get-content [address])
+            state (:dao.stream.v2.rpc/state requested)]
+        (is (= :dao.stream.v2.rpc/requested (:dao.stream.v2.rpc/outcome requested)))
+        (is (= 0 (:dao.stream.v2.rpc/id requested)))
+        (is (= :pending (:status (remote/call-step state 0 1)))
+            "before any response exists the step is pending")
+        (serve-request! handlers request-handle response-handle)
+        (let [done (remote/call-step state 0 1)]
+          (is (= :done (:status done)))
+          (is (= {:found? true, :value payload}
+                 (remote/completion-value (:completion done)))
+              "an ok response yields the presence envelope")
+          (is (= [] (:completed (:state done))))
+          (is (= [] (:diagnostics (:state done))))))
+      (finally (jing/close! store))))
+  ;; A handler that throws becomes an error response (H5), which
+  ;; completion-value decodes into N9's error.
+  (let [request-handle (ring-handle)
+        response-handle (ring-handle)
+        handlers {:jing/get-content (fn [_address] (throw (ex-info "boom" {})))}
+        address (jing/segment-key {:x 1})
+        requested (rpc/request! (ring-client request-handle response-handle)
+                                :jing/get-content [address])
+        state (:dao.stream.v2.rpc/state requested)]
+    (serve-request! handlers request-handle response-handle)
+    (let [done (remote/call-step state 0 1)]
+      (is (= :done (:status done)))
+      (try
+        (remote/completion-value (:completion done))
+        (is false "an error response must throw")
+        (catch #?(:clj Exception
+                  :cljd Object
+                  :cljs js/Error)
+               e
+          (is (= {:operation :jing/get-content
+                  :error {:dao.stream.v2.apply/code :dao.stream.v2.apply/handler-error
+                          :dao.stream.v2.apply/message "Handler failed"}}
+                 (ex-data e))
+              "the error map is carried under :error")))))
+  ;; A terminal lifecycle on the reader, with nothing outstanding, ends the
+  ;; step as terminal with the reason.
+  (let [response-handle (ring-handle)
+        state (ring-client (ring-handle) response-handle)]
+    (stream/append! response-handle :dao.stream.v2.apply/detached)
+    (let [r (remote/call-step state 0 4)]
+      (is (= :terminal (:status r)))
+      (is (= :dao.stream.v2.apply/detached (:reason r)))))
+  ;; The same lifecycle with a call in flight loses that call on the ordinary
+  ;; completion path; completion-value throws N9's loss with the reason.
+  (let [request-handle (ring-handle)
+        response-handle (ring-handle)
+        address (jing/segment-key {:x 1})
+        state (:dao.stream.v2.rpc/state
+                (rpc/request! (ring-client request-handle response-handle)
+                              :jing/get-content [address]))]
+    (stream/append! response-handle :dao.stream.v2.apply/detached)
+    (let [r (remote/call-step state 0 4)]
+      (is (= :done (:status r))
+          "the in-flight call is lost on the completion path, not left pending")
+      (try
+        (remote/completion-value (:completion r))
+        (is false "a lost completion must throw")
+        (catch #?(:clj Exception
+                  :cljd Object
+                  :cljs js/Error)
+               e
+          (is (= {:operation :jing/get-content
+                  :reason :dao.stream.v2.apply/detached}
+                 (ex-data e)))))
+      (is (= [] (:completed (:state r))))
+      (is (= [] (:diagnostics (:state r))))))
+  ;; A response for a foreign id is consumed and discarded; the awaited call
+  ;; stays pending.
+  (let [request-handle (ring-handle)
+        response-handle (ring-handle)
+        address (jing/segment-key {:x 1})
+        state (:dao.stream.v2.rpc/state
+                (rpc/request! (ring-client request-handle response-handle)
+                              :jing/get-content [address]))]
+    (stream/append! response-handle (apply/success-response 7 :foreign))
+    (let [r (remote/call-step state 0 4)]
+      (is (= :pending (:status r)))
+      (is (= [] (:diagnostics (:state r)))
+          "the foreign response is consumed as an unsolicited diagnostic and dropped")
+      (is (= [] (:completed (:state r))))
+      (is (= {0 {:op :jing/get-content, :args [address]}}
+             (:outstanding (:state r)))
+          "the awaited call is still outstanding")))
+  ;; A writer answering full once leaves the envelope :unsent; the next step
+  ;; retries that same envelope and completes.
+  (let [request-handle (ring-handle)
+        response-handle (ring-handle)
+        full-writer (reify stream/IDaoStreamWriter
+                      (append! [_ _] {:dao.stream/outcome :dao.stream/full}))
+        address (jing/segment-key {:x 1})
+        pending (:dao.stream.v2.rpc/state
+                  (rpc/request! (rpc/client-state full-writer response-handle
+                                                  (ring-cursor response-handle))
+                                :jing/get-content [address]))]
+    (is (true? (rpc/unsent? pending)))
+    (let [retried (remote/call-step (assoc pending :writer request-handle) 0 1)]
+      (is (= :pending (:status retried))
+          "the retry delivers the envelope; no response exists yet")
+      (stream/append! response-handle (apply/success-response 0 :delivered))
+      (let [done (remote/call-step (:state retried) 0 1)]
+        (is (= :done (:status done)))
+        (is (= :delivered (remote/completion-value (:completion done))))))))
+
+
+(deftest retire-call-drops-bookkeeping-and-a-late-response-is-unsolicited
+  (let [address (jing/segment-key {:payload "content"})
+        request-handle (ring-handle)
+        response-handle (ring-handle)
+        requested (rpc/request! (ring-client request-handle response-handle)
+                                :jing/get-content [address])
+        state (:dao.stream.v2.rpc/state requested)
+        retired (remote/retire-call state 0 :dao.jing.remote/timeout)]
+    (is (= 0 (:dao.stream.v2.rpc/id requested)))
+    (is (= {} (:outstanding retired)) "the retired id leaves :outstanding")
+    (is (= 1 (:next-id retired)) ":next-id never moves back")
+    (is (= [] (:completed retired)))
+    ;; The response nobody awaits anymore arrives, is classified unsolicited,
+    ;; and never reaches the next call.
+    (stream/append! response-handle (apply/success-response 0 :stale))
+    (let [next-requested (rpc/request! retired :jing/get-content [address])
+          next-state (:dao.stream.v2.rpc/state next-requested)]
+      (is (= 1 (:dao.stream.v2.rpc/id next-requested)))
+      (is (not (contains? (:outstanding next-state) 0)))
+      (stream/append! response-handle (apply/success-response 1 :fresh))
+      (let [done (remote/call-step next-state 1 8)]
+        (is (= :done (:status done)))
+        (is (= :fresh (remote/completion-value (:completion done)))
+            "id 1 gets id 1's value")
+        (is (= [] (:completed (:state done))))
+        (is (= [] (:diagnostics (:state done)))
+            "id 0's late response was dropped as unsolicited, not delivered"))))
+  ;; Retiring while still :unsent abandons the envelope, and the abandonment
+  ;; completion is drained by retire-call itself.
+  (let [address (jing/segment-key {:payload "content"})
+        request-handle (ring-handle)
+        response-handle (ring-handle)
+        full-writer (reify stream/IDaoStreamWriter
+                      (append! [_ _] {:dao.stream/outcome :dao.stream/full}))
+        pending (:dao.stream.v2.rpc/state
+                  (rpc/request! (rpc/client-state full-writer response-handle
+                                                  (ring-cursor response-handle))
+                                :jing/get-content [address]))]
+    (is (true? (rpc/unsent? pending)))
+    (let [retired (remote/retire-call pending 0 :dao.jing.remote/timeout)]
+      (is (= [] (:completed retired))
+          "the abandonment completion is drained on return")
+      (is (false? (rpc/unsent? retired)))
+      (is (= 1 (:next-id retired)))
+      (let [next-requested (rpc/request! (assoc retired :writer request-handle)
+                                         :jing/get-content [address])
+            next-state (:dao.stream.v2.rpc/state next-requested)]
+        (is (= 1 (:dao.stream.v2.rpc/id next-requested)))
+        (stream/append! response-handle (apply/success-response 1 :second))
+        (let [done (remote/call-step next-state 1 8)]
+          (is (= :done (:status done)))
+          (is (= :second (remote/completion-value (:completion done)))
+              "the next call proceeds through a working writer"))))))
+
+
+(deftest await-established-step-observes-only-lifecycle
+  ;; No event yet: pending.
+  (is (= :pending
+         (:status (remote/await-established-step
+                    (ring-client (ring-handle) (ring-handle))))))
+  ;; A bare /established establishes.
+  (let [response-handle (ring-handle)
+        state (ring-client (ring-handle) response-handle)]
+    (stream/append! response-handle :dao.stream.v2.apply/established)
+    (is (= :established (:status (remote/await-established-step state)))))
+  ;; A bare /detached first: terminal with the reason.
+  (let [response-handle (ring-handle)
+        state (ring-client (ring-handle) response-handle)]
+    (stream/append! response-handle :dao.stream.v2.apply/detached)
+    (let [r (remote/await-established-step state)]
+      (is (= :terminal (:status r)))
+      (is (= :dao.stream.v2.apply/detached (:reason r)))))
+  ;; A response element before /established is consumed as a diagnostic and
+  ;; does not establish; the /established behind it still establishes.
+  (let [response-handle (ring-handle)
+        state (ring-client (ring-handle) response-handle)]
+    (stream/append! response-handle (apply/success-response 0 :early))
+    (let [first (remote/await-established-step state)]
+      (is (= :pending (:status first))
+          "a response element does not establish")
+      (is (= [] (:diagnostics (:state first)))
+          "the unsolicited response is consumed as a diagnostic and dropped")
+      (is (= [] (:completed (:state first))))
+      (stream/append! response-handle :dao.stream.v2.apply/established)
+      (let [second (remote/await-established-step (:state first))]
+        (is (= :established (:status second)))))))
+
+
+(deftest immediate-refusals-leave-no-payload-behind
+  (let [refusing-writer (reify stream/IDaoStreamWriter
+                          (append! [_ _] {:dao.stream/outcome :dao.stream/invalid-value}))
+        response-handle (ring-handle)
+        payload {:secret "payload"}
+        address (jing/segment-key payload)
+        refused (reduce
+                  (fn [state _refusal]
+                    (let [result (rpc/request! state :jing/put-content
+                                               [address payload])]
+                      (is (= :dao.stream.v2.rpc/request-undeliverable
+                             (:dao.stream.v2.rpc/outcome result)))
+                      (is (= :dao.stream/invalid-value
+                             (:dao.stream.v2.rpc/reason result))
+                          "the append's refusal reason is reported every time")
+                      (let [state (:dao.stream.v2.rpc/state result)]
+                        (is (= 1 (count (:completed state)))
+                            "the refusal completes at once, carrying the request's args")
+                        (is (= [address payload]
+                               (get-in state [:completed 0 :dao.stream.v2.rpc/args])))
+                        (let [drained (remote/drain-outboxes state)]
+                          (is (= 0 (count (:completed drained)))
+                              "the stored state keeps no completion after the exit")
+                          (is (= 0 (count (:diagnostics drained))))
+                          (is (= {} (:outstanding drained)))
+                          drained))))
+                  (rpc/client-state refusing-writer response-handle
+                                    (ring-cursor response-handle))
+                  (range 3))]
+    (is (= 3 (:next-id refused)) "three ids were allocated and consumed")
+    ;; An invalid request appends a diagnostic carrying the op and args; the
+    ;; drain clears it the same way.
+    (let [result (rpc/request! refused "not-a-keyword" [address payload])
+          state (:dao.stream.v2.rpc/state result)]
+      (is (= :dao.stream.v2.rpc/invalid-request
+             (:dao.stream.v2.rpc/outcome result)))
+      (is (= {:op "not-a-keyword", :args [address payload]}
+             (:dao.stream.v2.rpc/value (first (:diagnostics state)))))
+      (let [drained (remote/drain-outboxes state)]
+        (is (= 0 (count (:completed drained))))
+        (is (= 0 (count (:diagnostics drained))))))
+    ;; A working writer recovers: the fourth request completes normally.
+    (let [request-handle (ring-handle)
+          store (mem/create-content-mem)
+          handlers (remote/default-handlers store)]
+      (try
+        (let [requested (rpc/request! (assoc refused :writer request-handle)
+                                      :jing/get-content [address])
+              state (:dao.stream.v2.rpc/state requested)]
+          (is (= 3 (:dao.stream.v2.rpc/id requested))
+              "the allocator is untouched by the refusals' drain")
+          (serve-request! handlers request-handle response-handle)
+          (let [done (remote/call-step state 3 8)]
+            (is (= :done (:status done)))
+            (is (= {:found? false, :value nil}
+                   (remote/completion-value (:completion done))))))
+        (finally (jing/close! store))))))
