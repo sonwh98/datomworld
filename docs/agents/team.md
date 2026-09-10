@@ -11,120 +11,147 @@ session protocol, verification, and operational CLI recipes in
 
 ## Roster
 
-The Orchestrator is deliberately absent from this table: it is not routed and has
-no primary or fallback, but is whichever coding agent the user starts and assigns
-the role to. See [`orchestrator.md`](./roles/orchestrator.md).
+The Orchestrator is deliberately absent from this table; it is the user-facing
+agent that centrally routes tasks to these roles.
 
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
-| Role                | Primary            | Fallbacks                                                                    | Responsibility                                        |
-+=====================+====================+==============================================================================+=======================================================+
-| Architect           | `claude-fable-5-1` | `gpt-6-astra`, `gpt-5.6-sol`, `claude-opus-5`                                | Axioms, invariants, boundaries, architecture          |
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
-| VM Runtime          | `glm-5.3`          | `claude-sonnet-5`, `gpt-5.6-terra`                                           | CESK, VMs, continuations, macros, loops               |
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
-| Storage & Indexing  | `glm-5.3`          | `claude-sonnet-5`, `deepseek-v4-pro`                                         | B-trees, indexing, DHT, storage, query                |
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
-| Compiler & AST      | `claude-opus-5`    | `gpt-6-astra`, `gpt-5.6-sol`, `glm-5.3`, `gpt-5.6-terra`, `qwen/qwen3.8-max` | AST, lowering, compile-time macros                    |
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
-| Stream & Network    | `claude-opus-5`    | `glm-5.3`, `gpt-5.6-terra`, `gpt-5.6-luna`, `deepseek-v4-pro`                | Streams, framing, concurrency, transports, codecs,    |
-|                     |                    |                                                                              | RPC                                                   |
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
-| Frontend & Graphics | `gpt-5.6-sol`      | `claude-opus-5`, `gemini-3.8-flash`, `moonshotai/kimi-k2.7-code`             | Events, WebGL/WebGPU, canvas, terminal                |
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
-| QA & Verification   | `claude-sonnet-5`  | `gemini-3.8-flash`, `glm-5.3-flash`, `gpt-5.4-mini`, `deepseek-flash`        | TDD, parity, lint, regression                         |
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
-| Routine Review      | `gpt-5.6-sol`      | `glm-5.3`, `claude-opus-5`, `deepseek-v4-pro`, `qwen/qwen3.8-max`,           | Correctness, invariants, portability                  |
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
-| Adversarial Review  | `deepseek-v4-pro`  | `gpt-6-astra`, `gpt-5.6-sol`, `gemini-3.1-pro-high`                          | Independent defect discovery, cross-host challenge    |
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
-| Security Sign-off   | `claude-fable-5-1` | `gpt-6-astra`, `gpt-5.6-sol`, `claude-opus-5`                                | Capability boundaries, high-risk review               |
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
-| Scoped / Subagent   | `glm-5.3-flash`    | `gpt-5.6-terra`, `gemini-3.8-flash`, `gpt-5.4-mini`, `deepseek-flash`        | Bounded searches, edits, docs, lint                   |
-+---------------------+--------------------+------------------------------------------------------------------------------+-------------------------------------------------------+
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
+| Role                   | Responsibility                                                                                                                                |
++========================+===============================================================================================================================================+
+| Adversarial Review     | Independent defect discovery, cross-host challenge                                                                                            |
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
+| Architect              | Axioms, invariants, boundaries, architecture                                                                                                  |
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
+| Compiler & AST         | AST, lowering, compile-time macros                                                                                                            |
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
+| Frontend & Graphics    | Events, WebGL/WebGPU, canvas, terminal                                                                                                        |
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
+| QA & Verification      | TDD, parity, lint, regression                                                                                                                 |
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
+| Routine Review         | Correctness, invariants, portability                                                                                                          |
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
+| Scoped / Subagent      | Bounded searches, edits, docs, lint                                                                                                           |
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
+| Security Sign-off      | Capability boundaries, high-risk review                                                                                                       |
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
+| Storage & Indexing     | B-trees, indexing, DHT, storage, query                                                                                                        |
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
+| Stream & Network       | Streams, framing, concurrency, transports, codecs, RPC                                                                                        |
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
+| VM Runtime             | CESK, VMs, continuations, macros, loops                                                                                                       |
++------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
 
-Any model may fill any role; promote or demote it using representative work,
-findings, tests, latency, and cost.
 
-## Role selection and reviewer independence
+## Available Subscriptions & Cost Constraints
 
-Select the listed primary when available and use a listed fallback when it is
-not; never silently substitute a same-family reviewer.
+The Orchestrator routes work using these cost profiles. Flat subscriptions are preferred; metered models are reserved for tasks explicitly requiring them.
 
-Every change is reviewed by a different family: GPT→Gemini/Claude/GLM/Qwen,
-GLM→GPT/Claude/Gemini/Qwen, Claude→GPT/Gemini/GLM/Qwen, Gemini→GPT/Claude/GLM/Qwen.
-Routine review applies only when independent; architectural or security review
-is mandatory when the role or risk requires it.
-
-Operational routing constraints and all coordination procedures are defined by
-the [`Lead Engineering Orchestrator`](./roles/orchestrator.md).
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| Provider        | Cost Structure                         | Routing Notes                                                                                               |
++=================+========================================+=============================================================================================================+
+| agy             | Flat: Included                         | Treated as a flat subscription. Use freely within budget.                                                   |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| claude          | Flat: Pro Max plan ($100/mo)           | Use freely within budget. Invoked only through `claude` or `agy`.                                           |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| cmd             | Flat: CommandCode.ai Go plan ($1/mo)   | Use freely within budget. Used to invoke any LLMs not directly listed in this table.                        |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| codex           | Flat: ChatGPT Plus ($20/mo)            | Use freely within budget.                                                                                   |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| deepseek        | Metered: Pay-by-token                  | Variable cost. Reserve for work worth the expense. V4-Pro is being superseded by V4.1 Flash; prefer Flash.  |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| glm             | Flat: Pro yearly plan ($672/yr)        | Peak hours: weekdays 14:00-18:00 UTC+8. Schedule large jobs off-peak (50% rate).                            |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| muse            | Metered: Pay-by-token                  | Variable cost. Reserve for work worth the expense. Invoked only via `~/.local/bin/muse` with `muse-         |
+|                 |                                        | spark-1.3-contributor`.                                                                                     |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 
 ## Model Strengths and Selection Guide
 
 The following guide details the strengths, weaknesses, and optimal use cases for each model based on their current (late 2026) technical capabilities.
 
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| Model                       | Strengths & When to Use                                                 | Weaknesses & When Not to Use                                            |
-+=============================+=========================================================================+=========================================================================+
-| `claude-fable-5-1`          | High-stakes knowledge work; rigorous self- verification; strict         | Slower inference; can be overly rigid in verifying prior assumptions.   |
-|                             | adherence to boundaries and avoiding shortcuts. **Best for:** Security  | **Avoid for:** Routine fast-loop tasks; exploratory coding where strict |
-|                             | sign-offs, architecture definition, and critical high-risk code         | rigor is overkill.                                                      |
-|                             | boundaries.                                                             |                                                                         |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `gpt-6-astra`               | True "computer operator" capabilities; exceptional at multi-step        | Can be "too aligned" or overly cautious in certain complex edge cases.  |
-|                             | navigation, cybersecurity, and deep reasoning. **Best for:** Complex    | **Avoid for:** Simple refactoring; unbounded exploratory coding where   |
-|                             | system invariants, architectural fallback, navigating external tools.   | extreme caution hinders progress.                                       |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `gpt-5.6-sol`               | Very strong autonomous behavior; excellent coding and graphics          | Known for unpredictable autonomous boundary-pushing during its testing  |
-|                             | capabilities; aggressive problem-solving. **Best for:** Frontend,       | phase. **Avoid for:** Tasks requiring strict alignment and extreme      |
-|                             | WebGL, events, and routine complex reviews.                             | caution.                                                                |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `gemini-3.8-flash`          | Lightning-fast inference; highly cost- efficient; optimized for long-   | Lower reasoning ceiling on novel architectural paradoxes compared to    |
-|                             | horizon software engineering workflows. **Best for:** QA, verification, | flagship models. **Avoid for:** Core security capability enforcement;   |
-|                             | subagents, fast frontend fallback.                                      | top-level architecture.                                                 |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `glm-5.3`                   | Exceptional at complex programming and long-horizon tasks; emergent     | Heavier footprint; can overcomplicate simple data framing. **Avoid      |
-|                             | cyber capabilities. **Best for:** VMs, storage, indexing, DHTs, and     | for:** UI/UX, canvas, or WebGPU tasks.                                  |
-|                             | networking.                                                             |                                                                         |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `deepseek-v4-pro`           | Massive 1.6T MoE architecture; hybrid attention for long-context        | Community has noted occasional performance inconsistencies relative to  |
-|                             | efficiency; strong frontier reasoning. **Best for:** Adversarial        | its massive parameter count. **Avoid for:** Fast latency-sensitive      |
-|                             | reviews, cross-host challenges, defect discovery.                       | subagents; tasks requiring absolute predictability.                     |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `qwen/qwen3.8-max`          | Massive 1M-token context window; 2.4T MoE foundation; highly capable at | High compute overhead; slower response times for short prompts. **Avoid |
-|                             | complex coding and research. **Best for:** Compiler lowering, AST       | for:** Low-latency bounded searches or quick edits.                     |
-|                             | analysis, routine large-scale reviews.                                  |                                                                         |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `claude-opus-5`             | Deep context processing; expert at compilers, ASTs, and network         | Higher latency and cost compared to Sonnet or Flash variants. **Avoid   |
-|                             | framing. **Best for:** AST manipulation, complex stream codecs, network | for:** Fast QA loops or simple code generation.                         |
-|                             | transports.                                                             |                                                                         |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `claude-sonnet-5`           | High speed-to-intelligence ratio; great at TDD and test parity. **Best  | Less rigorous than Fable for security or capability bounds. **Avoid     |
-|                             | for:** QA, verification, routine testing.                               | for:** Deep architectural security design.                              |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `gpt-5.6-terra`             | Solid mid-range performance; excellent at data streams and networking   | Struggles with the deepest compiler lowering edge cases. **Avoid for:** |
-|                             | protocols. **Best for:** Network streams, VM runtimes, subagent         | Top- level system architecture.                                         |
-|                             | fallback.                                                               |                                                                         |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `gpt-5.6-luna`              | Lightweight and very fast. **Best for:** Simple network stream framing. | Limited context depth and reasoning. **Avoid for:** Complex AST         |
-|                             |                                                                         | compilation.                                                            |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `gpt-5.4-mini`              | Extremely fast; highly cost-effective for large-scale repetition.       | Low reasoning ceiling; struggles with multi-step logic. **Avoid for:**  |
-|                             | **Best for:** TDD loops, simple linting, scoped text edits.             | Any complex logical refactoring.                                        |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `glm-5.3-flash`             | High performance at a lower computational cost; steep discounts during  | Limited complex reasoning on novel architectures. **Avoid for:** Peak-  |
-|                             | off-peak hours. **Best for:** Scoped subagents, bounded searches.       | hour execution if budget is tight; core architecture.                   |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `deepseek-flash`            | Blazing fast inference; highly cost- effective and open-weights         | Can hallucinate on deep invariant constraints. **Avoid for:** Complex   |
-|                             | aligned. **Best for:** QA parity checks, scoped subagent work.          | system design, AST lowering.                                            |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `gemini-3.1-pro-high`       | High capability reasoning; strong defect discovery. **Best for:**       | Can be overly verbose in output generation. **Avoid for:** Routine      |
-|                             | Adversarial review fallback.                                            | short-horizon subagent tasks.                                           |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `moonshotai/kimi-k2.7-code` | Extremely long context window tailored for code. **Best for:** Context- | Niche ecosystem; less generalized reasoning outside of code. **Avoid    |
-|                             | heavy frontend or terminal tasks.                                       | for:** Core VM or indexing logic requiring broad theoretical knowledge. |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
-| `muse-spark-1.3-contribute` | Extremely low cost; strong multi-step agentic tasks and 1M long-context | Prompts and completions are used for Meta's training data; lower rate   |
-|                             | retrieval. **Best for:** Open-source workflows, non-sensitive bulk      | limits. **Avoid for:** Any proprietary, sensitive, or confidential      |
-|                             | processing, or large-scale multi-step evaluation where data privacy is  | enterprise code where data retention poses a security risk.             |
-|                             | not a concern.                                                          |                                                                         |
-+-----------------------------+-------------------------------------------------------------------------+-------------------------------------------------------------------------+
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| Model                       | Strengths & When to Use                                            | Weaknesses & When Not to Use                                        |
++=============================+====================================================================+=====================================================================+
+| `claude-fable-5-1`          | High-stakes knowledge work; rigorous self- verification; strict    | Slower inference; can be overly rigid in verifying prior            |
+|                             | adherence to boundaries and avoiding shortcuts. **Best for:**      | assumptions. **Avoid for:** Routine fast-loop tasks; exploratory    |
+|                             | Security sign-offs, architecture definition, and critical high-    | coding where strict rigor is overkill.                              |
+|                             | risk code boundaries.                                              |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `claude-opus-5`             | Deep context processing; expert at compilers, ASTs, and network    | Higher latency and cost compared to Sonnet or Flash variants.       |
+|                             | framing. **Best for:** AST manipulation, complex stream codecs,    | **Avoid for:** Fast QA loops or simple code generation.             |
+|                             | network transports.                                                |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `claude-sonnet-5`           | High speed-to-intelligence ratio; great at TDD and test parity.    | Less rigorous than Fable for security or capability bounds. **Avoid |
+|                             | **Best for:** QA, verification, routine testing.                   | for:** Deep architectural security design.                          |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `deepseek-flash`            | Blazing fast inference; highly cost- effective and open-weights    | Can hallucinate on deep invariant constraints. **Avoid for:**       |
+|                             | aligned. **Best for:** QA parity checks, scoped subagent work.     | Complex system design, AST lowering.                                |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `deepseek-v4-pro`           | Massive 1.6T MoE architecture; 1M long-context via Hybrid          | High operational cost; "undercooked" performance relative to its    |
+|                             | Attention. Best for: Advanced logic workflows, multi-step          | 1.6T size. Avoid for: General use, as DeepSeek is actively          |
+|                             | reasoning, and adversarial reviews.                                | replacing it with the much more efficient V4.1 Flash.               |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gemini-3.1-pro-high`       | High capability reasoning; strong defect discovery. **Best for:**  | Can be overly verbose in output generation. **Avoid for:** Routine  |
+|                             | Adversarial review fallback.                                       | short-horizon subagent tasks.                                       |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gemini-3.8-flash`          | Lightning-fast inference; highly cost- efficient; optimized for    | Lower reasoning ceiling on novel architectural paradoxes compared   |
+|                             | long- horizon software engineering workflows. **Best for:** QA,    | to flagship models. **Avoid for:** Core security capability         |
+|                             | verification, subagents, fast frontend fallback.                   | enforcement; top-level architecture.                                |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `glm-5.3`                   | Exceptional at complex programming and long-horizon tasks;         | Heavier footprint; can overcomplicate simple data framing. **Avoid  |
+|                             | emergent cyber capabilities. **Best for:** VMs, storage, indexing, | for:** UI/UX, canvas, or WebGPU tasks.                              |
+|                             | DHTs, and networking.                                              |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `glm-5.3-flash`             | High performance at a lower computational cost; steep discounts    | Limited complex reasoning on novel architectures. **Avoid for:**    |
+|                             | during off-peak hours. **Best for:** Scoped subagents, bounded     | Peak- hour execution if budget is tight; core architecture.         |
+|                             | searches.                                                          |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gpt-5.4-mini`              | Extremely fast; highly cost-effective for large-scale repetition.  | Low reasoning ceiling; struggles with multi-step logic. **Avoid     |
+|                             | **Best for:** TDD loops, simple linting, scoped text edits.        | for:** Any complex logical refactoring.                             |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gpt-5.6-luna`              | Lightweight and very fast. **Best for:** Simple network stream     | Limited context depth and reasoning. **Avoid for:** Complex AST     |
+|                             | framing.                                                           | compilation.                                                        |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gpt-5.6-sol`               | Very strong autonomous behavior; excellent coding and graphics     | Known for unpredictable autonomous boundary-pushing during its      |
+|                             | capabilities; aggressive problem-solving. **Best for:** Frontend,  | testing phase. **Avoid for:** Tasks requiring strict alignment and  |
+|                             | WebGL, events, and routine complex reviews.                        | extreme caution.                                                    |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gpt-5.6-terra`             | Solid mid-range performance; excellent at data streams and         | Struggles with the deepest compiler lowering edge cases. **Avoid    |
+|                             | networking protocols. **Best for:** Network streams, VM runtimes,  | for:** Top- level system architecture.                              |
+|                             | subagent fallback.                                                 |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gpt-6-astra`               | True "computer operator" capabilities; exceptional at multi-step   | Can be "too aligned" or overly cautious in certain complex edge     |
+|                             | navigation, cybersecurity, and deep reasoning. **Best for:**       | cases. **Avoid for:** Simple refactoring; unbounded exploratory     |
+|                             | Complex system invariants, architectural fallback, navigating      | coding where extreme caution hinders progress.                      |
+|                             | external tools.                                                    |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `moonshotai/kimi-k2.7-code` | Extremely long context window tailored for code. **Best for:**     | Niche ecosystem; less generalized reasoning outside of code.        |
+|                             | Context- heavy frontend or terminal tasks.                         | **Avoid for:** Core VM or indexing logic requiring broad            |
+|                             |                                                                    | theoretical knowledge.                                              |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `muse-spark-1.3-contribute` | Extremely low cost; strong multi-step agentic tasks and 1M long-   | Prompts and completions are used for Meta's training data; lower    |
+|                             | context retrieval. **Best for:** Open-source workflows, non-       | rate limits. **Avoid for:** Any proprietary, sensitive, or          |
+|                             | sensitive bulk processing, or large-scale multi-step evaluation    | confidential enterprise code where data retention poses a security  |
+|                             | where data privacy is not a concern.                               | risk.                                                               |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `qwen/qwen3.8-max`          | Massive 1M-token context window; 2.4T MoE foundation; highly       | High compute overhead; slower response times for short prompts.     |
+|                             | capable at complex coding and research. **Best for:** Compiler     | **Avoid for:** Low-latency bounded searches or quick edits.         |
+|                             | lowering, AST analysis, routine large-scale reviews.               |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+
+## Role Selection & Reviewer Independence
+
+The Orchestrator is completely responsible for selecting the implementer for a given role. It dynamically
+cross-references the task's requirements against the **Model Strengths and Selection Guide** and the
+**Available Subscriptions & Cost Constraints**. Any model may fill any role provided its technical profile and
+cost align with the task.
+
+**Reviewer Independence Rules:**
+Every change must be reviewed by a model from a **different family** to ensure
+independent defect discovery. Never silently substitute a same-family reviewer.
+The families represented in the Model Strengths table are: **Claude**,
+**DeepSeek**, **Gemini**, **GLM**, **GPT**, **Kimi**, **Muse**, and **Qwen**.
+Any author from one family must be reviewed by a model from a different family.
+
+Routine review applies only when independent; architectural or security review
+is mandatory when the role or risk requires it. For operational procedures, see
+the [`Lead Engineering Orchestrator`](./roles/orchestrator.md).

@@ -7,8 +7,7 @@ description: Lead Engineering Orchestrator role definition for datom.world
 ## Domain Scope
 
 - Task scope, authorization boundaries, and phase completion criteria
-- Role and implementer selection under the current roster and routing policy in
-  [`team.md`](../team.md)
+- Complete ownership of task routing and role assignments as defined in [`team.md`](../team.md)
 - Timestamped file-based handoffs, the append-only work log, session reuse,
   and delegated-agent patience
 - Independent verification, finding reconciliation, and consensus
@@ -31,27 +30,23 @@ types `docs|feat|fix|refactor|perf|test|build|chore`; an optional body explains
 non-obvious behavior or invariants. Use no trailing period, allow merge
 exceptions, and never add `Co-Authored-By`, including LLM attribution.
 
-Delegated claims are untrusted: verify artifacts, expected files, actual tests
-and assertion counts, and fresh generated CLJD output; read unfiltered output
-first. If local tests already pass, ask reviewers to spend their budget on
-static analysis rather than rerunning the full suite, except when security
-review requires a rerun. See [`build-n-test.md`](../build-n-test.md).
+Delegated claims are untrusted: always verify artifacts, files, and test results locally. Do not force later
+reviewers to rerun passing test suites unless security review requires it (see Workflow step 6 and
+[`build-n-test.md`](../build-n-test.md)).
 
-Prefer flat subscriptions (`claude`, `agy`, `codex`, `glm`); Command Code is
-opportunistic. Reserve Muse/DeepSeek for work worth metered cost. Confirm a
-model exists through its CLI before invoking it. Claude is invoked only through
-`claude` or `agy`; Muse only through `~/.local/bin/muse` with
-`muse-spark-1.3-contributor`; never use AGY `invoke_subagent`; shell out to the
-listed CLIs. The interactive session is the actual orchestrator. GLM peak hours
-are weekdays 14:00–18:00 UTC+8. During off-peak hours, usage is charged at 50%
-of the standard rate; schedule large jobs off-peak when possible.
+For cost constraints and specific CLI routing caveats, refer to the **Available Subscriptions & Cost Constraints**
+table in [`team.md`](../team.md). Always confirm a model exists through its CLI before invoking it. The
+interactive session is the actual orchestrator.
 
 ## Artifact protocol
 
 Coordination is through repository artifacts, not hidden context. Keep all
 artifacts flat under `collab/`:
 `<timestamp>-<role>-<task>.prompt.md`, `<timestamp>-<role>-<task>.<sanitized-model>.findings.md`, and `<timestamp>-<role>-<task>.<sanitized-model>.stdout.log`.
-The prefix `<timestamp>` must be a UNIX timestamp in milliseconds (e.g. `1725791234567`) so that files automatically sort chronologically in Git's untracked view.
+The prefix `<timestamp>` must be a UNIX timestamp in milliseconds (e.g. `1725791234567`) so that files
+automatically sort chronologically in Git's untracked view. Including `<sanitized-model>` prevents parallel
+reviewers from colliding.
+
 Every prompt starts with:
 
 ```text
@@ -65,26 +60,15 @@ Implementers:
 - Model: <model> | Assigned: <timestamp> | Status: active | Rationale: <why>
 ```
 
-Every report starts with the same Completed-GMT/Local, Coding-Agent, and exact
-Session-ID fields. For an interactive orchestrator seat with no delegated CLI
-session, record and repeat `Session-ID: not-applicable (interactive seat)`.
-For every Claude Code-based CLI (`claude`, `glm`, `deepseek`, and `muse`),
-generate the UUID before launch, record it in the prompt, and pass it with
-`--session-id`; text output does not expose the ID reliably. `--name` is a
-display label, not a session ID. Codex, AGY, and Command Code generate their IDs;
-record `Session-ID: pending (provider-generated)` in the initial prompt, capture
-the exact ID from structured output, and use it in every report and follow-up.
-The orchestrator writes that captured ID into the promoted findings header.
-Never record `none` merely because plain-text output omitted session metadata.
+Every report starts with the same header fields. Use actual timestamps; never fabricate them. 
+See [Session continuity](#session-continuity) for strict rules on generating, capturing, and resuming Session-IDs.
 
-`collab/` is append-only and never staged or committed. It must explicitly NOT be added to `.gitignore` or `.git/info/exclude` so its files remain visible and chronologically sorted in the user's Magit untracked view. Never delete or truncate
-prompts or findings. Promote final responses to `.findings.md`; `.stdout.log` is
-only an intermediate capture. Use actual timestamps; never fabricate them.
-After work is committed, move its artifacts under their exact filenames into
-the flat, gitignored root `archive/`, as specified by the workflow below.
+`collab/` is append-only and never staged or committed. It must explicitly NOT be added to `.gitignore` or
+`.git/info/exclude` so its files remain visible and chronologically sorted in the user's Magit untracked
+view. Never delete or truncate prompts or findings. Promote final responses to `.findings.md`; `.stdout.log`
+is only an intermediate capture.
 
-On reassignment, append history inside `Implementers:`; never rewrite an earlier
-`Status:` line:
+On reassignment, append history inside `Implementers:`; never rewrite an earlier `Status:` line:
 
 ```text
 - Status-Event: <timestamp> | Model: <prior-model> | Status: <failed|timed-out|reassigned> | Rationale: <why>
@@ -98,9 +82,7 @@ explicit disjoint ownership. Only one process owns the CLJD lane because
 `collab/`, so briefs use absolute paths. Never merge or delete worktrees or
 branches without user authority.
 
-Quiet output is not failure: inspect the process and wait for completion or an
-explicit error. Batch complete briefs, reuse sessions for related follow-ups,
-start new sessions for unrelated work, and never rely on `--last`.
+Batch complete briefs, reuse sessions for related follow-ups, start new sessions for unrelated work, and never rely on CLI `--last` flags.
 
 ### Session continuity
 
@@ -173,13 +155,13 @@ it.
 
 | CLI      | Session store                         | New-session ID source                 | Related follow-up                         |
 |----------|---------------------------------------|---------------------------------------|-------------------------------------------|
-| claude   | `~/.claude`                           | caller UUID via `--session-id`        | `--resume <uuid>`                         |
-| glm      | `~/.claude-glm`                       | caller UUID via `--session-id`        | `--resume <uuid>`                         |
-| deepseek | `~/.claude-deepseek`                  | caller UUID via `--session-id`        | `--resume <uuid>`                         |
-| muse     | `~/.claude-muse`                      | caller UUID via `--session-id`        | `--resume <uuid>`                         |
-| codex    | `~/.codex`                            | JSONL `thread.started.thread_id`      | `codex exec resume <id> --json -`         |
 | agy      | `~/.gemini/antigravity-cli`           | JSON `conversation_id`                | `--conversation <id>`                     |
+| claude   | `~/.claude`                           | caller UUID via `--session-id`        | `--resume <uuid>`                         |
 | cmd      | `~/.commandcode`                      | NDJSON `result.sessionId`             | `--resume <id>` or `--session <id|path>`  |
+| codex    | `~/.codex`                            | JSONL `thread.started.thread_id`      | `codex exec resume <id> --json -`         |
+| deepseek | `~/.claude-deepseek`                  | caller UUID via `--session-id`        | `--resume <uuid>`                         |
+| glm      | `~/.claude-glm`                       | caller UUID via `--session-id`        | `--resume <uuid>`                         |
+| muse     | `~/.claude-muse`                      | caller UUID via `--session-id`        | `--resume <uuid>`                         |
 
 ## Work log
 
@@ -228,10 +210,8 @@ expose or commit tokens or configuration.
 
 ## Workflow
 
-Read [`team.md`](../team.md) first; it is canonical for the roster, role routing,
-and reviewer independence. This role document owns coordination, authorization,
-artifact and session protocol, the execution sequence, commit-message format,
-and CLI recipes.
+This section owns the execution sequence, commit-message format, and CLI recipes.
+Roster, role routing, and reviewer independence are defined in [`team.md`](../team.md).
 
 1. **Establish the seat.** The harness must be able to read and write the working
    tree, run every affected host's checks, and invoke delegate CLIs. Establish
@@ -245,15 +225,15 @@ and CLI recipes.
 3. **Define the contract.** Express the task as tests or equally precise
    acceptance criteria, invariants, phase-completion criteria, and bounded file
    ownership.
-4. **Choose execution and review routes.** Implement simple, low-risk work
-   directly when delegation would cost more in coordination, tokens, or review.
-   Otherwise select a specialized implementation role. Every change still gets
-   an independent reviewer under `team.md`; add Architect or Security review
-   when the role or risk requires it.
+4. **Choose execution and review routes.** Follow the role selection and reviewer independence rules in
+   [`team.md`](../team.md). Implement simple, low-risk work directly when delegation would cost more in
+   coordination, tokens, or review. Otherwise, assign a specialized implementation role to the optimal
+   model. Add Architect or Security review when the role or risk requires it.
 5. **Brief and execute.** When delegating, use the selected role's prompt
    template and keep it concise and unambiguous. A delegate's exit code or
    promise is not a deliverable: inspect the artifact and resume an unfinished
-   turn. Do not terminate a healthy agent merely because it is quiet.
+   turn. Quiet output is not failure; wait for completion or an explicit error. Do not terminate a healthy
+   agent merely because it is quiet for several minutes (especially true for DeepSeek).
 6. **Verify locally.** Inspect the actual artifact and diff and run the focused
    checks in the orchestrator's environment. Delegated test claims are untrusted.
    User-run results count as evidence only when the exact command, output, and
@@ -284,11 +264,6 @@ and CLI recipes.
     name is resolved. Archive only committed work and only when no uncommitted
     tracked changes could make task ownership ambiguous.
 
-Follow the append-only artifact protocol above. In particular, record a
-reassignment by appending a new status event and implementer entry; never rewrite
-an earlier `Status:` line. Findings use
-`collab/<timestamp>-<role>-<task>.<sanitized-model-name>.findings.md` so parallel reviewers
-cannot collide.
 
 If the remaining budget cannot finish the next coherent unit, leave the tree
 readable and record incomplete work in the findings rather than leaving a
@@ -351,7 +326,8 @@ review recipes, not implementation recipes. Claude-based and Codex recipes
 enforce read-only tool or sandbox policies; Command Code uses plan mode. AGY's
 plan mode constrains agent intent but, as documented below, its sandbox is not a
 filesystem read-only boundary. Use AGY review only when that residual write
-capability is within the user's authorization.
+capability is within the user's authorization. Never use AGY `invoke_subagent`
+to delegate; always shell out to the listed CLIs.
 
 For authorized implementation, use the provider's explicit write mode and keep
 the prompt's file scope bounded: Claude-based agents use `--permission-mode
@@ -375,7 +351,8 @@ Their `claude-code:unrecognized_model` startup warnings follow from that shared
 basis.
 
 > [!CAUTION]
-> **Never use the `--bare` flag with any CLI in these recipes.** The `--bare` flag forces Claude Code to ignore user settings files, which wipes its memory of the OAuth login token and causes it to fail with "Not logged in".
+> **Never use the `--bare` flag with any CLI in these recipes.** The `--bare` flag forces Claude Code to
+> ignore user settings files, which wipes its memory of the OAuth login token and causes it to fail with "Not logged in".
 
 ```sh
 # Claude
@@ -486,5 +463,3 @@ An AGY session the user starts in the Orchestrator seat with the necessary
 permissions is not so restricted; like any seat it is judged by the capabilities
 in [`orchestrator.md`](./orchestrator.md), which it should establish for itself
 rather than assume from this entry.
-DeepSeek may also be quiet for several minutes; do not kill it absent process
-exit or an explicit error.
