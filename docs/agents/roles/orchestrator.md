@@ -43,7 +43,8 @@ model exists through its CLI before invoking it. Claude is invoked only through
 `claude` or `agy`; Muse only through `~/.local/bin/muse` with
 `muse-spark-1.3-contributor`; never use AGY `invoke_subagent`; shell out to the
 listed CLIs. The interactive session is the actual orchestrator. GLM peak hours
-are weekdays 14:00–18:00 UTC+8; schedule large jobs off-peak when possible.
+are weekdays 14:00–18:00 UTC+8. During off-peak hours, usage is charged at 50%
+of the standard rate; schedule large jobs off-peak when possible.
 
 ## Artifact protocol
 
