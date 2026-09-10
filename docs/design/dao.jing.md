@@ -317,8 +317,59 @@ Implemented backends:
   complete record that cannot be decoded, validated, or matched to its content
   address. The store guarantees idempotent close, throws after close, and
   serializes concurrent puts with exactly one record written.
-- `dao.jing.remote` — currently on v1, awaiting `dao.space`'s plan to
-  implement the stepped client design that replaces its synchronous handles.
+- `dao.jing.remote` — over DaoStream v2, both halves JVM-only: the
+  constructor `connect-content!` returns a content handle over a live v2
+  attachment, and `serve-content!` serves `default-handlers` — or any
+  `{op fn}` map — at a WebSocket endpoint. The synchronous client is a
+  blocking driver as host policy over the portable non-waiting call step:
+  a JVM thread polls and sleeps between advances, and the cadence
+  (`:poll-interval-ms`), the connect deadline (`:connect-timeout-ms`) and
+  the request deadline (`:request-timeout-ms`) are options of the
+  constructor, not constants of the step. The constructor returns only
+  after the attachment reports `/established`; a failed open — a terminal
+  lifecycle, the deadline, or an interruption of the establishment loop's
+  sleep — guarantees only that the handle is closed and nothing escapes to
+  the caller — on
+  the JVM a close before the socket opens does not tear down the JDK's
+  establishment, so a peer that accepts TCP and never completes the
+  upgrade costs one held connection per attempt for the process lifetime
+  (the establishment-cancel gap `dao.stream.ws.md` records). The traffic
+  cursor is minted at `:dao.stream/newest` **before** `attach!`, because
+  the host may deposit the establishment event at any moment after
+  attaching and a cursor minted later would sit past it, hanging every
+  connect to its timeout. A URL is `ws://host[:port][/path]`, port
+  defaulting to 80 and an absent path naming `/jing`; `wss://`, a missing
+  host, a port that is not a positive integer, and a bracketed IPv6
+  authority throw before any socket. The wire vocabulary is
+  `:jing/put-content` answering `:inserted`/`:present` and
+  `:jing/get-content` answering exactly `{:found? boolean :value v}`, so
+  a stored `nil` is distinguishable from absence. One client carries one
+  locally awaited call — calls serialize under the client's lock — while
+  `close!` runs outside that lock and is safe during an in-flight call,
+  which then throws the terminal reason. A timed-out call retires its
+  bookkeeping (the id leaves the outstanding table and its late response
+  is dropped as unsolicited) but not the remote execution, which the
+  server may still be running. Bookkeeping is bounded by the one call in
+  flight: every exit of the blocking driver — return, timeout, terminal,
+  an immediate refusal at the writer, or an interruption of its poll sleep
+  — drains its completions and diagnostics before storing state, because an
+  exit that stored nothing would let the next call reuse the interrupted
+  call's request id and take its late response as an answer. An interrupted
+  call retires the same way a timed-out one does, and the thread's interrupt
+  flag is re-asserted before the throw. The timing options themselves are
+  validated at the driver's entry, before anything is sent: an argument
+  defect must throw before the wire, or it strands a request whose id the
+  next call would reuse. The portable value domain binds in
+  both directions: a payload outside it is refused before anything is
+  sent, and a handler result outside it is answered as a correlated
+  `:dao.jing.remote/non-portable-result` error rather than a timeout.
+  After a terminal lifecycle every call throws with that reason and the
+  handle is never rebound; reattachment is the caller's, by opening a new
+  coordinate. Diagnostics have no outlet under a blocking driver and are
+  drained and dropped at every step. Server `stop!` detaches every
+  session, releases the listener, and is idempotent; handlers run in the
+  server's single driver thread, so a handler that never returns stalls
+  every session.
 - `dao.jing.dht/create-content-dht` and
   `dao.jing.dht.node/create-content-dht-udp` — the distributed backend over an
   `IDhtNet` transport; see `docs/design/dao.jing.dht.md`.
@@ -363,6 +414,15 @@ encoder is transitional until the pinned canonical byte encoding lands.
   `hydrate!`), but the async variants (`hydrate-async`, `store-tree-async`)
   are deferred until an async DaoJing backend exists. See
   `docs/design/dao.data.btree.md` §5.4.
+
+  The remote half of that deferral is the **stepped client**: a
+  non-blocking remote handle with the `request-put` / `request-get` /
+  `request-materialize` / `step` / `abandon` shape — a client the caller
+  steps on a host that cannot wait. It is owed to the async hydration
+  work (`docs/design/dao.data.btree.md` §5.4), not to the v1 deletion: it
+  needs multi-id dispatch and per-materialization records rather than the
+  blocking driver's per-id step, and it forces a consumer change on
+  B-tree hydration.
 
 ## Lineage
 

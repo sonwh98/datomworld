@@ -11,7 +11,7 @@
   Publication is explicit: each agent publishes its local stream into one
   shared DaoJing intake pool, and a DaoJing observer over that pool
   materializes the covered indexes into a server-side dao.jing.file content
-  store served over dao.stream.rpc. Publication enqueue alone is not
+  store served by dao.jing.remote/serve-content!. Publication enqueue alone is not
   visibility — the observer is. Readers query the published manifest
   addresses through the server file handle or a remote
   dao.jing.remote/connect-content! client, and the two must agree
@@ -29,7 +29,6 @@
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.transactor :as transactor]
-            [dao.stream.rpc.ws :as rpc-ws]
             [dao.stream.v2 :as stream]
             [dao.stream.v2.memory-log :as memory-log]
             [dao.stream.v2.ringbuffer :as ringbuffer])
@@ -67,8 +66,8 @@
                  (ringbuffer/create!
                    {:dao.stream/type :dao.stream/ringbuffer
                     :dao.stream.ringbuffer/capacity 65536}))
-        srv (rpc-ws/start! (remote/default-handlers store)
-                           (+ 10000 (rand-int 50000)))]
+        srv (remote/serve-content! (remote/default-handlers store)
+                                   (+ 10000 (rand-int 50000)))]
     (try (binding [*store* store
                    *url* (str "ws://127.0.0.1:" (:port srv))
                    *shared-intake* intake]

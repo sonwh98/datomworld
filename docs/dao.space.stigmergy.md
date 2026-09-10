@@ -6,8 +6,7 @@ coordinator. Stigmergy is writing datoms to the agent's own local stream via
 `dao.space.transactor`'s `append!`/`transact!` (one atomic transaction record per call) and
 reading dao.space with `q`/`match` — nothing else. The living contract is
 `test/dao/space/stigmergy_test.clj`: agents coordinate over a network-accessible
-`dao.jing.file` content handle (served with `dao.jing.remote/default-handlers` as
-`:jing/put-content` and `:jing/get-content` RPC operations), and the finished space persists at
+`dao.jing.file` content handle served by `dao.jing.remote/serve-content!`, and the finished space persists at
 `target/stigmergy-space.db` for inspection with `dao.space.query`.
 Describes how `dao.space` serves as a coordination medium for autonomous agents — LLM agents
 specifically — and enumerates what exists today versus what is still needed. Nothing here

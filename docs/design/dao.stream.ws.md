@@ -630,6 +630,31 @@ Close code `4000`, reason `dao.stream/ended`, maps to `:ws/ended`. Code `4004` i
 
 ## Deferred
 
+- The establishment-cancel gap on the JVM edge: `close!` before the socket
+  exists records a `:close-request` and returns, leaving the pending
+  `buildAsync` future untouched, and the stored request is applied only by
+  an `onOpen` that a peer stalled mid-handshake never triggers — while the
+  `HttpClient` carries no connect or request timeout, so a peer that
+  accepts TCP and stalls the upgrade holds the client-side connection for
+  the process lifetime. Cancelling the future would run the observer
+  `connect!` already registers — the terminal deposit is already guarded —
+  but `CompletableFuture` cancellation does not propagate to the stage
+  producing the socket, so a repair must capture the future, mark the
+  connection terminal under the submission monitor, and issue the cancel
+  only after releasing it (a completed future's inline observer would
+  deposit under the lock, the hazard the send-seam repair removed); the
+  prior-close check and the socket install in `onOpen` must become one
+  transition under that same monitor, with a rejected socket's abort
+  performed outside it; and `send!`'s no-socket branch must then consult
+  the failure flag rather than answering `full` unconditionally, or a late
+  append is told to retry against a socket that will never exist. The
+  shipped `before-open-send-answers-full` test builds its connection with
+  no watched future, so a repair that cancels on close must give it one.
+  Even repaired, the residual is unbounded for a stalled peer and
+  caller-owned: a late `onOpen` can be aborted, but the JDK offers no
+  handle to bound a peer that never completes the handshake. `yin.repl.v2`
+  is this gap's first consumer and `dao.jing.remote` its second, and
+  neither can close it from where it stands.
 - Exact envelope key set (tracks the contract's descriptor TBD).
 - Liveness: whether an idle connection is probed with the protocol's own
   ping/pong frames or with ordinary deposited values, how often, how many

@@ -1,12 +1,13 @@
 (ns dao.jing.remote-test
   "Tests for dao.jing.remote, the WebSocket-remote content adapter.
 
-   Server side: dao.stream.rpc.ws serves dao.jing.remote/default-handlers over
-   a local dao.jing content handle. Client side:
-   dao.jing.remote/connect-content! wraps a dao.stream.rpc.client connection as
-   a dao.jing content handle. The synchronous WebSocket constructor is
-   JVM-only, so network tests are gated with #?(:clj ...) while the
-   in-process content-client unit tests run on all hosts."
+   Server side: dao.jing.remote/serve-content! serves
+   dao.jing.remote/default-handlers over a local dao.jing content handle.
+   Client side: dao.jing.remote/connect-content! connects over DaoStream v2
+   and wraps the connection as a dao.jing content handle. Both constructors
+   are JVM-only, so network tests run their bodies on the JVM and assert
+   trivially elsewhere, while the in-process content-client unit tests run
+   on all hosts."
   (:require [clojure.test :refer [deftest is]]
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
@@ -17,7 +18,11 @@
             [dao.stream.v2.ws :as ws]
             #?(:clj [dao.jing.file :as jing.file])
             [dao.jing.remote :as remote]
-            #?(:clj [dao.stream.rpc.ws :as rpc-ws])))
+            ;; :cljd first, as in remote.cljc: dao.stream.v2.ws.jvm has no
+            ;; Dart twin, so a :clj-first require would become a Dart
+            ;; import.  Used only inside :clj test branches.
+            #?@(:cljd []
+                :clj [[dao.stream.v2.ws.jvm :as jvm]])))
 
 
 (defn- local-client
@@ -37,16 +42,17 @@
       :close-counter close-counter})))
 
 
-#?(:clj (defn- with-server
-          [f]
-          (let [port (+ 20000 (rand-int 30000))
-                url (str "ws://localhost:" port)
-                backing (mem/create-content-mem)
-                server (rpc-ws/start! (remote/default-handlers backing) port)
-                _ (Thread/sleep 100)]
-            (try (let [client (remote/connect-content! url)]
-                   (try (f url client) (finally (jing/close! client))))
-                 (finally (rpc-ws/stop! server) (jing/close! backing))))))
+#?(:cljd nil
+   :clj
+   (defn- with-server
+     [f]
+     (let [port (+ 20000 (rand-int 30000))
+           url (str "ws://127.0.0.1:" port)
+           backing (mem/create-content-mem)
+           server (remote/serve-content! (remote/default-handlers backing) port)]
+       (try (let [client (remote/connect-content! url)]
+              (try (f url client) (finally (jing/close! client))))
+            (finally ((:stop! server)) (jing/close! backing))))))
 
 
 (deftest default-handlers-exact-test
@@ -286,25 +292,23 @@
        (try
          (let [backing (jing.file/create-content-file path)
                port (+ 20000 (rand-int 30000))
-               url (str "ws://localhost:" port)
-               server (rpc-ws/start! (remote/default-handlers backing) port)
-               _ (Thread/sleep 100)]
+               url (str "ws://127.0.0.1:" port)
+               server (remote/serve-content! (remote/default-handlers backing) port)]
            (try (let [client (remote/connect-content! url)]
                   (is (= (jing/segment-key payload)
                          (jing/materialize! client payload))
                       "payload must materialize on the file-backed server")
                   (jing/close! client))
-                (finally (rpc-ws/stop! server) (jing/close! backing))))
+                (finally ((:stop! server)) (jing/close! backing))))
          (let [backing (jing.file/create-content-file path)
                port (+ 20000 (rand-int 30000))
-               url (str "ws://localhost:" port)
-               server (rpc-ws/start! (remote/default-handlers backing) port)
-               _ (Thread/sleep 100)]
+               url (str "ws://127.0.0.1:" port)
+               server (remote/serve-content! (remote/default-handlers backing) port)]
            (try (let [client (remote/connect-content! url)]
                   (is (= payload (jing/get client address ::miss))
                       "content must survive a server restart")
                   (jing/close! client))
-                (finally (rpc-ws/stop! server) (jing/close! backing))))
+                (finally ((:stop! server)) (jing/close! backing))))
          (finally (try (java.nio.file.Files/deleteIfExists
                          (java.nio.file.Path/of path (make-array String 0)))
                        (catch Exception _)))))
@@ -382,6 +386,476 @@
                 (is (identical?
                       local-sentinel
                       (jing/get client absent-addr local-sentinel))))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+;; =============================================================================
+;; The DaoStream v2 JVM host composition (migration Phase 2)
+;; =============================================================================
+
+(deftest request-timeout-retires-the-call-and-the-client-recovers-once-released
+  #?(:clj
+     (let [latch (java.util.concurrent.CountDownLatch. 1)
+           port (+ 20000 (rand-int 30000))
+           server (remote/serve-content!
+                    {:gated/op (fn [] (.await latch) :late)
+                     :fast/op (fn [] :now)}
+                    port)]
+       (try
+         (let [handle (remote/connect-content!
+                        (str "ws://127.0.0.1:" port)
+                        {:request-timeout-ms 50})]
+           (try
+             (doseq [n (range 3)]
+               (let [state
+                     (try
+                       (remote/call! (:client handle) :gated/op [])
+                       (is false "a gated call must throw its deadline")
+                       nil
+                       (catch Exception e
+                         (is (= {:request-id n :timeout-ms 50} (ex-data e))
+                             (str "call n=" n " throws its own deadline with "
+                                  "its own id (N6)"))
+                         @(:rpc (:client handle))))]
+                 ;; The first call stalls the server's single driver on the
+                 ;; latch (S4); the next two are deposited and never
+                 ;; dispatched.  After every exit the stored state is empty
+                 ;; (N6, N11).
+                 (is (= {} (:outstanding state)))
+                 (is (= [] (:completed state)))
+                 (is (= [] (:diagnostics state)))))
+             (.countDown latch)
+             ;; The fourth call buys the default deadline by client value:
+             ;; cadence and deadlines are options, and the client is data.
+             ;; The only bound is this generous deadline — no narrow timing
+             ;; window (the server drains the three stalled requests and
+             ;; their late responses are classified unsolicited and dropped).
+             (let [patient (assoc (:client handle)
+                                  :request-timeout-ms
+                                  remote/default-request-timeout-ms)]
+               (is (= :now (remote/call! patient :fast/op []))
+                   "the client is usable once the driver is released"))
+             (finally (jing/close! handle))))
+         (finally ((:stop! server)))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest an-interrupted-call-retires-and-permits-no-id-reuse
+  ;; The interrupt flag is set on the test's own thread after the connect
+  ;; and before the call: Thread/sleep throws on entry when the flag is
+  ;; already set, so the loop leaves through its interrupted exit at the
+  ;; first sleep — deterministically, with no second thread and no race.
+  #?(:clj
+     (let [latch (java.util.concurrent.CountDownLatch. 1)
+           port (+ 20000 (rand-int 30000))
+           server (remote/serve-content!
+                    {:gated/op (fn [] (.await latch) :gated-late)
+                     :fast/op (fn [] :fast-now)}
+                    port)]
+       (try
+         (let [handle (remote/connect-content!
+                        (str "ws://127.0.0.1:" port)
+                        {:request-timeout-ms 500})]
+           (try
+             (.interrupt (Thread/currentThread))
+             ;; The flag is captured inside the catch, before any
+             ;; reporting machinery runs: under the test runner the flag
+             ;; does not reliably survive even a passing `is` between the
+             ;; catch and a later read, though the fix does preserve it
+             ;; (a bare-REPL call confirms; the consumer is in the
+             ;; runner's path, not in call!).
+             (let [error (try
+                           (remote/call! (:client handle) :gated/op [])
+                           (is false "an interrupted call must throw")
+                           nil
+                           (catch Exception e
+                             (let [preserved? (Thread/interrupted)]
+                               (is (true? preserved?)
+                                   "the interrupt flag is preserved for the
+                                    caller — re-asserted by the exit before
+                                    it throws — and this read clears it")
+                               e)))]
+               (is (= {:request-id 0
+                       :reason :dao.jing.remote/interrupted}
+                      (ex-data error))
+                   "the interruption surfaces as data, after the retirement"))
+             (let [state @(:rpc (:client handle))]
+               (is (= 1 (:next-id state))
+                   "the allocator advanced: the interrupted call's id is
+                    consumed, so the next call cannot allocate it again")
+               (is (= {} (:outstanding state))
+                   "the interrupted call is retired, so its late response
+                    will be classified unsolicited and dropped")
+               (is (= [] (:completed state)))
+               (is (= [] (:diagnostics state))))
+             ;; Release the stall: the server answers the interrupted call
+             ;; late, with :gated-late.  If the id had been reused, that
+             ;; response would satisfy the next call; it must not.
+             (.countDown latch)
+             (let [patient (assoc (:client handle)
+                                  :request-timeout-ms
+                                  remote/default-request-timeout-ms)]
+               (is (= :fast-now (remote/call! patient :fast/op []))
+                   "a fresh id carries the next call, and the late
+                    :gated-late response cannot satisfy it"))
+             (finally
+               (Thread/interrupted)           ; never leak the flag
+               (jing/close! handle))))
+         (finally ((:stop! server)))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest a-non-portable-handler-result-is-a-correlated-error-not-a-timeout
+  #?(:clj
+     (let [port (+ 20000 (rand-int 30000))
+           server (remote/serve-content!
+                    ;; 9007199254740992 is one past the safe-integer bound,
+                    ;; outside the portable value domain.
+                    {:bad/op (fn [] 9007199254740992)
+                     :good/op (fn [] :fine)}
+                    port)]
+       (try
+         (let [handle (remote/connect-content! (str "ws://127.0.0.1:" port))]
+           (try
+             (let [error (try
+                           (remote/call! (:client handle) :bad/op [])
+                           (is false "a non-portable handler result must throw")
+                           nil
+                           (catch Exception e e))]
+               (is (= {:operation :bad/op
+                       :error {:dao.stream.v2.apply/code
+                               remote/non-portable-result-code
+                               :dao.stream.v2.apply/message
+                               "Handler result is outside the portable value domain"}}
+                      (ex-data error))
+                   "the refusal is a correlated error response, well inside
+                    the deadline (S5), never a timeout"))
+             (is (= :fine (remote/call! (:client handle) :good/op []))
+                 "the attachment was not retired for a refusal the step
+                  could correlate")
+             (finally (jing/close! handle))))
+         (finally ((:stop! server)))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest connect-throws-on-a-refused-endpoint
+  #?(:clj
+     (let [socket (java.net.ServerSocket. 0)
+           port (.getLocalPort socket)
+           url (str "ws://127.0.0.1:" port)]
+       (.close socket)
+       (let [error (try
+                     (remote/connect-content! url {:connect-timeout-ms 2000})
+                     (is false "a refused endpoint must throw at open")
+                     nil
+                     (catch Exception e e))]
+         ;; The JDK edge deposits the failed establishment as a transport
+         ;; error; nothing escaped to the caller (N2).
+         (is (= {:url url :reason :dao.stream.v2.apply/transport-error}
+                (ex-data error))
+             "the establishment failure is the reason N2 names")))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest connect-times-out-against-a-peer-that-never-completes-the-handshake
+  ;; This asserts only what the transport guarantees (N2): the deadline
+  ;; throw and that no handle escaped.  No cleanup claim, no EOF claim, no
+  ;; statement about the JDK-held connection.  The client-side JDK
+  ;; connection this test provokes cannot be closed from here and persists
+  ;; for the process — the leak N2 names, paid once per run; the test closes
+  ;; its own accepted socket and ServerSocket in the finally since nothing
+  ;; else will.
+  #?(:clj
+     (let [server-socket (java.net.ServerSocket. 0)
+           port (.getLocalPort server-socket)
+           url (str "ws://127.0.0.1:" port)
+           ;; Exactly one of the accepter and the finally closes the
+           ;; accepted socket — a plain deref races the accepter's
+           ;; publication.  nil: the accepter may still publish.  A socket:
+           ;; the finally owns closing it.  ::teardown: the finally already
+           ;; ran, so the accepter closes what it holds itself.
+           slot (atom nil)
+           _accepter (future
+                       (let [s (.accept server-socket)]
+                         (when (= ::teardown
+                                  (swap! slot
+                                         (fn [old]
+                                           (if (= ::teardown old) old s))))
+                           (.close ^java.net.Socket s))))
+           started (System/currentTimeMillis)]
+       (try
+         (let [error (try
+                       (remote/connect-content! url {:connect-timeout-ms 200})
+                       (is false "a stalled handshake must throw at open")
+                       nil
+                       (catch Exception e e))]
+           (is (= {:url url :timeout-ms 200} (ex-data error))
+               "the connect deadline is the whole of the claim")
+           (is (< (- (System/currentTimeMillis) started) 2000)
+               "the throw lands at the deadline, not at some later hang"))
+         (finally
+           (let [to-close (swap! slot (fn [old] (if (nil? old) ::teardown old)))]
+             (when-not (= ::teardown to-close)
+               (.close ^java.net.Socket to-close)))
+           (.close server-socket))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest connect-throws-on-interruption-with-nothing-escaping
+  ;; The ninth exit's proof, with the eighth's deterministic trick: the
+  ;; interrupt flag is set on the test's own thread before the connect, so
+  ;; the establishment loop's first sleep throws on entry — no second
+  ;; thread, no race.
+  ;;
+  ;; The peer is a scripted raw socket, installed by replacing
+  ;; jvm/connect! — a plain function var, so with-redefs reaches it
+  ;; (unlike the protocol fn stream/close!, whose compiled call sites
+  ;; link straight to the interface method; probed in r4).  The real
+  ;; attacher, the real WsHandle, the real protocol dispatch and the real
+  ;; stream/close! all stay intact; the scripted socket's :close!
+  ;; records invocation, and a pending establishment followed by an
+  ;; interrupt must reach it.  No network, no JDK connection, no leak —
+  ;; not even the one-per-run cost the raw-socket version of this test
+  ;; used to pay.
+  #?(:clj
+     (let [closes (atom 0)
+           url "ws://127.0.0.1:1"]        ; never contacted: the scripted
+       ;; socket answers the attach
+       (try
+         (.interrupt (Thread/currentThread))
+         (let [error (try
+                       (with-redefs
+                         [jvm/connect!
+                          (fn [_descriptor _adapter]
+                            {:send! (fn [_message] nil)
+                             :close! (fn [_code _reason]
+                                       (swap! closes inc))})]
+                         (remote/connect-content! url {:connect-timeout-ms 2000}))
+                       ::returned            ; a client would land here
+                       (catch Exception e
+                         ;; Captured inside the catch, before any reporting
+                         ;; machinery can touch the thread (the runner
+                         ;; wrinkle round 2 found).
+                         (let [preserved? (Thread/interrupted)]
+                           (is (true? preserved?)
+                               "the interrupt flag is preserved for the
+                                caller — re-asserted by the exit before it
+                                throws — and this read clears it")
+                           e)))]
+           (is (map? (ex-data error))
+               "the throw is the composition's interrupted error, not a raw
+                InterruptedException — and because the constructor throws,
+                no client value escaped to the caller (N2)")
+           (is (= {:url url :reason :dao.jing.remote/interrupted}
+                  (ex-data error))
+               "the interrupted connect matches the loop's other failure
+                throws")
+           (is (= 1 @closes)
+               "the exit closed the handle exactly once before throwing
+                (N2) — recorded at the scripted raw socket the real
+                stream/close! reaches, so deleting the close from that
+                branch fails this test"))
+         (finally
+           (Thread/interrupted))))         ; never leak the flag
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest invalid-timing-options-throw-before-the-wire-and-leave-no-trace
+  ;; The tenth exit: a client is a value, so an assoc can carry a bad
+  ;; timing option into call!.  The gate throws before rpc/request!, so
+  ;; nothing is appended; thrown after the append instead — from the
+  ;; deadline arithmetic, or Thread/sleep's own argument check for a
+  ;; negative interval — it would leave past settle! and store nothing.
+  ;; The client-side state alone cannot discriminate that (the abandoned
+  ;; state exists only in the loop's locals either way), so the proof is
+  ;; the wire side: a recording handler sees what actually arrived.
+  #?(:clj
+     (let [seen (atom [])
+           port (+ 20000 (rand-int 30000))
+           server (remote/serve-content!
+                    {:probe/op (fn [x] (swap! seen conj x) ::served)}
+                    port)]
+       (try
+         ;; The constructor validates its own options the same way, before
+         ;; any socket: this throws at the gate, not against the endpoint.
+         (is (thrown-with-msg?
+               Exception #"must be an integer of milliseconds"
+               (remote/connect-content! "ws://127.0.0.1:1"
+                                        {:connect-timeout-ms :soon})))
+         (let [handle (remote/connect-content! (str "ws://127.0.0.1:" port))]
+           (try
+             (doseq [broken [(assoc (:client handle) :request-timeout-ms "bad")
+                             (assoc (:client handle) :poll-interval-ms -5)]]
+               (is (thrown-with-msg?
+                     Exception #"must be an integer of milliseconds from 1 to 86400000"
+                     (remote/call! broken :probe/op [:refused]))
+                   "an invalid timing option is an argument defect"))
+             (let [state @(:rpc (:client handle))]
+               (is (= 0 (:next-id state)) "the allocator never advanced")
+               (is (= {} (:outstanding state)))
+               (is (= [] (:completed state)))
+               (is (= [] (:diagnostics state))))
+             ;; Give any request that might have escaped time to reach the
+             ;; handler — the one assertion the mutation cannot dodge on
+             ;; timing.
+             (Thread/sleep 100)
+             (is (= [] @seen)
+                 "no request reached the server: the refusals sent nothing")
+             (is (= ::served (remote/call! (:client handle) :probe/op [:fresh]))
+                 "the intact client's next call answers normally")
+             (is (= [:fresh] @seen)
+                 "exactly one request crossed the wire — the corrected
+                  call's own — so it ran on a fresh id")
+             (is (= 1 (:next-id @(:rpc (:client handle))))
+                 "the corrected call consumed the first id")
+             ;; The gate's upper end (r5).  At the bound the option is
+             ;; supported — both paths submit and the deadline arithmetic
+             ;; holds.  Past it — one over, Long/MAX_VALUE, and an
+             ;; oversized BigInt that integer? would admit — every value
+             ;; is rejected with nothing submitted (call path) and nothing
+             ;; attached (connect path), allocator unchanged.
+             (is (= ::served
+                    (remote/call!
+                      (assoc (:client handle)
+                             :request-timeout-ms remote/max-timing-ms)
+                      :probe/op [:at-bound]))
+                 "at the bound the call option is supported and its
+                  deadline arithmetic is safe")
+             (is (= [:fresh :at-bound] @seen)
+                 "the at-bound call submitted exactly its own request")
+             (let [at-bound (remote/connect-content!
+                              (str "ws://127.0.0.1:" port)
+                              {:connect-timeout-ms remote/max-timing-ms})]
+               (is (map? at-bound)
+                   "at the bound the connect option is supported too")
+               (jing/close! at-bound))
+             (let [before (:next-id @(:rpc (:client handle)))]
+               (doseq [too-big [(inc remote/max-timing-ms)
+                                Long/MAX_VALUE
+                                1234567890123456789012345N]
+                       :let [client' (assoc (:client handle)
+                                            :request-timeout-ms too-big)]]
+                 (is (thrown-with-msg?
+                       Exception #"must be an integer of milliseconds"
+                       (remote/call! client' :probe/op [:too-big]))
+                     (str "rejected at the gate before submission: "
+                          (pr-str too-big)))
+                 (is (thrown-with-msg?
+                       Exception #"must be an integer of milliseconds"
+                       (remote/connect-content!
+                         (str "ws://127.0.0.1:" port)
+                         {:connect-timeout-ms too-big}))
+                     (str "rejected before attach!: " (pr-str too-big))))
+               (is (= before (:next-id @(:rpc (:client handle))))
+                   "the allocator never moved for a rejected value")
+               (is (= [:fresh :at-bound] @seen)
+                   "no rejected value submitted or attached anything"))
+             (finally (jing/close! handle))))
+         (finally ((:stop! server)))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest close-during-a-blocked-call-makes-the-call-throw-and-closes-once
+  #?(:clj
+     (let [latch (java.util.concurrent.CountDownLatch. 1)
+           port (+ 20000 (rand-int 30000))
+           server (remote/serve-content!
+                    {:gated/op (fn [] (.await latch) :late)}
+                    port)]
+       (try
+         (let [handle (remote/connect-content!
+                        (str "ws://127.0.0.1:" port)
+                        {:request-timeout-ms 5000})
+               call (future
+                      (try
+                        (remote/call! (:client handle) :gated/op [])
+                        ::returned
+                        (catch Exception e e)))]
+           ;; Let the call reach the server and stall its driver there.
+           (Thread/sleep 100)
+           (jing/close! handle)
+           (let [result @call]
+             (is (instance? Exception result)
+                 "the in-flight call throws; it does not return")
+             (is (= {:operation :gated/op
+                     :reason :dao.stream.v2.apply/detached}
+                    (ex-data result))
+                 "the boundary's own close surfaces as the terminal
+                  /detached (N8, N10)"))
+           (is (true? @(:closed-atom handle)) "the client reports itself closed")
+           (jing/close! handle)
+           (is (true? @(:closed-atom handle))
+               "a second close is a no-op; the underlying close ran once (C4)")
+           (.countDown latch))
+         (finally ((:stop! server)))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest serve-content-refuses-a-bound-port-and-stop-is-idempotent
+  #?(:clj
+     (let [port (+ 20000 (rand-int 30000))
+           backing (mem/create-content-mem)
+           server (remote/serve-content! (remote/default-handlers backing) port)]
+       (try
+         (is (thrown? Exception
+               (remote/serve-content! (remote/default-handlers backing) port))
+             "a second server on the first's port throws (S3)")
+         (is (nil? ((:stop! server))) "stop! returns")
+         (is (nil? ((:stop! server))) "a second stop! is a no-op (S2)")
+         (finally (jing/close! backing))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest repeated-refused-requests-retain-nothing-and-the-client-recovers
+  #?(:clj
+     (with-server
+       (fn [_url client]
+         ;; A java.lang.Object payload is outside the portable domain:
+         ;; refused at the writer, never encoded, never sent (N7).
+         (let [address (jing/segment-key {:public "payload"})
+               payload (Object.)
+               errors
+               (doall
+                 (for [_n (range 3)]
+                   (try
+                     (remote/call! (:client client) :jing/put-content
+                                   [address payload])
+                     (is false "a non-portable payload must be refused")
+                     nil
+                     (catch Exception e
+                       (let [state @(:rpc (:client client))]
+                         (is (= {} (:outstanding state))
+                             "no retired id stays in :outstanding (N11)")
+                         (is (= [] (:completed state)))
+                         (is (= [] (:diagnostics state))))
+                       e))))]
+           (is (= 3 (count (remove nil? errors))))
+           (let [[d0 d1 d2] (mapv ex-data errors)]
+             (is (= (dissoc d0 :request-id)
+                    (dissoc d1 :request-id)
+                    (dissoc d2 :request-id))
+                 "the three refusals carry identical error information —
+                  unchanged by the leak fix")
+             (is (= [0 1 2] [(:request-id d0) (:request-id d1)
+                             (:request-id d2)])
+                 "only the request id advances, by one each time")
+             (is (= :dao.stream/invalid-value (:reason d0))
+                 "the refusal reason is the writer's invalid-value (N7)"))
+           (let [public {:hello "world"}
+                 addr (jing/materialize! client public)]
+             (is (= (jing/segment-key public) addr))
+             (is (= public (jing/get client addr ::miss))
+                 "a portable put and get round-trip after the refusals")))))
      :cljd (is true "network tests are JVM-only")
      :cljs (is true "network tests are JVM-only")))
 
