@@ -1,11 +1,8 @@
 (ns datomworld.demo
-  (:require [datomworld.demo.compilation-pipeline :as pipeline]
-            [datomworld.demo.compilation-pipeline-v2 :as pipeline-v2]
-            [datomworld.demo.continuation-stream :as cont-demo]
+  (:require [datomworld.demo.compilation-pipeline-v2 :as pipeline-v2]
             [datomworld.demo.continuation-stream-v2 :as cont-demo-v2]
             [datomworld.demo.artifact :as artifact-demo]
             [datomworld.demo.earth-moon :as earth-moon-demo]
-            [datomworld.demo.equation-plotter :as plotter-demo]
             [datomworld.demo.equation-plotter-v2 :as plotter-demo-v2]
             [datomworld.demo.responsive :as responsive]
             [datomworld.demo.solar-system :as solar-demo]
@@ -29,20 +26,11 @@
     :label "Glowing Artifact",
     :icon "✦",
     :desc "Cross-platform postgraphics artifact scene."}
-   {:id :pipeline,
-    :label "Pipeline Compilation",
-    :icon "⚙",
-    :desc "Visualize the Yin compilation pipeline from Source to Bytecode."}
    {:id :voxel,
     :label "Voxel",
     :icon "▣",
     :desc
     "First-person voxel chunk: WASD/arrows to fly through the same postgraphics frame program rendered on both Flutter GPU and browser canvas."}
-   {:id :continuation,
-    :label "Continuation Example",
-    :icon "⤱",
-    :desc
-    "Step through a single continuation executed by two different VM backends: Register and Stack."}
    {:id :pipeline-v2,
     :label "Pipeline v2",
     :icon "⚙",
@@ -59,11 +47,6 @@
     :label "Yin REPL",
     :icon "λ",
     :desc "Browser CodeMirror client for a remote Yin REPL over WebSockets."}
-   {:id :plotter,
-    :label "Equation Plotter",
-    :icon "📈",
-    :desc
-    "Math equation plotter demonstrating FFI from Yin.VM to functions implemented in ClojureScript"}
    #_{:id :telemetry,
       :label "VM Telemetry Viewer",
       :icon "📡",
@@ -71,14 +54,19 @@
 
 
 (defn- hash->demo
+  "#pipeline, #plotter and #continuation are kept as aliases into their -v2
+   picker entries: yin.vm.v2-consumers.implementation-plan.md D5 deletes the
+   v1 demos those hashes used to name, and public/chp/yin.chp:18 still links
+   to /demo.html#pipeline, so the URL keeps resolving even though the
+   address bar does not rewrite itself to the -v2 hash on arrival."
   [hash-value]
   (case hash-value
     "#yin-repl" :yin-repl
-    "#pipeline" :pipeline
+    "#pipeline" :pipeline-v2
     "#pipeline-v2" :pipeline-v2
-    "#plotter" :plotter
+    "#plotter" :plotter-v2
     "#plotter-v2" :plotter-v2
-    "#continuation" :continuation
+    "#continuation" :continuation-v2
     "#continuation-v2" :continuation-v2
     "#telemetry" :telemetry
     "#solar-system" :solar-system
@@ -92,11 +80,8 @@
   [demo-id]
   (case demo-id
     :yin-repl "#yin-repl"
-    :pipeline "#pipeline"
     :pipeline-v2 "#pipeline-v2"
-    :plotter "#plotter"
     :plotter-v2 "#plotter-v2"
-    :continuation "#continuation"
     :continuation-v2 "#continuation-v2"
     :telemetry "#telemetry"
     :solar-system "#solar-system"
@@ -227,11 +212,8 @@
     [:<>
      (case selected-demo
        :yin-repl [yin-repl-demo/main-view]
-       :pipeline [pipeline/main-view]
        :pipeline-v2 [pipeline-v2/main-view]
-       :plotter [plotter-demo/main-view]
        :plotter-v2 [plotter-demo-v2/main-view]
-       :continuation [cont-demo/main-view]
        :continuation-v2 [cont-demo-v2/main-view]
        :telemetry [tv/main-panel]
        :solar-system [solar-demo/main-view]
@@ -273,19 +255,7 @@
                   :border-radius "999px",
                   :padding "8px 12px",
                   :cursor "pointer",
-                  :font-size "13px"}} "🏠 Back to Demos"]
-        (when (= selected-demo :pipeline)
-          [:<>
-           [:button
-            {:on-click #(pipeline/show-explainer-video!),
-             :style {:background "#1f6feb",
-                     :color "#f1f5ff",
-                     :border "1px solid #2d3b55",
-                     :border-radius "999px",
-                     :padding "8px 12px",
-                     :cursor "pointer",
-                     :font-size "13px"}} "Explainer Video"]
-           [pipeline/layout-controls pipeline/app-state]])])]))
+                  :font-size "13px"}} "🏠 Back to Demos"]])]))
 
 
 (defn mount-root!

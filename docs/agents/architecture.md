@@ -86,19 +86,28 @@ ASTs are materialized views over five orthogonal dimensions:
   4. Language (transformations): cross-language semantic preservation
   5. Execution (runtime): continuation state, stack frames, instruction pointers
 
-Two independent interpreters prove the same semantics on different representations:
+Status (`yin.vm.v2-consumers.implementation-plan.md`, 2026-09-10): SemanticVM,
+the stack- and register-based bytecode VMs, and the WASM/native-code backends
+below were experimental proofs of the AST-projection argument, never more
+than one of `yin.vm.v2`'s consumers away from the ast-walker they compared
+against. They are deleted; `ASTWalkerVM` is the only evaluator. The argument
+they were proving — that the AST is canonical and any backend can project it
+— stands on its own and does not need a second live interpreter to
+demonstrate it; a future backend remains exactly as free to project these
+facts as it always was, it is just not one of these four today.
+
+`yin.vm.v2` ships one interpreter:
   - ASTWalkerVM interprets AST maps via tree traversal (in-memory graphs).
-  - SemanticVM interprets AST datoms via graph traversal (dao.space.query).
-Both are executable; neither is compiled away. They are equivalent views of the same computation.
 
-The AST also enables multiple compilation backends via semantic projections:
-  - A stack-based VM that compiles AST datoms to stack bytecode.
-  - A register-based VM that compiles AST datoms to register bytecode.
-  - Compilation to WebAssembly binaries for execution in WASM runtimes.
-  - Compilation to native code for specific hardware targets (e.g., IoT devices, specialized chips).
-Since the AST preserves semantics as immutable data, any execution backend can project the same underlying facts into the optimal form for its target environment.
+What the AST projection argument once demonstrated with a second live
+interpreter (now historical):
+  - SemanticVM interpreted AST datoms via graph traversal (dao.space.query).
+  - A stack-based VM compiled AST datoms to stack bytecode.
+  - A register-based VM compiled AST datoms to register bytecode.
+  - Compilation to WebAssembly binaries and to native code for specific
+    hardware targets were sketched but never built.
 
-The semantic VM's direct interpretation of AST datoms enables runtime macros: code can transform itself by manipulating the same datom structures the VM executes.
+Historical: the semantic VM's direct interpretation of AST datoms enabled runtime macros, since code could transform itself by manipulating the same datom structures the VM executed. `ast-walker`, the only surviving evaluator, has no macro-expand branch; `defmacro` and every macro call now throw.
 
 Types are metadata on AST nodes, not categories of languages.
 Static and dynamic typing are unified as certainty levels (:static, :dynamic, :unknown).
@@ -107,7 +116,7 @@ Continuations are first-class, serializable, and mobile across nodes.
 Functions, closures, and continuations are unified as reified execution contexts.
 Syntax rendering is non-deterministic: one AST maps to many valid syntaxes.
 Syntax preferences are user/context-specific: the AST remains canonical.
-Runtime macros exist: code can transform itself using the same structures the VM executes.
+Runtime macros existed under the deleted semantic VM: code could transform itself using the same structures the VM executed. They do not exist under `ast-walker`.
 Cross-language interop works through the Universal AST as a shared semantic layer.
 Semantic drift must be prevented at all compositional levels, not just atomic nodes.
 The Universal AST is lower-level than Lisp: it makes evaluation, mutation, and types explicit.

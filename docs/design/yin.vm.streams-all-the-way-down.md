@@ -10,6 +10,11 @@ that bounds its memory cost (store the irreducible, derive the rest). Cost
 claims cite the measured figures in `docs/cesk-space-optimization.md`;
 proposed machinery names the existing seam it would land in.
 
+**`yin.vm.space`, `register`, `stack` and their `clj -M:bench` harness are
+deleted** (`yin.vm.v2-consumers.implementation-plan.md`, 2026-09-10); every
+reference to them below is historical, including the register-baseline
+fusion prototype in §5.3.
+
 **Written against dao.stream v1; read with the v2 contract in mind**
 (annotated 2026-09-03, after the `dao.stream.md` redesign). The core theses
 survive v2 — cursor-as-program-counter (opaque cursors make it stronger),

@@ -3,10 +3,7 @@
             [dao.stream :as ds]
             [dao.stream.ringbuffer]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.register :as register]
-            [yin.vm.semantic :as semantic]
-            [yin.vm.stack :as stack]))
+            [yin.vm.ast-walker :as ast-walker]))
 
 
 (defn- make-stream
@@ -48,10 +45,7 @@
 
 
 (deftest eval-emits-step-and-halt-snapshots-across-cljc-vms-test
-  (let [constructors {:ast-walker ast-walker/create-vm,
-                      :semantic semantic/create-vm,
-                      :stack stack/create-vm,
-                      :register register/create-vm}]
+  (let [constructors {:ast-walker ast-walker/create-vm}]
     (doseq [[model create-vm] constructors]
       (testing (str "Telemetry covers " model)
         (let [telemetry-stream (make-stream)

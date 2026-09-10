@@ -1,21 +1,13 @@
 (ns yin.vm.test-utils
   (:require [dao.stream :as ds]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.register :as register]
-            [yin.vm.semantic :as semantic]
-            [yin.vm.space :as space]
-            [yin.vm.stack :as stack]))
+            [yin.vm.ast-walker :as ast-walker]))
 
 
 (defn vm-factories
   "Returns a map of VM keywords to their creation functions."
   []
-  {:ast-walker ast-walker/create-vm,
-   :semantic semantic/create-vm,
-   :register register/create-vm,
-   :space space/create-vm,
-   :stack stack/create-vm})
+  {:ast-walker ast-walker/create-vm})
 
 
 (defn run-all-vms

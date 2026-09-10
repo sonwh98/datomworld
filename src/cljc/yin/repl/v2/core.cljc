@@ -48,8 +48,10 @@
 
 
 (def vm-constructors
-  "One entry, on `yin.vm.v2`.  The remaining evaluators (`:semantic`,
-   `:register`, `:stack`, `:space`) follow in the VM plan, not here."
+  "One entry, on `yin.vm.v2`. The other evaluators (`:semantic`, `:register`,
+   `:stack`, `:space`) were deleted under
+   `yin.vm.v2-consumers.implementation-plan.md`; `:ast-walker` is the only
+   evaluator, here and in v1's `yin.repl`."
   {:ast-walker ast-walker/create-vm})
 
 

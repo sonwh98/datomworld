@@ -26,8 +26,16 @@
    What the v1 demo showed that this one cannot: register and stack
    instruction listings with active-instruction highlighting, the semantic
    evaluator's AST database, and `dao.space` queries over the transacted
-   datoms. Those are v1 evaluator features, not v2 gaps in a demo."
-  (:require ["@codemirror/state" :refer [EditorState]]
+   datoms. Those are v1 evaluator features, not v2 gaps in a demo.
+
+   The Clojure/Python/PHP language selection (`yang.clojure`, `yang.python`,
+   `yang.php` all compile to the same `:yin/*` AST) is ported from v1
+   unchanged — it is a Source->AST axis, orthogonal to which evaluator runs
+   the result, and dropping it would be a product regression this plan does
+   not make."
+  (:require ["@codemirror/lang-php" :refer [php]]
+            ["@codemirror/lang-python" :refer [python]]
+            ["@codemirror/state" :refer [EditorState]]
             ["@codemirror/theme-one-dark" :refer [oneDark]]
             ["@codemirror/view" :refer [EditorView]]
             ["@nextjournal/lang-clojure" :refer [clojure]]
@@ -38,6 +46,8 @@
             [datomworld.demo.responsive :as responsive]
             [reagent.core :as r]
             [yang.clojure :as yang]
+            [yang.php :as php-comp]
+            [yang.python :as py]
             [yin.demo.utils :as demo.utils]
             [yin.vm.v2 :as vm]
             [yin.vm.v2.ast-walker :as ast-walker]
@@ -86,6 +96,7 @@
 
 (defonce app-state
   (r/atom {:source default-source,
+           :source-lang :clojure,
            :ast nil,
            :datom-groups nil,
            :datoms nil,
@@ -121,12 +132,30 @@
          :error nil))
 
 
+(defn set-source-lang!
+  [next-lang]
+  (stop-run-loop!)
+  (swap! app-state assoc
+         :source-lang next-lang
+         :ast nil
+         :datom-groups nil
+         :datoms nil
+         :walker nil
+         :walker-result nil
+         :steps 0
+         :error nil))
+
+
 (defn compile-source!
   []
   (stop-run-loop!)
   (try (let [source (:source @app-state)
-             forms (reader/read-string (str "[" source "]"))
-             ast (yang/compile-program forms)
+             lang (:source-lang @app-state)
+             ast (case lang
+                   :clojure (yang/compile-program
+                              (reader/read-string (str "[" source "]")))
+                   :python (py/compile source)
+                   :php (php-comp/compile source))
              datoms (vec (vm/ast->datoms ast))
              walker (load-program! datoms)]
          (swap! app-state assoc
@@ -224,7 +253,7 @@
 ;; =============================================================================
 
 (defn codemirror-editor
-  [{:keys [value on-change read-only]}]
+  [{:keys [value on-change read-only language]}]
   (let [view-ref (r/atom nil)
         el-ref (atom nil)]
     (r/create-class
@@ -235,8 +264,12 @@
            (let [theme (.theme EditorView
                                #js {"&" #js {:height "100%"},
                                     ".cm-scroller" #js {:overflow "auto"}})
+                 lang-ext (case (or language :clojure)
+                            :python (python)
+                            :php (php #js {:plain true})
+                            :clojure (clojure))
                  extensions
-                 (cond-> #js [basicSetup (clojure) oneDark theme]
+                 (cond-> #js [basicSetup lang-ext oneDark theme]
                    read-only (.concat #js [(.of (.-editable EditorView)
                                                 false)])
                    on-change
@@ -308,6 +341,106 @@
              :min-height "0"}} body]])
 
 
+(def code-examples
+  [{:name "Clojure: Basic Math", :lang :clojure, :code "(+ 10 20)"}
+   {:name "Clojure: Closure Power",
+    :lang :clojure,
+    :code
+    "(defn make-power [e]\n  (fn [b]\n    (if (= e 0)\n      1\n      (* b ((make-power (- e 1)) b)))))\n((make-power 3) 2)"}
+   {:name "Clojure: Factorial",
+    :lang :clojure,
+    :code
+    "(defn fact [n]\n  (if (= n 0)\n    1\n    (* n (fact (- n 1)))))\n(fact 5)"}
+   {:name "Clojure: Fibonacci",
+    :lang :clojure,
+    :code
+    "(defn fib [n]\n  (if (< n 2)\n    n\n    (+ (fib (- n 1)) (fib (- n 2)))))\n(fib 7)"}
+   {:name "Python: Basic Math", :lang :python, :code "10 + 20"}
+   {:name "Python: Closure Power",
+    :lang :python,
+    :code
+    "def make_power(e):\n  return lambda b: 1 if e == 0 else b * (make_power(e - 1))(b)\n(make_power(3))(2)\n"}
+   {:name "Python: Factorial",
+    :lang :python,
+    :code
+    "def fact(n):\n  if n == 0:\n    return 1\n  else:\n    return n * fact(n-1)\nfact(5)"}
+   {:name "Python: Fibonacci",
+    :lang :python,
+    :code
+    "def fib(n):\n  if n < 2:\n    return n\n  else:\n    return fib(n-1) + fib(n-2)\nfib(7)"}
+   {:name "PHP: Basic Math", :lang :php, :code "10 + 20;"}
+   {:name "PHP: Closure Power",
+    :lang :php,
+    :code
+    "$makePower = function (int $exponent) {\n  return function (int $base) use ($exponent): int {\n    $result = 1;\n    for ($i = 0; $i < $exponent; $i++) {\n      $result *= $base;\n    }\n    return $result;\n  };\n};\n$cube = $makePower(3);\n$cube(2);"}
+   {:name "PHP: Factorial",
+    :lang :php,
+    :code
+    "function fact($n) {\n  if ($n == 0) {\n    return 1;\n  } else {\n    return $n * fact($n - 1);\n  }\n}\nfact(5);"}
+   {:name "PHP: Fibonacci",
+    :lang :php,
+    :code
+    "function fib($n) {\n  if ($n < 2) {\n    return $n;\n  } else {\n    return fib($n - 1) + fib($n - 2);\n  }\n}\nfib(7);"}])
+
+
+(defn- dropdown-menu
+  [_items _on-select]
+  (let [open? (r/atom false)]
+    (fn [items on-select]
+      [:div {:style {:position "relative"}}
+       [:button
+        {:on-click #(swap! open? not),
+         :style {:background "none",
+                 :border "none",
+                 :color "#f1f5ff",
+                 :cursor "pointer",
+                 :font-size "1.2rem",
+                 :padding "0 5px",
+                 :line-height "1"}} "☰"]
+       (when @open?
+         [:div
+          {:style {:position "absolute",
+                   :top "100%",
+                   :right "0",
+                   :background "#1a2035",
+                   :border "1px solid #2d3b55",
+                   :border-radius "4px",
+                   :box-shadow "0 4px 12px rgba(0,0,0,0.5)",
+                   :z-index "1000",
+                   :width "220px",
+                   :margin-top "5px",
+                   :max-height "300px",
+                   :overflow-y "auto"}}
+          (for [{:keys [name], :as item} items]
+            ^{:key name}
+            [:div
+             {:on-click (fn [] (on-select item) (reset! open? false)),
+              :style {:padding "8px 12px",
+                      :cursor "pointer",
+                      :font-size "0.9rem",
+                      :color "#c5c6c7",
+                      :border-bottom "1px solid #2d3b55"},
+              :on-mouse-over #(set! (.. % -target -style -background)
+                                    "#2d3b55"),
+              :on-mouse-out #(set! (.. % -target -style -background) "none")}
+             name])])])))
+
+
+(defn- select-example!
+  [{:keys [code lang]}]
+  (stop-run-loop!)
+  (swap! app-state assoc
+         :source code,
+         :source-lang lang,
+         :ast nil,
+         :datom-groups nil,
+         :datoms nil,
+         :walker nil,
+         :walker-result nil,
+         :steps 0,
+         :error nil))
+
+
 (defn- walker-cesk
   [vm-state]
   (when vm-state
@@ -353,8 +486,8 @@
      :component-will-unmount (fn [] (stop-run-loop!)),
      :reagent-render
      (fn []
-       (let [{:keys [source ast datoms walker walker-running walker-result
-                     steps error]}
+       (let [{:keys [source source-lang ast datoms walker walker-running
+                     walker-result steps error]}
              @app-state
              cesk (walker-cesk walker)
              halted? (when walker (vm/halted? walker))]
@@ -438,11 +571,35 @@
                     :flex "1",
                     :min-height "0"}}
            [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
-            [card "Source" "CodeMirror editor: Clojure code"
-             [codemirror-editor
-              {:value source,
-               :on-change set-source!,
-               :style {:height "100%"}}]]]
+            [card "Source" "CodeMirror editor: Clojure, Python or PHP"
+             [:div
+              {:style {:display "flex",
+                       :flex-direction "column",
+                       :flex "1",
+                       :min-height "0"}}
+              [:div
+               {:style {:display "flex",
+                        :justify-content "space-between",
+                        :align-items "center",
+                        :margin-bottom "5px"}}
+               [:select
+                {:value (name source-lang),
+                 :on-change (fn [e]
+                              (set-source-lang!
+                                (keyword (.. e -target -value)))),
+                 :style {:background "#0e1328",
+                         :color "#c5c6c7",
+                         :border "1px solid #2d3b55"}}
+                [:option {:value "clojure"} "Clojure"]
+                [:option {:value "python"} "Python"]
+                [:option {:value "php"} "PHP"]]
+               [dropdown-menu code-examples select-example!]]
+              [codemirror-editor
+               {:key source-lang,
+                :value source,
+                :language source-lang,
+                :on-change set-source!,
+                :style {:height "100%"}}]]]]
            [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
             [card "AST"
              "yang.clojure/compile-program"

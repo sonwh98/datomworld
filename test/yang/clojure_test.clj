@@ -311,3 +311,15 @@
                                       (def use-f (fn [x] (f x)))
                                       (def f (fn [x] (* x (* x x))))
                                       (use-f 2)))))))
+
+
+(deftest test-nested-defn-ast-walker
+  (testing "compile-program handles nested defn on the AST walker path"
+    (is (= 42
+           (compile-program-and-run
+             '((def make-adder
+                 (fn [n]
+                   (defn adder
+                     [x]
+                     (+ x n)) adder))
+               ((make-adder 2) 40)))))))

@@ -3,11 +3,7 @@
             [dao.stream :as ds]
             [dao.test-utils :as tu]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]
             [yin.vm.engine :as engine]
-            [yin.vm.register :as register]
-            [yin.vm.semantic :as semantic]
-            [yin.vm.stack :as stack]
             [yin.vm.test-utils :as vtu]))
 
 

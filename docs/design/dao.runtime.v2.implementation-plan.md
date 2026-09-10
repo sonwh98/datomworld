@@ -219,11 +219,18 @@ Who requires legacy `dao.runtime` today, and what that means for deletion.
 
 The v1 VM's own consumers, which gate the v1 VM's deletion and therefore
 gate R4, are not this plan's to migrate but are named so the gate is
-visible: `yin.repl`, `dao.await`, `yin.demo`, `yin.vm.bytecode-bench`,
-`yin.register-bench-cljd`, `datomworld.demo`, `datomworld.demo.continuation-handoff`,
-`datomworld.demo.continuation-stream`, `datomworld.demo.compilation-pipeline`,
-`datomworld.demo.equation-plotter`. (`yin.repl.v2.core` requires `yin.vm.v2`
-only; it is not on this list.)
+visible: `yin.repl`, `dao.await`, and the test `yin.vm.v2.parity-test`
+(asserts v2 against v1 `ast-walker` in the same process). (`yin.repl.v2.core`
+requires `yin.vm.v2` only; it is not on this list.)
+
+**Cleared by `yin.vm.v2-consumers.implementation-plan.md` (2026-09-10):**
+`yin.demo`, `yin.vm.bytecode-bench`, `yin.register-bench-cljd`,
+`datomworld.demo.continuation-handoff`, `datomworld.demo.continuation-stream`,
+`datomworld.demo.compilation-pipeline`, `datomworld.demo.equation-plotter` are
+deleted. `datomworld.demo` itself requires no `yin.vm.*` namespace after that
+plan; its remaining v1 dependence is `dao.stream` through `yin_repl.cljs` and
+`telemetry_viewer.cljs` — the stream gate (`dao.stream.md`), not this one — so
+it is off this list too.
 
 ## Phase R0 — What exists (done under the VM plan's V2)
 

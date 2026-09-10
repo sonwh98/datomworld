@@ -23,13 +23,18 @@ Scope is the ast-walker slice. `semantic`, `register`, `stack`, `space`,
 ## The five user-visible changes
 
 1. **The evaluator set shrinks and its default changes.** v2 ships one
-   evaluator, `yin.vm.v2.ast-walker`. v1's REPL defaults to `:semantic`
-   (`repl.cljc:183`); there is no `:semantic` here to default to.
+   evaluator, `yin.vm.v2.ast-walker`. v1's REPL defaulted to `:semantic`
+   until `yin.vm.v2-consumers.implementation-plan.md` (2026-09-10) deleted
+   `:semantic`/`:register`/`:stack`/`:space` and migrated v1's default to
+   `:ast-walker` too (`repl.cljc:174`); there is now only one evaluator on
+   either REPL.
 2. **User-defined macros stop evaluating.** `yang.clojure` emits
    `:yin/macro-expand` for every macro call site. `ast-walker` has no
    `macro-expand` branch — in v1 or in v2 — and `yin.vm.macro` was required
-   only by `semantic`. So `defmacro` and every macro call throw "Unknown AST
-   node type". The v2 corpus is macro-free by construction.
+   by all four experimental models (`semantic`, `register`, `stack`,
+   `space`), all since deleted alongside it. So `defmacro` and every macro
+   call throw "Unknown AST node type". The v2 corpus is macro-free by
+   construction.
 3. **`stream/take!` is removed.** Destructive read is one reader's progress
    and every other reader's data loss, and v1's `take!` took a stream ref
    rather than a cursor, so a v2 `take!` would need the

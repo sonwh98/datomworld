@@ -78,7 +78,7 @@ Once a REPL server is running, you can connect to it from another interactive JV
 | `(connect "url")` | Connect to a remote DaoStream WebSocket |
 | `(disconnect)` | Disconnect from the current remote session |
 | `(repl-state)` | Show status of the current REPL (local and remote) |
-| `(vm :type)` | Switch the evaluation VM (`:semantic`, `:register`, `:stack`, `:ast-walker`) |
+| `(vm :type)` | Switch the evaluation VM (`:ast-walker`) |
 | `(lang :lang)` | Switch input language (`:clojure`, `:python`, `:php`) |
 | `(telemetry)` | Enable/disable telemetry output |
 | `(quit)` | Exit the REPL |

@@ -1,6 +1,10 @@
 # CESK-space Optimization Plan
 
-Status: **superseded by feature parity (2026-07-20)**. `yin.vm.space` is no
+Status: **deleted (2026-09-10)**, under `yin.vm.v2-consumers.implementation-plan.md`
+— `yin.vm.space`, its `register`/`semantic` peers, and the `:bench`/`:profile-*`
+`deps.edn` aliases this document cites are gone; `yin.vm.v2`'s `ast-walker` is
+the only evaluator. What follows is history from when the document was
+**superseded by feature parity (2026-07-20)**. `yin.vm.space` was no
 longer a prototype: it is a peer VM implementing `vm/IVM`/`vm/IVMState` over
 the same canonical `:yin/*` AST datoms as `yin.vm.register` and
 `yin.vm.semantic`, with the same node vocabulary, tail-call behavior, and

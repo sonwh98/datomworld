@@ -57,7 +57,7 @@
   (stop-server!)
   (reset! active-clients 0)
   (reset! repl-state
-          (-> (repl/create-state {:vm-type :semantic})
+          (-> (repl/create-state {})
               (update :vm update :primitives merge (or extra-primitives {}))))
   (reset! repl-server
           (repl/serve!

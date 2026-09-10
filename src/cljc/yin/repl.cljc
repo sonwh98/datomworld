@@ -15,10 +15,7 @@
             [yang.php :as yang.php]
             [yang.python :as yang.python]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.register :as register]
-            [yin.vm.semantic :as semantic]
-            [yin.vm.stack :as stack]))
+            [yin.vm.ast-walker :as ast-walker]))
 
 
 (def ^:private command-heads
@@ -31,17 +28,11 @@
 
 
 (def ^:private vm-constructors
-  {:ast-walker ast-walker/create-vm,
-   :semantic semantic/create-vm,
-   :register register/create-vm,
-   :stack stack/create-vm})
+  {:ast-walker ast-walker/create-vm})
 
 
 (def ^:private vm-labels
-  {:ast-walker "ASTWalkerVM",
-   :semantic "SemanticVM",
-   :register "RegisterVM",
-   :stack "StackVM"})
+  {:ast-walker "ASTWalkerVM"})
 
 
 (def ^:private lang-labels {:clojure "Clojure", :python "Python", :php "PHP"})
@@ -62,7 +53,7 @@
 (def ^:private help-text
   #?(:clj
      (str
-       "Commands:\n" "  (vm :semantic | :register | :stack | :ast-walker)\n"
+       "Commands:\n" "  (vm :ast-walker)\n"
        "  (lang :clojure | :python | :php)\n" "  (compile expr)\n"
        "  (reset)\n" "  (connect \"daostream:ws://host:port\")\n"
        "  (disconnect)\n" "  (telemetry)\n"
@@ -71,7 +62,7 @@
        "  *1, *2, *3  - last, second-to-last, and third-to-last evaluated values")
      :default
      (str
-       "Commands:\n" "  (vm :semantic | :register | :stack | :ast-walker)\n"
+       "Commands:\n" "  (vm :ast-walker)\n"
        "  (lang :clojure | :python | :php)\n" "  (compile expr)\n"
        "  (reset)\n" "  (telemetry)\n"
        "  (repl-state)\n" "  (help)\n"
@@ -180,7 +171,7 @@
           exposed-streams {},
           lang :clojure,
           output-cursor {:position 0},
-          vm-type :semantic}}]
+          vm-type :ast-walker}}]
    (let [output-stream (or output-stream (make-local-stream))]
      {:lang lang,
       :exposed-ports exposed-ports,

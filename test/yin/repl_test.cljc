@@ -100,13 +100,13 @@
      (do
        (testing "vm and lang commands change subsequent evaluation semantics"
          (let [[state-1 vm-msg] @(repl/eval-input (repl/create-state)
-                                                  "(vm :register)")
+                                                  "(vm :ast-walker)")
                [_state-2 vm-result] @(repl/eval-input state-1 "(+ 1 2)")
                [state-3 lang-msg] @(repl/eval-input state-1 "(lang :python)")
                [_state-4 py-result] @(repl/eval-input state-3 "1 + 2")
                [state-5 php-msg] @(repl/eval-input state-3 "(lang :php)")
                [_state-6 php-result] @(repl/eval-input state-5 "1 + 2;")]
-           (is (str/includes? vm-msg "RegisterVM"))
+           (is (str/includes? vm-msg "ASTWalkerVM"))
            (is (= "3" vm-result))
            (is (str/includes? lang-msg "Python"))
            (is (= "3" py-result))
@@ -139,9 +139,9 @@
      (async
        done
        (->
-         (repl/eval-input (repl/create-state) "(vm :register)")
+         (repl/eval-input (repl/create-state) "(vm :ast-walker)")
          (.then (fn [[state-1 vm-msg]]
-                  (is (str/includes? vm-msg "RegisterVM"))
+                  (is (str/includes? vm-msg "ASTWalkerVM"))
                   (repl/eval-input state-1 "(+ 1 2)")))
          (.then (fn [[state-2 vm-result]]
                   (is (= "3" vm-result))
@@ -269,7 +269,7 @@
              summary (edn/read-string result)]
          (is (= state-1 state-2))
          (is (= :clojure (:lang summary)))
-         (is (= :semantic (get-in summary [:vm :type])))
+         (is (= :ast-walker (get-in summary [:vm :type])))
          (is (= {:position 0} (get-in summary [:telemetry :cursor])))
          (is (true? (get-in summary [:telemetry :enabled?])))
          (is (= :stderr (get-in summary [:telemetry :mode])))
@@ -293,7 +293,7 @@
              (fn [[_state-2 result]]
                (let [summary (edn/read-string result)]
                  (is (= :clojure (:lang summary)))
-                 (is (= :semantic (get-in summary [:vm :type])))
+                 (is (= :ast-walker (get-in summary [:vm :type])))
                  (is (= {:position 0} (get-in summary [:telemetry :cursor])))
                  (is (true? (get-in summary [:telemetry :enabled?])))
                  (is (= :stderr (get-in summary [:telemetry :mode])))
@@ -309,7 +309,7 @@
     (let [state-atom (atom (repl/create-state))
           eval-handler (get (repl/make-handlers state-atom) :op/eval)]
       (is (= "42" (eval-handler "(+ 9 33)")))
-      (is (= :semantic (:vm-type @state-atom)))))
+      (is (= :ast-walker (:vm-type @state-atom)))))
   (testing "op/eval handler persists shell state across requests"
     (let [state-atom (atom (repl/create-state))
           eval-handler (get (repl/make-handlers state-atom) :op/eval)]
@@ -640,3 +640,19 @@
            (finally (ds/close! client-a-stream)
                     (ds/close! client-b-stream)
                     ((:stop! server))))))))
+
+
+(deftest create-state-accepts-every-advertised-vm-type-test
+  (testing "create-state builds a VM for every advertised vm-type"
+    ;; :ast-walker is the only advertised type after the yin.vm.v2-consumers
+    ;; deletion plan; a survivor of the old multi-model list here (:semantic,
+    ;; :register, :stack) would mean vm-constructors grew back a model this
+    ;; test doesn't know about.
+    (is (= :ast-walker (:vm-type (repl/create-state {:vm-type :ast-walker})))))
+  (testing "an unsupported vm-type throws naming what is supported"
+    (let [error (try (repl/create-state {:vm-type :semantic})
+                     (catch #?(:clj Exception :cljs :default :cljd Object)
+                            e e))]
+      (is (some? error))
+      (is (= [:ast-walker]
+             (:supported (ex-data error)))))))

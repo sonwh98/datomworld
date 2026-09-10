@@ -53,9 +53,10 @@ reachability failure (which may succeed on retry) when that is what happened.
 No evaluation blocks on a promise, on any host.
 
 **`(vm :type)` offers `:ast-walker` only, and the default changed.**
-v1 defaulted to `:semantic`. The remaining evaluators (`:semantic`,
-`:register`, `:stack`, `:space`) follow in the `yin.vm.v2` plan; until they
-land, asking for one is an error naming what is supported.
+v1 defaulted to `:semantic`, until `yin.vm.v2-consumers.implementation-plan.md`
+deleted `:semantic`, `:register`, `:stack` and `:space` and migrated v1's
+default to `:ast-walker` too. `:ast-walker` is now the only evaluator on
+either REPL; asking for another is an error naming what is supported.
 
 **There is no `(telemetry)` command.** Telemetry is not part of the v2 slice
 in any form. `(telemetry)` is answered with a message naming the v1 REPL, and

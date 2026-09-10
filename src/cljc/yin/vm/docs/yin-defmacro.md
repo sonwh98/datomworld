@@ -1,5 +1,12 @@
 # defmacro - design spec
 
+Status: **historical — `yin.vm.macro`, the canonical macro model this spec
+describes, is deleted** (`yin.vm.v2-consumers.implementation-plan.md`,
+2026-09-10). `yang.clojure`'s `defmacro` syntax layer and `:yin/macro-expand`
+node emission remain (Yang still emits the nodes; nothing evaluates them),
+but v1 `yin.vm.ast-walker` has no macro-expand branch and `yin.vm.v2` ships
+a macro-free corpus by construction.
+
 ## Summary
 
 `defmacro` is implemented as a split between two layers:
