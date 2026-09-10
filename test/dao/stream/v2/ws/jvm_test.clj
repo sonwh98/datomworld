@@ -8,7 +8,14 @@
    and report exactly once, even when the report re-enters through the
    adapter. These tests drive a reified java.net.http.WebSocket whose futures
    the test completes by hand and record host calls and adapter deposits in
-   one ordered trace, so nothing here touches a network or a clock."
+   one ordered trace, so nothing here touches a network or a clock.
+
+   One asymmetry to know: the scripted socket's `abort` only records, while a
+   real `WebSocket.abort()` invokes the listener's `onError` and so deposits a
+   second `:ws/error`. That extra deposit is a diagnostic the blocking client
+   drops, and the terminal event stays once-only through `ws/closed!`'s own
+   guard, so J5 holds either way -- but the abort-to-onError re-entry is not
+   what these tests exercise."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream.v2.ws.jvm :as jvm])
   (:import [java.net.http WebSocket]
