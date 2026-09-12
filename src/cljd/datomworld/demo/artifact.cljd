@@ -20,16 +20,21 @@
 (def ^:private timer-stop* (atom nil))
 
 
-(def ^:private runtime-input-stream
-  (ds/open!
-    {:dao.stream/type :ringbuffer, :capacity 64, :eviction-policy :reject}))
+(def ^:private runtime-input-stream* (atom nil))
 
 
 (def ^:private event-binding* (atom nil))
 (def ^:private output-streams* (atom nil))
 (def ^:private output-cursors* (atom {}))
 (def ^:private runtime-seq* (atom 0))
+(def ^:private pointer-seq* (atom -1))
 (def ^:private runtime-time* (atom -1))
+
+
+(defn- open-runtime-input-stream
+  []
+  (ds/open!
+    {:dao.stream/type :ringbuffer, :capacity 1024, :eviction-policy :evict-oldest}))
 
 
 (def ^:private ids*
@@ -79,32 +84,41 @@
 
 (defn- append-runtime!
   [value]
-  (let [seq (inc @runtime-seq*)
-        requested-time (or (:runtime/time-us value) seq)
-        time-us (max (inc @runtime-time*) (long requested-time))
-        envelope (assoc value
-                        :runtime/seq seq
-                        :runtime/time-us time-us)]
-    (when (= :ok (:result (ds/append! runtime-input-stream envelope)))
-      (reset! runtime-seq* seq)
-      (reset! runtime-time* time-us)
-      (advance!))))
+  (when-let [stream @runtime-input-stream*]
+    (let [seq (inc @runtime-seq*)
+          requested-time (or (:runtime/time-us value) seq)
+          time-us (max (inc @runtime-time*) (long requested-time))
+          envelope (assoc value
+                          :runtime/seq seq
+                          :runtime/time-us time-us)]
+      (when (= :ok (:result (ds/append! stream envelope)))
+        (reset! runtime-seq* seq)
+        (reset! runtime-time* time-us)
+        (advance!)))))
 
 
 (defn- boot-events!
   []
-  (let [{:keys [generation-id frame-id coordinate-space-id profile-id]} @ids*
+  (let [input-stream (open-runtime-input-stream)
+        outputs (open-output-streams)
         [width height] @viewport*
-        outputs (open-output-streams)]
+        ids (reset! ids* {:generation-id 1,
+                          :frame-id 1,
+                          :coordinate-space-id 1,
+                          :profile-id 1})]
+    (reset! runtime-input-stream* input-stream)
     (reset! output-streams* outputs)
     (reset! output-cursors* {})
-    (reset! event-binding* (event/bind {:inputs {:runtime-input
-                                                 runtime-input-stream},
+    (reset! runtime-seq* 0)
+    (reset! pointer-seq* -1)
+    (reset! runtime-time* -1)
+    (reset! active-pointers* #{})
+    (reset! event-binding* (event/bind {:inputs {:runtime-input input-stream},
                                         :outputs outputs}))
-    (doseq [value (runner/boot-values {:generation-id generation-id,
-                                       :frame-id frame-id,
-                                       :coordinate-space-id coordinate-space-id,
-                                       :profile-id profile-id,
+    (doseq [value (runner/boot-values {:generation-id (:generation-id ids),
+                                       :frame-id (:frame-id ids),
+                                       :coordinate-space-id (:coordinate-space-id ids),
+                                       :profile-id (:profile-id ids),
                                        :width width,
                                        :height height})]
       (append-runtime! value))))
@@ -115,7 +129,8 @@
   (when (not= size @viewport*)
     (reset! viewport* size)
     (when @event-binding*
-      (let [ids (swap! ids* (fn [ids]
+      (let [old-space-id (:coordinate-space-id @ids*)
+            ids (swap! ids* (fn [ids]
                               (-> ids
                                   (update :frame-id inc)
                                   (update :coordinate-space-id inc))))
@@ -124,6 +139,7 @@
                         :runtime/value
                         {:message/kind :dao.terminal/coordinate-space-change,
                          :generation-id (:generation-id ids),
+                         :old-coordinate-space-id old-space-id,
                          :coordinate-space-id (:coordinate-space-id ids),
                          :viewport {:width width, :height height}}}
                        {:runtime/source :geometry,
@@ -152,13 +168,14 @@
                  (conj @active-pointers* id))
         _ (reset! active-pointers* active)
         pos (.-localPosition e)
+        p-seq (swap! pointer-seq* inc)
         seq (inc @runtime-seq*)
         packet {:input/kind :pointer,
                 :generation-id (:generation-id @ids*),
                 :frame-id (:frame-id @ids*),
                 :coordinate-space-id (:coordinate-space-id @ids*),
                 :profile-id (:profile-id @ids*),
-                :input-seq seq,
+                :input-seq p-seq,
                 :pointer {:id id,
                           :type (pointer-type e),
                           :primary? (= id (first (sort active))),
@@ -190,12 +207,11 @@
 (defn dispose!
   []
   (stop!)
-  (append-runtime! {:runtime/source :control,
-                    :runtime/value {:input/kind :dao.gui.event/teardown}})
-  (reset! event-binding* nil)
-  (ds/close! runtime-input-stream)
-  (ds/close! signal-stream)
-  (ds/close! frame-stream)
+  (when @event-binding*
+    (append-runtime! {:runtime/source :control,
+                      :runtime/value {:input/kind :dao.gui.event/teardown}})
+    (reset! event-binding* nil))
+  (reset! runtime-input-stream* nil)
   :disposed)
 
 
