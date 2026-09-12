@@ -52,6 +52,9 @@
   (atom {:context nil, :pipeline nil, :host-buffer nil, :white-texture nil}))
 
 
+(defonce ^:private gpu-ready-future (atom nil))
+
+
 (defn- require-rgba-byte-size!
   [^int width ^int height ^type/ByteData rgba]
   (let [expected (* width height 4)
@@ -64,33 +67,37 @@
                    ", got " actual)))))
 
 
-(declare init-gpu!)
+(declare init-gpu! ensure-gpu-ready!)
 
 
 (defn create-rgba-texture!
-  "Creates a PgTexture carrying both a Flutter GPU texture and the host bytes.
+  "Creates a PgTexture carrying both a Flutter GPU texture and the host
+   bytes, as a Future: it awaits GPU init before deciding whether a GPU
+   handle is possible, since a PgTexture is immutable and never
+   re-uploaded once GPU init finishes later.
 
-   The returned PgTexture is the value to place in draw3d/mesh
+   The resolved PgTexture is the value to place in draw3d/mesh
    :texture/source. GPU sampling uses the .gpu field; software sampling uses
    the .rgba field."
-  ^tex/PgTexture [^int width ^int height ^type/ByteData rgba]
+  ^async/Future [^int width ^int height ^type/ByteData rgba]
   (when-not (and (> width 0) (> height 0))
     (v/reject! :validation-failure "Texture width and height must be positive"))
   (require-rgba-byte-size! width height rgba)
   (let [rgba-list (.asUint8List (.-buffer rgba)
                                 (.-offsetInBytes rgba)
                                 (.-lengthInBytes rgba))]
-    (init-gpu!)
-    (let [^gpu/GpuContext context (:context @gpu-state)
-          gpu-tex (when context
-                    (let [^gpu/Texture texture (.createTexture
-                                                 context
-                                                 gpu/StorageMode.hostVisible
-                                                 width
-                                                 height)]
-                      (.overwrite texture rgba)
-                      texture))]
-      (tex/->PgTexture gpu-tex rgba-list width height))))
+    (.then (ensure-gpu-ready!)
+           (fn [_ready?]
+             (let [^gpu/GpuContext context (:context @gpu-state)
+                   gpu-tex (when context
+                             (let [^gpu/Texture texture (.createTexture
+                                                          context
+                                                          gpu/StorageMode.hostVisible
+                                                          width
+                                                          height)]
+                               (.overwrite texture rgba)
+                               texture))]
+               (tex/->PgTexture gpu-tex rgba-list width height))))))
 
 
 (defn load-rgba-texture-from-asset!
@@ -179,41 +186,85 @@
   (and (some? gpu/gpuContext) (not (is-emulator?))))
 
 
+(defn- install-gpu-state!
+  [^gpu/GpuContext ctx ^gpu/ShaderLibrary lib]
+  (let [vert (. lib "[]" "SimpleVertex")
+        frag (. lib "[]" "SimpleFragment")]
+    (if (and vert frag)
+      (let [pipeline (.createRenderPipeline ctx vert frag)
+            white-texture (let [bytes (type/ByteData. 4)]
+                            (.setUint8 bytes 0 255)
+                            (.setUint8 bytes 1 255)
+                            (.setUint8 bytes 2 255)
+                            (.setUint8 bytes 3 255)
+                            (let [texture (.createTexture
+                                            ctx
+                                            gpu/StorageMode.hostVisible
+                                            1
+                                            1)]
+                              (.overwrite texture bytes)
+                              texture))]
+        (swap! gpu-state assoc
+               :context ctx
+               :pipeline pipeline
+               :host-buffer (.createHostBuffer ctx)
+               :white-texture white-texture))
+      (dart/print "GPU shaders not found in bundle."))))
+
+
+(defn- ensure-gpu-ready!
+  "Returns a Future<bool> that resolves once GPU init has been attempted —
+   true if `gpu-state` now carries a context, false if the device has no
+   GPU or the shader library failed to load. `ShaderLibrary.fromAsset`
+   returns a `Future<ShaderLibrary?>` (not the synchronous value earlier
+   Flutter GPU versions returned), so this cannot populate `gpu-state`
+   before returning, and any texture built from a nil `:context` bakes
+   that in permanently (`PgTexture` is immutable, never re-uploaded) — so
+   every caller that builds a texture must await this rather than read
+   `gpu-state` right after a fire-and-forget kickoff. Concurrent callers
+   during the load window share the one in-flight future rather than each
+   triggering a separate asset load; it is cleared on both success and
+   failure so a transient failure is retried by the next caller, matching
+   this function's prior behavior of retrying on every call until
+   `:context` was set."
+  ^async/Future []
+  (cond (:context @gpu-state) (async/Future.value true)
+        @gpu-ready-future @gpu-ready-future
+        :else
+        (let [ctx gpu/gpuContext]
+          (if (nil? ctx)
+            (do (dart/print "Flutter GPU is not available on this device.")
+                (async/Future.value false))
+            (let [fut (-> ^async/Future
+                       (gpu/ShaderLibrary.fromAsset
+                         "assets/shaders/simple_mesh.shaderbundle")
+                          (.then (fn [lib]
+                                   (reset! gpu-ready-future nil)
+                                   (if (nil? lib)
+                                     (do (dart/print
+                                           "Failed to load shader library")
+                                         false)
+                                     (do (install-gpu-state! ctx lib)
+                                         (some? (:context @gpu-state))))))
+                          (.catchError
+                            (fn [e]
+                              (reset! gpu-ready-future nil)
+                              (dart/print
+                                (str "Failed to load GPU shaders: " e))
+                              false)))]
+              (reset! gpu-ready-future fut)
+              fut)))))
+
+
 (defn- init-gpu!
+  "Fire-and-forget GPU init kickoff for synchronous per-frame callers
+   (`submit-gpu!`) that cannot await a Future and only need `gpu-state` as
+   of *this* frame, tolerating a still-nil `:context` (the pre-existing
+   \"not ready\" signal). Callers that build a texture must await
+   `ensure-gpu-ready!` directly instead — see its docstring."
   []
-  (when-not (:context @gpu-state)
-    (let [ctx gpu/gpuContext]
-      (if (nil? ctx)
-        (dart/print "Flutter GPU is not available on this device.")
-        (try
-          (let [lib (gpu/ShaderLibrary.fromAsset
-                      "assets/shaders/simple_mesh.shaderbundle")
-                _ (when (nil? lib)
-                    (throw (dart/Exception. "Failed to load shader library")))
-                vert (. ^gpu/ShaderLibrary lib "[]" "SimpleVertex")
-                frag (. ^gpu/ShaderLibrary lib "[]" "SimpleFragment")]
-            (if (and vert frag)
-              (let [pipeline (.createRenderPipeline ctx vert frag)
-                    white-texture (let [bytes (type/ByteData. 4)]
-                                    (.setUint8 bytes 0 255)
-                                    (.setUint8 bytes 1 255)
-                                    (.setUint8 bytes 2 255)
-                                    (.setUint8 bytes 3 255)
-                                    (let [texture (.createTexture
-                                                    ctx
-                                                    gpu/StorageMode.hostVisible
-                                                    1
-                                                    1)]
-                                      (.overwrite texture bytes)
-                                      texture))]
-                (swap! gpu-state assoc
-                       :context ctx
-                       :pipeline pipeline
-                       :host-buffer (.createHostBuffer ctx)
-                       :white-texture white-texture))
-              (dart/print "GPU shaders not found in bundle.")))
-          (catch Object e
-            (dart/print (str "Failed to load GPU shaders: " e))))))))
+  (ensure-gpu-ready!)
+  nil)
 
 
 (defn- render-mesh-gpu!

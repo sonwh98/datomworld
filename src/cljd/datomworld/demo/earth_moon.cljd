@@ -25,8 +25,11 @@
 
 (defn- ensure-asset-texture!
   [setter! asset-path]
-  (.then ^async/Future (pg-gpu/load-rgba-texture-from-asset! asset-path)
-         (fn [tex] (setter! tex))))
+  (-> ^async/Future (pg-gpu/load-rgba-texture-from-asset! asset-path)
+      (.then (fn [tex] (setter! tex)))
+      (.catchError (fn [e]
+                     (core/print
+                       (str "Texture load failed for " asset-path ": " e))))))
 
 
 (defn- ring-texture-bytes
@@ -49,12 +52,13 @@
 
 (defn- ensure-ring-texture!
   []
-  (try (runner/set-ring-texture! (pg-gpu/create-rgba-texture!
-                                   ring-tex-width
-                                   ring-tex-height
-                                   (ring-texture-bytes ring-tex-width
-                                                       ring-tex-height)))
-       (catch Object e (core/print (str "Ring texture creation failed: " e)))))
+  (-> ^async/Future (pg-gpu/create-rgba-texture!
+                      ring-tex-width
+                      ring-tex-height
+                      (ring-texture-bytes ring-tex-width ring-tex-height))
+      (.then (fn [tex] (runner/set-ring-texture! tex)))
+      (.catchError (fn [e]
+                     (core/print (str "Ring texture creation failed: " e))))))
 
 
 (defn stop!
