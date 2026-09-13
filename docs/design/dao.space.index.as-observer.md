@@ -1,10 +1,14 @@
-# dao.space as a `run-on-stream` Observer
+# dao.space.index as a dao.stream Observer
 
-Status: design note, 2026-09-13. Proposes `dao.space.observer`, a
-`dao.stream.v2.observer/run-on-stream`-driven indexer over *any* `dao.stream.v2`
-medium, so that dao.space can observe the same stream a `yin.vm` evaluator
-observes — the VM reading it as control, dao.space reading it as facts —
-with neither knowing about the other. Subordinate to
+Status: design note, 2026-09-13. `dao.space.index` is already the dao.stream
+observer on the dao.space side: `snapshot-datoms` + `publish-index!` is one
+observer run — attach at `:oldest`, fold to `blocked`, publish, keep nothing.
+This note makes it a *stateful* observer, driven by
+`dao.stream.v2.observer/run-on-stream` over *any* `dao.stream.v2` medium, so
+that dao.space can observe the same stream a `yin.vm` evaluator observes — the
+VM reading it as control, dao.space reading it as facts — with neither knowing
+about the other. No new namespace: everything here is index realization,
+which `dao.space.index` already owns. Subordinate to
 [`dao.space.md`](./dao.space.md) (write path, three boundaries),
 [`dao.stream.md`](./dao.stream.md) (§Composition), and the observer
 coordination already specified by `dao.stream.v2.observer`. It
@@ -27,10 +31,11 @@ The framing, stated once:
    (`dao.space.md` §The Write Path). That stays true *as a composition*, but
    the mechanism becomes an observer over a medium — any medium, including
    one a `yin.vm` composition writes for its evaluators.
-2. **One coordination loop.** The indexer is driven by
+2. **One coordination loop, one library.** `dao.space.index` is driven by
    `dao.stream.v2.observer/run-on-stream` with its state in the `:consumer`
    slot, exactly as an evaluator or the macro expander is. No second
-   observer machinery.
+   observer machinery, and no new namespace: "the dao.space observer" is a
+   role `dao.space.index` plays when so driven, not a module.
 3. **The index is incremental and persistent.** Each observed batch is
    folded into the four covered indexes as `dao.data.btree` values; the
    trees are structurally shared across batches. `publish-index!`'s
@@ -46,7 +51,7 @@ The framing, stated once:
    identity can exist, because dao.space is the one observer that may read
    every medium.
 6. **Symmetric ignorance is an invariant.** A `yin.vm` never consults the
-   index to run; the indexer never evaluates a form to index it. The
+   index to run; `dao.space.index` never evaluates a form to index it. The
    "CESK-in-the-index" premise of `yin.vm-in-dao.space.md` is *not* adopted
    here: this note keeps two interpreters over one stream, not one
    interpreter with two faces.
@@ -78,35 +83,56 @@ Three consequences follow, and they are the gap:
   cannot be resumed batch by batch, so it cannot participate in a
   `run-on-stream` round the way an evaluator does.
 
-`datoms-from-elements` already accepts both element shapes (raw d5 rows and
-transaction records), `index-datoms` already builds the in-memory index,
-and `observe/step` already exists. The pieces are present; only the
-composition is missing.
+**Already true.** `dao.space.index` is the consumer side of observation.
+`snapshot-datoms` + `publish-index!` *is* an observer run: attach at
+`:oldest`, fold everything to `blocked`, publish once, discard the state —
+the degenerate case of `run-on-stream` with a consumer that is always ready
+and keeps nothing between calls. `datoms-from-elements` already accepts both
+element shapes (raw d5 rows and transaction records), `index-datoms` already
+builds the in-memory index, and `observe/step` already exists.
+
+**Not yet true**, and it is code, not wording:
+
+1. *Incremental fold.* `index-datoms` builds a whole index from a whole datom
+   vector; `publish-index!` rebuilds from the origin every time. Being
+   driven batch by batch needs `fold-batch : index-state batch →
+   index-state'` over persistent btree values (§2.2).
+2. *Tempid resolution across batches.* A transactor-written medium carries
+   resolved ids; a `yin.vm` program medium carries per-batch negative tempids
+   that *repeat*. `dao.space.index` never meets that case today because it
+   only indexes the writer's own resolved log. Observing a medium it did not
+   write requires the per-batch allocator and resolution facts (§3) — a
+   correctness requirement, not a framing one.
+3. *Bad input as data.* `snapshot-datoms` throws on the first malformed
+   element, which is right for a one-shot over your own log and
+   head-of-line-blocks a session over someone else's medium (§2.2 step 1).
 
 ---
 
-## 2. The observer (`dao.space.observer`)
+## 2. The index consumer (`dao.space.index`)
 
-### 2.1 Session shape
+### 2.1 The index state
 
 ```
-indexer = {:indexes    {:eavt bt :aevt bt :avet bt :vaet bt}   ; dao.data.btree values, structurally shared across batches
-           :ids        {:next-eid n}                           ; durable-id allocator (decision 5)
-           :batch      n                                       ; ordinal of the next batch, observer-local
-           :schema     {attr {:db/valueType :db.type/ref ...}} ; supplied; which attrs are refs
-           :publish    nil | {:intake writer :staged nil|payloads}   ; optional, §4
-           :defects    []}                                     ; malformed batches seen since last drain
+index-state = {:indexes {:eavt bt :aevt bt :avet bt :vaet bt}      ; dao.data.btree values, structurally shared across batches
+               :ids      {:next-eid n}                           ; durable-id allocator (decision 5)
+               :batch    n                                       ; ordinal of the next batch, observer-local
+               :schema   {attr {:db/valueType :db.type/ref ...}} ; supplied; which attrs are refs
+               :publish  nil | {:intake writer :staged nil|payloads}   ; optional, §4
+               :defects  []}                                     ; malformed batches seen since last drain
 
+;; all in dao.space.index, beside index-datoms and publish-index!
 ready?       (fn [x] (nil? (get-in x [:publish :staged])))
-load         (fn [x batch] (fold-batch x batch))              ; pure; §2.2
-run          (fn [x] (if (publish-due? x) (flush-publish x) x))   ; §4
-drain        (fn [x] [(assoc x :defects []) (:defects x)])
+load         index/fold-batch                                  ; pure; §2.2
+run          index/publish-if-due                              ; §4
+index/drain  (fn [x] [(assoc x :defects []) (:defects x)])
 ```
 
-Driven as `(run-on-stream {:observer o :consumer indexer} ready? load
-run)` over any `dao.stream.v2` reader handle attached through
-`dao.stream.v2.observer/attach`. The coordination inspects no indexer field; it
-drives an indexer as readily as a VM — which is the point of decision 2.
+Driven as `(run-on-stream {:observer o :consumer index-state} ready?
+index/fold-batch index/publish-if-due)` over any `dao.stream.v2` reader
+handle attached through `dao.stream.v2.observer/attach`. The coordination
+inspects no field of the index state; it drives it as readily as a VM —
+which is the point of decision 2.
 
 ### 2.2 `fold-batch`
 
@@ -129,13 +155,13 @@ One batch, one pure fold:
    are sets; a duplicate row is a no-op.
 4. **Advance** `:batch` and `:ids`.
 
-The indexer's `:indexes` after batch *n* is a pure function of (indexer
-before, batch), on every host.
+The `:indexes` after batch *n* are a pure function of (index state before,
+batch), on every host.
 
 ### 2.3 What the two views mean over each medium
 
 `dao.space.query/current` and `history` are unchanged: they are
-interpreters over rows, and the indexer's trees are a row source.
+interpreters over rows, and the index state's trees are a row source.
 
 | Medium | `t` in rows | `current` | `history` |
 |---|---|---|---|
@@ -166,8 +192,8 @@ For every tempid `τ` the observer maps to durable `δ` in batch *n*, it
 asserts, in its own namespace and with `m` = its own operation entity:
 
 ```
-[δ :dao.space.observer/batch   n   t_obs m_obs]
-[δ :dao.space.observer/tempid  τ   t_obs m_obs]
+[δ :dao.space.index/batch   n   t_obs m_obs]
+[δ :dao.space.index/tempid  τ   t_obs m_obs]
 ```
 
 `t_obs` is the observer's batch ordinal (its own logical clock, never a
@@ -175,14 +201,14 @@ host clock; it is *not* the row's `t`). These are facts *about* observation,
 distinct from the observed rows, distinguishable by attribute namespace and
 by `m`. They are what make the following queryable:
 
-- **Which batch asserted this entity** — `[?e :dao.space.observer/batch ?n]`.
+- **Which batch asserted this entity** — `[?e :dao.space.index/batch ?n]`.
 - **Cross-medium provenance**, the case `yin.vm.macro.md` §4.2 leaves to
-  "a composition that commits". With one indexer session per medium
+  "a composition that commits". With one index session per medium
   (`program-in`, `program-out`, log) sharing an allocator, or one session
   over a merged view, the macro expander's event
   `[ev :yin/source-batch t] [ev :yin/source-call -16]` joins to the source
-  entity through `[?e :dao.space.observer/batch t'] [?e
-  :dao.space.observer/tempid -16]` — where `t'` is the observer's ordinal
+  entity through `[?e :dao.space.index/batch t'] [?e
+  :dao.space.index/tempid -16]` — where `t'` is the observer's ordinal
   for the source batch the expander numbered `t`. The correspondence
   between the expander's `:t` and the observer's ordinal is one more
   resolution fact the composition asserts when it wires both observers to
@@ -219,14 +245,14 @@ Publication cost becomes proportional to what changed, not to history.
 
 The staging discipline is `yin.vm.macro.md` §5's: node blobs then manifest
 are staged as one payload list; `full` retains the exact list and leaves the
-indexer not-ready; `ok` on the manifest clears it. The manifest is always
+index state not-ready; `ok` on the manifest clears it. The manifest is always
 last, so a partial prefix is retry-safe, as today.
 
 ### 4.2 The checkpoint the transactor asked for
 
 `dao.space.transactor.md` *Open items*: "the log carries its own checkpoint,
-from which the watermark and incremental indexes resume". An indexer
-session is that checkpoint's shape: `{:manifest-address a :cursor c :ids i
+from which the watermark and incremental indexes resume". An index state
+is that checkpoint's shape: `{:manifest-address a :cursor c :ids i
 :batch n}` — the published trees, the medium position they cover, and the
 allocator state. A restarted observer opens the manifest (lazy, via
 `query/open-published!`), re-attaches at `c`, and continues folding. Nothing
@@ -244,16 +270,20 @@ observer's state is the same value in both.
 ## 5. Relationship to the transactor and to `publish-index!`
 
 The transactor remains the writer and the owner of `t`. "Indexing is the
-writer's duty" becomes: *the writer runs an observer over its own stream* —
-one session attached to its local memory-log, publishing on its policy.
-`publish-index!` is then a convenience: attach at `:oldest`, fold to
-`blocked`, publish once, discard the session. Its full-history behaviour is
-preserved as the degenerate case of an observer that never kept state.
+writer's duty" becomes: *the writer runs `dao.space.index` as an observer
+over its own stream* — one index state attached to its local memory-log,
+publishing on its policy. `publish-index!` is then a convenience over the
+same functions: attach at `:oldest`, `fold-batch` to `blocked`, publish
+once, discard the state. Its full-history behaviour is preserved as the
+degenerate case of an observer that never kept state, and its manifest
+format, intake path, and retry-safety are unchanged.
 
-Nothing about `dao.jing` changes: it still materializes opaque payloads from
-intake pools and never interprets. Nothing about `dao.space.query` changes:
-the indexer's trees are one more row source, alongside relation values and
-published manifests. The three boundaries of `dao.space.md` are untouched;
+`dao.space.index` gains `fold-batch`, `publish-if-due`, `drain`, and the
+resolution-fact attributes; it loses nothing. Nothing about `dao.jing`
+changes: it still materializes opaque payloads from intake pools and never
+interprets. Nothing about `dao.space.query` changes: the index state's trees
+are one more row source, alongside relation values and published
+manifests. The three boundaries of `dao.space.md` are untouched;
 what moves is *when* the transactor-side index is built (continuously,
 not at publish) and *over what* (any medium, not only the writer's own).
 
@@ -263,9 +293,9 @@ not at publish) and *over what* (any medium, not only the writer's own).
 
 | Invariant | How the observer honours it |
 |---|---|
-| No hidden global state | Allocator, batch ordinal, trees, staged publication — all fields of one session value threaded through `run-on-stream`. No registry of observers; a composition holds the sessions it created. |
+| No hidden global state | Allocator, batch ordinal, trees, staged publication — all fields of one index-state value threaded through `run-on-stream`. No registry of observers; a composition holds the states it created. |
 | No implicit control flow | Indexing happens in exactly one place: `fold-batch` inside the observe step. Nothing indexes on write, on query, or on publish. |
-| No callbacks | `fold-batch` is a function batch → indexer'. The driver is `run-on-stream`; cadence is the composition's. |
+| No callbacks | `fold-batch` is a function (index-state, batch) → index-state'. The driver is `run-on-stream`; cadence is the composition's. |
 | No shared mutable state | `dao.data.btree` values are persistent; two sessions never share a tree by reference they could both mutate. The recording content handle at publish time is created per publication. |
 | No layer collapsing | *append* (writer) → medium → *observe/fold* (this note) → *publish* (intake) → *materialize* (`dao.jing`) → *query*. The VM is a sibling observer, not a stage. |
 | No assumed graphs | Ref resolution uses only the supplied `:schema`; the observer does not infer which values are refs. Batch shape is validated by `datoms-from-elements`; malformed elements are defects, not guesses. |
@@ -288,8 +318,9 @@ of its own. The pending fix from `yin.vm.macro.md` §5 — keep the throw,
 carry the partial `{:observer :consumer}` session in `ex-data` — lands in this
 namespace.
 
-**Phase 0′ — parity over the transactor's medium.** `dao.space.observer`
-with `fold-batch`, resolution facts, `drain`; a session attached at
+**Phase 0′ — parity over the transactor's medium.** `dao.space.index` gains
+`fold-batch`, `publish-if-due`, `drain`, and the resolution facts; a session
+attached at
 `:oldest` over a transactor's local memory-log produces `:indexes` equal
 (as sets) to `index-datoms` over `snapshot-datoms` of the same log, and a
 one-shot publication equal (as a manifest) to `publish-index!`. Tests: set
@@ -300,7 +331,7 @@ session (it is plain data plus btree values).
 
 **Phase 1 — a raw `yin.vm` program medium.** Two observers on one
 `program-out`: `dao.stream.v2.observer` + `ast-walker` running the
-program, `dao.space.observer` indexing it. Tests: the VM's value and the
+program, `dao.stream.v2.observer` + `dao.space.index` indexing it. Tests: the VM's value and the
 index's `current` view from the same batches; two batches with overlapping
 tempids index as distinct entities with correct resolution facts;
 `[?e :yin/type :lambda]` finds every lambda the program contained; a ref

@@ -343,7 +343,10 @@ eager logical d5 reads through the opened published value.
   future builder could retain the previous manifest, insert only the appended
   datoms into restored B-trees, and store their changed paths. Nothing in the
   node or manifest format requires that strategy; the current implementation
-  always performs a full rebuild.
+  always performs a full rebuild. The design for this is
+  [`dao.space.index.as-observer.md`](./dao.space.index.as-observer.md): this
+  library driven batch by batch through `dao.stream.v2.observer/run-on-stream`
+  over any medium, with `publish-index!` kept as the stateless special case.
 - **Async hydration** — remote reads over async backends use the hydration
   adapter (`dao.data.btree.storage/hydration-storage`, `hydrate!`); the async
   variants (`hydrate-async`, `store-tree-async`) are deferred until an async
