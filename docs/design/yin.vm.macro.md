@@ -30,7 +30,7 @@ The design follows from one framing and adds nothing to it:
    *source* medium (`program-in`), rewrites each batch to a fixpoint, and
    appends the result to a *program* medium (`program-out`) that evaluators
    observe. It is a forwarder in the sense of `dao.stream.md` §Composition,
-   driven by the same `stream-observer/run-on-stream` coordination that
+   driven by the same `dao.stream.v2.observer/run-on-stream` coordination that
    drives an evaluator.
 3. **There is no phase.** "Compile time" and "runtime" named which cursor
    reached a batch first. With expansion on its own medium, the distinction
@@ -740,9 +740,9 @@ because there is nothing left inside a VM to authorize.
 
 ## 5. The expander as an observer
 
-The expander is driven by `yin.vm.v2.stream-observer/run-on-stream` with
-its state in the `:vm` slot — the coordination inspects no evaluator field,
-so it drives an expander as readily as a VM:
+The expander is driven by `dao.stream.v2.observer/run-on-stream` with
+its state in the `:consumer` slot — the coordination inspects no field of
+the consumer, so it drives an expander as readily as a VM:
 
 ```
 expander = {:ctx ctx
@@ -752,13 +752,13 @@ expander = {:ctx ctx
             :errors []}        ; expansion failures since the last drain
 
 ready?       (fn [x] (and (nil? (:out-staged x)) (nil? (:log-staged x))))
-load-program (fn [x batch]
+load         (fn [x batch]
                (let [r (expand-batch batch (:ctx x))]
                  (-> x (assoc :ctx (:ctx r))
                        (assoc :out-staged (when (= :ok (:status r)) (:datoms r)))
                        (assoc :log-staged (when (:log x) (:log r)))
                        (cond-> (= :error (:status r)) (update :errors conj (:error r))))))
-run-vm       flush                    ; below
+run          flush                    ; below
 drain-errors (fn [x] [(assoc x :errors [] :forwarded 0) {:errors (:errors x) :forwarded (:forwarded x)}])
 ```
 
@@ -797,7 +797,7 @@ to one `dao.space` transaction (§4.2).
 not-ready with the exact payload staged, so the next round retries the
 append before observing again; `gap` on `program-in` is counted by the
 observer and is the composition's policy, as for any observer. What remains
-a *throw* out of `load-program` is a forwarder defect (codec failure, index
+a *throw* out of `load` is a forwarder defect (codec failure, index
 failure); the cursor does not advance and the batch is re-read, which is
 the correct behaviour for a bug and the wrong one for bad input — hence
 decision 11.
@@ -809,8 +809,8 @@ throws, the caller still holds the pre-A session and a retry forwards A again
 defect of the generic coordination, not of this design — a VM loader that
 throws on B after loading A has the same problem — and it is fixed there.
 The fix **keeps the throw** and carries the partial session in the
-exception's data: `(ex-info … {:session {:observer o' :vm vm'} …})`. A
-return-shaped `{:observer :vm :error}` was considered and rejected: every
+exception's data: `(ex-info … {:session {:observer o' :consumer c'} …})`. A
+return-shaped `{:observer :consumer :error}` was considered and rejected: every
 existing caller reasons "a throw means the round failed", and a value-shaped
 error would let an un-updated caller continue silently past a defect. With
 the throw kept, recovery is opt-in: a caller that catches resumes from
@@ -818,7 +818,7 @@ the throw kept, recovery is opt-in: a caller that catches resumes from
 must distinguish *where* the failure was: a **load** failure carries the
 cursor before the failing batch (it will be re-read); a **run/flush**
 failure after a successful load carries the cursor *after* that batch and
-the `:vm` as the failing `run-vm` left it (for the expander: its partially
+the `:consumer` as the failing `run` left it (for the expander: its partially
 flushed slots), so a retry neither re-reads B nor re-appends what B already
 delivered. This document depends on that fix and does not work around it.
 
@@ -914,11 +914,11 @@ yin.vm.v2.macro-test" in the shadow `:node-test` output.
 - `ast-walker`: the `:lambda` arm and `datoms->ast` continue to ignore
   `:macro?`; nothing else changes. The namespace docstring's "no macro
   branch" remark becomes the statement of decision 1.
-- `stream-observer/run-on-stream`: throw with the partial session in
+- `dao.stream.v2.observer/run-on-stream`: throw with the partial session in
   `ex-data` (§5 prerequisite); existing callers are unchanged. Tests: A
   forwarded, B's load throws — the carried cursor is before B and a retry
-  from it leaves exactly one A on the destination; A forwarded, B's `run-vm`
-  throws — the carried cursor is after B and `:vm` is as `run-vm` left it; a
+  from it leaves exactly one A on the destination; A forwarded, B's `run`
+  throws — the carried cursor is after B and `:consumer` is as `run` left it; a
   terminal read after a successful batch carries the post-batch session.
 - New `test/yin/vm/v2/v2_test.cljc` for the codec: root fact wins; dangling
   root errors; heuristic fallback unchanged; `compile` output unchanged
@@ -1133,7 +1133,7 @@ design, withdrawn 2026-09-13:
 |    |                                                                                | reserved for forwarder defects                                                   |
 +----+--------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
 | 3  | Later exception replays earlier forwarded batches (astra P1-1)                 | Accepted as a defect of `run-on-stream`, not of this design; §5 prerequisite and |
-|    |                                                                                | Phase 0 deliverable on `stream-observer`: return progress with the error         |
+|    |                                                                                | Phase 0 deliverable on `dao.stream.v2.observer`: return progress with the error         |
 +----+--------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
 | 4  | Operator rewritten into a macro name is not re-expanded (astra P1-3)           | §3.2 re-checks the rebuilt node once at the same depth                           |
 +----+--------------------------------------------------------------------------------+----------------------------------------------------------------------------------+

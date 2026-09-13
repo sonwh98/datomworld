@@ -1,4 +1,4 @@
-(ns yin.vm.v2.stream-observer-test
+(ns dao.stream.v2.observer-test
   "Generic observer tests: a fake unary attacher and a hand-rolled reader.
 
    No transport namespace is required here, because the observer's contract
@@ -7,7 +7,7 @@
    `dao.stream.v2.ringbuffer`."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream.v2 :as stream]
-            [yin.vm.v2.stream-observer :as observer]))
+            [dao.stream.v2.observer :as observer]))
 
 
 (defn- throws-ex-data
@@ -255,18 +255,18 @@
 ;; =============================================================================
 
 (defn- scripted-consumer
-  "A VM-shaped consumer with no evaluator fields: a plain map plus recording
+  "A consumer with no evaluator fields: a plain map plus recording
    coordination functions, proving `run-on-stream` inspects no walker state.
 
    `ready-at` is the set of step numbers at which the consumer may accept
-   another batch; `run-vm` advances the step. `load-program` records each
+   another batch; `run` advances the step. `load` records each
    batch and throws on one carrying ::poison."
   [ready-at]
   (let [state (atom {:step 0, :events [], :batches []})]
     {:vm {:shape ::not-an-ast-walker}
      :state state
      :ready? (fn [_vm] (contains? ready-at (:step @state)))
-     :load-program (fn [vm batch]
+     :load (fn [vm batch]
                      (swap! state (fn [s]
                                     (-> s
                                         (update :events conj :load)
@@ -274,7 +274,7 @@
                      (when (some #{::poison} batch)
                        (throw (ex-info "poison batch" {:batch batch})))
                      vm)
-     :run-vm (fn [vm]
+     :run (fn [vm]
                (swap! state (fn [s]
                               (-> s
                                   (update :step inc)
@@ -285,10 +285,10 @@
 (defn- coordinate
   "Run one session over `medium` with consumer `c`."
   [c medium]
-  (observer/run-on-stream {:observer (attach-to medium), :vm (:vm c)}
+  (observer/run-on-stream {:observer (attach-to medium), :consumer (:vm c)}
                           (:ready? c)
-                          (:load-program c)
-                          (:run-vm c)))
+                          (:load c)
+                          (:run c)))
 
 
 (deftest run-on-stream-runs-before-observing-when-not-ready-test
@@ -301,7 +301,7 @@
       (is (= [[:one]] (:batches @(:state c)))))
     (testing "The returned session carries the advanced observer and the VM"
       (is (= {:pos 1} (:cursor (:observer session))))
-      (is (= {:shape ::not-an-ast-walker} (:vm session))
+      (is (= {:shape ::not-an-ast-walker} (:consumer session))
           "A consumer that is not an ASTWalkerVM threads through untouched"))))
 
 
@@ -326,10 +326,10 @@
         medium (reader-medium [[:one] [:two] [:three]])
         observer (attach-to medium)
         _ ((:evict! medium) 1)
-        session (observer/run-on-stream {:observer observer, :vm (:vm c)}
+        session (observer/run-on-stream {:observer observer, :consumer (:vm c)}
                                         (:ready? c)
-                                        (:load-program c)
-                                        (:run-vm c))]
+                                        (:load c)
+                                        (:run c))]
     (is (= 1 (:ingress-gaps (:observer session))))
     (is (= [[:two] [:three]] (:batches @(:state c)))
         "The evicted batch is skipped at the recovery cursor and the retained
@@ -350,10 +350,10 @@
         medium (reader-medium [[::poison]])
         observer (attach-to medium)
         data (throws-ex-data #(observer/run-on-stream
-                                {:observer observer, :vm (:vm c)}
+                                {:observer observer, :consumer (:vm c)}
                                 (:ready? c)
-                                (:load-program c)
-                                (:run-vm c)))]
+                                (:load c)
+                                (:run c)))]
     (testing "The load failure propagates with no successor session"
       (is (= {:batch [::poison]} data))
       (is (= {:pos 0} (:cursor observer))
@@ -362,10 +362,10 @@
       (let [recording-load (fn [vm batch]
                              (swap! (:state c) update :batches conj batch)
                              vm)
-            session (observer/run-on-stream {:observer observer, :vm (:vm c)}
+            session (observer/run-on-stream {:observer observer, :consumer (:vm c)}
                                             (:ready? c)
                                             recording-load
-                                            (:run-vm c))]
+                                            (:run c))]
         (is (= [[::poison] [::poison]] (:batches @(:state c))))
         (is (= {:pos 1} (:cursor (:observer session))))))))
 
@@ -374,8 +374,8 @@
   (testing "A consumer that is a plain value, not a map, threads through"
     (let [medium (reader-medium [[:one]])
           session (observer/run-on-stream
-                    {:observer (attach-to medium), :vm ::plain-value}
+                    {:observer (attach-to medium), :consumer ::plain-value}
                     (constantly true)
                     (fn [vm batch] (if (= [:one] batch) [vm :loaded batch] vm))
                     identity)]
-      (is (= [::plain-value :loaded [:one]] (:vm session))))))
+      (is (= [::plain-value :loaded [:one]] (:consumer session))))))

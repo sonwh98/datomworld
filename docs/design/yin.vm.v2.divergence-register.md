@@ -105,7 +105,7 @@ cursor.
 
 *V7:* the VM's mints are the call-out cursor (construction) and the bridge
 cursor (`ffi/attach`). The program cursor belongs to observer attachment and
-is minted inside `yin.vm.v2.stream-observer/attach`, which requires only
+is minted inside `dao.stream.v2.observer/attach`, which requires only
 `dao.stream.v2` rather than `vm/mint-oldest`.
 
 **Construction is all-or-nothing.** Creating the FFI pair and minting its
@@ -229,10 +229,10 @@ v1 polled its `:in-stream` from inside the VM: `engine/run-on-stream` drove
 ingestion between evaluations, the VM carried `:in-stream`, `:in-cursor`, and
 `:ingress-gaps`, and `step` consumed a queued batch on an idle VM.
 
-*V7 moved this out of the VM.* `yin.vm.v2.stream-observer` owns the attached
+*V7 moved this out of the VM.* `dao.stream.v2.observer` owns the attached
 program handle, the program cursor, and the gap count; host composition
 attaches it through a unary capability and a portable descriptor, and drives
-it with `run-on-stream` over a `{:observer observer :vm vm}` session using the
+it with `run-on-stream` over a `{:observer observer :consumer vm}` session using the
 evaluator's own readiness predicate, loader, and runner. Three consequences
 are divergences in their own right:
 

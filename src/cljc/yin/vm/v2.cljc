@@ -12,7 +12,7 @@
      in: absent a supplied constructor, `:stream/make` is unsupported and says
      so.
    - **Program observation lives outside the VM.** The program stream handle,
-     cursor, and gap count belong to `yin.vm.v2.stream-observer`; the VM never
+     cursor, and gap count belong to `dao.stream.v2.observer`; the VM never
      polls a program stream and no longer accepts `:in-stream` at
      construction. Language-level stream effects and FFI still operate their
      own streams and cursors inside the VM.
@@ -620,7 +620,7 @@
    `:dao.stream.apply/call`.
 
    This state holds no program-observation fields. The program stream handle,
-   cursor, and gap count belong to `yin.vm.v2.stream-observer`, which a host
+   cursor, and gap count belong to `dao.stream.v2.observer`, which a host
    composes beside the VM rather than inside it."
   ([] (empty-state {}))
   ([opts]

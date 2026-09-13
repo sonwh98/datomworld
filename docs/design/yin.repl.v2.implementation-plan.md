@@ -62,7 +62,7 @@ What follows from it:
 - **Datom-literal evaluation works**, because the shell owns a v2 program ring
   buffer and appends datom batches through its writer. Since the VM plan's V7,
   the shell — not the VM — owns that medium: it composes the descriptor, the
-  unary attacher, and an attached `yin.vm.v2.stream-observer` beside the VM,
+  unary attacher, and an attached `dao.stream.v2.observer` beside the VM,
   and datom evaluation drives `observer/run-on-stream`; the VM accepts no
   `:in-stream` of its own.
 - **`(telemetry)` is out**, in every form. The VM plan ships a stub telemetry
@@ -512,7 +512,7 @@ No socket, no wire, no RPC.
   plan's V7 it hands the VM **no program stream**: instead the shell creates
   the program ring buffer with a **declared capacity of 4096 elements**,
   retains its writer handle, builds the resolver and unary attacher beside
-  that medium, attaches a `yin.vm.v2.stream-observer` through the composed
+  that medium, attaches a `dao.stream.v2.observer` through the composed
   descriptor-only entry, and stores `:program-stream`, `:observer`, and `:vm`
   separately in shell state. `eval-datoms` appends through the writer and
   drives `run-on-stream` with `engine/ready-for-ingress?`,

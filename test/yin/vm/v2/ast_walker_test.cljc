@@ -40,18 +40,18 @@
   (testing "An idle step is identity: queued input waits for the observer"
     (let [session (-> (tu/make-observer-session)
                       (queue-ast! {:type :literal, :value 42}))]
-      (is (= (:vm session) (vm/step (:vm session))))))
+      (is (= (:consumer session) (vm/step (:consumer session))))))
   (testing "A loaded program executes one step"
     (let [vm (ast-walker/vm-load-program
-               (:vm (tu/make-observer-session))
+               (:consumer (tu/make-observer-session))
                (vm/ast->datoms {:type :literal, :value 42}))
           vm' (vm/step vm)]
       (is (vm/halted? vm'))
       (is (= 42 (vm/value vm')))))
   (testing "After a session run, continuation is nil and the pair survives"
-    (let [vm (:vm (-> (tu/make-observer-session)
-                      (queue-ast! {:type :literal, :value 42})
-                      tu/run-session))]
+    (let [vm (:consumer (-> (tu/make-observer-session)
+                            (queue-ast! {:type :literal, :value 42})
+                            tu/run-session))]
       (is (nil? (vm/continuation vm)))
       (is (contains? (vm/store vm) vm/call-in-stream-key))
       (is (contains? (vm/store vm) vm/call-out-stream-key))
@@ -82,7 +82,7 @@
 (deftest literal-single-step-test
   (testing "A loaded literal completes in one step"
     (let [vm (ast-walker/vm-load-program
-               (:vm (tu/make-observer-session))
+               (:consumer (tu/make-observer-session))
                (vm/ast->datoms {:type :literal, :value 42}))
           vm' (vm/step vm)]
       (is (= 42 (vm/value vm')))
@@ -303,7 +303,7 @@
                       (queue-ast! {:type :literal, :value 1})
                       (queue-ast! (binop '+ 2 3))
                       tu/run-session)]
-      (is (= 5 (vm/value (:vm session)))))))
+      (is (= 5 (vm/value (:consumer session)))))))
 
 
 (deftest ingress-across-a-gap-test
@@ -315,7 +315,7 @@
         (queue-ast! session ast))
       (let [session' (tu/run-session session)]
         (is (= 1 (:ingress-gaps (:observer session'))))
-        (is (= 3 (vm/value (:vm session')))
+        (is (= 3 (vm/value (:consumer session')))
             "Evaluation continues from the recovery cursor")))))
 
 
@@ -323,7 +323,7 @@
   (testing "eval runs its supplied program while malformed input sits queued"
     (let [session (tu/make-observer-session)]
       (stream/append! (:stream (:observer session)) [[1 :not/yin 1 0 true]])
-      (is (= 7 (vm/value (vm/eval (:vm session) {:type :literal, :value 7}))))
+      (is (= 7 (vm/value (vm/eval (:consumer session) {:type :literal, :value 7}))))
       (is (throws? (fn [] (tu/run-session session)))
           "Coordination still hands the queued batch to the loader, which
               rejects it"))))

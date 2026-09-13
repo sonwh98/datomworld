@@ -14,7 +14,7 @@
             [yin.vm.v2 :as vm]
             [yin.vm.v2.ast-walker :as ast-walker]
             [yin.vm.v2.engine :as engine]
-            [yin.vm.v2.stream-observer :as observer]))
+            [dao.stream.v2.observer :as observer]))
 
 
 (def default-capacity 64)
@@ -64,7 +64,7 @@
          attach! (ringbuffer/make-attacher
                    {(:dao.stream/identity descriptor) handle})]
      {:observer (observer/attach attach! descriptor)
-      :vm vm})))
+      :consumer vm})))
 
 
 (defn queue-ast!
@@ -90,5 +90,5 @@
   (-> (make-observer-session)
       (queue-ast! ast)
       run-session
-      :vm
+      :consumer
       vm/value))

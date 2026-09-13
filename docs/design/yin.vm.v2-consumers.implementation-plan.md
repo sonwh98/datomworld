@@ -124,7 +124,7 @@ live consumers; there are nine non-test, non-benchmark ones.
 | `test/yin/vm/macro_test.cljc` | contract of the deleted engine; requires all four models |
 | `test/yang/macro_test.clj` | 3 of 4 deftests go through `semantic` with a macro registry. **[J]** the one walker-only test, `test-nested-defn-ast-walker` (`:186-196`), exercises `yang.clojure/compile-program` on nested `defn` and does not need macros; move it and the `compile-program-and-run` helper (`:23-30`) into `test/yang/clojure_test.clj` rather than lose it |
 | `test/yin/vm/parity_test.cljc` (v1) | 15 of 16 deftests compare the walker against the four models; the 16th, `stream-make-default-capacity-parity-test`, compares the walker's capacity to theirs. With one model there is no parity to assert. Delete whole. v2 parity is `test/yin/vm/v2/parity_test.cljc`, which requires v1 `ast-walker` only (`:16`) and is untouched |
-| `test/yin/vm/stream_listen_test.cljc` | its `datom-vms` factory (`:16-20`) is `semantic`/`register`/`stack` only; the walker is not in it. Delete whole. Ingress-on-a-stream for the walker is covered by `stream_driver_test` (v1) and `yin.vm.v2.stream-observer`'s tests |
+| `test/yin/vm/stream_listen_test.cljc` | its `datom-vms` factory (`:16-20`) is `semantic`/`register`/`stack` only; the walker is not in it. Delete whole. Ingress-on-a-stream for the walker is covered by `stream_driver_test` (v1) and `dao.stream.v2.observer`'s tests |
 | `test/datomworld/demo/continuation_handoff_test.cljc` | tests a deleted file |
 | `test/datomworld/demo/vm_state_keys_test.cljs` | requires `continuation-stream` (v1), `register`, `stack` |
 

@@ -1,25 +1,29 @@
-(ns yin.vm.v2.stream-observer
-  "Observer of one program stream: attachment, cursor, and gap accounting.
+(ns dao.stream.v2.observer
+  "Observer of one DaoStream medium: attachment, cursor, gap accounting, and
+   the coordination loop that feeds a consumer one batch at a time.
 
-   The program stream exists independently of any evaluator. Host composition
-   supplies a unary attach capability and a portable DaoStream descriptor;
-   `attach` calls that capability exactly once, validates the returned handle
-   against the reader surface, and mints the observer's cursor at
-   `:dao.stream/oldest` directly through `dao.stream.v2`. The observer never
-   creates, appends to, or closes the stream, and its complete initial state
-   is `{:stream handle :cursor cursor :ingress-gaps 0}`.
+   The medium exists independently of any consumer. Host composition supplies
+   a unary attach capability and a portable DaoStream descriptor; `attach`
+   calls that capability exactly once, validates the returned handle against
+   the reader surface, and mints the observer's cursor at `:dao.stream/oldest`
+   directly through `dao.stream.v2`. The observer never creates, appends to,
+   or closes the medium, and its complete initial state is
+   `{:stream handle :cursor cursor :ingress-gaps 0}`.
 
-   This namespace requires only `dao.stream.v2`. It cannot depend on a ring
-   buffer, a WebSocket adapter, a resolver representation, a transport key or
-   state, or any VM namespace: transport-specific composition constructs the
+   This namespace requires only `dao.stream.v2` and `dao.stream.v2.observe`,
+   whose single `step` it loops over. It cannot depend on a ring buffer, a
+   WebSocket adapter, a resolver representation, a transport key or state, or
+   any consumer's namespace: transport-specific composition constructs the
    unary attacher outside this boundary, for example by partially applying a
-   dispatch table or a transport resolver.
+   dispatch table or a transport resolver. The consumer is opaque here — a
+   `yin.vm` evaluator, a macro expander, a `dao.space` indexer, or anything
+   else that can be asked whether it is ready, handed a batch, and run.
 
    A `gap` is recoverable here and only here in the generic machinery. A batch
    the observer never saw is advanced past at the recovery cursor and counted,
    and observation continues with the next retained batch; silently pretending
-   the stream was contiguous hides a missing program. What a host does with a
-   gap count is host policy — the REPL shell, for one, reports the loss and
+   the medium was contiguous hides missing data. What a host does with a gap
+   count is host policy — the REPL shell, for one, reports the loss and
    refuses further evaluation until reset — and that policy lives above this
    boundary. Terminal read outcomes are errors.
 
@@ -33,7 +37,7 @@
 ;; =============================================================================
 
 (defn attach
-  "Attach to an existing program stream and return the initial observer state
+  "Attach to an existing medium and return the initial observer state
    `{:stream handle :cursor cursor :ingress-gaps 0}`, or throw.
 
    `attach!` is a unary attachment capability: `(attach! descriptor)`. It is
@@ -48,19 +52,19 @@
   (let [result (attach! descriptor)
         outcome (:dao.stream/outcome result)]
     (if-not (= :dao.stream/ok outcome)
-      (throw (ex-info "Program stream attachment failed"
+      (throw (ex-info "Stream attachment failed"
                       {:dao.stream/outcome outcome,
                        :descriptor descriptor,
                        :result result}))
       (let [handle (:dao.stream/handle result)]
         (if-not (stream/reader? handle)
-          (throw (ex-info "Attached program handle declares no reader surface"
+          (throw (ex-info "Attached handle declares no reader surface"
                           {:descriptor descriptor,
                            :surfaces (stream/declared-surfaces handle)}))
           (let [minted (stream/cursor handle stream/anchor-oldest)
                 mint-outcome (:dao.stream/outcome minted)]
             (if-not (= :dao.stream/ok mint-outcome)
-              (throw (ex-info "Program cursor could not be minted"
+              (throw (ex-info "Observer cursor could not be minted"
                               {:dao.stream/outcome mint-outcome,
                                :descriptor descriptor,
                                :result minted}))
@@ -107,10 +111,10 @@
   [observed observer]
   (let [outcome (answered-outcome (:read observed))]
     (if (contains? uncontinuable-read-outcomes outcome)
-      (terminal "Program observation cannot continue from this cursor"
+      (terminal "Observation cannot continue from this cursor"
                 outcome
                 observer)
-      (terminal "Unexpected DaoStream outcome while observing the program stream"
+      (terminal "Unexpected DaoStream outcome while observing the medium"
                 outcome
                 observer))))
 
@@ -124,7 +128,7 @@
 
 
 (defn observe-next
-  "Observe one program batch from the attached stream.
+  "Observe one batch from the attached medium.
 
    Returns `{:status :ok :batch batch :observer observer'}` on `ok`, where the
    successor state carries the exact returned cursor; `{:status :blocked
@@ -154,46 +158,51 @@
 ;; =============================================================================
 
 (defn run-on-stream
-  "Coordinate one `{:observer observer :vm vm}` session over the program
-   stream, returning the updated session.
+  "Coordinate one `{:observer observer :consumer consumer}` session over the
+   attached medium, returning the updated session.
 
-   `ready?` decides when `vm` may accept another program batch,
-   `load-program` loads one observed batch into the VM, and `run-vm` runs
-   loaded work. This is coordination, not interpretation: no
-   evaluator-specific field is inspected, so any VM shape can be driven.
+   The consumer is any value the three supplied functions agree on. `ready?`
+   decides when it may accept another batch, `load` hands it one observed
+   batch and returns the successor consumer, and `run` lets it do whatever
+   work a loaded batch implies — evaluate, expand, index, forward — and
+   returns the successor. This is coordination, not interpretation: no field
+   of the consumer is inspected, so any consumer shape can be driven.
 
-   A VM that is not ready runs first, and observation follows only if
-   execution becomes ready. A ready VM observes one batch; `gap` commits the
+   A consumer that is not ready runs first, and observation follows only if
+   it becomes ready. A ready consumer observes one batch; `gap` commits the
    recovery cursor and continues; `blocked` and `end` return the session.
-   After a batch loads and runs, a VM that is ready again observes the next
-   batch, and a suspended one returns the session without another read.
+   After a batch loads and runs, a consumer that is ready again observes the
+   next batch, and one that is not returns the session without another read.
 
-   A `load-program` that throws propagates before any successor session is
-   published: the caller retains the previous observer cursor and the same
-   malformed batch is retried on the next call."
-  [session ready? load-program run-vm]
-  (loop [{:keys [observer vm]} session]
-    (if-not (ready? vm)
-      (let [vm' (run-vm vm)]
-        (if (ready? vm')
-          (recur {:observer observer, :vm vm'})
-          {:observer observer, :vm vm'}))
+   A `load` that throws propagates before any successor session is published:
+   the caller retains the previous observer cursor and the same batch is
+   re-read on the next call. A consumer whose input can be bad should
+   therefore return that as data from `load` rather than throw, and reserve
+   the throw for its own defects."
+  [session ready? load run]
+  (loop [{:keys [observer consumer]} session]
+    (if-not (ready? consumer)
+      (let [consumer' (run consumer)]
+        (if (ready? consumer')
+          (recur {:observer observer, :consumer consumer'})
+          {:observer observer, :consumer consumer'}))
       ;; The load is the step's effect, so the cursor advances only once it has
-      ;; returned: a throwing loader propagates before any successor exists.
+      ;; returned: a throwing load propagates before any successor exists.
       (let [observed (observe/step (:stream observer)
                                    (:cursor observer)
                                    (fn [batch]
                                      {:dao.stream/outcome :dao.stream/ok,
-                                      :yin.vm.v2.stream-observer/loaded
-                                      (load-program vm batch)}))]
+                                      :dao.stream.v2.observer/loaded
+                                      (load consumer batch)}))]
         (case (:status observed)
-          :advance (let [vm' (run-vm (:yin.vm.v2.stream-observer/loaded
-                                       (:effect observed)))
+          :advance (let [consumer' (run (:dao.stream.v2.observer/loaded
+                                          (:effect observed)))
                          observer' (assoc observer :cursor (:cursor observed))]
-                     (if (ready? vm')
-                       (recur {:observer observer', :vm vm'})
-                       {:observer observer', :vm vm'}))
-          :gap (recur {:observer (adopt-gap observer observed), :vm vm})
+                     (if (ready? consumer')
+                       (recur {:observer observer', :consumer consumer'})
+                       {:observer observer', :consumer consumer'}))
+          :gap (recur {:observer (adopt-gap observer observed),
+                       :consumer consumer})
           ;; :retry (blocked) and :ended retain the cursor and end the round.
-          (:retry :ended) {:observer observer, :vm vm}
+          (:retry :ended) {:observer observer, :consumer consumer}
           (observation-terminal observed observer))))))

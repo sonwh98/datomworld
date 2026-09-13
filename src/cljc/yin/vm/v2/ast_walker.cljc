@@ -3,7 +3,7 @@
 
    A CESK machine over raw AST maps with a linked continuation, a ready queue
    and a wait set. `step` and `run` execute already-loaded work only: program
-   input is observed above the VM by `yin.vm.v2.stream-observer`, which hands
+   input is observed above the VM by `dao.stream.v2.observer`, which hands
    each batch to `vm-load-program` through `run-on-stream`. `eval` converts
    its supplied AST, loads it, and runs it without draining any independently
    queued program input. v1's evaluator was driven through its own
@@ -714,7 +714,7 @@
 (defn vm-load-program
   "Load one datom batch into the VM: the existing datom-to-AST conversion
    plus the execution-field updates. This is the loader host composition
-   hands to `yin.vm.v2.stream-observer/run-on-stream` alongside
+   hands to `dao.stream.v2.observer/run-on-stream` alongside
    `engine/ready-for-ingress?` and the VM's runner."
   [^ASTWalkerVM vm datoms]
   (let [ast (vm/datoms->ast datoms)]
@@ -802,7 +802,7 @@
      :bridge        host FFI handlers
 
    There is no `:in-stream`: program observation belongs to
-   `yin.vm.v2.stream-observer`, and an obsolete `:in-stream` option is
+   `dao.stream.v2.observer`, and an obsolete `:in-stream` option is
    rejected here, before any FFI resource is allocated.
 
    Construction is all-or-nothing: creating the FFI pair and minting the
@@ -813,7 +813,7 @@
   ([opts]
    (when (contains? opts :in-stream)
      (throw (ex-info
-              "Program observation moved to yin.vm.v2.stream-observer: a VM no longer accepts :in-stream"
+              "Program observation moved to dao.stream.v2.observer: a VM no longer accepts :in-stream"
               {:in-stream (:in-stream opts)})))
    (let [env (or (:env opts) {})
          base (vm/empty-state

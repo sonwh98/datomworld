@@ -16,7 +16,7 @@
    free.
 
    Callers are `dao.stream.v2.forward` (effect: append to another stream),
-   `yin.vm.v2.stream-observer` (effect: load a program into a VM) and
+   `dao.stream.v2.observer` (effect: load a program into a VM) and
    `dao.jing` (effect: materialize content).  Each adds its own loop and its
    own policy above this step.
 

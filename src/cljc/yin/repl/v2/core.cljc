@@ -24,7 +24,7 @@
             [yin.vm.v2.ast-walker :as ast-walker]
             [yin.vm.v2.engine :as engine]
             [yin.vm.v2.module :as module]
-            [yin.vm.v2.stream-observer :as observer]))
+            [dao.stream.v2.observer :as observer]))
 
 
 (def output-capacity
@@ -433,8 +433,9 @@
                     (name (:dao.stream/outcome append)))]
         (let [observer0 (:observer state')
               gaps-before (:ingress-gaps observer0 0)
-              {:keys [observer vm]}
-              (observer/run-on-stream {:observer observer0, :vm (:vm state')}
+              {:keys [observer] vm :consumer}
+              (observer/run-on-stream {:observer observer0,
+                                       :consumer (:vm state')}
                                       engine/ready-for-ingress?
                                       ast-walker/vm-load-program
                                       run-vm)

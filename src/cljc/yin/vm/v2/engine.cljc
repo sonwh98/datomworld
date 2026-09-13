@@ -20,7 +20,7 @@
      dispatch and `resolve-var` read a supplied registry rather than a global.
    - **Program observation is not engine work.** `ready-for-ingress?` lives
      here because it speaks the scheduler's own vocabulary, but the program
-     handle, cursor, and gap count belong to `yin.vm.v2.stream-observer`;
+     handle, cursor, and gap count belong to `dao.stream.v2.observer`;
      nothing in this namespace polls a program stream."
   (:refer-clojure :exclude [gensym])
   (:require [clojure.set]

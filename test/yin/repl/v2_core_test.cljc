@@ -4,7 +4,7 @@
             [dao.stream.v2 :as stream]
             [dao.stream.v2.ringbuffer :as ring]
             [yin.repl.v2.core :as core]
-            [yin.vm.v2.stream-observer :as observer]))
+            [dao.stream.v2.observer :as observer]))
 
 
 (defn- handle

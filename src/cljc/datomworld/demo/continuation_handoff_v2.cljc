@@ -13,7 +13,7 @@
    and the loaded program (`:program`). What it deliberately omits:
 
    - `:in-stream` and `:in-cursor`. The v2 VM owns no program medium —
-     `yin.vm.v2.stream-observer` does — and `create-vm` rejects `:in-stream`.
+     `dao.stream.v2.observer` does — and `create-vm` rejects `:in-stream`.
    - `:make-stream`, `:primitives`, `:modules`, `:bridge`, `:call-capacity`,
      `:telemetry`. Those are composition, not execution state. `handoff->vm`
      takes them from the receiving side's freshly constructed VM, which is
