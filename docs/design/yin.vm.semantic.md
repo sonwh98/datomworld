@@ -675,3 +675,18 @@ If a highly specialized execution engine (e.g., a native WebAssembly compiler, a
 - **On Resume (Re-optimization):** When receiving a continuation off the network, the specialized VM reads the normalized `:pc` and `:stack`, lowers them into its own specialized hardware state, and resumes execution.
 
 By enforcing the linear bytecode state as the universal standard, the network only ever trades simple integer PCs and array-based operand stacks. Any machine can pause execution on one continent, transmit the canonical state over a WebSocket, and resume execution on a radically different hardware architecture without losing semantic fidelity or performance.
+
+## §7. The Universal Continuation Format (Proposed)
+
+> [!WARNING]  
+> **Status: Proposed / Deferred.** The Semantic VM's linear CESK state is theoretically sound as an architecture-agnostic continuation format, but true heterogeneous network migration requires addressing several critical defects identified in the 2026-09-14 architectural review.
+
+The Semantic VM's linear CESK state (`{:segment id, :pc n, :env E, :stack S, :k K}`) is proposed as the canonical exchange format for network-transparent continuations. Because this lowered representation resolves execution-order ambiguity inherent in the Universal AST, it provides a simpler target for specialized execution engines (e.g., WebAssembly, LLVM, hardware FPGA) to participate in the `datom.world` ecosystem.
+
+To safely "lift on park" and "lower on resume" across heterogeneous boundaries without violating host isolation or concurrency invariants, the following contracts must be fully specified before this feature is accepted:
+
+1. **Safepoint Reconstruction Metadata:** `:yin.code/source` mappings are insufficient for state reconstruction. The compiler must generate exact safepoint metadata tying canonical PC locations to physical register/stack mappings so that arbitrary hardware states can be predictably lifted into the canonical CESK format.
+2. **Recursive Portable Encoding:** Section 1.1 permits host functions and local stream handles in the environment. A recursive serialization protocol is required to encode these local references into portable descriptors, with explicit failure modes for un-serializable resources.
+3. **Dependency Closure & Context:** A parked fragment is not a complete configuration. The format must explicitly declare its required primitives, loaded modules, and the global store state required for valid resumption.
+4. **Ownership Arbitration:** Emitting a continuation does not transfer ownership. The transport composition must define explicit arbitration events to prevent source-wakeup races and duplicate resumes by multiple readers.
+5. **Code Identity (Content Addressing):** Because tempids (`:segment 123`) are local to a single machine's database, continuations must refer to code via immutable, versioned semantic profiles (e.g., content hashing) to guarantee the receiving interpreter executes identical logic.
