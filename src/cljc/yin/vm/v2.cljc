@@ -291,8 +291,7 @@
    ;; Ground-value attributes. The data model uses Datomic-style schema
    ;; definitions. Value types are declared in comments for the data
    ;; model.
-   :yin/type {},      ; keyword (:literal, :variable, :lambda,
-   ;; :yin/macro-expand, ...)
+   :yin/type {},      ; keyword (:literal, :variable, :lambda, ...)
    :yin/value {},     ; polymorphic (number, string, boolean, keyword, ...)
    :yin/name {},      ; symbol
    :yin/op {},        ; keyword (dao.stream.apply operation key)
@@ -302,19 +301,13 @@
    :yin/buffer {},    ; long
    :yin/parked-id {}, ; keyword
    :yin/tail? {},     ; boolean (tail-position flag)
-   ;; Macro attributes
-   :yin/macro? {},       ; boolean — true if lambda is a macro
-   :yin/phase-policy {}, ; keyword — :compile | :runtime | :both
-   ;; Macro expansion event attributes
-   :yin/source-call {:db/valueType :db.type/ref}, ; EID of the
-   ;; :yin/macro-expand call site
-   :yin/macro {:db/valueType :db.type/ref}, ; EID of the macro lambda
-   ;; entity
-   :yin/expansion-root {:db/valueType :db.type/ref}, ; EID of the top
-   ;; expansion node
-   :yin/phase {},     ; keyword — :compile or :runtime
-   :yin/error {},     ; structured error (optional)
-   :yin/capability {} ; Shibi capability ref (optional)
+   :yin/root {},      ; boolean — marks the batch's root entity; the last
+   ;; one in batch order wins (yin.vm.macro.md §2.4)
+   ;; Macro attributes. Expansion events and their refs belong to the
+   ;; expander's `event-schema`, not to the Universal AST.
+   :yin/macro? {},    ; boolean — true if lambda is a macro
+   :yin/macro-name {} ; symbol — the macro operator's name when it was a
+   ;; :variable
    })
 
 
@@ -346,6 +339,9 @@
 (defn ast->datoms-with-root
   "Convert AST map into a vector of datoms. A datom is [e a v t m].
    Returns [root-id datoms].
+
+   The last datom is always `[root-id :yin/root true t m]`, so `index-datoms`
+   finds the root without depending on emission order.
 
    Entity IDs are tempids (negative integers: -16, -17, -18...) that get resolved
    to actual entity IDs when transacted. The transactor assigns real positive IDs.
@@ -388,10 +384,7 @@
                                 (emit! e :yin/name (:name node)))
                   :lambda (do (emit! e :yin/type :lambda)
                               (when (:macro? node)
-                                (emit! e :yin/macro? true)
-                                (emit! e
-                                       :yin/phase-policy
-                                       (or (:phase-policy node) :compile)))
+                                (emit! e :yin/macro? true))
                               (emit! e :yin/params (:params node))
                               (let [body-id (convert (:body node))]
                                 (emit! e :yin/body body-id)))
@@ -447,20 +440,13 @@
                                    (emit! e :yin/val-node val-id)))
                   :vm/current-continuation
                   (emit! e :yin/type :vm/current-continuation)
-                  ;; Macro call site — operator is the macro lambda entity
-                  ;; ref, operands are unevaluated AST refs (not evaluated
-                  ;; runtime values)
-                  :yin/macro-expand (do (emit! e :yin/type :yin/macro-expand)
-                                        (let [op-id (convert (:operator node))
-                                              operand-ids (mapv convert
-                                                                (:operands node))]
-                                          (emit! e :yin/operator op-id)
-                                          (emit! e :yin/operands operand-ids)))
                   ;; Default
                   (throw (ex-info "Unknown AST node type"
                                   {:type type, :node node})))
                 e))))]
-       (let [root-id (convert ast)] [root-id @datoms])))))
+       (let [root-id (convert ast)]
+         (emit! root-id :yin/root true)
+         [root-id @datoms])))))
 
 
 (defn ast->datoms
@@ -493,9 +479,7 @@
                  (cond-> (assoc base
                                 :params (get-attr root-id :yin/params)
                                 :body (recur-ast body-eid))
-                   macro? (assoc :macro?
-                                 true :phase-policy
-                                 (get-attr root-id :yin/phase-policy))))
+                   macro? (assoc :macro? true)))
        :application (let [op-eid (get-attr root-id :yin/operator)
                           operand-eids (get-attr root-id :yin/operands)]
                       (assoc base
@@ -537,11 +521,6 @@
                            :parked-id (get-attr root-id :yin/parked-id)
                            :val (recur-ast val-eid)))
        :vm/current-continuation base
-       :yin/macro-expand (let [op-eid (get-attr root-id :yin/operator)
-                               operand-eids (get-attr root-id :yin/operands)]
-                           (assoc base
-                                  :operator (recur-ast op-eid)
-                                  :operands (mapv recur-ast operand-eids)))
        ;; fallback
        (throw (ex-info "Unknown AST node type in datoms"
                        {:type node-type, :root-id root-id}))))))
@@ -552,7 +531,14 @@
 
 (defn index-datoms
   "Index AST datoms by entity.
-   Returns {:by-entity map, :get-attr fn, :root-id int}.
+   Returns {:by-entity map, :get-attr fn, :root-id int}, plus
+   `:error {:rule :dangling-root :entity e}` when the root fact names an
+   entity with no `:yin/type`.
+
+   The root is the entity of the last `:yin/root` fact in batch order. A
+   batch with no root fact falls back to the structural heuristic below. A
+   dangling root is recorded, not thrown: the index still names it, and
+   decoding it is what fails loudly.
 
    Optional opts:
    - :by-entity precomputed {eid [datom ...]} index
@@ -570,8 +556,15 @@
                                          (if (vector? v) v [v])))
                                      matching))
                         (when (seq matching) (nth (last matching) 2)))))
+         root-fact (when-not root-id
+                     (some (fn [d] (when (= :yin/root (nth d 1)) d))
+                           (rseq datoms)))
+         dangling (when (and root-fact
+                             (nil? (get-attr (first root-fact) :yin/type)))
+                    {:rule :dangling-root, :entity (first root-fact)})
          root-id
          (or root-id
+             (first root-fact)
              (when (seq by-entity)
                ;; Heuristic for finding the root:
                ;; 1. Find all eids that have a :yin/type
@@ -597,7 +590,8 @@
                                           type-eids)]
                  (or (last (sort unreferenced))
                      (apply max (keys by-entity))))))]
-     {:by-entity by-entity, :get-attr get-attr, :root-id root-id})))
+     (cond-> {:by-entity by-entity, :get-attr get-attr, :root-id root-id}
+       dangling (assoc :error dangling)))))
 
 
 (defn empty-state

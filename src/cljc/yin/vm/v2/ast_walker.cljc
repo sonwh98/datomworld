@@ -17,8 +17,10 @@
    polling wait set like every other blocked read until the response arrives
    on the call-out stream.
 
-   There is no `macro-expand` branch here, exactly as in v1: this evaluator
-   runs macro-free programs."
+   No macro branch: evaluators know nothing about macros (decision 1 of
+   `yin.vm.macro.md`). The `:lambda` arm ignores `:macro?`; there is no macro
+   flag on closures and no expansion ledger. Expansion is a process on the
+   syntax side of a medium boundary, so programs arrive here already expanded."
   (:require [dao.stream.v2.apply :as apply2]
             [yin.vm.v2 :as vm]
             [yin.vm.v2.engine :as engine]
