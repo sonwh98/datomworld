@@ -491,8 +491,11 @@ exists because soft clearing cannot be forced): a resumed session restored
 through a `:test`-ref storage, published, drained, refs cleared → the next
 query *throws* "missing index segment" (the hazard reproduced); the same
 sequence with the session-constructed `:strong` storage → no throw; and a
-session restored through `restored-indexes` is asserted to be the wrong
-construction for an index session.
+session restored through `restored-indexes` is asserted to carry
+`bt/default-ref-type*` rather than `:strong` — an assertion that is
+meaningful only where the host default is not already `:strong`, so it is
+gated to the JVM (on cljs and cljd the read path *is* `:strong` and the
+hazard does not exist).
 
 **Phase 1 — a medium with batch-local tempids (composition test).** The
 index is exercised over a medium another observer also reads: two
@@ -564,4 +567,10 @@ Round 2 (`collab/1789289033041-runtime-review-index-as-observer-r2.glm-5.3.findi
 |---|---|---|
 | N1 | The `:strong` remedy binds to the session's recording storage, but ref-pinning consults the *tree's* settings; a session resumed via `open-published!`/`restored-indexes` gets the JVM `:soft` default and the F2 sequence survives (glm P2) | §4.1 states where settings come from per session kind; a resumed session restores through a session-constructed `:strong` `kv-storage`, never the query read path; §4.2 reworded |
 | N2 | "Survives a forced GC" is not a deterministic test; soft clearing cannot be forced (glm P3) | Phase 0′ pins the hazard both ways through the `:test` ref-type and `clear-test-refs!` |
+
+Round 3 (`collab/1789289033041-runtime-review-index-as-observer-r3.glm-5.3.findings.md`), on `0bd7550` — **APPROVE** (glm-5.3); N1, N2 confirmed resolved and the resumed path verified closed against `btree.cljc` with no other refault route:
+
+| # | Finding (reviewer) | Resolution |
+|---|---|---|
+| N3 | The "wrong construction" assertion is vacuous off the JVM, where the read path already defaults `:strong` (glm P3) | Phase 0′ asserts against `bt/default-ref-type*` and gates that assertion to the JVM |
 
