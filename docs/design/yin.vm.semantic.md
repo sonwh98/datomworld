@@ -51,14 +51,34 @@ segment datoms it holds or was sent alongside.
 
 ### 1.2 The six invariants
 
-| Invariant | How the design honors it |
-|---|---|
-| No hidden global state | Opcode table is a value in `yin.vm.v2`. Segments live in the VM record under `:code`. Primitives, modules, `:make-stream`, bridge handlers are all supplied at construction, as for the walker. No `defonce`, no registry. |
-| No implicit control flow | Every transfer of control is an instruction datom: `:jump`, `:branch-false`, `:call`, `:return`, `:halt`. Sequencing is the explicit `:yin.code/pc` order. No fallthrough that is not a `pc + 1` visible in the datoms. |
-| No callbacks | Host effects go through `engine/handle-effect` and the FFI request/response pair; a blocked read parks in the polling wait set. The VM invokes nothing and is invoked by nothing. |
-| No shared mutable state | The image array is built once per segment and never written after load. The hot loop keeps registers in `loop` locals; the persistent VM record is the only state that escapes a step. No mutable deftype fields (a cljd trap on record). |
-| No layer collapsing | Lowering (AST datoms → code datoms), loading (code datoms → image), and execution (image → transitions) are three functions in two namespaces with data between each. The walker keeps interpreting the AST; nothing in the walker changes. |
-| No assumed graphs | Branch targets and closure bodies are refs; the loader constructs the pc index from tuples in an explicit pass and resolves refs against it. A dangling ref is a load error naming the entity, never a runtime lookup. |
++--------------------------+----------------------------------------------------------------------------------+
+| Invariant                | How the design honors it                                                         |
++--------------------------+----------------------------------------------------------------------------------+
+| No hidden global state   | Opcode table is a value in `yin.vm.v2`. Segments live in the VM record under     |
+|                          | `:code`. Primitives, modules, `:make-stream`, bridge handlers are all supplied   |
+|                          | at construction, as for the walker. No `defonce`, no registry.                   |
++--------------------------+----------------------------------------------------------------------------------+
+| No implicit control flow | Every transfer of control is an instruction datom: `:jump`, `:branch-false`,     |
+|                          | `:call`, `:return`, `:halt`. Sequencing is the explicit `:yin.code/pc` order. No |
+|                          | fallthrough that is not a `pc + 1` visible in the datoms.                        |
++--------------------------+----------------------------------------------------------------------------------+
+| No callbacks             | Host effects go through `engine/handle-effect` and the FFI request/response      |
+|                          | pair; a blocked read parks in the polling wait set. The VM invokes nothing and   |
+|                          | is invoked by nothing.                                                           |
++--------------------------+----------------------------------------------------------------------------------+
+| No shared mutable state  | The image array is built once per segment and never written after load. The hot  |
+|                          | loop keeps registers in `loop` locals; the persistent VM record is the only      |
+|                          | state that escapes a step. No mutable deftype fields (a cljd trap on record).    |
++--------------------------+----------------------------------------------------------------------------------+
+| No layer collapsing      | Lowering (AST datoms → code datoms), loading (code datoms → image), and          |
+|                          | execution (image → transitions) are three functions in two namespaces with data  |
+|                          | between each. The walker keeps interpreting the AST; nothing in the walker       |
+|                          | changes.                                                                         |
++--------------------------+----------------------------------------------------------------------------------+
+| No assumed graphs        | Branch targets and closure bodies are refs; the loader constructs the pc index   |
+|                          | from tuples in an explicit pass and resolves refs against it. A dangling ref is  |
+|                          | a load error naming the entity, never a runtime lookup.                          |
++--------------------------+----------------------------------------------------------------------------------+
 
 ---
 
@@ -79,12 +99,18 @@ A segment is one entity plus its instructions. It is the unit a program
 stream carries (one batch value), the unit the loader accepts, and the unit
 a closure or continuation names.
 
-| Attribute | Value | Meaning |
-|---|---|---|
-| `:yin.code/type` | `:segment` | Marks the segment entity. |
-| `:yin.code/length` | int | Number of instructions; pcs are `0 .. length-1`, dense. |
-| `:yin.code/derived-from` | ref (AST root eid) | Provenance; optional when hand-assembled. |
-| `:yin.code/hash` | string | Reserved: content address of the canonical instruction datoms, for dedup and verification (`streams-all-the-way-down.md` §6.3). Not required in Phase 1. |
++--------------------------+--------------------+----------------------------------------------------------------------------------+
+| Attribute                | Value              | Meaning                                                                          |
++--------------------------+--------------------+----------------------------------------------------------------------------------+
+| `:yin.code/type`         | `:segment`         | Marks the segment entity.                                                        |
++--------------------------+--------------------+----------------------------------------------------------------------------------+
+| `:yin.code/length`       | int                | Number of instructions; pcs are `0 .. length-1`, dense.                          |
++--------------------------+--------------------+----------------------------------------------------------------------------------+
+| `:yin.code/derived-from` | ref (AST root eid) | Provenance; optional when hand-assembled.                                        |
++--------------------------+--------------------+----------------------------------------------------------------------------------+
+| `:yin.code/hash`         | string             | Reserved: content address of the canonical instruction datoms, for dedup and     |
+|                          |                    | verification (`streams-all-the-way-down.md` §6.3). Not required in Phase 1.      |
++--------------------------+--------------------+----------------------------------------------------------------------------------+
 
 Entry is pc 0 by rule. Making entry a fact would let a segment disagree with
 itself; a rule cannot.
@@ -94,12 +120,17 @@ itself; a rule cannot.
 Every instruction entity carries three structural facts and one or more
 operand facts.
 
-| Attribute | Value | Required on |
-|---|---|---|
-| `:yin.code/segment` | ref (segment eid) | every instruction |
-| `:yin.code/pc` | int | every instruction |
-| `:yin.code/op` | keyword mnemonic (below) | every instruction |
-| `:yin.code/source` | ref (AST node eid) | every lowered instruction; absent when hand-assembled |
++---------------------+--------------------------+-------------------------------------------------------+
+| Attribute           | Value                    | Required on                                           |
++---------------------+--------------------------+-------------------------------------------------------+
+| `:yin.code/segment` | ref (segment eid)        | every instruction                                     |
++---------------------+--------------------------+-------------------------------------------------------+
+| `:yin.code/pc`      | int                      | every instruction                                     |
++---------------------+--------------------------+-------------------------------------------------------+
+| `:yin.code/op`      | keyword mnemonic (below) | every instruction                                     |
++---------------------+--------------------------+-------------------------------------------------------+
+| `:yin.code/source`  | ref (AST node eid)       | every lowered instruction; absent when hand-assembled |
++---------------------+--------------------------+-------------------------------------------------------+
 
 Linearity is therefore an **explicit fact**, `:yin.code/pc`, not the vector
 order of the batch and not entity-id arithmetic. Entity ids are tempids that
@@ -120,29 +151,52 @@ is the accumulator; `St` the operand stack; `K` the continuation of return
 frames. This is the stack-class formulation `streams-all-the-way-down.md` §3
 says survives the log-structured reading; a register model would not.
 
-| `:yin.code/op` | Operand attributes | Effect on the machine |
-|---|---|---|
-| `:const` | `:yin.code/value v` | `val ← v` |
-| `:var` | `:yin.code/name sym` | `val ← resolve(E, S, prims, modules, sym)` |
-| `:closure` | `:yin.code/params [..]`, `:yin.code/body ref` | `val ← {:type :closure :params .. :entry pc(body) :segment seg :env E}` |
-| `:push` | — | `St ← St ⧺ [val]` |
-| `:call` | `:yin.code/argc n`, `:yin.code/tail? bool` | pop `n` args and the operator below them; apply (§4.3) |
-| `:return` | — | pop frame from `K`; restore `pc`, `E`, stack base; `val` unchanged; empty `K` halts |
-| `:jump` | `:yin.code/target ref` | `pc ← target` |
-| `:branch-false` | `:yin.code/target ref` | `pc ← val ? pc+1 : target` |
-| `:halt` | — | halt with `val` as the result |
-| `:gensym` | `:yin.code/prefix` | `val ← fresh id`; id counter advances |
-| `:store-get` | `:yin.code/key` | `val ← S[key]` |
-| `:store-put` | `:yin.code/key`, `:yin.code/value` | `S[key] ← v; val ← v` |
-| `:stream-make` | `:yin.code/buffer` | effect `:stream/make` via engine |
-| `:stream-put` | — | target ref popped from `St`, value in `val`; effect `:stream/put` |
-| `:stream-cursor` | — | source ref in `val`; effect `:stream/cursor` |
-| `:stream-next` | — | cursor ref in `val`; effect `:stream/next` |
-| `:stream-close` | — | source ref in `val`; effect `:stream/close` |
-| `:park` | — | `engine/park-continuation` with the current frame |
-| `:resume` | `:yin.code/parked-id` | resume value in `val`; `engine/resume-continuation` |
-| `:current-continuation` | — | `val ← {:type :reified-continuation :segment :pc :env :stack :k}` |
-| `:ffi-call` | `:yin.code/ffi-op kw`, `:yin.code/argc n` | pop `n` args; park-and-call over the FFI pair |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:yin.code/op`          | Operand attributes                            | Effect on the machine                                                            |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:const`                | `:yin.code/value v`                           | `val ← v`                                                                        |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:var`                  | `:yin.code/name sym`                          | `val ← resolve(E, S, prims, modules, sym)`                                       |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:closure`              | `:yin.code/params [..]`, `:yin.code/body ref` | `val ← {:type :closure :params .. :entry pc(body) :segment seg :env E}`          |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:push`                 | —                                             | `St ← St ⧺ [val]`                                                                |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:call`                 | `:yin.code/argc n`, `:yin.code/tail? bool`    | pop `n` args and the operator below them; apply (§4.3)                           |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:return`               | —                                             | pop frame from `K`; restore `pc`, `E`, stack base; `val` unchanged; empty `K`    |
+|                         |                                               | halts                                                                            |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:jump`                 | `:yin.code/target ref`                        | `pc ← target`                                                                    |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:branch-false`         | `:yin.code/target ref`                        | `pc ← val ? pc+1 : target`                                                       |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:halt`                 | —                                             | halt with `val` as the result                                                    |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:gensym`               | `:yin.code/prefix`                            | `val ← fresh id`; id counter advances                                            |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:store-get`            | `:yin.code/key`                               | `val ← S[key]`                                                                   |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:store-put`            | `:yin.code/key`, `:yin.code/value`            | `S[key] ← v; val ← v`                                                            |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:stream-make`          | `:yin.code/buffer`                            | effect `:stream/make` via engine                                                 |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:stream-put`           | —                                             | target ref popped from `St`, value in `val`; effect `:stream/put`                |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:stream-cursor`        | —                                             | source ref in `val`; effect `:stream/cursor`                                     |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:stream-next`          | —                                             | cursor ref in `val`; effect `:stream/next`                                       |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:stream-close`         | —                                             | source ref in `val`; effect `:stream/close`                                      |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:park`                 | —                                             | `engine/park-continuation` with the current frame                                |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:resume`               | `:yin.code/parked-id`                         | resume value in `val`; `engine/resume-continuation`                              |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:current-continuation` | —                                             | `val ← {:type :reified-continuation :segment :pc :env :stack :k}`                |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:ffi-call`             | `:yin.code/ffi-op kw`, `:yin.code/argc n`     | pop `n` args; park-and-call over the FFI pair                                    |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
 
 This is the AST vocabulary of `yin.vm.v2/ast->datoms` made linear, one for
 one, plus the three sequencing primitives (`:push`, `:jump`, `:branch-false`)
@@ -254,11 +308,16 @@ stream: minted at `:oldest`/`:newest`, returned as a successor, or recovered
 from a `gap`. There is no `seek`, and reaching for a transport-owned position
 anchor is forbidden for contract-generic code. Three designs were weighed:
 
-| Design | Contract status | Cost | Verdict |
-|---|---|---|---|
-| Instruction stream, `next` per fetch, branch by re-minting a block's `:oldest` | legal only if every basic block is its own stream, delivered as descriptors | one stream operation per branch, one attach per closure body, per-value boundary tax on every instruction | rejected: it is the per-scalar boundary §4 of the streams note names as hopeless, and a loop body would re-mint on every iteration |
-| Transport-owned position anchors as jump targets | illegal for contract-generic code (Surfaces) | — | rejected |
-| Segment as batch value; pc indexes the loaded image | legal; the observer already delivers batches | one `next` per segment | **adopted** |
++--------------------------------------------------------------------------------+-----------------------------------------------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
+| Design                                                                         | Contract status                                                             | Cost                                                                             | Verdict                                                                          |
++--------------------------------------------------------------------------------+-----------------------------------------------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
+| Instruction stream, `next` per fetch, branch by re-minting a block's `:oldest` | legal only if every basic block is its own stream, delivered as descriptors | one stream operation per branch, one attach per closure body, per-value boundary | rejected: it is the per-scalar boundary §4 of the streams note names as          |
+|                                                                                |                                                                             | tax on every instruction                                                         | hopeless, and a loop body would re-mint on every iteration                       |
++--------------------------------------------------------------------------------+-----------------------------------------------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
+| Transport-owned position anchors as jump targets                               | illegal for contract-generic code (Surfaces)                                | —                                                                                | rejected                                                                         |
++--------------------------------------------------------------------------------+-----------------------------------------------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
+| Segment as batch value; pc indexes the loaded image                            | legal; the observer already delivers batches                                | one `next` per segment                                                           | **adopted**                                                                      |
++--------------------------------------------------------------------------------+-----------------------------------------------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
 
 The cursor-as-program-counter thesis of the streams note remains true where
 it applies: an execution *trace* emitted to a stream is a straight line, and
@@ -276,13 +335,19 @@ the divergence register.
 *Data boundary* (instructions, via `engine/handle-effect`): identical to the
 walker because the handlers are shared.
 
-| Instruction | `ok` | `blocked`/`full` | `end` | `gap` | terminal |
-|---|---|---|---|---|---|
-| `:stream-next` | `val ← value`, store cursor advanced | park with a wait entry (§3.5) | `val ← nil` | `val ← :dao.stream/gap`, cursor advanced to recovery | error naming outcome |
-| `:stream-put` | `val ← value` | park (`full`) | — | — | `closed`, `invalid-value`, `transport-error` are errors |
-| `:stream-cursor` | `val ← cursor-ref` | — | — | — | `invalid-anchor`, `closed`, `transport-error` are errors |
-| `:stream-make` | `val ← stream-ref` | — | — | — | `invalid-spec`, `not-found`, `transport-error` are errors |
-| `:stream-close` | `val ← nil` | — | — | — | `{ok}` only |
++------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
+| Instruction      | `ok`                                 | `blocked`/`full`              | `end`       | `gap`                                                | terminal                                                  |
++------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
+| `:stream-next`   | `val ← value`, store cursor advanced | park with a wait entry (§3.5) | `val ← nil` | `val ← :dao.stream/gap`, cursor advanced to recovery | error naming outcome                                      |
++------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
+| `:stream-put`    | `val ← value`                        | park (`full`)                 | —           | —                                                    | `closed`, `invalid-value`, `transport-error` are errors   |
++------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
+| `:stream-cursor` | `val ← cursor-ref`                   | —                             | —           | —                                                    | `invalid-anchor`, `closed`, `transport-error` are errors  |
++------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
+| `:stream-make`   | `val ← stream-ref`                   | —                             | —           | —                                                    | `invalid-spec`, `not-found`, `transport-error` are errors |
++------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
+| `:stream-close`  | `val ← nil`                          | —                             | —           | —                                                    | `{ok}` only                                               |
++------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
 
 Under a ring-buffer composition `full` never occurs and loss surfaces as a
 reader `gap`; the retention divergence stands as written.
@@ -478,21 +543,35 @@ defined load-time condition.
 Recursive descent over the AST in evaluation order, emitting instructions
 into a growing vector and lambda bodies out of line:
 
-| AST node | Emitted sequence |
-|---|---|
-| `:literal v` | `const v` |
-| `:variable s` | `var s` |
-| `:lambda ps body` | `closure ps →L` ; body emitted later at label L ending in `return` |
-| `:application op args` (tail? τ) | `⟦op⟧ push ⟦a₁⟧ push … ⟦aₙ⟧ push call n τ` |
-| `:if t c a` | `⟦t⟧ branch-false →A ⟦c⟧ jump →E A: ⟦a⟧ E:` |
-| `:dao.stream.apply/call op args` | `⟦a₁⟧ push … ⟦aₙ⟧ push ffi-call op n` |
-| `:stream/put target val` | `⟦target⟧ push ⟦val⟧ stream-put` |
-| `:stream/cursor s`, `:stream/next s`, `:stream/close s` | `⟦s⟧ stream-cursor` etc. |
-| `:stream/make b` | `stream-make b` |
-| `:vm/store-get k`, `:vm/store-put k v`, `:vm/gensym p` | one instruction each |
-| `:vm/park`, `:vm/current-continuation` | one instruction each |
-| `:vm/resume id v` | `⟦v⟧ resume id` |
-| root | main sequence ends in `halt`; bodies follow |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| AST node                                                | Emitted sequence                                                   |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:literal v`                                            | `const v`                                                          |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:variable s`                                           | `var s`                                                            |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:lambda ps body`                                       | `closure ps →L` ; body emitted later at label L ending in `return` |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:application op args` (tail? τ)                        | `⟦op⟧ push ⟦a₁⟧ push … ⟦aₙ⟧ push call n τ`                         |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:if t c a`                                             | `⟦t⟧ branch-false →A ⟦c⟧ jump →E A: ⟦a⟧ E:`                        |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:dao.stream.apply/call op args`                        | `⟦a₁⟧ push … ⟦aₙ⟧ push ffi-call op n`                              |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:stream/put target val`                                | `⟦target⟧ push ⟦val⟧ stream-put`                                   |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:stream/cursor s`, `:stream/next s`, `:stream/close s` | `⟦s⟧ stream-cursor` etc.                                           |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:stream/make b`                                        | `stream-make b`                                                    |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:vm/store-get k`, `:vm/store-put k v`, `:vm/gensym p`  | one instruction each                                               |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:vm/park`, `:vm/current-continuation`                  | one instruction each                                               |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| `:vm/resume id v`                                       | `⟦v⟧ resume id`                                                    |
++---------------------------------------------------------+--------------------------------------------------------------------+
+| root                                                    | main sequence ends in `halt`; bodies follow                        |
++---------------------------------------------------------+--------------------------------------------------------------------+
 
 Evaluation order is the walker's (operator, then operands left to right),
 so effect order is identical, which the parity suite checks. Tail position
@@ -524,13 +603,19 @@ array slot.
 
 ### 6.2 Memory and allocation
 
-| Event | Walker allocations | Linear allocations |
-|---|---|---|
-| evaluate an operand | frame map, `assoc k`, `conj evaluated` (3) | `conj` onto `St` (1) |
-| begin an application | frame map (1) | 0 |
-| test an `if` | frame map (1) | 0 |
-| call a closure | `zipmap`, `merge` (2) | `zipmap`, `merge`, return frame (3), 2 if tail |
-| every non-hot transition | one `ASTWalkerVM` record | 0 (registers stay in `loop` locals until a park point) |
++--------------------------+--------------------------------------------+--------------------------------------------------------+
+| Event                    | Walker allocations                         | Linear allocations                                     |
++--------------------------+--------------------------------------------+--------------------------------------------------------+
+| evaluate an operand      | frame map, `assoc k`, `conj evaluated` (3) | `conj` onto `St` (1)                                   |
++--------------------------+--------------------------------------------+--------------------------------------------------------+
+| begin an application     | frame map (1)                              | 0                                                      |
++--------------------------+--------------------------------------------+--------------------------------------------------------+
+| test an `if`             | frame map (1)                              | 0                                                      |
++--------------------------+--------------------------------------------+--------------------------------------------------------+
+| call a closure           | `zipmap`, `merge` (2)                      | `zipmap`, `merge`, return frame (3), 2 if tail         |
++--------------------------+--------------------------------------------+--------------------------------------------------------+
+| every non-hot transition | one `ASTWalkerVM` record                   | 0 (registers stay in `loop` locals until a park point) |
++--------------------------+--------------------------------------------+--------------------------------------------------------+
 
 For `(+ x 1)` the walker performs roughly nine allocations and a dozen map
 lookups across six transitions; the linear machine performs three vector
