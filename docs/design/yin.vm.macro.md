@@ -673,7 +673,8 @@ program.
 ```
 [ev :yin/type           :macro-expand-event  t default-op]
 [ev :yin/source-batch   <ctx :t>             t default-op]   ; which source batch; always present
-[ev :yin/source-call    <call-eid>           t default-op]   ; eid in that batch, or in the log copy of the enclosing expansion; absent on an admission failure
+[ev :yin/source-call    <call-eid>           t default-op]   ; VALUE, undeclared: the call's eid as it appeared in the source batch, qualified by :yin/source-batch; only on an initial (non-nested) expansion
+[ev :yin/source-node    <node-eid>           t default-op]   ; DECLARED REF, log-local: the call node in the log copy of the enclosing expansion's output; only on a nested expansion
 [ev :yin/macro-name     <sym>                t default-op]   ; when the operator was a :variable; absent for an inline macro lambda or an admission failure
 [ev :yin/macro          <lambda-eid>         t default-op]   ; only when durable (§4.2)
 [ev :yin/expansion-root <root'>              t default-op]   ; on success; names the LOG copy
@@ -691,13 +692,25 @@ per-medium staging as any other log payload — never regenerated.
 The log copy of expansion output carries `m = ev`; log copies of unchanged
 operands and ancestors carry `m = default-op` (re-parenting, not macro
 output). **`program-out` datoms all carry `default-op`**: `m = ev` would be
-a cross-medium ref (§4.2). A nested expansion's `:yin/source-call` names a
-node in the log copy of the enclosing expansion's output, which is how the
+a cross-medium ref (§4.2). An initial expansion's `:yin/source-call` is a
+value, not a ref: the call's eid as it appeared in the source batch,
+qualified by `:yin/source-batch`, which no index or transactor resolves. A
+nested expansion carries `:yin/source-node` instead — a declared ref to a
+node in the log copy of the enclosing expansion's output — which is how the
 chain source → event → root → event → root is walked for generated syntax.
+A successful expansion carries exactly one of the two; an admission failure
+carries neither. Only `:yin/source-node` is a declared ref. The names:
+`:yin/source-call` keeps its existing name in this narrowed value role so
+that existing log data is not invalidated by the split; `:yin/source-node`
+is new and is named for what it points at — a node of the log copy, the
+term this document already uses for AST nodes there — because "call" would
+mislead: a nested expansion names the outer expansion's output node, not a
+call site in any source batch.
 "Every datom this expansion produced" is `[?d _ _ _ ?ev]` on the log.
 
-`yin.vm.v2.macro/event-schema` declares these attributes (`:yin/source-call`,
-`:yin/macro`, `:yin/expansion-root` as refs) for compositions that commit a
+`yin.vm.v2.macro/event-schema` declares these attributes (`:yin/source-node`,
+`:yin/macro`, `:yin/expansion-root` as refs; `:yin/source-call` deliberately
+undeclared, so its value is left alone) for compositions that commit a
 log to `dao.space`; the transactor relocates only declared refs, so a
 composition merges this fragment with `yin.vm.v2/schema` before committing.
 
@@ -711,11 +724,15 @@ committing two batches separately does not connect them. Therefore:
 
 - `program-out` batches are self-contained: unchanged subtrees are copied,
   with fresh ids, not referenced (decision 8).
-- `:yin/source-call` on an event names the call's eid *as it appeared in
-  the source batch*, qualified by `:yin/source-batch`; it is descriptive
-  until both media are committed under one resolution. `:yin/macro` is
-  written only when the macro's id is durable; otherwise `:yin/macro-name`
-  carries the name. Names are metadata, never identity repair.
+- `:yin/source-call` on an event is a value, never a ref: the call's eid
+  *as it appeared in the source batch*, qualified by `:yin/source-batch`.
+  It is descriptive until both media are committed under one resolution,
+  and the join that would make it a ref is the composition's
+  (`dao.space.index.as-observer.md` §3.2). `:yin/source-node` is the
+  log-local counterpart: a declared ref, resolved within the log batch it
+  appears in and never across media. `:yin/macro` is written only when the
+  macro's id is durable; otherwise `:yin/macro-name` carries the name.
+  Names are metadata, never identity repair.
 - `:yin/expansion-root` names the **log copy** of the output. The executed
   program on `program-out` is a distinct copy with distinct ids; this design
   promises no id-level correspondence between them. A composition that needs
@@ -1151,7 +1168,7 @@ design, withdrawn 2026-09-13:
 | 9  | Tail marking must clear stale flags; lambda rule ambiguous (astra P2-7)        | §3.4 whole-tree recompute with per-node context rules; lambda body always tail;  |
 |    |                                                                                | `linearize` owns inlining                                                        |
 +----+--------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
-| 10 | Provenance identity: same tempid in two batches, generated syntax, program↔log | §4.1 `:yin/source-batch`; nested `source-call` into the log copy;                |
+| 10 | Provenance identity: same tempid in two batches, generated syntax, program↔log | §4.1 `:yin/source-batch`; nested `source-node` into the log copy;                |
 |    | correspondence, event schema home, anonymous macros (astra P2-8)               | `expansion-root` names the log copy, correspondence not promised;                |
 |    |                                                                                | `macro/event-schema`; `:yin/macro-name` absent for inline lambdas                |
 +----+--------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
