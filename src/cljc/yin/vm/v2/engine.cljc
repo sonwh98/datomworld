@@ -125,7 +125,12 @@
 (defn make-woken-run-queue-entries
   "Transform woken wait-set entries into ready-queue entries.
    Readers (with :cursor-ref) store the successor cursor the transport
-   returned. Writers (no :cursor-ref) just stamp :value."
+   returned. Writers (no :cursor-ref) just stamp :value.
+
+   Without restore-fn the ready entry stays pure data: the `:stream` handle
+   the poll resolved is dropped — the store-updates carry the successor
+   cursor, and handles are re-resolved from ids when needed again — so an
+   entry neither waits nor runs holding a host object."
   ([state woken] (make-woken-run-queue-entries state woken nil))
   ([state woken restore-fn]
    (mapv (fn [{:keys [entry value cursor], :as woken-entry}]
@@ -145,7 +150,7 @@
                  (assoc task
                         :value value
                         :cursor cursor))
-               base-entry)))
+               (dissoc base-entry :stream))))
          woken)))
 
 
@@ -278,14 +283,17 @@
   "Check wait-set entries against their transports.
 
    Every entry is resolved to a live handle and an opaque cursor out of the
-   store before `dao.runtime.v2` polls it. There is no transport-local waking
-   to fall back from: this is the only mechanism.
+   store before `dao.runtime.v2` polls it — resolution happens per poll, so
+   the stored entry itself never carries a handle. There is no
+   transport-local waking to fall back from: this is the only mechanism.
 
    Entries are polled one at a time in wait-set order, and a woken reader's
    successor cursor is written back to the store before the next entry is
    resolved. Waiters sharing a cursor-ref therefore read distinct values — the
    value at the cursor wakes the first, its successor wakes the next — instead
-   of every waiter reading the value at the shared pre-poll cursor."
+   of every waiter reading the value at the shared pre-poll cursor. An entry
+   that stays waiting is retained in its stored, resource-id form; the
+   resolved copy was for this poll only."
   ([state] (check-wait-set state nil))
   ([state restore-fn]
    (let [wait-set (:wait-set state)]
@@ -297,7 +305,8 @@
          (if (empty? remaining)
            (let [new-tasks (make-woken-run-queue-entries v woken restore-fn)]
              (update v :ready-queue (fnil into []) new-tasks))
-           (let [augmented (augment-wait-entry (:store v) (first remaining))
+           (let [entry (first remaining)
+                 augmented (augment-wait-entry (:store v) entry)
                  ;; A singleton wait set makes the outcome below belong to
                  ;; this entry alone.
                  polled (rt/check-wait-set (assoc v
@@ -313,7 +322,8 @@
              (recur (rest remaining)
                     (assoc polled
                            :store (merge (:store polled) advance)
-                           :wait-set (into (:wait-set v) (:wait-set polled))
+                           :wait-set (into (:wait-set v)
+                                           (if raw (:wait-set polled) [entry]))
                            :ready-queue (:ready-queue v))
                     (if raw
                       (conj woken {:entry raw,
@@ -345,7 +355,13 @@
 
 (defn resume-from-run-queue
   "Pop first entry from the ready-queue, merge store-updates, and restore
-   VM-specific context."
+   VM-specific context.
+
+   Restoration is dispatched here rather than carried on the entry, so a
+   ready entry holds registers, ids, and values — never a closure. The
+   terminal-outcome check runs before the restore: a woken retry that ended
+   in an outcome the immediate operation raises as an error must fail the
+   same way here, not reach Yin code as a value."
   [state restore-fn]
   (let [run-queue (or (:ready-queue state) [])]
     (when (seq run-queue)
@@ -356,7 +372,10 @@
                         :store (merge (:store state) (:store-updates entry))
                         :blocked? false
                         :halted? false)]
-        (restore-fn base entry)))))
+        (if-let [terminal (adapter/terminal-resume-outcome
+                            entry (:status entry))]
+          (adapter/throw-terminal-resume! entry terminal)
+          (restore-fn base entry))))))
 
 
 (defn park-continuation
@@ -411,8 +430,15 @@
 (defn handle-effect
   "Dispatch an effect and return {:state updated-state :value v :blocked? bool}.
    park-entry-fns maps :stream/put and :stream/next to functions that build
-   wait entries."
-  [state effect {:keys [park-entry-fns restore-fn], :as opts}]
+   wait entries.
+
+   A parked entry is stored as the builder left it plus, for a writer, the
+   `:datom` it retries: registers and resource ids only. Neither the live
+   stream handle nor a restore closure is attached — `check-wait-set`
+   resolves handles from the store at every poll, and the scheduler that pops
+   a woken entry dispatches restoration itself — so a blocked entry is pure
+   data and survives serialization."
+  [state effect {:keys [park-entry-fns], :as opts}]
   (let [park-entry (get park-entry-fns (:effect effect))
         result
         (case (:effect effect)
@@ -435,15 +461,10 @@
             (if (:park result)
               (let [built-entry (when park-entry
                                   (park-entry state effect result))
-                    handle (get (:store state) (:stream-id result))
-                    built-entry (cond-> built-entry
-                                  (and built-entry (not (:stream built-entry)))
-                                  (assoc :stream handle)
-                                  (and built-entry (not (:datom built-entry)))
-                                  (assoc :datom (:val effect)))
-                    task (when (and built-entry restore-fn)
-                           (adapter/vm-task built-entry restore-fn))]
-                (handle-stream-block result (or task built-entry)))
+                    built-entry (if (and built-entry (not (:datom built-entry)))
+                                  (assoc built-entry :datom (:val effect))
+                                  built-entry)]
+                (handle-stream-block result built-entry))
               {:state (:state result),
                :value (:value result),
                :blocked? false}))
@@ -451,19 +472,8 @@
           (let [result (handle-next state effect)]
             (if (:park result)
               (let [built-entry (when park-entry
-                                  (park-entry state effect result))
-                    stream-id (:stream-id result)
-                    handle (get (:store state) stream-id)
-                    cursor-id (:id (:cursor-ref result))
-                    cursor (:cursor (get (:store state) cursor-id))
-                    built-entry (cond-> built-entry
-                                  (and built-entry (not (:stream built-entry)))
-                                  (assoc :stream handle)
-                                  (and built-entry (not (:cursor built-entry)))
-                                  (assoc :cursor cursor))
-                    task (when (and built-entry restore-fn)
-                           (adapter/vm-task built-entry restore-fn))]
-                (handle-stream-block result (or task built-entry)))
+                                  (park-entry state effect result))]
+                (handle-stream-block result built-entry))
               {:state (:state result),
                :value (:value result),
                :blocked? false}))

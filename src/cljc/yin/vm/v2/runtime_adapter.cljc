@@ -8,7 +8,7 @@
   (:require [dao.runtime.v2 :as rt]))
 
 
-(defn- terminal-resume-outcome
+(defn terminal-resume-outcome
   "The outcome a parked retry terminated with, when it is one the immediate
    path raises as an error.
 
@@ -17,7 +17,11 @@
    otherwise reach Yin code as an ordinary value. `handle-put` and
    `handle-next` throw for these same outcomes, and whether the first attempt
    blocked must not change that. A writer's `:end` is `closed` wearing its
-   task classification and is reported under the outcome the transport gave."
+   task classification and is reported under the outcome the transport gave.
+
+   Public because restoration is dispatched explicitly: `vm-task`'s closure
+   checks it when a host runtime runs the task, and `engine/resume-from-run-queue`
+   checks it when the VM's own scheduler pops the entry."
   [vm-entry status]
   (case (:reason vm-entry)
     :next (case status
@@ -33,7 +37,7 @@
     nil))
 
 
-(defn- throw-terminal-resume!
+(defn throw-terminal-resume!
   "Fail a resumed task exactly as the immediate operation would have."
   [vm-entry outcome]
   (if (= :next (:reason vm-entry))

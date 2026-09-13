@@ -292,7 +292,10 @@ The VM implements `IVM`; program ingress is exactly the walker's shape:
 - The loader for this evaluator is `semantic/vm-load-program`: it accepts a
   batch of `:yin.code/*` datoms, validates §2.6, builds the image, stores
   it under `:code {segment-id image}`, and sets control to
-  `{:segment id :pc 0}`. A composition that carries `:yin/*` AST datoms on
+  `{:segment id :pc 0}`. Segment identity is stable: an id already holding
+  a different image is a load error, and an identical reload is accepted —
+  continuations name segments by id, so an id must never come to mean
+  different code. A composition that carries `:yin/*` AST datoms on
   its program stream hands the observer `(comp semantic/vm-load-program
   linearize/lower)` instead; the loader is composition-supplied, so no
   evaluator learns which form travels. `yin.repl.v2.core/make-session` is
@@ -371,18 +374,25 @@ file the roadmap requires).
 The VM record carries the engine's scheduler fields (`:ready-queue`,
 `:wait-set`, `:parked`, `:id-counter`, `:store`, `:blocked?`, `:halted?`)
 with the same meanings. Wait entries built by the semantic `park-entry-fns`
-are `{:segment :pc :env :stack :k :reason :cursor-ref/:stream-id}`. The
-restore function is
+are `{:segment :pc :env :stack :k :reason :cursor-ref/:stream-id}` — pure
+data: no resolved stream handle and no resume closure is ever attached to a
+wait or ready entry, so the wait set of a blocked machine survives an EDN
+round-trip (§1.1's serialization limit; the program's own `env`/stack values
+aside). `engine/check-wait-set` resolves handles from the store on every
+poll, and restoration is dispatched explicitly. The restore function is
 
 ```
 semantic-restore : base entry val → base with control {:segment :pc},
                                        env, stack, k, val from entry
 ```
 
-and is handed to `engine/check-wait-set`, `engine/resume-from-run-queue`,
-`engine/handle-effect`, and `engine/resume-continuation` exactly as
-`ast-walker-restore` is. `engine/run-loop` drives `run`. Nothing in
-`engine.cljc` changes.
+and is handed to `engine/resume-from-run-queue` and
+`engine/resume-continuation`, exactly as `ast-walker-restore` is;
+`engine/resume-from-run-queue` runs the terminal-outcome check (a woken
+retry that ended `closed`/`cursor-mismatch`/… fails as the immediate
+operation would) before restoring. No `:restore-fn` is passed into
+`engine/handle-effect` or `engine/check-wait-set` from this evaluator, so
+nothing live rides on an entry. `engine/run-loop` drives `run`.
 
 ### 3.6 Observation and traces
 
