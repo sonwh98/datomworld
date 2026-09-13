@@ -128,21 +128,31 @@ index-state = {:indexes  {:eavt bt :aevt bt :avet bt :vaet bt}   ; dao.data.btre
                :ids      nil | {:next-eid n}                     ; allocator; present only in :unresolved mode
                :batch    n                                       ; ordinal of the next batch, observer-local
                :schema   {attr {:db/valueType :db.type/ref ...}} ; supplied; which attrs are refs
-               :max-t    n                                       ; greatest writer t folded so far (§4.2)
+               :max-t    nil | n                                 ; greatest writer t folded; nil until one is (§4.2)
+               :rejected n                                       ; monotonic count of rejected batches — never drained (§2.2)
                :publish  nil | {:intake writer
                                 :staged nil | {:payloads [...] :next i}}   ; optional, §4.1
-               :defects  []}                                     ; rejected batches seen since last drain
+               :defects  []}                                     ; drainable diagnostics: one event per rejected batch since last drain
 
 ;; all in dao.space.index, beside index-datoms and publish-index!
+;; over the consumer alone:
 ready?           (fn [x] (nil? (get-in x [:publish :staged])))
 load             index/fold-batch                              ; pure; §2.2
 run              index/flush-staged                            ; resumes a staged publication at :next; identity otherwise (§4.1)
 index/publish!   index-state → index-state'                    ; explicit: stage this state's trees, then flush (§4.1)
-index/drain      (fn [x] [(assoc x :defects []) (:defects x)])
+index/drain      index-state → [index-state' defects]          ; clears :defects only; :rejected is untouched
 index/db-value   index-state → query value                     ; §5: the covered trees as a dao.space.query source
-index/checkpoint index-state → candidate                       ; §4.2: the value captured at a publication boundary
-index/restore    candidate storage-opts → index-state          ; §4.2: resume from a verified checkpoint
+;; over the whole {:observer :consumer} session — the cursor and gap count live in the observer half:
+index/coverage   session → {:cursor c :ingress-gaps g :rejected n :batch b :max-t t}   ; §5
+index/checkpoint session → candidate                           ; §4.2: publish!'s coverage, captured at its boundary
+index/restore    candidate storage-opts → index-state          ; §4.2: the consumer half; the composition re-attaches the observer at :cursor
 ```
+
+`coverage` and `checkpoint` are the two operations that read both halves of a
+session. They are index-side functions over a shape `dao.stream.v2.observer`
+publishes (`{:stream :cursor :ingress-gaps}`) — the dependency runs
+`dao.space.index → dao.stream.v2.observer`, never the reverse — and the
+generic loop stays ignorant of every index field.
 
 Driven as `(run-on-stream {:observer o :consumer index-state} ready?
 index/fold-batch index/flush-staged)` over any `dao.stream.v2` reader
@@ -155,17 +165,26 @@ choice), and only the *resumption* of a staged publication lives inside
 `run`, so that `ready?` stays false until the intake has accepted every
 payload. Calling `publish!` while a publication is still staged is a caller
 error (the composition checks `ready?` first); a staged publication is never
-replaced, only resumed (§4.1).
+replaced, only resumed (§4.1). `:ids` records whether it is `:owned` by this
+session or `:shared` with others (§3.1); the distinction governs what a
+checkpoint may restore (§4.2).
 
 ### 2.2 `fold-batch`
 
 One batch, one pure fold. **The fold is atomic per batch**: steps 0–2
 validate and plan against the *whole* normalized batch before step 3
 touches a tree or step 4 advances `:ids`; a batch rejected at any step
-leaves all four trees and `:ids` unchanged, appends exactly one defect
+leaves all four trees, `:ids`, and `:max-t` unchanged, increments the
+monotonic `:rejected` count, appends exactly one drainable defect event
 (batch ordinal, position, reason), and advances `:batch` by exactly one —
 never zero, or every later cross-session ordinal (§3.2) would drift on the
-first malformed input even without a `gap`.
+first malformed input even without a `gap`. `:rejected` is the durable
+record that the index is partial; `:defects` is the diagnostic a driver
+reads and clears. Draining never touches `:rejected`, so completeness
+survives a drain, a checkpoint, and a restore; a composition that needs the
+*identities* of omitted batches retains the drained events itself. An
+**empty** admitted batch is a valid no-op: it advances `:batch` once and
+changes nothing else — not trees, `:ids`, `:max-t`, or `:rejected`.
 
 0. **Normalize the outer value.** `run-on-stream` hands `load` one stream
    value, and media differ in what that is: a transactor appends one
@@ -205,10 +224,12 @@ first malformed input even without a `gap`.
    the batch — as `e`, as a declared-ref `v`, as `m`, or only as one of the
    latter two (a reference to an entity the batch never describes) — is
    mapped through a batch-local table to a fresh durable id from `:ids`, in
-   **first-occurrence order over the normalized batch** so allocation is
-   identical on every host, and the mapping is emitted as resolution facts.
-   Reserved ids (below `datom/first-user-id`, such as `default-op`) pass
-   through untouched in every slot. `:resolved` mode allocates nothing.
+   **first-occurrence order** — rows in normalized-batch order, and within a
+   row `e`, then declared-ref `v`, then `m` — so allocation is identical on
+   every host, and the mapping is emitted as resolution facts. Reserved ids
+   (§3.1: `0 ≤ id < datom/first-user-id`, where `default-op` lives) are never
+   allocated; whether a reserved id is admitted in a given slot is the
+   matrix's rule, not a blanket pass. `:resolved` mode allocates nothing.
 3. **Fold.** Rows and resolution facts are `dao.data.btree/conj`ed into the
    four trees — a persistent insert that shares every unmodified node with
    the previous state. A node created by the insert carries no address mark;
@@ -217,7 +238,8 @@ first malformed input even without a `gap`.
    address), so §4.1's `store-tree` later emits exactly what this and
    subsequent folds created. Covered indexes are sets; a duplicate row is a
    no-op (`conj` returns the same set). `:max-t` becomes the greater of
-   itself and the batch's greatest row `t`.
+   itself and the batch's greatest row `t`; it is `nil` until the first row
+   is folded, and an empty batch leaves it as it was.
 4. **Advance** `:batch`, and `:ids` in `:unresolved` mode.
 
 The `:indexes` after batch *n* are a pure function of (index state before,
@@ -230,7 +252,7 @@ interpreters over rows, and the index state's trees are a row source.
 
 | Medium | `t` in rows | `current` | `history` |
 |---|---|---|---|
-| transactor-written (records) | allocated by the writer, monotonic | greatest-`t`-wins per `[e a v]`, retractions removed — full Datomic semantics | the exact rows; `history` promises no ordering (its implementation preserves source order, EAVT over a tree), so order by `t` explicitly when it matters |
+| transactor-written (records) | allocated by the writer, monotonic | greatest-`t`-wins per `[e a v]`, retractions removed — full Datomic semantics | the exact rows; `history` promises no ordering — over a `db-value` the rows come in EAVT-walk order, not writer order — so order by `t` explicitly when it matters |
 | a medium whose rows carry no writer-allocated `t` (all rows `t 0`, `m default-op`) | not meaningful | the *set* of facts asserted — correct for a medium of assertions with no retractions | degenerate: all rows share `t 0`; order is the observer's batch ordinal, available through resolution facts (§3), **not** through `t` |
 
 The observer does not paper over the second row by minting `t` — decision
@@ -284,16 +306,21 @@ tempids and owns every positive user id in its index, allocating from
 `datom/first-user-id` upward.
 
 **The mode matrix.** Identity-bearing slots are `e`, a declared-ref `v`,
-and `m`. "Reserved" is any id below `datom/first-user-id` (`default-op`
-lives there); "user-positive" is any id at or above it; "tempid" is any
-negative integer.
+and `m`. Ids partition into three disjoint classes: **tempid** `id < 0`;
+**reserved** `0 ≤ id < datom/first-user-id` (`default-op` lives there);
+**user-positive** `id ≥ datom/first-user-id`.
 
 | Slot | `:resolved` | `:unresolved` |
 |---|---|---|
-| `e` | user-positive; reserved or tempid → defect | tempid → allocated; reserved or user-positive → defect (an unexplained positive reference: the writer cannot know the observer's ids) |
-| declared-ref `v` | user-positive or reserved; tempid → defect (this is the schema-aware check `local-datom?` alone does not make) | tempid → allocated; reserved passes; user-positive → defect |
-| `m` | reserved or user-positive; tempid → defect | reserved passes; tempid → allocated; user-positive → defect |
+| `e` | reserved or user-positive pass through — exactly what `local-datom?` and the transactor admit today, so Phase 0′ parity is unconditional; tempid → defect | tempid → allocated; reserved or user-positive → defect (an unexplained positive reference: the writer cannot know the observer's ids) |
+| declared-ref `v` | reserved or user-positive pass; tempid → defect (this is the schema-aware check `local-datom?` alone does not make) | tempid → allocated; reserved passes; user-positive → defect |
+| `m` | reserved or user-positive pass; tempid → defect | reserved passes; tempid → allocated; user-positive → defect |
 | undeclared `v` | any value, untouched | any value, untouched |
+
+Reserved `e` on a `:resolved` medium is *admitted*, not enforced against:
+`datom.md`'s reservation has never been enforced by the runtime, and an
+index that started enforcing it would silently diverge from every existing
+read path. If enforcement is ever wanted it is a separate, stated decision.
 
 A composition that needs both kinds of medium in one query opens two index
 states as two sources; `dao.space.query` keeps sources as separate
@@ -306,7 +333,9 @@ allocation-domain check. This is advisory in the query (nothing can enforce
 it there) and therefore a contract on compositions: joins across sources go
 through values. Phase 2's shared allocator is a *composition-owned value
 threaded serially* through the `:unresolved` sessions that share it — never
-an atom the sessions share — and only such sessions may equate `?e`.
+an atom the sessions share — and only such sessions may equate `?e`. A
+session records whether its `:ids` is `:owned` or `:shared`; the
+consequence for recovery is §4.2's.
 
 ### 3.2 Resolution facts
 
@@ -464,55 +493,86 @@ checkpoint, from which the watermark and incremental indexes resume". A
 checkpoint here is a *value with a validity contract*, in three parts.
 
 **Capture at one boundary.** `publish!` is called between rounds, when the
-session's cursor sits exactly after the last batch its trees cover; it
-returns, with the staged publication, a **candidate**
+session's cursor sits exactly after the last batch its trees cover. It
+stages the publication on the consumer; `checkpoint`, called on the
+**session** at that same boundary — before any further round — captures a
+**candidate**
 
 ```
 {:manifest-address a  :cursor c  :ids i  :batch n  :max-t t
- :ingress-gaps g  :defects d  :mode m  :schema-hash h}
+ :ingress-gaps g  :rejected r  :mode m  :schema-hash h}
 ```
 
-captured together in that moment: the manifest that will name the trees,
-the cursor after the last folded batch, the allocator, the ordinal, the
-greatest writer `t` folded (§2.2 step 3), the session's gap and defect
-counts, and the mode and schema the trees were built under. Nothing may be
-folded between the publish and the capture, and nothing is: capture *is*
-the publish's return value. A composition that recorded a cursor later than
-the manifest's coverage would, on restart, skip every batch in between
-permanently.
+from both halves: the manifest that will name the trees, the observer's
+cursor after the last folded batch and its gap count, and the consumer's
+allocator, ordinal, greatest writer `t` (§2.2 step 3), monotonic rejected
+count, mode, and schema. The cursor and gap count are not in the index
+state — `run-on-stream` advances them in the observer half, including on a
+`gap` — which is why capture takes the session; the rule that nothing is
+folded between `publish!` and `checkpoint` binds whoever calls the two, and
+the two are meant to be adjacent calls in the composition. A candidate
+whose cursor were later than its manifest's coverage would, on restart,
+skip every batch in between permanently.
 
 **A candidate becomes a checkpoint only when it is recoverable.** Intake
 success means enqueued, not materialized (`dao.space.index.md`); a process
 can fail with the manifest, or blobs it names, still in an in-memory intake
 — exactly the loss window `dao.space.md` §Fault Tolerance documents. A
 candidate is promoted to a checkpoint by the composition, and only after it
-has verified against the durable content store that the manifest is present
-and every address reachable from it (`bt/walk-addresses`) resolves. Until
-then the previous checkpoint stands. Recovery from a latest publication that
-never became recoverable is therefore never a special case: the composition
-resumes from the last *verified* checkpoint and re-folds the suffix.
+has verified, **through the durable store's read path** (`jing/get`, never
+the recording handle or any cache whose presence proves nothing about
+durability), that the manifest reads back valid (`read-manifest`) and that
+every address reachable from **all four roots** resolves — checked inside
+the `bt/walk-addresses` visitor, leaves included, because the walker does
+not itself restore leaves. Missing content or a read failure is
+"verification incomplete", never success; the check may be retried later,
+and because content is immutable and retained, a check that once passed
+stays passed. No acknowledgement from the asynchronous DaoJing observer is
+needed for a synchronously readable store; an async-only store needs an
+asynchronous verification mechanism, which is a capability prerequisite,
+not a change to this rule. Until promotion the previous checkpoint stands.
+Recovery from a latest publication that never became recoverable is
+therefore never a special case: the composition resumes from the last
+*verified* checkpoint and re-folds the suffix. Promotion proves the
+snapshot is reopenable; that the checkpoint *record* itself is recoverable,
+and that the suffix after `c` is still retained on the medium, are the
+composition's separate obligations.
 
 **Resumption is bound.** `restore` refuses a checkpoint whose `:mode` or
-`:schema-hash` differ from the session being constructed, restores the four
-trees lazily through a session-constructed `:strong` `kv-storage` over the
-durable store (§4.1 — not the query read path), reinstates `:ids`,
-`:batch`, `:max-t`, `:ingress-gaps` and `:defects` (a partial index stays
-partial after restart; a fresh zero would make §3.2's offset check look safe
-again), re-attaches at `c`, and continues folding. Nothing is replayed from
-the origin.
+`:schema-hash` differ from the session being constructed, **and refuses one
+whose `:ids` was `:shared`**: a session-local snapshot of a shared allocator
+is stale the moment any sibling allocates after it, and restoring it would
+re-mint ids siblings already hold (session A checkpoints at 20, B allocates
+20–29, A restores and allocates 20 again). Recovery of a shared allocation
+domain is a composition-level checkpoint over *every* session that shares
+it, and is deferred (§8); this note's checkpoint/restore contract covers
+independently allocated sessions only. For those, `restore` rebuilds the
+four trees lazily through a session-constructed `:strong` `kv-storage` over
+the durable store (§4.1 — not the query read path) and reinstates `:ids`,
+`:batch`, `:max-t`, and `:rejected` on the consumer; the composition
+re-attaches the observer at `c` with `:ingress-gaps` reinstated (a partial
+index stays partial after restart; a fresh zero would make §3.2's offset
+check look safe again). Re-attaching *at a cursor* is a small addition to
+`dao.stream.v2.observer/attach`, which mints at `:oldest` today: it accepts
+a kept cursor, which `dao.stream.md` already says "covers repositioning",
+and the transport validates it on the first `next`. Then folding continues;
+nothing is replayed from the origin.
 
-**The watermark.** The transactor's `create!` needs "one plus the greatest
-`t` in the retained history". A checkpoint covering `t ≤ 10` cannot answer
-that alone if transactions through `t = 12` exist after its cursor. So the
-answer is `:max-t` — a writer-time summary derived from the folded rows at
-capture, causally bound to `:cursor`, never derived from observer ordinals
-— *plus the fold of the retained suffix after `c`* before writes are
-enabled. Three cases, distinct:
+**The watermark.** The transactor's `create!` needs `0` for an empty
+history, else one plus the greatest `t` retained. A checkpoint covering
+`t ≤ 10` cannot answer that alone if transactions through `t = 12` exist
+after its cursor. So the answer is `:max-t` — a writer-time summary derived
+from the folded rows at capture, causally bound to `:cursor`, never derived
+from observer ordinals — *plus the fold of the retained suffix after `c`*
+before writes are enabled; the watermark is then `0` if `:max-t` is still
+`nil` (nothing folded, the transactor's empty case) and `max-t + 1`
+otherwise, and an empty checkpoint reopened in-process yields `0`, not `1`.
+Three cases, distinct:
 
 - **Same logical stream, reopened in-process** (the writer-task restart
   `dao.space.md` §Fault Tolerance names): restore the checkpoint, fold the
-  suffix from `c` to `blocked`, then `max-t + 1` is the watermark. This is
-  the O(suffix) relief the transactor asked for.
+  suffix from `c` to `blocked`, then derive as above. This is the O(suffix)
+  relief the transactor asked for.
 - **Process restart over a durable medium** (`dao.stream.file.md`, cursors
   survive): the same, over the reopened medium.
 - **Process restart over a memory-log**: a new, empty logical stream with a
@@ -560,13 +620,19 @@ trees are persistent, so a `db-value` taken before a fold is unchanged by
 it.
 
 **What "live" means, precisely.** After a successful `run-on-stream` round,
-`(index/db-value state)` represents every batch the session has admitted
-and folded up to its cursor — nothing more. It excludes whole rejected
-batches (`:defects` says which) and reports gaps (`:ingress-gaps`). It
-promises nothing about appends the observer has not yet read, and nothing
-about a sibling evaluator's progress over the same medium: "the index is
-current with the medium" is a statement about the observer's cursor, and a
-test that wants to see a batch must *drive the observer* first, then query. The three boundaries of `dao.space.md` are untouched;
+`(index/db-value (:consumer session))` represents every batch the session
+has admitted and folded up to the observer's cursor — nothing more — and
+`(index/coverage session)` says exactly how far that is and how complete:
+the cursor, the gap count, the monotonic rejected count, the ordinal, and
+`:max-t`. The value carries no stream; the coverage report is where the
+cursor and gaps come from, since they live in the observer half. A rejected
+batch is absent from the value and counted in coverage; the identities of
+rejected batches are in the drainable defect events and, once drained,
+wherever the composition kept them. The value promises nothing about
+appends the observer has not yet read, and nothing about a sibling
+evaluator's progress over the same medium: "the index is current with the
+medium" is a statement about the observer's cursor, and a test that wants
+to see a batch must *drive the observer* first, then query. The three boundaries of `dao.space.md` are untouched;
 what moves is *when* the transactor-side index is built (continuously,
 not at publish) and *over what* (any medium, not only the writer's own).
 
@@ -619,18 +685,27 @@ root blobs); canonical layout would be a new design requirement, not a
 property of the tree. Tests must include enough rows and insertion orders
 to force splits. Further tests: outer grammar — a bare record, a bare d5
 row, a vector of both, a malformed outer value, a malformed nested record,
-a valid prefix followed by a defect (trees and `:ids` unchanged, one defect,
-`:batch` advanced once), valid–invalid–valid batches; the mode matrix, one
-row per cell, on both modes; `m` tempids resolved and joined; deterministic
-allocation order across hosts; `run-on-stream` `blocked`/`end` behaviour;
+a valid prefix followed by a defect (trees, `:ids`, and `:max-t`
+unchanged, `:rejected` +1, one defect event, `:batch` advanced once),
+valid–invalid–valid batches, an empty batch (ordinal only), reject → drain
+→ checkpoint → restore with `:rejected` intact; the mode matrix, one row
+per cell, on both modes, including reserved `e` passing on `:resolved`; `m`
+tempids resolved and joined; deterministic allocation order across hosts
+including the within-row `e`, `v`, `m` order; a `gap` immediately before
+`checkpoint` yields a candidate carrying the recovery cursor and the
+incremented gap count; `:max-t` `nil` on an empty stream and the reopened
+empty checkpoint deriving watermark `0`; `run-on-stream` `blocked`/`end` behaviour;
 the publication state machine — `ok/full/full/ok`, refusal at the manifest,
 a terminal outcome after accepted blobs with `:next` preserved in the
 throw, a successful resumption followed by a read failure, and a second
 `publish!` after more batches appending only the blobs stored since the
 first (count them); the **checkpoint candidate** round-trips through
 `pr-str`/`read-string` (it, unlike a live session, is plain data), a
-candidate whose manifest is not yet materialized is *not* promoted, and
-`restore` refuses a mismatched mode or schema; the F2 hazard pinned
+candidate whose manifest is not yet materialized is *not* promoted, nor
+one whose manifest is present but one leaf is absent (the walk must check
+every address, not only the manifest); `restore` refuses a mismatched mode
+or schema and refuses a `:shared` allocator (a sibling session allocated
+after the candidate was captured); the F2 hazard pinned
 deterministically both ways through the btree's `:test` ref seam (`:test`
 ref-type plus `clear-test-refs!`): a resumed session restored through a
 `:test`-ref storage, published, drained, refs cleared → the next query
@@ -698,6 +773,11 @@ checkpoint plus suffix when one is offered.
   after one. Whether a published manifest should carry the gap count is
   undecided.
 - **Where the checkpoint lives** (§4.2).
+- **Recovery of a shared allocation domain.** `restore` refuses a
+  `:shared` `:ids` (§4.2); a composition that shares an allocator across
+  `:unresolved` sessions needs a checkpoint over all of them at once and a
+  replay discipline that reassigns the same ids in the same order. Deferred
+  with Phase 2's topology choice.
 - **Whether `snapshot` is retired** in favour of "run a throwaway session to
   `blocked` and take its trees". Probably, but `snapshot`'s status
   vocabulary (`:ended`/`:blocked`/`:gap`/`:defect`) should survive as the
@@ -745,4 +825,16 @@ Architecture round (`collab/1789289314611-architect-review-index-as-observer-r2.
 | A9 | Manifest equality is not a valid acceptance test: `from-sequential` and `conj` partition the same rows differently (JVM probe) (astra P2) | Phase 0′ requires logical equality — rows, counts, query results, valid restore — with enough rows to force splits |
 | A10 | `history` promises no `t` order; `as-of` mixes two clocks; the retraction example must be qualified by resolved identity (astra P3) | §2.3 reworded |
 | A11 | Even/odd partition is a real alternative; "never equate `?e`" is advisory for *any* independent sources; two invariant-table entries stale; shared allocator must be a threaded value (astra P3) | §3.1 and §6 reworded |
+
+Architecture round 3 (`collab/1789289314611-architect-review-index-as-observer-r3.gpt-6-astra.findings.md`), on `3d32eb4`; A1, A2, A4, A9, A10, A11 confirmed resolved, the promotion predicate confirmed sound and the two-attribute macro amendment confirmed the right shape (a structured external coordinate carrying source identity is an optional strengthening for merged logs); requested changes on:
+
+| # | Finding (reviewer) | Resolution |
+|---|---|---|
+| R1 | `publish!`/`checkpoint`/`db-value` over `index-state` alone cannot see `:cursor` or `:ingress-gaps`, which live in the observer half (astra P2) | §2.1: `checkpoint` and `coverage` take the session; `db-value` stays over the consumer; `restore` returns the consumer and the composition re-attaches at `c` (`attach` gains a kept-cursor argument) |
+| R2 | Draining `:defects` erases the only record that the index is partial (astra P2) | §2.2: monotonic `:rejected` separate from drainable `:defects`; carried in coverage and checkpoint |
+| R3 | "Reserved" overlapped tempids; reserved `e` rejected on `:resolved` contradicts `local-datom?` and breaks parity (astra P2; glm R4-1, R4-4) | §3.1: disjoint tempid/reserved/user-positive partition; reserved `e` passes on `:resolved`, stated as a decision |
+| R4 | Empty batches have no greatest `t`; `:max-t` had no empty-history value; within-row order unspecified (astra P2; glm R4-2) | §2.2: empty batch advances the ordinal only; `:max-t` is `nil` until a row folds, watermark `0` then; order `e`, `v`, `m` |
+| R5 | Restoring a session-local `:ids` can rewind a shared allocator (astra P2) | §4.2: `restore` refuses `:shared`; coordinated recovery deferred (§8) |
+
+Runtime round 4 (`collab/1789289033041-runtime-review-index-as-observer-r4.glm-5.3.findings.md`), on `3d32eb4` — **APPROVE** (glm-5.3); all seven new mechanisms verified against the code; four P3s (R4-1 reserved-`e` decision, R4-2 `:max-t` initial, R4-3 cursor supplier, R4-4 category partition and `history` wording) resolved by the rows above and §2.3.
 
