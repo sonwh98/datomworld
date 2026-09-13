@@ -18,6 +18,14 @@
          (ex-data e))))
 
 
+(defn- thrown
+  "Evaluate thunk; return the exception it threw, or nil when it did not."
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj Exception :cljs js/Error :cljd Object) e
+         e)))
+
+
 (defn- reader-medium
   "A reader-surface medium over an atom of values.
 
@@ -163,6 +171,34 @@
         "The mint outcome is preserved and no partial observer exists")))
 
 
+(deftest attach-keeps-a-supplied-cursor-and-gap-count-test
+  (testing "The kept-cursor arity returns the kept values without minting"
+    (let [mint-refusing (reify
+                          stream/IDaoStreamReader
+                          (cursor [_ _] {:dao.stream/outcome :dao.stream/transport-error})
+
+                          (next [_ _] {:dao.stream/outcome :dao.stream/blocked}))
+          {:keys [attach!]} (recording-attacher mint-refusing)
+          observer (observer/attach attach!
+                                    {:dao.stream/type :test/medium}
+                                    {:cursor {:pos 4}, :ingress-gaps 3})]
+      (is (= {:stream mint-refusing, :cursor {:pos 4}, :ingress-gaps 3} observer)
+          "A handle that refuses cursor construction still attaches, because
+              the kept cursor is returned without minting one")))
+  (testing "Observation resumes at the kept cursor"
+    (let [{:keys [handle]} (reader-medium [[:a] [:b] [:c]])
+          {:keys [attach!]} (recording-attacher handle)
+          observer (observer/attach attach!
+                                    {:dao.stream/type :test/medium}
+                                    {:cursor {:pos 2}, :ingress-gaps 5})
+          r (observer/observe-next observer)]
+      (is (= :ok (:status r)))
+      (is (= [:c] (:batch r))
+          "The first read starts where the kept cursor says, not at :oldest")
+      (is (= 5 (:ingress-gaps (:observer r)))
+          "The gap count is seeded from the checkpoint, not reset"))))
+
+
 (deftest the-observer-never-writes-or-closes-the-medium-test
   (let [medium (reader-medium [[:batch]])
         observer (attach-to medium)]
@@ -267,19 +303,19 @@
      :state state
      :ready? (fn [_vm] (contains? ready-at (:step @state)))
      :load (fn [vm batch]
-                     (swap! state (fn [s]
-                                    (-> s
-                                        (update :events conj :load)
-                                        (update :batches conj batch))))
-                     (when (some #{::poison} batch)
-                       (throw (ex-info "poison batch" {:batch batch})))
-                     vm)
+             (swap! state (fn [s]
+                            (-> s
+                                (update :events conj :load)
+                                (update :batches conj batch))))
+             (when (some #{::poison} batch)
+               (throw (ex-info "poison batch" {:batch batch})))
+             vm)
      :run (fn [vm]
-               (swap! state (fn [s]
-                              (-> s
-                                  (update :step inc)
-                                  (update :events conj :run))))
-               vm)}))
+            (swap! state (fn [s]
+                           (-> s
+                               (update :step inc)
+                               (update :events conj :run))))
+            vm)}))
 
 
 (defn- coordinate
@@ -354,10 +390,12 @@
                                 (:ready? c)
                                 (:load c)
                                 (:run c)))]
-    (testing "The load failure propagates with no successor session"
-      (is (= {:batch [::poison]} data))
+    (testing "The load failure propagates carrying the pre-batch session"
+      (is (= {:batch [::poison]} (dissoc data :session)))
       (is (= {:pos 0} (:cursor observer))
-          "The caller's observer cursor is unchanged, so the batch is retained"))
+          "The caller's observer cursor is unchanged, so the batch is retained")
+      (is (= {:pos 0} (:cursor (:observer (:session data))))
+          "The carried session names the cursor before the failing batch"))
     (testing "The retry observes the same malformed batch, not the next one"
       (let [recording-load (fn [vm batch]
                              (swap! (:state c) update :batches conj batch)
@@ -379,3 +417,201 @@
                     (fn [vm batch] (if (= [:one] batch) [vm :loaded batch] vm))
                     identity)]
       (is (= [::plain-value :loaded [:one]] (:consumer session))))))
+
+
+;; =============================================================================
+;; Partial sessions on failure
+;; =============================================================================
+
+(deftest a-load-failure-carries-the-session-before-the-failing-batch-test
+  (let [c (scripted-consumer (set (range 10)))
+        medium (reader-medium [[:a] [::poison] [:c]])
+        observer (attach-to medium)
+        data (throws-ex-data #(observer/run-on-stream
+                                {:observer observer, :consumer (:vm c)}
+                                (:ready? c)
+                                (:load c)
+                                (:run c)))]
+    (testing "The throw keeps its data and carries the partial session"
+      (is (= {:batch [::poison]} (dissoc data :session)))
+      (let [carried (:session data)]
+        (is (= {:pos 1} (:cursor (:observer carried)))
+            "A forwarded, then B's load threw: the carried cursor is after A
+                and before the failing batch")
+        (is (= (:vm c) (:consumer carried)))))
+    (testing "A retry from the carried session re-reads B, not A"
+      (let [recording-load (fn [vm batch]
+                             (swap! (:state c) update :batches conj batch)
+                             vm)
+            session (observer/run-on-stream (:session data)
+                                            (:ready? c)
+                                            recording-load
+                                            (:run c))]
+        (is (= [[:a] [::poison] [::poison] [:c]] (:batches @(:state c)))
+            "A loaded once, the failing B re-read on retry, C loaded: A is
+                never repeated")
+        (is (= {:pos 3} (:cursor (:observer session))))))))
+
+
+(deftest a-run-failure-carries-the-session-after-the-loaded-batch-test
+  (let [loaded (atom [])
+        refused (atom false)
+        medium (reader-medium [[:a] [:b] [:c]])
+        observer (attach-to medium)
+        load (fn [consumer batch]
+               (swap! loaded conj batch)
+               (assoc consumer :pending batch))
+        run (fn [{:keys [pending] :as consumer}]
+              (when (and (= [:b] pending) (not @refused))
+                (reset! refused true)
+                (throw (ex-info "run refused batch B" {:batch pending})))
+              (-> consumer
+                  (update :delivered conj pending)
+                  (assoc :pending nil)))
+        ready? (fn [consumer] (nil? (:pending consumer)))
+        data (throws-ex-data #(observer/run-on-stream
+                                {:observer observer,
+                                 :consumer {:pending nil, :delivered []}}
+                                ready?
+                                load
+                                run))]
+    (testing "The throw keeps its data and carries the partial session"
+      (is (= {:batch [:b]} (dissoc data :session)))
+      (let [carried (:session data)]
+        (is (= {:pos 2} (:cursor (:observer carried)))
+            "The batch was observed and loaded before the run failed, so the
+                carried cursor is after B")
+        (is (= {:pending [:b], :delivered [[:a]]} (:consumer carried))
+            "The consumer is the loaded state the failing run left in hand")))
+    (testing "A retry from the carried session resumes, repeating nothing"
+      (let [session (observer/run-on-stream (:session data)
+                                            ready?
+                                            load
+                                            run)]
+        (is (= [[:a] [:b] [:c]] @loaded)
+            "Each batch loaded exactly once: B was not re-read")
+        (is (= [[:a] [:b] [:c]] (:delivered (:consumer session)))
+            "Each batch delivered exactly once: the resumed run delivered B
+                and A was not re-delivered")
+        (is (= {:pos 3} (:cursor (:observer session))))
+        (is (nil? (:pending (:consumer session))))))))
+
+
+(deftest a-run-failure-reports-partial-flush-progress-test
+  (let [delivered (atom {:out [], :log []})
+        refusals (atom 0)
+        medium (reader-medium [[:a] [:b]])
+        observer (attach-to medium)
+        ;; The expander's load: one batch stages one payload per destination
+        ;; medium.
+        load (fn [consumer batch]
+               (assoc consumer :out-staged batch, :log-staged [:log batch]))
+        ;; The expander's run: deliver each staged payload to its own medium,
+        ;; clearing that slot on ok. B's log append is refused twice, and the
+        ;; refusal reports the partial state in the throw — out flushed, log
+        ;; still staged — under :consumer.
+        flush (fn [consumer]
+                (let [consumer (if-some [out (:out-staged consumer)]
+                                 (do (swap! delivered update :out conj out)
+                                     (assoc consumer :out-staged nil))
+                                 consumer)]
+                  (if (and (= [:log [:b]] (:log-staged consumer))
+                           (< @refusals 2))
+                    (do (swap! refusals inc)
+                        (throw (ex-info "log append refused"
+                                        {:dao.stream/outcome :dao.stream/full,
+                                         :consumer consumer})))
+                    (if-some [log (:log-staged consumer)]
+                      (do (swap! delivered update :log conj log)
+                          (assoc consumer :log-staged nil))
+                      consumer))))
+        ready? (fn [consumer]
+                 (and (nil? (:out-staged consumer))
+                      (nil? (:log-staged consumer))))
+        initial {:out-staged nil, :log-staged nil}
+        data (throws-ex-data #(observer/run-on-stream
+                                {:observer observer, :consumer initial}
+                                ready?
+                                load
+                                flush))]
+    (testing "The carried consumer is the reported partial state, not the
+              pre-run one"
+      (is (= :dao.stream/full (:dao.stream/outcome data))
+          "The refusing run's own outcome is preserved")
+      (is (= {:out-staged nil, :log-staged [:log [:b]]}
+             (:consumer (:session data)))
+          "B's output was delivered and its log was not: the slots say so,
+              rather than re-staging the output the pre-run value held")
+      (is (= {:out [[:a] [:b]], :log [[:log [:a]]]} @delivered)
+          "A flushed both media; B flushed its output only"))
+    (testing "A refusal during the not-ready retry carries the same report"
+      (let [data' (throws-ex-data #(observer/run-on-stream
+                                     (:session data)
+                                     ready?
+                                     load
+                                     flush))]
+        (is (= {:pos 2} (:cursor (:observer (:session data'))))
+            "The not-ready retry never reads, so the cursor is unchanged")
+        (is (= {:out-staged nil, :log-staged [:log [:b]]}
+               (:consumer (:session data')))
+            "The second refusal's report is honored on the not-ready path")))
+    (testing "The resumed retry delivers only the remaining log"
+      (let [session (observer/run-on-stream (:session data) ready? load flush)]
+        (is (= {:out [[:a] [:b]], :log [[:log [:a]] [:log [:b]]]} @delivered)
+            "B's output appears exactly once; the log is completed")
+        (is (= initial (:consumer session)))
+        (is (= {:pos 2} (:cursor (:observer session))))))))
+
+
+(deftest a-terminal-read-after-a-processed-batch-carries-the-session-test
+  (let [reads (atom [{:dao.stream/outcome :dao.stream/ok,
+                      :dao.stream/value [:a],
+                      :dao.stream/cursor {:pos 1}}
+                     {:dao.stream/outcome :dao.stream/transport-error}])
+        handle (reify
+                 stream/IDaoStreamReader
+                 (cursor
+                   [_ _]
+                   {:dao.stream/outcome :dao.stream/ok,
+                    :dao.stream/cursor {:pos 0}})
+
+                 (next
+                   [_ _]
+                   (let [answer (first @reads)]
+                     (swap! reads rest)
+                     answer)))
+        {:keys [attach!]} (recording-attacher handle)
+        c (scripted-consumer (set (range 10)))
+        observer (observer/attach attach! {:dao.stream/type :test/medium})
+        data (throws-ex-data #(observer/run-on-stream
+                                {:observer observer, :consumer (:vm c)}
+                                (:ready? c)
+                                (:load c)
+                                (:run c)))]
+    (testing "The batch was processed before the terminal read"
+      (is (= [[:a]] (:batches @(:state c)))))
+    (testing "The terminal throw carries the post-batch session"
+      (is (= :dao.stream/transport-error (:dao.stream/outcome data)))
+      (let [carried (:session data)]
+        (is (= {:pos 1} (:cursor (:observer carried))))
+        (is (= (:vm c) (:consumer carried)))))))
+
+
+(deftest the-carried-throw-preserves-the-original-as-cause-test
+  (let [original (ex-info "run refused batch B" {:batch [:b]})
+        medium (reader-medium [[:b]])
+        observer (attach-to medium)
+        caught (thrown #(observer/run-on-stream
+                          {:observer observer, :consumer 0}
+                          (constantly true)
+                          (fn [consumer _batch] (inc consumer))
+                          (fn [_consumer] (throw original))))]
+    (testing "The rethrow is a new ExceptionInfo naming the original as cause"
+      (is (identical? original (ex-cause caught))
+          "A caller matching the original exception reaches it as the cause")
+      (is (= "run refused batch B" (ex-message caught))
+          "The original message is preserved"))
+    (testing "The original data is preserved beside the carried session"
+      (is (= {:batch [:b]} (dissoc (ex-data caught) :session)))
+      (is (= 1 (:consumer (:session (ex-data caught))))
+          "A throw reporting no :consumer falls back to the loaded value"))))

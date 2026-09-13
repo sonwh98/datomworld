@@ -6,8 +6,9 @@
    a unary attach capability and a portable DaoStream descriptor; `attach`
    calls that capability exactly once, validates the returned handle against
    the reader surface, and mints the observer's cursor at `:dao.stream/oldest`
-   directly through `dao.stream.v2`. The observer never creates, appends to,
-   or closes the medium, and its complete initial state is
+   directly through `dao.stream.v2` — or keeps a cursor handed to it, which is
+   how a session resumes from where it stopped. The observer never creates,
+   appends to, or closes the medium, and its complete initial state is
    `{:stream handle :cursor cursor :ingress-gaps 0}`.
 
    This namespace requires only `dao.stream.v2` and `dao.stream.v2.observe`,
@@ -36,18 +37,10 @@
 ;; Attachment
 ;; =============================================================================
 
-(defn attach
-  "Attach to an existing medium and return the initial observer state
-   `{:stream handle :cursor cursor :ingress-gaps 0}`, or throw.
-
-   `attach!` is a unary attachment capability: `(attach! descriptor)`. It is
-   called exactly once and there is no fallback to stream creation. A
-   non-`ok` attachment or cursor outcome throws `ex-info` preserving the
-   original `:dao.stream/outcome`. A handle without the reader surface is a
-   host assembly error reported with the descriptor and the handle's declared
-   surfaces, without inventing a DaoStream outcome. Attachment cleanup stays
-   with the host: this function closes nothing, and a failure leaves no
-   partial observer behind."
+(defn- attached-handle
+  "Call the unary capability once and validate its answer, yielding the
+   handle both `attach` arities build on: a non-`ok` outcome and a handle
+   without the reader surface throw exactly as `attach` documents."
   [attach! descriptor]
   (let [result (attach! descriptor)
         outcome (:dao.stream/outcome result)]
@@ -61,16 +54,46 @@
           (throw (ex-info "Attached handle declares no reader surface"
                           {:descriptor descriptor,
                            :surfaces (stream/declared-surfaces handle)}))
-          (let [minted (stream/cursor handle stream/anchor-oldest)
-                mint-outcome (:dao.stream/outcome minted)]
-            (if-not (= :dao.stream/ok mint-outcome)
-              (throw (ex-info "Observer cursor could not be minted"
-                              {:dao.stream/outcome mint-outcome,
-                               :descriptor descriptor,
-                               :result minted}))
-              {:stream handle,
-               :cursor (:dao.stream/cursor minted),
-               :ingress-gaps 0})))))))
+          handle)))))
+
+
+(defn attach
+  "Attach to an existing medium and return the initial observer state, or
+   throw.
+
+   `(attach attach! descriptor)` mints the cursor at `:dao.stream/oldest`
+   and returns `{:stream handle :cursor cursor :ingress-gaps 0}`.
+   `(attach attach! descriptor {:cursor c :ingress-gaps g})` re-attaches at
+   a kept cursor, returning `{:stream handle :cursor c :ingress-gaps g}`
+   without minting one: the composition resuming a session knows where its
+   previous one stopped, a cursor already covers repositioning, the
+   transport validates the kept cursor on the first `next`, and the gap
+   count is seeded from the checkpoint rather than reset to zero.
+
+   `attach!` is a unary attachment capability: `(attach! descriptor)`. It is
+   called exactly once and there is no fallback to stream creation. A
+   non-`ok` attachment or cursor outcome throws `ex-info` preserving the
+   original `:dao.stream/outcome`. A handle without the reader surface is a
+   host assembly error reported with the descriptor and the handle's declared
+   surfaces, without inventing a DaoStream outcome. Attachment cleanup stays
+   with the host: this function closes nothing, and a failure leaves no
+   partial observer behind."
+  ([attach! descriptor]
+   (let [handle (attached-handle attach! descriptor)
+         minted (stream/cursor handle stream/anchor-oldest)
+         mint-outcome (:dao.stream/outcome minted)]
+     (if-not (= :dao.stream/ok mint-outcome)
+       (throw (ex-info "Observer cursor could not be minted"
+                       {:dao.stream/outcome mint-outcome,
+                        :descriptor descriptor,
+                        :result minted}))
+       {:stream handle,
+        :cursor (:dao.stream/cursor minted),
+        :ingress-gaps 0})))
+  ([attach! descriptor {:keys [cursor ingress-gaps]}]
+   {:stream (attached-handle attach! descriptor),
+    :cursor cursor,
+    :ingress-gaps ingress-gaps}))
 
 
 ;; =============================================================================
@@ -157,6 +180,40 @@
 ;; Coordination
 ;; =============================================================================
 
+(defn- consumer-left-by-run
+  "The consumer state a failing `run` left, for the carried session.
+
+   A `run` that made partial progress before throwing — a flush that
+   delivered one medium and failed on another — reports the state it reached
+   by carrying a `:consumer` in its exception's data, so a retry resumes
+   from that progress rather than repeating delivered work. A `run` that
+   reports nothing left the state it was handed, which is the furthest
+   progress the coordination can name for it."
+  [e handed]
+  (let [data (ex-data e)]
+    (if (contains? data :consumer)
+      (:consumer data)
+      handed)))
+
+
+(defn- carry-session
+  "Rethrow `e`, keeping the throw and carrying the partial session in the
+   exception's data.
+
+   The original message and data are preserved and `:session` is added. The
+   rethrow is a new `ExceptionInfo` whose cause is the original, so a caller
+   matching the original exception's concrete type no longer matches the
+   wrapper — `(ex-cause caught)` names it. Recovery is opt-in: a caller that
+   does not read `:session` keeps the old semantics — a throw means the
+   round failed — and a caller that catches resumes from the carried
+   session, which names the furthest progress the round had made where the
+   failure happened."
+  [session e]
+  (throw (ex-info (or (ex-message e) (str e))
+                  (assoc (ex-data e) :session session)
+                  e)))
+
+
 (defn run-on-stream
   "Coordinate one `{:observer observer :consumer consumer}` session over the
    attached medium, returning the updated session.
@@ -174,30 +231,55 @@
    After a batch loads and runs, a consumer that is ready again observes the
    next batch, and one that is not returns the session without another read.
 
-   A `load` that throws propagates before any successor session is published:
-   the caller retains the previous observer cursor and the same batch is
-   re-read on the next call. A consumer whose input can be bad should
-   therefore return that as data from `load` rather than throw, and reserve
-   the throw for its own defects."
+   A `load` or `run` that throws still propagates — the throw is kept — but
+   carries the partial session in the exception's data under `:session`, so
+   recovery is opt-in. Where the failure happened decides the carried
+   session: a throwing `load` carries the cursor *before* the failing batch,
+   so a retry re-reads it; a throwing `run` carries the cursor *after* the
+   loaded batch and the consumer the failing `run` left — the partial state
+   it reported under `:consumer` in its own exception's data when it made
+   progress before throwing, else the state `load` returned — so a retry
+   neither re-reads the batch nor repeats work already delivered; a
+   terminal read after processed batches carries the session those batches
+   produced. A consumer whose input can be bad should therefore return that
+   as data from `load` rather than throw, and reserve the throw for its own
+   defects."
   [session ready? load run]
   (loop [{:keys [observer consumer]} session]
     (if-not (ready? consumer)
-      (let [consumer' (run consumer)]
+      (let [consumer' (try (run consumer)
+                           (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                             (carry-session
+                               {:observer observer,
+                                :consumer (consumer-left-by-run e consumer)}
+                               e)))]
         (if (ready? consumer')
           (recur {:observer observer, :consumer consumer'})
           {:observer observer, :consumer consumer'}))
       ;; The load is the step's effect, so the cursor advances only once it has
-      ;; returned: a throwing load propagates before any successor exists.
-      (let [observed (observe/step (:stream observer)
-                                   (:cursor observer)
-                                   (fn [batch]
-                                     {:dao.stream/outcome :dao.stream/ok,
-                                      :dao.stream.v2.observer/loaded
-                                      (load consumer batch)}))]
+      ;; returned: a throwing load propagates before any successor exists, and
+      ;; the session it carries names the cursor before the failing batch.
+      (let [observed (try (observe/step (:stream observer)
+                                        (:cursor observer)
+                                        (fn [batch]
+                                          {:dao.stream/outcome :dao.stream/ok,
+                                           :dao.stream.v2.observer/loaded
+                                           (load consumer batch)}))
+                          (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                            (carry-session {:observer observer, :consumer consumer} e)))]
         (case (:status observed)
-          :advance (let [consumer' (run (:dao.stream.v2.observer/loaded
-                                          (:effect observed)))
-                         observer' (assoc observer :cursor (:cursor observed))]
+          :advance (let [loaded (:dao.stream.v2.observer/loaded (:effect observed))
+                         ;; The batch was observed and loaded before the run, so
+                         ;; a throwing run carries the post-batch cursor and the
+                         ;; consumer it left: the partial state it reported in
+                         ;; its exception's data, else the loaded value.
+                         observer' (assoc observer :cursor (:cursor observed))
+                         consumer' (try (run loaded)
+                                        (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                                          (carry-session
+                                            {:observer observer',
+                                             :consumer (consumer-left-by-run e loaded)}
+                                            e)))]
                      (if (ready? consumer')
                        (recur {:observer observer', :consumer consumer'})
                        {:observer observer', :consumer consumer'}))
@@ -205,4 +287,6 @@
                        :consumer consumer})
           ;; :retry (blocked) and :ended retain the cursor and end the round.
           (:retry :ended) {:observer observer, :consumer consumer}
-          (observation-terminal observed observer))))))
+          (try (observation-terminal observed observer)
+               (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                 (carry-session {:observer observer, :consumer consumer} e))))))))
