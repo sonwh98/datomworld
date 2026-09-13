@@ -235,7 +235,9 @@
    :resume 18,
    :current-cont 19,
    :tailcall 20,
-   :dao.stream.apply/call 21})
+   :dao.stream.apply/call 21,
+   :push 22,
+   :halt 23})
 
 
 #?(:clj
@@ -269,7 +271,9 @@
                     :resume 18,
                     :current-cont 19,
                     :tailcall 20,
-                    :dao.stream.apply/call 21}
+                    :dao.stream.apply/call 21,
+                    :push 22,
+                    :halt 23}
            resolved (mapcat (fn [[kw body]] [(get opcodes kw) body]) pairs)]
        `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
@@ -308,6 +312,35 @@
    :yin/macro? {},    ; boolean — true if lambda is a macro
    :yin/macro-name {} ; symbol — the macro operator's name when it was a
    ;; :variable
+   })
+
+
+(def code-schema
+  "DaoDB schema for :yin.code/ linear executable datoms.
+   A segment entity plus instruction entities ordered by an explicit
+   :yin.code/pc fact; see docs/design/yin.vm.semantic.md §2."
+  {;; Ref attributes (entity references, tempid resolution)
+   :yin.code/segment {:db/valueType :db.type/ref},      ; instruction → segment
+   :yin.code/target {:db/valueType :db.type/ref},       ; branch → instruction
+   :yin.code/body {:db/valueType :db.type/ref},         ; closure → entry
+   :yin.code/source {:db/valueType :db.type/ref},       ; instruction → AST node
+   :yin.code/derived-from {:db/valueType :db.type/ref}, ; segment → AST root
+   ;; Ground-value attributes
+   :yin.code/type {},      ; keyword (:segment)
+   :yin.code/length {},    ; long — instruction count; pcs are 0 .. length-1
+   :yin.code/hash {},      ; string — reserved content address
+   :yin.code/pc {},        ; long
+   :yin.code/op {},        ; keyword mnemonic (:const, :call, :halt, ...)
+   :yin.code/value {},     ; polymorphic literal
+   :yin.code/name {},      ; symbol
+   :yin.code/params {},    ; vector of symbols
+   :yin.code/argc {},      ; long
+   :yin.code/tail? {},     ; boolean
+   :yin.code/prefix {},    ; string
+   :yin.code/key {},       ; symbol
+   :yin.code/buffer {},    ; long
+   :yin.code/ffi-op {},    ; keyword (dao.stream.apply operation key)
+   :yin.code/parked-id {}  ; keyword
    })
 
 

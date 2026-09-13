@@ -121,19 +121,6 @@
     (cesk-return state nil env k result)))
 
 
-(defn- call-response-wait-entry
-  "The polling wait entry for a sent call awaiting its correlated response."
-  [call-id next-k env]
-  {:k {:type :dao.stream.v2.apply/eval-call,
-       :next next-k,
-       :env env,
-       :call-id call-id},
-   :env env,
-   :cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key},
-   :reason :next,
-   :stream-id vm/call-out-stream-key})
-
-
 (defn- park-and-call
   "Park the continuation, emit the request, and wait for its response.
 
@@ -158,7 +145,7 @@
       (-> parked
           (update :wait-set
                   (fnil conj [])
-                  (call-response-wait-entry parked-id k env))
+                  (ffi/call-response-wait-entry parked-id k env))
           (telemetry/emit-snapshot :bridge {:bridge-op op})
           (assoc :control nil
                  :k nil
@@ -188,26 +175,6 @@
                       {:op op,
                        :outcome (or (:dao.stream/outcome result)
                                     (:dao.stream.v2.apply/outcome result))})))))
-
-
-(defn- call-result
-  "Unwrap a response envelope for the continuation that made the call.
-
-   v1 read `:dao.stream.apply/value` off a response that could only succeed.
-   A v2 response carries exactly one of `ok` or `error`, and correlation is
-   checked here rather than assumed from stream order."
-  [response call-id]
-  (when-not (apply2/response? response)
-    (throw (ex-info "FFI response envelope is malformed" {:response response})))
-  (when (and call-id (not= call-id (apply2/response-id response)))
-    (throw (ex-info "FFI response does not correlate with this parked call"
-                    {:call-id call-id,
-                     :response-id (apply2/response-id response)})))
-  (if-let [err (apply2/response-error response)]
-    (throw (ex-info (str "FFI call failed: "
-                         (:dao.stream.v2.apply/message err))
-                    {:call-id call-id, :error err}))
-    (apply2/response-ok response)))
 
 
 (defn- apply-function
@@ -298,9 +265,9 @@
           (-> state
               (update :wait-set
                       (fnil conj [])
-                      (call-response-wait-entry (:parked-id k)
-                                                (:next k)
-                                                (:env k)))
+                      (ffi/call-response-wait-entry (:parked-id k)
+                                                    (:next k)
+                                                    (:env k)))
               (telemetry/emit-snapshot :bridge {:bridge-op (:op k)})
               (assoc :control nil
                      :k nil
@@ -316,7 +283,7 @@
                          nil
                          env
                          (:next k)
-                         (call-result (:value state) (:call-id k))))
+                         (ffi/call-result (:value state) (:call-id k))))
           :eval-stream-put-target (let [frame (:frame k)
                                         stream-ref (:value state)
                                         val-node (:val frame)]

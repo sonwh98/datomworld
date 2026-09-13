@@ -10,7 +10,7 @@
   [f]
   (try (f)
        nil
-       (catch #?(:clj Exception :cljs :default) e (ex-message e))))
+       (catch #?(:cljd Object :clj Exception :cljs :default) e (ex-message e))))
 
 
 (def ^:private program
