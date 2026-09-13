@@ -42,6 +42,18 @@ No direct function-to-function coupling without a stream boundary.
 Side effects must appear as stream emissions.
 Streams are values that can be sent through streams.
 
+A stream has no privileged reader, and its meaning is not in it. Any number
+of interpreters may observe the same medium, and each constructs its own
+semantics from the same batches: a `yin.vm` evaluator observing a program
+stream constructs CESK state and executes it; `dao.space.index` observing
+the very same stream materializes covered indexes, so `dao.space.query/q`
+answers Datalog over the program as it grows. Neither knows the other
+exists. The medium is their only coupling, and each observer's ignorance of
+the other is load-bearing — the evaluator never consults an index to run,
+and the index never evaluates a form to index it. This is how the second
+axiom becomes architecture: one stream, many interpretations, none of them
+the stream's own.
+
 Functions can take anything and return anything.
 Agents are functions, closures, or continuations in Yin.VM that communicate with the outside world through DaoStream. Agent behavior is specified entirely through stream effects.
 
