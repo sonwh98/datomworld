@@ -536,7 +536,10 @@ therefore never a special case: the composition resumes from the last
 *verified* checkpoint and re-folds the suffix. Promotion proves the
 snapshot is reopenable; that the checkpoint *record* itself is recoverable,
 and that the suffix after `c` is still retained on the medium, are the
-composition's separate obligations.
+composition's separate obligations. A candidate captured from a session
+whose `:ids` is `:shared` is **never promoted**: it may be published and
+captured for inspection, but under this contract it is a snapshot, not a
+checkpoint, and `restore` would refuse it anyway (below).
 
 **Resumption is bound.** `restore` refuses a checkpoint whose `:mode` or
 `:schema-hash` differ from the session being constructed, **and refuses one
@@ -553,9 +556,12 @@ the durable store (§4.1 — not the query read path) and reinstates `:ids`,
 re-attaches the observer at `c` with `:ingress-gaps` reinstated (a partial
 index stays partial after restart; a fresh zero would make §3.2's offset
 check look safe again). Re-attaching *at a cursor* is a small addition to
-`dao.stream.v2.observer/attach`, which mints at `:oldest` today: it accepts
-a kept cursor, which `dao.stream.md` already says "covers repositioning",
-and the transport validates it on the first `next`. Then folding continues;
+`dao.stream.v2.observer/attach`, which mints at `:oldest` today: a third
+arity `(attach attach! descriptor {:cursor c :ingress-gaps g})` returns
+`{:stream handle :cursor c :ingress-gaps g}` — the kept cursor, which
+`dao.stream.md` already says "covers repositioning", validated by the
+transport on the first `next`, and the gap count seeded from the checkpoint
+rather than reset to `0`. Then folding continues;
 nothing is replayed from the origin.
 
 **The watermark.** The transactor's `create!` needs `0` for an empty
@@ -747,10 +753,11 @@ forced `gap` on one session the offset is reported void.
 **Phase 3 — checkpoint validity and recovery.** Over a file-backed medium
 (`dao.stream.file`): capture a candidate, verify it against the durable
 store, restart from it, fold the suffix, and assert the resumed index
-equals a from-origin index and the watermark equals `max-t + 1` over
-checkpoint plus suffix; a candidate whose manifest was never materialized is
-not promoted and restart uses the previous checkpoint; restored
-`:ingress-gaps`/`:defects` survive; a same-logical-stream in-process reopen
+equals a from-origin index and the watermark equals `0` when nothing was
+folded, else `max-t + 1` over checkpoint plus suffix; a candidate whose
+manifest was never materialized is not promoted and restart uses the
+previous checkpoint; a `:shared` candidate is not promoted; restored
+`:ingress-gaps` and `:rejected` survive; a same-logical-stream in-process reopen
 restores, folds the suffix, and only then enables writes. Over a
 memory-log, assert the documented behaviour instead: a resumed session
 starts fresh at `:oldest` of the new log and the checkpoint is not
@@ -837,4 +844,14 @@ Architecture round 3 (`collab/1789289314611-architect-review-index-as-observer-r
 | R5 | Restoring a session-local `:ids` can rewind a shared allocator (astra P2) | §4.2: `restore` refuses `:shared`; coordinated recovery deferred (§8) |
 
 Runtime round 4 (`collab/1789289033041-runtime-review-index-as-observer-r4.glm-5.3.findings.md`), on `3d32eb4` — **APPROVE** (glm-5.3); all seven new mechanisms verified against the code; four P3s (R4-1 reserved-`e` decision, R4-2 `:max-t` initial, R4-3 cursor supplier, R4-4 category partition and `history` wording) resolved by the rows above and §2.3.
+
+Architecture round 4 (`collab/1789289314611-architect-review-index-as-observer-r4.gpt-6-astra.findings.md`) and runtime round 5 (`collab/1789289033041-runtime-review-index-as-observer-r5.glm-5.3.findings.md`), both on `a4395d8` — **APPROVE** from both reviewers. R1–R5 confirmed resolved; the `:shared` refusal confirmed as the right mandatory boundary; `coverage`/`checkpoint` placement in `dao.space.index` accepted as ordinary composition over protocol state in the permitted direction. Trailing P3s folded after approval:
+
+| # | Finding (reviewer) | Resolution |
+|---|---|---|
+| T1 | Phase 3 still said `max-t + 1` unconditionally and `:defects` survives restore (astra P3) | Phase 3 reworded to the conditional watermark and `:rejected` |
+| T2 | A `:shared` candidate should not be promotable, only captured as a snapshot (astra recommendation) | §4.2 promotion refuses `:shared` |
+| T3 | The kept-cursor `attach` arity must say how `:ingress-gaps` is seeded (glm P3) | §4.2 names the arity `(attach attach! descriptor {:cursor c :ingress-gaps g})` |
+
+Approval covers the design with its stated implementation prerequisites: the `run-on-stream` partial-session fix, the kept-cursor `attach` arity, and the `yin.vm.macro.md` §4.1 provenance amendment.
 
