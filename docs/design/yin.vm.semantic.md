@@ -662,3 +662,16 @@ Reserved, additive, none required for Phase 1–3:
   for verifying a shipped continuation against its code.
 
 Acceptance in Phase 4 is measured, not asserted (§8).
+
+## §7. The Universal Continuation Format
+
+The Semantic VM's linear CESK state represents the canonical, architecture-agnostic continuation format for the `datom.world` ecosystem. 
+
+Because execution state is modeled as pure data rather than host memory (Axiom 4), the linear bytecode state serves as the universal *lingua franca* for network-transparent continuations. The lowered representation (`{:segment id, :pc n, :env E, :stack S, :k K}`) resolves all execution-order ambiguity inherent in the Universal AST while remaining entirely decoupled from any specific hardware architecture.
+
+### 7.1 Cross-Architecture Normalization
+If a highly specialized execution engine (e.g., a native WebAssembly compiler, a raw Register VM, or a hardware FPGA implementation) wishes to participate in the network, it must treat the Semantic VM state as the **normalized exchange format**:
+- **On Park (De-optimization):** When the specialized VM hits a blocking IO operation or a `:vm/park` instruction, it must map its specialized hardware registers or host stack back to the normalized linear format using the `:yin.code/source` mappings. It emits this standard Semantic VM continuation onto the stream.
+- **On Resume (Re-optimization):** When receiving a continuation off the network, the specialized VM reads the normalized `:pc` and `:stack`, lowers them into its own specialized hardware state, and resumes execution.
+
+By enforcing the linear bytecode state as the universal standard, the network only ever trades simple integer PCs and array-based operand stacks. Any machine can pause execution on one continent, transmit the canonical state over a WebSocket, and resume execution on a radically different hardware architecture without losing semantic fidelity or performance.
