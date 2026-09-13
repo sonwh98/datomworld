@@ -4,11 +4,11 @@ Status: design note, 2026-09-13. `dao.space.index` is already the dao.stream
 observer on the dao.space side: `snapshot-datoms` + `publish-index!` is one
 observer run — attach at `:oldest`, fold to `blocked`, publish, keep nothing.
 This note makes it a *stateful* observer, driven by
-`dao.stream.v2.observer/run-on-stream` over *any* `dao.stream.v2` medium, so
-that dao.space can observe the same stream a `yin.vm` evaluator observes — the
-VM reading it as control, dao.space reading it as facts — with neither knowing
-about the other. No new namespace: everything here is index realization,
-which `dao.space.index` already owns. Subordinate to
+`dao.stream.v2.observer/run-on-stream` over *any* `dao.stream.v2` medium. No
+new namespace: everything here is index realization, which `dao.space.index`
+already owns. The library specified here is payload-agnostic: it sees d5 rows
+and a supplied ref schema, and nothing below knows or cares what the rows
+mean or who else reads the medium. Subordinate to
 [`dao.space.md`](./dao.space.md) (write path, three boundaries),
 [`dao.stream.md`](./dao.stream.md) (§Composition), and the observer
 coordination already specified by `dao.stream.v2.observer`. It
@@ -16,11 +16,16 @@ composes with [`yin.vm.macro.md`](./yin.vm.macro.md) §4.2, whose "commit
 `program-in` first for durable provenance" becomes an instance of this
 note.
 
-The framing, stated once:
-
-> `yin.vm(s)` and `dao.space` are peer observers of `dao.stream`. Given the
-> same batch, a VM constructs CESK state and dao.space constructs the
-> covered index. The stream is the only coupling.
+**Why this note exists** — a composition it enables, not a fact the index
+knows: attach a `yin.vm` evaluator and `dao.space.index` to the same medium,
+and the VM constructs CESK state while the index materializes covered
+indexes over the same batches, so `dao.space.query/q` answers Datalog over
+the program being executed, as it grows. Neither observer is aware of the
+other; the stream is the only coupling, and the index's ignorance of what it
+indexes is as load-bearing as the VM's ignorance of being indexed. That
+invariant belongs to the composition and is stated where compositions are
+(`datom.world.md`, `dao.space.md` §Three Boundaries); this document
+specifies only the index side.
 
 ---
 
@@ -29,8 +34,8 @@ The framing, stated once:
 1. **dao.space observes; it does not have to be the writer.** Today
    indexing is "the writer's duty" over the writer's own local stream
    (`dao.space.md` §The Write Path). That stays true *as a composition*, but
-   the mechanism becomes an observer over a medium — any medium, including
-   one a `yin.vm` composition writes for its evaluators.
+   the mechanism becomes an observer over a medium — any medium, whoever
+   writes it and whoever else reads it.
 2. **One coordination loop, one library.** `dao.space.index` is driven by
    `dao.stream.v2.observer/run-on-stream` with its state in the `:consumer`
    slot, exactly as an evaluator or the macro expander is. No second
@@ -50,11 +55,12 @@ The framing, stated once:
    mapping as **resolution facts**. This is the one place cross-medium
    identity can exist, because dao.space is the one observer that may read
    every medium.
-6. **Symmetric ignorance is an invariant.** A `yin.vm` never consults the
-   index to run; `dao.space.index` never evaluates a form to index it. The
-   "CESK-in-the-index" premise of `yin.vm-in-dao.space.md` is *not* adopted
-   here: this note keeps two interpreters over one stream, not one
-   interpreter with two faces.
+6. **The index is payload-agnostic.** It interprets d5 shape and the
+   supplied ref schema, nothing else: it never evaluates, never inspects an
+   attribute's meaning, and never learns what another observer of the same
+   medium does with the rows. (This is what rules out the
+   "CESK-in-the-index" premise of `yin.vm-in-dao.space.md`: two interpreters
+   over one stream, not one interpreter with two faces.)
 
 ---
 
@@ -71,9 +77,10 @@ stream use has three shapes:
 
 Three consequences follow, and they are the gap:
 
-- **Nothing observes a medium dao.space did not write.** A `yin.vm`
-  composition's `program-out` (or the macro expander's log) carries `:yin/*`
-  datoms nobody indexes; querying them means a full `snapshot` each time.
+- **Nothing indexes a medium dao.space did not write.** Any other writer's
+  medium — a program stream, an expander's log — carries datoms nobody
+  indexes; querying them means a full `snapshot` each time, which is
+  Datalog *as of* a call, never over a medium as it grows.
 - **No index is incremental.** Every publication rebuilds from the origin;
   every `create!` replays history for the watermark. The transactor's own
   *Open items* names this as O(history) and asks for "one truth — the log
@@ -98,8 +105,9 @@ builds the in-memory index, and `observe/step` already exists.
    driven batch by batch needs `fold-batch : index-state batch →
    index-state'` over persistent btree values (§2.2).
 2. *Tempid resolution across batches.* A transactor-written medium carries
-   resolved ids; a `yin.vm` program medium carries per-batch negative tempids
-   that *repeat*. `dao.space.index` never meets that case today because it
+   resolved ids; a medium written batch by batch without a transactor
+   carries per-batch negative tempids that *repeat*. `dao.space.index` never
+   meets that case today because it
    only indexes the writer's own resolved log. Observing a medium it did not
    write requires the per-batch allocator and resolution facts (§3) — a
    correctness requirement, not a framing one.
@@ -166,12 +174,12 @@ interpreters over rows, and the index state's trees are a row source.
 | Medium | `t` in rows | `current` | `history` |
 |---|---|---|---|
 | transactor-written (records) | allocated by the writer, monotonic | greatest-`t`-wins per `[e a v]`, retractions removed — full Datomic semantics | exact rows in `t` order |
-| raw `yin.vm` program medium (yang emits `t 0`, `m default-op`) | not meaningful | the *set* of facts asserted — a correct reading, since a program batch is assertions only | degenerate: all rows share `t 0`; order is the observer's batch ordinal, available through resolution facts (§3), **not** through `t` |
+| a medium whose rows carry no writer-allocated `t` (all rows `t 0`, `m default-op`) | not meaningful | the *set* of facts asserted — correct for a medium of assertions with no retractions | degenerate: all rows share `t 0`; order is the observer's batch ordinal, available through resolution facts (§3), **not** through `t` |
 
 The observer does not paper over the second row by minting `t` — decision
-4. A composition that wants transaction-time semantics over program datoms
-routes them through a transactor (writer allocates `t`); one that wants
-"what facts does this program state" reads `current` and gets exactly that.
+4. A composition that wants transaction-time semantics over such a medium
+routes it through a transactor (the writer allocates `t`); one that wants
+"what facts does this medium assert" reads `current` and gets exactly that.
 
 ---
 
@@ -179,10 +187,10 @@ routes them through a transactor (writer allocates `t`); one that wants
 
 ### 3.1 Why the observer must resolve
 
-A `yin.vm` batch's entity ids are negative tempids allocated from
-`(- datom/first-user-id)` downward *per batch*. Two consecutive batches both
-contain `-16`. Folding them raw into one index would merge unrelated
-entities — the silent-wrong-data case. `dao.space.transact` resolves tempids
+A medium written batch by batch without a transactor carries negative
+tempids allocated *per batch* (from `(- datom/first-user-id)` downward, by
+convention). Two consecutive batches both contain `-16`. Folding them raw
+into one index would merge unrelated entities — the silent-wrong-data case. `dao.space.transact` resolves tempids
 within one transaction; the observer must do the same per batch, and only
 the observer can, because only it holds the cross-batch allocator.
 
@@ -216,9 +224,10 @@ by `m`. They are what make the following queryable:
   a constant offset, recorded once, not a per-batch join).
 
 Refs are resolved only for attributes the supplied `:schema` declares as
-`:db.type/ref` — `yin.vm.v2/schema` for program media, plus
-`yin.vm.v2.macro/event-schema` for a macro log — exactly as the transactor
-relocates only declared refs today. An undeclared attribute holding a
+`:db.type/ref` — exactly as the transactor relocates only declared refs
+today. The schema is the composition's to supply (for a program medium,
+`yin.vm.v2/schema`; for an expander's log, `yin.vm.v2.macro/event-schema`);
+the index learns which attributes are refs from it and nothing else. An undeclared attribute holding a
 negative number is a value, not a ref, and is left alone.
 
 ### 3.3 What is not promised
@@ -329,10 +338,14 @@ a defect and the next batch still folds; `run-on-stream` `blocked`/`end`
 behaviour; ids stable across a `pr-str`/`read-string` round trip of the
 session (it is plain data plus btree values).
 
-**Phase 1 — a raw `yin.vm` program medium.** Two observers on one
-`program-out`: `dao.stream.v2.observer` + `ast-walker` running the
-program, `dao.stream.v2.observer` + `dao.space.index` indexing it. Tests: the VM's value and the
-index's `current` view from the same batches; two batches with overlapping
+**Phase 1 — a medium with batch-local tempids (composition test).** The
+index is exercised over a medium another observer also reads: two
+`dao.stream.v2.observer` sessions on one `program-out`, one driving
+`ast-walker`, one driving `dao.space.index`. The index code under test knows
+nothing of the VM; the test does. Tests: the VM's value and the
+index's `current` view from the same batches; after each appended batch,
+with no snapshot call, `q` over the index state already sees that batch's
+entities; two batches with overlapping
 tempids index as distinct entities with correct resolution facts;
 `[?e :yin/type :lambda]` finds every lambda the program contained; a ref
 attribute resolved, an undeclared negative value untouched; `history`
