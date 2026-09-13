@@ -1,6 +1,9 @@
 (ns dao.space.index-test
   "Contract tests for dao.space.index: the agent-side covered-index publisher
-   (docs/design/dao.jing.md, Publication from an agent).
+   (docs/design/dao.jing.md, Publication from an agent) and the stateful
+   dao.stream observer session of docs/design/dao.space.index.as-observer.md
+   (fold-batch, publish!, flush-staged, drain, db-value, checkpoint,
+   restore — the §7 Phase 0′ acceptance checklist).
 
    publish-index! snapshots an agent-local dao.stream, builds the four
    covered indexes as immutable content-addressed dao.data.btree node blobs,
@@ -8,14 +11,19 @@
    DaoJing observer over the pool materializes the blobs; read-manifest /
    read-datoms / restored-indexes consume them. Everything runs on JVM,
    ClojureScript, and ClojureDart."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.edn :as edn]
+            [clojure.set :as set]
+            [clojure.test :refer [deftest is testing]]
             [dao.data.btree :as bt]
+            [dao.datom :as datom]
             [dao.jing :as jing]
             #?@(:clj [[dao.jing.coordinate :as jing-coordinate]
                       [dao.jing.remote :as jing-remote]])
             [dao.space.index :as index]
+            [dao.space.query :as query]
             [dao.stream.v2 :as stream]
             [dao.stream.v2.memory-log :as memory-log]
+            [dao.stream.v2.observer :as observer]
             [dao.stream.v2.ringbuffer :as ringbuffer]))
 
 
@@ -887,3 +895,905 @@
           (is (= (count datoms) (count eager-seq))
               (str order " eager slice returns all datoms"))
           (is (= eager-seq restored-seq) (str order " lazy-eager parity")))))))
+
+
+;; ---------------------------------------------------------------------------
+;; The index session (docs/design/dao.space.index.as-observer.md, §7 Phase 0′)
+;; ---------------------------------------------------------------------------
+
+
+(defn- ready?
+  "§2.1's readiness predicate: a consumer with a staged publication is not
+   ready, and its run resumes the publication."
+  [x]
+  (nil? (get-in x [:publish :staged])))
+
+
+(defn- folded-rows
+  "The EAVT tree of an index state as a set — the fold's whole content."
+  [st]
+  (set (bt/seq (:eavt (:indexes st)))))
+
+
+(defn- resolved-session
+  "A :resolved session over an intake, defaulting to branching factor 4 so
+   modest row counts force splits."
+  ([intake]
+   (resolved-session intake {:branching-factor 4}))
+  ([intake opts]
+   (index/session (merge {:mode :resolved, :schema {}, :intake intake} opts))))
+
+
+(defn- unresolved-session
+  "An :unresolved session over the ref schema the mode-matrix cases use."
+  ([intake]
+   (unresolved-session intake nil))
+  ([intake opts]
+   (index/session (merge {:mode :unresolved,
+                          :schema {:test/ref {:db/valueType :db.type/ref}},
+                          :intake intake,
+                          :branching-factor 4}
+                         opts))))
+
+
+(defn- attach-to
+  "Attach an observer to a reader handle through a unary capability that
+   always hands that handle back."
+  [handle]
+  (observer/attach (fn [_] {:dao.stream/outcome :dao.stream/ok, :dao.stream/handle handle})
+                   {:dao.stream/type :test/local}))
+
+
+(defn- driven
+  "One composition step: attach at :oldest and run the session to blocked or
+   end, folding every observed batch."
+  [handle st]
+  (observer/run-on-stream {:observer (attach-to handle), :consumer st}
+                          ready? index/fold-batch index/flush-staged))
+
+
+(defn- resumed
+  "Continue an existing session's observer half over its consumer."
+  [session]
+  (observer/run-on-stream {:observer (:observer session), :consumer (:consumer session)}
+                          ready? index/fold-batch index/flush-staged))
+
+
+(defn- scripted-intake
+  "A v2 writer whose append! answers through behaviour, a function of the
+   count of payloads already accepted and the payload: :ok, another append
+   outcome keyword (:full, :closed, ...), or a full result map (including
+   malformed non-outcome answers, exercised by passing a map without
+   :dao.stream/outcome). Accepted payloads are recorded in order."
+  [behaviour]
+  (let [accepted (atom [])]
+    {:handle (reify stream/IDaoStreamWriter
+               (append!
+                 [_ payload]
+                 (let [n (count @accepted)
+                       r (behaviour n payload)
+                       result (if (map? r)
+                                r
+                                {:dao.stream/outcome (keyword "dao.stream" (name r))})]
+                   (when (= :dao.stream/ok (:dao.stream/outcome result))
+                     (swap! accepted conj payload))
+                   result)))
+     :accepted accepted}))
+
+
+(defn- evicting-medium
+  "A reader medium over an atom of values with a settable eviction floor:
+   reads below the floor answer gap with the floor as the recovery cursor,
+   at the tail blocked. :evict! sets the floor; :append! extends the values."
+  [& [values]]
+  (let [data (atom {:values (vec (or values [])), :floor 0})]
+    {:handle (reify stream/IDaoStreamReader
+               (cursor
+                 [_ _]
+                 {:dao.stream/outcome :dao.stream/ok,
+                  :dao.stream/cursor {:pos (:floor @data)}})
+
+               (next
+                 [_ cursor]
+                 (let [{:keys [values floor]} @data
+                       pos (:pos cursor)]
+                   (cond
+                     (< pos floor)
+                     {:dao.stream/outcome :dao.stream/gap,
+                      :dao.stream/cursor {:pos floor}}
+
+                     (< pos (count values))
+                     {:dao.stream/outcome :dao.stream/ok,
+                      :dao.stream/value (nth values pos),
+                      :dao.stream/cursor {:pos (inc pos)}}
+
+                     :else {:dao.stream/outcome :dao.stream/blocked}))))
+     :evict! (fn [floor] (swap! data assoc :floor floor))
+     :append! (fn [v] (swap! data update :values conj v))}))
+
+
+(defn- gated-medium
+  "A reader medium that serves `values` and answers blocked at the tail
+   until fail! is called, after which a read at the tail answers
+   transport-error — the seam for a terminal read after processed batches."
+  [values]
+  (let [data (atom {:values (vec values), :fail? false})]
+    {:handle (reify stream/IDaoStreamReader
+               (cursor
+                 [_ _]
+                 {:dao.stream/outcome :dao.stream/ok, :dao.stream/cursor {:pos 0}})
+
+               (next
+                 [_ cursor]
+                 (let [{:keys [values fail?]} @data
+                       pos (:pos cursor)]
+                   (cond
+                     (and fail? (>= pos (count values)))
+                     {:dao.stream/outcome :dao.stream/transport-error}
+
+                     (< pos (count values))
+                     {:dao.stream/outcome :dao.stream/ok,
+                      :dao.stream/value (nth values pos),
+                      :dao.stream/cursor {:pos (inc pos)}}
+
+                     :else {:dao.stream/outcome :dao.stream/blocked}))))
+     :fail! (fn [] (swap! data assoc :fail? true))}))
+
+
+(defn- leaf-addresses
+  "Every leaf blob address reachable from a manifest's EAVT root in a
+   materialized store — for removing exactly one leaf."
+  [store manifest]
+  (let [leaves (atom [])
+        walk (fn walk
+               [address]
+               (let [blob (jing/get store address nil)]
+                 (if-some [children (:addresses blob)]
+                   (doseq [c children] (walk c))
+                   (swap! leaves conj address))))]
+    (walk (:eavt (:indexes manifest)))
+    @leaves))
+
+
+;; ---------------------------------------------------------------------------
+;; fold-batch: the outer grammar (§2.2 step 0)
+;; ---------------------------------------------------------------------------
+
+(deftest fold-batch-outer-grammar
+  (let [intake (open-intake)
+        row [16 :test/a "x" 0 1]
+        record {:dao.space/transaction {:t 7, :datoms [[17 :test/b "y" 7 1]]}}]
+    (testing "a bare transaction record is one admitted element"
+      (let [st (index/fold-batch (resolved-session intake) record)]
+        (is (zero? (:rejected st)))
+        (is (= 1 (:batch st)))
+        (is (= #{[17 :test/b "y" 7 1]} (folded-rows st)))
+        (is (= 7 (:max-t st)))))
+    (testing "a bare d5 row is one admitted element"
+      (let [st (index/fold-batch (resolved-session intake) row)]
+        (is (= #{row} (folded-rows st)))))
+    (testing "a vector of both element shapes is one batch"
+      (let [st (index/fold-batch (resolved-session intake) [row record])]
+        (is (zero? (:rejected st)))
+        (is (= 1 (:batch st)))
+        (is (= #{row [17 :test/b "y" 7 1]} (folded-rows st)))))
+    (testing "a five-row batch is a batch, not one row: its first slot is a vector"
+      (let [rows (mapv (fn [i] [16 :test/a (str "v" i) 0 1]) (range 5))
+            st (index/fold-batch (resolved-session intake) rows)]
+        (is (zero? (:rejected st)))
+        (is (= (set rows) (folded-rows st)))))
+    (testing "any other sequential is a batch of elements and nothing else — no nesting"
+      (let [st (index/fold-batch (resolved-session intake)
+                                 (list row record))]
+        (is (zero? (:rejected st)))
+        (is (= #{row [17 :test/b "y" 7 1]} (folded-rows st)))))))
+
+
+(deftest fold-batch-rejects-malformed-outer-values
+  (doseq [outer ["not-a-batch" 42 nil {:not :a-transaction} #{[16 :test/a "x" 0 1]}]]
+    (let [intake (open-intake)
+          st (index/fold-batch (resolved-session intake) outer)]
+      (is (= 1 (:rejected st)) (str "must reject " (pr-str outer)))
+      (is (= 1 (:batch st)) "the ordinal advances exactly once, never zero")
+      (is (empty? (folded-rows st)) "no tree is touched")
+      (is (= 1 (count (:defects st))) "exactly one defect event")
+      (is (nil? (:position (first (:defects st))))
+          (str "a whole-batch defect sits at position nil: " (pr-str outer))))))
+
+
+(deftest fold-batch-rejects-a-malformed-nested-record
+  (let [intake (open-intake)
+        good [16 :test/a "x" 0 1]
+        bad {:dao.space/transaction {:t 1, :datoms :not-a-vector}}
+        st (index/fold-batch (resolved-session intake) [good bad])]
+    (is (= 1 (:rejected st)))
+    (is (= 1 (:batch st)))
+    (is (empty? (folded-rows st)) "a valid prefix never lands: the fold is atomic per batch")
+    (is (= [{:position 1,
+             :reason :admission,
+             :element bad,
+             :batch 0}]
+           (:defects st)))))
+
+
+(deftest fold-batch-rejects-a-batch-whose-element-is-not-an-element
+  (testing "a four-slot vector is a batch of elements, not one short row"
+    (let [intake (open-intake)
+          st (index/fold-batch (resolved-session intake) [16 :test/a "x" 0])]
+      (is (= 1 (:rejected st)))
+      (is (= {:position 0, :reason :element, :element 16, :batch 0}
+             (first (:defects st))))))
+  (testing "a non-element among elements defects the whole batch"
+    (let [intake (open-intake)
+          st (index/fold-batch (resolved-session intake) [[16 :test/a "x" 0 1] "garbage"])]
+      (is (= 1 (:rejected st)))
+      (is (= {:position 1, :reason :element, :element "garbage", :batch 0}
+             (first (:defects st)))))))
+
+
+(deftest fold-batch-valid-invalid-valid-batches
+  (let [intake (open-intake)
+        st (-> (resolved-session intake)
+               (index/fold-batch [[16 :test/a "x" 0 1]])
+               (index/fold-batch "garbage")
+               (index/fold-batch [[17 :test/b "y" 0 1]]))]
+    (is (= 3 (:batch st)))
+    (is (= 1 (:rejected st)))
+    (is (= #{[16 :test/a "x" 0 1] [17 :test/b "y" 0 1]} (folded-rows st))
+        "the session continues past a rejected batch; only it is missing")))
+
+
+(deftest fold-batch-empty-batch-advances-the-ordinal-only
+  (let [intake (open-intake)
+        before (index/fold-batch (resolved-session intake) [[16 :test/a "x" 3 1]])
+        after (index/fold-batch before [])]
+    (is (= 1 (:batch before)))
+    (is (= 2 (:batch after)) "an empty admitted batch advances :batch once")
+    (is (= (:indexes before) (:indexes after)) "trees unchanged")
+    (is (= (:ids before) (:ids after)) ":ids unchanged")
+    (is (= (:max-t before) (:max-t after)) ":max-t unchanged (nil until a row folds)")
+    (is (= (:rejected before) (:rejected after)) ":rejected unchanged")))
+
+
+(deftest fold-batch-rejection-leaves-ids-untouched
+  (testing "a planned allocation that the batch never commits advances nothing"
+    (let [intake (open-intake)
+          ;; e tempid plans an allocation; the m slot's user-positive id
+          ;; defects the batch after it — :ids must not move
+          st (index/fold-batch (unresolved-session intake)
+                               [[-16 :test/a "v" 0 99]])]
+      (is (= 1 (:rejected st)))
+      (is (= {:next-eid datom/first-user-id, :ownership :owned} (:ids st))))))
+
+
+;; ---------------------------------------------------------------------------
+;; fold-batch: the §3.1 mode matrix
+;; ---------------------------------------------------------------------------
+
+(deftest fold-batch-mode-matrix-cell-by-cell
+  (testing "every cell of the matrix, both modes; reserved e passes on :resolved"
+    (let [cases
+          [;; slot, id class, mode, row, expected
+           [:e :tempid :resolved [-16 :test/a "x" 0 1] :reject]
+           [:e :reserved :resolved [1 :test/a "x" 0 1] :accept]
+           [:e :user-positive :resolved [16 :test/a "x" 0 1] :accept]
+           [:ref-v :tempid :resolved [20 :test/ref -16 0 1] :reject]
+           [:ref-v :reserved :resolved [20 :test/ref 2 0 1] :accept]
+           [:ref-v :user-positive :resolved [20 :test/ref 30 0 1] :accept]
+           [:ref-v :non-integer :resolved [20 :test/ref "not-an-id" 0 1] :reject]
+           [:m :tempid :resolved [20 :test/a "x" 0 -16] :reject]
+           [:m :reserved :resolved [20 :test/a "x" 0 2] :accept]
+           [:m :user-positive :resolved [20 :test/a "x" 0 99] :accept]
+           [:undeclared-v :any :resolved [20 :test/plain -16 0 1] :accept]
+           [:e :tempid :unresolved [-16 :test/a "x" 0 1] :accept]
+           [:e :reserved :unresolved [1 :test/a "x" 0 1] :reject]
+           [:e :user-positive :unresolved [16 :test/a "x" 0 1] :reject]
+           [:ref-v :tempid :unresolved [-16 :test/ref -17 0 1] :accept]
+           [:ref-v :reserved :unresolved [-16 :test/ref 2 0 1] :accept]
+           [:ref-v :user-positive :unresolved [-16 :test/ref 30 0 1] :reject]
+           [:ref-v :non-integer :unresolved [-16 :test/ref "not-an-id" 0 1] :reject]
+           [:m :tempid :unresolved [-16 :test/a "x" 0 -17] :accept]
+           [:m :reserved :unresolved [-16 :test/a "x" 0 2] :accept]
+           [:m :user-positive :unresolved [-16 :test/a "x" 0 30] :reject]
+           [:undeclared-v :any :unresolved [-16 :test/plain -9 0 1] :accept]]]
+      (doseq [[slot class mode row expected] cases]
+        (let [;; both modes need the ref schema: an undeclared :test/ref is a
+              ;; value slot the matrix never inspects
+              st (index/fold-batch (index/session
+                                     {:mode mode,
+                                      :schema {:test/ref {:db/valueType :db.type/ref}},
+                                      :intake (open-intake),
+                                      :branching-factor 4})
+                                   row)]
+          (if (= :accept expected)
+            (is (zero? (:rejected st))
+                (str mode " " slot " " class " must pass: " (pr-str row)))
+            (is (= 1 (:rejected st))
+                (str mode " " slot " " class " must defect: " (pr-str row))))))))
+  (testing "the passes really pass through untouched where the matrix says so"
+    (let [intake (open-intake)
+          st (index/fold-batch (resolved-session intake) [20 :test/ref 30 0 1])]
+      (is (contains? (folded-rows st) [20 :test/ref 30 0 1])
+          "a user-positive declared-ref v passes on :resolved"))
+    (let [intake (open-intake)
+          st (index/fold-batch (unresolved-session intake) [-16 :test/plain -9 0 1])]
+      (is (contains? (folded-rows st) [16 :test/plain -9 0 1])
+          "an undeclared negative v is a value, not a ref: untouched, e resolved"))))
+
+
+;; ---------------------------------------------------------------------------
+;; fold-batch: tempid resolution (§3.2)
+;; ---------------------------------------------------------------------------
+
+(deftest fold-batch-allocates-deterministically-in-first-occurrence-order
+  (let [intake (open-intake)
+        st (index/fold-batch (unresolved-session intake)
+                             [[-10 :test/ref -20 0 1] [-30 :test/ref -10 0 -40]])]
+    (is (zero? (:rejected st)))
+    (is (= {:next-eid 20, :ownership :owned} (:ids st)))
+    (testing "within a row e, then declared-ref v, then m; across rows in batch order"
+      (is (contains? (folded-rows st) [16 :test/ref 17 0 1]))
+      (is (contains? (folded-rows st) [18 :test/ref 16 0 19])
+          "-10 in the second row reuses the first row's durable id"))
+    (testing "a resolution fact pair per allocated tempid, at the batch ordinal"
+      (let [rows (folded-rows st)]
+        (is (contains? rows [16 index/batch-attr 0 0 datom/default-op]))
+        (is (contains? rows [16 index/tempid-attr -10 0 datom/default-op]))
+        (is (contains? rows [17 index/batch-attr 0 0 datom/default-op]))
+        (is (contains? rows [17 index/tempid-attr -20 0 datom/default-op]))
+        (is (contains? rows [18 index/batch-attr 0 0 datom/default-op]))
+        (is (contains? rows [18 index/tempid-attr -30 0 datom/default-op]))
+        (is (contains? rows [19 index/batch-attr 0 0 datom/default-op]))
+        (is (contains? rows [19 index/tempid-attr -40 0 datom/default-op]))))))
+
+
+(deftest fold-batch-resolves-and-joins-m-tempids
+  (testing "an m tempid joins e's id through the shared batch-local table"
+    (let [intake (open-intake)
+          st (index/fold-batch (unresolved-session intake)
+                               [[-16 :test/a "v" 0 -16]])]
+      (is (contains? (folded-rows st) [16 :test/a "v" 0 16])
+          "the same tempid in e and m is one durable id")))
+  (testing "a distinct m tempid gets its own id and facts"
+    (let [intake (open-intake)
+          st (index/fold-batch (unresolved-session intake)
+                               [[-16 :test/a "v" 0 -17]])]
+      (is (contains? (folded-rows st) [16 :test/a "v" 0 17]))
+      (is (contains? (folded-rows st) [17 index/tempid-attr -17 0 datom/default-op])))))
+
+
+(deftest fold-batch-resolves-v-only-and-m-only-tempids
+  (testing "a tempid that appears only as a declared-ref v, or only as m, still gets an id"
+    (let [intake (open-intake)
+          ;; -17 appears only as v and -18 only as m: neither is ever an e
+          st (index/fold-batch (unresolved-session intake)
+                               [[-16 :test/ref -17 0 -18]])
+          rows (folded-rows st)
+          tempid-facts (set (filter #(= index/tempid-attr (index/datom-a %)) rows))]
+      (is (zero? (:rejected st)))
+      (is (contains? tempid-facts [17 index/tempid-attr -17 0 datom/default-op])
+          "the v-only tempid got an id and a fact")
+      (is (contains? tempid-facts [18 index/tempid-attr -18 0 datom/default-op])
+          "the m-only tempid got an id and a fact")
+      (is (contains? rows [16 :test/ref 17 0 18])))))
+
+
+;; ---------------------------------------------------------------------------
+;; run-on-stream: blocked and end (§7)
+;; ---------------------------------------------------------------------------
+
+(deftest run-on-stream-folds-a-local-medium-to-blocked
+  (let [intake (open-intake)
+        batches [[16 :test/a "x" 0 1]
+                 {:dao.space/transaction {:t 2, :datoms [[17 :test/b "y" 2 1]]}}
+                 [[18 :test/c "z" 0 1] [19 :test/c "w" 0 1]]]
+        local (open-local batches)
+        session (driven local (resolved-session intake))]
+    (is (= 3 (:batch (:consumer session))) "every appended value folded as one batch")
+    (is (= 2 (:max-t (:consumer session))))
+    (is (= 4 (count (folded-rows (:consumer session)))))
+    (is (= 3 (get-in session [:observer :cursor :dao.stream.memory-log/position]))
+        "blocked at the open tail")))
+
+
+(deftest run-on-stream-folds-a-closed-medium-to-end
+  (let [intake (open-intake)
+        local (open-local [[16 :test/a "x" 0 1] [17 :test/b "y" 0 1]])]
+    (stream/close! local)
+    (let [session (driven local (resolved-session intake))]
+      (is (= 2 (:batch (:consumer session))))
+      (is (= 2 (count (folded-rows (:consumer session))))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Parity over the transactor's medium (§7 Phase 0′ head)
+;; ---------------------------------------------------------------------------
+
+(deftest resolved-session-parity-with-index-datoms
+  (let [rows (datoms 600)
+        ;; the transactor's medium: one transaction record per append on an
+        ;; own memory-log, interleaved with bare rows; insertion order is
+        ;; stream order, never a covered order
+        local (open-local (mapcat (fn [r]
+                                    (if (zero? (mod (index/datom-t r) 3))
+                                      [{:dao.space/transaction
+                                        {:t (index/datom-t r), :datoms [r]}}]
+                                      [r]))
+                                  rows))
+        intake (open-intake 2048)
+        session (driven local (resolved-session intake))
+        st (:consumer session)
+        baseline (index/index-datoms (index/snapshot-datoms local))]
+    (testing "trees logically equal to index-datoms over snapshot-datoms, every order"
+      (doseq [order [:eavt :aevt :avet :vaet]]
+        (is (= (bt/count (order baseline)) (bt/count (order (:indexes st))))
+            (str order " counts equal — splits included, not identical manifests"))
+        (is (= (set (bt/seq (order baseline))) (set (bt/seq (order (:indexes st)))))
+            (str order " rows equal"))))
+    (testing "query results over db-value agree with the one-shot path"
+      (let [find '[:find ?e ?v :where [?e :work/a0 ?v]]
+            over-session (query/collect (apply query/q find
+                                               [(query/current (index/db-value st))]))
+            over-baseline (query/collect (apply query/q find
+                                                [(query/current
+                                                   (query/relation
+                                                     (index/snapshot-datoms local)))]))]
+        (is (= over-baseline over-session))
+        (is (= 86 (count over-session)) "the slice is non-trivial")))
+    (testing "a db-value taken before a fold is unchanged by it"
+      (let [frozen (index/db-value st)
+            frozen-rows (set (deref (:rows frozen)))
+            st' (index/fold-batch st [[9000 :work/a "later" 0 1]])]
+        (is (= (set (bt/seq (:eavt (:indexes st)))) frozen-rows)
+            "the deferred rows resolve against the trees the value captured")
+        (is (= frozen-rows (set (deref (:rows frozen))))
+            "forcing again after the fold still sees the old trees")
+        (is (contains? (folded-rows st') [9000 :work/a "later" 0 1]))))
+    (testing "and a valid restore of what it publishes"
+      (let [published (:state (index/publish! st))
+            store (materialize-through-observer [intake])
+            candidate (index/checkpoint {:observer (:observer session),
+                                         :consumer published})
+            restored (index/restore candidate
+                                    {:content-store store,
+                                     :intake (open-intake),
+                                     :mode :resolved,
+                                     :schema {}})]
+        (is (some? (index/verify-candidate candidate store)))
+        (is (= (count rows) (:count (get-in published [:publish :manifest]))))
+        (doseq [order [:eavt :aevt :avet :vaet]]
+          (is (= (set (bt/seq (order (:indexes st))))
+                 (set (bt/seq (order (:indexes restored)))))
+              (str order " restored equals live")))
+        (is (= (:batch st) (:batch restored)))
+        (is (= (:max-t st) (:max-t restored)))
+        (is (= (:rejected st) (:rejected restored)))))))
+
+
+;; ---------------------------------------------------------------------------
+;; drain / checkpoint / restore round the rejection bookkeeping
+;; ---------------------------------------------------------------------------
+
+(deftest reject-drain-checkpoint-restore-keeps-rejected
+  (let [intake (open-intake)
+        st (-> (unresolved-session intake)
+               (index/fold-batch [[-16 :test/a "x" 0 1]])
+               (index/fold-batch "garbage"))
+        [drained defects] (index/drain st)]
+    (is (= 1 (count defects)) "the diagnostic is the drained event")
+    (is (= :outer (:reason (first defects))))
+    (is (empty? (:defects drained)))
+    (is (= 1 (:rejected drained)) ":rejected is never drained")
+    (let [published (:state (index/publish! drained))
+          store (materialize-through-observer [intake])
+          observer (attach-to (open-local []))
+          candidate (index/checkpoint {:observer observer, :consumer published})
+          restored (index/restore candidate
+                                  {:content-store store,
+                                   :intake (open-intake),
+                                   :mode :unresolved,
+                                   :schema {:test/ref {:db/valueType :db.type/ref}}})]
+      (is (some? (index/verify-candidate candidate store)))
+      (is (= 1 (:rejected restored))
+          "completeness survives a drain, a checkpoint, and a restore")
+      (is (empty? (:defects restored)) "drained diagnostics are not state")
+      (is (= (:ids drained) (:ids restored))))))
+
+
+(deftest empty-stream-checkpoint-derives-watermark-zero
+  (let [intake (open-intake)
+        local (open-local [])
+        session (driven local (resolved-session intake))
+        st (:consumer session)]
+    (is (nil? (:max-t st)) ":max-t is nil until a row is folded")
+    (is (zero? (:batch st)) "an empty stream folds no batch at all")
+    (let [published (:state (index/publish! st))
+          store (materialize-through-observer [intake])
+          candidate (index/checkpoint {:observer (:observer session),
+                                       :consumer published})
+          restored (index/restore candidate
+                                  {:content-store store,
+                                   :intake (open-intake),
+                                   :mode :resolved,
+                                   :schema {}})]
+      (is (some? (index/verify-candidate candidate store)))
+      (is (zero? (index/watermark st)) "the empty stream's own watermark is 0")
+      (is (zero? (index/watermark restored))
+          "a reopened empty checkpoint derives 0, not 1 — nil stays nil"))))
+
+
+;; ---------------------------------------------------------------------------
+;; Gap accounting at the checkpoint boundary (§7)
+;; ---------------------------------------------------------------------------
+
+(deftest gap-immediately-before-checkpoint-carries-recovery-cursor-and-count
+  (let [medium (evicting-medium [[16 :test/a "x" 0 1] [17 :test/a "y" 0 1]])
+        intake (open-intake)
+        session (driven (:handle medium) (resolved-session intake))]
+    (is (zero? (:ingress-gaps (:observer session))))
+    ;; evict the middle of the log and extend past it: the next round adopts
+    ;; the recovery cursor and counts one gap, then folds the retained tail
+    ((:evict! medium) 3)
+    ((:append! medium) [18 :test/a "z" 0 1])
+    ((:append! medium) [19 :test/a "w" 0 1])
+    (let [session' (resumed session)
+          report (index/coverage session')]
+      (is (= 1 (:ingress-gaps report)))
+      (is (= {:pos 4} (:cursor report))
+          "the cursor came from the gap's recovery cursor, then advanced over the retained tail")
+      (is (= 3 (:batch report)))
+      (is (= #{[16 :test/a "x" 0 1] [17 :test/a "y" 0 1] [19 :test/a "w" 0 1]}
+             (folded-rows (:consumer session')))
+          "the evicted batch is absent from the value and the gap is counted")
+      (let [published (:state (index/publish! (:consumer session')))
+            candidate (index/checkpoint {:observer (:observer session'),
+                                         :consumer published})]
+        (is (= {:pos 4} (:cursor candidate))
+            "the candidate carries the recovery-derived cursor")
+        (is (= 1 (:ingress-gaps candidate))
+            "and the incremented gap count — a partial index says so")
+        (is (= 3 (:batch candidate)))))))
+
+
+;; ---------------------------------------------------------------------------
+;; The publication state machine (§4.1)
+;; ---------------------------------------------------------------------------
+
+(defn- many-row-state
+  "A :resolved consumer over 40 folded rows at branching factor 4: enough
+   blobs that a publication has a body, not just a manifest."
+  [intake]
+  (reduce index/fold-batch
+          (resolved-session intake)
+          (map vector (mapv (fn [i] [i :test/a (str "v" i) 0 1]) (range 40)))))
+
+
+(deftest publication-ok-full-full-ok
+  (let [budget (atom 2)
+        intake (scripted-intake (fn [n _]
+                                  (if (and (pos? @budget) (>= n 3))
+                                    (do (swap! budget dec) :full)
+                                    :ok)))
+        fresh (many-row-state (:handle intake))]
+    (is (= fresh (index/flush-staged fresh))
+        "run is total: a ready consumer's flush-staged is identity")
+    (let [p (index/publish! fresh)]
+      (is (= :full (:status p)) "the first attempt stops at payload 3")
+      (is (= 3 (:next p)))
+      (is (= 3 (count @(:accepted intake))))
+      (let [f1 (index/flush-staged (:state p))]
+        (is (some? (get-in f1 [:publish :staged])) "still staged: the consumer is not ready")
+        (is (= 3 (get-in f1 [:publish :staged :next])) "no further payload accepted")
+        (let [f2 (index/flush-staged f1)]
+          (is (nil? (get-in f2 [:publish :staged]))
+              "the third attempt completes: the manifest was accepted")
+          (is (= (count (get-in (:state p) [:publish :staged :payloads]))
+                 (count @(:accepted intake)))
+              "every payload appended exactly once across the three attempts")
+          (is (= (jing/segment-key (get-in f2 [:publish :manifest]))
+                 (jing/segment-key (last @(:accepted intake))))
+              "the manifest is the last accepted payload"))))))
+
+
+(deftest publication-refusal-from-the-first-payload-resumes-once-each
+  (let [intake (scripted-intake (fn [_ _] :full))
+        p (index/publish! (many-row-state (:handle intake)))
+        staged (get-in (:state p) [:publish :staged])]
+    (is (= :full (:status p)))
+    (is (zero? (:next p)))
+    (is (= (jing/segment-key (get-in (:state p) [:publish :manifest]))
+           (jing/segment-key (last (:payloads staged))))
+        "manifest-last: a partial prefix is never a publication")
+    (let [repaired (scripted-intake (fn [_ _] :ok))
+          done (index/flush-staged (assoc-in (:state p)
+                                             [:publish :intake]
+                                             (:handle repaired)))]
+      (is (nil? (get-in done [:publish :staged])))
+      (is (= (count (:payloads staged)) (count @(:accepted repaired)))
+          "the repaired intake received every payload, exactly once, from :next 0"))))
+
+
+(deftest publication-refusal-exactly-at-the-manifest-resumes-with-one-append
+  (let [;; size the refusal to this state's own payload list: accept every
+        ;; blob, refuse the manifest
+        probe (scripted-intake (fn [_ _] :full))
+        probe-p (index/publish! (many-row-state (:handle probe)))
+        payload-count (count (get-in probe-p [:state :publish :staged :payloads]))
+        manifest-idx (dec payload-count)
+        at-manifest (scripted-intake (fn [n _] (if (< n manifest-idx) :ok :full)))
+        p (index/publish! (many-row-state (:handle at-manifest)))]
+    (is (= :full (:status p)))
+    (is (= manifest-idx (:next p))
+        "every blob accepted; :next sits exactly at the manifest")
+    (is (= manifest-idx (count @(:accepted at-manifest))))
+    (let [repaired (scripted-intake (fn [_ _] :ok))
+          done (index/flush-staged (assoc-in (:state p)
+                                             [:publish :intake]
+                                             (:handle repaired)))]
+      (is (nil? (get-in done [:publish :staged])))
+      (is (= 1 (count @(:accepted repaired)))
+          "resumption appends only the manifest, never a blob again"))))
+
+
+(deftest publication-terminal-outcome-preserves-next-and-resumes
+  (let [terminal (fn []
+                   (scripted-intake (fn [n _]
+                                      (if (zero? n)
+                                        :ok
+                                        {:dao.stream/outcome :dao.stream/closed}))))]
+    (is (thrown-with-msg? #?(:cljs js/Error :cljd Object :default Exception)
+                          #"cannot continue"
+          (index/publish! (many-row-state (:handle (terminal))))))
+    (let [intake (terminal)
+          carried (try
+                    (index/publish! (many-row-state (:handle intake)))
+                    nil
+                    (catch #?(:clj Exception :cljs js/Error :cljd Object) e
+                      (:consumer (ex-data e))))
+          payload-count (count (get-in carried [:publish :staged :payloads]))
+          repaired (scripted-intake (fn [_ _] :ok))
+          done (index/flush-staged (assoc-in carried [:publish :intake]
+                                             (:handle repaired)))]
+      (is (= 1 (get-in carried [:publish :staged :next]))
+          "the throw preserves :next at the one accepted blob")
+      (is (= 1 (count @(:accepted intake))))
+      (is (nil? (get-in done [:publish :staged])) "the retry completes")
+      (is (= (dec payload-count) (count @(:accepted repaired)))
+          "the repaired intake appended only the remaining payloads"))))
+
+
+(deftest publication-while-staged-is-a-caller-error
+  (let [intake (scripted-intake (fn [_ _] :full))
+        p (index/publish! (many-row-state (:handle intake)))]
+    (is (thrown-with-msg? #?(:cljs js/Error :cljd Object :default Exception)
+                          #"still staged"
+          (index/publish! (:state p))))))
+
+
+(deftest a-resumed-publication-then-read-failure-carries-the-completed-session
+  (let [medium (gated-medium [[16 :test/a "x" 0 1] [17 :test/a "y" 0 1]])
+        refusing (scripted-intake (fn [_ _] :full))
+        session (driven (:handle medium) (resolved-session (:handle refusing)))]
+    (is (= 2 (:batch (:consumer session))))
+    ;; the composition's publication step: the intake refuses, the consumer
+    ;; is not ready
+    (let [staged (index/publish! (:consumer session))]
+      (is (= :full (:status staged)))
+      (is (some? (get-in (:state staged) [:publish :staged])))
+      ;; now the intake is repaired and the medium's reads start failing: the
+      ;; round finishes the publication, then throws on the read
+      ((:fail! medium))
+      (let [repaired (scripted-intake (fn [_ _] :ok))
+            carried (try
+                      (observer/run-on-stream
+                        (-> {:observer (:observer session), :consumer (:state staged)}
+                            (assoc-in [:consumer :publish :intake] (:handle repaired)))
+                        ready? index/fold-batch index/flush-staged)
+                      nil
+                      (catch #?(:clj Exception :cljs js/Error :cljd Object) e
+                        (:session (ex-data e))))]
+        (is (some? carried) "the terminal read threw and carried the session")
+        (is (nil? (get-in carried [:consumer :publish :staged]))
+            "the publication completed inside the failing round")
+        (is (= 2 (count @(:accepted repaired)))
+            "one blob and the manifest were appended — the publication is done")
+        ;; a retry against a repaired reader repeats nothing
+        (let [quiet (reify stream/IDaoStreamReader
+                      (cursor
+                        [_ _]
+                        {:dao.stream/outcome :dao.stream/ok, :dao.stream/cursor {:pos 2}})
+
+                      (next [_ _] {:dao.stream/outcome :dao.stream/blocked}))
+              _retried (observer/run-on-stream (assoc-in carried [:observer :stream] quiet)
+                                               ready? index/fold-batch index/flush-staged)]
+          (is (= 2 (count @(:accepted repaired)))
+              "the retry did not re-append the accepted publication"))))))
+
+
+(deftest second-publish-after-more-batches-appends-only-new-blobs
+  (let [intake (open-intake 8192)
+        local (open-local (mapv (fn [i] [i :work/a (str "t" i) 0 1]) (range 300)))
+        session (driven local (resolved-session intake))
+        pub-a (index/publish! (:consumer session))
+        first-values (intake-values intake)]
+    (is (= :ok (:status pub-a)))
+    (is (> (count first-values) 4) "the first publication carried real blobs")
+    (let [pub-b (index/publish! (index/fold-batch (:state pub-a)
+                                                  [[999 :work/a "new1" 0 1]
+                                                   [998 :work/a "new2" 0 1]]))
+          new-values (drop (count first-values) (intake-values intake))
+          old-by-address (into {} (map (fn [p] [(jing/segment-key p) p])) first-values)
+          overlap (set/intersection
+                    (set (keys old-by-address))
+                    (set (map jing/segment-key new-values)))]
+      (is (= :ok (:status pub-b)))
+      (is (< (count new-values) 20)
+          "the second publication appends only the blobs stored since the first — a delta, not the tree")
+      (is (< (count new-values) (count first-values)))
+      (is (= (jing/segment-key (get-in (:state pub-b) [:publish :manifest]))
+             (jing/segment-key (last new-values)))
+          "manifest-last holds for the delta publication too")
+      (is (every? (fn [address]
+                    ;; a delta node may coincidentally equal an old blob of
+                    ;; another covered order; content addressing makes the
+                    ;; re-append harmless (§4.1: materialize!'s dedup is the
+                    ;; second line of defence, not the mechanism)
+                    (let [re-appended (some (fn [p] (when (= address (jing/segment-key p)) p))
+                                            new-values)]
+                      (= (get old-by-address address) re-appended)))
+                  overlap)
+          "any address repeated across publications carries identical content"))))
+
+
+;; ---------------------------------------------------------------------------
+;; The checkpoint candidate (§4.2)
+;; ---------------------------------------------------------------------------
+
+(deftest checkpoint-candidate-round-trips-through-print
+  (let [intake (open-intake)
+        local (open-local [[16 :test/a "x" 2 1]])
+        session (driven local (unresolved-session intake))
+        published (:state (index/publish! (:consumer session)))
+        candidate (index/checkpoint {:observer (:observer session),
+                                     :consumer published})]
+    (is (map? candidate))
+    (is (= candidate (edn/read-string (pr-str candidate)))
+        "a candidate, unlike a live session, is plain data")))
+
+
+(deftest checkpoint-requires-a-publication
+  (let [intake (open-intake)
+        observer (attach-to (open-local []))]
+    (is (thrown-with-msg? #?(:cljs js/Error :cljd Object :default Exception)
+                          #"requires a publication"
+          (index/checkpoint {:observer observer,
+                             :consumer (resolved-session intake)})))))
+
+
+(deftest candidate-not-promoted-when-the-manifest-is-missing
+  (let [intake (open-intake)
+        local (open-local (datoms 40))
+        session (driven local (resolved-session intake {:branching-factor 4}))
+        published (:state (index/publish! (:consumer session)))
+        candidate (index/checkpoint {:observer (:observer session),
+                                     :consumer published})]
+    (is (nil? (index/verify-candidate candidate (content-handle)))
+        "enqueued is not materialized: verification incomplete, never success")))
+
+
+(deftest candidate-not-promoted-when-a-leaf-is-absent
+  (let [intake (open-intake)
+        local (open-local (datoms 40))
+        session (driven local (resolved-session intake {:branching-factor 4}))
+        published (:state (index/publish! (:consumer session)))
+        store (materialize-through-observer [intake])
+        candidate (index/checkpoint {:observer (:observer session),
+                                     :consumer published})
+        manifest (get-in published [:publish :manifest])
+        leaves (leaf-addresses store manifest)]
+    (is (some? (index/verify-candidate candidate store))
+        "the intact store verifies")
+    (is (seq leaves))
+    (let [hole (content-handle)
+          without-leaf (dissoc @(:store store) (first leaves))]
+      (swap! (:store hole) merge without-leaf)
+      (is (nil? (index/verify-candidate candidate hole))
+          "the manifest present but one leaf absent is not promoted: the walk must check every address, not only the manifest"))))
+
+
+(deftest restore-refuses-mismatched-mode-schema-and-shared-allocator
+  (let [intake (open-intake)
+        local (open-local [[16 :test/a "x" 0 1]])
+        session (driven local (resolved-session intake))
+        published (:state (index/publish! (:consumer session)))
+        store (materialize-through-observer [intake])
+        candidate (index/checkpoint {:observer (:observer session),
+                                     :consumer published})
+        opts {:content-store store, :intake (open-intake), :schema {}}]
+    (is (thrown-with-msg? #?(:cljs js/Error :cljd Object :default Exception)
+                          #"mode"
+          (index/restore candidate (assoc opts :mode :unresolved))))
+    (is (thrown-with-msg? #?(:cljs js/Error :cljd Object :default Exception)
+                          #"schema"
+          (index/restore candidate (assoc opts
+                                          :mode :resolved
+                                          :schema {:test/ref {:db/valueType :db.type/ref}}))))
+    (testing "a :shared allocator is a snapshot, never a checkpoint"
+      (let [shared-intake (open-intake)
+            shared-local (open-local [[-16 :test/a "x" 0 1]])
+            shared-session (driven shared-local
+                                   (unresolved-session shared-intake
+                                                       {:ids {:ownership :shared}}))
+            shared-published (:state (index/publish! (:consumer shared-session)))
+            shared-store (materialize-through-observer [shared-intake])
+            shared-candidate (index/checkpoint {:observer (:observer shared-session),
+                                                :consumer shared-published})]
+        (is (some? (index/verify-candidate shared-candidate shared-store))
+            "it may be published and captured for inspection")
+        (is (= :shared (get-in shared-candidate [:ids :ownership])))
+        (is (thrown-with-msg? #?(:cljs js/Error :cljd Object :default Exception)
+                              #":shared"
+              (index/restore shared-candidate
+                             {:content-store shared-store,
+                              :intake (open-intake),
+                              :mode :unresolved,
+                              :schema {:test/ref {:db/valueType :db.type/ref}}})))))))
+
+
+;; ---------------------------------------------------------------------------
+;; The F2 refault hazard, pinned both ways (§4.1)
+;; ---------------------------------------------------------------------------
+
+(deftest f2-refault-hazard-through-the-test-ref-seam
+  (let [;; round 1: a session that publishes something restorable
+        intake (open-intake)
+        local (open-local (datoms 40))
+        session (driven local (resolved-session intake {:branching-factor 4}))
+        published (:state (index/publish! (:consumer session)))
+        store (materialize-through-observer [intake])
+        candidate (index/checkpoint {:observer (:observer session),
+                                     :consumer published})
+        restore-opts {:content-store store, :mode :resolved, :schema {}}]
+    (is (some? (index/verify-candidate candidate store)))
+    (testing "a session restored through :test refs, published, drained, cleared: the query throws"
+      (let [resumed (index/restore candidate
+                                   (assoc restore-opts
+                                          :intake (open-intake)
+                                          :ref-type :test))
+            folded (index/fold-batch resumed [[500 :test/a "new" 0 1]])
+            published-again (:state (index/publish! folded))]
+        ;; the recording handle is drained; every :test ref is cleared; the
+        ;; next query refaults the root through the drained handle
+        (bt/clear-test-refs! (:eavt (:indexes published-again)))
+        (is (thrown-with-msg? #?(:cljs js/Error :cljd Object :default Exception)
+                              #"missing index segment"
+              (bt/seq (:eavt (:indexes published-again)))))))
+    (testing "the same sequence through the session-constructed :strong storage: no throw"
+      (let [resumed (index/restore candidate
+                                   (assoc restore-opts :intake (open-intake)))
+            _ (is (= :strong (:ref-type (bt/settings (:eavt (:indexes resumed)))))
+                  "a restored session pins its roots :strong, never the host default")
+            folded (index/fold-batch resumed [[500 :test/a "new" 0 1]])
+            published-again (:state (index/publish! folded))]
+        (bt/clear-test-refs! (:eavt (:indexes published-again)))
+        (is (= 41 (count (bt/seq (:eavt (:indexes published-again)))))
+            "refaults resolve against durable content, never the handle")))))
+
+
+(deftest read-path-restored-indexes-carries-the-host-default-ref-type
+  (let [intake (open-intake)
+        local (open-local (datoms 8))
+        session (driven local (resolved-session intake {:branching-factor 4}))
+        published (:state (index/publish! (:consumer session)))
+        store (materialize-through-observer [intake])
+        manifest (get-in published [:publish :manifest])
+        read-path-ref-type (:ref-type
+                             (bt/settings
+                               (:eavt (index/restored-indexes store manifest))))]
+    ;; The wrong-construction demonstration is JVM-only, where the read path
+    ;; is not already :strong; off it the same restoration is :strong anyway
+    ;; (§7, N3).
+    #?(:clj (is (= (bt/default-ref-type*) read-path-ref-type)
+                "the query read path takes the host default — why restore never uses it")
+       :default (is (= :strong read-path-ref-type)
+                    "off the JVM the read path already pins :strong"))))
