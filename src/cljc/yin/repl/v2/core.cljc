@@ -23,7 +23,9 @@
             [yin.vm.v2 :as vm]
             [yin.vm.v2.ast-walker :as ast-walker]
             [yin.vm.v2.engine :as engine]
+            [yin.vm.v2.linearize :as linearize]
             [yin.vm.v2.module :as module]
+            [yin.vm.v2.semantic :as semantic]
             [dao.stream.v2.observer :as observer]))
 
 
@@ -48,14 +50,22 @@
 
 
 (def vm-constructors
-  "One entry, on `yin.vm.v2`. The other evaluators (`:semantic`, `:register`,
-   `:stack`, `:space`) were deleted under
-   `yin.vm.v2-consumers.implementation-plan.md`; `:ast-walker` is the only
-   evaluator, here and in v1's `yin.repl`."
-  {:ast-walker ast-walker/create-vm})
+  "The evaluators on `yin.vm.v2`: the ast-walker and the linear semantic VM
+   (`docs/design/yin.vm.semantic.md`)."
+  {:ast-walker ast-walker/create-vm
+   :semantic semantic/create-vm})
 
 
-(def vm-labels {:ast-walker "ASTWalkerVM"})
+(def vm-labels {:ast-walker "ASTWalkerVM" :semantic "SemanticVM"})
+
+
+(def program-loaders
+  "The loader the observer hands each program batch, per evaluator.  The
+   shell's program medium carries `:yin/*` AST datoms, so the semantic VM's
+   code loader is composed behind the lowering; neither evaluator learns
+   which form travels."
+  {:ast-walker ast-walker/vm-load-program
+   :semantic (linearize/ast-loader semantic/vm-load-program)})
 
 
 (def lang-labels {:clojure "Clojure" :python "Python" :php "PHP"})
@@ -70,7 +80,7 @@
 
 (def help-text
   (str "Commands:\n"
-       "  (vm :ast-walker)\n"
+       "  (vm :ast-walker | :semantic)\n"
        "  (lang :clojure | :python | :php)\n"
        "  (compile expr)\n"
        "  (reset)\n"
@@ -284,12 +294,13 @@
 
 
 (defn- make-session
-  "Build the program medium, its attachment, the observer, and the VM
-   together.  Reset and VM selection call this, so the whole composition is
-   rebuilt as one and the attachment capability is bound exactly once per
-   medium lifetime."
+  "Build the program medium, its attachment, the observer, the VM, and the
+   program loader the observer feeds it together.  Reset and VM selection
+   call this, so the whole composition is rebuilt as one and the attachment
+   capability is bound exactly once per medium lifetime."
   [vm-type output-stream]
-  (merge {:vm (make-vm vm-type output-stream)}
+  (merge {:vm (make-vm vm-type output-stream)
+          :load-program (get program-loaders vm-type)}
          (make-program-attachment)))
 
 
@@ -306,10 +317,11 @@
      :or {lang :clojure vm-type :ast-walker}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
-         {:keys [program-stream observer vm]} (make-session vm-type output-stream)]
+         {:keys [program-stream observer vm load-program]} (make-session vm-type output-stream)]
      {:lang lang
       :vm-type vm-type
       :vm vm
+      :load-program load-program
       :program-stream program-stream
       :observer observer
       :output-stream output-stream
@@ -405,12 +417,19 @@
      (str output-text (format-value value))]))
 
 
+(declare eval-datoms)
+
+
 (defn- eval-ast
+  "Evaluate a compiled AST.  The ast-walker evaluates it directly; the
+   semantic VM executes only code segments, so its AST travels the program
+   medium as datoms and is lowered by the session's loader."
   [state ast]
-  (if (:ingress-loss? state)
-    [state (str "Error: " ingress-loss-text)]
-    (let [state' (inject-last-value state)]
-      (finalize-eval state state' (vm/eval (:vm state') ast)))))
+  (cond
+    (:ingress-loss? state) [state (str "Error: " ingress-loss-text)]
+    (= :semantic (:vm-type state)) (eval-datoms state (vm/ast->datoms ast))
+    :else (let [state' (inject-last-value state)]
+            (finalize-eval state state' (vm/eval (:vm state') ast)))))
 
 
 (defn- eval-datoms
@@ -437,7 +456,7 @@
               (observer/run-on-stream {:observer observer0,
                                        :consumer (:vm state')}
                                       engine/ready-for-ingress?
-                                      ast-walker/vm-load-program
+                                      (:load-program state')
                                       run-vm)
               state'' (assoc state' :observer observer :vm vm)]
           (cond
@@ -502,11 +521,12 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
     (case command
       vm (let [vm-type (first args)]
            (if (contains? vm-constructors vm-type)
-             (let [{:keys [program-stream observer vm]}
+             (let [{:keys [program-stream observer vm load-program]}
                    (make-session vm-type (:output-stream state))]
                [(assoc state
                        :vm-type vm-type
                        :vm vm
+                       :load-program load-program
                        :program-stream program-stream
                        :observer observer
                        :ingress-loss? false)
@@ -519,10 +539,11 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                [state (str "Error: Unknown Yin REPL language " (pr-str lang)
                            "; supported: " (pr-str (vec (keys lang-labels))))]))
       compile [state (render-compile-output (compile-command-ast state (first args)))]
-      reset (let [{:keys [program-stream observer vm]}
+      reset (let [{:keys [program-stream observer vm load-program]}
                   (make-session (:vm-type state) (:output-stream state))]
               [(assoc state
                       :vm vm
+                      :load-program load-program
                       :program-stream program-stream
                       :observer observer
                       :ingress-loss? false)

@@ -69,12 +69,45 @@
     (is (nil? (:pending-input state')))))
 
 
-(deftest the-vm-command-offers-only-the-ast-walker
+(deftest the-vm-command-offers-the-ast-walker-and-the-semantic-vm
   (let [[state result] (core/eval-input (core/create-state) "(vm :ast-walker)")
-        [_ rejected] (core/eval-input state "(vm :semantic)")]
+        [state' semantic] (core/eval-input state "(vm :semantic)")
+        [_ rejected] (core/eval-input state' "(vm :register)")]
     (is (= "Switched to ASTWalkerVM (store cleared)" result))
+    (is (= "Switched to SemanticVM (store cleared)" semantic))
+    (is (= :semantic (:vm-type state')))
     (is (str/includes? rejected "Unknown Yin REPL VM type"))
-    (is (str/includes? rejected ":ast-walker"))))
+    (is (str/includes? rejected ":semantic"))))
+
+
+(deftest the-semantic-vm-evaluates-through-the-lowering-loader
+  ;; The program medium is shared by every state threaded from one session,
+  ;; so each case starts from its own session rather than a stale state.
+  (let [semantic-state #(first (core/eval-input (core/create-state) "(vm :semantic)"))]
+    (testing "source lowers to a code segment and runs"
+      (let [[state' result] (core/eval-input (semantic-state) "(+ 1 2)")]
+        (is (= "3" result))
+        (is (= 1 (count (:code (:vm state')))))))
+    (testing "definitions, recursion, and history span successive programs"
+      (let [[state' result]
+            (evaluate (semantic-state)
+                      ["(defn sum-to [n] (if (= n 0) 0 (+ n (sum-to (- n 1)))))"
+                       "(sum-to 100)"
+                       "(+ *1 1)"])]
+        (is (= "5051" result))
+        (is (= 3 (count (:code (:vm state'))))
+            "each program is its own segment; earlier closures still resolve")))
+    (testing "printed output precedes the value"
+      (is (= "hi\nnil" (second (core/eval-input (semantic-state) "(println \"hi\")")))))
+    (testing "a datom literal is lowered like compiled source"
+      (is (= "99" (second (core/eval-input (semantic-state)
+                                           "[[-1 :yin/type :literal 0 1]
+                                             [-1 :yin/value 99 0 1]]")))))
+    (testing "reset keeps the evaluator and rebuilds its session"
+      (let [[state' message] (core/eval-input (semantic-state) "(reset)")]
+        (is (= "SemanticVM reset" message))
+        (is (= :semantic (get-in (core/repl-state state') [:vm :type])))
+        (is (= "7" (second (core/eval-input state' "(+ 3 4)"))))))))
 
 
 (deftest language-and-compile-commands-behave-as-they-do-in-v1

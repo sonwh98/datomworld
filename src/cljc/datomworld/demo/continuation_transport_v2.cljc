@@ -85,6 +85,23 @@
         (assoc-in [:pending-ks seq-n] k))))
 
 
+(defn enqueue-batch
+  "Append a whole continuation in-band: `datoms` followed by the summary
+   datom a reader addresses by. Nothing is kept off-stream, so the reader
+   rebuilds the continuation from the batch alone."
+  [state summary datoms]
+  (let [seq-n (:seq state)
+        result (stream/append! (:k-stream state)
+                               (conj (vec datoms)
+                                     [(+ 7000 seq-n) :stream/k
+                                      (assoc summary :seq seq-n) (+ 1 seq-n) 0]))
+        outcome (:dao.stream/outcome result)]
+    (when-not (= :dao.stream/ok outcome)
+      (throw (ex-info "Continuation batch not appended"
+                      {:outcome outcome, :seq seq-n})))
+    (assoc state :seq (inc seq-n))))
+
+
 (defn- fail-read
   [state vm-key outcome]
   (throw (ex-info "Continuation stream read failed"
@@ -119,7 +136,8 @@
                {:from (:from summary),
                 :to (:to summary),
                 :summary summary,
-                :k k}])
+                :k k,
+                :batch batch}])
             (recur state cursor')))
 
         (= :dao.stream/blocked outcome)

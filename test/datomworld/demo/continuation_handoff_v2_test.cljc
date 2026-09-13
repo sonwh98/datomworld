@@ -5,7 +5,9 @@
             [datomworld.demo.continuation-handoff-v2 :as handoff]
             [datomworld.demo.continuation-transport-v2 :as transport]
             [yin.vm.v2 :as vm]
-            [yin.vm.v2.ast-walker :as ast-walker]))
+            [yin.vm.v2.ast-walker :as ast-walker]
+            [yin.vm.v2.linearize :as linearize]
+            [yin.vm.v2.semantic :as semantic]))
 
 
 (defn- make-stream
@@ -18,6 +20,128 @@
 (defn- make-vm
   [_vm-key]
   (ast-walker/create-vm {:primitives vm/primitives, :make-stream make-stream}))
+
+
+(defn- make-semantic-vm
+  []
+  (semantic/create-vm {:primitives vm/primitives, :make-stream make-stream}))
+
+
+(def ^:private sum-to-ast
+  {:type :application,
+   :operator {:type :lambda,
+              :params ['ignored],
+              :body {:type :application,
+                     :operator {:type :variable, :name 'sum-to},
+                     :operands [{:type :literal, :value 10}]}},
+   :operands
+   [{:type :application,
+     :operator {:type :variable, :name 'yin/def},
+     :operands
+     [{:type :literal, :value 'sum-to}
+      {:type :lambda,
+       :params ['n],
+       :body {:type :if,
+              :test {:type :application,
+                     :operator {:type :variable, :name '=},
+                     :operands [{:type :variable, :name 'n}
+                                {:type :literal, :value 0}]},
+              :consequent {:type :literal, :value 0},
+              :alternate
+              {:type :application,
+               :operator {:type :variable, :name '+},
+               :operands
+               [{:type :variable, :name 'n}
+                {:type :application,
+                 :operator {:type :variable, :name 'sum-to},
+                 :operands [{:type :application,
+                             :operator {:type :variable, :name '-},
+                             :operands [{:type :variable, :name 'n}
+                                        {:type :literal, :value 1}]}]}]}}}]}]})
+
+
+(deftest semantic-continuation-ships-in-band-test
+  (let [code (linearize/lower-ast sum-to-ast)
+        loaded (semantic/vm-load-program (make-semantic-vm) code)
+        mid (nth (iterate vm/step loaded) 60)
+        state (transport/enqueue-batch (transport/init-state [:vm-a :vm-b])
+                                       {:from :vm-a, :to :vm-b}
+                                       (handoff/continuation-datoms code mid))
+        [_ message] (transport/consume-k-for state :vm-b)
+        batch (:batch message)
+        received (handoff/datoms->semantic-vm batch make-semantic-vm)]
+    (testing "The sender is mid-recursion, with frames and a definition"
+      (is (handoff/shippable? mid))
+      (is (seq (:k mid)))
+      (is (contains? (:store mid) 'sum-to)))
+    (testing "The batch is the segment plus EDN registers, nothing off-stream"
+      (is (nil? (:k message)))
+      (is (= {} (:pending-ks state)))
+      (is (every? #(some #{%} batch) code))
+      (is (string? (some (fn [[_ a v]]
+                           (when (= handoff/registers-attr a) v))
+                         batch))))
+    (testing "The receiver resumes the same registers and finishes"
+      (is (= (:control mid) (:control received)))
+      (is (= (:k mid) (:k received)))
+      (is (= 55 (vm/value (vm/run received))))
+      (is (= 55 (vm/value (vm/run mid)))))))
+
+
+(deftest a-continuation-holding-a-host-function-is-refused-test
+  (let [code (linearize/lower-ast {:type :literal, :value 1})
+        vm0 (assoc (semantic/vm-load-program (make-semantic-vm) code)
+                   :env {'f (fn [x] x)})]
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+          (handoff/continuation-datoms code vm0)))))
+
+
+(deftest a-continuation-holding-a-stream-is-not-shippable-test
+  ;; ((fn [s] (stream/cursor s)) (stream/make 4)): once :stream-make runs, the
+  ;; handle lives in the sender's store and the registers only name it.
+  (let [code (linearize/lower-ast
+               {:type :application,
+                :operator {:type :lambda,
+                           :params ['s],
+                           :body {:type :stream/cursor,
+                                  :source {:type :variable, :name 's}}},
+                :operands [{:type :stream/make, :buffer 4}]})
+        loaded (semantic/vm-load-program (make-semantic-vm) code)
+        made (first (filter #(seq (handoff/resource-keys %))
+                            (take-while (complement vm/halted?)
+                                        (iterate vm/step loaded))))]
+    (testing "A stream made before the handoff pins the continuation"
+      (is (some? made))
+      (is (not (handoff/shippable? made)))
+      (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+            (handoff/continuation-datoms code made))))
+    (testing "The sender itself still resumes the stream work"
+      (is (vm/halted? (vm/run made))))
+    (testing "A loaded VM holds no resources before the stream is made"
+      (is (empty? (handoff/resource-keys loaded)))
+      (is (handoff/shippable? loaded)))))
+
+
+(deftest register-encoding-keeps-data-and-primitives-apart-test
+  (let [code (linearize/lower-ast {:type :literal, :value 1})
+        plus (get vm/primitives '+)
+        tag handoff/tag-key
+        env {'marker {tag :primitive, :name '+},
+             'quoted {tag :quote, :value {tag :primitive, :name '+}},
+             'nested [{:inner {tag :primitive, :name '+}} #{:a} '(1 2)],
+             'op plus}
+        sender (assoc (semantic/vm-load-program (make-semantic-vm) code)
+                      :env env
+                      :stack [plus {tag :bogus}])
+        received (handoff/datoms->semantic-vm
+                   (handoff/continuation-datoms code sender)
+                   make-semantic-vm)]
+    (testing "Literal maps that look like tags arrive as the same literal data"
+      (is (= (dissoc env 'op) (dissoc (:env received) 'op)))
+      (is (= {tag :bogus} (second (:stack received)))))
+    (testing "Actual primitive references arrive as the receiver's primitive"
+      (is (identical? plus (get-in received [:env 'op])))
+      (is (identical? plus (first (:stack received)))))))
 
 
 (deftest one-payload-shape-for-both-endpoints-test

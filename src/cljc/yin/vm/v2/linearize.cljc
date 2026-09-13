@@ -252,10 +252,35 @@
    (lower (vm/ast->datoms ast (select-keys opts [:t])) opts)))
 
 
+(defn- loaded-code-floor
+  "The lowest entity id claimed by the segments in a `{segment-id image}`
+   code map — each segment id minus its length — or 0 when none is loaded."
+  [code]
+  (if (map? code)
+    (reduce-kv (fn [floor seg image]
+                 (if (and (integer? seg) (map? image))
+                   (min floor (- seg (or (:length image) 0)))
+                   floor))
+               0
+               code)
+    0))
+
+
 (defn ast-loader
   "Adapt a code loader `(fn [vm code-datoms])` into one for a program stream
    carrying AST datoms: §3.1's `(comp vm-load-program lower)` for a binary
    loader. The composition makes this choice; no evaluator learns which form
-   travels."
+   travels.
+
+   Successive batches on one medium are independent AST programs whose
+   tempids restart, so the default `:id-start` would hand two programs of
+   the same size one segment id, which the loader rejects as a conflict. Each
+   batch is therefore lowered below the input and below every segment the VM
+   already holds under `:code`; closures and continuations naming earlier
+   segments keep resolving."
   [load-program]
-  (fn [vm datoms] (load-program vm (lower datoms))))
+  (fn [vm datoms]
+    (let [floor (reduce min
+                        (min (- datom/first-user-id) (loaded-code-floor (:code vm)))
+                        (map first datoms))]
+      (load-program vm (lower datoms {:id-start (dec floor)})))))
