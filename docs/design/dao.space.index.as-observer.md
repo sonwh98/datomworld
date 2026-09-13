@@ -356,17 +356,32 @@ root restored from a durable store is held by a soft reference (the
 sequence *resume → publish through the recording handle → flush → drain →
 GC clears the root → next fold or query refaults the root through the
 drained handle* ends in "missing index segment". Child slots are unaffected
-(they fault through the durable store the settings name), and a session
-started at `:oldest` is unaffected (its settings carry no storage, so the
-root is pinned strong). The invariant the index state must keep: **a tree's
-refaults resolve against durable content, never against the recording
-handle.** The chosen mechanism is the simplest: index sessions construct
-their storage with ref-type `:strong`, so a root is never evicted and never
-refaults. Re-restoring the trees from the durable store after each flush
-was considered and rejected — "append success means enqueued, not
-materialized" (`dao.space.index.md`), so the durable store may not yet hold
-the blobs the new manifest names. cljs and cljd default to `:strong` already
-and never see the hazard.
+(they fault through the durable store the settings name). The invariant the
+index state must keep: **a tree's refaults resolve against durable content,
+never against the recording handle.** The mechanism is that every tree an
+index session holds carries `Settings` with ref-type `:strong`, so a root is
+never evicted and never refaults — and *where those settings come from
+differs by session kind*, which is the whole subtlety. Ref-pinning consults
+the **tree's** settings, not the storage passed to `store-tree`, so a
+`:strong` recording handle pins nothing by itself:
+
+- a session started at `:oldest` builds its trees either in memory (settings
+  carry no storage; `make-store-ref` pins the raw node) or through its
+  recording `kv-storage` constructed with `:ref-type :strong` — safe either
+  way;
+- a **resumed** session must restore its trees through a
+  session-constructed `:strong` `kv-storage` over the durable content store
+  (`bt/restore-tree` directly, behind an index-side helper) — **not**
+  through `query/open-published!` / `restored-indexes`, whose storage takes
+  the host default, `:soft` on the JVM, because those are the *read* path
+  and a query consumer wants eviction. Restoring through the read path would
+  reproduce the sequence above exactly.
+
+Re-restoring the trees from the durable store after each flush was
+considered and rejected — "append success means enqueued, not materialized"
+(`dao.space.index.md`), so the durable store may not yet hold the blobs the
+new manifest names, and `-restore` throws on absence. cljs and cljd default
+to `:strong` already and never see the hazard.
 
 The staging discipline is `yin.vm.macro.md` §5's: node blobs then manifest
 are staged as one payload list; `full` retains the exact list and leaves the
@@ -379,8 +394,10 @@ last, so a partial prefix is retry-safe, as today.
 from which the watermark and incremental indexes resume". An index state
 is that checkpoint's shape: `{:manifest-address a :cursor c :ids i
 :batch n}` — the published trees, the medium position they cover, and the
-allocator state. A restarted observer opens the manifest (lazy, via
-`query/open-published!`), re-attaches at `c`, and continues folding. Nothing
+allocator state. A restarted observer restores the four trees lazily from
+the manifest through a session-constructed `:strong` `kv-storage` over the
+durable content store (§4.1 — not the query read path), re-attaches at `c`,
+and continues folding. Nothing
 is replayed from the origin. The watermark the transactor derives by
 scanning the stream becomes `(max t)` over the checkpointed index's rows —
 still O(rows), since `t` is not a sort key in any covered order, but it
@@ -468,8 +485,14 @@ batches appends only the blobs stored since the first (count them); the
 through `pr-str`/`read-string` (it, unlike a live session, is plain data —
 a `BTSet` prints elements-only and a storage handle does not print at all),
 and `restored-indexes` over the published manifest equals the live trees as
-sets; an index session's storage is constructed `:strong` and a published
-root survives a forced GC on the JVM (F2).
+sets; the F2 hazard pinned deterministically both ways through the btree's
+existing `:test` ref seam (`:test` ref-type plus `clear-test-refs!`, which
+exists because soft clearing cannot be forced): a resumed session restored
+through a `:test`-ref storage, published, drained, refs cleared → the next
+query *throws* "missing index segment" (the hazard reproduced); the same
+sequence with the session-constructed `:strong` storage → no throw; and a
+session restored through `restored-indexes` is asserted to be the wrong
+construction for an index session.
 
 **Phase 1 — a medium with batch-local tempids (composition test).** The
 index is exercised over a medium another observer also reads: two
@@ -534,4 +557,11 @@ Round 1 (`collab/1789289033041-runtime-review-index-as-observer.glm-5.3.findings
 | F3 | The `:dao.space.index/*` reservation is a convention the index cannot check (glm P3) | §3.2 states it as a contract on media, with the consequence of violating it |
 | F4 | Assert-then-retract on a `t 0` medium hits `current`'s `m`-conflict throw (glm P3) | §2.3 states it: folded, `history` correct, `current` throws loudly; not a defect, since recognising a retraction is payload interpretation |
 | F5 | "A query, not a scan" overstates; "dirty-tracked against storage" misplaces dirtiness; tx records and `v`-only tempids on `:unresolved` media inferred, not stated (glm P3) | §4.2 and §2.2 reworded; both cases stated in §2.2 steps 1–2 |
+
+Round 2 (`collab/1789289033041-runtime-review-index-as-observer-r2.glm-5.3.findings.md`), on `280dda2`; F1, F3, F4, F5 confirmed resolved, F2 partially:
+
+| # | Finding (reviewer) | Resolution |
+|---|---|---|
+| N1 | The `:strong` remedy binds to the session's recording storage, but ref-pinning consults the *tree's* settings; a session resumed via `open-published!`/`restored-indexes` gets the JVM `:soft` default and the F2 sequence survives (glm P2) | §4.1 states where settings come from per session kind; a resumed session restores through a session-constructed `:strong` `kv-storage`, never the query read path; §4.2 reworded |
+| N2 | "Survives a forced GC" is not a deterministic test; soft clearing cannot be forced (glm P3) | Phase 0′ pins the hazard both ways through the `:test` ref-type and `clear-test-refs!` |
 
