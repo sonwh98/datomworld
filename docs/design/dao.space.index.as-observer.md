@@ -159,12 +159,20 @@ One batch, one pure fold:
 1. **Admit elements.** Each element is a d5 row or a
    `{:dao.space/transaction {:t :datoms}}` record, flattened. Admission is
    *looser than* `datom/local-datom?`, which `element-datoms` applies today
-   and which requires a non-negative `e`: in `:unresolved` mode a negative
-   `e`, and a negative `v` under an attribute `:schema` declares a ref, are
-   admitted as **tempids** (integer `t ≥ 0`, integer `m`, namespaced keyword
-   `a` are still required). In `:resolved` mode admission *is*
-   `local-datom?`. Strictness is restored after step 2: every row that
-   reaches step 3 satisfies `local-datom?`. Anything not admitted is a
+   and which requires a non-negative `e`: in `:unresolved` mode admission is
+   exactly `local-datom?` minus that one clause — integer `e` of either
+   sign, namespaced keyword `a`, `t ≥ 0`, integer `m`. `v` is unconstrained
+   by `local-datom?` already, so a negative ref-valued `v` needs no schema
+   knowledge to be *admitted*; the schema first matters at resolution (step
+   2), where it decides which negative `v`s are tempids and which are plain
+   negative values. In `:resolved` mode admission *is* `local-datom?`.
+   Strictness is restored after step 2: every row that reaches step 3
+   satisfies `local-datom?`. A transaction-record element is admitted by
+   the same per-datom rule applied to each of its datoms plus the record's
+   own shape checks (one shared `t`, non-empty); on an `:unresolved` medium
+   a record's positive-`e` datoms therefore defect the batch through the
+   mode rule of step 2, which is the intended reading — records are a
+   transactor's shape, and a transactor resolves. Anything not admitted is a
    **defect** — recorded in `:defects` with the batch ordinal and the
    element's position — and the whole batch is skipped *without* stopping
    the session. (A throwing `load` would leave the cursor on the bad batch
@@ -174,16 +182,21 @@ One batch, one pure fold:
    one-shot path; the fold uses an admitting, non-throwing variant of the
    same per-element rule.
 2. **Resolve identity** (§3). `:unresolved` mode: every tempid in the batch
-   is mapped through a batch-local table to a fresh durable id from `:ids`,
-   and the mapping is emitted as resolution facts. `:resolved` mode: nothing
+   — whether it appears as an `e` or only as a declared-ref `v` (a reference
+   to an entity the batch never describes) — is mapped through a batch-local
+   table to a fresh durable id from `:ids`, and the mapping is emitted as
+   resolution facts. `:resolved` mode: nothing
    is allocated; ids pass through. A batch that violates its mode (a tempid
    on a `:resolved` medium; a positive `e` on an `:unresolved` one) is a
    defect for the whole batch, so a medium can never be half-resolved.
 3. **Fold.** Rows and resolution facts are `dao.data.btree/conj`ed into the
-   four trees — persistent insert, structurally shared with the previous
-   state, and *dirty-tracked* against the trees' `:storage` so that §4.1's
-   `store-tree` later emits only what this and subsequent folds changed.
-   Covered indexes are sets; a duplicate row is a no-op.
+   four trees — a persistent insert that shares every unmodified node with
+   the previous state. A node created by the insert carries no address mark;
+   dirtiness *is* that absence, a property of the node and of nothing else
+   (`btree.cljc` `node-store` skips every child slot that already carries an
+   address), so §4.1's `store-tree` later emits exactly what this and
+   subsequent folds created. Covered indexes are sets; a duplicate row is a
+   no-op (`conj` returns the same set).
 4. **Advance** `:batch`, and `:ids` in `:unresolved` mode.
 
 The `:indexes` after batch *n* are a pure function of (index state before,
@@ -203,6 +216,15 @@ The observer does not paper over the second row by minting `t` — decision
 4. A composition that wants transaction-time semantics over such a medium
 routes it through a transactor (the writer allocates `t`); one that wants
 "what facts does this medium assert" reads `current` and gets exactly that.
+**Retractions on such a medium**: an assertion and a later retraction of
+the same `[e a v]` both carry `t 0` and differ only in `m`, which
+`current-state-seq` rejects as conflicting history (`query.cljc`, the
+`m`-conflict throw). The index does not check for this — deciding whether
+an `m` value means "retract" is payload interpretation, decision 6 — so the
+rows are folded and `history` answers correctly, while `current` over such
+a medium *throws* at query time. Loud, not silent; a composition that
+retracts on a medium without writer `t` has chosen the wrong medium for
+`current`.
 
 ---
 
@@ -250,7 +272,14 @@ asserts, in its own attribute namespace:
 The row's `t` is the observer's batch ordinal *n* — its own logical clock,
 never a host clock, and not the observed rows' `t`. `m` is
 `datom/default-op`: the attribute namespace alone distinguishes these facts
-from observed rows, and nothing else is needed. (An earlier draft gave the
+from observed rows, and nothing else is needed. That is a **contract on
+media, not a check in the index**: a medium must not assert attributes in
+`:dao.space.index/*`. The index does not inspect attribute namespaces
+(decision 6), so a medium that violates the reservation shares `[e a v]`
+keys with resolution facts and owns the resulting `current` semantics
+(greatest-`t` shadowing, or the `m`-conflict throw on a same-`t` meet).
+With the reservation honoured, resolution facts and observed rows have
+disjoint `[e a v]` keys and can neither shadow nor conflict. (An earlier draft gave the
 observer "its own operation entity" for `m`; that would have required
 allocating an entity for the observer itself, and the namespace already
 does the work.) These are facts *about* observation, distinct from the
@@ -317,6 +346,28 @@ with history. Append cost is therefore proportional to what changed;
 `jing/materialize!`'s dedup at the far end is a second line of defence, not
 the mechanism.
 
+**Draining is safe only if nothing ever refaults through the drained
+handle.** `store-tree` needs nothing from it (marks live in the tree), but
+`-store-tree!` also overwrites the set wrapper's *restore source* with the
+storage it was given (`btree.cljc`, `set! storage storage'`), and
+`resident-root` refaults an evicted root through that field. On the JVM a
+root restored from a durable store is held by a soft reference (the
+`kv-storage` default ref-type there); on a resumed checkpoint session the
+sequence *resume → publish through the recording handle → flush → drain →
+GC clears the root → next fold or query refaults the root through the
+drained handle* ends in "missing index segment". Child slots are unaffected
+(they fault through the durable store the settings name), and a session
+started at `:oldest` is unaffected (its settings carry no storage, so the
+root is pinned strong). The invariant the index state must keep: **a tree's
+refaults resolve against durable content, never against the recording
+handle.** The chosen mechanism is the simplest: index sessions construct
+their storage with ref-type `:strong`, so a root is never evicted and never
+refaults. Re-restoring the trees from the durable store after each flush
+was considered and rejected — "append success means enqueued, not
+materialized" (`dao.space.index.md`), so the durable store may not yet hold
+the blobs the new manifest names. cljs and cljd default to `:strong` already
+and never see the hazard.
+
 The staging discipline is `yin.vm.macro.md` §5's: node blobs then manifest
 are staged as one payload list; `full` retains the exact list and leaves the
 index state not-ready; `ok` on the manifest clears it. The manifest is always
@@ -331,8 +382,9 @@ is that checkpoint's shape: `{:manifest-address a :cursor c :ids i
 allocator state. A restarted observer opens the manifest (lazy, via
 `query/open-published!`), re-attaches at `c`, and continues folding. Nothing
 is replayed from the origin. The watermark the transactor derives by
-scanning is `(max t)` over the checkpointed index's rows — a query, not a
-scan.
+scanning the stream becomes `(max t)` over the checkpointed index's rows —
+still O(rows), since `t` is not a sort key in any covered order, but it
+touches the index rather than replaying the medium, which is the point.
 
 Two caveats bound this. First, a cursor is transport-scoped: it names a
 position on *this* handle's logical stream. Over a process-lifetime
@@ -411,9 +463,13 @@ over a transactor's local memory-log produces `:indexes` equal (as sets) to
 all four trees; manifest equality; a malformed element becomes a defect and
 the next batch still folds; a tempid on a `:resolved` medium is a defect;
 `run-on-stream` `blocked`/`end` behaviour; a second `publish!` after more
-batches appends only the blobs stored since the first (count them); ids
-stable across a `pr-str`/`read-string` round trip of the session (it is
-plain data plus btree values).
+batches appends only the blobs stored since the first (count them); the
+**checkpoint value** `{:manifest-address :cursor :ids :batch}` round-trips
+through `pr-str`/`read-string` (it, unlike a live session, is plain data —
+a `BTSet` prints elements-only and a storage handle does not print at all),
+and `restored-indexes` over the published manifest equals the live trees as
+sets; an index session's storage is constructed `:strong` and a published
+root survives a forced GC on the JVM (F2).
 
 **Phase 1 — a medium with batch-local tempids (composition test).** The
 index is exercised over a medium another observer also reads: two
@@ -464,3 +520,18 @@ checkpoint when one is offered.
   `blocked` and take its trees". Probably, but `snapshot`'s status
   vocabulary (`:ended`/`:blocked`/`:gap`/`:defect`) should survive as the
   session's terminal report.
+
+---
+
+## Appendix A. Review findings and their resolution
+
+Round 1 (`collab/1789289033041-runtime-review-index-as-observer.glm-5.3.findings.md`), on `5296ee5`; glm-5.3 verified every mechanism claim against the code (all nine hold, claim 9 partially) and requested changes on:
+
+| # | Finding (reviewer) | Resolution |
+|---|---|---|
+| F1 | Phase 0′'s `pr-str`/`read-string` round trip of a live session cannot pass: `BTSet` prints elements-only, a storage handle is unprintable (glm P2) | Phase 0′ round-trips the *checkpoint value* instead and compares `restored-indexes` to the live trees |
+| F2 | Draining the recording handle is unsafe on the resumed-checkpoint path on the JVM: `-store-tree!` rewrites the wrapper's restore source and a soft-ref'd root refaults through the drained handle (glm P2) | §4.1 states the invariant (refaults resolve against durable content, never the handle) and pins index-session roots `:strong`; re-restore after flush rejected because materialization is asynchronous; Phase 0′ test |
+| F3 | The `:dao.space.index/*` reservation is a convention the index cannot check (glm P3) | §3.2 states it as a contract on media, with the consequence of violating it |
+| F4 | Assert-then-retract on a `t 0` medium hits `current`'s `m`-conflict throw (glm P3) | §2.3 states it: folded, `history` correct, `current` throws loudly; not a defect, since recognising a retraction is payload interpretation |
+| F5 | "A query, not a scan" overstates; "dirty-tracked against storage" misplaces dirtiness; tx records and `v`-only tempids on `:unresolved` media inferred, not stated (glm P3) | §4.2 and §2.2 reworded; both cases stated in §2.2 steps 1–2 |
+
