@@ -1,14 +1,22 @@
 # yin.vm.code-as-tuples — code as content-addressed tuples
 
-Status: Proposed, revision 7 (after the sixth 2026-09-14 review). This document
-implements seven owner rulings of 2026-09-14: the Universal AST becomes
-flat tag-first positional tuples; the grammar is fixed-arity, saturated,
-and provenance-free; `dao.space.query/q` runs over the tuples directly; the
-semantic VM loads tuples as its primary path; code on a stream is tuples
-end to end; `t` and `m` live in a ledger of tuples over code addresses; and
-datoms `[e a v t m]` are the reference layer. The rulings are inputs. What
-follows is their implementation as a protocol: every sentence is a rule of
-the design, and each call it makes is stated once.
+Status: Proposed, revision 8 (after the owner's 2026-09-15 clarification
+of ruling 1, accepted through an APPROVE-WITH-FINDINGS r7 review). This
+document implements eight owner rulings — seven of 2026-09-14 and one of
+2026-09-15: the map AST is the Universal AST's own representation, the
+semantic layer, and its canonical form is the flat per-node row
+projection `[id tag & slots]`, which is what is content-hashed, stored,
+streamed, and named — there is no tuple tree (ruling 1 of 2026-09-14,
+clarified 2026-09-15); the grammar is fixed-arity, saturated, and
+provenance-free; `dao.space.query/q` runs over the rows directly; the
+semantic VM loads rows as its primary path, reconstructing the map AST;
+code on a stream is rows end to end; `t` and `m` live in a ledger of
+records over code addresses; datoms `[e a v t m]` are the reference
+layer; and the round-trip law — `map → rows → map` and `rows → map →
+rows` are identities — is a first-class conformance obligation (ruling 8,
+2026-09-15). The rulings are inputs. What follows is their
+implementation as a protocol: every sentence is a rule of the design, and
+each call it makes is stated once.
 
 This document is subordinate to
 [`datom.world.md`](./datom.world.md) (axioms and invariants),
@@ -25,7 +33,8 @@ its open canonical encoding), and
 [`dao.space.query.md`](./dao.space.query.md) (the positional Datalog
 surface and current-state resolution). It extends them; where it restates
 one of their rules it cites the rule. Where it supersedes one, it says so
-(§7.2). Line numbers were read from the working tree on 2026-09-14.
+(§7.2). Line numbers were read from the working tree on 2026-09-14 and
+re-verified on 2026-09-15.
 
 ---
 
@@ -38,33 +47,42 @@ things that never cross between them are what make the design hold.
 +----------------+--------------------------------+-------------------------------------+--------------------+--------------------------+--------------------------------+
 | Layer          | Example                        | What it holds                       | Identity           | Where it lives           | Mutability                     |
 +================+================================+=====================================+====================+==========================+================================+
-| **Content**    | `[:lambda [x] [:variable x]]`  | The code itself, in its canonical   | the content        | `dao.jing`, under its    | immutable; no `t`, no `m`, no  |
-|                |                                | tuple form: AST trees (§2) and      | address            | address                  | name, no occurrence, no        |
-|                |                                | instruction vectors (§5); and       | `(dao.jing/segment | (`src/cljc/dao/jing.cljc | predecessor address inside     |
-|                |                                | ledger records (§8.2), which are    | -key value)`       | :217-225`)               | code content                   |
-|                |                                | also content-addressed values       |                    |                          |                                |
+| **Content**    | `[A :lambda [x] B]`, the root  | The code itself, in its canonical   | the content        | `dao.jing`, under its    | immutable; no `t`, no `m`, no  |
+|                | row of §2.1's tree             | row form: flat per-node rows (§2)   | address — a row's  | address                  | name, no occurrence, no        |
+|                |                                | and instruction vectors (§5); and   | id; a tree is named| (`src/cljc/dao/jing.cljc | predecessor address inside     |
+|                |                                | ledger records (§8.2), which are    | by its root row's  | :217-225`)               | code content                   |
+|                |                                | also content-addressed values       | id (§4.1)          |                          |                                |
 +----------------+--------------------------------+-------------------------------------+--------------------+--------------------------+--------------------------------+
 | **Refs**       | [e :yin/code                   | Datoms `[e a v t m]` whose `v` is a | the datom itself,  | the ledger relation      | append-only; the hash chain is |
 |                | :segment/sha256-…]             | code or record address: names,      | in a `dao.space`   | (§8), transacted by a    | realized by ledger records and |
 |                |                                | history, retraction, derivation,    | ledger             | `dao.space` transactor   | the refs that publish them     |
 |                |                                | expansion, publication, custody     |                    |                          | (§8.2)                         |
 +----------------+--------------------------------+-------------------------------------+--------------------+--------------------------+--------------------------------+
-| **Query**      | `[A :application C [D E]       | Entity-shaped views of code         | derived; never an  | computed from content by | recomputed at will; discarding |
-|                | true]`                         | internals: the flat per-node rows   | identity           | a pure function, kept by | a projection loses nothing     |
-|                |                                | `[id tag & slots]`, the segment     |                    | whoever queries          |                                |
-|                |                                | rows `[pc tag & ops]`, and the      |                    |                          |                                |
-|                |                                | datom projection `[e a v t m]` of a |                    |                          |                                |
-|                |                                | tree                                |                    |                          |                                |
+| **Query**      | `[seg 12 :call 2 false]`, one  | Entity-shaped views of code         | derived; never an  | computed from content by | recomputed at will; discarding |
+|                | segment-qualified row (§6.2)   | internals: the segment rows         | identity           | a pure function, kept by | a projection loses nothing     |
+|                |                                | `[pc tag & ops]`, the datom         |                    | whoever queries          |                                |
+|                |                                | projection `[e a v t m]` of a tree, |                    |                          |                                |
+|                |                                | and the occurrence relation (§6.1)  |                    |                          |                                |
 +----------------+--------------------------------+-------------------------------------+--------------------+--------------------------+--------------------------------+
 
 The layering is the git/Unison one: content is what git calls objects — blobs and
 terms named by hash — refs are `name → hash` entries with history, and a projection is a
 working tree or an index that can be regenerated from the content.
 
+**Where the semantic layer lives.** The map AST — a tag plus named fields,
+the walker's form — is the language's own representation, and it is a
+presentation of the content, not a fourth layer: it is never
+content-hashed, stored, or shipped; it exists on both sides of storage,
+frontend-side before the boundary projection and machine-side after
+load-time reconstruction, ephemeral and per-consumer, like an image
+(§2.1).
+
 The third layer is named for its job, querying; its members are the
-projections — the flat per-node projection (`§6.1`), the segment rows
-(`§6.2`), and the datom projection (`§6.5`) — and wherever this document
-says "a projection" it means one of those forms, never the layer.
+projections — the segment rows (`§6.2`), the datom projection (`§6.5`),
+and the occurrence relation (`§6.1`) — and wherever this document says
+"a projection" it means one of those forms, never the layer. The flat
+per-node rows are not among them: a row is the stored form itself, not a
+view of something else (`§2.1`).
 
 **What the datom layer is for.** A datom never holds a node or an
 instruction under this design; it holds a fact whose subject or value is an
@@ -107,9 +125,9 @@ What never crosses:
 - **No code content enters a ref.** A ref carries an address and nothing
   else about the code; two ledgers that agree on `dao.jing` addresses
   interoperate without exchanging trees.
-- **No projection id is ever named by a ref, a ledger row, a closure, or a
-  continuation.** Projection ids are addresses (flat rows) or local tempids
-  (datom projection). Only addresses cross layers; this is what retires the
+- **No datom-projection tempid is ever named by a ref, a ledger row, a
+  closure, or a continuation.** The datom projection's `e` values are
+  local; only addresses cross layers, and this is what retires the
   `:eid` sharing of `src/cljc/yin/vm/v2.cljc:394-411` (§4.4).
 - **Content identity is not occurrence identity.** An address says *what*
   a value is. Which source position, which batch, which call site, which
@@ -117,8 +135,9 @@ What never crosses:
   in side tables and events keyed by an origin (source batch or producing
   event), root address, and structural path (§2.5, §4.4, §8.4), never by
   content address alone.
-- **The hot loop reads content only.** An evaluator decodes tuple content
-  into its image at load and never consults a ref or a projection while
+- **The hot loop reads content only.** An evaluator builds its image at
+  load — the walker reconstructs the map AST from rows, the semantic VM
+  decodes the vector — and never consults a ref or a projection while
   stepping (§7.6).
 
 ---
@@ -127,40 +146,75 @@ What never crosses:
 
 ### 2.1 Form
 
-The AST is the code, and the tuple tree is the AST itself in canonical
-form, not a projection of it: there is no further representation behind
-these vectors. The walker walks them, loaders load them, and the address
-names them. The flat per-node rows and the datom batch are projections of
-this form (§6), which is why they live in the query layer and this tree
-lives here.
-
-A node is a vector whose first element is its tag keyword and whose
-remaining elements are its slots, in a fixed order with a fixed count per
-tag. Child slots hold child nodes inline, so a tree is one nested value:
+The map AST is the code's own representation — the **semantic layer**. A
+node is a map of its tag and its named fields:
 
 ```clojure
-[:application [:variable +] [[:literal 1] [:variable x]] true]
-[:lambda [x] [:application [:variable +] [[:variable x] [:literal 1]] true]]
+{:type :lambda,
+ :params [x],
+ :body {:type :application,
+        :operator {:type :variable, :name +},
+        :operands [{:type :variable, :name x} {:type :literal, :value 1}],
+        :tail? true}}
 ```
 
-This is the Erlang abstract-format shape, and it is exactly what the
-walker's `case` already dispatches on: every arm of the cold case
-(`src/cljc/yin/vm/v2/ast_walker.cljc:359-469`) and the hot case
-(`ast_walker.cljc:600-626`) keys on the node's type and reads a fixed set of
-named fields. Position replaces name; nothing about the dispatch changes.
+This is exactly what the walker's `case` dispatches on today: every arm
+of the cold case (`src/cljc/yin/vm/v2/ast_walker.cljc:359-469`) and the
+hot case (`ast_walker.cljc:600-626`) keys on the node's `:type` and
+reads a fixed set of named fields. The walker stays on this form, and so
+does every test that constructs map ASTs; nothing in this design sweeps
+them. But the map AST is never hashed directly, never stored, never
+shipped. It exists on both sides of storage — frontend-side, where
+frontends emit it, and machine-side, where the loader reconstructs it
+(§7.1) — and it is ephemeral and per-consumer, like an image: each
+consumer's map is its own value, and none of them is the canonical one.
 
-**The tuple is immutable under `:frame`; runtime bookkeeping lives beside
-it.** Today the walker writes into the AST node it holds under `:frame`:
-the cold `:eval-operator` arm `assoc`s `:operator-evaluated?` and `:fn`
-into it (`ast_walker.cljc:213-217`), the cold `:eval-operand` arm `assoc`s
-`:evaluated` (`ast_walker.cljc:226-237`), and the hot arms do the same
-(`ast_walker.cljc:532-541`, `:576-580`). A keyword cannot be associated
-into a vector, and a runtime slot in a canonical tuple would break fixed
-arity and mix execution state into syntax. The continuation frames are
-therefore re-schemed so that the node is read-only and every mutable field
-is a sibling key of the frame map (§2.6). Frame continuations remain runtime
-state, not syntax, as do closures (`ast_walker.cljc:364-370`) and reified
-continuations (`ast_walker.cljc:422-427`).
+The canonical artifact is the **flat per-node row projection** of the map
+AST, `project : map-ast → rows`, one row per node:
+
+```clojure
+[A :lambda [x] B]
+[B :application C [D E] true]
+[C :variable +]
+[D :variable x]
+[E :literal 1]          ; A..E are :segment/sha256-… row ids
+```
+
+A row's **body** is `[tag & slots]`: the slots are the node's field
+values in the §2.3 order — a child slot holds the child row's id, a
+`nodes` slot holds the ordered vector of the children's ids, and every
+other slot holds its data unchanged. The row's id is
+`(dao.jing/segment-key body)` (`src/cljc/dao/jing.cljc:217-225`), and the
+stored row is the id prepended to its own body, `[id tag & slots]`. The
+id is therefore merkle: a parent's id commits to its children's ids
+inline, and a tree's address is its root row's id (§4.1). These rows are
+what `dao.jing` stores, what streams carry, what addresses name, and
+what `q` queries. **There is no nested tuple tree anywhere in this
+design**: the rows are not interleaved into a tree-shaped value, and no
+sentence below may be read as one; the tree is the map AST the rows
+reconstruct to. Identical subtrees project to the identical row, so a
+stored set holds one row per distinct subtree and is the tree's DAG
+(§4.4). Whether `dao.jing` stores rows as individual values (git-style,
+shared subtrees shared) or packs them per tree is an **Open Question**,
+not just an implementation note, because the choice determines the loader's interface (N fetches vs 1 fetch) and the validator's reachability rules. If packed, the pack requires its own address distinct from the root id.
+
+The projection is total and lossless by the round-trip law (§7.2): for
+every corpus program, `map → rows → map` is the identity on the
+*canonical* map AST (post-strip and post-saturate, with frontend `:yang/*` keys and stray `tail?` marks gone), and `rows → map → rows` is the identity on the rows.
+The §2.3 table is the dictionary of both directions — a tag's slot list,
+in order, is the map's key set, so one table fixes the row's positions
+and the map's fields together.
+
+**Runtime `assoc` into a map node is legal.** The node a walker holds
+under `:frame` is the machine's ephemeral image of the code, not a
+canonical value, and nothing runtime-`assoc`ed is ever projected back to
+rows: the cold `:eval-operator` arm `assoc`s `:operator-evaluated?` and
+`:fn` into it (`ast_walker.cljc:213-217`), the cold `:eval-operand` arm
+`assoc`s `:evaluated` (`ast_walker.cljc:226-237`), and the hot arms do
+the same (`ast_walker.cljc:532-541`, `:576-580`); all of it stays inside
+the machine. What the boundary requires is only that a projection's
+input be a well-formed map AST (§2.4, §2.5); the reverse direction never
+re-derives what evaluation wrote (§2.6).
 
 ### 2.2 Slot kinds
 
@@ -172,10 +226,10 @@ already states (`src/cljc/yin/vm/v2/linearize.cljc:230-242`).
 +---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
 | Kind    | Admits                           | Notes                                                                                                                     |
 +=========+==================================+===========================================================================================================================+
-| `node`  | one child tuple                  | inline in the canonical form (§4)                                                                                         |
+| `node`  | one child node                   | the child's row id in a row; the child's map in the semantic layer                                                        |
 +---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
-| `nodes` | a vector of child tuples,        | one slot, so arity stays fixed however many operands there are                                                            |
-|         | possibly empty                   |                                                                                                                           |
+| `nodes` | a vector of child nodes,         | one slot, so arity stays fixed however many operands there are; the ordered ids in a row, the maps in order in the        |
+|         | possibly empty                   | semantic layer                                                                                                            |
 +---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
 | `data`  | plain data as                    | never a host function or object                                                                                           |
 |         | `linearize/plain-data?` defines  |                                                                                                                           |
@@ -187,10 +241,10 @@ already states (`src/cljc/yin/vm/v2/linearize.cljc:230-242`).
 +---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
 | `key`   | a store key: any value of the    | the store contract is a map lookup with no key restriction (`ast_walker.cljc:401`, `:402-404`); the linearizer admits any |
 |         | `data` kind                      | `plain-data?` key (`linearize.cljc:79-85`, `:138-141`) and the loader carries it through unchanged                        |
-|         |                                  | (`src/cljc/yin/vm/v2/semantic.cljc:577-579`), so symbols (`yin/def`), keywords (`test/yin/vm/v2/parity_test.cljc:99`),    |
-|         |                                  | and numbers are all portable keys today. `key` is a named kind rather than `data` only so that the same definition is     |
-|         |                                  | cited by AST validation (§7.4), instruction validation (§7.5), dependency extraction (§7.7), and the store-slice encoding |
-|         |                                  | of UCF §7.6.2; it is the `data` domain and nothing narrower                                                               |
+|         |                                  | (`src/cljc/yin/vm/v2/semantic.cljc:577-579`), so symbols (`yin/def`), keywords (`test/yin/vm/v2/parity_test.cljc:99`), and|
+|         |                                  | numbers are all portable keys today. `key` is a named kind rather than `data` only so that the same definition is cited by|
+|         |                                  | AST validation (§7.4), instruction validation (§7.5), dependency extraction (§7.7), and the store-slice encoding of UCF   |
+|         |                                  | §7.6.2; it is the `data` domain and nothing narrower                                                                      |
 +---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
 | `sym`   | one symbol                       |                                                                                                                           |
 +---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
@@ -210,45 +264,53 @@ already states (`src/cljc/yin/vm/v2/linearize.cljc:230-242`).
 
 The tag set is the walker's dispatch set reconciled with the codec's
 inventory (`src/cljc/yin/vm/v2.cljc:413-478`) under the two boundary calls
-of §3. Arity counts the tag.
+of §3. Arity counts the tag and the id together: a row's count is its tag
+arity plus one. This table is the **projection and reconstruction
+dictionary**: the slot list of a tag, in order, is exactly the map's key
+set beyond `:type` — the arity ↔ key-set correspondence — so the one
+table fixes the row's positions and the map's fields together. Position
+`i` of a row body holds the value of the field the *Slots* column names
+at `i`; projection reads the positions, reconstruction reads the names,
+and neither side may disagree with the other.
 
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| Tag                        | Arity | Tuple                                    | Slot kinds        | Walker arm            | Codec arm         |
-+============================+=======+==========================================+===================+=======================+===================+
-| `:literal`                 | 2     | `[:literal value]`                       | data              | `ast_walker.cljc:360` | `v2.cljc:414-415` |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:variable`                | 2     | `[:variable name]`                       | sym               | `:361-363`            | `:416-417`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:lambda`                  | 3     | `[:lambda params body]`                  | syms, node        | `:364-370`            | `:418-423`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:application`             | 4     | `[:application operator operands tail?]` | node, nodes, bool | `:371-376`            | `:424-429`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:if`                      | 4     | `[:if test consequent alternate]`        | node, node, node  | `:377-381`            | `:435-441`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:dao.stream.apply/call`   | 3     | `[:dao.stream.apply/call op operands]`   | kw, nodes         | `:382-394`            | `:430-434`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:vm/gensym`               | 2     | `[:vm/gensym prefix]`                    | str               | `:395-400`            | `:443-444`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:vm/store-get`            | 2     | `[:vm/store-get key]`                    | key               | `:401`                | `:445-446`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:vm/store-put`            | 3     | `[:vm/store-put key value]`              | key, data         | `:402-409`            | `:447-449`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:vm/current-continuation` | 1     | `[:vm/current-continuation]`             | —                 | `:422-427`            | `:474-475`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:vm/park`                 | 1     | `[:vm/park]`                             | —                 | `:428-430`            | `:469`            |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:vm/resume`               | 3     | `[:vm/resume parked-id val]`             | kw, node          | `:431-438`            | `:470-473`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:stream/make`             | 2     | `[:stream/make buffer]`                  | int               | `:439-447`            | `:451-453`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:stream/put`              | 3     | `[:stream/put target val]`               | node, node        | `:448-454`            | `:454-458`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:stream/cursor`           | 2     | `[:stream/cursor source]`                | node              | `:455-461`            | `:459-461`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:stream/next`             | 2     | `[:stream/next source]`                  | node              | `:462-468`            | `:462-464`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
-| `:stream/close`            | 2     | `[:stream/close source]`                 | node              | added by §3.2         | `:465-467`        |
-+----------------------------+-------+------------------------------------------+-------------------+-----------------------+-------------------+
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| Tag                     | Arity | Row body                             | Slots                    | Slot kinds       | Walker arm         | Codec arm       |
++=========================+=======+======================================+==========================+==================+====================+=================+
+| :literal                | 2     | [:literal value]                     | value                    | data             | ast_walker.cljc:360| v2.cljc:414-415 |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :variable               | 2     | [:variable name]                     | name                     | sym              | :361-363           | :416-417        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :lambda                 | 3     | [:lambda params body]                | params body              | syms, node       | :364-370           | :418-423        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :application            | 4     | [:application operator operands      | operator operands tail?  | node, nodes, bool| :371-376           | :424-429        |
+|                         |       | tail?]                               |                          |                  |                    |                 |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :if                     | 4     | [:if test consequent alternate]      | test consequent alternate| node, node, node | :377-381           | :435-441        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :dao.stream.apply/call  | 3     | [:dao.stream.apply/call op operands] | op operands              | kw, nodes        | :382-394           | :430-434        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/gensym              | 2     | [:vm/gensym prefix]                  | prefix                   | str              | :395-400           | :443-444        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/store-get           | 2     | [:vm/store-get key]                  | key                      | key              | :401               | :445-446        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/store-put           | 3     | [:vm/store-put key val]              | key val                  | key, data        | :402-409           | :447-449        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/current-continuation| 1     | [:vm/current-continuation]           | —                        | —                | :422-427           | :474-475        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/park                | 1     | [:vm/park]                           | —                        | —                | :428-430           | :469            |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/resume              | 3     | [:vm/resume parked-id val]           | parked-id val            | kw, node         | :431-438           | :470-473        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :stream/make            | 2     | [:stream/make buffer]                | buffer                   | int              | :439-447           | :451-453        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :stream/put             | 3     | [:stream/put target val]             | target val               | node, node       | :448-454           | :454-458        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :stream/cursor          | 2     | [:stream/cursor source]              | source                   | node             | :455-461           | :459-461        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :stream/next            | 2     | [:stream/next source]                | source                   | node             | :462-468           | :462-464        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :stream/close           | 2     | [:stream/close source]               | source                   | node             | added by §3.2      | :465-467        |
++-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
 
 `:vm/store-update` is not a tag (§3.1). `:yin/macro-expand` is not a tag:
 the walker has no arm for it and the linearizer rejects it
@@ -266,8 +328,8 @@ mark in the whole v2 lineage is the linearizer's `:call` emission
 never reads it; `:ffi-call` has no tail operand (`yin.vm.semantic.md`
 §2.4). The yang frontends mark `:tail? true` on literals, defs, and other
 nodes (`src/cljc/yang/clojure.cljc:132`, `:164`; `src/cljc/yang/python.cljc:481`),
-and the codec faithfully persists every such mark (`v2.cljc:412`). In the
-tuple form those marks are dropped at the boundary: a mark no evaluator can
+and the codec faithfully persists every such mark (`v2.cljc:412`). The
+boundary projection drops those marks: a mark no evaluator can
 observe is not part of the program's syntax as the evaluators read it. The
 mark on an `:if`'s branches is carried by the branch `:application` nodes
 themselves, which is how `yin.vm.semantic.md` §5.3's "branches inherit it"
@@ -275,11 +337,12 @@ is realized.
 
 ### 2.4 Saturation
 
-A tuple carries every default the loader would otherwise apply, so a
+A row carries every default the loader would otherwise apply, so a
 program written with a default omitted and one written with it stated are
-one value with one address (UCF §7.3.2, *Saturation*). The map-to-tuple
-boundary materializes defaults; a tuple with a nil in a saturated slot is
-invalid, not defaulted.
+one value with one address (UCF §7.3.2, *Saturation*). Saturation is a
+rule of the projection boundary: the map→row direction materializes
+defaults, the row→map direction never re-derives or re-defaults anything,
+and a row with a nil in a saturated slot is invalid, not defaulted.
 
 +----------------------------------------------------+-------------------------------------+-----------------------------------------------------------------------------+
 | Slot                                               | Default written                     | Source of the default today                                                 |
@@ -300,7 +363,9 @@ invalid, not defaulted.
 
 ### 2.5 Exclusions, occurrences, and side tables
 
-The canonical form excludes, and a conforming encoder strips:
+Exclusion is a rule of the projection boundary, the same rule §2.4 states
+for saturation: these facts are stripped map→rows and never re-derived
+rows→map. The map AST a frontend emits carries them; no row does:
 
 - **Source positions** and any frontend metadata (`:yang/*` keys, Clojure
   reader metadata on symbols).
@@ -312,7 +377,8 @@ The canonical form excludes, and a conforming encoder strips:
   occurrence-bound declaration (§8.5), not as a slot.
 - **`:eid`** (§4.4).
 - **`:yin/root`.** A tree is its own root; the batch or the ref that names
-  the tree names the root. No root fact exists in the tuple form.
+  the tree names the root. No root fact exists in a row — the root row's
+  id is the root fact (§4.1).
 - **`t`, `m`, provenance.** Every provenance fact the codec or linearizer
   writes today (`:yin.code/source`, `:yin.code/derived-from`) becomes a
   ledger record (§8) or a side-table entry.
@@ -323,9 +389,12 @@ name *where*, and each is a distinct coordinate:
 - A **structural path** names a place inside one tree: a vector of slot
   indices from the root, with an index into a `nodes` slot written as a
   pair `[slot i]`. `[]` is the root; `[2 [1 0]]` is the first operand of
-  the root's second slot. A path is a pure function of the tree, stable
-  across media and hosts. `[root-address path]` separates two identical
-  subtrees at two places in one tree, and nothing more.
+  the root's second slot. Slot indices are the row's positions, which the
+  §2.3 dictionary fixes against the map's key order, so a path reads
+  identically on both sides of the round trip. A path is a pure function
+  of the tree, stable across media and hosts. `[root-address path]`
+  separates two identical subtrees at two places in one tree, and nothing
+  more.
 - A **source occurrence** names one admission of one tree: `[medium batch
   j]`, the program medium's identity, the batch coordinate on it (the
   `:yin/source-batch` of `yin.vm.macro.md` §4.1), and the **member index**
@@ -374,45 +443,22 @@ key, because a key travels and the number does not (§8.4).
 |                        |                                                                                                                        | expander             |
 +------------------------+------------------------------------------------------------------------------------------------------------------------+----------------------+
 
-### 2.6 Continuation frames over tuples
+### 2.6 A walker-local note on runtime mutation
 
-The frame schemas below replace the ones the walker builds today. In every
-frame `:node` holds the canonical tuple unchanged; nothing is ever written
-into it. Evaluation position is the count of evaluated operands, which is
-how the walker already computes it (`ast_walker.cljc:231`, `:575`).
-
-+---------------------------------------+------------------------------------+-------------------------------------------------------------------------------------------+
-| Frame `:type`                         | Keys                               | Replaces                                                                                  |
-+=======================================+====================================+===========================================================================================+
-| `:eval-operator`                      | `:node` (the `:application`        | `{:frame node …}` at `ast_walker.cljc:375`, `:619`                                        |
-|                                       | tuple), `:next`, `:env`            |                                                                                           |
-+---------------------------------------+------------------------------------+-------------------------------------------------------------------------------------------+
-| `:eval-operand`                       | `:node`, `:fn` (the evaluated      | the `assoc` of `:operator-evaluated?`/`:fn` into the node at `:213-217`, `:532-534`, and  |
-|                                       | operator), `:evaluated` (vector),  | of `:evaluated` at `:226-237`, `:576-580`; `:operator-evaluated?` is redundant with the   |
-|                                       | `:next`, `:env`                    | frame type and is dropped                                                                 |
-+---------------------------------------+------------------------------------+-------------------------------------------------------------------------------------------+
-| `:eval-test`                          | `:node` (the `:if` tuple),         | `{:frame node …}` at `:380`, `:624`; reads `(nth node 2)` / `(nth node 3)` instead of     |
-|                                       | `:next`, `:env`                    | `(:consequent frame)` at `:243`, `:586-588`                                               |
-+---------------------------------------+------------------------------------+-------------------------------------------------------------------------------------------+
-| `:dao.stream.v2.apply/eval-operand`   | `:node` (the call tuple),          | the fresh frame at `:390`, which already keeps `:evaluated` beside the operands; `:op`    |
-|                                       | `:evaluated`, `:next`, `:env`      | and `:operands` become `(nth node 1)` and `(nth node 2)`                                  |
-+---------------------------------------+------------------------------------+-------------------------------------------------------------------------------------------+
-| `:eval-stream-put-target`             | `:node` (the `:stream/put` tuple), | `{:frame node …}` at `:453`; reads `(nth node 2)` instead of `(:val frame)` at `:289`     |
-|                                       | `:next`, `:env`                    |                                                                                           |
-+---------------------------------------+------------------------------------+-------------------------------------------------------------------------------------------+
-| `:eval-stream-put-val`                | `:stream-ref`, `:next`, `:env`     | unchanged (`:293-295`)                                                                    |
-+---------------------------------------+------------------------------------+-------------------------------------------------------------------------------------------+
-| `:eval-stream-cursor-source`,         | `:node`, `:next`, `:env`           | `:460`, `:467`, and the new §3.2 arm                                                      |
-| `:eval-stream-next-cursor`,           |                                    |                                                                                           |
-| `:eval-stream-close-source`           |                                    |                                                                                           |
-+---------------------------------------+------------------------------------+-------------------------------------------------------------------------------------------+
-| `:eval-resume-val`                    | `:parked-id`, `:next`, `:env`      | unchanged (`:434-437`)                                                                    |
-+---------------------------------------+------------------------------------+-------------------------------------------------------------------------------------------+
-
-The FFI frames (`:dao.stream.v2.apply/request-sent`, `eval-call`,
-`ast_walker.cljc:159-163`, `:138`) hold no node and are unchanged. Wait
-entries and parked records hold frames, so they inherit the schema without
-change of their own.
+The frame re-scheme this section once carried is withdrawn as a design
+requirement (owner ruling, 2026-09-15): the walker stays on map ASTs, and
+runtime `assoc` into a map node is legal, because the held node is the
+machine's ephemeral image of the code, not a canonical value (§2.1), and
+nothing runtime-`assoc`ed is ever projected back to rows. The reasoning
+worth keeping, as a note and not a rule: today's cold arms `assoc`
+`:operator-evaluated?`/`:fn` (`ast_walker.cljc:213-217`) and `:evaluated`
+(`:226-237`), and the hot arms the same (`:532-541`, `:576-580`);
+`:operator-evaluated?` is redundant with the frame type, and a walker that
+wanted the node read-only could keep every mutable field a sibling key of
+the frame map — an implementation choice, available at any time, required
+by nothing here. Frame continuations remain runtime state, not syntax, as
+do closures (`ast_walker.cljc:364-370`) and reified continuations
+(`ast_walker.cljc:422-427`). When continuation frames are themselves serialized or projected to datoms, the runtime keys the walker assoc'd into nodes must be stripped at that boundary.
 
 ---
 
@@ -427,9 +473,10 @@ they are sufficient: canonical content admits no host value (§2.2,
 already, since the codec has no arm and throws on it (`v2.cljc:413-478`),
 the linearizer lists it as unsupported (`linearize.cljc:19-22`), the
 semantic VM has no opcode for it, and no test constructs one (a search of
-`test/` for the node type on 2026-09-14 found none). Its one reachable path
-is the walker's map-input arm, which survives only as long as that path
-(§9.1).
+`test/` for the node type on 2026-09-14 found none). Its one reachable
+path is an in-process, hand-built map AST handed straight to the walker;
+no row can carry it (§2.2, `data`), so it never crosses the boundary in
+either direction.
 
 The orchestrator's alternative, a `:fn` slot restricted to a named
 primitive symbol resolved and profile-checked per UCF §7.5.2, is not
@@ -469,8 +516,8 @@ decodes it (`semantic.cljc:585`) and executes it in its hot loop
 (`ast_walker.cljc:359-469`).
 
 The walker gains it: evaluate `source`, then raise `{:effect :stream/close
-:stream ref}` through `engine/handle-effect`, through the
-`:eval-stream-close-source` frame of §2.6, shaped exactly as
+:stream ref}` through `engine/handle-effect`, through an
+`:eval-stream-close-source` frame shaped exactly as
 `:eval-stream-cursor-source` (`ast_walker.cljc:319-326`). Removing the
 instruction instead would delete working behaviour from the default
 evaluator to match the non-default one; the parity suite is the reason the
@@ -482,13 +529,17 @@ two evaluators share one corpus.
 
 ### 4.1 The grain
 
-The address of a tree is `(dao.jing/segment-key tree)` computed over the
-whole canonical nested value (`jing.cljc:217-225`). A tree's address is the
-merkle grain the protocol pins: every named payoff below works at this
-grain and none needs a finer one.
+The address of a tree is the id of its root row. A row's id is
+`(dao.jing/segment-key body)` (`jing.cljc:217-225`) over the row's body —
+the tag, the data slots unchanged, the children as ids (§2.1) — so a
+parent's id commits to its children's ids and every node is addressed by
+construction; nothing coarser is hashed and no node needs a finer grain.
+A root id is still a whole-tree address: following child ids from the
+root row recovers the entire tree, and every named payoff below names
+exactly this id.
 
 +-----------------------------------------------+------------------------------------------------------------------------------------------------------------------------+
-| Payoff                                        | How it works at the whole-tree grain                                                                                   |
+| Payoff                                        | How it works at the root-row grain                                                                                     |
 +===============================================+========================================================================================================================+
 | `:yin.code/derived-from` as a content address | a derivation record naming the tree address as input and the segment address as output (§8.2) replaces the entity ref  |
 |                                               | of `v2.cljc:327` and `linearize.cljc:212`                                                                              |
@@ -551,23 +602,19 @@ acceptance, not this document's. When it lands, every address minted under
 this design changes with every other `dao.jing` address, the dependency
 UCF §7.3.2 already accepts.
 
-### 4.3 Per-node addresses and the per-lambda follow-up
+### 4.3 Every node is addressed by construction
 
-The flat projection (§6.1) keys each node by the address of its own
-inlined subtree, computed by the same `segment-key`. These per-node
-addresses are a consequence of the hash function applied recursively; they
-exist in the projection and nowhere in the canonical form, and nothing in
-the protocol names them except queries.
-
-**Per-lambda subterm addressing is a follow-up, not a blocker.** It means
-something stronger than a per-node hash: a `:lambda` whose body is
+Per-node addressing is not a projection consequence and no longer a
+follow-up: a row's id is its node's address by construction (§2.1), so
+every node of every tree is named, shareable, and queryable the moment it
+is projected. The round-7 question — a `:lambda` whose body is
 *materialized separately*, referred to by address from the canonical form
-of the enclosing tree, lowered to its own segment, and pinned by manifests
-on its own. That changes the canonical form (a `node` slot may hold an
-address) and the lowering (one segment per lambda rather than out-of-line
-bodies in one segment, `linearize.cljc:151-158`). Nothing in this design
-depends on it; when it is designed it adds a slot kind and a lowering rule
-and invalidates no address of a tree that does not use it.
+of the enclosing tree, pinned by manifests on its own — is the ordinary
+shape of the stored row DAG, not a canonical-form extension: every child
+slot already refers by address, and a manifest may name any row's id. What
+remains of it is a lowering question — one segment per lambda rather than
+out-of-line bodies in one segment (`linearize.cljc:151-158`) — which is a
+§5.2.1 profile concern, changes no row address, and is not open here.
 
 ### 4.4 Sharing by content address replaces `:eid`; occurrences stay outside
 
@@ -579,11 +626,12 @@ call-site operator resolve to one entity so provenance can point at it.
 
 Content addressing gives that for free and in every case, not only the one
 `yang.clojure` remembers to mark: two occurrences of one subtree have one
-address by construction, one row in the flat projection, and a query "which
-sites reference this lambda's content" is a join on its address (§6.4). The
-canonical form stays fully inlined; sharing is a property of the
-projection and of storage, never of identity. `:eid` is dropped from the
-frontends and the codec.
+address by construction and one row in the stored set, and a query "which
+sites reference this lambda's content" is a join on its address (§6.4).
+Sharing is structural in the stored DAG — the row set holds each distinct
+subtree once, and parent slots point at it — while identity stays per row.
+**However, this structural collapse is strictly gated on the §4.2 encoder fix.** Because the current encoder is non-injective, structurally distinct values that hash equal would silently merge into one row, corrupting the AST. Until the encoder is fixed, the row form as a whole is gated, or rows must carry allocated ids (like the current codec) with content ids swapped in only when the encoder lands.
+`:eid` is dropped from the frontends and the codec.
 
 What `:eid` also did, and content addresses do not, is name a *place*.
 "This call site" is an occurrence key `[origin root-address path]` (§2.5),
@@ -605,8 +653,12 @@ UCF §7.3.2: one tuple per instruction, pc is the index, the
 `yin.vm.semantic.md` §2.4 table fixes each mnemonic's arity and operand
 kinds, defaults are saturated, refs are resolved pcs, and the header folds
 away. Its address is `(dao.jing/segment-key vector)`, the value
-`yin.vm.semantic.md` §2.2 already types `:yin.code/hash` as. This document
-adds nothing to that form and restates none of it.
+`yin.vm.semantic.md` §2.2 already types `:yin.code/hash` as. The two
+levels are uniform under this design: an AST row (§2.1) and an instruction
+tuple are both flat positional tuples, canonical and content-addressed,
+and the instruction vector was already this shape before the flat-row
+ruling clarified the AST level. This document adds nothing to that form
+and restates none of it.
 
 ### 5.2 The hash chain is realized by derivation records
 
@@ -715,42 +767,46 @@ address to its call occurrence (§8.4).
 
 ## §6 Querying
 
-### 6.1 The flat per-node projection
+### 6.1 The row relation and the two directions around it
 
-`project : tree → #{[id tag & slots]}`, one row per distinct subtree:
+The flat rows are the canonical stored form (§2.1), and `q` runs over
+them directly — ruling 3 of 2026-09-14 was verified live over exactly
+this shape. A stored set holds one row per distinct subtree: identical
+subtrees project to the identical row, so the set is the tree's DAG
+(§4.4). Because a tag has one arity in the tree, it has one arity in the
+relation (tag arity plus one for the id). Rows of one tag are
+homogeneous, so a where-pattern for a tag has exactly that tag's arity
+and no padding. Rows from many trees union into one relation without
+collision, because ids are addresses. An occurrence count is a count
+over parent slots or over the occurrence relation below, never over
+rows.
 
-- `id` is the subtree's address (§4.3);
-- `tag` is the node's tag;
-- a `node` slot holds the child's address; a `nodes` slot holds a vector of
-  child addresses; every other slot holds its data unchanged.
+`map → rows` is the **frontend boundary projection**: strip the §2.5
+exclusions, saturate per §2.4, positionalize per the §2.3 dictionary,
+merkle per §4.1. It is a standing contract of every frontend, not a
+migration device (§9.1).
 
-Because a tag has one arity in the tree, it has one arity in the projection
-(arity plus one for the id). Rows of one tag are homogeneous, so a
-where-pattern for a tag has exactly that tag's arity and no padding. Rows
-from many trees union into one relation without collision, because ids are
-addresses. Identical subtrees collapse to one row; an occurrence count is
-a count over parent slots or over the occurrence relation below, not over
-rows. The collapse is an identity use and is blocked by §4.2 until the
-encoding is fixed; until then the projection may be computed only with the
-occurrence relation beside it, and no row may be dropped as a duplicate.
+`rows → map` is **load-time reconstruction** (§7.1): validate the rows
+(§7.4), then rebuild the map AST through the ids. The precedent is
+`datoms->ast` (`src/cljc/yin/vm/v2.cljc:494-559`), which already
+rebuilds map ASTs from flat rows through entity ids — a `get-attr` per
+field over an entity index, recursion through child ids; the loader is
+its successor with content addresses in place of allocated ids.
 
-The §2.1 example projects to:
+Deduplication — treating two equal ids as one value — is an identity use
+and is blocked by §4.2 until the encoding is fixed; until then a stored
+set may not be collapsed on id equality, and the occurrence relation
+must be carried beside the rows wherever places, not contents, are asked
+about.
 
-```clojure
-#{[A :lambda [x] B]
-  [B :application C [D E] true]
-  [C :variable +]
-  [D :variable x]
-  [E :literal 1]}          ; A..E are :segment/sha256-… addresses
-```
-
-A second projection, `occurrences : tree → #{[root-address path
+A second relation, `occurrences : tree → #{[root-address path
 node-address]}`, one row per place, is the structural half of the join
-between flat rows and the occurrence-keyed side tables of §2.5. It is a
-pure function of the tree, so it carries no origin; a query fixes the
-origin from the composition's side (which batch, which event) and joins
-on `[root-address path]` within that origin. It is computed by the same
-walk that computes `project`.
+between rows and the occurrence-keyed side tables of §2.5. It is a pure
+function of the tree, computable from either side of the round trip, so
+it carries no origin; a query fixes the origin from the composition's
+side (which batch, which event) and joins on `[root-address path]`
+within that origin. It is computed by the same walk that computes the
+projection.
 
 ### 6.2 Segment rows
 
@@ -851,29 +907,30 @@ and the only durable name in it is the `:yin/address` value.
 
 ### 7.1 Load paths
 
-Direct tuple loading is primary. A batch on the program stream is one
-canonical tree (AST medium) or one canonical instruction vector (code
-medium), and the evaluator's loader takes it as is:
+Direct row loading is primary. A batch on the program stream is the
+canonical row set of one tree (AST medium) or one canonical instruction
+vector (code medium), and the evaluator's loader takes it as is:
 
-+----------------------+--------------------+----------------------------------------------------------------------------------------------------------------------------+
-| Evaluator            | Loader input       | What loading does                                                                                                          |
-+======================+====================+============================================================================================================================+
-| walker               | tree               | validate (§7.4), set `:program` and `:control` to the tree; no conversion, the tuple is the node                           |
-+----------------------+--------------------+----------------------------------------------------------------------------------------------------------------------------+
-| semantic             | instruction vector | validate (§7.5), decode positional operands into the image (the `case` of `semantic.cljc:563-593` reading `(nth tuple i)`  |
-|                      |                    | instead of attribute maps), store under `:code` with the address as the alias column UCF §7.3.4 requires                   |
-+----------------------+--------------------+----------------------------------------------------------------------------------------------------------------------------+
-| semantic, AST medium | tree               | `lower` (§5.2) then the row above; composed by the composition exactly as `linearize/ast-loader` is today                  |
-|                      |                    | (`linearize.cljc:269-286`, chosen in `src/cljc/yin/repl/v2/core.cljc:63-68`)                                               |
-+----------------------+--------------------+----------------------------------------------------------------------------------------------------------------------------+
++----------------------+----------------------+--------------------------------------------------------------------------------------------------------------------------+
+| Evaluator            | Loader input         | What loading does                                                                                                        |
++======================+======================+==========================================================================================================================+
+| walker               | row set              | validate (§7.4), reconstruct the map AST — `rows → map` (§6.1), the successor of `datoms->ast` (`v2.cljc:494-559`) with  |
+|                      |                      | content addresses in place of allocated ids — set `:program` and `:control` to the map; no conversion to any tuple node  |
+|                      |                      | form                                                                                                                     |
++----------------------+----------------------+--------------------------------------------------------------------------------------------------------------------------+
+| semantic             | instruction vector   | validate (§7.5), decode positional operands into the image (the `case` of `semantic.cljc:563-593` reading `(nth tuple i)`|
+|                      |                      | instead of attribute maps), store under `:code` with the address as the alias column UCF §7.3.4 requires                 |
++----------------------+----------------------+--------------------------------------------------------------------------------------------------------------------------+
+| semantic,            | row set              | `lower` (§5.2) then the row above; composed by the composition exactly as `linearize/ast-loader` is today                |
+| AST medium           |                      | (`linearize.cljc:269-286`, chosen in `src/cljc/yin/repl/v2/core.cljc:63-68`)                                             |
++----------------------+----------------------+--------------------------------------------------------------------------------------------------------------------------+
 
 Datom-batch loading is the projection path: a batch of `:yin/*` datoms is
-decoded to a tree by the successor of `datoms->ast` (`v2.cljc:494-559`)
-and then loaded as above; a batch of `:yin.code/*` datoms is decoded to a
-vector by UCF §7.3.4's projection rule and then loaded as above. The
-projection path exists for media that carry datoms and for the datom
-projection of §6.5; it is not a second loader and it runs the same
-validator (§7.2).
+projected to rows by the datom→row half of the §9.1 codec pair and then
+loaded as above; a batch of `:yin.code/*` datoms is decoded to a vector
+by UCF §7.3.4's projection rule and then loaded as above. The projection
+path exists for media that carry datoms and for the datom projection of
+§6.5; it is not a second loader and it runs the same validator (§7.2).
 
 ### 7.2 Conformance: both paths, one validator, one image
 
@@ -882,29 +939,36 @@ projection path as the reference path.** Under the owner's ruling the
 direct path is primary and the reference; the projection path is derived
 from it. Everything else in §7.3.4 stands.
 
-Both paths invoke the same validator (§7.4 for trees, §7.5 for vectors)
-before anything is registered, and the conformance obligation has three
+Both paths invoke the same validator (§7.4 for rows, §7.5 for vectors)
+before anything is registered, and the conformance obligation has four
 parts:
 
-1. **Valid corpus, same result.** For every corpus program, loading the
-   tree directly and loading its datom projection yield the same walker
+1. **The round-trip law.** For every corpus program, `map → rows → map`
+   is the identity on the canonical map AST, and `rows → map → rows` is
+   the identity on the rows. This is the both-paths obligation restated
+   under the flat-row ontology: the projection is total and lossless,
+   and each direction is tested against the other over the corpus. The
+   corpus already lives as map ASTs in the test tree, which is what makes
+   this testable now.
+2. **Valid corpus, same result.** For every corpus program, loading the
+   rows directly and loading their datom projection yield the same walker
    `:program` value; loading the instruction vector directly and loading
    its datom projection yield the same image. Keyword store keys
    (`parity_test.cljc:99`) and numeric store keys are part of the corpus
    and must round-trip on both paths, so the `key` kind is exercised as
    the `data` domain it is (§2.2), not as the two types the corpus
    happened to use.
-2. **Malformed input, same refusal.** For a published set of malformed
-   vectors, each violating one rule of §7.5, and malformed trees, each
+3. **Malformed input, same refusal.** For a published set of malformed
+   vectors, each violating one rule of §7.5, and malformed row sets, each
    violating one rule of §7.4, both paths refuse with the same defect
    (rule and pc, or rule and path). A correctly hashed `[[:jump 9]]` is in
    the set. Image equality on valid input does not establish this; the
    malformed set does.
-3. **Several segments loaded.** Loading two or more segments through each
+4. **Several segments loaded.** Loading two or more segments through each
    path yields the same `:code` map and the same address alias column, and
    a second segment claiming a live local id fails identically on both.
 
-The obligation fails exactly when the tuple grammar and the datom schema
+The obligation fails exactly when the dictionary and the datom schema
 have drifted apart, which is the property that makes it the VM's own test
 of this design.
 
@@ -916,22 +980,37 @@ mirror `code/well-formed?` (`code.cljc:155-180`): each returns nil or the
 first defect, rules run in order, and each rule may assume the earlier ones
 held.
 
-### 7.4 Tree rules
+### 7.4 Row rules
 
-Defects name a path (§2.5).
+Defects name a path from the root row (§2.5), or the row's own id for a
+row nothing reaches.
 
-+---------------+--------------------------------------------------------------------------------------------------------------------------------------------------------+
-| Rule          | Defect when                                                                                                                                            |
-+===============+========================================================================================================================================================+
-| `:tag`        | the first element is not a tag of §2.3                                                                                                                 |
-+---------------+--------------------------------------------------------------------------------------------------------------------------------------------------------+
-| `:arity`      | the count differs from the tag's arity                                                                                                                 |
-+---------------+--------------------------------------------------------------------------------------------------------------------------------------------------------+
-| `:slot-kind`  | a slot's value is not of the slot's kind: a `node` slot that is not a vector with a tag, a `nodes` slot that is not a vector of such, a `data` or      |
-|               | `key` slot failing `plain-data?`, a `bool` slot that is not `true`/`false`, a `syms` slot with a non-symbol                                            |
-+---------------+--------------------------------------------------------------------------------------------------------------------------------------------------------+
-| `:saturation` | a saturated slot (§2.4) is nil                                                                                                                         |
-+---------------+--------------------------------------------------------------------------------------------------------------------------------------------------------+
++-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
+| Rule              | Defect when                                                                                                                                       |
++===================+===================================================================================================================================================+
+| `:tag`            | the element after the id is not a tag of §2.3                                                                                                     |
++-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
+| `:arity`          | the count differs from the tag's arity                                                                                                            |
++-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
+| `:slot-kind`      | a slot's value is not of the slot's kind: a `node` slot that is not an address, a `nodes` slot that is not a vector of addresses, a `data` or     |
+|                   | `key` slot failing `plain-data?`, a `bool` slot that is not `true`/`false`, a `syms` slot with a non-symbol                                       |
++-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
+| `:saturation`     | a saturated slot (§2.4) is nil                                                                                                                    |
++-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
+| `:id-resolves`    | a child id in a `node` or `nodes` slot names no row of the loaded set                                                                             |
++-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
+| `:acyclic`        | following child ids from a row revisits a row already on its own path                                                                             |
++-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
+| `:root-reachable` | a row of the loaded set is not reachable from the root row                                                                                        |
++-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
+
+The three reference rules are the row counterpart of §7.5's
+`:target-bounds`: a row's child slots are references, and they must
+resolve within the loaded set and close under the root, as a jump target
+must land inside its segment. Acyclicity is also implied by the per-row
+address check whenever it runs — a row's id commits to its children's
+ids, so a cycle would break the hash (§4.1) — and the rule stands
+regardless, so that a load taking ids as given still names the defect.
 
 There is no encoder-domain rule: §4.2 blocks identity uses outright rather
 than admitting a domain.
@@ -974,9 +1053,10 @@ naming the same.
 
 ### 7.6 The hot loop never queries
 
-The walker dispatches on `(nth node 0)` and reads slots by position; the
-semantic VM runs `(aget code pc)` over an image decoded once at load
-(`yin.vm.semantic.md` §3.1). Neither touches a relation, a ref, an address
+The walker dispatches on `(:type node)` and reads named fields of the map
+AST it reconstructed at load; the semantic VM runs `(aget code pc)` over
+an image decoded once at load (`yin.vm.semantic.md` §3.1). Neither touches
+a relation, a ref, an address
 index, or a projection while stepping. Projection and query are load-time
 and tooling-time operations. This is the rule that keeps
 `yin.vm.semantic.md` §6's cost model intact under this design: queryability
@@ -986,7 +1066,7 @@ is paid once at load, or by whoever asks, never per step.
 
 UCF §7.6.1 computes `:yin.k/requires` by a conservative fixed point over
 values, code, names, and modules. The **code part** of that fixed point is
-the queries below, run over the flat projection of every reachable tree
+the queries below, run over the flat rows of every reachable tree
 and the segment-qualified rows (§6.2) of every reachable segment. The
 value, name-satisfaction, and module parts remain the walk §7.6.1
 specifies; these queries supply their inputs and do not replace them.
@@ -1520,7 +1600,7 @@ disconnected definition, so the composition between frontend and expander
 is an **ordered batch**, not a tree:
 
 ```clojure
-{:yin/batch         [<tree-0> <tree-1> … <tree-n>]   ; canonical trees, one per admitted root or disconnected subgraph
+{:yin/batch         [<rows-0> <rows-1> … <rows-n>]   ; canonical row sets, one per admitted root or disconnected subgraph
  :yin/root          i                                ; index of the tree the evaluator runs
  :yin/declarations  #{[j path :yin.macro/definition] …}   ; the definition at path in tree j is a macro
  :yin/harvest       [#{[j path] …} #{[j' path'] …} …]}   ; one entry per ORIGINAL definition, in admission order;
@@ -1540,7 +1620,7 @@ Rules:
   catalogue `:yin/harvest` is the preserved order: a vector with **one
   entry per original definition**, in the original admission order, each
   entry the set of `[j path]` occurrences at which that definition
-  appears in the canonical trees, connected or not. Initial harvest
+  appears in the batch's trees, connected or not. Initial harvest
   (`yin.vm.macro.md` §3.1 step 2) iterates the catalogue, last wins; it
   never iterates the trees. For a batch converted from datoms by the §9.1
   adapter the catalogue is derived from entity order, so the legacy
@@ -1559,7 +1639,7 @@ Rules:
   referring site name it (`v2.cljc:394-411`, `seen-eids`), and
   `yang.clojure` produces exactly this for a defmacro lambda used at its
   definition and at call sites (`clojure.cljc:418-437`). Inlining that
-  graph into canonical trees produces several `[j path]` occurrences of
+  graph into the batch's trees produces several `[j path]` occurrences of
   one definition. The old harvest and declaration catalogue number the
   **entity**, giving it one declaration ordinal `k`, and a transformer
   may fabricate a stand-in that selects a catalogue entry by `k`
@@ -1684,98 +1764,52 @@ Provenance walks are joins over event entities:
 
 ## §9 Migration surface
 
-### 9.1 The mechanical sweep
+### 9.1 The boundary, not a sweep
 
-Every site that constructs or reads a map node changes to the positional
-form, and every site that writes into a held node changes to the frame
-schema of §2.6. The semantics do not change; the reads and the frames do.
+The walker stays on map ASTs exactly as built, and so does every test
+that constructs map ASTs: no arm, no frame, and no corpus test changes
+for representation (owner ruling, 2026-09-15). What changes is the
+boundary around them — the projection in, the loader and the readers of
+rows behind it. The semantics do not change; the boundary does.
 
-+-------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-| Site                                                              | Change                                                                                             |
-+===================================================================+====================================================================================================+
-| walker cold syntax arms, `ast_walker.cljc:359-469`                | `(:type node)` → `(nth node 0)`; field reads → slot reads; add the `:stream/close` arm (§3.2); the |
-|                                                                   | `:vm/store-update` arm goes with the map path (§3.1)                                               |
-+-------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-| walker cold continuation arms, `ast_walker.cljc:205-358`          | `:eval-operator` (`:206-222`), `:eval-operand` (`:223-238`), `:eval-test` (`:239-244`), the FFI    |
-|                                                                   | operand arm (`:245-260`), `:eval-stream-put-target` (`:287-296`): read `:node` and keep            |
-|                                                                   | `:fn`/`:evaluated` in the frame per §2.6; no `assoc` into the node                                 |
-+-------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-| walker hot syntax arms, `ast_walker.cljc:600-626`                 | same as cold, five arms                                                                            |
-+-------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-| walker hot continuation arms, `ast_walker.cljc:502-599`           | `:eval-operator` (`:503-541`), `:eval-operand` (`:542-582`), `:eval-test` (`:583-589`): same frame |
-|                                                                   | change as the cold arms                                                                            |
-+-------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-| linearizer, `linearize.cljc:87-148` and `:230-242`                | `lower-node` reads slots from the tree instead of `get-attr` over a datom index; `ast-children`    |
-|                                                                   | becomes a table lookup of `node`/`nodes` slot positions; `lower` takes a tree and returns a vector |
-|                                                                   | plus the §5.3 provenance table, and `lower-ast` goes away                                          |
-+-------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-| codec, `v2.cljc:372-559`                                          | becomes the §6.5 projection pair `tree->datoms` / `datoms->tree`; `:yin/tail?` emitted only from   |
-|                                                                   | `:application`; `:yin/macro?`, `:yin/root`, `:eid` handling removed; `:yin/address` added          |
-+-------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-| `code/well-formed?`, `code.cljc:155-180`                          | keeps judging datom batches on the projection path before projection; the shared vector validator  |
-|                                                                   | of §7.5 runs on both paths after it                                                                |
-+-------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-| `semantic/load-image`, `semantic.cljc:524-596`                    | decodes from the vector directly on the primary path; the datom path projects first; both call the |
-|                                                                   | §7.5 validator                                                                                     |
-+-------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-| frontends `src/cljc/yang/clojure.cljc`, `python.cljc`, `php.cljc` | emit the ordered batch `{:yin/batch :yin/root :yin/declarations :yin/harvest}` (§8.5); drop        |
-|                                                                   | `:eid`, `:phase-policy`, and non-`:application` tail marks at the boundary. Until each frontend is |
-|                                                                   | swept, one map-to-tuple adapter at the frontend boundary saturates, converts, and handles          |
-|                                                                   | `:macro?` in this order: first reject any `:macro? true` lambda that is not the value operand of a |
-|                                                                   | `yin/def` as `:stray-macro-lambda`, then turn each admitted one into a declaration at its tree     |
-|                                                                   | index and path, then strip the flag. An adapter fed a datom batch derives `:yin/harvest` from      |
-|                                                                   | entity order and entity identity: while inlining it records every `[j path]` at which each         |
-|                                                                   | definition entity is emitted (the recursion of `datoms->ast`, `v2.cljc:494-559`, must be extended  |
-|                                                                   | to carry the path and the entity id, since today it tracks neither), and one entity with several   |
-|                                                                   | paths becomes one occurrence group. The adapter emits the harvest catalogue only; the macro-only   |
-|                                                                   | declaration ordinals are derived by the expander at admission (§8.5), so the adapter assigns no    |
-|                                                                   | `:decl` values. The evaluators see only tuples from the first day, and no flagged lambda ever      |
-|                                                                   | becomes a plain one                                                                                |
-+-------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-
-Tests that construct map ASTs, counted by occurrences of a node-type key on
-2026-09-14 (`grep -cE ':type :(application|lambda|literal|variable|if)'`;
-the counts are matching lines, not nodes or edits):
-
-+----------------------------------------------------------------------+-------------+
-| File                                                                 | Occurrences |
-+======================================================================+=============+
-| `test/datomworld/demo/continuation_handoff_v2_test.cljc`             | 64          |
-+----------------------------------------------------------------------+-------------+
-| `test/yin/vm/v2/ast_walker_test.cljc`                                | 49          |
-+----------------------------------------------------------------------+-------------+
-| `test/yin/vm/v2/parity_test.cljc`                                    | 36          |
-+----------------------------------------------------------------------+-------------+
-| `test/yang/clojure_test.clj`                                         | 36          |
-+----------------------------------------------------------------------+-------------+
-| `src/clj/yin/demo_v2.clj`                                            | 29          |
-+----------------------------------------------------------------------+-------------+
-| `test/yang/python_test.clj`                                          | 19          |
-+----------------------------------------------------------------------+-------------+
-| `src/cljd/yin/register_bench_cljd_v2.cljd`                           | 19          |
-+----------------------------------------------------------------------+-------------+
-| `test/bench/yin_vm_v2_bench.cljc`                                    | 16          |
-+----------------------------------------------------------------------+-------------+
-| `test/yang/php_test.clj`                                             | 14          |
-+----------------------------------------------------------------------+-------------+
-| `test/yin/vm/v2/semantic_stream_observer_test.cljc`                  | 12          |
-+----------------------------------------------------------------------+-------------+
-| `test/yin/vm/v2_test.cljc`                                           | 7           |
-+----------------------------------------------------------------------+-------------+
-| `test/yin/vm/v2/linearize_test.cljc`                                 | 5           |
-+----------------------------------------------------------------------+-------------+
-| `test/yin/vm/v2/semantic_ffi_test.cljc`, `semantic_engine_test.cljc` | 4 each      |
-+----------------------------------------------------------------------+-------------+
-| `test/yin/vm/v2/ffi_test.cljc`, `engine_test.cljc`                   | 1 each      |
-+----------------------------------------------------------------------+-------------+
-
-Tests that inspect continuation frames (`continuation_handoff_v2_test`,
-`ast_walker_test`) also change with §2.6; the count above understates
-those.
++--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| Site                                             | Change                                                                                                              |
++==================================================+=====================================================================================================================+
+| walker, `ast_walker.cljc`                        | untouched, except the `:stream/close` arm §3.2 adds — a correctness fix independent of representation; the arms keep|
+|                                                  | dispatching on `(:type node)` and reading named fields                                                              |
++--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| loader, new                                      | validate rows (§7.4), reconstruct the map AST: `rows → map` (§6.1), the successor of `datoms->ast`                  |
+|                                                  | (`v2.cljc:494-559`) with content addresses in place of allocated ids                                                |
++--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| linearizer,                                      | reads the row relation through the same `get-attr`-over-an-index shape it has today (`lower-node`'s `(get-attr e    |
+| `linearize.cljc:87-148`,                         | :yin/type)` becomes a lookup by row id); `ast-children` becomes a table lookup of `node`/`nodes` slot positions;    |
+| `:230-242`                                       | `lower` takes a row set and returns a vector plus the §5.3 provenance table; `lower-ast` (`:245-252`) goes away     |
++--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| codec, `v2.cljc:372-559`                         | becomes the rows⇄datoms projection pair of §6.5; `:yin/tail?` emitted only from `:application`; `:yin/macro?`,      |
+|                                                  | `:yin/root`, `:eid` handling removed; `:yin/address` added                                                          |
++--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| `code/well-formed?`,                             | keeps judging datom batches on the projection path before projection; the shared vector validator of §7.5 runs on   |
+| `code.cljc:155-180`                              | both paths after it                                                                                                 |
++--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| `semantic/load-image`,                           | decodes from the vector directly on the primary path; the datom path projects first; both call the §7.5 validator   |
+| `semantic.cljc:524-596`                          |                                                                                                                     |
++--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| frontends                                        | keep emitting map ASTs and gain the permanent boundary projection (map → rows): strip the §2.5 exclusions, saturate |
+| `src/cljc/yang/clojure.cljc`,                    | per §2.4, positionalize per the §2.3 dictionary, merkle per §4.1; emit the ordered batch `{:yin/batch :yin/root     |
+| `python.cljc`, `php.cljc`                        | :yin/declarations :yin/harvest}` (§8.5) of row sets. `:eid`, `:phase-policy`, and non-`:application` tail marks     |
+|                                                  | never survive the boundary. The r7 adapter's ordering rules become the standing contract: first reject any `:macro? |
+|                                                  | true` lambda that is not the value operand of a `yin/def` as `:stray-macro-lambda`, then turn each admitted one into|
+|                                                  | a declaration at its tree index and path, then strip the flag                                                       |
++--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| datom-batch adapter,                             | for media that carry datoms: derives `:yin/harvest` from entity order and entity identity while inlining, recording |
+| standing                                         | every `[j path]` at which each definition entity is emitted (the `datoms->ast` recursion, `v2.cljc:494-559`,        |
+|                                                  | extended to carry the path and the entity id, since today it tracks neither); one entity with several paths becomes |
+|                                                  | one occurrence group; the adapter assigns no `:decl` values (§8.5)                                                  |
++--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 
 The v1 lineage (`src/cljc/yin/vm.cljc`, `test/yin/vm/ast_walker_test.cljc`,
 `test/yin/vm/ast_conversion_test.cljc`, `runtime_regression_test.cljc`) is
-outside this sweep; it stays on maps until it is retired.
+outside this design; it stays on its own map path until it is retired.
 
 ### 9.2 The observer lane: an integration item to scope, not a solved detail
 
@@ -1786,11 +1820,12 @@ composition-supplied `load`. The per-evaluator loaders are chosen in
 `yin.repl.v2.core/program-loaders` (`repl/v2/core.cljc:63-68`) and today
 accept datom batches; the REPL's own eval path still converts a
 semantic-VM AST through `ast->datoms` before it travels
-(`repl/v2/core.cljc:444-449`). Two things about the tuple lane are
+(`repl/v2/core.cljc:444-449`). Two things about the row lane are
 **unverified**:
 
-- **The batch shape.** Whether one batch is one tree, one `{:yin/code
-  :yin/declarations}` value (§8.5), one vector, or a collection of them is
+- **The batch shape.** Whether one batch is one tree's row set, one
+  `{:yin/code :yin/declarations}` value (§8.5), one vector, or a
+  collection of them is
   a medium contract this design has not exercised end to end; §7.1 assumes
   one canonical value per batch. The shape must be fixed with the REPL
   shell and the `yin.vm.v2.stream-observer` tests before the loaders are
@@ -1798,10 +1833,10 @@ semantic-VM AST through `ast->datoms` before it travels
 - **The program-input predicate.** `engine/executable-program-datom?`
   (`engine.cljc:511-513`) decides what counts as program input by testing
   the attribute namespace of an `[e a v t m]` row, and
-  `append-program-datoms` (`engine.cljc:590-612`) builds on it. A tuple
+  `append-program-datoms` (`engine.cljc:590-612`) builds on it. A row
   batch has no attribute slot. A repository search on 2026-09-14 found no
   caller of the v2 `append-program-datoms` beyond its own overload, so a
-  tuple counterpart is not presumed necessary; whether any live
+  row counterpart is not presumed necessary; whether any live
   composition reaches the predicate is what the implementation phase
   establishes before deciding.
 
@@ -1834,8 +1869,8 @@ seen from the migration side:
    value to a vector and `pr-str` drops metadata, so lists, seqs, and
    metadata-bearing vectors collide with plain vectors. No restricted
    value domain is claimed; the round-2 list-rejection rule is withdrawn
-   as unsound. Trees, vectors, ledger-record maps, flat-projection
-   collapse, DAG sharing, process-local caches, content resolution by
+   as unsound. Rows, vectors, ledger-record maps, row
+   deduplication, DAG sharing, process-local caches, content resolution by
    address, and ledger rows are all blocked alike until `dao.jing`'s
    encoding passes the conformance pairs of §4.2. This design does not
    close the item.
@@ -1908,4 +1943,13 @@ seen from the migration side:
     `yin.vm.v2/primitives` (`v2.cljc:100-132`) is published with profiles,
     dependency closure reports names and `:incomplete`, not satisfiable
     bindings.
-12. **Per-lambda subterm addressing** — a follow-up (§4.3), not a blocker.
+12. **Per-lambda subterm addressing** — dissolved by the flat-row form
+    (§4.3): every node is addressed by construction, and the remaining
+    one-segment-per-lambda lowering question is a §5.2.1 profile concern.
+13. **The round-trip law** (§7.2, part 1) — a first-class conformance
+    obligation, not a blocker: for every corpus program, `map → rows →
+    map` is the identity on the canonical map AST and `rows → map →
+    rows` is the identity on the rows, and both directions must be
+    tested over the corpus before any row set is treated as canonical.
+    The corpus already lives as map ASTs in the test tree, so the test
+    is writable now.
