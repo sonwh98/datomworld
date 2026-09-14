@@ -314,7 +314,7 @@
 (defn create-state
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type]
-     :or {lang :clojure vm-type :ast-walker}}]
+     :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
          {:keys [program-stream observer vm load-program]} (make-session vm-type output-stream)]
@@ -417,6 +417,29 @@
      (str output-text (format-value value))]))
 
 
+(defn- consume-failed-round
+  "Answer a round that threw with a recoverable shell state.
+
+   The failed input is consumed exactly once: the observer resumes from the
+   session the throw carried, or from where the round began when it carried
+   none, and reads past every batch still on the program medium.  The shell
+   is the only appender and appends one batch per round, so what remains is
+   the failed batch alone.  The VM is the one the round began with, so a
+   half-run continuation cannot be resumed — and its error replayed — by the
+   next input.  Output the round already emitted is drained here, once."
+  [state error]
+  (let [observer (loop [observer (or (get-in (ex-data error) [:session :observer])
+                                     (:observer state))]
+                   (let [{:keys [status] observer' :observer} (observer/observe-next observer)]
+                     (if (#{:ok :gap} status) (recur observer') observer')))
+        [state' output-text]
+        (drain-output
+          (cond-> (assoc state :observer observer)
+            (> (:ingress-gaps observer 0) (:ingress-gaps (:observer state) 0))
+            (assoc :ingress-loss? true)))]
+    [state' (str output-text (format-error error))]))
+
+
 (declare eval-datoms)
 
 
@@ -441,7 +464,11 @@
    count around the round: an increase means one or more batches were never
    run, so resuming as though execution were complete would report a result
    built on programs the VM never saw.  The loss is reported and the shell
-   refuses further evaluation until `(reset)`."
+   refuses further evaluation until `(reset)`.
+
+   A completed program's lexical environment does not outlive it: the VM's
+   environment is restored to the one the round began with, as `vm/eval`
+   does.  A round that throws is consumed by `consume-failed-round`."
   [state datoms]
   (if (:ingress-loss? state)
     [state (str "Error: " ingress-loss-text)]
@@ -450,30 +477,34 @@
       (if-not (= :dao.stream/ok (:dao.stream/outcome append))
         [state (str "Error: datom batch not ingested: "
                     (name (:dao.stream/outcome append)))]
-        (let [observer0 (:observer state')
-              gaps-before (:ingress-gaps observer0 0)
-              {:keys [observer] vm :consumer}
-              (observer/run-on-stream {:observer observer0,
-                                       :consumer (:vm state')}
-                                      engine/ready-for-ingress?
-                                      (:load-program state')
-                                      run-vm)
-              state'' (assoc state' :observer observer :vm vm)]
-          (cond
-            (> (:ingress-gaps observer 0) gaps-before)
-            [(assoc state'' :ingress-loss? true)
-             (str "Error: " ingress-loss-text)]
+        (try
+          (let [observer0 (:observer state')
+                gaps-before (:ingress-gaps observer0 0)
+                {:keys [observer] vm :consumer}
+                (observer/run-on-stream {:observer observer0,
+                                         :consumer (:vm state')}
+                                        engine/ready-for-ingress?
+                                        (:load-program state')
+                                        run-vm)
+                state'' (assoc state' :observer observer :vm vm)]
+            (cond
+              (> (:ingress-gaps observer 0) gaps-before)
+              [(assoc state'' :ingress-loss? true)
+               (str "Error: " ingress-loss-text)]
 
-            (vm/halted? vm)
-            (finalize-eval state state'' vm)
+              (vm/halted? vm)
+              (finalize-eval state state''
+                             (engine/restore-initial-env (:env (:vm state')) vm))
 
-            :else
-            (throw
-              (ex-info
-                "Datom stream did not form a complete, runnable Yin VM program.
+              :else
+              (throw
+                (ex-info
+                  "Datom stream did not form a complete, runnable Yin VM program.
 Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
-                {:root-id (:root-id (vm/index-datoms datoms))
-                 :datom-count (count datoms)}))))))))
+                  {:root-id (:root-id (vm/index-datoms datoms))
+                   :datom-count (count datoms)}))))
+          (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+            (consume-failed-round state error)))))))
 
 
 (defn- compile-clojure-forms
@@ -510,6 +541,25 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
        "\n\nDatoms:\n" (format-value (vec (vm/ast->datoms ast)))))
 
 
+(defn- rebuild-session
+  "Replace the VM and its program medium, attachment, and observer.  The
+   value history is cleared with them: a closure in `*1` names a code segment
+   the old VM held, which the new one does not."
+  [state vm-type]
+  (let [{:keys [program-stream observer vm load-program]}
+        (make-session vm-type (:output-stream state))]
+    (assoc state
+           :vm-type vm-type
+           :vm vm
+           :load-program load-program
+           :program-stream program-stream
+           :observer observer
+           :ingress-loss? false
+           :last-value nil
+           :last-value-2 nil
+           :last-value-3 nil)))
+
+
 (declare repl-state)
 
 
@@ -521,16 +571,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
     (case command
       vm (let [vm-type (first args)]
            (if (contains? vm-constructors vm-type)
-             (let [{:keys [program-stream observer vm load-program]}
-                   (make-session vm-type (:output-stream state))]
-               [(assoc state
-                       :vm-type vm-type
-                       :vm vm
-                       :load-program load-program
-                       :program-stream program-stream
-                       :observer observer
-                       :ingress-loss? false)
-                (str "Switched to " (get vm-labels vm-type) " (store cleared)")])
+             [(rebuild-session state vm-type)
+              (str "Switched to " (get vm-labels vm-type) " (store cleared)")]
              [state (str "Error: Unknown Yin REPL VM type " (pr-str vm-type)
                          "; supported: " (pr-str (vec (keys vm-constructors))))]))
       lang (let [lang (first args)]
@@ -539,15 +581,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                [state (str "Error: Unknown Yin REPL language " (pr-str lang)
                            "; supported: " (pr-str (vec (keys lang-labels))))]))
       compile [state (render-compile-output (compile-command-ast state (first args)))]
-      reset (let [{:keys [program-stream observer vm load-program]}
-                  (make-session (:vm-type state) (:output-stream state))]
-              [(assoc state
-                      :vm vm
-                      :load-program load-program
-                      :program-stream program-stream
-                      :observer observer
-                      :ingress-loss? false)
-               (str (get vm-labels (:vm-type state)) " reset")])
+      reset [(rebuild-session state (:vm-type state))
+             (str (get vm-labels (:vm-type state)) " reset")]
       help [state help-text]
       repl-state [state (format-value (repl-state state))]
       quit [(assoc state :running? false) "Bye"]

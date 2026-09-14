@@ -1,24 +1,26 @@
 (ns yin.register-bench-cljd-v2
-  "Benchmark the Yin VM v2 evaluator on Dart.
+  "Benchmark the Yin VM v2 evaluators on Dart.
 
-   `yin.register-bench-cljd` drives the v1 register VM. `yin.vm.v2` is the
-   ast-walker slice — `register`, `stack`, `semantic` and `space` are not
-   ported — so this benchmark drives `yin.vm.v2.ast-walker` and its numbers
+   `yin.register-bench-cljd` drove the v1 register VM. This benchmark drives
+   `yin.vm.v2.ast-walker` and the linear `yin.vm.v2.semantic` VM
+   (`docs/design/yin.vm.semantic.md` §8) on one workload, and its numbers
    are not comparable with the v1 register numbers. The workload and the
-   sampling discipline are carried over unchanged so the two runs answer the
+   sampling discipline are carried over unchanged so the runs answer the
    same question about their own engine.
 
-   The timed region is `vm/run` alone. VM construction and the program load
-   stay outside it: `vm/eval` loads the AST once, and each iteration resets
-   to that loaded program and runs it, which is the v2 idiom for re-running
-   one program (v2's `reset` preserves `:program`).
+   The timed region is `vm/run` alone. VM construction, the lowering, and the
+   program load stay outside it: the program is loaded once, and each
+   iteration resets to that loaded program and runs it, which is the v2
+   idiom for re-running one program (v2's `reset` preserves `:program`).
 
    Compile and run:
      clj -M:cljd compile yin.register-bench-cljd-v2
      dart run bin/register_bench_cljd_v2.dart"
   (:require [dao.stream.v2.ringbuffer :as ringbuffer]
             [yin.vm.v2 :as vm]
-            [yin.vm.v2.ast-walker :as ast-walker])
+            [yin.vm.v2.ast-walker :as ast-walker]
+            [yin.vm.v2.linearize :as linearize]
+            [yin.vm.v2.semantic :as semantic])
   (:import ["dart:core" DateTime]))
 
 
@@ -105,11 +107,16 @@
 
 (defn- load-program
   "Construct the VM and load the workload. Construction is all-or-nothing in
-   v2, so a non-`ok` stream outcome throws here rather than half-building."
-  [ast]
-  (vm/eval (ast-walker/create-vm {:primitives vm/primitives,
-                                  :make-stream make-stream})
-           ast))
+   v2, so a non-`ok` stream outcome throws here rather than half-building.
+   The semantic VM refuses an AST in `eval`, so its program is lowered and
+   loaded explicitly, and it is then run once like the walker's."
+  [evaluator ast]
+  (let [opts {:primitives vm/primitives, :make-stream make-stream}]
+    (case evaluator
+      :ast-walker (vm/eval (ast-walker/create-vm opts) ast)
+      :semantic (vm/run (semantic/vm-load-program
+                          (semantic/create-vm opts)
+                          (linearize/lower-ast ast))))))
 
 
 (defn- run-iterations
@@ -129,24 +136,25 @@
 
 (defn main
   []
-  (let [{:keys [workload iterations samples warmup], :as cfg} benchmark-config
-        ast (workload->ast cfg)
-        program (load-program ast)]
-    (dotimes [_ warmup] (run-iterations program iterations))
-    (let [sample-total (vec (for [_ (range samples)]
-                              (sample-total-ms program iterations)))
-          sample-per-iter (mapv #(/ % iterations) sample-total)]
-      (println (str "workload=" workload
-                    " evaluator=ast-walker-v2"
-                    " iterations=" iterations
-                    " samples=" samples
-                    " warmup=" warmup))
-      (when (= workload :tail-countdown)
-        (println (str "countdown_n=" (:countdown-n cfg))))
-      (println (str "stream_capacity=" stream-capacity))
-      (println (str "sample_total_ms=" sample-total))
-      (println (str "sample_per_iter_ms=" sample-per-iter))
-      (println (str "RESULT mean_total_ms=" (mean sample-total)
-                    " median_total_ms=" (median sample-total)
-                    " mean_per_iter_ms=" (mean sample-per-iter)
-                    " median_per_iter_ms=" (median sample-per-iter))))))
+  (doseq [evaluator [:ast-walker :semantic]]
+    (let [{:keys [workload iterations samples warmup], :as cfg} benchmark-config
+          ast (workload->ast cfg)
+          program (load-program evaluator ast)]
+      (dotimes [_ warmup] (run-iterations program iterations))
+      (let [sample-total (vec (for [_ (range samples)]
+                                (sample-total-ms program iterations)))
+            sample-per-iter (mapv #(/ % iterations) sample-total)]
+        (println (str "workload=" workload
+                      " evaluator=" (name evaluator) "-v2"
+                      " iterations=" iterations
+                      " samples=" samples
+                      " warmup=" warmup))
+        (when (= workload :tail-countdown)
+          (println (str "countdown_n=" (:countdown-n cfg))))
+        (println (str "stream_capacity=" stream-capacity))
+        (println (str "sample_total_ms=" sample-total))
+        (println (str "sample_per_iter_ms=" sample-per-iter))
+        (println (str "RESULT mean_total_ms=" (mean sample-total)
+                      " median_total_ms=" (median sample-total)
+                      " mean_per_iter_ms=" (mean sample-per-iter)
+                      " median_per_iter_ms=" (median sample-per-iter)))))))

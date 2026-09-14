@@ -28,9 +28,10 @@
           lines))
 
 
-(deftest fresh-state-is-an-ast-walker-shell-with-an-untried-ledger
+(deftest fresh-state-is-a-semantic-shell-with-an-untried-ledger
   (let [state (core/create-state)]
-    (is (= :ast-walker (:vm-type state)))
+    (is (= :semantic (:vm-type state))
+        "the semantic VM is the default after Phase 4 (yin.vm.semantic.md §8)")
     (is (= :clojure (:lang state)))
     (is (true? (:running? state)))
     (is (= :untried (get-in state [:ledger :output]))
@@ -110,6 +111,43 @@
         (is (= "7" (second (core/eval-input state' "(+ 3 4)"))))))))
 
 
+(deftest a-failed-input-is-consumed-exactly-once
+  (doseq [vm-type [:semantic :ast-walker]]
+    (testing (str vm-type " : an evaluation error and its effects do not replay")
+      (let [state (first (core/eval-input (core/create-state) (str "(vm " vm-type ")")))
+            [state' failed] (core/eval-input state "(do (println \"before\") (/ 1 0))")
+            [state'' next-result] (core/eval-input state' "(+ 1 2)")]
+        (is (str/starts-with? failed "before\n"))
+        (is (str/includes? failed "Error: "))
+        (is (= "3" next-result) "the next input runs alone")
+        (is (= "4" (second (core/eval-input state'' "(+ *1 1)")))
+            "observation progress and history continue past the failure"))))
+  (testing "a batch the loader rejects is consumed, not re-read"
+    (let [[state failed] (core/eval-input (core/create-state)
+                                          "[[1 :a 1 0 true] [1 :b 2 0 true]]")]
+      (is (str/starts-with? failed "Error: "))
+      (is (= "3" (second (core/eval-input state "(+ 1 2)")))))))
+
+
+(deftest lexical-scope-does-not-escape-a-top-level-evaluation
+  (doseq [vm-type [:semantic :ast-walker]]
+    (testing (str vm-type)
+      (let [state (first (core/eval-input (core/create-state) (str "(vm " vm-type ")")))
+            [state' _] (evaluate state ["(def x 1)" "(let [x 7] x)"])
+            [_ result] (core/eval-input state' "x")]
+        (is (= "1" result))))))
+
+
+(deftest reset-and-vm-selection-clear-the-value-history
+  (doseq [command ["(reset)" "(vm :semantic)"]]
+    (testing command
+      (let [[state _] (evaluate (core/create-state) ["(fn [x] (+ x 1))" command])
+            [state' result] (core/eval-input state "(*1 4)")]
+        (is (nil? (:last-value state)) "no closure outlives its code segment")
+        (is (str/starts-with? result "Error: "))
+        (is (true? (:running? state')))))))
+
+
 (deftest language-and-compile-commands-behave-as-they-do-in-v1
   (let [[state result] (core/eval-input (core/create-state) "(lang :python)")
         [_ compiled] (core/eval-input state "(compile \"1 + 2\")")]
@@ -121,7 +159,7 @@
 (deftest reset-rebuilds-the-vm-and-its-attachment
   (let [[state _] (evaluate (core/create-state) ["(+ 1 2)"])
         [state' message] (core/eval-input state "(reset)")]
-    (is (= "ASTWalkerVM reset" message))
+    (is (= "SemanticVM reset" message))
     (is (not (identical? (:vm state) (:vm state'))))
     (is (not (identical? (:program-stream state) (:program-stream state')))
         "the program medium is rebuilt with the VM")
@@ -160,12 +198,12 @@
 (deftest repl-state-reports-the-ledger-rather-than-asking-a-stream
   (let [state (core/create-state)
         summary (core/repl-state state)]
-    (is (= :ast-walker (get-in summary [:vm :type])))
+    (is (= :semantic (get-in summary [:vm :type])))
     (is (false? (get-in summary [:telemetry :supported?])))
     (is (= :untried (get-in summary [:output :last-outcome])))
     (is (contains? (:output summary) :cursor))
     (let [[_ rendered] (core/eval-input state "(repl-state)")]
-      (is (str/includes? rendered ":ast-walker")))))
+      (is (str/includes? rendered ":semantic")))))
 
 
 (deftest datom-literal-evaluation-runs-through-the-program-medium
@@ -201,7 +239,7 @@
           (is (str/starts-with? refused "Error: "))))
       (testing "commands still answer, and (reset) recovers the shell"
         (let [[state'' message] (core/eval-input state' "(reset)")]
-          (is (= "ASTWalkerVM reset" message))
+          (is (= "SemanticVM reset" message))
           (is (false? (:ingress-loss? state'')))
           (is (zero? (get-in (core/repl-state state'') [:vm :in-stream :gaps])))
           (let [[_ recovered] (core/eval-input state'' "(+ 1 2)")]

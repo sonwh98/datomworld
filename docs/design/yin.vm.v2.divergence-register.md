@@ -17,8 +17,11 @@ construction option, and decoupled direct `eval` from queued program input.
 Each such note states what changed after the baseline, not a second
 baseline.
 
-Scope is the ast-walker slice. `semantic`, `register`, `stack`, `space`,
-`macro` and `wasm` are not ported, so nothing here speaks for them.
+Scope is the ast-walker slice against v1. The v2 linear semantic VM
+(`yin.vm.semantic.md`) is recorded against the v2 ast-walker in
+[its own section](#the-semantic-vm-against-the-ast-walker). `register`,
+`stack`, `space`, `macro` and `wasm` are not ported, so nothing here speaks
+for them.
 
 ## The five user-visible changes
 
@@ -28,6 +31,9 @@ Scope is the ast-walker slice. `semantic`, `register`, `stack`, `space`,
    `:semantic`/`:register`/`:stack`/`:space` and migrated v1's default to
    `:ast-walker` too (`repl.cljc:174`); there is now only one evaluator on
    either REPL.
+   *Semantic Phase 4:* v2 now ships a second evaluator,
+   `yin.vm.v2.semantic`, and `yin.repl.v2.core` defaults to it
+   (`yin.vm.semantic.md` §8). v1's REPL still has only `:ast-walker`.
 2. **User-defined macros stop evaluating.** `yang.clojure` emits
    `:yin/macro-expand` for every macro call site. `ast-walker` has no
    `macro-expand` branch — in v1 or in v2 — and `yin.vm.macro` was required
@@ -301,3 +307,70 @@ would only add drift risk.
 Parity over the macro-free corpus is asserted directly, in one process, by
 `yin.vm.v2.parity-test`, against values produced by v1 in the same run rather
 than against values chosen freshly.
+
+## The semantic VM against the ast-walker
+
+Deliverable of Phase 4 of [`yin.vm.semantic.md`](./yin.vm.semantic.md).
+Both evaluators run on `yin.vm.v2`, share `engine`, `ffi`, `module` and the
+observer, and are measured against each other in §8 there. Everything above
+this section applies to both. This section lists only where they differ.
+
+**Program values: same.** A REPL corpus produced byte-identical output under
+both evaluators. It covered arithmetic, `def`/`defn`, `*1` history, `let`,
+`loop`/`recur`, 10⁵ tail calls, 2·10⁴-deep non-tail recursion, stream
+make/put/cursor/next, Python and PHP input, datom literals, `compile`, and
+the error text for an unbound symbol, a non-function, division by zero, and
+an undefined macro. The differences below are in what a composition or an
+inspector can observe, not in the values programs compute.
+
+1. **`eval` refuses an AST.** The walker's `vm/eval` converts, loads, and
+   runs an AST. The semantic VM executes only `:yin.code/*` segments and
+   throws on a non-nil AST. Lowering (`yin.vm.v2.linearize`) belongs to the
+   composition: `linearize/ast-loader` wraps `vm-load-program` at the
+   observer boundary, and `yin.repl.v2.core/eval-ast` sends semantic-VM
+   input through the program medium rather than calling `eval`.
+2. **Closures print differently.** A walker closure carries its AST
+   (`{:type :closure :params :body :env}`). A semantic closure carries a code
+   address (`{:type :closure :params :entry :segment :env}`). `(fn [x] x)`
+   at the REPL renders the two shapes. The shapes are not interchangeable:
+   a closure from one evaluator cannot be applied by the other.
+3. **Machine state has a different shape.** `vm/control` is
+   `{:segment id :pc n}` rather than an AST node. The operand stack is a
+   `:stack` register. `vm/continuation` is a vector of return frames
+   (innermost last), not a linked frame list. Parked and wait-set entries,
+   and reified continuations, carry `{segment pc env stack k}`. A
+   continuation from one evaluator cannot resume on the other.
+4. **`step` is one instruction.** The walker steps one AST transition. The
+   semantic VM steps one instruction of the lowered segment (`step` is the
+   hot loop with a fuel of one). Step counts and intermediate states
+   therefore differ for the same program. Final values do not.
+5. **Unsupported nodes fail at lowering, not at run.** `:yin/macro-expand`
+   and `:vm/store-update` are outside both corpora. The walker in v2 reports
+   `Unknown AST node type` when it reaches the node. The linearizer throws
+   `Cannot lower unsupported node <type>` before any instruction runs, so a
+   program containing such a node executes none of its prefix. No v2 surface
+   compiler emits `:vm/store-update`, so only hand-built ASTs can observe
+   this.
+6. **Segment identity is load-checked.** Loading different code under a
+   segment id already in `:code` is a load error; an identical reload is
+   accepted. The walker has no code table and no such conflict.
+   `ast-loader` lowers each batch below every loaded segment, so REPL
+   batches never collide.
+7. **Continuation handoff is code plus registers.** The semantic handoff
+   demo (`datomworld.demo.continuation-handoff-v2`) ships the segment's code
+   datoms with the EDN-encoded registers. A continuation that holds a live
+   stream resource is refused for shipment rather than shipped with a
+   dangling handle.
+
+**Streams and FFI: no divergence found.** Both evaluators dispatch effects
+through `engine/handle-effect` over the same outcome tables above. The
+retention divergence, gap handling, once-only FFI bridge, the call-pair check
+before parking, and correlation checking apply to both unchanged.
+`semantic_ffi_test`, `semantic_engine_test`, and
+`semantic_stream_observer_test` mirror the walker's suites on the semantic
+VM. The semantic VM's `:request-sent` wait entry is how a retained
+full-buffer request becomes a response reader. It is a representation of the
+walker's behaviour, not a different behaviour.
+
+**Shared, not a divergence:** neither `reset` restores `:env`. Each keeps the
+environment the last run ended in.

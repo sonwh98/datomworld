@@ -23,6 +23,10 @@
                   :main dao.stream-bench/-main
                   :output-to "target/bench.js"}
 
+          :vm-bench {:target :node-script
+                     :main bench.yin-vm-v2-bench/-main
+                     :output-to "target/vm-bench.js"}
+
           :slice-peer {:target :node-script
                        :main dao.stream.v2.slice-peer/-main
                        :output-to "target/slice-peer.js"}

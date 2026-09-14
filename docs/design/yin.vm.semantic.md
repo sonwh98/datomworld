@@ -5,7 +5,7 @@ Status: Phase 0 contract. Sections §1–§6 are promoted verbatim from
 The opcode table (§2.4) and the attribute tables (§2.2, §2.3) are the
 contract that `yin.vm.v2/code-schema`, `yin.vm.v2/opcode-table`, and
 `yin.vm.v2.code/well-formed?` implement. The integration and roadmap
-sections (§7, §8) remain in the findings note.
+sections remain in the findings note; §8 records the Phase 4 measurements.
 
 ---
 
@@ -671,20 +671,7 @@ Reserved, additive, none required for Phase 1–3:
 - **Content-addressed segments** (`:yin.code/hash`) for dedup across VMs and
   for verifying a shipped continuation against its code.
 
-Acceptance in Phase 4 is measured, not asserted (§8).
-
-## §7. The Universal Continuation Format
-
-The Semantic VM's linear CESK state represents the canonical, architecture-agnostic continuation format for the `datom.world` ecosystem. 
-
-Because execution state is modeled as pure data rather than host memory (Axiom 4), the linear bytecode state serves as the universal *lingua franca* for network-transparent continuations. The lowered representation (`{:segment id, :pc n, :env E, :stack S, :k K}`) resolves all execution-order ambiguity inherent in the Universal AST while remaining entirely decoupled from any specific hardware architecture.
-
-### 7.1 Cross-Architecture Normalization
-If a highly specialized execution engine (e.g., a native WebAssembly compiler, a raw Register VM, or a hardware FPGA implementation) wishes to participate in the network, it must treat the Semantic VM state as the **normalized exchange format**:
-- **On Park (De-optimization):** When the specialized VM hits a blocking IO operation or a `:vm/park` instruction, it must map its specialized hardware registers or host stack back to the normalized linear format using the `:yin.code/source` mappings. It emits this standard Semantic VM continuation onto the stream.
-- **On Resume (Re-optimization):** When receiving a continuation off the network, the specialized VM reads the normalized `:pc` and `:stack`, lowers them into its own specialized hardware state, and resumes execution.
-
-By enforcing the linear bytecode state as the universal standard, the network only ever trades simple integer PCs and array-based operand stacks. Any machine can pause execution on one continent, transmit the canonical state over a WebSocket, and resume execution on a radically different hardware architecture without losing semantic fidelity or performance.
+Phase 4 measured it: see §8.
 
 ## §7. The Universal Continuation Format (Proposed)
 
@@ -700,3 +687,69 @@ To safely "lift on park" and "lower on resume" across heterogeneous boundaries w
 3. **Dependency Closure & Context:** A parked fragment is not a complete configuration. The format must explicitly declare its required primitives, loaded modules, and the global store state required for valid resumption.
 4. **Ownership Arbitration:** Emitting a continuation does not transfer ownership. The transport composition must define explicit arbitration events to prevent source-wakeup races and duplicate resumes by multiple readers.
 5. **Code Identity (Content Addressing):** Because tempids (`:segment 123`) are local to a single machine's database, continuations must refer to code via immutable, versioned semantic profiles (e.g., content hashing) to guarantee the receiving interpreter executes identical logic.
+
+## §8. Phase 4 Benchmarks
+
+Measured 2026-09-14 on the development machine (macOS, OpenJDK 21.0.2).
+
+**Workload.** The historic tail-recursive countdown from the deleted
+`yin.vm.bytecode-bench`, unchanged, so the numbers read against the table in
+`docs/cesk-space-optimization.md`. **Timed region.** `vm/run` alone: VM
+construction, AST → datoms, lowering, and the program load are outside it,
+and every timed call runs the same loaded VM value. **Harness.**
+`test/bench/yin_vm_v2_bench.cljc` (Criterium `quick-bench`; it checks the
+result is 0 before timing).
+
+### 8.1 JVM
+
+| Mean time per run | n=500 | n=5000 | Ratio to walker (n=5000) |
+|---|---|---|---|
+| AST Walker (v2) | 8.64 ms | 86.96 ms | 1x |
+| **Semantic (v2)** | **1.04 ms** | **10.02 ms** | **0.115x** |
+
+Criterium's standard deviation was under 3% of the mean in every cell. Both
+evaluators scale linearly over the 10x (walker 10.1x, semantic 9.7x).
+
+**Against the target line.** The historic register and stack VMs are deleted,
+so the like-for-like reading is the ratio to the walker measured in the same
+run. The historic register VM ran at 1/1.32 = 0.76x the walker and stack at
+0.80x; the semantic VM runs at 0.115x, about 6.6x under that line rather than
+at it. Absolute times are not comparable across the two tables: this v2
+walker measures 86.96 ms against the historic v1 walker's 29.33 ms on a
+different run, and the gap reflects the machine and v2's walker itself, not
+the semantic VM. The target is met with margin.
+
+### 8.2 Node.js and Dart
+
+Measured on the host machine on 2026-09-14 with:
+
+```sh
+clj -M:cljs -m shadow.cljs.devtools.cli compile vm-bench
+node target/vm-bench.js 500 5000
+
+clj -M:cljd compile yin.register-bench-cljd-v2
+dart run bin/register_bench_cljd_v2.dart                   # both evaluators, n=50000
+```
+
+| Mean time per run | Node.js (n=5000) | Dart (n=50000) | Ratio to walker |
+|---|---|---|---|
+| AST Walker (v2) | 71.30 ms | 673 ms | 1x |
+| **Semantic (v2)** | **19.82 ms** | **139.7 ms** | **0.278x (Node), 0.207x (Dart)** |
+
+§6.3 predicted the gap would widen on these hosts, since keyword `case` and
+map lookups cost more there and the linear machine removes both from the hot
+path. Only part of that holds. On Dart the semantic VM runs at 0.207x the
+walker, which is a slightly narrower gap than the JVM.s 0.115x. On Node the gap
+is narrower: 0.278x, about 3.6x faster than the walker against 8.7x on the
+JVM. Both hosts still clear the historic 0.76x register-VM line.
+
+### 8.3 Default decision
+
+The semantic VM meets the performance line on the JVM, so `yin.repl.v2.core`
+now defaults to `:semantic`; `(vm :ast-walker)` still selects the walker.
+Behavioural parity for the switch rests on the Phase 1–3 suites and on a
+REPL corpus that produced identical output under both evaluators. The corpus
+covered arithmetic, `def`/`defn`, `*1` history, 10⁵ tail calls, 2·10⁴-deep
+non-tail recursion, streams, Python and PHP input, datom literals, and error
+text. Where the two still differ is recorded in
+[`yin.vm.v2.divergence-register.md`](./yin.vm.v2.divergence-register.md#the-semantic-vm-against-the-ast-walker).
