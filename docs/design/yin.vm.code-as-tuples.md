@@ -184,8 +184,7 @@ A row's **body** is `[tag & slots]`: the slots are the node's field
 values in the §2.3 order — a child slot holds the child row's id, a
 `nodes` slot holds the ordered vector of the children's ids, and every
 other slot holds its data unchanged. The row's id is
-`(dao.jing/segment-key body)` (`src/cljc/dao/jing.cljc:217-225`), and the
-stored row is the id prepended to its own body, `[id tag & slots]`. The
+`(dao.jing/segment-key body)` (`src/cljc/dao/jing.cljc:217-225`). The stored payload in `dao.jing` is exactly the flat body `[tag & slots]`. When queried or streamed, the system reconstructs the full logical row by prepending the returned address, yielding `[id tag & slots]`. The id is an address envelope outside the hashed payload. The
 id is therefore merkle: a parent's id commits to its children's ids
 inline, and a tree's address is its root row's id (§4.1). These rows are
 what `dao.jing` stores, what streams carry, what addresses name, and
@@ -264,8 +263,7 @@ already states (`src/cljc/yin/vm/v2/linearize.cljc:230-242`).
 
 The tag set is the walker's dispatch set reconciled with the codec's
 inventory (`src/cljc/yin/vm/v2.cljc:413-478`) under the two boundary calls
-of §3. Arity counts the tag and the id together: a row's count is its tag
-arity plus one. This table is the **projection and reconstruction
+of §3. The `Body arity` column counts the body items (tag plus slots). A full row's count is its body arity plus one (for the ID). This table is the **projection and reconstruction
 dictionary**: the slot list of a tag, in order, is exactly the map's key
 set beyond `:type` — the arity ↔ key-set correspondence — so the one
 table fixes the row's positions and the map's fields together. Position
@@ -273,9 +271,9 @@ table fixes the row's positions and the map's fields together. Position
 at `i`; projection reads the positions, reconstruction reads the names,
 and neither side may disagree with the other.
 
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| Tag                     | Arity | Row body                             | Slots                    | Slot kinds       | Walker arm         | Codec arm       |
-+=========================+=======+======================================+==========================+==================+====================+=================+
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| Tag                     | Body arity | Row body                             | Slots                    | Slot kinds       | Walker arm         | Codec arm       |
++=========================+============+======================================+==========================+==================+====================+=================+
 | :literal                | 2     | [:literal value]                     | value                    | data             | ast_walker.cljc:360| v2.cljc:414-415 |
 +-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
 | :variable               | 2     | [:variable name]                     | name                     | sym              | :361-363           | :416-417        |
@@ -725,14 +723,11 @@ map above, carried **exactly** in the record and in the event projection
 A consumer holding a tree, a vector, and a derivation record verifies two
 different things and reports them separately:
 
-1. **Content integrity.** Each value hashes to the address it is claimed
-   under: `(segment-key tree)` equals `:yin.ledger/input`,
-   `(segment-key vector)` equals `:yin.ledger/output`. Failure is
+1. **Content integrity.** The consumer verifies the claimed root ID against the root row and verifies each required row as `row.id == segment-key(row-body)`, recursively validating the reachable closure before reconstructing the semantic map. The instruction vector is verified similarly. Failure is
    `:yin.k/hash-mismatch` naming the value. This is UCF §7.3.4's check and
    says nothing about the derivation.
 2. **Derivation.** If, and only if, the consumer implements the record's
-   `:yin.lower/profile` exactly, it recomputes `(segment-key (lower tree))`
-   under that profile and compares it with `:yin.ledger/output`. Equality
+   `:yin.lower/profile` exactly, it lowers the reconstructed map under that profile and verifies the resulting instruction-vector address against `:yin.ledger/output`. Equality
    verifies the asserted derivation; inequality is `:yin.k/derivation-
    mismatch`, a defective or dishonest lowering, never repaired silently. A
    consumer implementing a different profile does not recompute: it reports
@@ -1686,8 +1681,7 @@ Rules:
 - **Binding.** A declaration `[j path :yin.macro/definition]` names the
   `:application` at `path` in tree `j`, and through the catalogue the
   original definition whose group contains `[j path]`; that node must be
-  `(yin/def <literal sym> <lambda>)`, i.e. operator `[:variable yin/def]`,
-  first operand a `:literal` symbol, second operand a `:lambda`. A
+  `(yin/def <literal sym> <lambda>)`, i.e., its reconstructed semantic map must have an `:operator` that is a `:variable` node naming `yin/def`, its first operand a `:literal` symbol node, and its second operand a `:lambda` node. A
   declaration whose coordinates do not resolve to such a node is an
   admission failure, `{:kind :malformed-input :reason
   :stray-macro-declaration}`, the successor of §3.1 step 1's
