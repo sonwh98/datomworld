@@ -108,8 +108,9 @@ a closure or continuation names.
 +--------------------------+--------------------+----------------------------------------------------------------------------------+
 | `:yin.code/derived-from` | ref (AST root eid) | Provenance; optional when hand-assembled.                                        |
 +--------------------------+--------------------+----------------------------------------------------------------------------------+
-| `:yin.code/hash`         | string             | Reserved: content address of the canonical instruction datoms, for dedup and     |
-|                          |                    | verification (`streams-all-the-way-down.md` §6.3). Not required in Phase 1.      |
+| `:yin.code/hash`         | segment address    | Reserved: content address of the segment's canonical instruction vector          |
+|                          |                    | (`dao.jing/segment-key`; UCF draft §7.3), for dedup and verification             |
+|                          |                    | (`streams-all-the-way-down.md` §6.3). Not required in Phase 1.                   |
 +--------------------------+--------------------+----------------------------------------------------------------------------------+
 
 Entry is pc 0 by rule. Making entry a fact would let a segment disagree with
@@ -675,18 +676,10 @@ Phase 4 measured it: see §8.
 
 ## §7. The Universal Continuation Format (Proposed)
 
-> [!WARNING]  
-> **Status: Proposed / Deferred.** The Semantic VM's linear CESK state is theoretically sound as an architecture-agnostic continuation format, but true heterogeneous network migration requires addressing several critical defects identified in the 2026-09-14 architectural review.
+> [!NOTE]  
+> The Universal Continuation Format has been extracted to its own dedicated design document as a distributed systems protocol specification. 
+> See [`docs/design/yin.vm.universal-continuation-format.md`](./yin.vm.universal-continuation-format.md) for the full protocol design, content-addressing mechanisms, and heterogeneous network migration invariants.
 
-The Semantic VM's linear CESK state (`{:segment id, :pc n, :env E, :stack S, :k K}`) is proposed as the canonical exchange format for network-transparent continuations. Because this lowered representation resolves execution-order ambiguity inherent in the Universal AST, it provides a simpler target for specialized execution engines (e.g., WebAssembly, LLVM, hardware FPGA) to participate in the `datom.world` ecosystem.
-
-To safely "lift on park" and "lower on resume" across heterogeneous boundaries without violating host isolation or concurrency invariants, the following contracts must be fully specified before this feature is accepted:
-
-1. **Safepoint Reconstruction Metadata:** `:yin.code/source` mappings are insufficient for state reconstruction. The compiler must generate exact safepoint metadata tying canonical PC locations to physical register/stack mappings so that arbitrary hardware states can be predictably lifted into the canonical CESK format.
-2. **Recursive Portable Encoding:** Section 1.1 permits host functions and local stream handles in the environment. A recursive serialization protocol is required to encode these local references into portable descriptors, with explicit failure modes for un-serializable resources.
-3. **Dependency Closure & Context:** A parked fragment is not a complete configuration. The format must explicitly declare its required primitives, loaded modules, and the global store state required for valid resumption.
-4. **Ownership Arbitration:** Emitting a continuation does not transfer ownership. The transport composition must define explicit arbitration events to prevent source-wakeup races and duplicate resumes by multiple readers.
-5. **Code Identity (Content Addressing):** Because tempids (`:segment 123`) are local to a single machine's database, continuations must refer to code via immutable, versioned semantic profiles (e.g., content hashing) to guarantee the receiving interpreter executes identical logic.
 
 ## §8. Phase 4 Benchmarks
 
