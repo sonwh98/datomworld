@@ -301,7 +301,7 @@ and neither side may disagree with the other.
 | :stream/close           | 2          | [:stream/close source]               | source                   | node             | added by §3.2      | :465-467        |
 +-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
 
-**De Bruijn Convention:** A `:variable` row's `index` is a De Bruijn index counting binder slots from the innermost enclosing `:lambda` outward. The innermost enclosing `:lambda` of arity `n` binds indices `0..n-1` in parameter order; the next enclosing `:lambda` of arity `m` binds `n..n+m-1`, and so on outward. An `index` ≥ the total enclosing lambda arities on its path is invalid (free variables must be explicitly tagged as `:global`).
+**Named Variables:** A `:variable` row's `name` retains the original string/symbol from the AST. (De Bruijn computation is deferred to the Register VM phase).
 
 `:vm/store-update` is not a tag (§3.1). `:yin/macro-expand` is not a tag:
 the walker has no arm for it and the linearizer rejects it
@@ -357,7 +357,7 @@ for saturation: these facts are stripped map→rows and never re-derived
 rows→map. The map AST a frontend emits carries them; no row does:
 
 - **Source positions**, **parameter/variable names**, and any frontend metadata (`:yang/*` keys, Clojure
-  reader metadata on symbols). Index resolution happens in the frontend before the map AST is emitted; the boundary projection strips only the residual name metadata, leaving the De Bruijn indices for alpha-equivalent hashing. Names are kept purely in an occurrence-keyed side table.
+  reader metadata on symbols). The boundary projection retains named variables in the canonical tuples. Secondary side tables are still emitted for source position tracking, but the bytecode itself preserves semantics.
 - **`:macro?`** and `:phase-policy`. `yang.clojure` sets them on defmacro
   lambdas (`clojure.cljc:436-438`) and the codec persists `:yin/macro?`
   (`v2.cljc:419-420`, schema `v2.cljc:312`). No evaluator reads them
@@ -650,10 +650,7 @@ away. Its address is `(dao.jing/segment-key vector)`, the value
 levels are uniform under this design: an AST row (§2.1) and an instruction
 tuple are both flat positional tuples, canonical and content-addressed,
 and the instruction vector was already this shape before the flat-row
-ruling clarified the AST level. To support De Bruijn ASTs without losing
-alpha-equivalent determinism, the instruction grammar under the `"v2"` execution
-contract (which is not yet published per UCF line 1302, and is amended in place before first publication) gains `:var index`, `:global name`, and `:closure arity body`
-(`yin.vm.semantic.md` §2.4 must be amended), and the positional binding rule of §7.7.2 (under-arity call → missing slots `nil`; extra arguments beyond `arity` are dropped). Therefore, `"v2"` everywhere in this document means the De Bruijn grammar. This design otherwise adds
+ruling clarified the AST level. To perfectly preserve program semantics across boundaries, both the Universal Map AST and the Semantic Tuples strictly retain named variables. Therefore, `"v2"` everywhere in this document means the Named Variable grammar. This design otherwise adds
 nothing to that form and restates none of it.
 
 ### 5.2 The hash chain is realized by derivation records
@@ -1186,7 +1183,7 @@ computed from its lowered segment are **equal** in every field of
 
 #### 7.7.2 Name obligations are resolved per store slice, and completion is conservative
 
-A name extracted from code (a `:global` row) is an **obligation**. Because this design adopts De Bruijn indices for bound variables, local bindings never discharge name obligations: the frontend has already resolved them as `:variable` indices instead of `:global` names. Therefore, an environment's binding never discharges a `:global`. It is discharged only by the store slice by key, or by a profiled primitive or module export (`engine.cljc:46-58`).
+A name extracted from code (a `:global` row) is an **obligation**. Because this design preserves named variables across the Semantic Tuple boundary, the evaluator simply looks up the name in the environment.
 
 **Indices never fall through to names.** An under-arity call leaves missing positional slots `nil`; an over-arity call drops extra arguments beyond `arity`. An unbound index from an under-arity call cannot fall through to the store, primitives, or modules by name (since the index carries no name). An unbound index evaluates to `nil`; it never becomes a `:global` name obligation. This is a deliberate execution-contract change from today's `(zipmap params args)` fallback. Therefore, name obligations are strictly and statically the set of `:global` names, never `:variable` indices.
 
@@ -1721,7 +1718,7 @@ Provenance walks are joins over event entities:
 
 ### 9.1 The boundary, not a sweep
 
-The walker stays on map ASTs exactly as built. While the `:variable` and `:lambda` arms and every corpus test that constructs them must change shape for the De Bruijn index/arity fields, the rest of the arms and tests do not change for representation (owner ruling, 2026-09-15). What changes is the
+The walker stays on map ASTs exactly as built, retaining named variable evaluation. What changes is the
 boundary around them — the projection in, the loader and the readers of
 rows behind it. The semantics do not change; the boundary does.
 
@@ -1909,6 +1906,6 @@ seen from the migration side:
 14. **`yin.vm.semantic.md` Instruction Grammar Amendment** (§5.1) — the `ast-v1` lowering
     profile (§5.2.1) pins the §5.3 table of `yin.vm.semantic.md`, which is currently
     the name-based one. That document's §2.4 and §5.3 must be amended to reflect the
-    De Bruijn instruction grammar (`:var index`, `:global name`, `:closure arity body`)
+    Named variable instruction grammar
     and the positional binding rule of §7.7.2 (under-arity call → missing slots `nil`; extra arguments beyond `arity` are dropped)
     before any derivation record is written.
