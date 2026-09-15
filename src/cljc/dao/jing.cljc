@@ -42,33 +42,111 @@
 ;; Content addressing (docs/design/dao.jing.md, Canonical encoding)
 ;; =============================================================================
 
+(defn- canonical-print
+  "Print an order-normalized value following Clojure's printing conventions
+   byte for byte — space-separated sequential elements, `, `-separated map
+   entries, metadata as a ^m prefix — instead of delegating to the host
+   printer, which drops collection metadata in at least one case (a sorted
+   set prints through its metadata-less seq on Dart). Scalars still print
+   through pr-str."
+  [n]
+  (let [prefixed (fn [body]
+                   (if (meta n)
+                     (str "^" (canonical-print (meta n)) " " body)
+                     body))]
+    (cond (map? n)
+          (prefixed
+            (str "{"
+                 (str/join ", " (map (fn [[k v]]
+                                       (str (canonical-print k) " "
+                                            (canonical-print v)))
+                                     n))
+                 "}"))
+          (set? n)
+          (prefixed
+            (str "#{" (str/join " " (map canonical-print n)) "}"))
+          (vector? n)
+          (prefixed
+            (str "[" (str/join " " (map canonical-print n)) "]"))
+          (sequential? n)
+          (prefixed
+            (str "(" (str/join " " (map canonical-print n)) ")"))
+          :else (pr-str n))))
+
+
 (defn- order-normalize
-  "Normalize a value so equal values print identically: maps sort by printed
-   key, sets sort by printed element, sequences recurse.
+  "Normalize a value so equal values print identically: maps and sets sort by
+   canonically-printed key/element, sequences recurse, and collection metadata is
+   normalized and reattached so it survives into the address. Reader position
+   metadata (:line/:column and friends) is not content and is dropped; every
+   other metadata difference changes the address.
+
+   A normalized set stays a (sorted) set and therefore prints with #{}
+   braces: the set-ness marker comes from the printer, never from a tag like
+   '(set ...) placed inside the ordinary value domain where a real list of
+   that shape could collide with it.
+
+   Records are not a supported payload: the hosts cannot even agree on how
+   to print one (tagged literal on the JVM and JS, plain map on Dart), so a
+   record and its equal plain map would collide somewhere. order-normalize
+   throws on records — anywhere in the value — rather than silently
+   addressing them as maps.
 
    Transitional: this exists only to make the print-based content hash
    deterministic and order-insensitive until the pinned, cross-platform
    canonical byte encoding lands (docs/design/dao.jing.md, Canonical
    encoding). It is NOT that canonical encoding."
   [v]
-  (cond (map? v) (->> v
-                      (map (fn [[k x]]
-                             [(order-normalize k)
-                              (order-normalize x)]))
-                      ;; a pr-str-keyed sorted map prints its keys in a
-                      ;; fixed order on every platform (array-map is not
-                      ;; in ClojureDart)
-                      (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))))
-        (set? v) (list 'set (sort-by pr-str (map order-normalize v)))
-        (sequential? v) (mapv order-normalize v)
-        :else v))
+  (let [attach-meta (fn [normalized]
+                      (let [;; reader position is not content: the hosts'
+                            ;; readers stamp source coordinates onto list
+                            ;; literals, which would make an address depend
+                            ;; on where a payload was written. Everything
+                            ;; else in the metadata is address-significant.
+                            m (dissoc (meta v)
+                                      :line :column :end-line :end-column)]
+                        ;; empty metadata is dropped: = ignores metadata
+                        ;; entirely, and the hosts disagree on whether ^{}
+                        ;; prints (the JVM skips it, Dart prints it)
+                        (if (seq m)
+                          (with-meta normalized (order-normalize m))
+                          normalized)))]
+    (cond (record? v)
+          (throw (ex-info "dao.jing does not address records: hosts print them differently, so their addresses would collide across hosts"
+                          {:payload v}))
+          (map? v) (attach-meta
+                     (->> v
+                          (map (fn [[k x]]
+                                 [(order-normalize k)
+                                  (order-normalize x)]))
+                          ;; a canonically-printed-keyed sorted map prints
+                          ;; its keys in a fixed order on every platform
+                          ;; (array-map is not in ClojureDart)
+                          (into (sorted-map-by
+                                  #(compare (canonical-print %1)
+                                            (canonical-print %2))))))
+          (set? v) (attach-meta
+                     ;; a sorted set prints its elements in one fixed order
+                     ;; on every platform and keeps its #{} braces, so it can
+                     ;; never print like the list or vector of the same
+                     ;; elements
+                     (into (sorted-set-by
+                             #(compare (canonical-print %1)
+                                       (canonical-print %2)))
+                           (map order-normalize v)))
+          (vector? v) (attach-meta (mapv order-normalize v))
+          ;; lists and seqs are one canonical value: = calls them equal and
+          ;; both print (e1 e2 ...), so both normalize to a list
+          (sequential? v) (attach-meta (apply list (map order-normalize v)))
+          :else v)))
 
 
 (defn- order-normalized-print
-  "Transitional encoder: pr-str over the order-normalized form. NOT the final
+  "Transitional encoder: canonical-print over the order-normalized form,
+   which prints collection metadata instead of dropping it. NOT the final
    canonical byte encoding; see order-normalize."
   [v]
-  (pr-str (order-normalize v)))
+  (canonical-print (order-normalize v)))
 
 
 #?(:cljd (do
@@ -263,9 +341,11 @@
    backend reports success.
 
    On :present the stored value is read back through :get-content-fn and
-   verified. Equal content is idempotent and returns the same address.
-   Unequal content at the same address is an integrity failure and throws
-   loudly. Nothing is ever overwritten."
+   verified to hash to the address — with metadata, which is part of the
+   address, not just with =, which ignores it. Equal content is idempotent
+   and returns the same address. Content that does not hash to its own
+   address is an integrity failure and throws loudly. Nothing is ever
+   overwritten."
   [handle payload]
   (let [put (:put-content-fn handle)
         get-fn (:get-content-fn handle)]
@@ -287,11 +367,14 @@
               (ex-info
                 "backend reported :present but the content address is absent"
                 {:address address, :payload payload}))
-            (= stored payload) address
+            ;; the read-back must hash to the address it sits at: = alone
+            ;; would pass a metadata-only mismatch, which the address
+            ;; already distinguishes
+            (= (content-hash stored) (segment-hash address)) address
             :else
             (throw
               (ex-info
-                "content collision: unequal values at the same content address"
+                "content collision: the stored value does not hash to its content address"
                 {:address address, :stored stored, :payload payload}))))
         (throw (ex-info
                  "invalid backend put result"

@@ -185,6 +185,100 @@
            (jing/content-hash {:a 1})))))
 
 
+(deftest content-hash-distinguishes-vector-list-and-seq
+  ;; [1 2], '(1 2), and (seq [1 2]) are three representations of two values:
+  ;; the vector is distinct, the list and the seq are = and share an address
+  (is (not= (jing/content-hash [1 2]) (jing/content-hash '(1 2))))
+  (is (not= (jing/content-hash [1 2]) (jing/content-hash (seq [1 2]))))
+  (is (= (jing/content-hash '(1 2)) (jing/content-hash (seq [1 2])))))
+
+
+(deftest content-hash-keeps-the-set-tag-outside-the-value-domain
+  (testing
+    "a set is encoded inside its own #{} braces, which only a set can
+            print: never as a 'set-prefixed list living in the ordinary
+            value domain where real data of that shape could collide with it"
+    (is (not= (jing/content-hash #{1 2})
+              (jing/content-hash (list 'set (list 1 2))))
+        "the exact shape the old encoder emitted: (set (1 2))")
+    (is (not= (jing/content-hash #{1 2})
+              (jing/content-hash (list 'set [1 2])))
+        "and its vector-tailed variant")
+    (is (not= (jing/content-hash #{}) (jing/content-hash (list 'set)))
+        "the empty set against the empty tagged list")
+    (is (not= (jing/content-hash #{1 2}) (jing/content-hash [1 2]))
+        "a set and the vector of its elements")
+    (is (not= (jing/content-hash #{1 2}) (jing/content-hash '(1 2)))
+        "a set and the list of its elements"))
+  (testing "equal sets of any construction order still agree"
+    (is (= (jing/content-hash #{1 2}) (jing/content-hash #{2 1})))
+    (is (= (jing/content-hash #{1 2 3}) (jing/content-hash #{3 1 2})))))
+
+
+(deftest content-hash-distinguishes-metadata
+  (testing
+    "collection metadata is part of the address on every collection
+            branch that can carry it"
+    (is (not= (jing/content-hash (with-meta [1 2] {:a 1}))
+              (jing/content-hash (with-meta [1 2] {:a 2})))
+        "vector: differing metadata")
+    (is (not= (jing/content-hash (with-meta [1 2] {:a 1}))
+              (jing/content-hash [1 2]))
+        "vector: metadata against none")
+    (is (not= (jing/content-hash (with-meta '(1 2) {:a 1}))
+              (jing/content-hash '(1 2)))
+        "list")
+    (is (not= (jing/content-hash (with-meta (map inc [1 2]) {:a 1}))
+              (jing/content-hash (map inc [1 2])))
+        "seq")
+    (is (not= (jing/content-hash (with-meta {:a 1} {:m 1}))
+              (jing/content-hash {:a 1}))
+        "map")
+    (is (not= (jing/content-hash (with-meta #{1} {:m 1}))
+              (jing/content-hash #{1}))
+        "set"))
+  (testing "structurally equal values with equal metadata still agree"
+    (is (= (jing/content-hash (with-meta {:a 1, :b 2} {:x 1}))
+           (jing/content-hash (with-meta {:b 2, :a 1} {:x 1})))
+        "map order and metadata order are both normalized")
+    (is (= (jing/content-hash (with-meta [1 2] {:x 1, :y 2}))
+           (jing/content-hash (with-meta [1 2] {:y 2, :x 1})))))
+  (testing "reader position metadata is not content"
+    (is (= (jing/content-hash (with-meta [1 2] {:line 7, :column 11}))
+           (jing/content-hash [1 2]))
+        "a :line/:column-tagged value addresses as its bare value")))
+
+
+(defrecord RecordProbe
+  [a b])
+
+
+(deftest records-are-rejected-not-addressed-as-maps
+  (testing
+    "records are not a supported payload: a record is a distinct typed
+            value from its equal plain map, and the hosts cannot even agree
+            how to print one (a tagged literal on the JVM and JS, a plain map
+            on Dart), so the encoder rejects them loudly instead of seating
+            them at the map's address"
+    (let [r (map->RecordProbe {:a 1, :b 2})]
+      (is (not= r {:a 1, :b 2})
+          "precondition: a record is a distinct value from its equal plain
+            map, so the encoder must not seat them at one address")
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/content-hash r)))
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/materialize! (mem-handle) r)))
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/content-hash {:nested r}))
+          "a record anywhere in the value is rejected, not only at the root"))))
+
+
 ;; ---------------------------------------------------------------------------
 ;; Handle API: materialize! / get / close!
 ;; ---------------------------------------------------------------------------
@@ -287,6 +381,28 @@
             (jing/materialize! h {:b 1})))
       (is (= {:a 1} (jing/get h address ::missing))
           "the existing value is untouched"))))
+
+
+(deftest present-read-back-is-verified-by-hash-not-by-equals
+  (testing
+    "a stored value that is = to the payload but does not hash to the
+            address it sits at is a collision: = ignores metadata, and
+            metadata is part of the address"
+    (let [payload (with-meta [1 2] {:a 1})
+          address (jing/segment-key payload)
+          h (mem-handle {address [1 2]})]
+      (is (= [1 2] (get @(:store h) address))
+          "precondition: the stored value is = to the payload")
+      (is (= payload (get @(:store h) address))
+          "precondition: = cannot tell the two apart")
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/materialize! h payload)))))
+  (testing "equal content, metadata included, remains idempotent"
+    (let [payload (with-meta {:a 1} {:m 1})
+          h (mem-handle {(jing/segment-key payload) payload})]
+      (is (= (jing/segment-key payload) (jing/materialize! h payload))))))
 
 
 (deftest present-without-readable-content-is-an-integrity-failure
