@@ -1728,7 +1728,7 @@ rows behind it. The semantics do not change; the boundary does.
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | Site                                             | Change                                                                                                              |
 +==================================================+=====================================================================================================================+
-| walker, `ast_walker.cljc`                        | `:variable` arm resolves an index against a positional env; `:lambda` arm binds `arity` positionals; new `:global` arm resolves through store → primitives → modules (`engine.cljc:46-58`). Other arms keep dispatching on `(:type node)` and reading named fields. Adds `:stream/close` arm (§3.2)                   |
+| walker, `ast_walker.cljc`                        | Retains named variable evaluation (`:name`). `:lambda` arm binds by name. Does not use De Bruijn numbering. Adds `:stream/close` arm (§3.2).                                                                                                      |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | loader, new                                      | validate rows (§7.4), reconstruct the map AST: `rows → map` (§6.1), the successor of `datoms->ast`                  |
 |                                                  | (`v2.cljc:494-559`) with content addresses in place of allocated ids                                                |
