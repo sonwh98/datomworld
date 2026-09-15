@@ -24,6 +24,7 @@
    - **`call-in-cursor-key` is dropped.** v1 wrote it and nothing read it."
   (:refer-clojure :exclude [eval])
   (:require [dao.datom :as datom]
+            [dao.jing :as jing]
             [dao.stream.v2 :as stream]
             [yin.vm.v2.telemetry :as telemetry]))
 
@@ -557,6 +558,248 @@
        ;; fallback
        (throw (ex-info "Unknown AST node type in datoms"
                        {:type node-type, :root-id root-id}))))))
+
+
+;; =============================================================================
+;; Semantic bytecode: flat content-addressed rows
+;; =============================================================================
+;; docs/design/yin.vm.code-as-tuples.md §2. One row `[id tag & slots]` per
+;; distinct node; `id` is `(jing/segment-key [tag & slots])`.
+
+(def semantic-bytecode-grammar
+  "The §2.3 tag table: tag -> ordered `[field kind]` slots. Position `i` of a
+   row body (after the tag) holds the map field named at `i`, so this one
+   table drives both projection and reconstruction."
+  {:literal [[:value :data]],
+   :variable [[:name :sym]],
+   :global [[:name :sym]],
+   :lambda [[:params :syms] [:body :node]],
+   :application [[:operator :node] [:operands :nodes] [:tail? :bool]],
+   :if [[:test :node] [:consequent :node] [:alternate :node]],
+   :dao.stream.apply/call [[:op :kw] [:operands :nodes]],
+   :vm/gensym [[:prefix :str]],
+   :vm/store-get [[:key :key]],
+   :vm/store-put [[:key :key] [:val :data]],
+   :vm/current-continuation [],
+   :vm/park [],
+   :vm/resume [[:parked-id :kw] [:val :node]],
+   :stream/make [[:buffer :int]],
+   :stream/put [[:target :node] [:val :node]],
+   :stream/cursor [[:source :node]],
+   :stream/next [[:source :node]],
+   :stream/close [[:source :node]]})
+
+
+(def ^:private semantic-bytecode-defaults
+  "§2.4 saturation: `[tag field]` -> the default written map→rows. rows→map
+   never re-defaults; a nil in one of these slots is a defect."
+  {[:vm/gensym :prefix] "id",
+   [:stream/make :buffer] default-stream-capacity,
+   [:application :tail?] false,
+   [:application :operands] [],
+   [:dao.stream.apply/call :operands] []})
+
+
+(defn- strip-symbol-meta
+  "§2.5: reader metadata on names is frontend metadata, not content."
+  [x]
+  (if (symbol? x) (with-meta x nil) x))
+
+
+(defn- strip-reader-positions
+  "§2.5: reader source positions are provenance, not content. Removes
+   `:line`/`:column`/`:end-line`/`:end-column` from metadata at every depth
+   of a `data`/`key` payload, including inside metadata maps and their own
+   metadata, keeping all other metadata and every collection
+   type. `dao.jing` already leaves these keys out of the address; this keeps
+   them out of the row body too."
+  [x]
+  (let [x' (cond (record? x) x
+                 (map? x) (into (empty x)
+                                (map (fn [[k v]]
+                                       [(strip-reader-positions k)
+                                        (strip-reader-positions v)]))
+                                x)
+                 (set? x) (into (empty x) (map strip-reader-positions) x)
+                 ;; not (into (empty x) ...): a map entry is vector? but its
+                 ;; empty is nil, which would rebuild it as a reversed list
+                 (vector? x) (mapv strip-reader-positions x)
+                 (sequential? x) (apply list (map strip-reader-positions x))
+                 :else x)
+        m (meta x)]
+    (if m
+      ;; metadata is itself a value: its entries and its own metadata may
+      ;; carry reader positions too
+      (let [m' (strip-reader-positions
+                 (dissoc m :line :column :end-line :end-column))]
+        ;; not (not-empty m'): an entry-less map may still carry metadata
+        (with-meta x' (when-not (and (empty? m') (nil? (meta m'))) m')))
+      x')))
+
+
+(defn- same-meta?
+  "True when the `=` values `a` and `b` also carry `=` metadata at every
+   depth, including inside metadata itself (a metadata value, or a metadata
+   map's own metadata, compares through `same-meta?` too). `=` alone ignores
+   metadata.
+
+   Scope boundary: the set branch assumes ordinary set semantics, at most one
+   element per `=`-equivalence class; a set built with a comparator that
+   admits several `=`-equal, metadata-distinct elements is out of scope, the
+   same class of pathological-input residual `dao.jing.md` documents for its
+   own encoder (pathological symbols, scalar metadata). That deferred case is
+   silent and order-dependent, not reliably fail-closed: which `=`-equal
+   element the lookup picks depends on traversal order, so a metadata
+   mismatch may throw or may be silently accepted."
+  [a b]
+  (and (= (meta a) (meta b))
+       (or (nil? (meta a)) (same-meta? (meta a) (meta b)))
+       (cond (map? a) (every? (fn [[k v]]
+                                (let [[k' v'] (find b k)]
+                                  (and (same-meta? k k') (same-meta? v v'))))
+                              a)
+             (set? a) (every? (fn [e]
+                                (same-meta? e (some #(when (= e %) %) b)))
+                              a)
+             (sequential? a) (every? true? (map same-meta? a b))
+             :else true)))
+
+
+(defn ast->semantic-bytecode
+  "Project a map AST to flat content-addressed rows (§6.1 codec boundary
+   projection). Returns `{:root row-id, :rows {row-id [row-id tag & slots]}}`.
+
+   Only the §2.3 slots of each node enter its row: `:eid`, `:macro?`,
+   `:yang/*` keys, non-`:application` `:tail?` marks, and any other key are
+   dropped. `sym`/`syms` slots lose all metadata; `data`/`key` payloads lose
+   reader positions at every depth and keep all other metadata. Defaults are
+   saturated per §2.4. Children are projected first, so a parent's body
+   commits to its children's ids; structurally identical subtrees mint one
+   id and are stored as one row (§4.4).
+
+   Known limitation, inherited from `dao.jing` and not fixed here: the
+   transitional encoder does not hash metadata on scalars, so two payloads
+   differing only in retained symbol metadata (e.g. `^{:meaning 1} x` and
+   `^{:meaning 2} x` as literal values) mint one address. Such a collision
+   throws `\"Semantic bytecode address collision\"` rather than letting one
+   row's metadata silently replace the other's. It disappears when
+   `dao.jing`'s encoding covers scalar metadata."
+  [ast]
+  (let [rows (atom {})]
+    (letfn
+      [(slot-value
+         [tag node [field kind]]
+         (let [v (get node field)
+               v (if (nil? v) (get semantic-bytecode-defaults [tag field]) v)]
+           (case kind
+             :node (convert v)
+             :nodes (mapv convert v)
+             :sym (strip-symbol-meta v)
+             :syms (mapv strip-symbol-meta v)
+             :bool (boolean v)
+             (:data :key) (strip-reader-positions v)
+             v)))
+       (convert
+         [node]
+         (let [tag (:type node)
+               slots (or (get semantic-bytecode-grammar tag)
+                         (throw (ex-info "Unknown AST node type"
+                                         {:type tag, :node node})))
+               body (into [tag] (map #(slot-value tag node %)) slots)
+               id (jing/segment-key body)
+               row (into [id] body)
+               prior (get @rows id)]
+           (when (and prior
+                      (not (and (= prior row) (same-meta? prior row))))
+             (throw (ex-info "Semantic bytecode address collision"
+                             {:id id, :row row, :prior prior})))
+           (swap! rows assoc id row)
+           id))]
+      (let [root (convert ast)]
+        {:root root, :rows @rows}))))
+
+
+(defn semantic-bytecode->ast
+  "Reconstruct the canonical map AST from `{:root row-id, :rows {row-id row}}`
+   (§7.1 load-time reconstruction), the inverse of `ast->semantic-bytecode`.
+
+   Every reached row is validated before use; a defect throws `ex-info` whose
+   data carries `:rule` (`:shape`, `:content-address`, `:tag`, `:arity`,
+   `:slot-kind`, `:saturation`, or `:id-resolves`) and the offending `:id`.
+   Nothing is re-defaulted. A row reached through several parents is rebuilt
+   once and shared."
+  [{:keys [root rows]}]
+  (let [built (atom {})]
+    (letfn
+      [(defect
+         [rule msg data]
+         (throw (ex-info msg (assoc data :rule rule))))
+       (child
+         [kind id v]
+         (case kind
+           :node (build v)
+           ;; as for :syms: projection mints a metadata-free vector
+           :nodes (if (and (vector? v) (nil? (meta v)))
+                    (mapv build v)
+                    (defect :slot-kind
+                      "Semantic bytecode nodes slot is not a metadata-free vector"
+                      {:id id, :value v}))
+           ;; projection always mints a metadata-free vector, so a vector
+           ;; carrying metadata (which dao.jing hashes) could never re-project
+           ;; to its own address
+           :syms (if (and (vector? v) (nil? (meta v)) (every? symbol? v))
+                   v
+                   (defect :slot-kind
+                     "Semantic bytecode syms slot is not a metadata-free vector of symbols"
+                     {:id id, :value v}))
+           :bool (if (or (true? v) (false? v))
+                   v
+                   (defect :slot-kind
+                     "Semantic bytecode bool slot is not true or false"
+                     {:id id, :value v}))
+           v))
+       (build
+         [id]
+         (if-let [node (get @built id)]
+           node
+           (let [row (get rows id)
+                 _ (when (nil? row)
+                     (defect :id-resolves
+                       "Semantic bytecode id resolves to no row"
+                       {:id id}))
+                 _ (when-not (and (vector? row) (<= 2 (count row)))
+                     (defect :shape
+                       "Semantic bytecode row is not [id tag & slots]"
+                       {:id id, :row row}))
+                 body (subvec row 1)
+                 _ (when-not (= id (first row) (jing/segment-key body))
+                     (defect :content-address
+                       "Semantic bytecode row id is not its content address"
+                       {:id id, :row row}))
+                 tag (first body)
+                 slots (get semantic-bytecode-grammar tag)
+                 _ (when (nil? slots)
+                     (defect :tag
+                       "Unknown AST node type in semantic bytecode"
+                       {:id id, :type tag}))
+                 _ (when-not (= (count slots) (dec (count body)))
+                     (defect :arity
+                       "Semantic bytecode row arity does not match its tag"
+                       {:id id, :row row}))
+                 node (reduce
+                        (fn [m [[field kind] v]]
+                          (when (and (nil? v)
+                                     (contains? semantic-bytecode-defaults
+                                                [tag field]))
+                            (defect :saturation
+                              "Semantic bytecode saturated slot is nil"
+                              {:id id, :field field}))
+                          (assoc m field (child kind id v)))
+                        {:type tag}
+                        (map vector slots (rest body)))]
+             (swap! built assoc id node)
+             node)))]
+      (build root))))
 
 
 (def ^:private many-attrs #{:yin/operands :yin/args :yin/params})
