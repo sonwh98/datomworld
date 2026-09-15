@@ -773,9 +773,9 @@ rows.
 
 **The Dedicated AST Indexer:** This row relation (called `$ast` in queries) is maintained by the dedicated AST indexer (§1). The indexer is a `dao.stream` observer peer to the evaluators (§7.1); its input is the row batches of §7.1; its output is this row relation plus the occurrence relation below; it is distinct from `dao.space.index`, which indexes datoms only (§6.5); it is a projection keeper per §1's Query layer, so discarding it loses nothing.
 
-`map → rows` is the **frontend boundary projection**: strip the §2.5
+`map → rows` is the **codec boundary projection** (`yin.vm.v2/ast->semantic-bytecode`): strip the §2.5
 exclusions, saturate per §2.4, positionalize per the §2.3 dictionary,
-merkle per §4.1. It is a standing contract of every frontend, not a
+merkle per §4.1. It is the standing contract of the Encoder Observer, not a
 migration device (§9.1).
 
 `rows → map` is **load-time reconstruction** (§7.1): validate the rows
@@ -1734,7 +1734,7 @@ rows behind it. The semantics do not change; the boundary does.
 | `linearize.cljc:87-148`,                         | :yin/type)` becomes a lookup by row id); `ast-children` becomes a table lookup of `node`/`nodes` slot positions;    |
 | `:230-242`                                       | `lower` takes a row set and returns a vector plus the §5.3 provenance table; emits `:var index`, `:global name`, and `:closure arity body`; `lower-ast` (`:245-252`) goes away     |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
-| codec, `v2.cljc:372-559`                         | becomes the rows⇄datoms projection pair of §6.5; `:yin/tail?` emitted only from `:application`; `:yin/macro?`,      |
+| codec, `v2.cljc:372-559`                         | becomes `yin.vm.v2/ast->semantic-bytecode`, the projection pair of §6.5 mapping Universal AST to Canonical Rows/Datoms.            |
 |                                                  | `:yin/root`, `:eid`, `:yin/params`, and `:yin/name`-on-variable removed; `:yin/address`, `:yin/index`, `:yin/arity` added; `:global` node added |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | `code/mnemonics`, `code/well-formed?`,           | `code/mnemonics` (`code.cljc:12-16`) adds `:global`. `well-formed?` keeps judging datom batches on the projection path before projection; the shared vector validator of §7.5 runs on   |
@@ -1743,9 +1743,9 @@ rows behind it. The semantics do not change; the boundary does.
 | `semantic/load-image`,                           | decodes from the vector directly on the primary path; positional frame binding for `:closure`; `:global` opcode resolves store → primitives → modules; decodes the new operands (`:var index`, `:global name`, `:closure arity body`); both paths call the §7.5 validator   |
 | `semantic.cljc:524-596`                          |                                                                                                                     |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
-| frontends                                        | keep emitting map ASTs and gain the permanent boundary projection (map → rows): strip the §2.5 exclusions, saturate |
-| `src/cljc/yang/clojure.cljc`,                    | per §2.4, positionalize per the §2.3 dictionary, merkle per §4.1; emit the ordered batch `{:yin/batch :yin/root     |
-| `python.cljc`, `php.cljc`                        | :yin/declarations :yin/harvest}` (§8.5) of row sets. `:eid`, `:phase-policy`, and non-`:application` tail marks     |
+| frontends                                        | keep emitting map ASTs to the stream (as named universal ASTs). They do not perform the tuple projection. |
+| `src/cljc/yang/clojure.cljc`,                    | All projection to Semantic Tuples and side-tables is deferred to the Encoder Observer (`yin.vm.v2/ast->semantic-bytecode`).        |
+| `python.cljc`, `php.cljc`                        |                                                                                                                     |
 |                                                  | never survive the boundary. The r7 adapter's ordering rules become the standing contract: first reject any `:macro? |
 |                                                  | true` lambda that is not the value operand of a `yin/def` as `:stray-macro-lambda`, then turn each admitted one into|
 |                                                  | a declaration at its tree index and path, then strip the flag                                                       |
