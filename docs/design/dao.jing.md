@@ -3,9 +3,10 @@
 Status: implemented. The observer (`observer-state` / `observe-step!`) and the
 plain-data content-store handles described here are the current
 `src/cljc/dao/jing*.cljc` code. What remains open — the final canonical
-encoding, durable observer checkpoints, explicit materialization
-acknowledgement, the content write path as an effect stream, garbage collection,
-and async hydration — is listed under *Open items and current limitations*.
+encoding, byte-array addressing, metadata-carrying backends and transports,
+durable observer checkpoints, explicit materialization acknowledgement, the
+content write path as an effect stream, garbage collection, and async
+hydration — is listed under *Open items and current limitations*.
 
 **Related documents:**
 
@@ -186,9 +187,29 @@ such as datoms, index orders, manifests, or any notion of a root.
 
 The target encoding is a canonical flat byte representation suitable for
 cross-platform hashing and in-place reading. The current implementation uses
-an order-normalized `pr-str` as a transitional encoder — deterministic and
+an order-normalized, metadata-aware hand printer (`dao.jing/order-normalize`
+and `canonical-print`) as a transitional encoder — deterministic and
 order-insensitive, but not yet the pinned canonical byte encoding. This is the
 first open item under *Open items and current limitations*.
+
+The transitional encoder's current contract, precisely: collection metadata
+(on maps, sets, vectors, lists, and seqs) is address-significant, except
+reader-position keys (`:line`, `:column`, `:end-line`, `:end-column`), which
+are stripped before hashing, and empty metadata, which is dropped rather than
+treated as distinct from no metadata. Scalar metadata (on symbols — no
+portable host lets a keyword carry metadata) is not address-significant
+— it is silently ignored, a known
+residual pending the pinned canonical byte encoding. Lists and seqs of equal
+content share one address (`=` calls them equal and both print the same way);
+vectors, sets, and maps are each their own type and never collide with
+another, for any non-pathological scalar (see the pathological-symbol
+residual under *Open items and current limitations*). Records are not a
+supported payload: `content-hash` throws rather
+than silently addressing a record as its equal plain map, since the
+participating hosts cannot agree on how to print one. `materialize!`'s
+`:present` read-back is verified by re-hashing the stored value and comparing
+it to the claimed address, not by `=`, since `=` ignores metadata and a
+metadata-only mismatch is a real collision.
 
 ## Storage ignorance
 
@@ -387,11 +408,46 @@ encoder is transitional until the pinned canonical byte encoding lands.
 
 ## Open items and current limitations
 
-- **Canonical encoding.** The order-normalized `pr-str` encoder must be
+- **Canonical encoding.** The order-normalized hand-printer encoder must be
   replaced by a pinned, cross-platform canonical byte encoding. Until then,
   content addresses are portable only between implementations sharing the
   exact print rule; when the encoding lands, `content-hash`, `segment-key`,
-  and every minted address change together.
+  and every minted address change together. Three residuals of the
+  transitional encoder are deferred to that landing: scalar (symbol)
+  metadata is not address-significant; pathological symbols whose print text
+  mimics another value's print (e.g. `(symbol "42")` vs `42`) can collide;
+  and ambient print-var bindings (`*print-readably*` and similar) still
+  reach scalar bytes, since `canonical-print` delegates scalars to `pr-str`
+  — collection structure and order are rendered by `canonical-print`
+  itself, so only scalar leaves reach the host printer.
+- **Byte arrays are hashed by identity, not content.** `dao.jing.md` lists
+  byte arrays as a supported representation-level type, but the transitional
+  encoder's scalar branch falls through to `pr-str`, which on the JVM prints
+  a byte array as an identity-bearing object literal (`#object["[B" 0x...
+  "..."]`); other hosts print their own identity-bearing form. Two
+  content-equal byte arrays currently mint different addresses. No
+  current producer emits byte-array payloads, so this is latent; it must be
+  fixed (a proper byte-array print rule, or promotion into the pinned
+  canonical byte encoding) before any producer relies on byte-array content
+  addressing.
+- **Backends and transports must fail closed on metadata they cannot carry.**
+  Metadata is now address-significant in the transitional encoder, but no
+  durable backend or wire codec in the system carries metadata today: the
+  file backend (`dao/jing/file.cljc`) writes payloads with plain `pr-str`,
+  and the transit codec (`dao/stream/v2/transit.cljc`) states metadata is not
+  on the wire and its portable-value check admits metadata-bearing
+  collections without complaint. A metadata-bearing payload therefore passes
+  `materialize!`'s put validation, is written with its metadata silently
+  dropped, and fails loudly — the whole store becomes unopenable — on replay,
+  because the replayed frame no longer hashes to its claimed address. This is
+  not reachable today (no producer emits collection metadata yet), and the
+  failure mode is loud rather than silently corrupting, so it is not a
+  blocker for the encoder fix itself. It becomes blocking the moment any
+  producer (the code-as-tuples pipeline's row/metadata-bearing content, once
+  that work starts emitting metadata-bearing literals) begins emitting
+  metadata-bearing payloads. Every backend and transport must, before that
+  point, either carry metadata through or explicitly refuse a payload whose
+  round trip through its own codec would not hash back to its address.
 - **Durable observer checkpoints / long-running runner.** `observer-state`
   and `observe-step!` are single-step and in-process. The checkpoint records,
   per member, the stream coordinate plus the transport-minted cursor; the
