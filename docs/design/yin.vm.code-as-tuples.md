@@ -909,9 +909,9 @@ vector (code medium), and the evaluator's loader takes it as is:
 +----------------------+----------------------+--------------------------------------------------------------------------------------------------------------------------+
 | Evaluator            | Loader input         | What loading does                                                                                                        |
 +======================+======================+==========================================================================================================================+
-| walker               | row set              | validate (§7.4), reconstruct the map AST — `rows → map` (§6.1), the successor of `datoms->ast` (`v2.cljc:494-559`) with  |
-|                      |                      | content addresses in place of allocated ids — set `:program` and `:control` to the map; no conversion to any tuple node  |
-|                      |                      | form                                                                                                                     |
+| walker               | map AST              | natively reads map AST from stream topic without conversion — set `:program` and `:control` to the map.                    |
+|                      |                      |                                                                                                                          |
+|                      |                      |                                                                                                                          |
 +----------------------+----------------------+--------------------------------------------------------------------------------------------------------------------------+
 | semantic             | instruction vector   | validate (§7.5), decode positional operands into the image (the `case` of `semantic.cljc:563-593` reading `(nth tuple i)`|
 |                      |                      | instead of attribute maps), store under `:code` with the address as the alias column UCF §7.3.4 requires                 |
