@@ -3,14 +3,9 @@
 Status: Proposed, revision 8 (after the owner's 2026-09-15 clarification
 of ruling 1, accepted through an APPROVE-WITH-FINDINGS r7 review). This
 document implements eight owner rulings — seven of 2026-09-14 and one of
-2026-09-15: the map AST is the Universal AST's own representation, the
-semantic layer, and its canonical form is the flat per-node row
-projection `[id tag & slots]`, which is what is content-hashed, stored,
-streamed, and named — there is no tuple tree (ruling 1 of 2026-09-14,
+2026-09-15: the map AST is the Universal AST's canonical representation that gets evaluated by the ast-walker (a LISP using maps, not a LISP using vectors instead of lists). However, the Universal AST is converted into flat per-node tuple rows (`[id tag & slots]`) that act like bytecode, preserving everything in the Universal AST so that the semantic VM can execute it quickly because of the linearization of the AST into tuples (the VM lowers these rows into an instruction vector for execution). These rows are what is content-hashed, stored, streamed, and named — there is no nested tuple tree (ruling 1 of 2026-09-14,
 clarified 2026-09-15); the grammar is fixed-arity, saturated, and
-provenance-free; `dao.space.query/q` runs over the rows directly; the
-semantic VM loads rows as its primary path, reconstructing the map AST;
-code on a stream is rows end to end; `t` and `m` live in a ledger of
+provenance-free; `dao.space.query/q` runs over the rows directly; all `yin.vm` evaluators are `dao.stream` observers that load rows to evaluate code; concurrently, a dedicated AST indexer observes the same stream and maintains the **row relation** of §6.1 (the `$ast` relation `q` runs over) from the rows it observes. `dao.jing` is the content store the rows already live in; it is not the indexer's output; code on a stream is rows end to end; `t` and `m` live in a ledger of
 records over code addresses; datoms `[e a v t m]` are the reference
 layer; and the round-trip law — `map → rows → map` and `rows → map →
 rows` are identities — is a first-class conformance obligation (ruling 8,
@@ -47,10 +42,10 @@ things that never cross between them are what make the design hold.
 +----------------+--------------------------------+-------------------------------------+--------------------+--------------------------+--------------------------------+
 | Layer          | Example                        | What it holds                       | Identity           | Where it lives           | Mutability                     |
 +================+================================+=====================================+====================+==========================+================================+
-| **Content**    | `[A :lambda [x] B]`, the root  | The code itself, in its canonical   | the content        | `dao.jing`, under its    | immutable; no `t`, no `m`, no  |
-|                | row of §2.1's tree             | row form: flat per-node rows (§2)   | address — a row's  | address                  | name, no occurrence, no        |
-|                |                                | and instruction vectors (§5); and   | id; a tree is named| (`src/cljc/dao/jing.cljc | predecessor address inside     |
-|                |                                | ledger records (§8.2), which are    | by its root row's  | :217-225`)               | code content                   |
+| **Content**    | `{:type :lambda :arity 1…}`,   | The Map AST code itself, stored as  | the content        | `dao.jing`, under its    | immutable; no `t`, no `m`, no  |
+|                | the Map AST semantic root      | a linearized bytecode of flat       | address — a row's  | address                  | name, no occurrence, no        |
+|                |                                | per-node tuple rows (§2) and        | id; a tree is named| (`src/cljc/dao/jing.cljc | predecessor address inside     |
+|                |                                | instruction vectors (§5); and       | by its root row's  | :217-225`)               | code content                   |
 |                |                                | also content-addressed values       | id (§4.1)          |                          |                                |
 +----------------+--------------------------------+-------------------------------------+--------------------+--------------------------+--------------------------------+
 | **Refs**       | [e :yin/code                   | Datoms `[e a v t m]` whose `v` is a | the datom itself,  | the ledger relation      | append-only; the hash chain is |
@@ -60,8 +55,8 @@ things that never cross between them are what make the design hold.
 +----------------+--------------------------------+-------------------------------------+--------------------+--------------------------+--------------------------------+
 | **Query**      | `[seg 12 :call 2 false]`, one  | Entity-shaped views of code         | derived; never an  | computed from content by | recomputed at will; discarding |
 |                | segment-qualified row (§6.2)   | internals: the segment rows         | identity           | a pure function, kept by | a projection loses nothing     |
-|                |                                | `[pc tag & ops]`, the datom         |                    | whoever queries          |                                |
-|                |                                | projection `[e a v t m]` of a tree, |                    |                          |                                |
+|                |                                | `[pc tag & ops]`, the datom         |                    | whoever queries (e.g.    |                                |
+|                |                                | projection `[e a v t m]` of a tree, |                    | the AST indexer)         |                                |
 |                |                                | and the occurrence relation (§6.1)  |                    |                          |                                |
 +----------------+--------------------------------+-------------------------------------+--------------------+--------------------------+--------------------------------+
 
@@ -146,37 +141,34 @@ What never crosses:
 
 ### 2.1 Form
 
-The map AST is the code's own representation — the **semantic layer**. A
+The map AST is the code's own representation — the **semantic layer** (the Universal AST). A
 node is a map of its tag and its named fields:
 
 ```clojure
 {:type :lambda,
- :params [x],
+ :arity 1,
  :body {:type :application,
-        :operator {:type :variable, :name +},
-        :operands [{:type :variable, :name x} {:type :literal, :value 1}],
+        :operator {:type :global, :name +},
+        :operands [{:type :variable, :index 0} {:type :literal, :value 1}],
         :tail? true}}
 ```
 
-This is exactly what the walker's `case` dispatches on today: every arm
-of the cold case (`src/cljc/yin/vm/v2/ast_walker.cljc:359-469`) and the
-hot case (`ast_walker.cljc:600-626`) keys on the node's `:type` and
-reads a fixed set of named fields. The walker stays on this form, and so
-does every test that constructs map ASTs; nothing in this design sweeps
-them. But the map AST is never hashed directly, never stored, never
+The fields are what the walker dispatches on today (`src/cljc/yin/vm/v2/ast_walker.cljc:333-470`), though the walker's `:variable` and `:lambda` arms must be adapted to resolve indices against a positional environment and bind `arity`, while `:global` resolves through the store/primitives/modules (`engine.cljc:46-58`).
+
+The map AST is never hashed directly, never stored, never
 shipped. It exists on both sides of storage — frontend-side, where
 frontends emit it, and machine-side, where the loader reconstructs it
 (§7.1) — and it is ephemeral and per-consumer, like an image: each
-consumer's map is its own value, and none of them is the canonical one.
+consumer's map is its own value, though conceptually they all represent the canonical Universal AST (the semantic representation).
 
-The canonical artifact is the **flat per-node row projection** of the map
-AST, `project : map-ast → rows`, one row per node:
+The **canonical stored artifact** is the **flat per-node row projection** of the map
+AST, `project : map-ast → rows`, one row per node (the bytecode linearization):
 
 ```clojure
-[A :lambda [x] B]
+[A :lambda 1 B]
 [B :application C [D E] true]
-[C :variable +]
-[D :variable x]
+[C :global +]
+[D :variable 0]
 [E :literal 1]          ; A..E are :segment/sha256-… row ids
 ```
 
@@ -247,9 +239,6 @@ already states (`src/cljc/yin/vm/v2/linearize.cljc:230-242`).
 +---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
 | `sym`   | one symbol                       |                                                                                                                           |
 +---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
-| `syms`  | a vector of symbols, possibly    |                                                                                                                           |
-|         | empty                            |                                                                                                                           |
-+---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
 | `kw`    | one keyword                      |                                                                                                                           |
 +---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
 | `str`   | one string                       |                                                                                                                           |
@@ -274,41 +263,45 @@ and neither side may disagree with the other.
 +-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
 | Tag                     | Body arity | Row body                             | Slots                    | Slot kinds       | Walker arm         | Codec arm       |
 +=========================+============+======================================+==========================+==================+====================+=================+
-| :literal                | 2     | [:literal value]                     | value                    | data             | ast_walker.cljc:360| v2.cljc:414-415 |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :variable               | 2     | [:variable name]                     | name                     | sym              | :361-363           | :416-417        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :lambda                 | 3     | [:lambda params body]                | params body              | syms, node       | :364-370           | :418-423        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :application            | 4     | [:application operator operands      | operator operands tail?  | node, nodes, bool| :371-376           | :424-429        |
-|                         |       | tail?]                               |                          |                  |                    |                 |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :if                     | 4     | [:if test consequent alternate]      | test consequent alternate| node, node, node | :377-381           | :435-441        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :dao.stream.apply/call  | 3     | [:dao.stream.apply/call op operands] | op operands              | kw, nodes        | :382-394           | :430-434        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :vm/gensym              | 2     | [:vm/gensym prefix]                  | prefix                   | str              | :395-400           | :443-444        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :vm/store-get           | 2     | [:vm/store-get key]                  | key                      | key              | :401               | :445-446        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :vm/store-put           | 3     | [:vm/store-put key val]              | key val                  | key, data        | :402-409           | :447-449        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :vm/current-continuation| 1     | [:vm/current-continuation]           | —                        | —                | :422-427           | :474-475        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :vm/park                | 1     | [:vm/park]                           | —                        | —                | :428-430           | :469            |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :vm/resume              | 3     | [:vm/resume parked-id val]           | parked-id val            | kw, node         | :431-438           | :470-473        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :stream/make            | 2     | [:stream/make buffer]                | buffer                   | int              | :439-447           | :451-453        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :stream/put             | 3     | [:stream/put target val]             | target val               | node, node       | :448-454           | :454-458        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :stream/cursor          | 2     | [:stream/cursor source]              | source                   | node             | :455-461           | :459-461        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :stream/next            | 2     | [:stream/next source]                | source                   | node             | :462-468           | :462-464        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :stream/close           | 2     | [:stream/close source]               | source                   | node             | added by §3.2      | :465-467        |
-+-------------------------+-------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :literal                | 2          | [:literal value]                     | value                    | data             | ast_walker.cljc:360| v2.cljc:414-415 |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :variable               | 2          | [:variable index]                    | index                    | int              | changes: index, not name | changes: `:yin/index`, not `:yin/name` |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :global                 | 2          | [:global name]                       | name                     | sym              | added by this design | added by this design |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :lambda                 | 3          | [:lambda arity body]                 | arity body               | int, node        | changes: arity, not params | changes: arity, not params |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :application            | 4          | [:application operator operands      | operator operands tail?  | node, nodes, bool| :371-376           | :424-429        |
+|                         |            | tail?]                               |                          |                  |                    |                 |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :if                     | 4          | [:if test consequent alternate]      | test consequent alternate| node, node, node | :377-381           | :435-441        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :dao.stream.apply/call  | 3          | [:dao.stream.apply/call op operands] | op operands              | kw, nodes        | :382-394           | :430-434        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/gensym              | 2          | [:vm/gensym prefix]                  | prefix                   | str              | :395-400           | :443-444        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/store-get           | 2          | [:vm/store-get key]                  | key                      | key              | :401               | :445-446        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/store-put           | 3          | [:vm/store-put key val]              | key val                  | key, data        | :402-409           | :447-449        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/current-continuation| 1          | [:vm/current-continuation]           | —                        | —                | :422-427           | :474-475        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/park                | 1          | [:vm/park]                           | —                        | —                | :428-430           | :469            |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :vm/resume              | 3          | [:vm/resume parked-id val]           | parked-id val            | kw, node         | :431-438           | :470-473        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :stream/make            | 2          | [:stream/make buffer]                | buffer                   | int              | :439-447           | :451-453        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :stream/put             | 3          | [:stream/put target val]             | target val               | node, node       | :448-454           | :454-458        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :stream/cursor          | 2          | [:stream/cursor source]              | source                   | node             | :455-461           | :459-461        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :stream/next            | 2          | [:stream/next source]                | source                   | node             | :462-468           | :462-464        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+| :stream/close           | 2          | [:stream/close source]               | source                   | node             | added by §3.2      | :465-467        |
++-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
+
+**De Bruijn Convention:** A `:variable` row's `index` is a De Bruijn index counting binder slots from the innermost enclosing `:lambda` outward. The innermost enclosing `:lambda` of arity `n` binds indices `0..n-1` in parameter order; the next enclosing `:lambda` of arity `m` binds `n..n+m-1`, and so on outward. An `index` ≥ the total enclosing lambda arities on its path is invalid (free variables must be explicitly tagged as `:global`).
 
 `:vm/store-update` is not a tag (§3.1). `:yin/macro-expand` is not a tag:
 the walker has no arm for it and the linearizer rejects it
@@ -356,8 +349,6 @@ and a row with a nil in a saturated slot is invalid, not defaulted.
 +----------------------------------------------------+-------------------------------------+-----------------------------------------------------------------------------+
 | `:application` / `:dao.stream.apply/call` operands | `[]`                                | walker `ast_walker.cljc:383`                                                |
 +----------------------------------------------------+-------------------------------------+-----------------------------------------------------------------------------+
-| `:lambda` params                                   | `[]`                                | —                                                                           |
-+----------------------------------------------------+-------------------------------------+-----------------------------------------------------------------------------+
 
 ### 2.5 Exclusions, occurrences, and side tables
 
@@ -365,8 +356,8 @@ Exclusion is a rule of the projection boundary, the same rule §2.4 states
 for saturation: these facts are stripped map→rows and never re-derived
 rows→map. The map AST a frontend emits carries them; no row does:
 
-- **Source positions** and any frontend metadata (`:yang/*` keys, Clojure
-  reader metadata on symbols).
+- **Source positions**, **parameter/variable names**, and any frontend metadata (`:yang/*` keys, Clojure
+  reader metadata on symbols). Index resolution happens in the frontend before the map AST is emitted; the boundary projection strips only the residual name metadata, leaving the De Bruijn indices for alpha-equivalent hashing. Names are kept purely in an occurrence-keyed side table.
 - **`:macro?`** and `:phase-policy`. `yang.clojure` sets them on defmacro
   lambdas (`clojure.cljc:436-438`) and the codec persists `:yin/macro?`
   (`v2.cljc:419-420`, schema `v2.cljc:312`). No evaluator reads them
@@ -429,6 +420,8 @@ key, because a key travels and the number does not (§8.4).
 +------------------------+------------------------------------------------------------------------------------------------------------------------+----------------------+
 | frontend metadata      | `[origin root-address path key value]`                                                                                 | the frontend         |
 +------------------------+------------------------------------------------------------------------------------------------------------------------+----------------------+
+| variable names         | `[origin root-address path i name]`: the `i`-th parameter of the `:lambda` at `path` was written `name`; a `:variable` row's display name is the join through its binding lambda's path and index | the frontend         |
++------------------------+------------------------------------------------------------------------------------------------------------------------+----------------------+
 | instruction provenance | `[segment-address pc origin root-address path]`                                                                        | the lowering (§5.3)  |
 +------------------------+------------------------------------------------------------------------------------------------------------------------+----------------------+
 | macro declarations     | `[[:source medium batch j] path]`: the definition at `path` of the batch's `j`-th tree is a macro definition; inside   | the frontend,        |
@@ -487,9 +480,9 @@ A program that needs the behaviour writes it as an application of the
 the arm **only under stated conditions**, and this document does not claim
 it as a general semantics-preserving migration:
 
-- `yin/def` and `f` resolve through `resolve-var`'s precedence, env → store
+- `yin/def` and `f` resolve through `resolve-var`'s precedence, store
   → primitives → modules (`src/cljc/yin/vm/v2/engine.cljc:46-58`), so the
-  rewrite is equivalent only when neither name is shadowed at the site;
+  rewrite is equivalent only when the frontend resolves both `yin/def` and `f` as `:global` at the site (and not as `:variable` indices);
 - the arm stores whatever `(apply f current args)` returns, as data
   (`ast_walker.cljc:410-415`), while an application interprets an
   effect-shaped return (`ast_walker.cljc:184-188`,
@@ -626,9 +619,11 @@ Content addressing gives that for free and in every case, not only the one
 `yang.clojure` remembers to mark: two occurrences of one subtree have one
 address by construction and one row in the stored set, and a query "which
 sites reference this lambda's content" is a join on its address (§6.4).
-Sharing is structural in the stored DAG — the row set holds each distinct
+Because names are excluded from the canonical tuple (§2.5), this structural
+sharing is alpha-equivalent sharing: structurally identical functions up to
+variable renaming project to the identical row. The row set holds each distinct
 subtree once, and parent slots point at it — while identity stays per row.
-**However, this structural collapse is strictly gated on the §4.2 encoder fix.** Because the current encoder is non-injective, structurally distinct values that hash equal would silently merge into one row, corrupting the AST. Until the encoder is fixed, the row form as a whole is gated, or rows must carry allocated ids (like the current codec) with content ids swapped in only when the encoder lands.
+**However, this structural collapse is strictly gated on the §4.2 encoder fix.** Because the current encoder is non-injective, structurally distinct values that hash equal would silently merge into one row, corrupting the AST. Until the encoder is fixed, the row form as a whole is gated.
 `:eid` is dropped from the frontends and the codec.
 
 What `:eid` also did, and content addresses do not, is name a *place*.
@@ -655,8 +650,11 @@ away. Its address is `(dao.jing/segment-key vector)`, the value
 levels are uniform under this design: an AST row (§2.1) and an instruction
 tuple are both flat positional tuples, canonical and content-addressed,
 and the instruction vector was already this shape before the flat-row
-ruling clarified the AST level. This document adds nothing to that form
-and restates none of it.
+ruling clarified the AST level. To support De Bruijn ASTs without losing
+alpha-equivalent determinism, the instruction grammar under the `"v2"` execution
+contract (which is not yet published per UCF line 1302, and is amended in place before first publication) gains `:var index`, `:global name`, and `:closure arity body`
+(`yin.vm.semantic.md` §2.4 must be amended), and the positional binding rule of §7.7.2 (under-arity call → missing slots `nil`; extra arguments beyond `arity` are dropped). Therefore, `"v2"` everywhere in this document means the De Bruijn grammar. This design otherwise adds
+nothing to that form and restates none of it.
 
 ### 5.2 The hash chain is realized by derivation records
 
@@ -776,6 +774,8 @@ collision, because ids are addresses. An occurrence count is a count
 over parent slots or over the occurrence relation below, never over
 rows.
 
+**The Dedicated AST Indexer:** This row relation (called `$ast` in queries) is maintained by the dedicated AST indexer (§1). The indexer is a `dao.stream` observer peer to the evaluators (§7.1); its input is the row batches of §7.1; its output is this row relation plus the occurrence relation below; it is distinct from `dao.space.index`, which indexes datoms only (§6.5); it is a projection keeper per §1's Query layer, so discarding it loses nothing.
+
 `map → rows` is the **frontend boundary projection**: strip the §2.5
 exclusions, saturate per §2.4, positionalize per the §2.3 dictionary,
 merkle per §4.1. It is a standing contract of every frontend, not a
@@ -832,8 +832,8 @@ construction.
 
 Verified shapes, each of which is a rule a query author may rely on:
 
-- **Per-tag selection.** `[?id :variable ?name]` matches only arity-3 rows.
-- **Joins across arities.** `[?site :application ?op _ _] [?op :variable
+- **Per-tag selection.** `[?id :variable ?index]` matches only arity-3 rows.
+- **Joins across arities.** `[?site :application ?op _ _] [?op :global
   ?f]` joins an arity-5 row to an arity-3 row on the address.
 - **Operand membership** goes through a predicate: `[(member? ?operands
   ?x)]` with `member?` supplied under `:fns`; predicate arguments must
@@ -866,7 +866,7 @@ A ref is a datom whose `v` is an address (§8). A name is an entity carrying
  :where [$refs ?e :yin/name my.ns/f]          ; bind the name entity
         [$refs ?e :yin/code ?root]            ; 3-slot, fast path, current view
         [$code ?site :application ?op _ _]    ; general path
-        [$code ?op :variable +]
+        [$code ?op :global +]
         [$occ ?root ?path ?site]]             ; every place that content occurs in this tree
 ```
 
@@ -902,7 +902,7 @@ and the only durable name in it is the `:yin/address` value.
 
 ### 7.1 Load paths
 
-Direct row loading is primary. A batch on the program stream is the
+Direct row loading is primary. As `dao.stream` observers, evaluators receive batches natively from the stream. A batch on the program stream is the
 canonical row set of one tree (AST medium) or one canonical instruction
 vector (code medium), and the evaluator's loader takes it as is:
 
@@ -985,10 +985,10 @@ row nothing reaches.
 +===================+===================================================================================================================================================+
 | `:tag`            | the element after the id is not a tag of §2.3                                                                                                     |
 +-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
-| `:arity`          | the count differs from the tag's arity                                                                                                            |
+| `:arity`          | the count differs from the tag's body arity plus one                                                                                              |
 +-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:slot-kind`      | a slot's value is not of the slot's kind: a `node` slot that is not an address, a `nodes` slot that is not a vector of addresses, a `data` or     |
-|                   | `key` slot failing `plain-data?`, a `bool` slot that is not `true`/`false`, a `syms` slot with a non-symbol                                       |
+|                   | `key` slot failing `plain-data?`, a `bool` slot that is not `true`/`false`                                                                        |
 +-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:saturation`     | a saturated slot (§2.4) is nil                                                                                                                    |
 +-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -997,6 +997,8 @@ row nothing reaches.
 | `:acyclic`        | following child ids from a row revisits a row already on its own path                                                                             |
 +-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:root-reachable` | a row of the loaded set is not reachable from the root row                                                                                        |
++-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
+| `:variable-bounds`| a `:variable` row reached at a structural path has `index ≥` the sum of the `:lambda` arities enclosing that path; the defect names the path        |
 +-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
 
 The three reference rules are the row counterpart of §7.5's
@@ -1027,7 +1029,7 @@ UCF §7.3.4 checks are translated as follows.
 | `:arity`         | the tuple's count differs from the mnemonic's arity in `yin.vm.semantic.md` §2.4 as saturated by UCF §7.3.2                                         |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:operand-kind`  | an operand is not of its kind: `:const` and `:store-put` values or `:store-get`/`:store-put` keys fail `plain-data?` (the `key` kind of §2.2), a    |
-|                  | `:var` name is not a symbol, a `:closure` params is not a vector of symbols, a `:ffi-call` op or `:resume` parked id is not a keyword, a `:gensym`  |
+|                  | `:var` index or `:closure` arity is not a non-negative integer, a `:global` name is not a symbol, a `:ffi-call` op or `:resume` parked id is not a keyword, a `:gensym`  |
 |                  | prefix is not a string                                                                                                                              |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:saturation`    | a saturated operand (`:gensym` prefix, `:stream-make` buffer, `:call` tail?, `:ffi-call` argc) is nil                                               |
@@ -1038,6 +1040,8 @@ UCF §7.3.4 checks are translated as follows.
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:argc`          | a `:call`/`:ffi-call` argc is not a non-negative integer                                                                                            |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
+
+There is no vector-level index-bounds rule: nesting is a property of the AST, checked by §7.4; an out-of-range `:var` at run time evaluates to `nil` (§7.7.2).
 
 The address check (the vector hashes to the address it claims) is UCF
 §7.3.4's and runs before these rules whenever an address is claimed; a
@@ -1070,8 +1074,8 @@ Extraction over trees (`$ast` is the union of flat rows of the reachable
 trees):
 
 ```clojure
-;; names, every one, not only free ones (UCF §7.6.1, Names)
-[:find ?name :in $ast :where [$ast _ :variable ?name]]
+;; :global rows are exactly the free names; bound variables carry no name and contribute no obligation
+[:find ?name :in $ast :where [$ast _ :global ?name]]
 
 ;; store keys read or written by code
 [:find ?key :in $ast :where (or [$ast _ :vm/store-get ?key]
@@ -1093,7 +1097,7 @@ trees):
 Extraction over segments (`$code` is the union of segment-qualified rows):
 
 ```clojure
-[:find ?name :in $code :where [$code _ _ :var ?name]]
+[:find ?name :in $code :where [$code _ _ :global ?name]]
 [:find ?key  :in $code :where (or [$code _ _ :store-get ?key]
                                   [$code _ _ :store-put ?key _])]
 [:find ?op   :in $code :where [$code _ _ :ffi-call ?op _]]
@@ -1163,7 +1167,9 @@ over one vocabulary. The table for contract `"v2"`:
 | `:vm/current- | `:current-continuation | `#{}`              | —                                                                                                        |
 | continuation` | `                      |                    |                                                                                                          |
 +---------------+------------------------+--------------------+----------------------------------------------------------------------------------------------------------+
-| `:literal`,   | `:const`, `:var`,      | `#{}` from syntax; | `:var` names into the name obligations                                                                   |
+| `:global`     | `:global`              | `#{}`              | name into the name obligations                                                                           |
++---------------+------------------------+--------------------+----------------------------------------------------------------------------------------------------------+
+| `:literal`,   | `:const`, `:var`,      | `#{}` from syntax; | —                                                                                                        |
 | `:variable`,  | `:closure`, `:push`,   | a call's effects   |                                                                                                          |
 | `:lambda`,    | `:call`, `:return`,    | are its callee's   |                                                                                                          |
 | `:application | `:jump`,               | profile effects    |                                                                                                          |
@@ -1178,60 +1184,17 @@ computed from its lowered segment are **equal** in every field of
 `:yin.k/requires`. A tag or mnemonic outside the table is
 `:yin.k/undecodable`, the same outcome the validators give it.
 
-#### 7.7.2 Name obligations are per context, and completion is conservative
+#### 7.7.2 Name obligations are resolved per store slice, and completion is conservative
 
-A name extracted from code is an **obligation** of every activation that
-can execute that code, and an obligation is discharged only by a binding
-that activation would actually see under `resolve-var`'s precedence
-(`engine.cljc:46-65`). Resolution is activation-specific: the reference
-resolver returns the primitive for `x` under an empty environment and the
-environment's binding under one that binds `x`. So a binding discharges
-an obligation only in one of these contexts:
+A name extracted from code (a `:global` row) is an **obligation**. Because this design adopts De Bruijn indices for bound variables, local bindings never discharge name obligations: the frontend has already resolved them as `:variable` indices instead of `:global` names. Therefore, an environment's binding never discharges a `:global`. It is discharged only by the store slice by key, or by a profiled primitive or module export (`engine.cljc:46-58`).
 
-+-------------------------------------------------------------------------+----------------------------------------------------------------------------------------------+
-| Obligation from                                                         | Discharged by                                                                                |
-+=========================================================================+==============================================================================================+
-| a `:variable` inside a `:lambda` body naming one of that lambda's       | the parameter binding, **only when call analysis establishes that the binding exists**       |
-| params, or an enclosing lambda's params on the structural path          | (below); otherwise the name is an ordinary obligation of the closure's context               |
-+-------------------------------------------------------------------------+----------------------------------------------------------------------------------------------+
-| code the active control points into                                     | the active frame's environment, or the store slice by key                                    |
-+-------------------------------------------------------------------------+----------------------------------------------------------------------------------------------+
-| a closure's body (the segment its `:entry` points into)                 | that closure's captured `:env`, or the store slice                                           |
-+-------------------------------------------------------------------------+----------------------------------------------------------------------------------------------+
-| code a K frame, a parked record, or a wait entry resumes into           | that frame's or record's own `:env`, or the store slice                                      |
-+-------------------------------------------------------------------------+----------------------------------------------------------------------------------------------+
-| code reachable only by address, with no activation associated           | nothing: the obligation is retained                                                          |
-+-------------------------------------------------------------------------+----------------------------------------------------------------------------------------------+
+**Indices never fall through to names.** An under-arity call leaves missing positional slots `nil`; an over-arity call drops extra arguments beyond `arity`. An unbound index from an under-arity call cannot fall through to the store, primitives, or modules by name (since the index carries no name). An unbound index evaluates to `nil`; it never becomes a `:global` name obligation. This is a deliberate execution-contract change from today's `(zipmap params args)` fallback. Therefore, name obligations are strictly and statically the set of `:global` names, never `:variable` indices.
 
-**A parameter is bound only when an argument was supplied for it.** The
-reference machine binds parameters with `(zipmap params args)` and checks
-no arity (`semantic.cljc:199-205`; the walker does the same,
-`ast_walker.cljc:190-191`), so an under-arity call leaves the omitted
-parameters unbound and a `:variable` naming one resolves through the
-captured environment, the store, the primitives, and the modules
-(`engine.cljc:46-65`). A parameter obligation at index `i` is therefore
-discharged for a lambda only when **every** call site of that lambda is
-known and every one supplies at least `i + 1` arguments; call sites are
-known only when the closure does not escape the analyzed code, that is,
-when every `:application` whose operator can evaluate to it is in the
-analyzed trees and the closure value does not appear in any carried
-environment, store slice, stack, or parked record. Otherwise the name
-stays an obligation of the closure's context: it is discharged by the
-captured `:env` or the store slice, and if neither binds it, it is
-retained as a primitive or module requirement. An unknown call context
-retains or yields `:incomplete`; it never discharges. This design does
-not introduce an exact-arity rule, which would be an execution-contract
-amendment outside its scope.
-
-**An unrelated carried binding never discharges an obligation.** A saved
-continuation that binds `x` says nothing about the active activation's
-`x`, which may resolve to a primitive with a profile the value needs. Every
-retained obligation is a required primitive or module export, checked by
+Every retained obligation is a required primitive or module export, checked by
 profile (UCF §7.5.2), and the **effects of a callable are read from its
 profile** (`:yin.k/effects`), never inferred from the name: `yin/def`
 contributes `:vm/store-put` and `require` contributes `:module/require`
-because their profiles say so. Where the analysis cannot associate an
-occurrence with a context, or a retained name has no profile at the
+because their profiles say so. Where a retained name has no profile at the
 emitter, discovery is `:incomplete`; conservatively retaining every
 possible primitive and module requirement is always admissible and never
 makes a `:complete` result wrong.
@@ -1239,7 +1202,7 @@ makes a `:complete` result wrong.
 This rule is the amendment UCF §7.6.1's *Names* paragraph needs: its
 sentence that a name "is satisfied if it is bound in any environment the
 value carries" is the unsound test, and this document states the
-per-context rule in its place; UCF must be amended to say the same
+correct rule in its place; UCF must be amended to say the same
 (§10.8).
 
 #### 7.7.3 The fixed point converges over work items, not addresses
@@ -1247,12 +1210,12 @@ per-context rule in its place; UCF must be amended to say the same
 The unit of analysis is a **work item** `[code-address context]`, not an
 address. Two closures sharing one segment address with different captured
 environments are two work items, because each enters the segment with its
-own environment (`semantic.cljc:199-205`) and so carries different
-obligations. The **context** of a work item is a finite abstraction: the
-set of names bound in the activation's environment (captured `:env` keys
-plus parameters established under §7.7.2's call analysis), and nothing
-else. Names come from finite code and finite carried values, so the set
-of contexts is finite and the iteration terminates.
+own environment (`semantic.cljc:199-205`) and so reaches different values (closures, streams, cursors, parked records), which
+contribute different work items; the name obligations of the segment are the same for both. The **context** of a work item is a finite abstraction: the
+closure's captured positional environment, and nothing else. This context
+contributes values (such as closures or streams bound within it), not
+name discharge. Because values are finite, the set of contexts is finite
+and the iteration terminates.
 
 - **Code once, contexts each.** Code is fetched, validated, and projected
   once per address; every newly discovered `[address context]` pair is
@@ -1268,18 +1231,16 @@ of contexts is finite and the iteration terminates.
   `:yin.k/discovery :incomplete`, as §7.6.1 already rules.
 
 **Convergence** is reached when one full pass adds nothing to any of:
-the work-item set, the obligation set (name × context), the discovered
+the work-item set, the obligation set, the discovered
 value set (closures, streams, cursors, parked records), the store-key
 requirement, the FFI-op requirement, the effect set after normalization
 (§7.7.1), and the callable and module footprints. A pass that adds a new
 context, a new profile fact, or a new footprint continues the iteration
-even when no new address appeared. If an implementation cannot compute
-the bound-name set for some context, it reports `:incomplete` rather than
-terminating on address stability.
+even when no new address appeared.
 
 Discovery is `:complete` only when every reachable work item was
-analyzed, every obligation was discharged in its own context or retained
-as a profiled requirement, every parked id resolved, and every module
+analyzed, every `:global` obligation was discharged by the store slice by key or retained
+as a profiled primitive or module requirement, every parked id resolved, and every module
 footprint was declared. It is `:blocked` when an address cannot be
 fetched and `:incomplete` otherwise. Recasting the walk as Datalog changes
 where the facts come from, not the conservatism of the closure.
@@ -1378,8 +1339,8 @@ fields as attributes and the record's address as one more:
 
 The profile is carried as the structured map, exactly as it appears in the
 record. `local-datom?` constrains `e`, `a`, `t`, and `m` and places no
-restriction on `v` (`datom.cljc:42-58`), and the existing schema already
-carries a vector in `v` (`:yin/params`, `v2.cljc:302`); no string
+restriction on `v` (`datom.cljc:42-58`), and today's schema already
+carries a vector in `v`; no string
 rendering of the profile is defined.
 
 Event operation and fact validity are separate by construction. The op is
@@ -1681,7 +1642,7 @@ Rules:
 - **Binding.** A declaration `[j path :yin.macro/definition]` names the
   `:application` at `path` in tree `j`, and through the catalogue the
   original definition whose group contains `[j path]`; that node must be
-  `(yin/def <literal sym> <lambda>)`, i.e., its reconstructed semantic map must have an `:operator` that is a `:variable` node naming `yin/def`, its first operand a `:literal` symbol node, and its second operand a `:lambda` node. A
+  `(yin/def <literal sym> <lambda>)`, i.e., its reconstructed semantic map must have an `:operator` that is a `:global` node naming `yin/def`, its first operand a `:literal` symbol node, and its second operand a `:lambda` node. A
   declaration whose coordinates do not resolve to such a node is an
   admission failure, `{:kind :malformed-input :reason
   :stray-macro-declaration}`, the successor of §3.1 step 1's
@@ -1760,32 +1721,29 @@ Provenance walks are joins over event entities:
 
 ### 9.1 The boundary, not a sweep
 
-The walker stays on map ASTs exactly as built, and so does every test
-that constructs map ASTs: no arm, no frame, and no corpus test changes
-for representation (owner ruling, 2026-09-15). What changes is the
+The walker stays on map ASTs exactly as built. While the `:variable` and `:lambda` arms and every corpus test that constructs them must change shape for the De Bruijn index/arity fields, the rest of the arms and tests do not change for representation (owner ruling, 2026-09-15). What changes is the
 boundary around them — the projection in, the loader and the readers of
 rows behind it. The semantics do not change; the boundary does.
 
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | Site                                             | Change                                                                                                              |
 +==================================================+=====================================================================================================================+
-| walker, `ast_walker.cljc`                        | untouched, except the `:stream/close` arm §3.2 adds — a correctness fix independent of representation; the arms keep|
-|                                                  | dispatching on `(:type node)` and reading named fields                                                              |
+| walker, `ast_walker.cljc`                        | `:variable` arm resolves an index against a positional env; `:lambda` arm binds `arity` positionals; new `:global` arm resolves through store → primitives → modules (`engine.cljc:46-58`). Other arms keep dispatching on `(:type node)` and reading named fields. Adds `:stream/close` arm (§3.2)                   |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | loader, new                                      | validate rows (§7.4), reconstruct the map AST: `rows → map` (§6.1), the successor of `datoms->ast`                  |
 |                                                  | (`v2.cljc:494-559`) with content addresses in place of allocated ids                                                |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | linearizer,                                      | reads the row relation through the same `get-attr`-over-an-index shape it has today (`lower-node`'s `(get-attr e    |
 | `linearize.cljc:87-148`,                         | :yin/type)` becomes a lookup by row id); `ast-children` becomes a table lookup of `node`/`nodes` slot positions;    |
-| `:230-242`                                       | `lower` takes a row set and returns a vector plus the §5.3 provenance table; `lower-ast` (`:245-252`) goes away     |
+| `:230-242`                                       | `lower` takes a row set and returns a vector plus the §5.3 provenance table; emits `:var index`, `:global name`, and `:closure arity body`; `lower-ast` (`:245-252`) goes away     |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | codec, `v2.cljc:372-559`                         | becomes the rows⇄datoms projection pair of §6.5; `:yin/tail?` emitted only from `:application`; `:yin/macro?`,      |
-|                                                  | `:yin/root`, `:eid` handling removed; `:yin/address` added                                                          |
+|                                                  | `:yin/root`, `:eid`, `:yin/params`, and `:yin/name`-on-variable removed; `:yin/address`, `:yin/index`, `:yin/arity` added; `:global` node added |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
-| `code/well-formed?`,                             | keeps judging datom batches on the projection path before projection; the shared vector validator of §7.5 runs on   |
-| `code.cljc:155-180`                              | both paths after it                                                                                                 |
+| `code/mnemonics`, `code/well-formed?`,           | `code/mnemonics` (`code.cljc:12-16`) adds `:global`. `well-formed?` keeps judging datom batches on the projection path before projection; the shared vector validator of §7.5 runs on   |
+| `code.cljc:12-180`                               | both paths after it                                                                                                 |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
-| `semantic/load-image`,                           | decodes from the vector directly on the primary path; the datom path projects first; both call the §7.5 validator   |
+| `semantic/load-image`,                           | decodes from the vector directly on the primary path; positional frame binding for `:closure`; `:global` opcode resolves store → primitives → modules; decodes the new operands (`:var index`, `:global name`, `:closure arity body`); both paths call the §7.5 validator   |
 | `semantic.cljc:524-596`                          |                                                                                                                     |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | frontends                                        | keep emitting map ASTs and gain the permanent boundary projection (map → rows): strip the §2.5 exclusions, saturate |
@@ -1904,10 +1862,10 @@ seen from the migration side:
    macros; §8.4's event shape is specified against `yin.vm.macro.md`, not
    against code.
 5. **Conservative dependency completion** (§7.7.2, §7.7.3) — design
-   work with stated mechanisms. Parameter discharge requires the call
-   analysis of §7.7.2 (every call site known and supplying the argument);
+   work with stated mechanisms. Global name discharge requires searching the
+   store slice by key or resolving via primitive/module profiles (§7.7.2);
    convergence is over work items and all dependency facts, with the
-   bound-name-set context abstraction. Neither analysis exists in code;
+   positional-environment context abstraction for values. Neither analysis exists in code;
    until they do, an emitter may only report `:incomplete`.
 6. **Effect normalization** (§7.7.1): the footprint table must be
    published with the execution-contract stamp, and the tree/segment
@@ -1918,7 +1876,8 @@ seen from the migration side:
    no derivation can be verified, only content integrity (§5.2.2).
 8. **UCF §7.6.1 needs two amendments** (§7.7.2, §7.7.3): its
    any-carried-environment satisfaction sentence is unsound and must be
-   replaced by the per-context rule, and its address-per-segment fixed
+   replaced by the store-slice-by-key / profile rule of §7.7.2 (an environment never
+   discharges a name), and its address-per-segment fixed
    point must become the work-item fixed point. This document cannot edit
    UCF.
 9. **The observer-lane batch shape and the program-input predicate**
@@ -1947,3 +1906,9 @@ seen from the migration side:
     tested over the corpus before any row set is treated as canonical.
     The corpus already lives as map ASTs in the test tree, so the test
     is writable now.
+14. **`yin.vm.semantic.md` Instruction Grammar Amendment** (§5.1) — the `ast-v1` lowering
+    profile (§5.2.1) pins the §5.3 table of `yin.vm.semantic.md`, which is currently
+    the name-based one. That document's §2.4 and §5.3 must be amended to reflect the
+    De Bruijn instruction grammar (`:var index`, `:global name`, `:closure arity body`)
+    and the positional binding rule of §7.7.2 (under-arity call → missing slots `nil`; extra arguments beyond `arity` are dropped)
+    before any derivation record is written.
