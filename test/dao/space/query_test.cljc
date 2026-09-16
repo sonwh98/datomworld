@@ -20,6 +20,7 @@
             [dao.stream.v2 :as stream]
             [dao.stream.v2.memory-log :as memory-log]
             [dao.stream.v2.ringbuffer :as ringbuffer]
+            [yin.vm.v2 :as v2]
             #?@(:cljd [["dart:io" :as dart-io]])))
 
 
@@ -1105,3 +1106,226 @@
       (finally (query/close-published! (:opened fx))
                (jing/close! (:store fx))
                (cleanup-file (:path fx))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Recursive rules: free variables are queried, not tagged
+;; ---------------------------------------------------------------------------
+;; yin.vm.code-as-tuples.md §4.5/§7.7: whether a :variable row is free or
+;; bound by an enclosing :lambda is derivable from the row structure alone,
+;; so no :global tag exists anywhere in the rows. These tests run a
+;; recursive rule set through the real q engine over the actual output of
+;; yin.vm.v2/ast->semantic-bytecode — the committed codec, not hand-typed
+;; row literals.
+
+(def ^:private member?
+  "Membership over a :nodes/:syms slot vector. §6.3: predicate arguments
+   must already be bound, so it is supplied under :fns."
+  (fn [coll x] (boolean (some #(= % x) coll))))
+
+
+(def ^:private free-name-rules
+  "§2.3 slot kinds hardcoded for the fixture tags: :lambda's 3rd slot is
+   the body, :application's 3rd the operator and 4th the operands vector.
+   The operands edge joins every row id ([?c _ & _] matches any row, ids
+   are always first) before member? filters, because a predicate cannot
+   bind its own argument."
+  '[[(edge ?p ?c) [?p :lambda _ ?c]]
+    [(edge ?p ?c) [?p :application ?c _ _]]
+    [(edge ?p ?c) [?p :application _ ?ops _] [?c _ & _] [(member? ?ops ?c)]]
+    [(anc ?a ?d) (edge ?a ?d)]
+    [(anc ?a ?d) (edge ?p ?d) (anc ?a ?p)]
+    [(depth ?a ?d ?n) (edge ?a ?d) [(ground 1) ?n]]
+    [(depth ?a ?d ?n) (edge ?p ?d) (depth ?a ?p ?m) [(inc ?m) ?n]]
+    [(bound? ?v ?name) (anc ?l ?v) [?l :lambda ?params _] [(member? ?params ?name)]]])
+
+
+(defn- ast-row-db
+  "A relation value over the flat rows of ast->semantic-bytecode."
+  [ast]
+  (rel (vals (:rows (v2/ast->semantic-bytecode ast)))))
+
+
+(defn- ast-row-id
+  "The row id of the first row matching [id tag slot1]."
+  [ast tag slot]
+  (some (fn [row]
+          (when (and (= tag (nth row 1)) (= slot (nth row 2)))
+            (nth row 0)))
+        (vals (:rows (v2/ast->semantic-bytecode ast)))))
+
+
+(deftest recursive-rules-compute-free-names-not-tags
+  ;; (fn [x] (+ x 1)) — §2.1: + is free, x is bound by the only :lambda.
+  (let [ast {:type :lambda,
+             :params ['x],
+             :body {:type :application,
+                    :operator {:type :variable, :name '+},
+                    :operands [{:type :variable, :name 'x}
+                               {:type :literal, :value 1}]}}
+        db (ast-row-db ast)
+        free (qq '[:find ?name :in $ %
+                   :where
+                   [?v :variable ?name]
+                   (not (bound? ?v ?name))]
+                 db free-name-rules
+                 {:fns {'member? member?}})]
+    (is (= #{['+]} free)
+        "the free-name set is exactly + ; the bound param x is absent")))
+
+
+(deftest recursive-rules-resolve-the-nearest-enclosing-binder
+  ;; (fn [x y] (fn [x] (+ x y))) — the inner :lambda shadows x; y is bound
+  ;; only by the outer :lambda, two enclosing :lambdas up.
+  (let [ast {:type :lambda,
+             :params ['x 'y],
+             :body {:type :lambda,
+                    :params ['x],
+                    :body {:type :application,
+                           :operator {:type :variable, :name '+},
+                           :operands [{:type :variable, :name 'x}
+                                      {:type :variable, :name 'y}]}}}
+        db (ast-row-db ast)
+        opts {:fns {'member? member?}}
+        x (ast-row-id ast :variable 'x)
+        y (ast-row-id ast :variable 'y)
+        outer (ast-row-id ast :lambda ['x 'y])
+        inner (ast-row-id ast :lambda ['x])
+        binders (fn [v nm]
+                  (qq '[:find ?lam :in $ % ?v ?name
+                        :where
+                        (anc ?lam ?v)
+                        [?lam :lambda ?params _]
+                        [(member? ?params ?name)]]
+                      db free-name-rules v nm opts))
+        binder-depths (fn [v nm]
+                        (qq '[:find ?lam ?n :in $ % ?v ?name
+                              :where
+                              (anc ?lam ?v)
+                              [?lam :lambda ?params _]
+                              [(member? ?params ?name)]
+                              (depth ?lam ?v ?n)]
+                            db free-name-rules v nm opts))]
+    (is (= outer (:root (v2/ast->semantic-bytecode ast)))
+        "sanity: the params [x y] :lambda is the projected root")
+    (is (= #{['+]}
+           (qq '[:find ?name :in $ %
+                 :where
+                 [?v :variable ?name]
+                 (not (bound? ?v ?name))]
+               db free-name-rules opts))
+        "x stays bound under shadowing and y stays bound by the outer :lambda")
+    (is (= #{[inner] [outer]} (binders x 'x))
+        "the x reference is enclosed by both shadowing :lambdas")
+    (is (= #{[outer]} (binders y 'y))
+        "y's only enclosing binder is the outer :lambda the rule had to
+          walk past the inner one to reach")
+    (is (= inner (first (apply min-key second (binder-depths x 'x))))
+        "the nearest binder of x is the inner :lambda")
+    (is (= outer (first (apply min-key second (binder-depths y 'y))))
+        "the nearest binder of y is the outer :lambda, not the immediate
+          :application parent")))
+
+
+;; ---------------------------------------------------------------------------
+;; Occurrence-aware rules: the mixed free/bound case the row-only query
+;; cannot resolve
+;; ---------------------------------------------------------------------------
+;; §4.5: when a name is free at one occurrence and bound at another
+;; (((fn [x] x) x)), content addressing collapses both :variable nodes to
+;; one row with parent edges from both places, and the row-level bound?
+;; above finds a binder through either edge — calling the whole row bound
+;; and silently dropping the free occurrence. The fix is a places-not-
+;; contents query over the occurrence relation (§2.5/§6.1): free/bound is
+;; decided per occurrence by walking that occurrence's own path to its
+;; ancestors. No indexer here emits occurrence facts yet, so the relation
+;; below is a hand-built fixture in §2.5's own encoding — a path is a
+;; vector of slot steps from the root, an index into a nodes slot being a
+;; single pair step [slot i] (which is what makes every pop of a real
+;; path a real path, so the recursive walk never leaves the tree).
+
+(def ^:private path-pop
+  "One step up a §2.5 structural path: the parent path, or nil at the
+   root. Supplied under :fns like member?; a fn clause may bind its
+   output var, so this is the path-level analogue of the row-level edge."
+  (fn [p] (when (pos? (count p)) (subvec p 0 (dec (count p))))))
+
+
+(def ^:private occurrence-rules
+  "Path-prefix ancestors and per-occurrence bound-ness. [$occ ...] names
+   the occurrence source inside rule bodies (rule seeds carry every :in
+   db); [$occ ?r ?lam-path ?lam] joins an ancestor occurrence's path to
+   its row so the row relation supplies the :lambda shape."
+  '[[(p-up ?child ?parent) [(path-pop ?child) ?parent]]
+    [(occ-anc ?a ?d) (p-up ?d ?a)]
+    [(occ-anc ?a ?d) (p-up ?d ?m) (occ-anc ?a ?m)]
+    [(occ-bound? ?path ?name)
+     (occ-anc ?lam-path ?path)
+     [$occ ?r ?lam-path ?lam]
+     [?lam :lambda ?params _]
+     [(member? ?params ?name)]]])
+
+
+(deftest occurrence-aware-rules-resolve-mixed-free-and-bound-rows
+  ;; ((fn [x] x) x) — the lambda body's x is bound, the operand x is free,
+  ;; and both are the SAME :variable node in the map AST.
+  (let [ast {:type :application,
+             :operator {:type :lambda, :params ['x],
+                        :body {:type :variable, :name 'x}},
+             :operands [{:type :variable, :name 'x}]}
+        bc (v2/ast->semantic-bytecode ast)
+        db (ast-row-db ast)
+        x (ast-row-id ast :variable 'x)
+        lam (ast-row-id ast :lambda '[x])
+        ;; [root path row] for each node: the application at [], its
+        ;; operator :lambda at [2] (operator is the application's 2nd
+        ;; slot), the lambda's body x at [2 3] (body is :lambda's 3rd
+        ;; slot), and the operand x at [[3 0]] (first of the :nodes slot).
+        occ (rel [[(:root bc) [] (:root bc)]
+                  [(:root bc) [2] lam]
+                  [(:root bc) [2 3] x]
+                  [(:root bc) [[3 0]] x]])
+        opts {:fns {'member? member?, 'path-pop path-pop}}
+        free-occ-paths (qq '[:find ?path :in $ $occ %
+                             :where
+                             [$occ ?root ?path ?v]
+                             [?v :variable ?name]
+                             (not (occ-bound? ?path ?name))]
+                           db occ occurrence-rules opts)
+        bound-occ-paths (qq '[:find ?path :in $ $occ % ?v ?name
+                              :where
+                              [$occ ?root ?path ?v]
+                              (occ-bound? ?path ?name)]
+                            db occ occurrence-rules x 'x opts)]
+    (is (= 2 (count (filter #(= {:type :variable, :name 'x} %)
+                            (tree-seq coll? seq ast))))
+        "premise, map side: the fixture really has two :variable x nodes")
+    (is (= #{[x]}
+           (qq '[:find ?v :in $ ?name :where [?v :variable ?name]]
+               db 'x))
+        "premise, row side: both collapse to one shared row id (§4.4)")
+    (is (= #{[[2 3]]} bound-occ-paths)
+        "of the shared row's two occurrences, only the lambda-body one is
+          bound — the walk went up [2 3] → [2] and found the :lambda")
+    (is (= #{[[[3 0]]]} free-occ-paths)
+        "the operand occurrence [[3 0]] is free — its walk [[3 0]] → []
+          reaches only the :application, never a binding :lambda")
+    (is (= #{['x]}
+           (qq '[:find ?name :in $ $occ %
+                 :where
+                 [$occ ?root ?path ?v]
+                 [?v :variable ?name]
+                 (not (occ-bound? ?path ?name))]
+               db occ occurrence-rules opts))
+        "the occurrence-unioned free-name set conservatively includes x
+          because at least one occurrence of it is free (§7.6.1)")
+    (is (= #{}
+           (qq '[:find ?name :in $ %
+                 :where
+                 [?v :variable ?name]
+                 (not (bound? ?v ?name))]
+               db free-name-rules
+               {:fns {'member? member?}}))
+        "contrast: on this same db the row-only rule finds the :lambda
+          through either of the shared row's parent edges and drops x
+          from the free-name set entirely — the §4.5 undercount")))
