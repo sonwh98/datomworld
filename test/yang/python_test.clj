@@ -1,30 +1,20 @@
 (ns yang.python-test
   (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
             [yang.clojure :as clj]
             [yang.python :as py]
-            [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
-
-
-(defn- queue-vm
-  [vm-state datoms]
-  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
-        queued-vm (assoc vm-state
-                         :in-stream in-stream
-                         :in-cursor {:position 0})]
-    (ds/append! in-stream (vec datoms))
-    queued-vm))
+            [yin.vm.v2 :as vm]
+            [yin.vm.v2.test-utils :as tu]))
 
 
 (defn compile-and-run
   ([ast] (compile-and-run ast {} {}))
   ([ast env] (compile-and-run ast env {}))
   ([ast env vm-opts]
-   (let [vm (ast-walker/create-vm (merge {:env env} vm-opts))
-         vm-loaded (queue-vm vm (vm/ast->datoms ast))]
-     (vm/value (vm/run vm-loaded)))))
+   (-> (tu/make-observer-session (tu/create-vm (merge {:env env} vm-opts)))
+       (tu/queue-ast! ast)
+       tu/run-session
+       :consumer
+       vm/value)))
 
 
 (deftest test-tokenize

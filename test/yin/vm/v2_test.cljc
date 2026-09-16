@@ -147,6 +147,37 @@
                                             [-1 :yin/root true 0 1]]))))))
 
 
+;; Ported from `test/yin/vm/ast_conversion_test.cljc` before its U6 deletion:
+;; the node types the root-fact deftests above do not exercise — yang-compiled
+;; defns, the FFI call node, store effects and stream effects — through the
+;; datom codec (`ast->datoms`/`datoms->ast`, not semantic bytecode).
+(deftest codec-round-trips-the-v1-corpus-node-types
+  (letfn [(rt [ast] (= ast (vm/datoms->ast (vm/ast->datoms ast))))]
+    (testing "yang-compiled defns"
+      (is (rt (yang/compile '(defn foo
+                               [n]
+                               (+ n 1)))))
+      (is (rt (yang/compile '(defn bar
+                               [x y]
+                               (println x) (+ x y)))))
+      (is (rt (yang/compile
+                '(defn fib
+                   [n]
+                   (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))))))
+    (testing ":dao.stream.apply/call"
+      (is (rt {:type :dao.stream.apply/call,
+               :op :op/eval,
+               :operands [{:type :literal, :value "1+2"}]})))
+    (testing ":vm/store-get and :vm/store-put"
+      (is (rt {:type :vm/store-get, :key 'x}))
+      (is (rt {:type :vm/store-put, :key 'y, :val 123})))
+    (testing "stream effects"
+      (is (rt {:type :stream/make, :buffer 64}))
+      (is (rt {:type :stream/put,
+               :target {:type :variable, :name 's},
+               :val {:type :literal, :value 1}})))))
+
+
 ;; =============================================================================
 ;; Primitives
 ;; =============================================================================

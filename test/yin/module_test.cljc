@@ -12,8 +12,7 @@
     ;; when loaded.
     [yin.io.file-input-stream :as fis]
     [yin.io.file-output-stream :as fos]
-    [yin.module :as module]
-    #?(:clj [yin.vm :as vm])))
+    [yin.module :as module]))
 
 
 #?(:cljd nil

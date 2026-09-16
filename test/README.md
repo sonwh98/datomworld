@@ -134,12 +134,12 @@ clj -M:test -e "(require 'yin.vm-basic-test) (let [result (clojure.test/run-test
 ## Adding New Tests
 
 1. Create test file in `test/yin/`
-2. Use namespace: `(ns yin.your-test (:require [clojure.test :refer [deftest is testing]] [yin.vm :as vm]))`
+2. Use namespace: `(ns yin.your-test (:require [clojure.test :refer [deftest is testing]] [yin.vm.v2 :as vm]))`
 3. Add tests using `deftest`, `testing`, and `is`
 4. Run with: `clj -M:test -e "(require 'yin.your-test) (clojure.test/run-tests 'yin.your-test)"`
 
 ## Related Documentation
 
-- **Implementation:** [src/cljc/yin/vm.cljc](../src/cljc/yin/vm.cljc)
+- **Implementation:** [src/cljc/yin/vm/v2.cljc](../src/cljc/yin/vm/v2.cljc)
 - **Informal Tests:** [test_add.clj](../test_add.clj), [test_simple_continuation.clj](../test_simple_continuation.clj)
 - **Full Documentation:** [YIN_VM_TESTS.md](../YIN_VM_TESTS.md)

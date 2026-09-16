@@ -1,39 +1,39 @@
 (ns yang.clojure-test
   (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
-            [dao.stream.ringbuffer]
             [yang.clojure :as yang]
-            [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
+            [yin.vm.v2 :as vm]
+            [yin.vm.v2.module :as module]
+            [yin.vm.v2.test-utils :as tu]))
 
 
-(defn- queue-vm
-  [vm-state datoms]
-  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
-        queued-vm (assoc vm-state
-                         :in-stream in-stream
-                         :in-cursor {:position 0})]
-    (ds/append! in-stream (vec datoms))
-    queued-vm))
+;; v1 registered the stream module globally at load time; the v2 composition
+;; registers it in the registry it hands the VM.
+(def ^:private base-vm-opts
+  {:modules (module/register-stream-module (module/default-registry))})
 
 
 (defn compile-and-run
   ([form] (compile-and-run form {} {}))
   ([form env] (compile-and-run form env {}))
   ([form env vm-opts]
-   (let [vm (ast-walker/create-vm (merge {:env env} vm-opts))
-         vm-loaded (queue-vm vm (vm/ast->datoms (yang/compile form)))]
-     (vm/value (vm/run vm-loaded)))))
+   (-> (tu/make-observer-session
+         (tu/create-vm (merge base-vm-opts {:env env} vm-opts)))
+       (tu/queue-ast! (yang/compile form))
+       tu/run-session
+       :consumer
+       vm/value)))
 
 
 (defn compile-program-and-run
   ([forms] (compile-program-and-run forms {} {}))
   ([forms env] (compile-program-and-run forms env {}))
   ([forms env vm-opts]
-   (let [vm (ast-walker/create-vm (merge {:env env} vm-opts))
-         vm-loaded (queue-vm vm (vm/ast->datoms (yang/compile-program forms)))]
-     (vm/value (vm/run vm-loaded)))))
+   (-> (tu/make-observer-session
+         (tu/create-vm (merge base-vm-opts {:env env} vm-opts)))
+       (tu/queue-ast! (yang/compile-program forms))
+       tu/run-session
+       :consumer
+       vm/value)))
 
 
 (deftest test-compile-literals
