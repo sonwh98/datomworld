@@ -14,6 +14,7 @@
    R1 decoder in `dao.stream.v2.rpc.ws`; everything observed here is the
    neutral `:dao.stream.v2.apply/…` lifecycle vocabulary."
   (:require [clojure.string :as str]
+            [dao.data :as data]
             [dao.stream.v2 :as stream]
             [dao.stream.v2.ringbuffer :as ring]
             [dao.stream.v2.rpc :as rpc]
@@ -62,6 +63,12 @@
    names a served stream, so a client that only typed a URL still needs one;
    a stable service name keeps `attach!` honest across endpoint restarts."
   "yin.repl.v2/repl")
+
+
+(def ^:private diagnostic-bounds
+  "Bound on operator-facing diagnostic text built from unbounded internal
+   state (raw connect URLs)."
+  {:depth 3 :items 8 :chars 200})
 
 
 (def outcome-key :yin.repl.v2.connect/outcome)
@@ -237,7 +244,8 @@
 
        (not (str/starts-with? body ws-scheme))
        (failure :yin.repl.v2.connect/invalid-url
-                (str "connect needs a daostream:ws:// URL; got " (pr-str url)))
+                (str "connect needs a daostream:ws:// URL; got "
+                     (pr-str (data/summarize url diagnostic-bounds))))
 
        :else
        (let [rest-url (subs body (count ws-scheme))
@@ -254,11 +262,13 @@
 
            (str/blank? host)
            (failure :yin.repl.v2.connect/invalid-url
-                    (str "connect URL has no host: " (pr-str url)))
+                    (str "connect URL has no host: "
+                         (pr-str (data/summarize url diagnostic-bounds))))
 
            (nil? port)
            (failure :yin.repl.v2.connect/invalid-url
-                    (str "connect URL port must be a positive integer: " (pr-str url)))
+                    (str "connect URL port must be a positive integer: "
+                         (pr-str (data/summarize url diagnostic-bounds))))
 
            :else
            (let [descriptor {:dao.stream/type ws/transport-type
@@ -270,7 +280,7 @@
                {outcome-key :yin.repl.v2.connect/parsed descriptor-key descriptor}
                (failure :yin.repl.v2.connect/invalid-url
                         (str "connect URL does not name a servable stream: "
-                             (pr-str url)))))))))))
+                             (pr-str (data/summarize url diagnostic-bounds))))))))))))
 
 
 ;; =============================================================================

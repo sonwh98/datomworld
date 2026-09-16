@@ -23,7 +23,8 @@
 
    Waiters are gone: `park-and-call` places its continuation in the polling
    wait set and the ordinary scheduler wakes it when the response lands."
-  (:require [dao.stream.v2 :as stream]
+  (:require [dao.data :as data]
+            [dao.stream.v2 :as stream]
             [dao.stream.v2.apply :as apply2]
             [yin.vm.v2 :as vm]
             [yin.vm.v2.telemetry :as telemetry]))
@@ -210,7 +211,7 @@
                   vm
                   :bridge
                   {:bridge-op (apply2/request-op request),
-                   :arg-shape (mapv telemetry/type-tag
+                   :arg-shape (mapv data/tag
                                     (or (apply2/request-args request) []))})
                 response
                 successor

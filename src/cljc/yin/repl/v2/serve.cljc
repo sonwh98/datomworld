@@ -16,7 +16,8 @@
    sessions, and advances each one against a single serially threaded REPL
    state.  It never loops on `blocked`, never waits, and never schedules
    itself."
-  (:require [dao.stream.v2 :as stream]
+  (:require [dao.data :as data]
+            [dao.stream.v2 :as stream]
             [dao.stream.v2.apply :as apply]
             [dao.stream.v2.ringbuffer :as ring]
             [dao.stream.v2.rpc.ws :as rpc-ws]
@@ -44,6 +45,12 @@
 (def default-slot-count 8)
 (def default-bind-host "127.0.0.1")
 (def lifecycle-budget 64)
+
+
+(def ^:private diagnostic-bounds
+  "Bound on operator-facing diagnostic text built from unbounded internal
+   state (unvalidated bind config, host-reported lifecycle values)."
+  {:depth 3 :items 8 :chars 200})
 
 
 (def eval-operation :op/eval)
@@ -247,7 +254,8 @@
       (inert base :bind-failed
              {:code :yin.repl.v2.endpoint/invalid-descriptor
               :message "bind/advertised configuration does not name a servable stream"}
-             (str "cannot serve " (pr-str path) " on port " (pr-str bind-port)))
+             (str "cannot serve " (pr-str (data/summarize path diagnostic-bounds))
+                  " on port " (pr-str (data/summarize bind-port diagnostic-bounds))))
 
       (not (host-common/binder? host))
       (inert base :bind-failed
@@ -345,27 +353,29 @@
         (assoc :status (if (= :stopping (:status endpoint)) :stopping :running))
         (publish :yin.repl.v2.serve/notice
                  (str "Serving " (url endpoint)
-                      (when (map? value) (str " (bound " (pr-str value) ")")))))
+                      (when (map? value)
+                        (str " (bound " (pr-str (data/summarize value diagnostic-bounds)) ")")))))
 
     :bind-failed
     (-> endpoint
         (assoc :status :failed)
         (publish :yin.repl.v2.serve/notice
-                 (str ";; endpoint bind failed: " (pr-str value))))
+                 (str ";; endpoint bind failed: "
+                      (pr-str (data/summarize value diagnostic-bounds)))))
 
     :upgrade-failed
     (publish endpoint :yin.repl.v2.serve/notice
-             (str ";; upgrade refused: " (pr-str value)))
+             (str ";; upgrade refused: " (pr-str (data/summarize value diagnostic-bounds))))
 
     :listener-error
     (publish endpoint :yin.repl.v2.serve/notice
-             (str ";; listener error: " (pr-str value)))
+             (str ";; listener error: " (pr-str (data/summarize value diagnostic-bounds))))
 
     :stopped
     (-> endpoint
         (assoc :status :stopped :resolution nil)
         (publish :yin.repl.v2.serve/notice
-                 (str "Endpoint stopped: " (pr-str value))))
+                 (str "Endpoint stopped: " (pr-str (data/summarize value diagnostic-bounds)))))
 
     (publish endpoint :yin.repl.v2.serve/diagnostic
              (str ";; unknown endpoint event " (pr-str kind)))))
@@ -666,7 +676,7 @@
             (assoc :status :stopped :resolution nil)
             (publish :yin.repl.v2.serve/notice
                      (str "Endpoint stopped without host completion: "
-                          (pr-str (:dao.stream/diagnostic result)))))
+                          (pr-str (data/summarize (:dao.stream/diagnostic result) diagnostic-bounds)))))
         endpoint))
     endpoint))
 

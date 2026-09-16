@@ -8,18 +8,20 @@
    whole implementation: nothing appends, nothing is created, no capacity is
    chosen.
 
-   `type-tag` is real, because `ffi` evaluates `(mapv type-tag request-args)`
-   as an *argument* to `emit-snapshot`, so it runs before the no-op check.
+   Classification no longer lives here: `ffi` calls `dao.data/tag` directly,
+   and its `(mapv data/tag request-args)` is evaluated as an *argument* to
+   `emit-snapshot`, so it runs before the no-op check. `dao.data/tag` orders
+   the descriptor check before `map?`/`sequential?`, the ordering this stub
+   once deferred to the real emit path.
 
    A supplied `:telemetry` option is rejected rather than ignored. A stub that
    merely recorded the model would accept a stream and then write nothing to it
    forever; silent acceptance is the one way this stub could mislead.
 
    What is deferred with the real emit path: reading `append!` outcomes,
-   ordering the three surface protocols before the `map?` branch, summarising a
-   cursor-ref without descent, and the cursor recognition problem — v2 cursors
-   are opaque and the contract offers no predicate for one."
-  (:require [dao.stream.v2 :as stream]))
+   summarising a cursor-ref without descent, and the cursor recognition
+   problem — v2 cursors are opaque and the contract offers no predicate
+   for one.")
 
 
 (def deferral-message
@@ -53,27 +55,6 @@
 (defn next-telemetry-state
   [state]
   state)
-
-
-(defn type-tag
-  "Classify a value for the deferred emit path.
-
-   Any handle is `:opaque`: distinguishing surfaces means ordering all three
-   surface protocols before the `map?` branch, which belongs to the real emit
-   path and not to a stub."
-  [value]
-  (cond (nil? value) :nil
-        (boolean? value) :boolean
-        (number? value) :number
-        (string? value) :string
-        (keyword? value) :keyword
-        (symbol? value) :symbol
-        (fn? value) :host-fn
-        (stream/descriptor? value) :opaque
-        (vector? value) :vector
-        (map? value) :map
-        (sequential? value) :sequence
-        :else :opaque))
 
 
 (defn emit-snapshot

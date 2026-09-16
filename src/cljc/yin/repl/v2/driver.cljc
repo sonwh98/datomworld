@@ -11,6 +11,7 @@
    It never loops on `blocked`, and it owns no promise, future, callback, atom,
    or clock."
   (:require [clojure.string :as str]
+            [dao.data :as data]
             [dao.stream.v2 :as stream]
             [dao.stream.v2.ringbuffer :as ring]
             [dao.stream.v2.rpc :as rpc]
@@ -41,6 +42,12 @@
 
 (def event-key :yin.repl.v2.driver/event)
 (def text-key :yin.repl.v2.driver/text)
+
+
+(def ^:private diagnostic-bounds
+  "Bound on operator-facing diagnostic text built from unbounded internal
+   state (raw input, event/result maps)."
+  {:depth 3 :items 8 :chars 200})
 
 
 (def connect-usage
@@ -383,7 +390,8 @@
 
       (not (string? line))
       (publish state :yin.repl.v2.driver/diagnostic
-               (str ";; ignored non-string input: " (pr-str line)))
+               (str ";; ignored non-string input: "
+                    (pr-str (data/summarize line diagnostic-bounds))))
 
       (str/blank? line) state
 
@@ -436,9 +444,9 @@
 
     :yin.repl.v2.adapter/lost
     (str ";; remote request " (:yin.repl.v2.adapter/id event) " lost: "
-         (pr-str (:yin.repl.v2.adapter/reason event)))
+         (pr-str (data/summarize (:yin.repl.v2.adapter/reason event) diagnostic-bounds)))
 
-    (str ";; " (pr-str event))))
+    (str ";; " (pr-str (data/summarize event diagnostic-bounds)))))
 
 
 (defn- completion-event-kind
