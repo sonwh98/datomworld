@@ -572,7 +572,6 @@
    table drives both projection and reconstruction."
   {:literal [[:value :data]],
    :variable [[:name :sym]],
-   :global [[:name :sym]],
    :lambda [[:params :syms] [:body :node]],
    :application [[:operator :node] [:operands :nodes] [:tail? :bool]],
    :if [[:test :node] [:consequent :node] [:alternate :node]],
