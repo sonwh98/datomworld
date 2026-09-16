@@ -138,6 +138,28 @@ result. That is a correct outcome, not a gap to be filled.
 Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
 Stigmergic coordination emerges from sharing data across streams.
 
+**Derive, don't persist.** Before adding a new tag, slot, or field to any
+canonical, content-hashed tuple structure (an AST grammar, a datom schema,
+a row shape), check whether the fact it would encode is instead computable
+from the existing structure via a Datalog query over `dao.space.query/q`,
+at the correct scope for what the fact actually depends on — not every
+query over the shallowest available relation is sound; get the scope
+wrong and a query can silently mis-derive the fact instead of failing
+loudly. If a correctly-scoped query can derive it, it belongs as a query
+or a projection, not as new persisted structure: new structure is
+content-hashed and migrates every downstream consumer, and duplicates
+authority over a fact a query could derive fresh instead. This is not a
+zero-cost trade — deriving still costs real query complexity and, if the
+fact isn't already indexed, the work of building and maintaining whatever
+does index it — but that cost is paid once, in the query and its index,
+not in every future migration of the persisted structure. See
+[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md)'s
+retired `:global` tag for the concrete case study — a free/bound variable
+distinction that looked like it needed a new AST node, until it turned
+out to be computable by query; getting the scope right there took two
+rounds and a real correctness bug — the simpler query silently
+undercounted a dependency in the mixed free/bound case.
+
 See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
 See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
 

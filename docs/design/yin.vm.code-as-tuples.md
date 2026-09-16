@@ -148,12 +148,12 @@ node is a map of its tag and its named fields:
 {:type :lambda,
  :params [x],
  :body {:type :application,
-        :operator {:type :global, :name +},
+        :operator {:type :variable, :name +},
         :operands [{:type :variable, :name x} {:type :literal, :value 1}],
         :tail? true}}
 ```
 
-The fields are what the walker dispatches on today (`src/cljc/yin/vm/v2/ast_walker.cljc:333-470`); the `:lambda` arm already binds `params` by name. The walker's `:variable` arm must be adapted to resolve names against the lexical environment only, and a `:global` arm must be added to resolve through the store/primitives/modules (`engine.cljc:46-58`) — today's `:variable` arm (`ast_walker.cljc:361-363`) and the semantic VM's `:var` opcode (`semantic.cljc:256-259`) both still call `resolve-var`, falling through env → store → primitives → modules, and neither evaluator has a `:global` arm yet. Separately, closure application (`ast_walker.cljc:191`, and its hot-path copies at `:511`/`:553`; `semantic.cljc:200`) still binds arguments with `(zipmap params args)`, which leaves missing parameter names unbound rather than bound to `nil` — that binding change belongs to the application arm and the semantic VM's apply, not to `:lambda`.
+The fields are what the walker dispatches on today (`src/cljc/yin/vm/v2/ast_walker.cljc:333-470`); the `:lambda` arm already binds `params` by name, and the `:variable` arm already resolves through `resolve-var`'s env → store → primitives → modules fallthrough (`ast_walker.cljc:361-363`; the semantic VM's `:var` opcode does the same at `semantic.cljc:256-259`) — this design keeps that fallthrough rather than splitting free and bound references into separate node types (§4.5). Separately, closure application (`ast_walker.cljc:191`, and its hot-path copies at `:511`/`:553`; `semantic.cljc:200`) still binds arguments with `(zipmap params args)`, which leaves missing parameter names unbound rather than bound to `nil` — that binding change belongs to the application arm and the semantic VM's apply, not to `:lambda`.
 
 The map AST is never hashed directly, never stored, never
 shipped. It exists on both sides of storage — frontend-side, where
@@ -167,7 +167,7 @@ AST, `project : map-ast → rows`, one row per node (the bytecode linearization)
 ```clojure
 [A :lambda [x] B]
 [B :application C [D E] true]
-[C :global +]
+[C :variable +]
 [D :variable x]
 [E :literal 1]          ; A..E are :segment/sha256-… row ids
 ```
@@ -269,8 +269,6 @@ and neither side may disagree with the other.
 | :literal                | 2          | [:literal value]                     | value                    | data             | ast_walker.cljc:360| v2.cljc:414-415 |
 +-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
 | :variable               | 2          | [:variable name]                     | name                     | sym              | unchanged: `ast_walker.cljc:361-363` | unchanged: `v2.cljc:417-418` |
-+-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
-| :global                 | 2          | [:global name]                       | name                     | sym              | added by this design | added by this design |
 +-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
 | :lambda                 | 3          | [:lambda params body]                | params body              | syms, node       | unchanged: `ast_walker.cljc:364-370` | unchanged: `v2.cljc:419-424` |
 +-------------------------+------------+--------------------------------------+--------------------------+------------------+--------------------+-----------------+
@@ -384,7 +382,7 @@ name *where*, and each is a distinct coordinate:
 
 - A **structural path** names a place inside one tree: a vector of slot
   indices from the root, with an index into a `nodes` slot written as a
-  pair `[slot i]`. `[]` is the root; `[2 [1 0]]` is the first operand of
+  pair `[slot i]`. `[]` is the root; `[2 [3 0]]` is the first operand of
   the root's second slot. Slot indices are the row's positions, which the
   §2.3 dictionary fixes against the map's key order, so a path reads
   identically on both sides of the round trip. A path is a pure function
@@ -487,7 +485,7 @@ it as a general semantics-preserving migration:
 
 - `yin/def` and `f` resolve through `resolve-var`'s precedence, store
   → primitives → modules (`src/cljc/yin/vm/v2/engine.cljc:46-58`), so the
-  rewrite is equivalent only when the frontend resolves both `yin/def` and `f` as `:global` at the site (and not as `:variable` names);
+  rewrite is equivalent only when neither `yin/def` nor `f` is shadowed by an enclosing `:lambda`'s params at the site (so both resolve as free names, through the fallthrough, rather than to a local binding);
 - the arm stores whatever `(apply f current args)` returns, as data
   (`ast_walker.cljc:410-415`), while an application interprets an
   effect-shaped return (`ast_walker.cljc:184-188`,
@@ -554,47 +552,48 @@ sets but leaves vectors in place (`jing.cljc:45-64`). Literal maps and sets
 inside a `data` slot hash order-insensitively, which is correct: they are
 values.
 
-### 4.2 The transitional encoder is inherited, and every identity use is blocked on it
+### 4.2 The transitional encoder is inherited; ordinary identity use is unblocked
 
-`segment-key` hashes an order-normalized `pr-str` (`jing.cljc:67-71`,
-`:203-214`). `order-normalize` coerces **every** sequential value to a
-vector (`jing.cljc:63`), and `pr-str` prints no metadata. The encoder is
-therefore not injective over the `data` domain, and the collisions are not
-confined to one collection type:
+`segment-key` hashes an order-normalized, metadata-aware hand printer
+(`jing.cljc`'s `order-normalize` / `canonical-print`). The three
+conformance pairs this section used to name as blocking collisions are
+now closed:
 
 +--------------------------------------------------------+------------------------------------+--------------------------------------------------------------------------+
-| Two different values                                   | One address today                  | Why it matters                                                           |
+| Two different values                                   | Address today                       | Why it matters                                                           |
 +========================================================+====================================+==========================================================================+
-| `[:literal [1 2]]` and `[:literal (1 2)]`              | lists become vectors               | `conj` appends to one and prepends to the other                          |
+| `[:literal [1 2]]` and `[:literal (1 2)]`              | distinct                            | `conj` appends to one and prepends to the other                          |
 +--------------------------------------------------------+------------------------------------+--------------------------------------------------------------------------+
-| `[:literal [1 2]]` and `[:literal (seq [1 2])]`        | a seq is sequential but not a list | the same, and a list reject-rule does not see it                         |
+| `[:literal [1 2]]` and `[:literal (seq [1 2])]`        | distinct                            | a seq is sequential but not a list, and both differ from the vector      |
 +--------------------------------------------------------+------------------------------------+--------------------------------------------------------------------------+
-| `[:literal ^{:a 1} [1 2]]` and `[:literal ^{:a 2} [1   | metadata is dropped by `pr-str`    | `data` admits plain metadata (`linearize.cljc:58`) and programs may read |
-| 2]]`                                                   |                                    | it                                                                       |
+| `[:literal ^{:a 1} [1 2]]` and `[:literal ^{:a 2} [1   | distinct                            | `data` admits plain metadata (`linearize.cljc:58`) and programs may read |
+| 2]]`                                                   |                                      | it; collection metadata is now address-significant                      |
 +--------------------------------------------------------+------------------------------------+--------------------------------------------------------------------------+
 
-This is `dao.jing.md`'s first open item (*Canonical encoding*), inherited
-unchanged, and it is an acceptance blocker of this design (§10.1).
-
-**Every identity and deduplication use is blocked until the encoding is
-fixed.** No restricted value domain is claimed, and none is admitted: a
-reject-list over collection types does not make address-based identity
-safe, because the admitted domain is open (`plain-data?` admits every
-`coll?`, `linearize.cljc:56`) and the encoder's losses are structural. The
-block applies uniformly to every addressed value and every use of an
-address as identity: `data` slots of trees, `:const` and `:store-put`
-operands of vectors, ledger-record maps (§8.2), flat-projection row
+`dao.jing.md`'s Canonical encoding section records the encoder's current
+contract precisely and its remaining residuals: scalar (symbol) metadata
+is not address-significant, pathological symbols whose print mimics
+another value's can still collide, byte arrays are hashed by identity
+rather than content, and ambient print-var bindings still reach scalar
+bytes. None of the three pairs above are affected by any of those
+residuals — they were the structural (collection-level) gaps this design
+depended on closing, and they are closed. **The identity and
+deduplication block this section used to impose is lifted for ordinary
+values** — rows, vectors, ledger-record maps, flat-projection row
 collapse (§6.1), DAG sharing (§4.4), process-local address-keyed caches,
-`dao.jing` reads that resolve an address to a literal value, and every
-ledger row that names an address. Process lifetime is irrelevant. Until
-the block lifts, addresses may be *computed* and *carried* for the
-conformance work of §7.2, but nothing may treat two equal addresses as
-one value.
+and `dao.jing` reads that resolve an address to a literal value may treat
+two equal addresses as one value. The remaining residuals above are
+pre-existing, scoped, and tracked as `dao.jing.md` Open Items rather than
+as a design-wide block, but they are not uniformly latent: scalar
+metadata and byte-array identity hashing need a future producer to emit
+those specific value shapes before they matter, while ambient print-var
+bindings (`*print-readably*` and similar) reach scalar bytes for ANY
+scalar today — that residual is live now for any caller that hashes
+inside such a binding, not conditional on a future producer.
 
-The three rows above are part of the **encoder conformance obligation**
-that lifts the block: the pinned encoding must address each pair
-distinctly, and the test that proves it is part of `dao.jing`'s
-acceptance, not this document's. When it lands, every address minted under
+The pinned canonical byte encoding itself — the target `dao.jing.md`
+describes as its first open item, replacing this transitional hand
+printer — remains open work; when it lands, every address minted under
 this design changes with every other `dao.jing` address, the dependency
 UCF §7.3.2 already accepts.
 
@@ -631,7 +630,7 @@ two functions that are identical up to variable renaming project to
 hashed content. Only subtrees identical in structure *and* in every retained
 name collapse to one row. The row set holds each such distinct subtree once,
 and parent slots point at it — while identity stays per row.
-**However, this structural collapse is strictly gated on the §4.2 encoder fix.** Because the current encoder is non-injective, structurally distinct values that hash equal would silently merge into one row, corrupting the AST. Until the encoder is fixed, the row form as a whole is gated.
+**This structural collapse depends on the §4.2 encoder being injective, which it now is for ordinary values under default print bindings.** The three conformance pairs (vector/list, vector/seq, collection metadata) that used to make the encoder non-injective are closed; structurally distinct ordinary values no longer hash equal under the default host print configuration. The disclosed residuals remain gaps: scalar metadata and byte-array identity hashing need a future producer to matter here, but ambient print-var bindings reaching scalar bytes are live now — a row whose slots include scalars hashed inside such a binding is not covered by this collapse guarantee — see §4.2.
 `:eid` is dropped from the frontends and the codec.
 
 What `:eid` also did, and content addresses do not, is name a *place*.
@@ -642,6 +641,123 @@ link that must survive a second identical site, a second identical file,
 or a second identical expansion records the occurrence key. Content
 addresses serve sharing and cross-media correspondence of content;
 occurrence keys serve identity of places, sources, and attempts.
+
+### 4.5 Free variables are queried, not tagged
+
+An earlier revision of this design split variable references into two
+node types: `:variable` for names bound by an enclosing `:lambda`'s
+params, resolved against the lexical environment only, and `:global` for
+free names, resolved through `resolve-var`'s store → primitives →
+modules fallthrough. The motivation was static inspectability: knowing a
+program's free-name dependencies (for UCF §7.6.1's `:yin.k/requires`
+fixed point, and for capability checking before running untrusted
+content) without evaluating it.
+
+That motivation does not require a second tag. Whether a `:variable` row
+is free or bound is exactly what a **query** over `$ast` (§6.1) can
+compute: walk the row's ancestor chain (a `node`/`nodes` slot pointing at
+a row's own id is a parent-child edge, so the ancestor relation is a
+recursive Datalog rule over the row relation itself, needing no separate
+occurrence side-table) and check whether the `:variable`'s `name` appears
+in any enclosing `:lambda`'s `params`. If it does not, the name is free —
+a `:global`-shaped fact, derived on demand, never persisted. `dao.space.query/q`
+already supports recursive rules (`src/cljc/dao/space/query.cljc`'s
+`eval-rule`), so this is not a capability gap; it is a query the design
+never needed to avoid.
+
+Splitting the tag instead of querying for the same fact bought nothing
+the query could not already give, and cost real things: the name
+collided with the project's own "no hidden global state" invariant — the
+`store` a `:global` reference resolves into is genuinely mutable and
+time-varying (it holds `yin/def` results alongside stream handles and
+cursor entries, §7.7.2), so the naming confusion was a real signal, not
+cosmetic; the no-fallthrough contract (`:variable`'s lexical-only
+resolution, evaluating an unbound name to `nil` rather than falling
+through to store/primitives/modules) replaced a forgiving runtime
+fallthrough with a requirement that every frontend get free/bound
+classification exactly right, which is precisely the hardest part of
+writing a correctly hygienic macro expander; and the change depended on
+frontend scope-analysis work (classifying free names as `:global` at
+authoring time) that does not exist anywhere in this codebase. This is
+now a decided case study for the broader principle in
+[`docs/design/datom.world.md`](./datom.world.md)'s Design Principles:
+before adding structure to a canonical, content-hashed representation,
+check whether a query already gives you the fact for free.
+
+See `test/dao/space/query_test.cljc` for a working demonstration: a
+recursive rule (`edge`/`anc`/`depth`/`bound?`, verified against the real
+`dao.space.query/q` engine, not sketched) computing the free-name set of
+a row tree with no `:global` tag anywhere in it, including the
+nearest-enclosing-binder case under shadowing. `edge`'s clauses are
+hardcoded for the fixture's two tags (`:lambda`'s body slot,
+`:application`'s operator/operands slots), not generic over §2.3's full
+grammar — a tree using a tag with other node-valued slots (`:if`,
+`:dao.stream.apply/call`, `:vm/resume`, the `:stream/*` family) has
+edges this specific rule does not walk, so it can call a bound name free
+(an overcount, not an undercount — still conservative-safe for §7.6.1,
+just imprecise). A production rule needs an `edge` clause per node-valued
+slot in the grammar, or a schema-driven walk over
+`semantic-bytecode-grammar` instead of one clause per tag.
+
+**The row-only query is unsound, not just imprecise, when a name is free
+at one occurrence and bound at another — and this is not a permanent
+cost of dropping `:global`, only of the simple query.** Because
+structurally identical subtrees share one row (§4.4), a name that is
+free at one occurrence and bound at another (e.g. `((fn [x] x) x)`, whose
+operand `x` is free while the lambda body's `x` is bound) collapses to
+one `:variable` row with multiple parent edges — one through the binding
+lambda, one not. `bound?`'s row-level walk (`test/dao/space/query_test.cljc`)
+finds a binding ancestor via *either* edge and calls the whole row bound,
+which would silently drop the genuinely free occurrence from a computed
+`:yin.k/requires` set. UCF §7.6.1 requires that set to be a **conservative**
+fixed point — it must never undercount what a program depends on, since
+undercounting a capability requirement is a security defect, not an
+imprecision. The row-only query can undercount in this mixed case, so it
+is not sufficient for `:yin.k/requires` on its own.
+
+The fix is not to bring `:global` back. A name's free/bound status at a
+*specific occurrence* is exactly a places-not-contents question, and
+§6.1 already routes those through the occurrence relation
+(`[origin root-address path ...]`, §2.5) rather than row identity: walk
+each occurrence's own path to its ancestors, not the row's abstracted
+parent edges. This is not merely argued — `test/dao/space/query_test.cljc`'s
+`occurrence-aware-rules-resolve-mixed-free-and-bound-rows` proves it
+against the real `q` engine, on the exact `((fn [x] x) x)` case above: a
+hand-built occurrence relation of §2.5's shape (the production indexer
+that would emit it does not exist yet, so the test builds it as fixture
+data, same honest scoping as the row-level demo), a recursive rule
+walking path-prefix ancestry rather than row edges, and — the point of
+the exercise — a **contrast assertion that runs the row-only rule against
+the same database and confirms it actually does undercount** (`#{}`
+instead of `#{'x}`), so the failure mode §4.5 describes above is
+demonstrated, not narrated. No new structure was needed; only the
+richer, occurrence-joined query, exactly as this section claims.
+
+**Not root-scoped as written — a real gap, not a hedge.** The test's
+`occ-anc`/`occ-bound?` rules take only `?path` and `?name` as arguments;
+they never thread a root through the recursion. Over a single tree this
+is harmless, but a production occurrence relation holds every reachable
+tree's occurrences together, and structural paths are not
+root-qualified — two different trees can produce the identical literal
+path (e.g. both have a lambda at path `[2]`). `occ-anc`/`occ-bound?` as
+written would then find a binder in the WRONG tree and misclassify an
+occurrence in one tree against a binder in another. Whoever wires up the
+real `:yin.k/requires` computation (open item 5, "Conservative dependency
+completion") must thread `?root` through every rule head
+(`p-up`/`occ-anc`/`occ-bound?`) and constrain the `[$occ ...]` join to
+one root-address, not lift the test's rule set unmodified. What the test
+actually exercises is one single-root fixture using `:lambda` and
+`:application` only — it does not test `:if` or any other node-valued
+tag. What it establishes beyond that fixture is reasoning, not tested
+coverage: the occurrence rule walks path prefixes generically rather
+than one edge clause per tag, so — unlike the row-only rule's own
+tag-coverage gap noted above — nothing about its approach depends on
+which tag sits at a given path, which is why it should generalize across
+the whole §2.3 grammar without the row-only rule's gap. That reasoning is
+not itself tested here. What remains before production use is
+root-scoping the rules and building the indexer that emits occurrence
+tuples in the first place — both implementation work, not open design
+questions.
 
 ---
 
@@ -793,11 +909,13 @@ rebuilds map ASTs from flat rows through entity ids — a `get-attr` per
 field over an entity index, recursion through child ids; the loader is
 its successor with content addresses in place of allocated ids.
 
-Deduplication — treating two equal ids as one value — is an identity use
-and is blocked by §4.2 until the encoding is fixed; until then a stored
-set may not be collapsed on id equality, and the occurrence relation
-must be carried beside the rows wherever places, not contents, are asked
-about.
+Deduplication — treating two equal ids as one value — is an identity use;
+for ordinary values it is no longer blocked (§4.2). The occurrence
+relation is still what places, not contents, questions go through —
+that requirement was never about the encoder block, and it stands
+regardless (§4.5's mixed-occurrence case is exactly this: id equality is
+sound, but a places question still needs the occurrence relation, not id
+equality alone).
 
 A second relation, `occurrences : tree → #{[root-address path
 node-address]}`, one row per place, is the structural half of the join
@@ -838,7 +956,7 @@ construction.
 Verified shapes, each of which is a rule a query author may rely on:
 
 - **Per-tag selection.** `[?id :variable ?name]` matches only arity-3 rows.
-- **Joins across arities.** `[?site :application ?op _ _] [?op :global
+- **Joins across arities.** `[?site :application ?op _ _] [?op :variable
   ?f]` joins an arity-5 row to an arity-3 row on the address.
 - **Operand membership** goes through a predicate: `[(member? ?operands
   ?x)]` with `member?` supplied under `:fns`; predicate arguments must
@@ -871,7 +989,7 @@ A ref is a datom whose `v` is an address (§8). A name is an entity carrying
  :where [$refs ?e :yin/name my.ns/f]          ; bind the name entity
         [$refs ?e :yin/code ?root]            ; 3-slot, fast path, current view
         [$code ?site :application ?op _ _]    ; general path
-        [$code ?op :global +]
+        [$code ?op :variable +]
         [$occ ?root ?path ?site]]             ; every place that content occurs in this tree
 ```
 
@@ -1004,9 +1122,6 @@ row nothing reaches.
 +-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:root-reachable` | a row of the loaded set is not reachable from the root row                                                                                        |
 +-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
-| `:variable-scope` | a `:variable` name is not bound by an enclosing `:lambda`'s params and the frontend did not emit `:global` instead; the defect names the path     |
-+-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
-
 The three reference rules are the row counterpart of §7.5's
 `:target-bounds`: a row's child slots are references, and they must
 resolve within the loaded set and close under the root, as a jump target
@@ -1015,8 +1130,9 @@ address check whenever it runs — a row's id commits to its children's
 ids, so a cycle would break the hash (§4.1) — and the rule stands
 regardless, so that a load taking ids as given still names the defect.
 
-There is no encoder-domain rule: §4.2 blocks identity uses outright rather
-than admitting a domain.
+There is no encoder-domain rule: §4.2's residuals are disclosed value
+shapes (scalar metadata, pathological symbols, byte arrays), not a
+restricted admission domain, and ordinary identity uses are unblocked.
 
 ### 7.5 Vector rules
 
@@ -1035,7 +1151,7 @@ UCF §7.3.4 checks are translated as follows.
 | `:arity`         | the tuple's count differs from the mnemonic's arity in `yin.vm.semantic.md` §2.4 as saturated by UCF §7.3.2                                         |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:operand-kind`  | an operand is not of its kind: `:const` and `:store-put` values or `:store-get`/`:store-put` keys fail `plain-data?` (the `key` kind of §2.2), a    |
-|                  | a `:var` name or a `:global` name is not a symbol, a `:closure` params is not a vector of symbols, a `:ffi-call` op or `:resume` parked id is not a keyword, a `:gensym`  |
+|                  | a `:var` name is not a symbol, a `:closure` params is not a vector of symbols, a `:ffi-call` op or `:resume` parked id is not a keyword, a `:gensym`  |
 |                  | prefix is not a string                                                                                                                              |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:saturation`    | a saturated operand (`:gensym` prefix, `:stream-make` buffer, `:call` tail?, `:ffi-call` argc) is nil                                               |
@@ -1047,7 +1163,7 @@ UCF §7.3.4 checks are translated as follows.
 | `:argc`          | a `:call`/`:ffi-call` argc is not a non-negative integer                                                                                            |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 
-There is no vector-level binding rule for `:var`: nesting is a property of the AST, checked by §7.4; an unbound `:var` name at run time evaluates to `nil` (§7.7.2).
+There is no vector-level binding rule for `:var`: nesting is a property of the AST. `resolve-var`'s retained fallthrough (env → store → primitives → modules, §4.5, §7.7.2) throws if nothing resolves (`engine.cljc:46-65`) — a `:var` name is validated only as a symbol here (§7.5's `:operand-kind`), never checked for boundedness at this level.
 
 The address check (the vector hashes to the address it claims) is UCF
 §7.3.4's and runs before these rules whenever an address is claimed; a
@@ -1080,8 +1196,24 @@ Extraction over trees (`$ast` is the union of flat rows of the reachable
 trees):
 
 ```clojure
-;; :global rows are exactly the free names; :variable rows carry a name too, but a bound one contributes no obligation (§7.7.2)
-[:find ?name :in $ast :where [$ast _ :global ?name]]
+;; Free-name extraction is a query, not a tag match (§4.5): a :variable
+;; occurrence's name is a free-name obligation unless it is bound by an
+;; enclosing :lambda on ITS OWN occurrence path. This must be an
+;; occurrence-relation query (§2.5's [origin root-address path]), not a
+;; row-only one: content-addressed sharing means one :variable row can
+;; have several occurrences, and a row-only rule that walks row parent
+;; edges instead of per-occurrence paths can find a binder through one
+;; occurrence's edge and wrongly call every occurrence of that row bound
+;; — undercounting a real dependency, which UCF §7.6.1's conservative
+;; fixed point must never do (§4.5). See `test/dao/space/query_test.cljc`'s
+;; occurrence-aware rule set for the verified technique (not yet
+;; root-scoped as written — §4.5 — a production query must additionally
+;; constrain every rule to one root-address, since an unscoped rule set
+;; can otherwise resolve a free name in one tree against a binder in a
+;; different reachable tree); the shape here is illustrative, not the
+;; exact syntax.
+[:find ?name :in $ast $occ % ?root
+ :where [$occ ?root ?path ?v] [?v :variable ?name] (not (bound? ?root ?path ?name))]
 
 ;; store keys read or written by code
 [:find ?key :in $ast :where (or [$ast _ :vm/store-get ?key]
@@ -1103,7 +1235,18 @@ trees):
 Extraction over segments (`$code` is the union of segment-qualified rows):
 
 ```clojure
-[:find ?name :in $code :where [$code _ _ :global ?name]]
+;; likewise over segment-qualified rows: derive free names from the
+;; instruction vector's own scoping, no separate opcode needed. Unlike
+;; AST rows, instructions are positionally addressed within one segment
+;; (segment-address, pc), not content-shared sub-vector by sub-vector, so
+;; the mixed-occurrence risk §4.5 documents for AST rows may not apply
+;; here the same way — this is unverified. `linearize.cljc/lower` exists
+;; today (`:162`) but takes `[e a v t m]` datoms, not the row sets this
+;; design specifies (§9.1: lower must be adapted to read the row relation
+;; instead); no test exercises this query against the row-set-based
+;; lowering, so confirm this reasoning when that adaptation lands rather
+;; than assuming it.
+[:find ?name :in $code % :where [$code _ _ :var ?name] (not (bound? ?name))]
 [:find ?key  :in $code :where (or [$code _ _ :store-get ?key]
                                   [$code _ _ :store-put ?key _])]
 [:find ?op   :in $code :where [$code _ _ :ffi-call ?op _]]
@@ -1173,8 +1316,6 @@ over one vocabulary. The table for contract `"v2"`:
 | `:vm/current- | `:current-continuation | `#{}`              | —                                                                                                        |
 | continuation` | `                      |                    |                                                                                                          |
 +---------------+------------------------+--------------------+----------------------------------------------------------------------------------------------------------+
-| `:global`     | `:global`              | `#{}`              | name into the name obligations                                                                           |
-+---------------+------------------------+--------------------+----------------------------------------------------------------------------------------------------------+
 | `:literal`,   | `:const`, `:var`,      | `#{}` from syntax; | —                                                                                                        |
 | `:variable`,  | `:closure`, `:push`,   | a call's effects   |                                                                                                          |
 | `:lambda`,    | `:call`, `:return`,    | are its callee's   |                                                                                                          |
@@ -1184,17 +1325,43 @@ over one vocabulary. The table for contract `"v2"`:
 +---------------+------------------------+--------------------+----------------------------------------------------------------------------------------------------------+
 
 Every tag and every mnemonic has a row, so "no external effect" is an
-explicit `#{}`, never an absence. The conformance obligation: for every
-corpus tree, the requirement set computed from the tree and the one
-computed from its lowered segment are **equal** in every field of
-`:yin.k/requires`. A tag or mnemonic outside the table is
+explicit `#{}`, never an absence. `:variable`/`:var`'s "Other requirement"
+column is blank here because this table is unconditional per tag, and a
+`:variable` row's contribution to the name obligation is conditional on
+whether it is free (§4.5, §7.7.2) — that determination is a query over
+`$ast`/`$code`, not a per-tag footprint fact, and is computed by the
+extraction queries in §7.7 rather than this table. The conformance
+obligation: for every corpus tree, the requirement set computed from the
+tree and the one computed from its lowered segment are **equal** in every
+field of `:yin.k/requires`. A tag or mnemonic outside the table is
 `:yin.k/undecodable`, the same outcome the validators give it.
 
 #### 7.7.2 Name obligations are resolved per store slice, and completion is conservative
 
-A name extracted from code (a `:global` row) is an **obligation**. This design preserves named variables across the Semantic Tuple boundary, but `:variable` and `:global` resolve through different paths: the evaluator looks up a `:variable` name in the lexical environment (the closure's captured `sym → value` map, §7.7.3), while a `:global` name resolves through `resolve-var`'s precedence, store → primitives → modules (`engine.cljc:46-58`).
+A name extracted from code is an **obligation** when it is a **free**
+`:variable` row's `name` — free per the query of §4.5, not per a
+separate tag. This design preserves named variables across the Semantic
+Tuple boundary, and keeps a single resolution path: the evaluator looks up
+every `:variable` name through `resolve-var`'s existing precedence, env →
+store → primitives → modules (`engine.cljc:46-58`, `ast_walker.cljc:361-363`,
+`semantic.cljc:256-259`) — this is already what today's code does, and
+this design does not change it. What changes is only how the obligation
+set is computed: not by scanning for a distinct tag, but by the §4.5/§7.7
+query over which `:variable` names are free.
 
-**Variables never fall through to globals.** An under-arity call leaves missing parameter names bound to `nil`; an over-arity call drops extra arguments beyond the params list length. An unbound variable name evaluates to `nil`; it never falls through to the store, primitives, or modules. This is an **evaluator rule the walker and semantic VM must be changed to obey**, not a consequence of `:variable` and `:global` being distinct node types alone — node distinctness does not by itself stop an evaluator from calling `resolve-var`. It is a deliberate execution-contract change from today's fallback: the walker's `:variable` arm (`ast_walker.cljc:361-363`) and the semantic VM's `:var` opcode (`semantic.cljc:256-259`) both currently call `resolve-var`, which falls through env → store → primitives → modules. Therefore, name obligations are strictly and statically the set of `:global` names, never `:variable` names.
+**Under-arity calls leave missing parameters bound to `nil`, not unbound.**
+An under-arity call leaves missing parameter names bound to `nil`; an
+over-arity call drops extra arguments beyond the params list length. This
+is a deliberate execution-contract change from today's `zipmap`-based
+binding (`ast_walker.cljc:191`, and its hot-path copies at `:511`/`:553`;
+`semantic.cljc:200`), which currently leaves a missing parameter name
+absent from the extended environment rather than explicitly `nil` — so it
+can currently fall through to whatever the closure's own captured
+environment (or, transitively, the store/primitives/modules chain) has
+under that name. After the fix, a missing parameter is `nil` and shadows
+any such fallthrough within the closure's body. This is independent of
+§4.5's free/bound decision: it is about parameter binding at closure
+application, not about resolving a name to a value.
 
 Every retained obligation is a required primitive or module export, checked by
 profile (UCF §7.5.2), and the **effects of a callable are read from its
@@ -1245,7 +1412,7 @@ context, a new profile fact, or a new footprint continues the iteration
 even when no new address appeared.
 
 Discovery is `:complete` only when every reachable work item was
-analyzed, every `:global` obligation was discharged by the store slice by key or retained
+analyzed, every free-`:variable` obligation was discharged by the store slice by key or retained
 as a profiled primitive or module requirement, every parked id resolved, and every module
 footprint was declared. It is `:blocked` when an address cannot be
 fetched and `:incomplete` otherwise. Recasting the walk as Datalog changes
@@ -1648,7 +1815,7 @@ Rules:
 - **Binding.** A declaration `[j path :yin.macro/definition]` names the
   `:application` at `path` in tree `j`, and through the catalogue the
   original definition whose group contains `[j path]`; that node must be
-  `(yin/def <literal sym> <lambda>)`, i.e., its reconstructed semantic map must have an `:operator` that is a `:global` node naming `yin/def`, its first operand a `:literal` symbol node, and its second operand a `:lambda` node. A
+  `(yin/def <literal sym> <lambda>)`, i.e., its reconstructed semantic map must have an `:operator` that is a `:variable` node naming `yin/def` (free at that site, per §4.5), its first operand a `:literal` symbol node, and its second operand a `:lambda` node. A
   declaration whose coordinates do not resolve to such a node is an
   admission failure, `{:kind :malformed-input :reason
   :stray-macro-declaration}`, the successor of §3.1 step 1's
@@ -1734,22 +1901,22 @@ rows behind it. The semantics do not change; the boundary does.
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | Site                                             | Change                                                                                                              |
 +==================================================+=====================================================================================================================+
-| walker, `ast_walker.cljc`                        | Retains named variable evaluation (`:name`). `:lambda` arm binds by name. Does not use De Bruijn numbering. `:global` arm added; `:variable` arm (`:361-363`) changes to consult the lexical environment only, no longer falling through to `resolve-var`. Closure application (`:191`, hot-path copies at `:511`/`:553`) changes from `(zipmap params args)` to nil-filling missing params. Adds `:stream/close` arm (§3.2).                                                                                                      |
+| walker, `ast_walker.cljc`                        | Retains named variable evaluation (`:name`). `:lambda` arm binds by name. Does not use De Bruijn numbering. `:variable` arm (`:361-363`) is unchanged — still resolves through `resolve-var`'s env → store → primitives → modules fallthrough (§4.5). Closure application (`:191`, hot-path copies at `:511`/`:553`) changes from `(zipmap params args)` to nil-filling missing params. Adds `:stream/close` arm (§3.2).                                                                                                      |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | loader, new                                      | validate rows (§7.4), reconstruct the map AST: `rows → map` (§6.1), the successor of `datoms->ast`                  |
 |                                                  | (`v2.cljc:494-559`) with content addresses in place of allocated ids                                                |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | linearizer,                                      | reads the row relation through the same `get-attr`-over-an-index shape it has today (`lower-node`'s `(get-attr e    |
 | `linearize.cljc:87-148`,                         | :yin/type)` becomes a lookup by row id); `ast-children` becomes a table lookup of `node`/`nodes` slot positions;    |
-| `:230-242`                                       | `lower` takes a row set and returns a vector plus the §5.3 provenance table; emits `:var name`, `:global name`, and `:closure params body`; `lower-ast` (`:245-252`) goes away     |
+| `:230-242`                                       | `lower` takes a row set and returns a vector plus the §5.3 provenance table; emits `:var name` and `:closure params body`; `lower-ast` (`:245-252`) goes away     |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | codec, `v2.cljc:372-559`                         | becomes `yin.vm.v2/ast->semantic-bytecode`, the projection pair of §6.5 mapping Universal AST to Canonical Rows/Datoms.            |
-|                                                  | `:yin/root` and `:eid` removed; `:yin/address` added; `:global` node added; retains `:yin/params` on lambda and `:yin/name` on variable |
+|                                                  | `:yin/root` and `:eid` removed; `:yin/address` added; retains `:yin/params` on lambda and `:yin/name` on variable |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
-| `code/mnemonics`, `code/well-formed?`,           | `code/mnemonics` (`code.cljc:12-16`) adds `:global`. `well-formed?` keeps judging datom batches on the projection path before projection; the shared vector validator of §7.5 runs on   |
+| `code/mnemonics`, `code/well-formed?`,           | `code/mnemonics` (`code.cljc:12-16`) is unchanged (§4.5). `well-formed?` keeps judging datom batches on the projection path before projection; the shared vector validator of §7.5 runs on   |
 | `code.cljc:12-180`                               | both paths after it                                                                                                 |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
-| `semantic/load-image`,                           | decodes from the vector directly on the primary path; frame binding for `:closure` matches arguments to `params` by position, binding each to its name (§7.7.2); apply (`semantic.cljc:200`) changes from `zipmap` to nil-filling missing params; `:global` opcode resolves store → primitives → modules; decodes the new operands (`:var name`, `:global name`, `:closure params body`); both paths call the §7.5 validator   |
+| `semantic/load-image`,                           | decodes from the vector directly on the primary path; frame binding for `:closure` matches arguments to `params` by position, binding each to its name (§7.7.2); apply (`semantic.cljc:200`) changes from `zipmap` to nil-filling missing params; `:var` opcode is unchanged, resolving env → store → primitives → modules (§4.5); decodes the new operand (`:closure params body`); both paths call the §7.5 validator   |
 | `semantic.cljc:524-596`                          |                                                                                                                     |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | frontends                                        | keep emitting map ASTs to the stream (as named universal ASTs). They do not perform the tuple projection. |
@@ -1821,17 +1988,18 @@ seen from the migration side:
 
 ## §10 Acceptance blockers and open items
 
-1. **Type-preserving canonical encoding in `dao.jing`** — declared,
-   inherited, and **blocking every identity and deduplication use**
-   (§4.2). `order-normalize` (`jing.cljc:45-64`) coerces every sequential
-   value to a vector and `pr-str` drops metadata, so lists, seqs, and
-   metadata-bearing vectors collide with plain vectors. No restricted
-   value domain is claimed; the round-2 list-rejection rule is withdrawn
-   as unsound. Rows, vectors, ledger-record maps, row
-   deduplication, DAG sharing, process-local caches, content resolution by
-   address, and ledger rows are all blocked alike until `dao.jing`'s
-   encoding passes the conformance pairs of §4.2. This design does not
-   close the item.
+1. **The pinned canonical byte encoding in `dao.jing`** — declared and
+   inherited, still open, but **no longer blocking ordinary identity and
+   deduplication use** (§4.2). The three structural conformance pairs
+   this item used to name as blocking (vector/list, vector/seq,
+   collection metadata) are closed by `dao.jing`'s committed encoder fix
+   — list and seq intentionally remain one address, since `=` calls them
+   equal. What
+   remains is the transitional hand printer's disclosed residuals
+   (scalar metadata, pathological symbols, byte-array identity hashing,
+   ambient print-var bindings on scalars — `dao.jing.md`'s Open Items)
+   and the eventual pinned byte encoding itself, neither of which this
+   design closes.
 2. **The store-key domain is the `data` domain** (§2.2): every validator,
    extraction query, and store-slice encoding must use that one
    definition. This document now states it uniformly; the implementation
@@ -1868,11 +2036,14 @@ seen from the migration side:
    macros; §8.4's event shape is specified against `yin.vm.macro.md`, not
    against code.
 5. **Conservative dependency completion** (§7.7.2, §7.7.3) — design
-   work with stated mechanisms. Global name discharge requires searching the
+   work with stated mechanisms. Free-name discharge requires searching the
    store slice by key or resolving via primitive/module profiles (§7.7.2);
    convergence is over work items and all dependency facts, with the
    captured-environment context abstraction for values. Neither analysis exists in code;
-   until they do, an emitter may only report `:incomplete`.
+   until they do, an emitter may only report `:incomplete`. Extracting the
+   free-name set itself must use an occurrence-joined query, not a
+   row-only one, to stay conservative when a name is free at one
+   occurrence and bound at another (§4.5).
 6. **Effect normalization** (§7.7.1): the footprint table must be
    published with the execution-contract stamp, and the tree/segment
    requirement-set equality must be tested over the corpus. FFI ops are a
@@ -1914,7 +2085,6 @@ seen from the migration side:
     is writable now.
 14. **`yin.vm.semantic.md` Instruction Grammar Amendment** (§5.1) — the `ast-v1` lowering
     profile (§5.2.1) pins the §5.3 table of `yin.vm.semantic.md`, which is currently
-    the name-based one. That document's §2.4 and §5.3 must be amended to add the
-    `:global` opcode
-    and the argument-to-named-parameter binding rule of §7.7.2 (arguments match `params` by position, each bound to its name; under-arity call → missing parameter names bound to `nil`; extra arguments beyond the params list length are dropped)
+    the name-based one. That document's §2.4 and §5.3 must be amended to add
+    the argument-to-named-parameter binding rule of §7.7.2 (arguments match `params` by position, each bound to its name; under-arity call → missing parameter names bound to `nil`; extra arguments beyond the params list length are dropped)
     before any derivation record is written.
