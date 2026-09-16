@@ -7,7 +7,7 @@
             [datomworld.demo.responsive :as responsive]
             [datomworld.demo.solar-system :as solar-demo]
             [datomworld.demo.voxel :as voxel-demo]
-            [datomworld.demo.yin-repl :as yin-repl-demo]
+            [datomworld.demo.yin-repl-v2 :as yin-repl-demo]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [yin.vm.telemetry-viewer :as tv]))
