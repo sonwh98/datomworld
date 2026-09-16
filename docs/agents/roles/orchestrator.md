@@ -479,7 +479,8 @@ Claude `Not logged in` and Codex app-server `Operation not permitted` under the
 default command sandbox are likewise host diagnostics: retry via host escalation
 with the documented narrow prefixes, preserving their own read-only/write modes.
 GLM and Muse `claude-code:unrecognized_model` startup warnings are expected for
-their wrappers; verify the resulting artifact before declaring failure. AGY in
+their wrappers; verify the resulting artifact before declaring failure.
+If Claude Code is run headlessly in `--permission-mode plan` without the mandatory `--allowed-tools Read "Bash(git diff *)" "Bash(git status *)"` flag, it will silently halt upon trying to execute any unauthorized tool. If this happens multiple times across a session, its telemetry heuristic will intercept the process and draft an interactive bug report ("Claude Code sessions in --permission-mode plan repeatedly stop short..."). Because it expects interactive input ("1 to review"), the headless execution will hang or crash. Always provide the canonical `--allowed-tools` flag to prevent this. AGY in
 `--mode plan` may answer a headless brief with a plan artifact and a request for
 approval, exiting `SUCCESS` with no deliverable; a response that promises a
 verdict rather than stating one is an unfinished turn, so resume that
