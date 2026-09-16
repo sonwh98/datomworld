@@ -193,6 +193,20 @@
   (is (= (jing/content-hash '(1 2)) (jing/content-hash (seq [1 2])))))
 
 
+(deftest content-hash-of-a-list-is-host-independent
+  ;; ClojureDart's list mints its result carrying cljd.core's own reader
+  ;; metadata (:tag PersistentList among it); normalizing a list must not
+  ;; let that fabricated metadata into the address
+  (testing "a list minted by list addresses as a list literal and a seq"
+    (is (= (jing/content-hash '(2 3))
+           (jing/content-hash (with-meta (apply list [2 3]) nil))
+           (jing/content-hash (seq [2 3])))))
+  (testing "pinned: a list inside a vector beside a set, on every host"
+    (is (= "e5bab3450d860af30befedbf9a650a761af5b35663e00cc1a126d15cf9199cb5"
+           (jing/content-hash '[1 (2 3) #{4}])
+           (jing/content-hash [1 (seq [2 3]) #{4}])))))
+
+
 (deftest content-hash-keeps-the-set-tag-outside-the-value-domain
   (testing
     "a set is encoded inside its own #{} braces, which only a set can

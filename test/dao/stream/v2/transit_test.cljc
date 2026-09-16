@@ -1,5 +1,6 @@
 (ns dao.stream.v2.transit-test
   (:require [clojure.test :refer [deftest is testing]]
+            #?@(:cljd [[dao.jing :as jing]])
             [dao.stream.v2.transit :as codec]))
 
 
@@ -54,3 +55,20 @@
        (doseq [value [5N 1.5M 1/2 (float 1.25)]]
          (is (not (codec/portable-value? value))
              (str (class value) " is not in the cross-host numeric domain"))))))
+
+
+(deftest decoded-lists-carry-no-minted-metadata-test
+  ;; ClojureDart's list mints its result carrying cljd.core's own reader
+  ;; metadata; a list decoded off the wire must not, or it content-addresses
+  ;; differently from the same list built on any other host. ClojureDart
+  ;; only: the JVM and JS decoders do not read a list back as list?, so the
+  ;; portable gate refuses the decode before any list reaches dao.jing.
+  #?(:cljd
+     (testing "a decoded list is metadata-free and addresses as a clean list"
+       (let [decoded (codec/decode (codec/encode '[1 (2 3) #{4}]))]
+         (is (nil? (meta (second decoded))))
+         (is (= (jing/content-hash '(2 3))
+                (jing/content-hash (second decoded))))
+         (is (= "e5bab3450d860af30befedbf9a650a761af5b35663e00cc1a126d15cf9199cb5"
+                (jing/content-hash decoded)))))
+     :default (is true)))

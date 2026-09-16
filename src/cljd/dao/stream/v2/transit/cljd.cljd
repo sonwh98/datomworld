@@ -272,7 +272,9 @@
   {"$" (fn [v] (symbol v)),
    ":" (fn [v] (keyword v)),
    "set" (fn [v] (set v)),
-   "list" (fn [v] (apply list v)),
+   ;; with-meta nil: ClojureDart's list mints its result with cljd.core's
+   ;; own reader metadata, which a decoded value must not carry
+   "list" (fn [v] (with-meta (apply list v) nil)),
    "cmap" (fn [v]
             (loop [xs v
                    acc {}]
@@ -362,8 +364,10 @@
       (= tag "~#set")
       (set (mapv #(parse-node cache % :value handlers default-handler) rep))
       (= tag "~#list")
-      (apply list
-             (mapv #(parse-node cache % :value handlers default-handler) rep))
+      (with-meta
+        (apply list
+               (mapv #(parse-node cache % :value handlers default-handler) rep))
+        nil)
       (= tag "~#cmap")
       (let [pairs rep]
         (loop [ys pairs

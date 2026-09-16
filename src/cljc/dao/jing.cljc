@@ -136,8 +136,13 @@
                            (map order-normalize v)))
           (vector? v) (attach-meta (mapv order-normalize v))
           ;; lists and seqs are one canonical value: = calls them equal and
-          ;; both print (e1 e2 ...), so both normalize to a list
-          (sequential? v) (attach-meta (apply list (map order-normalize v)))
+          ;; both print (e1 e2 ...), so both normalize to a list. The
+          ;; with-meta nil is load-bearing: ClojureDart's list returns a list
+          ;; carrying cljd.core's own reader metadata (:line, :tag
+          ;; PersistentList, ...), which would otherwise print into the address
+          (sequential? v) (attach-meta
+                            (with-meta (apply list (map order-normalize v))
+                              nil))
           :else v)))
 
 

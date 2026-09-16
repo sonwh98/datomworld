@@ -227,6 +227,17 @@
           "rows -> map -> rows"))))
 
 
+(deftest semantic-bytecode-list-payloads-mint-no-metadata
+  ;; ClojureDart's list mints its result carrying cljd.core's own reader
+  ;; metadata; a projected list must come out metadata-free whether or not
+  ;; its input carried reader positions, or re-projection changes its address
+  (doseq [v ['[1 (2 3) #{4}] [1 (seq [2 3]) #{4}]]]
+    (let [{:keys [root rows]} (vm/ast->semantic-bytecode (lit v))
+          value (nth (get rows root) 2)]
+      (is (= v value))
+      (is (nil? (meta (second value))) (pr-str v)))))
+
+
 (deftest semantic-bytecode-row-shape
   (testing "the §2.1 example projects to [id tag & slots] with child ids"
     (let [ast {:type :lambda,

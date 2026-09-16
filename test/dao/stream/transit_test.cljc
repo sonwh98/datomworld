@@ -69,6 +69,13 @@
           (str "round-trip failed for " (pr-str v))))))
 
 
+(deftest decoded-lists-carry-no-minted-metadata-test
+  ;; ClojureDart's list mints its result carrying cljd.core's own reader
+  ;; metadata; a decoded list must not carry it
+  (is (nil? (meta (read-str "[\"~#list\",[1,2]]"))))
+  (is (nil? (meta (second (read-str "[1,[\"~#list\",[2,3]]]"))))))
+
+
 (deftest custom-handler-test
   (testing "custom write and read handlers compose"
     (let [p (->Point 10 20)

@@ -623,7 +623,11 @@
                  ;; not (into (empty x) ...): a map entry is vector? but its
                  ;; empty is nil, which would rebuild it as a reversed list
                  (vector? x) (mapv strip-reader-positions x)
-                 (sequential? x) (apply list (map strip-reader-positions x))
+                 ;; with-meta nil: ClojureDart's list mints its result with
+                 ;; cljd.core's own reader metadata, which is not content
+                 (sequential? x) (with-meta
+                                   (apply list (map strip-reader-positions x))
+                                   nil)
                  :else x)
         m (meta x)]
     (if m

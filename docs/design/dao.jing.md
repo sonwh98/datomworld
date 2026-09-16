@@ -420,6 +420,20 @@ encoder is transitional until the pinned canonical byte encoding lands.
   reach scalar bytes, since `canonical-print` delegates scalars to `pr-str`
   — collection structure and order are rendered by `canonical-print`
   itself, so only scalar leaves reach the host printer.
+- **ClojureDart's `list` mints metadata.** On ClojureDart, `(list ...)` and
+  `(apply list ...)` return a list carrying `cljd.core`'s own reader metadata
+  (`{:line … :column … :end-line … :end-column … :tag PersistentList}`).
+  `order-normalize`, `yin.vm.v2`'s semantic-bytecode projection, and the
+  ClojureDart Transit decoders (`dao.stream.v2.transit.cljd` behind
+  `dao.stream.v2.ws`'s incoming frames, and the older `dao.stream.transit`)
+  clear metadata on the lists they mint, so neither normalization nor a list
+  decoded off the wire fabricates it. Any other Dart code that builds a
+  payload with `list` still hands `dao.jing` that metadata, and its `:tag`
+  survives the reader-position strip, so the payload addresses differently
+  from the equal list built on another host. Each such constructor must clear
+  it the same way (`(with-meta (apply list xs) nil)`) until the ClojureDart
+  defect is fixed upstream or the pinned canonical encoding decides the fate
+  of metadata.
 - **Byte arrays are hashed by identity, not content.** `dao.jing.md` lists
   byte arrays as a supported representation-level type, but the transitional
   encoder's scalar branch falls through to `pr-str`, which on the JVM prints
