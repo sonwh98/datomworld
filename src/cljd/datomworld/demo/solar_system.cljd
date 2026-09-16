@@ -7,7 +7,7 @@
             [dao.stream :as ds]
             [dao.stream.ringbuffer]
             [datomworld.demo.solar-system-scene :as scene]
-            [yin.repl.flutter :as flutter-repl]))
+            [yin.repl.v2.flutter :as flutter-repl]))
 
 
 (def ^:private frame-stream

@@ -262,16 +262,20 @@
    ast-walker is handed `:make-stream` bound to the v2 ring buffer and the v2
    `stream` module registered in its registry.  No telemetry stream is
    installed, and the VM owns no program medium: `make-session` builds the
-   medium, its attachment, the observer, and the VM together."
-  [vm-type output-stream]
-  (when-not (contains? vm-constructors vm-type)
-    (throw (ex-info "Unknown Yin REPL VM type"
-                    {:vm-type vm-type
-                     :supported (vec (keys vm-constructors))})))
-  ((get vm-constructors vm-type)
-   {:primitives (make-repl-primitives output-stream)
-    :modules (module/register-stream-module (module/default-registry))
-    :make-stream make-ring-stream}))
+   medium, its attachment, the observer, and the VM together.
+
+   `extra-primitives` is the host-supplied map merged over the REPL's own
+   primitives, so an embedding host's functions win a name collision."
+  ([vm-type output-stream] (make-vm vm-type output-stream nil))
+  ([vm-type output-stream extra-primitives]
+   (when-not (contains? vm-constructors vm-type)
+     (throw (ex-info "Unknown Yin REPL VM type"
+                     {:vm-type vm-type
+                      :supported (vec (keys vm-constructors))})))
+   ((get vm-constructors vm-type)
+    {:primitives (merge (make-repl-primitives output-stream) extra-primitives)
+     :modules (module/register-stream-module (module/default-registry))
+     :make-stream make-ring-stream})))
 
 
 (defn- make-program-attachment
@@ -298,8 +302,8 @@
    program loader the observer feeds it together.  Reset and VM selection
    call this, so the whole composition is rebuilt as one and the attachment
    capability is bound exactly once per medium lifetime."
-  [vm-type output-stream]
-  (merge {:vm (make-vm vm-type output-stream)
+  [vm-type output-stream extra-primitives]
+  (merge {:vm (make-vm vm-type output-stream extra-primitives)
           :load-program (get program-loaders vm-type)}
          (make-program-attachment)))
 
@@ -312,14 +316,19 @@
 
 
 (defn create-state
+  "Create the shell value.  `:primitives` is a host-supplied map merged over
+   the REPL primitives; it is kept as `:extra-primitives` so every session
+   rebuild — `(reset)`, `(vm …)` — installs it again."
   ([] (create-state {}))
-  ([{:keys [lang output-cursor output-stream vm-type]
+  ([{:keys [lang output-cursor output-stream vm-type primitives]
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
-         {:keys [program-stream observer vm load-program]} (make-session vm-type output-stream)]
+         {:keys [program-stream observer vm load-program]}
+         (make-session vm-type output-stream primitives)]
      {:lang lang
       :vm-type vm-type
+      :extra-primitives primitives
       :vm vm
       :load-program load-program
       :program-stream program-stream
@@ -547,7 +556,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    the old VM held, which the new one does not."
   [state vm-type]
   (let [{:keys [program-stream observer vm load-program]}
-        (make-session vm-type (:output-stream state))]
+        (make-session vm-type (:output-stream state) (:extra-primitives state))]
     (assoc state
            :vm-type vm-type
            :vm vm

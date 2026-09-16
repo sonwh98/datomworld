@@ -81,6 +81,18 @@
     (is (str/includes? rejected ":semantic"))))
 
 
+(deftest host-primitives-survive-reset-and-vm-selection
+  (let [state (core/create-state {:primitives {'answer (fn [] 42)}})
+        [state before] (core/eval-input state "(answer)")
+        [state _] (core/eval-input state "(reset)")
+        [state after-reset] (core/eval-input state "(answer)")
+        [state _] (core/eval-input state "(vm :ast-walker)")
+        [_ after-vm] (core/eval-input state "(answer)")]
+    (is (= "42" before))
+    (is (= "42" after-reset) "(reset) rebuilds the session with the host functions")
+    (is (= "42" after-vm) "(vm …) rebuilds the session with the host functions")))
+
+
 (deftest the-semantic-vm-evaluates-through-the-lowering-loader
   ;; The program medium is shared by every state threaded from one session,
   ;; so each case starts from its own session rather than a stale state.
