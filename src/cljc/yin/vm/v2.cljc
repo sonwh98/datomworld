@@ -94,15 +94,36 @@
 
 ;; Primitive operations
 ;; Arithmetic and comparison ops are direct clojure.core references.
-;; Wrapped in (fn ...) only where VM semantics require it:
+;; Wrapped only where VM semantics require it:
 ;; - rest: clojure.core/rest returns a lazy seq; wrapped to return a vector
 ;;   so that conj appends rather than prepends.
+;; - /: only the JVM throws on an integral zero divisor; JS and Dart divide
+;;   IEEE-754 and yield Infinity, so checked-divide makes the error
+;;   host-uniform.
 ;; - yin/def, require: return effect descriptors consumed by the engine.
+(defn- checked-divide
+  "clojure.core `/` except a zero divisor throws on every host.
+
+   JVM `/` throws `Divide by zero` for integral division only; JS and Dart
+   yield Infinity, so `(/ 1 0)` through the VM silently evaluated to `##Inf`
+   on those hosts. The REPL corpus pins divide-by-zero as an error with this
+   text on both evaluators (docs/design/yin.vm.v2.divergence-register.md).
+   JS and Dart cannot distinguish `0` from `0.0`, so no rule reproduces the
+   JVM's double-division `##Inf` cross-host; the uniform error is the
+   contract."
+  ([x] (checked-divide 1 x))
+  ([x y]
+   (when (and (number? y) (zero? y))
+     (throw (ex-info "Divide by zero" {:divisor y})))
+   (/ x y))
+  ([x y & more] (reduce checked-divide (checked-divide x y) more)))
+
+
 (def primitives
   {'+ +,
    '- -,
    '* *,
-   '/ /,
+   '/ checked-divide,
    '= =,
    '== =,
    '!= not=,

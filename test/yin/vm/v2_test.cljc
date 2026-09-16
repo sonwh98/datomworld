@@ -1,6 +1,7 @@
 (ns yin.vm.v2-test
-  "Codec tests for `yin.vm.v2`: the explicit root fact, its indexing, and the
-   Phase 0 retirements of yin.vm.macro.md (§2.4, §7)."
+  "Codec tests for `yin.vm.v2`: the explicit root fact, its indexing, the
+   Phase 0 retirements of yin.vm.macro.md (§2.4, §7), and the host-uniform
+   division primitive."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [yang.clojure :as yang]
@@ -144,6 +145,18 @@
     (is (= "Unknown AST node type in datoms"
            (error-message #(vm/datoms->ast [[-1 :yin/type :yin/macro-expand 0 1]
                                             [-1 :yin/root true 0 1]]))))))
+
+
+;; =============================================================================
+;; Primitives
+;; =============================================================================
+
+(deftest division-by-zero-is-host-uniform
+  (let [divide (get vm/primitives '/)]
+    (is (= "Divide by zero" (error-message #(divide 1 0)))
+        "a zero divisor raises with the JVM's text instead of yielding ##Inf")
+    (is (= "Divide by zero" (error-message #(divide 24 2 0)))
+        "the variadic path checks every division it reduces over")))
 
 
 ;; =============================================================================
