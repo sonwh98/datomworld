@@ -48,7 +48,9 @@
     true :boolean
     false :boolean
     42 :number
-    1/3 :number
+    ;; No ratio type on CLJS; the row splices away there (see the gated
+    ;; ratio case in number-portability below).
+    #?@(:cljs [] :default [1/3 :number])
     "s" :string
     :kw :keyword
     'sym :symbol
