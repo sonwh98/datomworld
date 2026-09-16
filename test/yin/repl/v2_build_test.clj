@@ -37,4 +37,4 @@
   (let [entry (slurp (io/file "bin/yin_repl_v2_main.dart"))]
     (is (.exists (io/file "bin/yin_repl_main.dart")) "the v1 entry stays")
     (is (re-find #"cljd-out/yin/repl/v2\.dart" entry))
-    (is (re-find #"run_main" entry))))
+    (is (re-find #"repl\.main\(args\)" entry))))
