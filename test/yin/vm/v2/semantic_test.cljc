@@ -213,6 +213,57 @@
                                     (instruction 19 :return))))))))
 
 
+(deftest under-arity-call-binds-missing-param-to-nil-test
+  (testing "An under-arity call binds the missing parameter to nil rather than
+            falling through to the closure's captured outer binding (§7.7.2)"
+    ;; ((fn [y] ((fn [x y] y) 5)) 10) — the inner call passes only one
+    ;; argument though the closure declares two; y must come back nil, not
+    ;; the outer closure's y (10).
+    (is (nil? (vm/value (run-segment
+                          (assemble (segment 13)
+                                    (instruction 0 :closure
+                                                 :yin.code/params '[y]
+                                                 :yin.code/body (eid 6))
+                                    (instruction 1 :push)
+                                    (instruction 2 :const :yin.code/value 10)
+                                    (instruction 3 :push)
+                                    (instruction 4 :call :yin.code/argc 1
+                                                 :yin.code/tail? false)
+                                    (instruction 5 :halt)
+                                    (instruction 6 :closure
+                                                 :yin.code/params '[x y]
+                                                 :yin.code/body (eid 11))
+                                    (instruction 7 :push)
+                                    (instruction 8 :const :yin.code/value 5)
+                                    (instruction 9 :push)
+                                    (instruction 10 :call :yin.code/argc 1
+                                                 :yin.code/tail? true)
+                                    (instruction 11 :var :yin.code/name 'y)
+                                    (instruction 12 :return))))))))
+
+
+(deftest over-arity-call-drops-extra-args-test
+  (testing "A call passing more arguments than the closure declares still
+            drops the extras (unchanged behavior)"
+    ;; ((fn [x] x) 5 99) — the closure declares one param; the extra
+    ;; argument must be dropped, not bound or errored on.
+    (is (= 5 (vm/value (run-segment
+                         (assemble (segment 10)
+                                   (instruction 0 :closure
+                                                :yin.code/params '[x]
+                                                :yin.code/body (eid 8))
+                                   (instruction 1 :push)
+                                   (instruction 2 :const :yin.code/value 5)
+                                   (instruction 3 :push)
+                                   (instruction 4 :const :yin.code/value 99)
+                                   (instruction 5 :push)
+                                   (instruction 6 :call :yin.code/argc 2
+                                                :yin.code/tail? false)
+                                   (instruction 7 :halt)
+                                   (instruction 8 :var :yin.code/name 'x)
+                                   (instruction 9 :return))))))))
+
+
 ;; =============================================================================
 ;; Branches
 ;; =============================================================================

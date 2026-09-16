@@ -197,7 +197,7 @@
   [code seg pc val St E K vm tail? f args]
   (cond
     (= :closure (:type f))
-    (let [E' (merge (:env f) (zipmap (:params f) args))
+    (let [E' (merge (:env f) (engine/bind-params (:params f) args))
           frame {:type :return, :segment seg, :pc (inc pc), :env E,
                  :stack-base (count St)}
           seg' (:segment f)]

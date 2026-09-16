@@ -43,6 +43,14 @@
   (throw (ex-info message data)))
 
 
+(defn bind-params
+  "Zips params with args, nil-filling any params beyond args' length.
+   Extra args beyond params' length are dropped. §7.7.2: an under-arity
+   call leaves missing parameter names bound to nil, not absent."
+  [params args]
+  (into {} (map vector params (concat args (repeat nil)))))
+
+
 (defn resolve-var
   "Look up a variable name: env -> store -> primitives -> module registry.
 

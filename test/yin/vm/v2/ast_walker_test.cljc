@@ -155,6 +155,45 @@
       (is (= ['x] (:params closure))))))
 
 
+(deftest under-arity-call-binds-missing-param-to-nil-test
+  (testing "A missing parameter is bound to nil, not left to fall through to an
+            enclosing binding of the same name (§7.7.2)"
+    (is (nil? (compile-and-run
+                {:type :application,
+                 :operator {:type :lambda,
+                            :params ['y],
+                            :body
+                            {:type :application,
+                             :operator {:type :lambda,
+                                        :params ['x 'y],
+                                        :body {:type :variable, :name 'y}},
+                             :operands [{:type :literal, :value 1}]}},
+                 :operands [{:type :literal, :value :outer-y}]})))))
+
+
+(deftest under-arity-zero-args-call-binds-param-to-nil-test
+  (testing "Calling a closure with no arguments binds its declared param to
+            nil (exercises apply-function's zero-operand path)"
+    (is (nil? (compile-and-run
+                {:type :application,
+                 :operator {:type :lambda,
+                            :params ['x],
+                            :body {:type :variable, :name 'x}},
+                 :operands []})))))
+
+
+(deftest over-arity-call-drops-extra-args-test
+  (testing "Extra arguments beyond params are still dropped"
+    (is (= 1
+           (compile-and-run
+             {:type :application,
+              :operator {:type :lambda,
+                         :params ['x],
+                         :body {:type :variable, :name 'x}},
+              :operands [{:type :literal, :value 1}
+                         {:type :literal, :value 2}]})))))
+
+
 (deftest nested-call-test
   (is (= 6
          (compile-and-run {:type :application,

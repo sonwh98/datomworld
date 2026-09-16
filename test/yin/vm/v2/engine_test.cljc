@@ -159,6 +159,20 @@
 
 
 ;; =============================================================================
+;; Nil-fill parameter binding (§7.7.2)
+;; =============================================================================
+
+(deftest bind-params-nil-fills-missing-args-test
+  (testing "Every param becomes a key; a param with no arg maps to nil"
+    (is (= {'x 1, 'y nil} (engine/bind-params '[x y] [1])))
+    (is (= {'x nil, 'y nil} (engine/bind-params '[x y] []))))
+  (testing "Extra args beyond params are dropped"
+    (is (= {'x 1} (engine/bind-params '[x] [1 2 3]))))
+  (testing "Exact-arity calls are unaffected"
+    (is (= {'x 1, 'y 2} (engine/bind-params '[x y] [1 2])))))
+
+
+;; =============================================================================
 ;; The module registry is a value
 ;; =============================================================================
 

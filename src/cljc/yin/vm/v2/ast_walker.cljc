@@ -188,7 +188,8 @@
                                  env)
         (= :closure (:type fn-value))
         (let [{:keys [params body], closure-env :env} fn-value
-              extended-env (merge closure-env (zipmap params evaluated-operands))]
+              extended-env (merge closure-env
+                                  (engine/bind-params params evaluated-operands))]
           (cesk-return state body extended-env k (:value state)))
         :else (throw (ex-info "Cannot apply non-function" {:fn fn-value}))))
 
@@ -508,7 +509,8 @@
               (if (empty? operands)
                 (cond (= :closure (:type fn-value))
                       (let [{:keys [params body], closure-env :env} fn-value
-                            extended-env (merge closure-env (zipmap params []))]
+                            extended-env (merge closure-env
+                                                (engine/bind-params params []))]
                         (recur body extended-env (:next k) val vm))
                       (fn? fn-value)
                       (let [result (apply fn-value [])]
@@ -550,7 +552,8 @@
                   (cond (= :closure (:type fn-value))
                         (let [{:keys [params body], closure-env :env} fn-value
                               extended-env (merge closure-env
-                                                  (zipmap params evaluated))]
+                                                  (engine/bind-params params
+                                                                      evaluated))]
                           (recur body extended-env (:next k) val vm))
                         (fn? fn-value)
                         (let [result (apply fn-value evaluated)]
