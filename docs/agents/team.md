@@ -71,71 +71,72 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | Model                       | Strengths & When to Use                                            | Weaknesses & When Not to Use                                        |
 +=============================+====================================================================+=====================================================================+
-| `claude-fable-5-1`          | High-stakes knowledge work; rigorous self- verification; strict    | Slower inference; can be overly rigid in verifying prior            |
-|                             | adherence to boundaries and avoiding shortcuts. **Best for:**      | assumptions. **Avoid for:** Routine fast-loop tasks; exploratory    |
-|                             | Security sign-offs, architecture definition, and critical high-    | coding where strict rigor is overkill.                              |
-|                             | risk code boundaries.                                              |                                                                     |
+| `claude-fable-5-1`          | Highest capability for long-horizon agentic work, complex research,| Slower inference; resource hog (rate limits); mandatory             |
+|                             | strict boundaries, and managing vast context (efficient caching).  | watermarking. **Avoid for:** Routine fast-loop tasks; precise       |
+|                             | **Best for:** Architecture definition, security sign-offs.         | one-shot implementations where strict rigor is overkill.            |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `claude-opus-5`             | Deep context processing; expert at compilers, ASTs, and network    | Higher latency and cost compared to Sonnet or Flash variants.       |
-|                             | framing. **Best for:** AST manipulation, complex stream codecs,    | **Avoid for:** Fast QA loops or simple code generation.             |
-|                             | network transports.                                                |                                                                     |
+| `claude-opus-5`             | Enterprise flagship; exceptional at complex agentic coding, multi- | Higher latency and cost than Sonnet; falls short of Fable on the    |
+|                             | step problem-solving, and compilers. **Best for:** AST             | most extreme long-horizon tasks. **Avoid for:** Fast QA loops or    |
+|                             | manipulation, complex stream codecs, network transports.           | simple code generation.                                             |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `claude-sonnet-5`           | High speed-to-intelligence ratio; great at TDD and test parity.    | Less rigorous than Fable for security or capability bounds. **Avoid |
-|                             | **Best for:** QA, verification, routine testing.                   | for:** Deep architectural security design.                          |
+| `claude-sonnet-5`           | Optimal blend of speed, intelligence, and price. **Best for:**     | Less rigorous for security or capability bounds. **Avoid for:**     |
+|                             | Everyday coding, QA, verification, and general-purpose tasks.      | Deep architectural security design; extremely complex agentic work. |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `deepseek-flash`            | Blazing fast inference; highly cost- effective and open-weights    | Can hallucinate on deep invariant constraints. **Avoid for:**       |
-|                             | aligned. **Best for:** QA parity checks, scoped subagent work.     | Complex system design, AST lowering.                                |
+| `deepseek-flash`            | V4.1-Flash outpaces V4-Pro in speed, cost, and agentic benchmarks. | Can hallucinate on deep invariant constraints. **Avoid for:**       |
+|                             | **Best for:** QA parity checks, scoped subagent work, and          | Complex system design, AST lowering.                                |
+|                             | high-efficiency native multimodal tasks.                           |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `deepseek-v4-pro`           | Massive 1.6T MoE architecture; 1M long-context via Hybrid          | High operational cost; "undercooked" performance relative to its    |
-|                             | Attention. Best for: Advanced logic workflows, multi-step          | 1.6T size. Avoid for: General use, as DeepSeek is actively          |
-|                             | reasoning, and adversarial reviews.                                | replacing it with the much more efficient V4.1 Flash.               |
+| `deepseek-v4-pro`           | Legacy 1.6T MoE architecture. **Best for:** Advanced logic         | Actively being superseded by V4.1-Flash; high cost and undercooked  |
+|                             | workflows and adversarial reviews.                                 | relative to size. **Avoid for:** General use (use Flash instead).   |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gemini-3.1-pro-high`       | High capability reasoning; strong defect discovery. **Best for:**  | Can be overly verbose in output generation. **Avoid for:** Routine  |
-|                             | Adversarial review fallback.                                       | short-horizon subagent tasks.                                       |
+| `gemini-3.1-pro-high`       | Native 2M token context; deep reasoning. **Best for:** Massive     | Legacy positioning; can fall behind newer models on daily agentic   |
+|                             | document/repo analysis, complex multimodal knowledge synthesis,    | coding. **Avoid for:** High-volume, real-time agentic tasks.        |
+|                             | and adversarial review fallback.                                   |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gemini-3.8-flash`          | Lightning-fast inference; highly cost- efficient; optimized for    | Lower reasoning ceiling on novel architectural paradoxes compared   |
-|                             | long- horizon software engineering workflows. **Best for:** QA,    | to flagship models. **Avoid for:** Core security capability         |
-|                             | verification, subagents, fast frontend fallback.                   | enforcement; top-level architecture.                                |
+| `gemini-3.8-flash`          | Lightning-fast; highly cost-efficient; strong on long-horizon SWE  | Inconsistent on extreme complex reasoning vs larger frontier models.|
+|                             | and agentic workflows. **Best for:** High-volume production tasks, | **Avoid for:** Core security capability enforcement; top-level      |
+|                             | fast frontend fallback, QA, and subagents.                         | architecture.                                                       |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `glm-5.3`                   | Exceptional at complex programming and long-horizon tasks;         | Heavier footprint; can overcomplicate simple data framing. **Avoid  |
-|                             | emergent cyber capabilities. **Best for:** VMs, storage, indexing, | for:** UI/UX, canvas, or WebGPU tasks.                              |
-|                             | DHTs, and networking.                                              |                                                                     |
+| `glm-5.3`                   | Scaled post-training for exceptional long-horizon tasks and        | Heavier footprint; can overcomplicate simple data framing. **Avoid  |
+|                             | cybersecurity. **Best for:** Complex programming workflows, VMs,   | for:** UI/UX, canvas, or WebGPU tasks.                              |
+|                             | storage, indexing, DHTs, and networking.                           |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `glm-5.3-flash`             | High performance at a lower computational cost; steep discounts    | Limited complex reasoning on novel architectures. **Avoid for:**    |
-|                             | during off-peak hours. **Best for:** Scoped subagents, bounded     | Peak- hour execution if budget is tight; core architecture.         |
+|                             | during off-peak hours. **Best for:** Scoped subagents, bounded     | Peak-hour execution if budget is tight; core architecture.          |
 |                             | searches.                                                          |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `gpt-5.4-mini`              | Extremely fast; highly cost-effective for large-scale repetition.  | Low reasoning ceiling; struggles with multi-step logic. **Avoid     |
 |                             | **Best for:** TDD loops, simple linting, scoped text edits.        | for:** Any complex logical refactoring.                             |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-5.6-luna`              | Lightweight and very fast. **Best for:** Simple network stream     | Limited context depth and reasoning. **Avoid for:** Complex AST     |
-|                             | framing.                                                           | compilation.                                                        |
+| `gpt-5.6-luna`              | High-frequency, latency-sensitive tasks. **Best for:** Simple      | Poor long-form context processing and reasoning. **Avoid for:**     |
+|                             | network stream framing, classification, and extraction.            | Complex AST compilation; long-running agentic tasks.                |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-5.6-sol`               | Very strong autonomous behavior; excellent coding and graphics     | Known for unpredictable autonomous boundary-pushing during its      |
-|                             | capabilities; aggressive problem-solving. **Best for:** Frontend,  | testing phase. **Avoid for:** Tasks requiring strict alignment and  |
-|                             | WebGL, events, and routine complex reviews.                        | extreme caution.                                                    |
+| `gpt-5.6-sol`               | Flagship tier for complex reasoning and advanced coding agents.    | High cost and latency when complex reasoning modes are enabled.     |
+|                             | **Best for:** High-stakes security, routine complex reviews.       | **Avoid for:** Tasks requiring strict alignment and extreme caution.|
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-5.6-terra`             | Solid mid-range performance; excellent at data streams and         | Struggles with the deepest compiler lowering edge cases. **Avoid    |
-|                             | networking protocols. **Best for:** Network streams, VM runtimes,  | for:** Top- level system architecture.                              |
-|                             | subagent fallback.                                                 |                                                                     |
+| `gpt-5.6-terra`             | The "default" balanced model for daily workflows. **Best for:**    | Struggles with the deepest compiler lowering edge cases. **Avoid    |
+|                             | Daily business workflows, production engineering, network streams, | for:** Top-level system architecture; extreme specialized reasoning.|
+|                             | VM runtimes, subagent fallback.                                    |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-6-astra`               | True "computer operator" capabilities; exceptional at multi-step   | Can be "too aligned" or overly cautious in certain complex edge     |
-|                             | navigation, cybersecurity, and deep reasoning. **Best for:**       | cases. **Avoid for:** Simple refactoring; unbounded exploratory     |
-|                             | Complex system invariants, architectural fallback, navigating      | coding where extreme caution hinders progress.                      |
-|                             | external tools.                                                    |                                                                     |
+| `gpt-6-astra`               | True "computer operator" capabilities; generational leap in deep   | Expensive ($10/$50); less transparent architecture; can be overly   |
+|                             | reasoning and safety. **Best for:** Autonomous multi-step          | cautious/gated. **Avoid for:** Simple refactoring; managing vast    |
+|                             | workflows, one-shot feature implementations, general daily tasks.  | project architectures; unbounded exploratory coding.                |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `moonshotai/kimi-k2.7-code` | Extremely long context window tailored for code. **Best for:**     | Niche ecosystem; less generalized reasoning outside of code.        |
-|                             | Context- heavy frontend or terminal tasks.                         | **Avoid for:** Core VM or indexing logic requiring broad            |
+| `moonshotai/kimi-k2.7-code` | Extremely long context window tailored for SWE and long-horizon    | Niche ecosystem; less generalized reasoning outside of code.        |
+|                             | coding. **Best for:** Context-heavy frontend or terminal tasks.    | **Avoid for:** Core VM or indexing logic requiring broad            |
 |                             |                                                                    | theoretical knowledge.                                              |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `muse-spark-1.3-contribute` | Extremely low cost; strong multi-step agentic tasks and 1M long-   | Prompts and completions are used for Meta's training data; lower    |
-|                             | context retrieval. **Best for:** Open-source workflows, non-       | rate limits. **Avoid for:** Any proprietary, sensitive, or          |
-|                             | sensitive bulk processing, or large-scale multi-step evaluation    | confidential enterprise code where data retention poses a security  |
-|                             | where data privacy is not a concern.                               | risk.                                                               |
+| `moonshotai/kimi-k3`        | Flagship 2.8T MoE; massive open-weight scale. **Best for:** Long-  | Higher hallucination rates on factual Q&A compared to top frontier  |
+|                             | horizon SWE tasks, multi-modal context (1M tokens), navigating     | models; potential inconsistency across benchmarks. **Avoid for:**   |
+|                             | vast codebases, and cost-efficient complex reasoning.              | Tasks requiring zero hallucination tolerance or strict verification.|
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `qwen/qwen3.8-max`          | Massive 1M-token context window; 2.4T MoE foundation; highly       | High compute overhead; slower response times for short prompts.     |
-|                             | capable at complex coding and research. **Best for:** Compiler     | **Avoid for:** Low-latency bounded searches or quick edits.         |
-|                             | lowering, AST analysis, routine large-scale reviews.               |                                                                     |
+| `muse-spark-1.3-contribute` | Extremely low cost; strong multi-step agentic tasks and 1M long-   | Trails frontier models on complex agent benchmarks (e.g. OSWorld);  |
+|                             | context retrieval. **Best for:** Open-source workflows, efficient  | restricted access to "max" reasoning; mixed coding consistency.     |
+|                             | bulk processing, or large-scale multi-step evaluation.             | **Avoid for:** Extreme autonomous coding needing verified max logic.|
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `qwen/qwen3.8-max`          | 2.4T MoE foundation; strong multimodal and agentic benchmarks.     | High compute overhead; slower response times for short prompts;     |
+|                             | **Best for:** Compiler lowering, AST analysis, routine large-      | vendor-reported benchmarks. **Avoid for:** Low-latency bounded      |
+|                             | scale reviews.                                                     | searches or quick edits.                                            |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 
 ## Role Selection & Reviewer Independence
