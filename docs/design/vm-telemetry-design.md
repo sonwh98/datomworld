@@ -1,5 +1,9 @@
 # VM Telemetry Plan
 
+> **Status (2026-09-16):** the v1 implementation (`yin.vm.telemetry` and the
+> telemetry servers) was deleted by `yin.vm.v1-retirement.implementation-plan.md`
+> (D2). v2 telemetry is owed to its own plan.
+
 ## Summary
 
 Build a new shared CLJC telemetry module that all current CLJC VMs use to publish live VM state as datoms onto an explicit `dao.stream` sink. The first version is opt-in, disabled by default, and covers `ast-walker`, `semantic`, `stack`, `register`, and `wasm`. It emits full state snapshots at runtime boundaries so downstream JIT and GC interpreters can consume one canonical stream.

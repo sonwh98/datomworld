@@ -472,6 +472,10 @@ Every file this plan touches, in one list, so the reviewer can tick it:
 
 ## Boundary — what stays, and what is owed elsewhere
 
+> **Status (2026-09-16):** `yin.vm.v1-retirement.implementation-plan.md`
+> cleared the first four rows of the table below and deleted the v1
+> ast-walker lineage; `dao.runtime` R4 is open. Gate 2 is unchanged.
+
 **Stays after this plan, deliberately:** the v1 ast-walker lineage —
 `yin.vm`, `yin.vm.{ast-walker, engine, ffi, telemetry, stream-driver,
 runtime-adapter}`, `dao.runtime`, and their tests. They are still required by

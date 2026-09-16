@@ -36,7 +36,9 @@
   (testing "telemetry is rejected rather than ignored"
     (let [opts (repl/parse-args ["--telemetry-stream" "daostream:ws://x" "--telemetry"])]
       (is (= ["--telemetry-stream" "--telemetry"] (:rejected opts)))
-      (is (str/includes? (first (repl/banner opts)) "yin.repl")))))
+      (is (str/includes? (first (repl/banner opts))
+                         "yin.vm.v2.telemetry.implementation-plan.md"))
+      (is (not (str/includes? (first (repl/banner opts)) "yin.repl"))))))
 
 
 (deftest booting-yields-one-shell-one-input-medium-and-one-cursor

@@ -217,11 +217,13 @@ Who requires legacy `dao.runtime` today, and what that means for deletion.
 | tests                    | `test/dao/runtime_test.cljc`, `test/dao/runtime/driver_*`, `test/yin/vm/runtime_adapter_test.cljc`, `test/yin/vm/runtime_regression_test.cljc` | deleted with what they test, R4                                                                                          |
 | design prose             | `docs/design/dao.await.md`                                                                                                                     | **this plan**, R3 — done 2026-09-06; the prose names `dao.runtime.v2` and states the v2 rules                            |
 
-The v1 VM's own consumers, which gate the v1 VM's deletion and therefore
-gate R4, are not this plan's to migrate but are named so the gate is
-visible: `yin.repl`, `dao.await`, and the test `yin.vm.v2.parity-test`
-(asserts v2 against v1 `ast-walker` in the same process). (`yin.repl.v2.core`
-requires `yin.vm.v2` only; it is not on this list.)
+The v1 VM's own consumers, which gated the v1 VM's deletion and therefore
+gated R4, were not this plan's to migrate. ~~`yin.repl`, `dao.await`, and the
+test `yin.vm.v2.parity-test`~~ — **cleared by
+`yin.vm.v1-retirement.implementation-plan.md` (2026-09-16):** `dao.await` and
+`yin.repl` are deleted, the parity test pins values instead of running v1,
+and the v1 VM (`yin.vm`, `yin.vm.engine`, `yin.vm.runtime-adapter`) is
+deleted. No v1 VM consumer remains.
 
 **Cleared by `yin.vm.v2-consumers.implementation-plan.md` (2026-09-10):**
 `yin.demo`, `yin.vm.bytecode-bench`, `yin.register-bench-cljd`,
@@ -359,6 +361,15 @@ marked as written against v1 and read with the v2 contract in mind.
 Gated on v1 `yin.vm.engine` no longer requiring `dao.runtime`, which is gated
 on the v1 VM's ten consumers migrating under their own plans. When the gate
 opens:
+
+> **Status (2026-09-16): the gate is open.** `yin.vm.v1-retirement.implementation-plan.md`
+> U6 deleted `yin/vm/engine.cljc` with the rest of v1 `yin.vm`. It also
+> deleted, from this phase's list, `src/cljc/yin/vm/runtime_adapter.cljc`,
+> `test/yin/vm/runtime_adapter_test.cljc`,
+> `test/yin/vm/runtime_regression_test.cljc` (with their `test/cljd-out/`
+> twins), and `make-waitable-retry-stream` from `dao.test-utils`.
+> `make-non-waitable-stream` stays for the `dao.runtime.driver` tests. The
+> rest of R4 is not yet executed.
 
 - Delete `src/cljc/dao/runtime.cljc`, the three
   `src/*/dao/runtime/driver.*`, `src/cljc/yin/vm/runtime_adapter.cljc`, and

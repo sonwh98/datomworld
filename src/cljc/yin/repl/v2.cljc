@@ -29,7 +29,8 @@
 
 (def telemetry-text
   (str "--telemetry and --telemetry-stream are not part of the DaoStream v2 "
-       "REPL slice; run yin.repl for telemetry"))
+       "REPL slice; v2 telemetry is owed to its own plan "
+       "(yin.vm.v2.telemetry.implementation-plan.md, not yet written)"))
 
 
 (defn parse-args

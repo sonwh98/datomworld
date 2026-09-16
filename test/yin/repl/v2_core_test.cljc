@@ -201,9 +201,10 @@
     (is (false? (:running? state)))))
 
 
-(deftest telemetry-is-rejected-and-names-the-v1-repl
+(deftest telemetry-is-rejected-and-names-the-owed-plan
   (let [[state result] (core/eval-input (core/create-state) "(telemetry)")]
-    (is (str/includes? result "yin.repl"))
+    (is (str/includes? result "yin.vm.v2.telemetry.implementation-plan.md"))
+    (is (not (str/includes? result "yin.repl")))
     (is (true? (:running? state)))))
 
 

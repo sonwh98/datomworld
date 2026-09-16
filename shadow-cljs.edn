@@ -31,10 +31,6 @@
                        :main dao.stream.v2.slice-peer/-main
                        :output-to "target/slice-peer.js"}
 
-          :yin-repl {:target :node-script
-                     :main yin.repl/-main
-                     :output-to "target/yin-repl.js"}
-
           :yin-repl-v2 {:target :node-script
                         :main yin.repl.v2/-main
                         :output-to "target/yin-repl-v2.js"}
@@ -42,11 +38,6 @@
           :ws-client-demo {:target :node-script
                            :main datomworld.ws-client-demo/-main
                            :output-to "target/ws-client-demo.js"}
-
-          :telemetry-server
-          {:target     :node-script
-           :main       yin.vm.telemetry-server.node/-main
-           :output-to  "target/telemetry-server.js"}
 
           :telemetry-viewer
           {:target   :browser

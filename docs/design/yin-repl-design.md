@@ -1,5 +1,9 @@
 # Yin REPL Design
 
+> **Status (2026-09-16):** this describes v1 `yin.repl`, deleted by
+> `yin.vm.v1-retirement.implementation-plan.md` U6. The live REPL is
+> `yin.repl.v2`; see `yin.repl.v2.implementation-plan.md`.
+
 ## Overview
 
 The **Yin REPL** is an interactive command-line shell for the Yin VM ecosystem. It operates at the **datom level**, treating everything as data. Users can:

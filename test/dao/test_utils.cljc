@@ -42,72 +42,8 @@
   (closed? [_this] (:closed @state-atom)))
 
 
-(defrecord WaitableRetryStream
-  [state-atom]
-  ;; A mock stream that returns :blocked exactly once, then succeeds.
-  ;; Used to test race conditions where a stream becomes readable
-  ;; during/after parking.
-  ds/IDaoStreamReader
-
-  (next
-    [_this cursor]
-    (let [call-count (:next-calls (swap! state-atom update :next-calls inc))
-          pos (:position cursor)]
-      (if (= 1 call-count)
-        :blocked
-        (if-let [val (get-in @state-atom [:buffer pos])]
-          {:ok val, :cursor {:position (inc pos)}}
-          :blocked))))
-
-
-  ds/IDaoStreamWaitable
-
-  (register-reader-waiter!
-    [_this position entry]
-    (swap! state-atom update :reader-waiters conj [position entry]))
-
-
-  (register-writer-waiter!
-    [_this entry]
-    (swap! state-atom update :writer-waiters conj entry))
-
-
-  ds/IDaoStreamBound
-
-  (close! [_this] (swap! state-atom assoc :closed true) {:woke []})
-
-
-  (closed? [_this] (:closed @state-atom)))
-
-
 (defn make-non-waitable-stream
   ([] (make-non-waitable-stream nil))
   ([capacity]
    (->NonWaitableStream
      (atom {:buffer {}, :tail 0, :closed false, :capacity capacity}))))
-
-
-(defn make-waitable-retry-stream
-  ([] (make-waitable-retry-stream {}))
-  ([initial-buffer]
-   (->WaitableRetryStream (atom {:buffer initial-buffer,
-                                 :next-calls 0,
-                                 :reader-waiters [],
-                                 :writer-waiters [],
-                                 :closed false}))))
-
-
-;; =============================================================================
-;; Telemetry Helpers
-;; =============================================================================
-
-(defn stream-values
-  "Drains a stream into a vector of all current values."
-  [stream]
-  (vec (ds/->seq nil stream)))
-
-
-(defn fact?
-  "Checks if a specific datom (a v t) exists in a collection of datoms."
-  [datoms attr value]
-  (boolean (some #(and (= attr (nth % 1)) (= value (nth % 2))) datoms)))

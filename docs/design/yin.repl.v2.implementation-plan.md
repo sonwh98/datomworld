@@ -688,6 +688,11 @@ All three hosts, first class, every phase.
 
 ## Boundary of this plan
 
+> **Status (2026-09-16):** `yin.vm.v1-retirement.implementation-plan.md` did
+> both things this boundary held back: its U2 built the v2 Flutter widget and
+> its U6 deleted `yin/repl.cljc`, `runner.clj`, `flutter.cljd`, their tests,
+> and the v1 `deps.edn` aliases and `shadow-cljs.edn` builds.
+
 **Untouched implementations** — no edits, no deletions, no deprecation markers:
 `dao.stream.cljc`
 and everything under `src/cljc/dao/stream/`; `yin/repl.cljc`,

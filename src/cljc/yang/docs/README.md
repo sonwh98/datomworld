@@ -146,6 +146,8 @@ The Yang compiler produces Universal AST nodes that conform to the Yin VM specif
 
 ### End-to-End: Compile and Execute
 
+> **Status (2026-09-16):** the execute step uses the v1 `yin.vm` API, deleted by `yin.vm.v1-retirement.implementation-plan.md`; see `test/yang/clojure_test.clj` for the `yin.vm.v2` equivalent.
+
 ```clojure
 (require '[yang.clojure :as yang])
 (require '[yin.vm :as vm])

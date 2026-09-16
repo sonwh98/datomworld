@@ -155,6 +155,8 @@ Literals are the building blocks of more complex expressions. They're commonly u
 
 Try these in a REPL:
 
+> **Status (2026-09-16):** this example uses the v1 `yin.vm` / ast-walker API, deleted by `yin.vm.v1-retirement.implementation-plan.md`; the live evaluator is `yin.vm.v2`.
+
 ```clojure
 ;; Load the VM
 (require '[yin.vm :as vm])

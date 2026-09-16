@@ -6,8 +6,8 @@
    For WebSocket convenience (connect!, start!, stop!), see dao.stream.rpc.ws.
 
    Portable across :clj, :cljs, and :cljd, following the same portable
-   wait-for-response pattern already established in yin.repl (see
-   yin/repl.cljc:550-608): on :clj, waiting blocks the calling thread and returns
+   wait-for-response pattern established in v1 yin.repl (yin/repl.cljc,
+   deleted 2026-09-16 by the yin.vm v1 retirement): on :clj, waiting blocks the calling thread and returns
    the result directly; on :cljs/:cljd there is no thread to block, so waiting
    instead returns a js/Promise / dart:async Future that resolves once the
    response arrives, or rejects on error/timeout."

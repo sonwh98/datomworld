@@ -33,7 +33,8 @@ for them.
    either REPL.
    *Semantic Phase 4:* v2 now ships a second evaluator,
    `yin.vm.v2.semantic`, and `yin.repl.v2.core` defaults to it
-   (`yin.vm.semantic.md` §8). v1's REPL still has only `:ast-walker`.
+   (`yin.vm.semantic.md` §8). v1's REPL was deleted on 2026-09-16
+   (`yin.vm.v1-retirement.implementation-plan.md`); there is no v1 REPL.
 2. **User-defined macros stop evaluating.** `yang.clojure` emits
    `:yin/macro-expand` for every macro call site. `ast-walker` has no
    `macro-expand` branch — in v1 or in v2 — and `yin.vm.macro` was required

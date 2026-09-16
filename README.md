@@ -111,7 +111,7 @@ The prototype screen starts a REPL server on port `7777` and exposes helpers for
 
 Connect from a desktop REPL:
 ```bash
-mise exec -- clj -M:yin-repl
+mise exec -- clj -M:clj-yin-repl-v2
 ```
 
 Then from the Yin REPL:
@@ -160,4 +160,4 @@ clj -M -m agent.tzu
 
 Launch the interactive Yin REPL to experiment with the Yin VM and manipulate datoms directly.
 
-For details on how to build, run, and connect to the Yin REPL across all platforms (JVM, Node.js, and ClojureDart), see the [Yin REPL Usage Guide](src/cljc/yin/vm/docs/yin.repl.md).
+For details on how to build, run, and connect to the Yin REPL across all platforms (JVM, Node.js, and ClojureDart), see the [Yin REPL v2 Usage Guide](src/cljc/yin/vm/docs/yin.repl.v2.md).

@@ -93,7 +93,9 @@
 
 
 (def telemetry-text
-  "Telemetry is not part of the DaoStream v2 REPL slice; run yin.repl for it")
+  (str "Telemetry is not part of the DaoStream v2 REPL slice; v2 telemetry is "
+       "owed to its own plan (yin.vm.v2.telemetry.implementation-plan.md, "
+       "not yet written)"))
 
 
 (def ingress-loss-text

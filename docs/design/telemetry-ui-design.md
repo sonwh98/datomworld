@@ -1,5 +1,10 @@
 # VM Telemetry Viewer UI Design
 
+> **Status (2026-09-16):** the v1 telemetry servers and the v1 VM's emit path
+> were deleted by `yin.vm.v1-retirement.implementation-plan.md` (D2). The
+> viewer still compiles but nothing serves it; v2 telemetry is owed to its own
+> plan.
+
 ## Overview
 
 A Reagent browser app that connects to a running `yin.repl` server via WebSockets to display:
