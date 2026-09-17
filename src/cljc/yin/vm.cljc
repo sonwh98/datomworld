@@ -1112,6 +1112,158 @@
                        {:fns occurrence-fns})))))
 
 
+;; =============================================================================
+;; The footprint table and the §7.7 syntactic extraction queries
+;; =============================================================================
+;; §7.7: the code part of UCF §7.6.1's conservative fixed point is the
+;; queries below, run over the flat rows of every reachable tree ($ast) and
+;; the segment-qualified rows of every reachable segment ($code). They
+;; supply the fixed point's inputs; the value, name-satisfaction, and
+;; module parts remain the walk UCF §7.6.1 specifies. Free names are
+;; `free-names` above; everything else the syntactic queries fill is here.
+
+(def footprint-table
+  "§7.7.1's effect normalization as a data value, keyed by the execution
+   contract stamp (UCF §7.3.3) — the effect a syntax tag or mnemonic raises
+   is part of that contract, lifted out of the reference machine's hot loop
+   (`semantic.cljc`). Two directions: `:tags` over every §2.3 syntax tag
+   and `:mnemonics` over every §2.4 mnemonic, each to the set of effect
+   identifiers it contributes. Every tag and every mnemonic has a row, so
+   \"no external effect\" is an explicit `#{}`, never an absence; a tag or
+   mnemonic outside the table is `:yin.k/undecodable`, the outcome the
+   validators give it — and the extraction queries' tag/mnemonic sets are
+   table subsets, so over validated rows the lookup is total. The design
+   table's tag↔mnemonic correspondence is 1:1 for the effect rows and
+   deliberately lumped for the last (5 tags lower to 9 mnemonics; see
+   `yin.vm.linearize`), so it is not re-stated as a map here. Its \"other
+   requirement\" column is realized by the extraction queries themselves:
+   an FFI op goes to the receiver-capability requirement
+   (`:yin.k/ffi-ops` — the pair's own store keys are never a store-slice
+   requirement, UCF §7.6.2), a store key to the store slice, a parked id
+   to the parked-record obligation, and a call's effects are its callee's
+   profile effects (§7.7.2). A `:variable`'s name obligation is
+   conditional on freeness (§4.5) — a query (`free-names`), not a
+   per-tag footprint fact."
+  {"v2"
+   {:tags {:stream/make #{:stream/make},
+           :stream/put #{:stream/put},
+           :stream/cursor #{:stream/cursor},
+           :stream/next #{:stream/next},
+           :stream/close #{:stream/close},
+           ;; an FFI call is not an effect kind: it goes through the FFI pair
+           :dao.stream.apply/call #{},
+           :vm/park #{},                        ; scheduler-internal
+           :vm/resume #{},
+           :vm/gensym #{},                      ; the id counter is machine state
+           :vm/store-get #{},
+           :vm/store-put #{},
+           :vm/current-continuation #{},
+           ;; from syntax alone; a call's effects are its callee's profile
+           :literal #{}, :variable #{}, :lambda #{}, :application #{}, :if #{}},
+    :mnemonics {:stream-make #{:stream/make},
+                :stream-put #{:stream/put},
+                :stream-cursor #{:stream/cursor},
+                :stream-next #{:stream/next},
+                :stream-close #{:stream/close},
+                :ffi-call #{},
+                :park #{},
+                :resume #{},
+                :gensym #{},
+                :store-get #{},
+                :store-put #{},
+                :current-continuation #{},
+                :const #{}, :var #{}, :closure #{}, :push #{}, :call #{},
+                :return #{}, :jump #{}, :branch-false #{}, :halt #{}}}})
+
+
+(def ^:private extraction-fns
+  "The `:fns` the §7.7 queries need (§6.3: quoted-symbol keys): the
+   effect-raising tag/mnemonic sets are judged by `contains?`."
+  {'contains? contains?})
+
+
+(defn- extract
+  "One §7.7 extraction query over `db`, its single find column as a set."
+  [q db]
+  (set (map first (query/collect (query/q q db {:fns extraction-fns})))))
+
+
+(def ^:private ast-extraction-queries
+  "§7.7 over `$ast`, the union of the flat rows of the reachable trees,
+   verbatim from the design."
+  {:store-keys '[:find ?key :in $ast
+                 :where (or [$ast _ :vm/store-get ?key]
+                            [$ast _ :vm/store-put ?key _])],
+   :ffi-ops '[:find ?op :in $ast
+              :where [$ast _ :dao.stream.apply/call ?op _]],
+   :parked-ids '[:find ?pid :in $ast
+                 :where [$ast _ :vm/resume ?pid _]],
+   ;; syntax that raises an effect: the tag, to be normalized by the
+   ;; footprint table
+   :effect-raisers '[:find ?tag :in $ast
+                     :where [$ast _ ?tag & _]
+                     [(contains? #{:stream/make :stream/put :stream/cursor
+                                   :stream/next :stream/close
+                                   :dao.stream.apply/call}
+                                 ?tag)]]})
+
+
+(def ^:private segment-extraction-queries
+  "§7.7 over `$code`, the union of the segment-qualified rows
+   (`yin.vm.code/project-segment-qualified`) of the reachable segments,
+   verbatim from the design. The segment-side free-name query (derive free
+   names from the vector's own scoping) is §7.7's to name but stays
+   unverified there; `free-names` over `$ast`/`$occ` is the shipped
+   extraction."
+  {:store-keys '[:find ?key :in $code
+                 :where (or [$code _ _ :store-get ?key]
+                            [$code _ _ :store-put ?key _])],
+   :ffi-ops '[:find ?op :in $code
+              :where [$code _ _ :ffi-call ?op _]],
+   :parked-ids '[:find ?pid :in $code
+                 :where [$code _ _ :resume ?pid]],
+   :effect-raisers '[:find ?mn :in $code
+                     :where [$code _ _ ?mn & _]
+                     [(contains? #{:stream-make :stream-put :stream-cursor
+                                   :stream-next :stream-close :ffi-call}
+                                 ?mn)]]})
+
+
+(defn- requirements
+  "The §7.7 syntactic requirement set of one relation under contract
+   `\"v2\"`: the three value queries as extracted, and the effect-raising
+   tags/mnemonics normalized through the footprint table's `dir` direction
+   before any union, so the union is over one vocabulary (§7.7.1)."
+  [db queries dir]
+  (let [table (get-in footprint-table ["v2" dir])]
+    {:store-keys (extract (:store-keys queries) db),
+     :ffi-ops (extract (:ffi-ops queries) db),
+     :parked-ids (extract (:parked-ids queries) db),
+     :effects (into #{} (mapcat table) (extract (:effect-raisers queries) db))}))
+
+
+(defn ast-requirements
+  "§7.7's syntactic requirement set from a tree relation `$ast` — a
+   `query/relation` over the flat rows of the reachable trees (e.g.
+   `(vals (:rows (ast->semantic-bytecode ast)))`, unioned across trees):
+   store keys, FFI ops, parked ids, and effect identifiers, effects
+   already normalized by the footprint table. These are the fields of
+   `:yin.k/requires` the syntactic queries fill; free names are
+   `free-names`, and the value/name/module parts of UCF §7.6.1's fixed
+   point remain the walk that consumes this."
+  [db]
+  (requirements db ast-extraction-queries :tags))
+
+
+(defn segment-requirements
+  "The same over a `$code` relation of segment-qualified rows
+   (`yin.vm.code/project-segment-qualified`). For every tree,
+   `(ast-requirements tree-relation)` and this over its lowered segment's
+   rows are equal in every field — the §7.7.1 conformance obligation."
+  [db]
+  (requirements db segment-extraction-queries :mnemonics))
+
+
 (def ^:private many-attrs #{:yin/operands :yin/args :yin/params})
 
 

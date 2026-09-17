@@ -12,7 +12,8 @@
    UCF §7.3.2 (`docs/design/yin.vm.code-as-tuples.md` §7.5): the §7.5
    validator lives here; decoding the vector into an image belongs to the
    semantic VM."
-  (:require [yin.vm :as vm]))
+  (:require [dao.jing :as jing]
+            [yin.vm :as vm]))
 
 
 (def mnemonics
@@ -382,3 +383,31 @@
    here: a correct hash is never structural validation."
   [v]
   (some #(% v) vector-rules))
+
+
+;; =============================================================================
+;; Segment rows (§6.2)
+;; =============================================================================
+
+(defn project-segment
+  "§6.2 (`docs/design/yin.vm.code-as-tuples.md`): the canonical instruction
+   vector with pc prepended — one `[pc tag & ops]` row per instruction, the
+   tag being the mnemonic. The relation is per segment: pcs collide across
+   segments, and source scope belongs to the interpreter, never to a tuple
+   slot, so bare-pc rows from different segments are never unioned into one
+   relation. A query over several segments takes them as separate sources
+   or uses the segment-qualified form (`project-segment-qualified`)."
+  [v]
+  (mapv (fn [pc t] (into [pc] t)) (range) v))
+
+
+(defn project-segment-qualified
+  "§6.2's segment-qualified form `[segment-address pc tag & ops]`: one
+   address column prepended, so every tag's arity gains one uniformly and
+   per-tag arity stays fixed. The address is the vector's own
+   `(jing/segment-key v)` — the §7.1/UCF §7.3.2 rule the loaders already
+   follow — computed here rather than claimed by a caller, so a segment's
+   rows are named by the content they are projected from."
+  [v]
+  (let [addr (jing/segment-key v)]
+    (mapv (fn [r] (into [addr] r)) (project-segment v))))

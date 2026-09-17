@@ -1,6 +1,7 @@
 (ns yin.vm.code-test
   (:require [clojure.test :refer [deftest is testing]]
             [dao.datom :as datom]
+            [dao.jing :as jing]
             [yin.vm.code :as code]
             [yin.vm.malformed-rows :as malformed]))
 
@@ -354,3 +355,34 @@
            (code/well-formed-vector? [[:var "x"] [:frobnicate]]))
         "not :operand-kind at pc 0 — rule 2 runs before rule 4, and rule 4
           assumes it held")))
+
+
+;; =============================================================================
+;; §6.2: segment rows
+;; =============================================================================
+
+(deftest project-segment-prepends-pc
+  (testing "the §2.7 worked vector, pc the index, the mnemonic the tag"
+    (is (= [[0 :closure '[x] 6] [1 :push] [2 :const 10] [3 :push]
+            [4 :call 1 false] [5 :halt] [6 :var '+] [7 :push] [8 :var 'x]
+            [9 :push] [10 :const 1] [11 :push] [12 :call 2 true]
+            [13 :return]]
+           (code/project-segment worked-vector))))
+  (testing "one row per instruction, tag arity unmodified"
+    (is (= [[0 :store-get :k] [1 :store-put :k 1] [2 :halt]]
+           (code/project-segment [[:store-get :k] [:store-put :k 1]
+                                  [:halt]])))))
+
+
+(deftest project-segment-qualified-prepends-the-vector-address
+  (let [rows (code/project-segment-qualified
+               [[:store-get :k] [:store-put :k 1] [:halt]])]
+    (is (= (jing/segment-key [[:store-get :k] [:store-put :k 1] [:halt]])
+           (ffirst rows))
+        "the address is the vector's own, the §7.1 rule the loaders follow")
+    (is (= [[(ffirst rows) 0 :store-get :k]
+            [(ffirst rows) 1 :store-put :k 1]
+            [(ffirst rows) 2 :halt]]
+           rows)
+        "one address column prepended: every tag's arity gains one
+          uniformly, per-tag arity fixed (§6.2)")))
