@@ -27,7 +27,7 @@ values and decides nothing about them:
 - **Which interpreter observes them** is not recorded — a registry of who
   is listening would be hidden global state.
 - **When an interpreter runs** is not its decision — "do not introduce
-  callbacks; every callback is events on a stream", seen from the stream's
+  callbacks; every callback is an event on a stream", seen from the stream's
   side: DaoStream invokes nothing, so control is never inverted and
   causality stays explicit (see The IO Model).
 
