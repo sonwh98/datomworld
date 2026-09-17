@@ -183,7 +183,7 @@ implementation detail.
 
 | what | design | blocked on | unit |
 |---|---|---|---|
-| `"ast-v1"` profile as a published pinned document; `yin.vm.semantic.md` §2.4/§5.3 amendment (item 14) and its `zipmap` corrections | §5.2.1, item 7, item 14 | D1 | U8 |
+| `"ast-to-bytecode"` profile as a published pinned document; `yin.vm.semantic.md` §2.4/§5.3 amendment (item 14) and its `zipmap` corrections | §5.2.1, item 7, item 14 | D1 | U8 |
 | derivation records, two-step verification, ledger event entities, naming rows, provenance link from naming fact to event (item 10) | §5.2, §5.2.2, §8.1–8.3, §8.6 | D1, U8 | U9 |
 | rows and vectors materialized in `dao.jing`; `:yin.code/hash` written | §2.1, §4.1, UCF §7.3.2 | D3, `dao.jing.md`'s metadata-carry open item | U10 |
 | the observer row lane: batch shape, `program-loaders` switch, the program-input predicate, REPL eval path | §9.2, item 9 | D2 | U11 |
@@ -214,7 +214,7 @@ implementation detail.
 
 ### D1 — the lowering profile is published by copying, not by designing [J, owner signs]
 
-Everything `"ast-v1"` must pin is already written in §5.2.1's table and is
+Everything `"ast-to-bytecode"` must pin is already written in §5.2.1's table and is
 already what `linearize/flatten-program` does: walker order, labels numbered
 in emission order, bodies out of line after the main sequence in encounter
 order, `:halt` and `:return` terminators. Item 7's "must be published as a
@@ -232,9 +232,9 @@ to `yin.vm.semantic.md` is a documentation act. What is *not* mechanical:
   `:current-continuation → :current-cont` alias is missing from §2.4's
   list; §2.4's `:call` row cites §4.3 for apply rules that live in §4.2.
 - One profile question §4.3 leaves open by name: one segment per lambda
-  versus bodies out of line in one segment. **Default:** `"ast-v1"` pins
+  versus bodies out of line in one segment. **Default:** `"ast-to-bytecode"` pins
   today's behaviour, bodies in one segment; per-lambda segments would be
-  `"ast-v2"`, a different profile, never a revision of this one.
+  `"ast-to-bytecode-v2"`, a different profile, never a revision of this one.
 - The profile's target is the UCF §7.3.3 stamp `{:yin.code/contract "v2"
   :yin.k/version 0}`; UCF's own blocker 6 says the `"v2"` revision history
   must be written into `yin.vm.semantic.md` §2.4. U8 does both in one
@@ -473,7 +473,7 @@ parallel lanes (U1‖U2‖U3, then U4, then U5‖U7, then U6).
 
 **U8 — profile and contract publication (D1).** A section in
 `yin.vm.code-as-tuples.md` or a sibling `yin.vm.lowering-profile.md`
-pinning `"ast-v1"` by the §5.2.1 table; `yin.vm.semantic.md` amended per
+pinning `"ast-to-bytecode"` by the §5.2.1 table; `yin.vm.semantic.md` amended per
 D1 (item 14's binding rule, the `zipmap` corrections, the four drifts, a
 revision line, and the `"v2"` contract revision history UCF blocker 6
 asks for). Docs only; owner approves.

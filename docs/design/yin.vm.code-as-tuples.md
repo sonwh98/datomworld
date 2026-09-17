@@ -793,7 +793,7 @@ away*). The link is a **derivation record**, itself content-addressed
  :yin.ledger/input    <tree-address>
  :yin.ledger/output   <segment-address>
  :yin.ledger/function :yin.vm.v2/lower
- :yin.ledger/profile  {:yin.lower/profile "ast-v1"          ; the lowering profile, §5.2.1
+ :yin.ledger/profile  {:yin.lower/profile "ast-to-bytecode"          ; the lowering profile, §5.2.1
                        :yin.code/contract "v2"              ; the UCF §7.3.3 execution contract it targets
                        :yin.k/version     0}}
 ```
@@ -813,7 +813,7 @@ different, equally valid vectors. A derivation is therefore verifiable
 only against a **lowering profile**, a published revision that pins:
 
 +---------------------------------------+--------------------------------------------------------------------------------------------------------------------------------+
-| Pinned by the profile                 | Reference value for `"ast-v1"`                                                                                                 |
+| Pinned by the profile                 | Reference value for `"ast-to-bytecode"`                                                                                                 |
 +=======================================+================================================================================================================================+
 | input grammar                         | the §2 tuple grammar, by revision of this document                                                                             |
 +---------------------------------------+--------------------------------------------------------------------------------------------------------------------------------+
@@ -1510,7 +1510,7 @@ fields as attributes and the record's address as one more:
  [:db/add ev :yin.ledger/input    tree-addr]
  [:db/add ev :yin.ledger/output   seg-addr]
  [:db/add ev :yin.ledger/function :yin.vm.v2/lower]
- [:db/add ev :yin.ledger/profile  {:yin.lower/profile "ast-v1" :yin.code/contract "v2" :yin.k/version 0}]
+ [:db/add ev :yin.ledger/profile  {:yin.lower/profile "ast-to-bytecode" :yin.code/contract "v2" :yin.k/version 0}]
  [:db/add ev :yin.ledger/record   record-addr]]     ; ev is a tempid; m defaults to :db/assert
 ```
 
@@ -2052,7 +2052,7 @@ seen from the migration side:
    published with the execution-contract stamp, and the tree/segment
    requirement-set equality must be tested over the corpus. FFI ops are a
    receiver capability requirement, never a store-slice requirement.
-7. **The lowering profile** (§5.2.1): `"ast-v1"` must be published as a
+7. **The lowering profile** (§5.2.1): `"ast-to-bytecode"` must be published as a
    pinned document before any derivation record is written; until then
    no derivation can be verified, only content integrity (§5.2.2).
 8. **UCF §7.6.1 needs two amendments** (§7.7.2, §7.7.3): its
@@ -2087,7 +2087,7 @@ seen from the migration side:
     tested over the corpus before any row set is treated as canonical.
     The corpus already lives as map ASTs in the test tree, so the test
     is writable now.
-14. **`yin.vm.semantic.md` Instruction Grammar Amendment** (§5.1) — the `ast-v1` lowering
+14. **`yin.vm.semantic.md` Instruction Grammar Amendment** (§5.1) — the `ast-to-bytecode` lowering
     profile (§5.2.1) pins the §5.3 table of `yin.vm.semantic.md`, which is currently
     the name-based one. That document's §2.4 and §5.3 must be amended to add
     the argument-to-named-parameter binding rule of §7.7.2 (arguments match `params` by position, each bound to its name; under-arity call → missing parameter names bound to `nil`; extra arguments beyond the params list length are dropped)
