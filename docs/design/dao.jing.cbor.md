@@ -99,8 +99,11 @@ rather than relying on profile selection alone.
   a contract break; the synchronous function handle is its present-day
   shape, not a commitment. The put half is effect-shaped as stated; the get
   half becomes effect-shaped once its outcome is the explicit
-  `{:found? boolean, :bytes b}` envelope (the shape `dao.jing.remote`
-  already answers) with bytes in a portable byte representation — the
+  `{:found? boolean, :bytes b}` envelope — `dao.jing.remote` already
+  answers the `{:found? boolean, :value v}` shape this generalizes
+  (`remote.cljc:55-60,84-85`; `:bytes` is this plan's future key, not
+  `:value`, since the value here is a byte representation, not a decoded
+  Clojure value) — with bytes in a portable byte representation — the
   caller-supplied not-found sentinel is a wrapper-level convenience over
   that envelope, not part of the contract's streamable shape.
 - Encode once before a write, derive the address from those bytes, and pass
@@ -139,7 +142,16 @@ vectors, finite lists/sequences, maps, sets, metadata, integers,
 floating-point numbers, big integers, decimals, and ratios. Reject arbitrary
 records, functions, and unsupported host objects before storage. The numeric
 carriers described below are explicitly supported exceptions to the record
-restriction; arbitrary Boring records do not become Jing values.
+restriction; arbitrary Boring records do not become Jing values. **This is
+a narrower domain than today's transitional `pr-str`-based encoder, which
+addresses anything printable/readable** — characters, `#inst`, `#uuid`, and
+other tagged literals are addressable today and have no slot in this
+supported-values list or in Jing's four named CBOR extensions; they become
+rejected, unsupported values once this plan lands. No current producer
+emits them, so nothing observed breaks, but "existing stores... must be
+rebuilt together" (*Addressing and clean break*) presumes every stored
+value is re-encodable under the new domain — an assumption this delta
+should be checked against before rebuild, not discovered during it.
 
 - Normalize sorted collections to ordinary maps and sets. Sort map keys
   and set elements lexicographically by unsigned canonical encoded bytes
@@ -408,7 +420,15 @@ Every newly encoded value receives its CBOR-derived address. No legacy
 reader, old-address alias, or graph migration is included. Reject old
 complete EDN file records without rewriting them. Existing stores and
 published references must be rebuilt together, including address-bearing
-indexes, ASTs, and continuations. Existing torn-tail recovery applies only
+indexes, ASTs, and continuations. **This states the rebuild's precondition
+explicitly: with no legacy reader, the only reconstruction path is
+replaying original values from their intake streams, not reading them back
+out of a rejected old store.** A value whose intake stream has since
+evicted it (a `:dao.stream/gap`) and whose old store is rejected under this
+plan has no remaining source — that content is unrecoverable, not merely
+inconvenient to rebuild. Rebuild readiness should be checked against
+retained intake history before this migration lands, not assumed. Existing
+torn-tail recovery applies only
 after the file is recognized as a valid new-format log; an old-format file
 must not be treated as an empty or recoverable new store.
 An empty file is a new log. Recognize a nonempty log only after its first
