@@ -27,6 +27,13 @@ Restrictions are a feature.
 - Do not collapse interpretation and execution into the same layer.
 - Do not assume graphs: graphs must be constructed explicitly from tuples.
 
+### Architectural Commitments
+
+- **`dao.jing` is syntax, agents are semantics** — the content-addressed encoding stays passive/payload-agnostic.
+- **Macros are stream topology** — an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+- **"Peer observers, one stream"** — narrowly scoped: a generic evaluator and `dao.space` independently observing the same stream topic, not a claim that applies to any two consumers regardless of what they consume.
+- **Observers are independent and optional, full stop** — nothing requires a given medium to have any particular set of consumers wired to it. Which observers exist for a stream is a per-composition choice, not a design-time architectural commitment.
+
 ## Tuples and Datoms
 
 Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
@@ -41,6 +48,7 @@ All IO is modeled as a stream. Functions consume streams and produce streams.
 No direct function-to-function coupling without a stream boundary.
 Side effects must appear as stream emissions.
 Streams are values that can be sent through streams.
+Streams carry whatever values the consumer needs — no datom requirement, no privileged payload shape.
 
 A stream has no privileged reader, and its meaning is not in it. Any number
 of interpreters may observe the same medium, and each constructs its own

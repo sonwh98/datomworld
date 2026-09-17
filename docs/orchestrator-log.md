@@ -5406,3 +5406,14 @@ Decisions: The U7 rename was implemented directly using a Python script via the 
 Verification: Ran tests to verify compilation and execution after the massive structural shift.
 Delegates: none
 Next: Proceed to U2 of the yin.vm.code-as-tuples plan.
+
+## 2026-09-18 00:33:31 ICT — centralize architectural commitments
+Completed-GMT: 2026-09-17 17:33:31 GMT
+Coding-Agent: agy
+Session-ID: 22783059-64d1-4105-86d0-f63035084892
+Tree: dao.stream-redesign-v2@96101867, committed
+Done: Updated `docs/design/datom.world.md` to formally document distributed architectural commitments (independent observers, payload-agnostic streams, macros as stream topology).
+Decisions: Elevated lessons learned from recent design rounds (specifically D2's observer dissolution) into the core invariants file.
+Verification: Manual inspection of markdown.
+Delegates: none
+Next: yin.vm.code-as-tuples Phase 1 (U1 and U2).
