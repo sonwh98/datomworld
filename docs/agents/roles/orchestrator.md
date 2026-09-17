@@ -502,3 +502,18 @@ An AGY session the user starts in the Orchestrator seat with the necessary
 permissions is not so restricted; like any seat it is judged by the capabilities
 in [`orchestrator.md`](./orchestrator.md), which it should establish for itself
 rather than assume from this entry.
+
+Claude Code's `--permission-mode acceptEdits` auto-approves Edit/Write/
+NotebookEdit tool calls, but it does not blanket-approve Bash: a compound or
+piped Bash command (multiple `;`-chained steps, a `grep | grep`, a `for` loop
+over several files) can still be denied by the CLI's own safety heuristic,
+and a headless run has no human to approve past the denial. This showed up
+2026-09-17 on two `glm-5.3` implementation delegates (U1/U2 of
+`dao.stream.v1-retirement.implementation-plan.md`): several multi-step
+verification one-liners were denied; the same logic split into a single
+simpler command, or with output redirected to a file instead of chained,
+succeeded on retry. The fix is not `--dangerously-skip-permissions` — never
+add it, per the caution above — it is briefing delegates (and writing
+prompts) to prefer one Bash command per step over chained/piped ones, and
+treating a permission denial as a signal to simplify the command, not a
+capability gap to route around.
