@@ -1352,16 +1352,20 @@ query over which `:variable` names are free.
 **Under-arity calls leave missing parameters bound to `nil`, not unbound.**
 An under-arity call leaves missing parameter names bound to `nil`; an
 over-arity call drops extra arguments beyond the params list length. This
-is a deliberate execution-contract change from today's `zipmap`-based
-binding (`ast_walker.cljc:191`, and its hot-path copies at `:511`/`:553`;
-`semantic.cljc:200`), which currently leaves a missing parameter name
-absent from the extended environment rather than explicitly `nil` — so it
-can currently fall through to whatever the closure's own captured
-environment (or, transitively, the store/primitives/modules chain) has
-under that name. After the fix, a missing parameter is `nil` and shadows
-any such fallthrough within the closure's body. This is independent of
-§4.5's free/bound decision: it is about parameter binding at closure
-application, not about resolving a name to a value.
+was a deliberate execution-contract change from the prior `zipmap`-based
+binding, which left a missing parameter name absent from the extended
+environment rather than explicitly `nil` — so it could fall through to
+whatever the closure's own captured environment (or, transitively, the
+store/primitives/modules chain) had under that name. Implemented as a
+single shared helper, `yin.vm.v2.engine/bind-params`, called from every
+closure-application site in both v2 evaluators
+(`yin/vm/v2/ast_walker.cljc:192,513,555`, `yin/vm/v2/semantic.cljc:200`);
+the v1 ast-walker this rule originally also described no longer exists,
+deleted by `yin.vm.v1-retirement.implementation-plan.md`. A missing
+parameter is `nil` and shadows any such fallthrough within the closure's
+body. This is independent of §4.5's free/bound decision: it is about
+parameter binding at closure application, not about resolving a name to
+a value.
 
 Every retained obligation is a required primitive or module export, checked by
 profile (UCF §7.5.2), and the **effects of a callable are read from its

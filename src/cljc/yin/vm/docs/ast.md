@@ -397,7 +397,16 @@ The evaluation of an application node follows several steps:
    - **If Primitive**: The VM calls the host-language function (e.g., Clojure's `+`) with the evaluated arguments.
    - **If Closure**: The VM extends the closure's captured environment by binding the `:params` to the argument values, then evaluates the closure's `:body` in this new environment.
 
-**Implementation (from ast_walker.cljc):**
+**Implementation (from ast_walker.cljc, historical):**
+
+> **Status (2026-09-17):** `ast_walker.cljc` was deleted by
+> `yin.vm.v1-retirement.implementation-plan.md`. `extended-env` below uses
+> `zipmap`, which silently drops any parameter past the end of
+> `evaluated-operands` on an under-arity call. `yin.vm.v2` no longer does
+> this: an under-arity call nil-fills every missing parameter name instead
+> (§7.7.2 of `yin.vm.code-as-tuples.md`). This snippet is kept for
+> illustrating the CESK shape, not as a description of current behavior.
+
 ```clojure
 ;; Start evaluating operator
 :application (cesk-return state (:operator node) env 
