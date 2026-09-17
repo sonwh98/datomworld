@@ -81,8 +81,7 @@
                          :output-to  "build/yin-repl-v2/yin_repl_v2.dart"}}
            :dep-graph {:extra-paths ["src/dev"]
                        :extra-deps {org.clojure/tools.namespace {:mvn/version "1.5.0"}}
-                       :main-opts ["-m" "dep-graph"]}
-           :atzu {:main-opts ["-m" "agent.tzu"]}}}
+                       :main-opts ["-m" "dep-graph"]}}}
 
 
 ;; clj -X:fmt

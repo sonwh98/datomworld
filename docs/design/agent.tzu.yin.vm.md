@@ -1,5 +1,10 @@
 # Plan: Porting Agent Tzu to Yin.VM
 
+> **Status (2026-09-17):** `agent.tzu` and `agent.tools` were deleted by
+> `dao.stream.v1-retirement.implementation-plan.md` (D2, owner decision) — no
+> consumer remained. The Yin-native agent replacement is owed to
+> `agent.harness.md`'s plan.
+
 ## Objective
 Transition `agent.tzu` from running as a host-level Clojure process to running entirely inside the `Yin.VM` execution substrate as a first-class continuation.
 

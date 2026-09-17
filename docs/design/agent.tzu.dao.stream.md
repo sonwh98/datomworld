@@ -1,5 +1,10 @@
 # Design: Agent Tzu Tool Usage & dao.stream Integration
 
+> **Status (2026-09-17):** `agent.tzu` and `agent.tools` were deleted by
+> `dao.stream.v1-retirement.implementation-plan.md` (D2, owner decision) — no
+> consumer remained. The Yin-native agent replacement is owed to
+> `agent.harness.md`'s plan.
+
 ## Context
 Agent Tzu (`agent.tzu`) initially operated as a text-to-datom extraction engine. While it could generate complex knowledge graphs, it lacked the ability to interact with the environment or external state during its reasoning process.
 
