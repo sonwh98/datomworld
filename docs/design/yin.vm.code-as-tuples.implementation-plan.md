@@ -589,8 +589,7 @@ days; the transactor and `query/current` exist, so this is composition.
 Define a stream-owned, structurally lossless CBOR portable domain that preserves metadata (including reader positions) and collection distinctions. Implement it with pinned Boring on JVM/CLJS and by wrapping the official `cbor` package from pub.dev for Dart (do not build the binary parser from scratch); do not reuse Jing normalizations. Prove compatibility with dual-client tests. Size: three to four days.
 
 
-**U10 — content in `dao.jing` (D3 answered: individual rows; the
-`dao.jing.md` metadata fix's intake-stream half still open).** Rows and
+**U10 — content in `dao.jing` (D3 answered: individual rows; D7 answered: additive dao.stream.cbor binary websockets).** Rows and
 vectors materialized under their addresses, individually per D3 — no pack
 format to build; `:yin.code/hash` written; a `load-rows : handle root →
 {:root :rows}` BFS loader (D3's stated interface) and a loader that
