@@ -144,12 +144,10 @@ loader is `rows → map` reconstruction, "the successor of `datoms->ast`",
 and §9.1 says frontends "keep emitting map ASTs to the stream" with all
 projection "deferred to the Encoder Observer". Both are consequences of
 the 2026-09-15 ruling that admitted the map AST as a stream topic
-(`fbbab7d`). They are not contradictory *as code* — a walker can own both
-loaders — but they are contradictory *as topology*: which medium the
-walker attaches to decides whether the encoder observer sits between
-frontend and evaluator or beside it. That is item 9's batch-shape question
-in different clothes, and it is an owner decision (D2), not an
-implementation detail.
+(`fbbab7d`). **They are not contradictory at all, once D2 dissolves the
+premise that made them look that way** — see D2, below: there is no one
+topology to pick, so there is nothing for §7.1 and §6.1/§9.1 to disagree
+about.
 
 ## Census
 
@@ -186,7 +184,7 @@ implementation detail.
 | ~~`"ast-to-bytecode"` profile as a published pinned document; `yin.vm.semantic.md` §2.4/§5.3 amendment (item 14) and its `zipmap` corrections~~ — **done 2026-09-18** | §5.2.1, item 7, item 14 | D1 — answered | U8 |
 | derivation records, two-step verification, ledger event entities, naming rows, provenance link from naming fact to event (item 10) | §5.2, §5.2.2, §8.1–8.3, §8.6 | U4, U5 (U8 no longer blocks) | U9 |
 | rows and vectors materialized in `dao.jing`; `:yin.code/hash` written | §2.1, §4.1, UCF §7.3.2 | D3, `dao.jing.md`'s metadata-carry open item | U10 |
-| the observer row lane: batch shape, `program-loaders` switch, the program-input predicate, REPL eval path | §9.2, item 9 | D2 | U11 |
+| the observer row lane: `program-loaders` switch, the program-input predicate, REPL eval path, for compositions that want a compiler + semantic VM attached | §9.2, item 9 | U3, U4, U5 (D2 dissolved — no topology gates this) | U11 |
 
 ### Missing — design work still owed to another document or the owner
 
@@ -251,34 +249,56 @@ two `zipmap` corrections, the four drift fixes, and the `"v2"` contract
 revision history UCF blocker 6 asked for. U9 is unblocked on this half of
 its dependency (still needs U4, U5).
 
-### D2 — which medium the walker attaches to [owner]
+### D2 — dissolved: there is no one medium the walker attaches to [owner, 2026-09-18]
 
-Three consistent topologies exist and the design admits all three:
+**This plan's r1 draft framed D2 as a choice among three topologies
+(encoder in the path, encoder beside the path, both loaders on every
+evaluator) and asked the owner to pick one. That framing was wrong, and
+the owner corrected it directly rather than picking an option.**
 
-1. **Encoder in the path.** Frontend → map-AST medium → Encoder Observer
-   projects to rows → row medium → both evaluators load rows (walker
-   reconstructs, semantic lowers). Item 9's batch is one `{:root :rows}`
-   value per tree; §7.1's walker row is wrong and should read "rows,
-   reconstruct". This is what §1's "all `yin.vm` evaluators are `dao.stream`
-   observers that load rows" says.
-2. **Encoder beside the path.** Frontend → map-AST medium → walker loads
-   maps directly; the Encoder Observer and the AST indexer observe the same
-   medium and publish rows for the semantic VM, storage, and `q`. §7.1's
-   walker row is right; §6.1's "loader" is the semantic side's only.
-3. **Both loaders on every evaluator**, medium chosen per composition.
+`dao.stream.md` is explicit that a stream is payload-agnostic: "a stream
+carries values and decides nothing about them... what the values mean is
+not its business" (Axiom 2), and "which interpreter observes them is not
+recorded — a registry of who is listening would be hidden global state."
+There is no requirement anywhere in the contract that a program medium
+have exactly one designated consumer, or that consumers be wired into a
+single fixed pipeline. The ast-walker and the semantic VM were never
+"two evaluators that must agree on a topology" in the first place — they
+don't observe the same stream and one cannot parse what the other reads.
+What connects them, if anything connects them at all, is a compiler: a
+separate, optional observer that watches the map-AST stream and produces
+bytecode on its own medium for the semantic VM.
 
-The code cost is the same in all three (U3 builds the row loader either
-way; the map loader is `assoc :program ast`). What differs is where the
-REPL wires the encoder, whether the walker can run a tree that was never
-projected (and so never validated by §7.4), and whether the tests of §7.2
-part 2 compare "rows direct vs datom projection" or "map direct vs rows
-direct". **Default [J]:** topology 1, because §7.2's conformance obligation
-is stated over rows on both paths and because an evaluator that runs
-unprojected maps can execute a `:vm/store-update` node that no persistent
-form carries — the exact hole §3.1 closes. Topology 2 is the one the r8
-intro's "LISP using maps" ruling most naturally reads as; if the owner
-means that, §7.2 part 2 must be restated and U11 wires the encoder as a
-peer. U11 waits; U3 does not.
+So every observer on the map-AST stream — an ast-walker, an Encoder
+Observer/compiler, the AST indexer — is an **independent, optional
+attachment**, and which ones exist for a given program is a
+**per-composition choice**, not a design-time architectural commitment.
+Concretely, all of these are legal, and none is privileged:
+
+- A composition runs only an ast-walker: no compiler, no rows, no
+  semantic VM ever attach to that program's stream.
+- A composition runs no ast-walker at all: a compiler is the only
+  consumer of the map-AST stream, projecting to rows/bytecode that only
+  the semantic VM ever executes.
+- A composition runs both, for comparison or migration.
+
+§7.1 ("the walker natively reads map AST... without conversion") and
+§6.1/§9.1 ("the walker's loader is rows → map reconstruction... the
+successor of `datoms->ast`") were never contradictory as a result — they
+describe two different, equally legal compositions, not one required
+pipeline shape. Neither needs "fixing" against the other. Item 9's
+batch-shape question is a real, separate question about what a given
+*compiler* observer emits when a composition chooses to run one, not a
+question about what the walker is permitted to do.
+
+**What this changes for the units below:** U3 (the walker's row loader)
+is unaffected — it exists for compositions that want a row-fed walker,
+which remains a legal choice. U11 (the observer row lane: `program-loaders`
+switching, the encoder observer, the REPL's eval path for the semantic
+VM) is not gated on a D2 answer, because there is no D2 answer to gate on
+— it proceeds whenever its own real dependencies (U3, U4, U5) are ready.
+The Phase 1 dependency graph and the summary table below are updated to
+drop D2 as a blocker.
 
 ### D3 — how `dao.jing` stores a tree's rows [owner]
 
@@ -366,7 +386,10 @@ Doc-only, one commit, this plan's own fixable gaps:
 1. §10.13: "the test is writable now" → done, cite `v2_test.cljc:266` and
    `84f8eef`; note the corpus is hand-canonical and that U2/U3 extend the
    law to the yang-compiled parity corpus.
-2. §7.1 walker row: mark as pending D2; §6.1/§9.1 already say "loader".
+2. §7.1 walker row and §6.1/§9.1's "loader" row: note both are correct
+   and non-contradictory — each describes a different, independently legal
+   composition-level choice of which observers attach to the map-AST
+   stream (D2, dissolved, not a topology to pick).
 3. §2.1's storage Open Question: promote to §10 as item 15 (= D3), with the
    `dao.jing.md` metadata-carry prerequisite named.
 4. §10.3: name `:dao.stream/identity` as the candidate medium coordinate
@@ -410,8 +433,9 @@ program stays. Size: two to three days including the corpus.
 
 **U3 — the walker's row loader.** `ast-walker/vm-load-rows` = U2's
 validator, then `semantic-bytecode->ast`, then the `assoc` of
-`vm-load-program` (`ast_walker.cljc:686-698`). The datom loader stays (D2
-decides which one the REPL wires). Criteria: §7.2 part 2 for the walker —
+`vm-load-program` (`ast_walker.cljc:686-698`). The datom/map loader stays
+alongside it — both are legal per-composition choices (D2, dissolved),
+and a given composition wires whichever loader(s) it wants. Criteria: §7.2 part 2 for the walker —
 for every corpus program, loading rows directly and loading the datom
 batch yield `=` `:program`; a full `parity_test` run with the walker on
 rows. Size: a day.
@@ -507,8 +531,9 @@ corpus tree and vector on all three hosts; a metadata-bearing literal
 either round-trips or is refused before the write. Size: two days once the
 backend question is settled; unbounded until it is.
 
-**U11 — the observer row lane (D2).** `program-loaders` switched per D2;
-the encoder observer as a `run-on-stream` consumer that projects each
+**U11 — the observer row lane.** For compositions that want a compiler +
+semantic VM attached: `program-loaders` gains a row-fed option; the
+encoder observer as a `run-on-stream` consumer that projects each
 map-AST batch to rows and forwards; `test_utils/queue-ast!` gains a row
 twin; `semantic_stream_observer_test` over rows; the REPL's
 `eval-ast` path (`repl/v2/core.cljc:444-449`) stops calling `ast->datoms`
@@ -562,16 +587,17 @@ Phase 0 ─┬─ U1 ───────────────────�
          │             └─ (U7 needs U2) ──── │  │
          └─ U7 ─────────────────────────────┘  │
                                                │
-D1 ── U8 ── U9 (needs U4, U5) ─────────────────┤
+U8 (done) ── U9 (needs U4, U5) ─────────────────┤
 D3 + dao.jing metadata fix ── U10 ─────────────┤
-D2 ── U11 (needs U3, U4, U5) ──────────────────┘
+U11 (needs U3, U4, U5; D2 dissolved) ──────────┘
 D6 ── U12 ── U13 ── U14 (needs U7)
 D4 ── U15 (needs U4)
 D5 ── U16 (needs U15; macro.md Phase 1 first)
 ```
 
-Phase 1 needs no decision. D1 and D6 are approvals of text the plan can
-draft; D2, D3, D4, D5 are choices among stated options.
+Phase 1 needs no decision. D1 is answered and done; D2 is dissolved, not
+answered; D6 is an approval of text the plan can draft; D3, D4, D5 remain
+choices among stated options.
 
 ## Completion criteria
 
@@ -606,13 +632,14 @@ storage, and no wiring change in the REPL. That is deliberately the
 subset the design has settled to the line: §2, §3, §5.1, §5.3, §6, §7.1–7.5,
 §7.7's syntactic queries, and the §4.5 occurrence rules.
 
-**What waits, and on whom.** Five decisions, all the owner's, gate the
-rest, and the plan drafts what it can for each:
+**What waits, and on whom.** Three decisions remain, plus one resolved
+answer and one dissolved question, and the plan drafts what it can for
+each:
 
 | decision | gates | can be drafted by the plan | needs the owner for |
 |---|---|---|---|
 | ~~D1 profile publication~~ | ~~U8, U9~~ | done | **answered 2026-09-18**: publish now, in `yin.vm.code-as-tuples.md`; one-segment-per-lambda left for a future `"ast-to-bytecode-v2"` |
-| D2 walker medium | U11 | default stated | choosing among three topologies |
+| ~~D2 walker medium~~ | ~~U11~~ | n/a | **dissolved 2026-09-18**: the "three topologies" framing assumed a mandatory pipeline shape that `dao.stream.md`'s payload-agnostic contract never requires; every observer on the map-AST stream is an independent, optional, per-composition attachment. Nothing to choose. |
 | D3 row storage grain | U10 | default stated | choosing; the `dao.jing` metadata fix |
 | D4 medium and batch coordinates | U15, U16, U4's provenance meaning | the medium half | the batch half, which touches `dao.stream.md`'s cursor rules |
 | D5 expander datom-native vs row-native | U16 | default stated | choosing |
@@ -627,9 +654,9 @@ its four decisions land. Phase 1 is three weeks and is the only part where
 the estimate is tight.
 
 **Sequencing recommendation, one line:** land U1 and U2 this week, run U3
-and U4 as parallel lanes with U5 behind U4, put D1 and D2 in front of the
-owner now so U8 and U11 can follow Phase 1 without a gap, and do not open
-Phase 3 until UCF is in git.
+and U4 as parallel lanes with U5 behind U4 — U8 is already done and U11
+no longer waits on a decision, so neither creates a gap after Phase 1 —
+and do not open Phase 3 until UCF is in git.
 
 ## Risk and scope boundaries
 
@@ -702,3 +729,20 @@ telemetry or trace vocabulary; anything in the v1 lineage, which is gone.
   phases plus Phase 0; six decisions, of which four have stated defaults.
   Found one open question the design does not carry in §10 (D3, storage
   grain) and one topology ambiguity between §7.1 and §6.1/§9.1 (D2).
+- **2026-09-18, owner decisions D1 and D2.** D1 answered: publish
+  `"ast-to-bytecode"` now, as a section in `yin.vm.code-as-tuples.md`
+  itself; U8 executed in full (§5.2.1 profile publication plus the full
+  `yin.vm.semantic.md` amendment, including all four documentation
+  drifts and the `"v2"` contract revision history UCF §7.11 asked for).
+  D2 **dissolved, not answered**: the r1 draft's "three topologies"
+  framing wrongly assumed the ast-walker, an Encoder Observer, and the
+  semantic VM must be wired into one fixed, design-time pipeline shape.
+  `dao.stream.md`'s payload-agnostic contract ("a stream carries values
+  and decides nothing about them") never requires this — every observer
+  on the map-AST stream is an independent, optional, per-composition
+  attachment, and the ast-walker and semantic VM were never symmetric
+  peers requiring a shared topology in the first place (they don't
+  observe the same stream; a compiler is what connects them, itself
+  another optional observer). §7.1 and §6.1/§9.1 were never contradictory;
+  each describes a different, equally legal composition. U11 no longer
+  waits on a decision — it proceeds once U3, U4, U5 are ready.
