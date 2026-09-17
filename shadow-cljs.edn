@@ -19,10 +19,6 @@
                  :output-to "target/node-tests.js"
                  :autorun true}
 
-          :bench {:target :node-script
-                  :main dao.stream-bench/-main
-                  :output-to "target/bench.js"}
-
           :vm-bench {:target :node-script
                      :main bench.yin-vm-v2-bench/-main
                      :output-to "target/vm-bench.js"}
@@ -33,5 +29,4 @@
 
           :yin-repl-v2 {:target :node-script
                         :main yin.repl.v2/-main
-                        :output-to "target/yin-repl-v2.js"}
-}}
+                        :output-to "target/yin-repl-v2.js"}}}
