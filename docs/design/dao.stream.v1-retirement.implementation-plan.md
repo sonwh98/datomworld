@@ -242,10 +242,11 @@ Deletion set: the two `.cljs` files, `public/telemetry-viewer.html`, the
 and render branch. `telemetry-ui-design.md`'s status note gains one line
 saying the viewer is gone too.
 
-### D2 — `agent.tzu` and `agent.tools` are deleted [J — owner decision]
+### D2 — `agent.tzu` and `agent.tools` are deleted [Owner: delete, 2026-09-17]
 
-**Owner decision needed before U2.** The recommendation is deletion; the
-alternative is recorded so it is a choice and not a default.
+**Answered.** The owner chose deletion, the recommendation below, over
+keeping a v2-seed subset of `agent.tools`' stream tools with no consumer
+until the harness exists. U2 may proceed on this half.
 
 Verified: `agent.tzu` is required by nothing under `src/` or `bin/`; it is
 reachable only through the `:atzu` alias (`deps.edn:85`), its own `-main`
@@ -290,11 +291,14 @@ cursor tokens and no file/http tools, as a seed for the harness — a small
 unit, but one with no consumer until the harness exists, which is the
 "deliverable by silence" the runtime plan refused to invent.
 
-### D3 — the `yin.module` family is deleted; no v2 file transport is built here [J — owner decision]
+### D3 — the `yin.module` family is deleted; no v2 file transport is built here [Owner: delete, 2026-09-17]
 
-**Owner decision needed before U2**, because it retires a *capability*
-(Yin programs opening files through `(yin.io/file …)` effects) and not only
-code — even though nothing can exercise the capability today.
+**Answered.** The owner chose deletion, the recommendation below, over
+designing a v2 `io` module and file transport now. This retires the
+capability (Yin programs opening files through `(yin.io/file …)` effects)
+with no v2 replacement owed by this plan — a future `io` module, if
+wanted, is its own plan against a v2 file transport nobody has designed.
+U2 may proceed on this half.
 
 Verified in *What the brief got wrong*: the registry `yin.io.*` and
 `yin.stream` write into has no reader since the v1 VM went; the v2 VM's
@@ -471,13 +475,14 @@ three hosts on the v2 wire, and `yin.repl.v2 --port --headless` with the
 browser client is the same demonstration a visitor can run. Rebuilding a
 third copy on `dao.stream.v2.apply` would be a fourth v2 RPC demo.
 
-### D7 — one deletion commit, then one rename commit; the wire-keyword question is the owner's [J — owner decision on the second half]
+### D7 — one deletion commit, then one rename commit; the wire-keyword question is the owner's [second half answered: clean break, 2026-09-17]
 
-U1 lands today as independent commits. U2 lands when the owner answers D2
-and D3. U3 and U4 each land as their own commit with v1 still present and
-every lane green. U5 lands per demo pair after both. U6 is one atomic
-commit: the delete list, the config edits, the prose. Splitting U6 would
-leave a commit where a test requires a deleted namespace.
+U1 lands today as independent commits. U2 is unblocked: the owner answered
+D2 and D3, both deletion. U3 and U4 each land as their own commit with v1
+still present and every lane green. U5 lands per demo pair after both. U6
+is one atomic commit: the delete list, the config edits, the prose.
+Splitting U6 would leave a commit where a test requires a deleted
+namespace.
 
 U7 — the rename wave — is its own commit after U6, and it is bigger than
 "only requires change" (R4's phrasing) suggests. Ninety-nine files under
@@ -489,14 +494,13 @@ and RPC protocols put the namespace in their **wire keywords**
 `rpc.cljc:21-25`; `:dao.stream.v2.rpc.ws/malformed-envelope`), and the ws
 transport names its subprotocol `"dao.stream.v2.transit-json"` (`ws.cljc:15`).
 `dao.await.v2` registers module bindings under `'dao.await.v2`, which is
-what a Yin program writes. **Owner decision:** rename the wire vocabulary
-with the namespaces (a clean break, correct while nothing outside this tree
-speaks the wire) or keep the `v2` inside the keywords and the subprotocol
-string as a frozen protocol version while the namespaces drop it. The
-recommendation is the clean break, taken in the same commit, with the
-conformance and R5 slice suites as the proof that both peers moved. Either
-way U7 is a namespace-and-string sweep, not a redesign, and it needs no
-document beyond this section.
+what a Yin program writes. **Answered:** the owner chose the clean break —
+rename the wire vocabulary with the namespaces, correct while nothing
+outside this tree speaks the wire — over freezing the `v2` inside the
+keywords and the subprotocol string as a protocol-version marker. Taken in
+the same U7 commit, with the conformance and R5 slice suites as the proof
+that both peers moved. U7 is a namespace-and-string sweep, not a redesign,
+and it needs no document beyond this section.
 
 ### D8 — v1 design documents get status notes, not rewrites
 
@@ -534,7 +538,9 @@ HTTP transport is owed to nobody until a consumer asks.
    `:yin/tail?` attribute and not the ring-buffer function. After U3,
    `put-frame!` is a v2 name by D4 and its hits are census rows, not v1;
    `bind-stream!` must return nothing after U3.
-2. Record the owner's answers to D2, D3 and D7's second half in this document.
+2. ~~Record the owner's answers to D2, D3 and D7's second half in this
+   document.~~ Done 2026-09-17: all three answered deletion/clean break,
+   recorded in place in D2, D3, D7.
 3. Confirm the two manual surfaces still run before anything moves: the
    Flutter picker's *Artifact*, *Solar System*, *Earth/Moon*, *Voxel*,
    *dao.gui Prototype* entries, and the browser `#artifact`, `#solar-system`,
@@ -830,7 +836,7 @@ D2); a readiness extension; stream discovery.
 
 | owed | by | recorded where |
 |---|---|---|
-| the owner's answers on D2 (delete `agent.*` vs. keep a v2 `agent.tools` seed), D3 (delete the `yin.module` family vs. design an `io` module on a v2 file transport), and D7 (rename wire keywords vs. freeze them) | the owner, before U2 and U7 | Phase 0 item 2 |
+| ~~the owner's answers on D2, D3, D7~~ — answered 2026-09-17: delete, delete, clean break | — | D2, D3, D7 |
 | a Yin-native agent over the harness, replacing `agent.tzu` | `agent.harness.md`'s plan | D2 |
 | an `io` module for `yin.vm.v2.module` over a v2 file transport, if wanted | its own plan, not written | D3 |
 | v2 telemetry emission and a viewer on the v2 wire | `yin.vm.v2.telemetry.implementation-plan.md`, not written | D1; VM plan D2 |
@@ -866,3 +872,7 @@ D2); a readiness extension; stream discovery.
   — `put-frame!`, added above, already does); all added, with their v2
   docstring non-hits listed.
   No other section changed.
+- **2026-09-17, owner decisions recorded.** D2, D3, and D7's second half
+  answered: delete `agent.tzu`/`agent.tools`, delete the `yin.module`
+  family, clean-break the wire keywords in U7. U2 is unblocked; only U1's
+  own criteria (Phase 0's sweeps) remain before execution starts.
