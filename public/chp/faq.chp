@@ -30,8 +30,8 @@
            [:summary "What is a datom, and what is a tuple?"]
            [:div
             [:p
-             "A tuple is an element of any dimension/size in the moduli space. A datom is specifically the canonical persistent five-tuple [e a v t m]: entity, attribute, value, transaction ID, metadata entity ID. It is an immutable fact, not an object. "
-             "The t is monotonic within its stream, not globally ordered. The m references an entity carrying causal relationships, encryption context, or expansion provenance, and is used to establish causality across streams (since t has no meaning outside its originating stream). "
+             "A tuple is an element of any dimension/size in the moduli space. A datom is specifically the canonical persistent five-tuple [e a v t m]: entity, attribute, value, transaction ID, metadata ID. It is an immutable fact, not an object. "
+             "The t is monotonic within its stream, not globally ordered. The m is always an integer: reserved low IDs are validity markers, and IDs 16 and above reference stream-local metadata entities that carry causal relationships, encryption context, or expansion provenance. This is how causality is established across streams, since t has no meaning outside its originating stream. "
              "When you transact a map, it decomposes into datoms automatically. See "
              [:a {:href "/dao-space.chp"} "DaoSpace"]
              " for how datoms are indexed and queried, and "
@@ -51,7 +51,7 @@
            [:div
             [:p
              "A continuation is a first-class bookmark into an execution. In Yin, functions, closures, coroutines, exceptions, and async tasks all reduce to continuation manipulation. "
-             "Because continuations are persistent data structures, they serialize to datoms, travel through streams, and resume on a different device with full context intact. "
+             "Because continuations are persistent data structures, a VM state can pause and resume locally as a value. Cross-device migration is the design target of the Universal Continuation Format (UCF): a lifted continuation travels through streams and resumes on a different device with full context intact. Portable heterogeneous migration is not yet complete. "
              "See "
              [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Continuations as Universal Semantic Kernel"]
              " and "
@@ -70,7 +70,7 @@
            [:div
             [:p
              "Privacy is the default. Each datom can bundle access rules, key material, expiration, and audit trails. Encryption happens before transmission, so only authorized peers can interpret the facts they receive. "
-             "Execution safety rides on Yin acting as the universal security container: like Docker, WASM, or the JVM, Yin sandboxes code so untrusted continuations can run on your hardware without escaping, and your datoms can execute on someone else's node without them peering into the VM."]]]
+             "Execution safety: Yin is designed around explicit primitives and stream-mediated effects, providing the basis for constrained execution. Full portable untrusted-code enforcement remains under development."]]]
           [:details.faq
            [:summary "What can I build?"]
            [:div
@@ -92,14 +92,14 @@
            [:div
             [:p
              "Neither. The project is written in portable Clojure (.cljc), and Clojure is one of the surface syntaxes you can write programs in. "
-             "Yang's yang.clojure frontend reads ordinary Clojure s-expressions and lowers them into the Universal AST, which is a graph of datoms. Yin then evaluates that AST. "
-             "Clojure is a source language. Datoms are the canonical form. The JVM (or Node, or Dart) is the host."]]]
+             "Yang's yang.clojure frontend reads ordinary Clojure s-expressions and lowers them into the Universal AST, which lowers in turn into flat content-addressed code rows. Yin then executes the resulting instruction vector. "
+             "Clojure is a source language. Content-addressed code is the canonical form of programs, and datoms name and version it. The JVM (or Node, or Dart) is the host."]]]
           [:details.faq
            [:summary "How does this relate to Datomic?"]
            [:div
             [:p
              "Datom.World inherits the datom idea from Datomic and generalizes it. First, the transaction ID t is stream-scoped, not globally ordered. Cross-stream causality lives in the metadata slot m. "
-             "Second, the canonical d5 datom can represent persistent AST, bytecode, execution, schema, and provenance facts, while other tuple dimensions remain available when an interpreter needs them. "
+             "Second, the canonical d5 datom remains canonical for persistent facts and the reference/ledger layer, while code uses other tuple dimensions and is joined to datoms by content address. "
              "Third, while Datomic queries its fixed datom shape, Datom.World allows n-dimensional tuples and keeps their meaning in the interpreter. "
              [:a {:href "/dao-space.chp"} "DaoSpace"]
              " is the exact associative tuple-space point, not the whole family. See "
@@ -140,11 +140,7 @@
              ", a portable REPL that evaluates Clojure, Python, or PHP source through Yang into Yin. "
              "You can switch VMs at the prompt with "
              [:code "(vm :semantic)"]
-             ", "
-             [:code "(vm :register)"]
-             ", "
-             [:code "(vm :stack)"]
-             ", or "
+             " or "
              [:code "(vm :ast-walker)"]
              ", switch languages with "
              [:code "(lang :clojure)"]
@@ -164,8 +160,8 @@
            [:summary "What about macros? Clojure macros are source-to-source."]
            [:div
             [:p
-             "Macros still work, but because the AST is a datom stream rather than a nested form, expansion is a transaction on the stream. "
-             "Each macro has a "
+             "Macros still work, but because code is stored as flat content-addressed rows rather than a nested form, the expansion protocol for the row substrate is planned rather than shipped. "
+             "The planned protocol gives each macro a "
              [:code ":yin/phase-policy"]
              " of "
              [:code ":compile"]
@@ -174,9 +170,7 @@
              ", or "
              [:code ":both"]
              ", so the same mechanism covers compile-time expansion and first-class runtime rewrite. "
-             "Provenance is tracked: every expansion writes a "
-             [:code ":macro-expand-event"]
-             " entity, and generated datoms reference that event through their m field. You can query back to the original source. See "
+             "Rows are content without t or m, so provenance will live in the ledger: expansion events are datoms referencing the content addresses involved, and you can query back to the original source. See "
              [:a {:href "/blog/yin-vm-macros.blog"} "Yin.vm Macros"]
              "."]]]
           [:details.faq
@@ -240,26 +234,32 @@
              [:a {:href "/dao-space.chp"} "DaoSpace"]
              "."]]]
           [:details.faq
-           [:summary "Datomic uses [e a v t op] where op is true for assertions and false for retractions. Datom.World uses [e a v t m] with no op. How is retraction handled?"]
+           [:summary "Datomic uses [e a v t op] where op is true for assertions and false for retractions. How does Datom.World's [e a v t m] handle retraction?"]
            [:div
             [:p
-             "Datom.World does not encode polarity in the datom. A datom is pure fact; there is no \"false datom\". Retraction is a "
-             [:strong "transaction operation"]
-             ", not a flag on the datom."]
+             "Polarity lives in the metadata slot itself: "
+             [:code "m"]
+             " directly carries the validity marker. The reserved id "
+             [:code "0"]
+             " marks a retraction and "
+             [:code "1"]
+             " an assertion, mirroring and extending Datomic's "
+             [:code "added"]
+             " boolean."]
             [:p
              "The transaction log records each committed tx as a "
              [:code "[t added retracted]"]
-             " entry: the set of datoms that were added and the set that were retracted at that t. Indexes (EAVT, AEVT, AVET, VAET, MEAT) remove retracted datoms so queries see the current view; the log retains the full history for time-travel and audit."]
+             " entry: the set of datoms that were added and the set that were retracted at that t. The query fold removes datoms carrying the retract marker, and indexes (EAVT, AEVT, AVET, VAET, MEAVT) present the current view; the log retains the full history for time-travel and audit."]
             [:p
-             "The effect is a cleaner separation of concerns than Datomic's fused "
+             "The difference from Datomic's fused "
              [:code "op"]
-             ": the datom carries the fact, the transaction carries the change, and the metadata field m carries cross-stream causality and provenance. None of the three overload the others."]]]
+             " is range, not presence: the low reserved m ids are validity markers, while m ids 16 and above reference metadata entities that carry cross-stream causality and provenance. The datom carries the fact; its m says whether it is live; the metadata entity says why."]]]
           [:details.faq
            [:summary "What does the metadata field m carry?"]
            [:div
             [:p
-             "m references an entity. That entity can carry causal predecessors, encryption context, capability requirements, macroexpansion provenance, branch identity, or any domain-specific context. "
-             "Because m itself is a datom pointer, meta can be queried like any other data."]]]
+             "m is always an integer. Reserved low ids are validity markers, not entity references: 0 is retract, 1 assert, 2 derived. Ids 16 and above reference stream-local metadata entities, which can carry causal predecessors, encryption context, capability requirements, macroexpansion provenance, branch identity, or any domain-specific context. "
+             "Because a metadata entity is itself stored as datoms, meta can be queried like any other data."]]]
           [:details.faq
            [:summary "Are DaoStreams like pi-calculus channels?"]
            [:div
@@ -276,8 +276,9 @@
            [:summary "How is data serialized on the wire?"]
            [:div
             [:p
-             "The canonical form is the datom itself. EDN is used for human-readable interchange, and transit-flavored encodings carry datoms across transports efficiently. "
-             "The underlying claim is that datoms canonicalize and EDN serializes. The fact stream is authoritative; the byte encoding is a projection."]]]]]]
+             "Each layer has its own canonical form, and wire encodings are projections of it. Persistent facts are datoms [e a v t m]. AST code is flat, content-addressed per-node rows. Executable code is a positional instruction vector. A paused execution is a UCF continuation value."]
+            [:p
+             "On the wire, EDN is used for human-readable interchange, and transit-flavored encodings carry values across transports efficiently. The fact stream is authoritative; the byte encoding is a projection."]]]]]]
 
        [:section.section-dark
         [:div.section-inner
@@ -289,7 +290,7 @@
            [:summary "What is Yin?"]
            [:div
             [:p
-             "Yin is a universal continuation machine. It evaluates programs represented as datom-stream ASTs, and its execution state is a persistent CESK record (Control, Environment, Store, Kontinuation). "
+             "Yin is a universal continuation machine. It evaluates programs by executing a decoded positional instruction image, and its execution state is a persistent CESK record (Control, Environment, Store, Kontinuation). "
              "Because state is a value, you can snapshot, serialize, migrate, fork, and resume VMs cheaply. See "
              [:a {:href "/yin.chp"} "Yin"]
              " and "
@@ -300,7 +301,7 @@
            [:div
             [:p
              "The JVM hides runtime state behind bytecode. The EVM prices computation but limits introspection. Yin reifies continuations as data. "
-             "That single change enables distributed execution, dynamic transformation, zero-copy migration, and queries over the running program itself."]]]
+             "That single change is the basis for distributed execution, dynamic transformation, and queries over the running program itself; zero-copy cross-device migration is the UCF design target rather than a completed feature."]]]
           
           [:details.faq
            [:summary "If a running program (a continuation) is saved to the database and moved to a completely different machine, do the internal memory IDs clash? Do I have to manually rewrite them ('parallel transport')?"]
@@ -313,8 +314,8 @@
            [:summary "There are several VMs. Why?"]
            [:div
             [:p
-             "Four backends explore the same AST-as-datoms abstraction under different execution strategies: Semantic (interprets datoms directly), Register (compiles datoms to register bytecode), Stack (compiles to stack bytecode), and AST Walker (walks the AST tree). "
-             "They exist partly for research and partly so a deployment can pick a trade-off point. See "
+             "Historically, four backends explored the AST-as-datoms abstraction under different execution strategies: Semantic (interpreted datoms directly), Register (compiled datoms to register bytecode), Stack (compiled to stack bytecode), and AST Walker (walked the AST tree). "
+             "That EAVTM/four-VM design is retired; Register and Stack are gone. Today the Semantic VM executes a decoded positional instruction image — it does not query datoms in its hot loop — and the AST Walker remains as a reference interpreter. See "
              [:a {:href "/blog/a-tale-of-four-vm-benchmarks.blog"} "A Tale of Four VM Benchmarks"]
              "."]]]
           [:details.faq
@@ -330,7 +331,7 @@
            [:summary "How does the Universal AST relate to datoms?"]
            [:div
             [:p
-             "The AST is not a separate representation; it is a construction from datoms. Programs are stored as datom streams, and the AST is the materialized view when you ask for it. "
+             "The layering runs AST → flat rows → instruction vector → datoms. The AST lowers into flat, content-addressed per-node rows; the rows assemble into the positional instruction vector the VM executes; and datoms are the reference/ledger layer that names, versions, and publishes code by content address. "
              "Code becomes queryable data: find every function that calls a given API, trace dependencies, rewrite programs with the same tools you query a database. "
              "See "
              [:a {:href "/blog/ast-higher-dimensional-datom-streams.blog"} "AST as Higher-Dimensional Construction of Datom Streams"]
@@ -349,7 +350,7 @@
             [:p
              "Agents "
              [:em "are"]
-             " continuations. There is no separate agent abstraction. An agent is a serializable execution state that can pause, migrate, and resume with its full context. "
+             " continuations. There is no separate agent abstraction. An agent is a serializable execution state that can pause and resume locally with its full context; cross-device migration is the UCF design target. "
              "Mobility, security, and computation merge into a single primitive. See "
              [:a {:href "/blog/agents.blog"} "Agents"]
              "."]]]
@@ -371,18 +372,18 @@
           "The honest numbers."]
          [:div.faq-grid
           [:details.faq {:open true}
-           [:summary "What does AST-as-datoms cost at runtime?"]
+           [:summary "What does queryable tuple code cost?"]
            [:div
             [:p
-             "Semantic bytecode (generating unique node IDs and datom triples for every construct) is roughly four to eleven times slower to compile than opaque bytecode, and one to seven times slower to execute, depending on host (JVM, Node, Dart). "
-             "What you get for the cost is introspection: a running program is queryable by the same tools that query your database. See "
+             "The published figures — semantic bytecode (unique node IDs and datom triples for every construct) roughly four to eleven times slower to compile than opaque bytecode, and one to seven times slower to execute, depending on host (JVM, Node, Dart) — are historical measurements of the retired EAVTM/four-VM design. "
+             "The current Semantic VM executes a decoded positional instruction image and does not query datoms in its hot loop. What the tuple substrate still buys is introspection: a running program is queryable by the same tools that query your database. See "
              [:a {:href "/blog/semantic-bytecode-benchmarks.blog"} "Semantic Bytecode Benchmarks"]
              "."]]]
           [:details.faq
-           [:summary "Which of the four VMs is fastest?"]
+           [:summary "Which of the four VMs was fastest?"]
            [:div
             [:p
-             "On the current benchmarks, the Register VM leads, followed by Stack, then Semantic, then AST Walker. The Semantic VM (the one that interprets datoms directly, with no bytecode pass) is about 50 percent faster than the AST Walker after optimization, which was not the original prediction. "
+             "Those rankings are historical measurements of the retired EAVTM/four-VM design: Register led, followed by Stack, then Semantic, then AST Walker, and the Semantic VM was about 50 percent faster than the AST Walker after optimization, which was not the original prediction. Register and Stack have since been retired. The surviving Semantic VM executes a decoded positional instruction image; it does not interpret datoms directly. "
              "See "
              [:a {:href "/blog/a-tale-of-four-vm-benchmarks.blog"} "A Tale of Four VM Benchmarks"]
              " and "
