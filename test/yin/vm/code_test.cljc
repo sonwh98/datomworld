@@ -1,7 +1,8 @@
 (ns yin.vm.code-test
   (:require [clojure.test :refer [deftest is testing]]
             [dao.datom :as datom]
-            [yin.vm.code :as code]))
+            [yin.vm.code :as code]
+            [yin.vm.malformed-rows :as malformed]))
 
 
 ;; =============================================================================
@@ -274,3 +275,82 @@
   (testing "A negative ffi-call argc is named"
     (is (= (defect :negative-argc (eid 0))
            (code/well-formed? (ffi-segment -1))))))
+
+
+;; =============================================================================
+;; §7.5: the canonical instruction vector
+;; =============================================================================
+
+(def ^:private worked-vector
+  "`((fn [x] (+ x 1)) 10)`, the §2.7 segment as the canonical instruction
+   vector of UCF §7.3.2."
+  [[:closure '[x] 6] [:push] [:const 10] [:push] [:call 1 false] [:halt]
+   [:var '+] [:push] [:var 'x] [:push] [:const 1] [:push] [:call 2 true]
+   [:return]])
+
+
+(def ^:private branching-vector
+  "`(if true 1 2)` in the §5.3 shape: pc 4 falls into the labelled pc 5."
+  [[:const true] [:branch-false 4] [:const 1] [:jump 5] [:const 2] [:halt]])
+
+
+(def ^:private ffi-vector
+  [[:ffi-call :op/echo 0] [:halt]])
+
+
+(deftest well-formed-vectors-test
+  (testing "Passing: the §2.7 worked example, a branch, an ffi-call"
+    (is (nil? (code/well-formed-vector? worked-vector)))
+    (is (nil? (code/well-formed-vector? branching-vector)))
+    (is (nil? (code/well-formed-vector? ffi-vector))))
+  (testing "The published malformed set: one entry per rule, naming the pc"
+    (doseq [[name [expected v]] malformed/malformed-vectors]
+      (testing name
+        (is (= expected (code/well-formed-vector? v)))))))
+
+
+(deftest vector-rules-test
+  (testing ":nonempty names pc 0 for anything a pc cannot index"
+    (doseq [v [nil [] {:a 1}]]
+      (is (= {:rule :nonempty, :pc 0} (code/well-formed-vector? v)))))
+  (testing ":mnemonic names an empty tuple or a non-tuple element"
+    (is (= {:rule :mnemonic, :pc 1} (code/well-formed-vector? [[:halt] []])))
+    (is (= {:rule :mnemonic, :pc 0} (code/well-formed-vector? [:const]))))
+  (testing ":operand-kind judges each kind §7.5 names"
+    (doseq [t [[:const (fn [])]
+               [:store-get (fn [])]
+               [:store-put :k (fn [])]
+               [:var "x"]
+               [:closure ["x"] 1]
+               [:ffi-call "op" 0]
+               [:resume "p"]
+               [:gensym 5]]]
+      (is (= {:rule :operand-kind, :pc 0}
+             (code/well-formed-vector? [t [:halt]]))
+          (pr-str t))))
+  (testing ":saturation is a nil saturated operand, past :operand-kind"
+    (doseq [t [[:gensym nil] [:stream-make nil] [:call 1 nil]
+               [:ffi-call :op/echo nil]]]
+      (is (= {:rule :saturation, :pc 0}
+             (code/well-formed-vector? [t [:halt]]))
+          (pr-str t))))
+  (testing ":target-bounds: non-integer, negative, at-or-past length"
+    (doseq [t [[:jump :k] [:jump -1] [:jump 2] [:branch-false 2]
+               [:closure [] 2]]]
+      (is (= {:rule :target-bounds, :pc 0}
+             (code/well-formed-vector? [t [:halt]]))
+          (pr-str t))))
+  (testing ":terminator names the last pc; a branch is no terminator"
+    (is (= {:rule :terminator, :pc 1}
+           (code/well-formed-vector? [[:const 1] [:push]])))
+    (is (= {:rule :terminator, :pc 1}
+           (code/well-formed-vector? [[:const false] [:branch-false 0]]))))
+  (testing ":argc is the :uint operand, nil included"
+    (doseq [t [[:call nil false] [:call "1" false] [:ffi-call :op/echo -1]]]
+      (is (= {:rule :argc, :pc 0} (code/well-formed-vector? [t [:halt]]))
+          (pr-str t))))
+  (testing "rules run rule-major: the first rule with a defect anywhere wins"
+    (is (= {:rule :mnemonic, :pc 1}
+           (code/well-formed-vector? [[:var "x"] [:frobnicate]]))
+        "not :operand-kind at pc 0 — rule 2 runs before rule 4, and rule 4
+          assumes it held")))

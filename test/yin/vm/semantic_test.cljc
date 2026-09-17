@@ -8,8 +8,10 @@
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [dao.datom :as datom]
+            [dao.jing :as jing]
             [dao.stream :as stream]
             [yin.vm :as vm]
+            [yin.vm.malformed-rows :as malformed]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
@@ -133,6 +135,101 @@
             #?(:clj Exception :cljs js/Error :cljd Object)
             #"missing-terminator"
             (semantic/vm-load-program (make-vm) bad))))))
+
+
+(deftest load-image-verifies-a-claimed-address-test
+  (let [v [[:const 7] [:halt]]
+        hashed-batch (fn [hash]
+                       (assemble (entity-datoms
+                                   seg [[:yin.code/type :segment]
+                                        [:yin.code/length 2]
+                                        [:yin.code/hash hash]])
+                                 (instruction 0 :const :yin.code/value 7)
+                                 (instruction 1 :halt)))]
+    (testing "A batch earning its claim records the address (§2.2)"
+      (is (= (jing/segment-key v)
+             (:address (semantic/load-image
+                         (hashed-batch (jing/segment-key v)))))))
+    (testing "A false claim is a mismatch defect on both loaders, so the
+              alias column is never poisoned"
+      (let [tampered (hashed-batch :segment/sha256-fake)
+            refuse (fn [load]
+                     (try (load) nil
+                          (catch #?(:clj Exception :cljs js/Error :cljd Object)
+                                 e
+                            (:defect (ex-data e)))))]
+        (is (= {:rule :hash-mismatch, :entity seg}
+               (refuse #(semantic/load-image tampered))))
+        (is (= {:rule :hash-mismatch, :entity seg}
+               (refuse #(semantic/vm-load-program (make-vm) tampered))))))))
+
+
+;; =============================================================================
+;; §7.1 direct path: the canonical instruction vector (U5)
+;; =============================================================================
+
+(def ^:private worked-vector
+  "`((fn [x] (+ x 1)) 10)` as the canonical instruction vector of UCF
+   §7.3.2 — `lower-rows` output for the §2.7 segment."
+  [[:closure '[x] 6] [:push] [:const 10] [:push] [:call 1 false] [:halt]
+   [:var '+] [:push] [:var 'x] [:push] [:const 1] [:push] [:call 2 true]
+   [:return]])
+
+
+(deftest load-vector-decodes-and-aliases-test
+  (let [vm (semantic/load-vector (make-vm) worked-vector)
+        image (get-in vm [:code (:program vm)])]
+    (testing "A fresh local id below the empty floor; the address aliases it"
+      (is (= -1 (:program vm)))
+      (is (= {(jing/segment-key worked-vector) -1} (:code-aliases vm)))
+      (is (= (jing/segment-key worked-vector) (:address image))))
+    (testing "The image is load-image's, [:call argc tail?] folded"
+      (let [datom-image (semantic/load-image (worked-segment))]
+        (is (= (:code datom-image) (:code image)))
+        (is (= (:length datom-image) (:length image)))))
+    (testing "Control enters at pc 0 and the machine runs"
+      (is (= {:segment -1, :pc 0} (vm/control vm)))
+      (is (= 11 (vm/value (vm/run vm)))))))
+
+
+(deftest load-vector-mints-below-the-loaded-floor-test
+  (let [vm (-> (make-vm)
+               (semantic/load-vector worked-vector)
+               (semantic/load-vector [[:const 7] [:halt]]))]
+    (is (= #{-1 -16} (set (keys (:code vm)))))
+    (is (= -16 (:program vm)))
+    (is (= 7 (vm/value (vm/run vm))))
+    (testing "The same address reloads under its aliased id"
+      (let [vm' (semantic/load-vector vm worked-vector)]
+        (is (= 2 (count (:code vm'))))
+        (is (= -1 (:program vm')))))))
+
+
+(deftest load-vector-refuses-malformed-vectors-test
+  (doseq [[name [expected v]] malformed/malformed-vectors]
+    (testing name
+      (let [e (try (semantic/load-vector (make-vm) v)
+                   nil
+                   (catch #?(:clj Exception :cljs js/Error :cljd Object) e
+                     e))]
+        (is (= expected (:defect (ex-data e))))))))
+
+
+(deftest live-id-conflict-fires-on-the-direct-path-test
+  (let [other [[:const 7] [:halt]]]
+    (testing "An :id claim over a live id is a load error"
+      (is (= {:segment -9}
+             (try (-> (make-vm)
+                      (semantic/load-vector worked-vector {:id -9})
+                      (semantic/load-vector other {:id -9}))
+                  nil
+                  (catch #?(:clj Exception :cljs js/Error :cljd Object) e
+                    (select-keys (ex-data e) [:segment]))))))
+    (testing "An identical reload is accepted"
+      (let [vm (-> (make-vm)
+                   (semantic/load-vector worked-vector {:id -9})
+                   (semantic/load-vector worked-vector {:id -9}))]
+        (is (= 1 (count (:code vm))))))))
 
 
 ;; =============================================================================

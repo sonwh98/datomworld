@@ -6,7 +6,13 @@
    (`docs/design/yin.vm.semantic.md` §2). This namespace judges the shape of a
    batch and nothing else. Decoding it into an image and executing that image
    belong to the semantic VM; the mnemonic-to-opcode mapping is the loader's
-   interpretation, not a fact checked here.")
+   interpretation, not a fact checked here.
+
+   The same split holds one level up, for the canonical instruction vector of
+   UCF §7.3.2 (`docs/design/yin.vm.code-as-tuples.md` §7.5): the §7.5
+   validator lives here; decoding the vector into an image belongs to the
+   semantic VM."
+  (:require [yin.vm :as vm]))
 
 
 (def mnemonics
@@ -178,3 +184,201 @@
                :seg (first segments),
                :instructions instructions}]
     (some #(% batch) rules)))
+
+
+;; =============================================================================
+;; The canonical instruction vector (UCF §7.3.2, §7.5)
+;; =============================================================================
+
+(def vector-operand-table
+  "§2.4's operand table in UCF §7.3.2's positional form: mnemonic → ordered
+   `[attribute kind]` operands. Position `i` of a canonical tuple (from 1)
+   holds the operand entry `i-1` names; this one table drives the §7.5
+   validator's rules. Each kind names the
+   rule that judges it: `:data`, `:sym`, `:syms`, `:kw`, `:str`, `:bool`,
+   and `:buffer` belong to `:operand-kind` (a nil passes it and is
+   `:saturation`'s defect); `:pc` to `:target-bounds`; `:uint` to `:argc`."
+  {:const [[:yin.code/value :data]],
+   :var [[:yin.code/name :sym]],
+   :closure [[:yin.code/params :syms] [:yin.code/body :pc]],
+   :push [],
+   :call [[:yin.code/argc :uint] [:yin.code/tail? :bool]],
+   :return [],
+   :jump [[:yin.code/target :pc]],
+   :branch-false [[:yin.code/target :pc]],
+   :halt [],
+   :gensym [[:yin.code/prefix :str]],
+   :store-get [[:yin.code/key :data]],
+   :store-put [[:yin.code/key :data] [:yin.code/value :data]],
+   :stream-make [[:yin.code/buffer :buffer]],
+   :stream-put [],
+   :stream-cursor [],
+   :stream-next [],
+   :stream-close [],
+   :park [],
+   :resume [[:yin.code/parked-id :kw]],
+   :current-continuation [],
+   :ffi-call [[:yin.code/ffi-op :kw] [:yin.code/argc :uint]]})
+
+
+(def ^:private operand-kind-checks
+  "§7.5 :operand-kind — kind → predicate. Absent kinds (`:pc`, `:uint`) are
+   not judged by the rule: `:target-bounds` and `:argc` own them. A nil in
+   a saturated slot passes here; `:saturation` owns it, the §7.4 `:slot-kind`
+   precedent."
+  {:data vm/plain-data?,
+   :sym symbol?,
+   :syms (fn [x] (and (vector? x) (every? symbol? x))),
+   :kw keyword?,
+   :str (fn [x] (or (nil? x) (string? x))),
+   :bool (fn [x] (or (nil? x) (boolean? x))),
+   :buffer (fn [x] (or (nil? x) (count? x)))})
+
+
+(def ^:private saturated-operands
+  "§7.5 :saturation — the `[mnemonic index]` operands a canonical tuple
+   materializes (UCF §7.3.2); a nil in one of them is that rule's defect."
+  #{[:gensym 1] [:stream-make 1] [:call 2] [:ffi-call 2]})
+
+
+(defn- tuple-defect
+  [rule pc]
+  {:rule rule, :pc pc})
+
+
+(defn- mnemonic-of
+  "The mnemonic of one tuple, or nil when the element has no first element
+   that could be one. A tuple is a vector — UCF §7.3.2's positional form —
+   so a list element has no mnemonic."
+  [t]
+  (when (and (vector? t) (seq t))
+    (nth t 0)))
+
+
+(defn- tuple-kinds
+  "The operand kinds of one tuple's mnemonic, in tuple order."
+  [t]
+  (mapv second (get vector-operand-table (nth t 0))))
+
+
+;; Each rule below takes the whole vector and returns a defect or nil. Rules
+;; run in §7.5's order and the first defect wins, so a rule may assume every
+;; earlier one held — exactly as `rules` above runs over a batch.
+
+(defn- nonempty
+  "Rule 1. An empty vector names pc 0, where the first instruction belongs;
+   so does anything a pc cannot index: the canonical form is a vector
+   (UCF §7.3.2), so a list outer is not the form at any length."
+  [v]
+  (when-not (and (vector? v) (pos? (count v)))
+    (tuple-defect :nonempty 0)))
+
+
+(defn- mnemonic
+  "Rule 2."
+  [v]
+  (some (fn [pc]
+          (when-not (contains? mnemonics (mnemonic-of (nth v pc)))
+            (tuple-defect :mnemonic pc)))
+        (range (count v))))
+
+
+(defn- arity
+  "Rule 3. §2.4's operand table as saturated and made positional by UCF
+   §7.3.2: the mnemonic plus exactly its operands."
+  [v]
+  (some (fn [pc]
+          (let [t (nth v pc)]
+            (when-not (= (inc (count (get vector-operand-table (nth t 0))))
+                         (count t))
+              (tuple-defect :arity pc))))
+        (range (count v))))
+
+
+(defn- operand-kind
+  "Rule 4. An operand is judged only by the kind §7.5 gives it."
+  [v]
+  (some (fn [pc]
+          (let [t (nth v pc)
+                kinds (tuple-kinds t)]
+            (some (fn [i]
+                    (let [check (get operand-kind-checks (nth kinds (dec i)))]
+                      (when (and check (not (check (nth t i))))
+                        (tuple-defect :operand-kind pc))))
+                  (range 1 (count t)))))
+        (range (count v))))
+
+
+(defn- saturation
+  "Rule 5. A saturated operand is materialized in a canonical tuple; a nil
+   one names its pc."
+  [v]
+  (some (fn [pc]
+          (let [t (nth v pc)]
+            (when (some #(and (contains? saturated-operands [(nth t 0) %])
+                              (nil? (nth t %)))
+                        (range 1 (count t)))
+              (tuple-defect :saturation pc))))
+        (range (count v))))
+
+
+(defn- target-bounds
+  "Rule 6. A resolved pc must be an integer inside the segment."
+  [v]
+  (let [length (count v)]
+    (some (fn [pc]
+            (let [t (nth v pc)
+                  kinds (tuple-kinds t)]
+              (some (fn [i]
+                      (when (= :pc (nth kinds (dec i)))
+                        (let [x (nth t i)]
+                          (when-not (and (integer? x) (<= 0 x (dec length)))
+                            (tuple-defect :target-bounds pc)))))
+                    (range 1 (count t)))))
+          (range (count v)))))
+
+
+(defn- terminator
+  "Rule 7. Nothing labelled follows pc length-1, so the one instruction
+   that can violate the rule is the last."
+  [v]
+  (let [pc (dec (count v))]
+    (when-not (contains? terminators (mnemonic-of (nth v pc)))
+      (tuple-defect :terminator pc))))
+
+
+(defn- argc
+  "Rule 8. The :uint operands of `:call` and `:ffi-call`."
+  [v]
+  (some (fn [pc]
+          (let [t (nth v pc)
+                kinds (tuple-kinds t)]
+            (some (fn [i]
+                    (when (= :uint (nth kinds (dec i)))
+                      (when-not (count? (nth t i))
+                        (tuple-defect :argc pc))))
+                  (range 1 (count t)))))
+        (range (count v))))
+
+
+(def ^:private vector-rules
+  [nonempty mnemonic arity operand-kind saturation target-bounds terminator
+   argc])
+
+
+(defn well-formed-vector?
+  "Check one canonical instruction vector (UCF §7.3.2) against §7.5
+   (`docs/design/yin.vm.code-as-tuples.md`).
+
+   Returns nil when the vector is well formed, else the first defect as
+   `{:rule r :pc p}` — `:nonempty`, `:mnemonic`, `:arity`,
+   `:operand-kind`, `:saturation`, `:target-bounds`, `:terminator`, or
+   `:argc` — with p the offending pc (`:nonempty` names pc 0, where the
+   missing first instruction belongs). Rules run in §7.5's order, each
+   assuming the earlier ones held. §2.6 rules 1–4 are satisfied by the
+   vector form by construction (pc is the index); rules 5–6 and the UCF
+   §7.3.4 checks are the eight here. The address check — a vector hashing
+   to the address it claims — is not a structural rule and is not made
+   here: a correct hash is never structural validation."
+  [v]
+  (some #(% v) vector-rules))

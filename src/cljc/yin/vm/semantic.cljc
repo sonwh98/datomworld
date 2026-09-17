@@ -30,7 +30,8 @@
    full runs execute one transition code path. AST evaluation is not here:
    lowering (`yin.vm.linearize`, Phase 2) is composition-supplied at the
    observer boundary, so `eval` resumes loaded work and refuses an AST."
-  (:require [dao.stream.apply :as apply2]
+  (:require [dao.jing :as jing]
+            [dao.stream.apply :as apply2]
             [yin.vm :as vm]
             [yin.vm.code :as code]
             [yin.vm.engine :as engine]
@@ -66,7 +67,8 @@
    telemetry-step ; telemetry snapshot counter
    telemetry-t    ; telemetry transaction counter
    vm-model       ; telemetry model keyword
-   code])         ; {segment-id image}; built once per segment, never written
+   code           ; {segment-id image}; built once per segment, never written
+   code-aliases]) ; {address segment-id}; additive, one address one id (UCF §7.3.4)
 
 
 (declare semantic-restore scheduler-round)
@@ -527,9 +529,13 @@
    Returns `{:segment id, :length n, :code instructions}` where `instructions`
    is a vector indexed by pc of decoded `[opcode & operands]` vectors with
    every `:yin.code/target` and `:yin.code/body` ref resolved to a pc integer
-   of the same segment. Throws a load error naming the entity and rule when
-   the batch is not well formed (§2.6); the loader is total over the outcomes
-   of its inputs and does not guess."
+   of the same segment, plus `:address` when the segment entity carries
+   `:yin.code/hash` (§2.2) — a claim checked here: the canonical vector the
+   batch reconstructs to must hash to it (UCF §7.3.4's content-integrity
+   check, its `:yin.k/hash-mismatch` outcome), so a false claim never
+   reaches the alias column. Throws a load error naming the entity and rule
+   when the batch is not well formed (§2.6); the loader is total over the
+   outcomes of its inputs and does not guess."
   [datoms]
   (let [defect (code/well-formed? datoms)]
     (when defect
@@ -590,10 +596,35 @@
                                   (or (:yin.code/argc ia) 0)]
                        :push [opcode]
                        (throw (ex-info "Unknown mnemonic"
-                                       {:op mnem, :entity e})))))]
-      {:segment seg,
-       :length (get-in attrs [seg :yin.code/length]),
-       :code (mapv decode instructions)})))
+                                       {:op mnem, :entity e})))))
+          canonical (fn [e]
+                      (let [ia (get attrs e)
+                            mnem (:yin.code/op ia)]
+                        (into [mnem]
+                              (map (fn [[a kind]]
+                                     (if (= :pc kind)
+                                       (resolve-ref e (get ia a))
+                                       (get ia a)))
+                                   (get code/vector-operand-table mnem)))))
+          claimed (get-in attrs [seg :yin.code/hash])
+          ;; A claimed address is earned, never trusted: the batch must
+          ;; reconstruct to the canonical vector that hashes to it.
+          ;; UCF §7.3.4 checks an address whenever one is claimed, so a
+          ;; false claim fails the load here and never reaches the alias
+          ;; column.
+          actual (when claimed
+                   (jing/segment-key (mapv canonical instructions)))]
+      (if (and claimed (not= claimed actual))
+        (throw (ex-info (str "Cannot load segment: hash-mismatch (entity "
+                             seg ")")
+                        {:defect {:rule :hash-mismatch, :entity seg},
+                         :claimed claimed, :actual actual}))
+        (cond-> {:segment seg,
+                 :length (get-in attrs [seg :yin.code/length]),
+                 :code (mapv decode instructions)}
+          ;; A batch carrying no hash — every `lower` output — records no
+          ;; alias.
+          claimed (assoc :address claimed))))))
 
 
 (defn- store-image
@@ -615,9 +646,27 @@
       (assoc code seg image))))
 
 
+(defn- store-alias
+  "Record one loaded image's address in the `address → local-id` alias
+   column (UCF §7.3.4). The column is checked: an address may never land
+   under a second live local id. An image claiming no address — every batch
+   the datom lane's `lower` produces — leaves the column unchanged."
+  [aliases image]
+  (if-let [address (:address image)]
+    (if-let [prior (find aliases address)]
+      (if (= (val prior) (:segment image))
+        aliases
+        (throw (ex-info "Cannot load segment: the address is already aliased to another id"
+                        {:address address, :aliased-to (val prior)})))
+      (assoc aliases address (:segment image)))
+    aliases))
+
+
 (defn vm-load-program
   "Load one `:yin.code/*` batch: validate it, decode it, store the image under
-   `:code {segment-id image}`, and set control to `{:segment id :pc 0}`.
+   `:code {segment-id image}`, record the segment's claimed address — verified
+   against the batch's own content by `load-image` — in the alias column when
+   it carries one, and set control to `{:segment id :pc 0}`.
 
    This is the loader a composition hands to `dao.stream.observer/
    run-on-stream` beside `engine/ready-for-ingress?` and the VM's runner; a
@@ -630,12 +679,72 @@
     (assoc vm
            :program (:segment image)
            :code (store-image (:code vm) image)
+           :code-aliases (store-alias (:code-aliases vm) image)
            :control {:segment (:segment image), :pc 0}
            :stack []
            :k nil
            :halted? false
            :blocked? false
            :value nil)))
+
+
+(defn- decode-tuple
+  "One canonical tuple onto the image, reading `(nth tuple i)` for every
+   operand: mnemonics onto `vm/opcode-table` and `[:call argc tail?]`
+   folded to `:tailcall` by the loader's rule — the fold UCF §7.3.2 leaves
+   to the decoder. The vector is saturated and its refs are resolved pcs,
+   so nothing defaults and nothing resolves here."
+  [t]
+  (if (= :call (nth t 0))
+    (if (nth t 2)
+      [(:tailcall vm/opcode-table) (nth t 1)]
+      [(:call vm/opcode-table) (nth t 1)])
+    (let [mnem (nth t 0)
+          opcode (or (get vm/opcode-table (get mnemonic-aliases mnem mnem))
+                     (throw (ex-info "Mnemonic has no opcode" {:op mnem})))]
+      (into [opcode] (rest t)))))
+
+
+(defn load-vector
+  "Load one canonical instruction vector (UCF §7.3.2) by the direct path
+   (§7.1): validate it against §7.5 — a defect throws naming the pc — then
+   decode the positional operands into the same image `load-image` builds
+   from the projected batch, and register it under `:code` with the
+   vector's address `(jing/segment-key v)` in the alias column.
+
+   A vector claims no local id, so one is minted below the loaded floor
+   (`vm/loaded-code-floor`), as `ast-loader` mints for lowered AST batches;
+   an address already aliased reloads under its id, which `store-image`
+   accepts as the identical image. Options:
+     :id claim this local segment id instead of minting one. The §3.1 rule
+          applies: an id already holding a different image is a load error,
+          an identical reload is accepted. Ignored when the address is
+          already aliased."
+  ([vm v] (load-vector vm v {}))
+  ([vm v opts]
+   (when-let [defect (code/well-formed-vector? v)]
+     (throw (ex-info (str "Cannot load vector: " (name (:rule defect))
+                          " (pc " (:pc defect) ")")
+                     {:defect defect})))
+   (let [address (jing/segment-key v)
+         aliases (:code-aliases vm)
+         seg (or (get aliases address)
+                 (:id opts)
+                 (dec (vm/loaded-code-floor (:code vm))))
+         image {:segment seg,
+                :length (count v),
+                :code (mapv decode-tuple v),
+                :address address}]
+     (assoc vm
+            :program seg
+            :code (store-image (:code vm) image)
+            :code-aliases (store-alias aliases image)
+            :control {:segment seg, :pc 0}
+            :stack []
+            :k nil
+            :halted? false
+            :blocked? false
+            :value nil))))
 
 
 ;; =============================================================================
@@ -726,6 +835,7 @@
                                   :k nil,
                                   :value nil,
                                   :code {},
+                                  :code-aliases {},
                                   :halted? true,
                                   :blocked? false}))
          (telemetry/install :semantic)

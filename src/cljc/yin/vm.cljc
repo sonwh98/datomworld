@@ -604,6 +604,24 @@
            (plain-data? (meta x)))))
 
 
+(defn loaded-code-floor
+  "The lowest entity id claimed by the segments in a `{segment-id image}`
+   code map — each segment id minus its length — or 0 when none is loaded.
+   A loader minting a fresh local segment id allocates below this floor
+   (`linearize/ast-loader` for lowered AST batches, `semantic/load-vector`
+   for canonical instruction vectors), so successive loads never collide
+   with a live id."
+  [code]
+  (if (map? code)
+    (reduce-kv (fn [floor seg image]
+                 (if (and (integer? seg) (map? image))
+                   (min floor (- seg (or (:length image) 0)))
+                   floor))
+               0
+               code)
+    0))
+
+
 ;; =============================================================================
 ;; Semantic bytecode: flat content-addressed rows
 ;; =============================================================================

@@ -564,32 +564,11 @@
                 (str mnem " at pc " pc " is emitted by a " tag))))))))
 
 
-(def ^:private mnemonic-aliases
-  "The §2.4 mnemonic → `vm/opcode-table` key mapping, mirroring the
-   loader's private table in `yin.vm.semantic`."
-  {:const :literal,
-   :var :load-var,
-   :closure :lambda,
-   :branch-false :branch,
-   :current-continuation :current-cont,
-   :ffi-call :dao.stream.apply/call})
-
-
-(defn- decode-vector
-  "The image shape `load-image` produces, decoded from a canonical vector:
-   mnemonics onto `vm/opcode-table` and `[:call argc tail?]` folded per the
-   loader's rule — the fold the vector deliberately leaves to the decoder.
-   Until U5's `load-vector` lands, this in-test decode is the decoder."
+(defn- decoded-image
+  "The image `semantic/load-vector` (U5) decodes a canonical vector to."
   [v]
-  (mapv (fn [t]
-          (if (= :call (nth t 0))
-            (if (nth t 2)
-              [(:tailcall vm/opcode-table) (nth t 1)]
-              [(:call vm/opcode-table) (nth t 1)])
-            (into [(get vm/opcode-table
-                        (get mnemonic-aliases (nth t 0) (nth t 0)))]
-                  (subvec t 1))))
-        v))
+  (let [svm (semantic/load-vector (semantic/create-vm) v)]
+    (get-in svm [:code (:program svm)])))
 
 
 (deftest lower-rows-vector-decodes-to-the-datom-path-image
@@ -597,11 +576,12 @@
     (testing label
       (let [image (semantic/load-image (linearize/lower (vm/ast->datoms ast)))
             bc (vm/ast->semantic-bytecode ast)
-            {:keys [vector]} (linearize/lower-rows bc)]
-        (is (= (:length image) (count vector)))
-        (is (= (:code image) (decode-vector vector))
-            "the row lane's canonical vector decodes to the same image the
-             datom lane's load-image builds")
+            {:keys [vector]} (linearize/lower-rows bc)
+            decoded (decoded-image vector)]
+        (is (= (:length image) (:length decoded)))
+        (is (= (:code image) (:code decoded))
+            "the row lane's canonical vector loads (U5's load-vector) to
+             the same image the datom lane's load-image builds")
         (is (= vector
                (:vector (linearize/lower-rows
                           (vm/ast->semantic-bytecode
