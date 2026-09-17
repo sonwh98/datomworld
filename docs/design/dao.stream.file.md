@@ -1,5 +1,11 @@
 # dao.stream.file — Design / Plan
 
+> **Status (2026-09-17):** this is the v1 design. Its implementation —
+> `dao.stream.{file, file-input-stream, file-output-stream}` and the
+> `yin.io.*` handlers that opened them — was deleted by
+> `dao.stream.v1-retirement.implementation-plan.md` (D3, owner decision). No
+> v2 twin is owed by that plan.
+
 A read/write, **live-tail** file transport for DaoStream. `open!` positions at
 the current end of file; the in-memory ringbuffer holds only writes made after
 open, so reads are a true `tail -f`. Writes append to disk asynchronously;

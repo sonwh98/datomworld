@@ -8,12 +8,9 @@
      :closed          — boolean
      :reader-waiters  — map of position -> wait-set-entry; woken when put! appends at that position
      :writer-waiters  — vector of wait-set-entries; first one woken when drain-one! frees space"
-  (:require [dao.stream :as ds]
-            [yin.module :as module])
+  (:require [dao.stream :as ds])
   #?(:cljs (:require-macros [dao.stream])))
 
-
-(declare init-module!)
 
 (def ^:private put-result-key ::put-result)
 (def ^:private closed-put-result ::closed)
@@ -387,7 +384,6 @@
   ([capacity eviction-policy position]
    (make-ring-buffer-stream* nil capacity eviction-policy position))
   ([meta-map capacity eviction-policy position]
-   @init-module!
    (->RingBufferStream meta-map
                        capacity
                        (normalize-eviction-policy eviction-policy)
@@ -452,13 +448,3 @@
 (defn close!
   [s]
   {:effect :stream/close, :stream s})
-
-
-(def ^:private init-module!
-  (delay (module/register-module! 'stream
-                                  {'make make,
-                                   'put! put!,
-                                   'cursor cursor,
-                                   'next! next!,
-                                   'take! take!,
-                                   'close! close!})))
