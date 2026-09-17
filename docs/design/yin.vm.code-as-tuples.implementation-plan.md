@@ -377,7 +377,7 @@ upstream of Jing regardless of which storage grain is chosen. U10 must
 state which ingestion path it uses; that is a separate decision this
 section does not resolve.
 
-### D4 — the shape of the medium and batch coordinates [owner + `dao.stream.md`]
+### D4 — the shape of the medium and batch coordinates [Owner: composition-minted batch token in the envelope, 2026-09-18]
 
 Item 3 says "the medium identity coordinate is whatever the composition
 names its program medium by; this document does not fix its shape." The
@@ -405,7 +405,7 @@ retirement plans' "consumers never construct cursor internals"). Gates
 U15/U16 and the provenance half of U4: U4 takes `origin` as an opaque value
 and stores it verbatim, so it does not wait.
 
-### D5 — build the expander datom-native first, or row-native [owner]
+### D5 — build the expander datom-native first, or row-native [Owner: datom-native first, 2026-09-18]
 
 `yin.vm.macro.md` is specified over datom batches end to end: admission
 indexes datoms, harvest iterates the datom vector, stand-ins are eids, the
@@ -423,7 +423,7 @@ owner has not asked for. Either way the expander is the largest unbuilt
 unit in this plan and is not a blocker for tuple evaluation without
 macros, as §8.5 and item 4 both say.
 
-### D6 — item 8 needs a committed UCF before it needs an amendment [owner]
+### D6 — item 8 needs a committed UCF before it needs an amendment [Owner: datom-native first, 2026-09-18]
 
 UCF is untracked. Amending §7.6.1's names paragraph (`ucf.md:779-781`) and
 fixed point (`:757-758`), and recording code-as-tuples §7.2's supersession
