@@ -25,6 +25,7 @@
   (:refer-clojure :exclude [eval])
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
+            [dao.space.query :as query]
             [dao.stream :as stream]
             [yin.vm.telemetry :as telemetry]))
 
@@ -537,7 +538,13 @@
                    macro? (assoc :macro? true)))
        :application (let [op-eid (get-attr root-id :yin/operator)
                           operand-eids (get-attr root-id :yin/operands)]
+                      ;; §2.4 saturation, applied by the loader: the codec
+                      ;; emits only `true`, so an application written without
+                      ;; the mark and one stating :tail? false are one value,
+                      ;; and this loader and the row loader (§7.2 part 2)
+                      ;; yield the same :program
                       (assoc base
+                             :tail? (boolean tail?)
                              :operator (recur-ast op-eid)
                              :operands (mapv recur-ast operand-eids)))
        :dao.stream.apply/call (let [op (get-attr root-id :yin/op)
@@ -990,6 +997,101 @@
              (swap! built assoc id node)
              node)))]
       (build root))))
+
+
+;; =============================================================================
+;; The occurrence relation and root-scoped occurrence rules
+;; =============================================================================
+;; §6.1/§4.5: the structural half of the AST indexer — not yet an observer.
+
+(defn- occurrence-child-places
+  "`[[path-step child-id] …]` for every `node`/`nodes` slot of a row, in slot
+   order. A `:node` slot's step is its row position (id 0, tag 1, first slot
+   2 — the base of §2.5's own `[2 [3 0]]` example), a `:nodes` slot's step
+   is the pair `[position i]`. Note `validate-rows`' defect paths number
+   the first slot 1; §2.5's example is normative here."
+  [row]
+  (let [slots (get semantic-bytecode-grammar (semantic-bytecode-row-tag row))]
+    (mapcat (fn [j [_ kind] v]
+              (let [pos (+ j 2)]
+                (case kind
+                  :node (when v [[pos v]])
+                  :nodes (map-indexed (fn [i cid] [[pos i] cid]) v)
+                  nil)))
+            (range (count slots)) slots (drop 2 row))))
+
+
+(defn occurrences
+  "§6.1: the occurrence relation of a projected row set — one
+   `[root path node]` tuple per place, so a structurally shared subtree
+   (§4.4) yields one tuple per place and one node id. Computed by the same
+   walk as the projection, so it is generic over every §2.3 tag. It is a
+   pure function of the tree and carries no origin; a query fixes origin
+   from the composition's side and joins on `[root path]` (§6.1). Assumes
+   the walk terminates: projected ids are content addresses of their
+   children, so a projected set is acyclic by construction (§4.1)."
+  [{:keys [root rows]}]
+  (loop [frontier [[[] root]]
+         tuples []]
+    (if (empty? frontier)
+      (set tuples)
+      (let [children (mapcat (fn [[path id]]
+                               (let [row (get rows id)]
+                                 (map (fn [[step cid]] [(conj path step) cid])
+                                      (when row (occurrence-child-places row)))))
+                             frontier)]
+        (recur children
+               (into tuples (map (fn [[path id]] [root path id]) frontier)))))))
+
+
+(def occurrence-rules
+  "§4.5/§7.7: root-scoped occurrence rules. `?root` is threaded through
+   every head (`p-up`/`occ-anc`/`occ-bound?`) and the `[$occ …]` join is
+   constrained to one root, so a binder in another tree of the same
+   relation can never classify this tree's occurrence — the gap §4.5 names
+   in an unscoped rule set. The ancestor walk is over path prefixes
+   (`path-pop`), not row edges, so it is generic over every §2.3 tag. `$`
+   must be the row relation and `$occ` the occurrence relation; the rules
+   need `member?` and `path-pop` under `:fns` — see `occurrence-fns`.
+   `?root` must be bound at every call: the bodies never bind it, and an
+   unscoped invocation fails loudly rather than enumerate."
+  '[[(p-up ?root ?child ?parent) [(path-pop ?child) ?parent]]
+    [(occ-anc ?root ?a ?d) (p-up ?root ?d ?a)]
+    [(occ-anc ?root ?a ?d) (p-up ?root ?d ?m) (occ-anc ?root ?a ?m)]
+    [(occ-bound? ?root ?path ?name)
+     (occ-anc ?root ?lam-path ?path)
+     [$occ ?root ?lam-path ?lam]
+     [?lam :lambda ?params _]
+     [(member? ?params ?name)]]])
+
+
+(def occurrence-fns
+  "The `:fns` map `occurrence-rules` requires (§6.3: quoted-symbol keys):
+   membership over a `:syms`/`:nodes` vector, and one step up a §2.5 path
+   (nil at the root, where no occurrence tuple carries the answer anyway)."
+  {'member? (fn [coll x] (boolean (some #(= % x) coll))),
+   'path-pop (fn [p] (when (pos? (count p)) (subvec p 0 (dec (count p)))))})
+
+
+(defn free-names
+  "§7.7 free-name extraction as a function: every `:variable` name free at
+   some occurrence of `root`'s tree. `db` is the row relation
+   (`query/relation` over the rows) and `occ` the occurrence relation
+   (`occurrences`); both may hold several trees unioned (§6.1) — the rules
+   are root-scoped, so only `root`'s binder classifies `root`'s
+   occurrences. Conservative by construction: a name whose row is bound at
+   one occurrence and free at another is included, never silently dropped
+   (§7.6.1)."
+  [db occ root]
+  (set (map first
+            (query/collect
+              (query/q '[:find ?name :in $ $occ % ?root
+                         :where
+                         [$occ ?root ?path ?v]
+                         [?v :variable ?name]
+                         (not (occ-bound? ?root ?path ?name))]
+                       db occ occurrence-rules root
+                       {:fns occurrence-fns})))))
 
 
 (def ^:private many-attrs #{:yin/operands :yin/args :yin/params})

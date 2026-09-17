@@ -6,6 +6,7 @@
             [dao.jing :as jing]
             [yang.clojure :as yang]
             [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]
             [yin.vm.malformed-rows :as malformed]
             [yin.vm.parity-test :as parity]))
 
@@ -71,7 +72,12 @@
         "exactly one row is added, and it is the last")
     (is (= datoms (vm/ast->datoms ast)))
     (is (= 1 (count (filter #(= :yin/root (nth % 1)) datoms))))
-    (is (= ast (vm/datoms->ast datoms)) "the root fact does not disturb decode")))
+    ;; decode saturates §2.4 defaults (:tail? false on applications), so the
+    ;; decoded program is yang's map plus those keys: compared as the one
+    ;; canonical value both loaders load (U3, §7.2 part 2)
+    (is (= (vm/ast->semantic-bytecode ast)
+           (vm/ast->semantic-bytecode (vm/datoms->ast datoms)))
+        "the root fact does not disturb decode")))
 
 
 (deftest root-fact-wins-over-the-heuristic
@@ -113,7 +119,11 @@
     (let [indexed (vm/index-datoms pre-root-snapshot)]
       (is (= -17 (:root-id indexed)))
       (is (nil? (:error indexed)))
-      (is (= (yang/compile program) (vm/datoms->ast pre-root-snapshot)))))
+      ;; same canonical compare as compile-output-is-unchanged: decode
+      ;; saturates :tail? (§2.4), so the decoded program is yang's map
+      ;; modulo saturated defaults
+      (is (= (vm/ast->semantic-bytecode (yang/compile program))
+             (vm/ast->semantic-bytecode (vm/datoms->ast pre-root-snapshot))))))
   (testing "the hand-written datom form v1 accepted still decodes"
     (is (= {:type :literal, :value 99}
            (vm/datoms->ast [[-1 :yin/type :literal 0 1]
@@ -154,7 +164,14 @@
 ;; defns, the FFI call node, store effects and stream effects — through the
 ;; datom codec (`ast->datoms`/`datoms->ast`, not semantic bytecode).
 (deftest codec-round-trips-the-v1-corpus-node-types
-  (letfn [(rt [ast] (= ast (vm/datoms->ast (vm/ast->datoms ast))))]
+  ;; rt compares through the projection: decode saturates §2.4 defaults
+  ;; (:tail? false), so a map written with a default omitted and one stating
+  ;; it are one value with one address (§2.4), and that is the round-trip
+  (letfn [(rt
+            [ast]
+            (= (vm/ast->semantic-bytecode ast)
+               (vm/ast->semantic-bytecode
+                 (vm/datoms->ast (vm/ast->datoms ast)))))]
     (testing "yang-compiled defns"
       (is (rt (yang/compile '(defn foo
                                [n]
@@ -300,6 +317,31 @@
       (testing (pr-str form)
         (let [bc (vm/ast->semantic-bytecode (yang/compile form))]
           (is (= bc (vm/ast->semantic-bytecode (vm/semantic-bytecode->ast bc)))))))))
+
+
+(deftest walker-loads-the-same-program-from-rows-and-datoms
+  (testing "§7.2 part 2: for every corpus program, the row loader and the
+            datom loader yield = :program"
+    (let [corpus (concat (map (fn [ast] [(pr-str ast) ast])
+                              semantic-bytecode-corpus)
+                         (map (fn [[name ast]] [name ast])
+                              parity/corpus)
+                         ;; the key kind as the data domain it is (§7.2 part
+                         ;; 2): keyword keys arrive with the parity corpus,
+                         ;; a numeric store-put key with this one
+                         [["numeric store-put key"
+                           {:type :vm/store-put, :key 99, :val 1}]])]
+      (doseq [[name ast] corpus]
+        (testing name
+          (let [vm (ast-walker/create-vm)]
+            (is (= (:program (ast-walker/vm-load-program vm (vm/ast->datoms ast)))
+                   (:program (ast-walker/vm-load-rows
+                               vm (vm/ast->semantic-bytecode ast))))))))))
+  (testing "a malformed row set is refused with its §7.4 rule before load"
+    (doseq [[name [expected bc]] malformed/malformed-row-sets]
+      (is (= (:rule expected)
+             (error-rule #(ast-walker/vm-load-rows (ast-walker/create-vm) bc)))
+          name))))
 
 
 (deftest semantic-bytecode-list-payloads-mint-no-metadata

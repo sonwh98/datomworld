@@ -1238,24 +1238,20 @@
 ;; and silently dropping the free occurrence. The fix is a places-not-
 ;; contents query over the occurrence relation (§2.5/§6.1): free/bound is
 ;; decided per occurrence by walking that occurrence's own path to its
-;; ancestors. No indexer here emits occurrence facts yet, so the relation
-;; below is a hand-built fixture in §2.5's own encoding — a path is a
-;; vector of slot steps from the root, an index into a nodes slot being a
-;; single pair step [slot i] (which is what makes every pop of a real
-;; path a real path, so the recursive walk never leaves the tree).
+;; ancestors. The relation is emitted by `yin.vm/occurrences` (U7, the
+;; AST indexer's structural half) and the rules are the root-scoped
+;; production set `yin.vm/occurrence-rules`. A path is a vector of slot
+;; steps from the root in §2.5's encoding — a step is the slot's row
+;; position (id 0, tag 1, first slot 2), an index into a nodes slot being
+;; a single pair step `[position i]` (which is what makes every pop of a
+;; real path a real path, so the recursive walk never leaves the tree).
 
-(def ^:private path-pop
-  "One step up a §2.5 structural path: the parent path, or nil at the
-   root. Supplied under :fns like member?; a fn clause may bind its
-   output var, so this is the path-level analogue of the row-level edge."
-  (fn [p] (when (pos? (count p)) (subvec p 0 (dec (count p))))))
-
-
-(def ^:private occurrence-rules
-  "Path-prefix ancestors and per-occurrence bound-ness. [$occ ...] names
-   the occurrence source inside rule bodies (rule seeds carry every :in
-   db); [$occ ?r ?lam-path ?lam] joins an ancestor occurrence's path to
-   its row so the row relation supplies the :lambda shape."
+(def ^:private unscoped-occurrence-rules
+  "The occurrence rule set WITHOUT the ?root threading — kept as the
+   contrast fixture for root-scoping, the exact gap §4.5 names: over a
+   many-tree relation it can resolve one tree's occurrence against
+   another tree's binder. Needs `member?`/`path-pop` under :fns
+   (`yin.vm/occurrence-fns`)."
   '[[(p-up ?child ?parent) [(path-pop ?child) ?parent]]
     [(occ-anc ?a ?d) (p-up ?d ?a)]
     [(occ-anc ?a ?d) (p-up ?d ?m) (occ-anc ?a ?m)]
@@ -1277,26 +1273,24 @@
         db (ast-row-db ast)
         x (ast-row-id ast :variable 'x)
         lam (ast-row-id ast :lambda '[x])
-        ;; [root path row] for each node: the application at [], its
-        ;; operator :lambda at [2] (operator is the application's 2nd
-        ;; slot), the lambda's body x at [2 3] (body is :lambda's 3rd
-        ;; slot), and the operand x at [[3 0]] (first of the :nodes slot).
-        occ (rel [[(:root bc) [] (:root bc)]
-                  [(:root bc) [2] lam]
-                  [(:root bc) [2 3] x]
-                  [(:root bc) [[3 0]] x]])
-        opts {:fns {'member? member?, 'path-pop path-pop}}
-        free-occ-paths (qq '[:find ?path :in $ $occ %
+        ;; the emitted relation, not a hand fixture: [root path row] for
+        ;; the application at [], its operator :lambda at [2] (row
+        ;; position 2, the first slot after id and tag), the lambda's
+        ;; body x at [2 3] (body is :lambda's row-position-3 slot), and
+        ;; the operand x at [[3 0]] (first of the operands' nodes slot).
+        occ (rel (v2/occurrences bc))
+        opts {:fns v2/occurrence-fns}
+        free-occ-paths (qq '[:find ?path :in $ $occ % ?root
                              :where
                              [$occ ?root ?path ?v]
                              [?v :variable ?name]
-                             (not (occ-bound? ?path ?name))]
-                           db occ occurrence-rules opts)
-        bound-occ-paths (qq '[:find ?path :in $ $occ % ?v ?name
+                             (not (occ-bound? ?root ?path ?name))]
+                           db occ v2/occurrence-rules (:root bc) opts)
+        bound-occ-paths (qq '[:find ?path :in $ $occ % ?root ?v ?name
                               :where
                               [$occ ?root ?path ?v]
-                              (occ-bound? ?path ?name)]
-                            db occ occurrence-rules x 'x opts)]
+                              (occ-bound? ?root ?path ?name)]
+                            db occ v2/occurrence-rules (:root bc) x 'x opts)]
     (is (= 2 (count (filter #(= {:type :variable, :name 'x} %)
                             (tree-seq coll? seq ast))))
         "premise, map side: the fixture really has two :variable x nodes")
@@ -1304,21 +1298,24 @@
            (qq '[:find ?v :in $ ?name :where [?v :variable ?name]]
                db 'x))
         "premise, row side: both collapse to one shared row id (§4.4)")
+    (is (= #{[(:root bc) [] (:root bc)]
+             [(:root bc) [2] lam]
+             [(:root bc) [2 3] x]
+             [(:root bc) [[3 0]] x]}
+           (v2/occurrences bc))
+        "the emitter walks the same places the old hand fixture named:
+          one [root path node] per place, two tuples over the one shared
+          row")
     (is (= #{[[2 3]]} bound-occ-paths)
         "of the shared row's two occurrences, only the lambda-body one is
           bound — the walk went up [2 3] → [2] and found the :lambda")
     (is (= #{[[[3 0]]]} free-occ-paths)
         "the operand occurrence [[3 0]] is free — its walk [[3 0]] → []
           reaches only the :application, never a binding :lambda")
-    (is (= #{['x]}
-           (qq '[:find ?name :in $ $occ %
-                 :where
-                 [$occ ?root ?path ?v]
-                 [?v :variable ?name]
-                 (not (occ-bound? ?path ?name))]
-               db occ occurrence-rules opts))
-        "the occurrence-unioned free-name set conservatively includes x
-          because at least one occurrence of it is free (§7.6.1)")
+    (is (= #{'x} (v2/free-names db occ (:root bc)))
+        "the §7.7 free-name extraction over the emitted relation
+          conservatively includes x because at least one occurrence of it
+          is free (§7.6.1)")
     (is (= #{}
            (qq '[:find ?name :in $ %
                  :where
@@ -1329,3 +1326,107 @@
         "contrast: on this same db the row-only rule finds the :lambda
           through either of the shared row's parent edges and drops x
           from the free-name set entirely — the §4.5 undercount")))
+
+
+(deftest occurrence-rules-are-root-scoped-across-trees
+  ;; §4.5's named gap, closed: two trees whose relations are unioned (§6.1)
+  ;; carry the SAME literal path [3] — :lambda's body slot — with x bound
+  ;; in A ((fn [x] x)) and free in B ((fn [y] x)). Each tree's occurrence
+  ;; must classify against its own binder.
+  (let [bcA (v2/ast->semantic-bytecode
+              {:type :lambda, :params ['x],
+               :body {:type :variable, :name 'x}})
+        bcB (v2/ast->semantic-bytecode
+              {:type :lambda, :params ['y],
+               :body {:type :variable, :name 'x}})
+        rootA (:root bcA)
+        rootB (:root bcB)
+        x (ast-row-id {:type :variable, :name 'x} :variable 'x)
+        db (rel (concat (vals (:rows bcA)) (vals (:rows bcB))))
+        occ (rel (concat (v2/occurrences bcA) (v2/occurrences bcB)))]
+    (is (not= rootA rootB)
+        "premise: the two trees differ in params, so their roots are
+          distinct addresses")
+    (is (= x (nth (get (:rows bcB) rootB) 3))
+        "premise: B's body :variable row is the same shared x row as A's")
+    (is (contains? (v2/occurrences bcA) [rootA [3] x])
+        "premise: path [3] in tree A names the shared x row")
+    (is (contains? (v2/occurrences bcB) [rootB [3] x])
+        "premise: the SAME literal path [3] in tree B names it too")
+    (is (= #{} (v2/free-names db occ rootA))
+        "A's x is bound by A's own [x] :lambda")
+    (is (= #{'x} (v2/free-names db occ rootB))
+        "B's x stays free: B's own binder is the [y] :lambda, and A's
+          binder — reachable only by leaving B's root — never classifies
+          it, which is exactly what the ?root threading prevents")
+    (is (= #{}
+           (qq '[:find ?name :in $ $occ %
+                 :where
+                 [$occ ?r ?path ?v]
+                 [?v :variable ?name]
+                 (not (occ-bound? ?path ?name))]
+               db occ unscoped-occurrence-rules
+               {:fns v2/occurrence-fns}))
+        "contrast: the unscoped rule set finds A's :lambda through the
+          root occurrence both trees share and calls B's free x bound —
+          the cross-tree misclassification, demonstrated not narrated")))
+
+
+(deftest occurrence-walk-covers-the-whole-grammar
+  ;; Grammar-genericity, tested rather than argued (§4.5): binding is
+  ;; resolved through :if / :stream/put / :stream/cursor edges — tags the
+  ;; row-only edge rules have no clause for — and freeness is walked
+  ;; through :vm/resume / :stream/close / :stream/next.
+  (let [ast {:type :if,
+             :test {:type :vm/store-get, :key :flag},
+             :consequent {:type :lambda, :params ['s],
+                          :body {:type :stream/put,
+                                 :target {:type :stream/cursor,
+                                          :source {:type :variable, :name 's}},
+                                 :val {:type :stream/make}}},
+             :alternate {:type :vm/resume, :parked-id :parked/echo,
+                         :val {:type :stream/close,
+                               :source {:type :stream/next,
+                                        :source {:type :variable, :name 'k}}}}}
+        bc (v2/ast->semantic-bytecode ast)
+        db (ast-row-db ast)
+        occ (rel (v2/occurrences bc))
+        s (ast-row-id ast :variable 's)
+        k (ast-row-id ast :variable 'k)
+        opts {:fns v2/occurrence-fns}
+        bound-paths (fn [v nm]
+                      (qq '[:find ?path :in $ $occ % ?root ?v ?name
+                            :where
+                            [$occ ?root ?path ?v]
+                            (occ-bound? ?root ?path ?name)]
+                          db occ v2/occurrence-rules (:root bc) v nm opts))]
+    (is (= 11 (count (v2/occurrences bc)))
+        "one tuple per place across :if, :vm/store-get, :lambda,
+          :stream/put, :stream/cursor, :stream/make, :vm/resume,
+          :stream/close, :stream/next, and the two :variable rows")
+    (is (contains? (v2/occurrences bc) [(:root bc) [3 3 2 2] s])
+        "s sits four node steps deep: :if consequent [3], :lambda body
+          [3 3], :stream/put target [3 3 2], :stream/cursor source
+          [3 3 2 2]")
+    (is (contains? (v2/occurrences bc) [(:root bc) [4 3 2 2] k])
+        "k sits at the same depth the other side: :if alternate [4],
+          :vm/resume val [4 3], :stream/close source [4 3 2],
+          :stream/next source [4 3 2 2]")
+    (is (= #{[[3 3 2 2]]} (bound-paths s 's))
+        "the path walk finds s's binder through tags no row-level edge
+          clause covers — :if → :lambda → :stream/put → :stream/cursor")
+    (is (= #{} (bound-paths k 'k))
+        "k's only ancestors are :stream/next, :stream/close, :vm/resume,
+          and :if — no binder anywhere above it")
+    (is (= #{'k} (v2/free-names db occ (:root bc)))
+        "the §7.7 free-name extraction query over the emitted relation")
+    (is (= #{['k] ['s]}
+           (qq '[:find ?name :in $ %
+                 :where
+                 [?v :variable ?name]
+                 (not (bound? ?v ?name))]
+               db free-name-rules
+               {:fns {'member? member?}}))
+        "contrast: the row-only rules have no :if/:stream edge clauses,
+          so they cannot reach s's binder and overcount s as free —
+          §4.5's conservative-but-imprecise failure mode, now tested")))

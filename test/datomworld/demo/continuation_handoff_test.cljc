@@ -249,6 +249,7 @@
           payload (handoff/vm-state->handoff :vm-a vm)
           resumed (handoff/handoff->vm-state :vm-b payload make-vm)]
       (is (= {:type :application,
+              :tail? false, ; §2.4: the datom loader saturates the default
               :operator {:type :variable, :name '+},
               :operands [{:type :literal, :value 1}
                          {:type :literal, :value 2}]}

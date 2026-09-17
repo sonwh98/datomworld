@@ -5439,3 +5439,28 @@ Decisions: N/A, mechanical against plan.
 Verification: Passed the extended `semantic-bytecode-round-trip-law` on parity and REPL corpus.
 Delegates: `claude-sonnet-5` (VM Runtime).
 Next: U3 and U4 (Parallel lanes).
+
+## $(date +"%Y-%m-%d %H:%M:%S %Z") — Phase 1 U1 & U2: Review Reconciliation
+Completed-GMT: $(date -u +"%Y-%m-%d %H:%M:%S GMT")
+Coding-Agent: agy
+Session-ID: 22783059-64d1-4105-86d0-f63035084892
+Tree: dao.stream-redesign-v2@$(git rev-parse --short HEAD), committed
+Done: Reconciled U1 and U2 against the independent `gpt-5.6-sol` reviewer. Rewrote `validate-rows` to properly execute the rules sequentially and use 1-based indexing for structural slot paths. Replaced JVM-only `PersistentQueue` and `ExceptionInfo` with portable constructs (vector loop and reader conditionals). Fixed `malformed-row-sets` test destructuring.
+Decisions: Direct implementation of fixes to guarantee proper single-pass BFS traversal structure, avoiding context-loss from multi-round delegation. Squashed changes into the original U1 and U2 commits.
+Verification: Evaluated via 4 review passes by `gpt-5.6-sol`, culminating in a sign-off. `bb test:cljs` and `bb test:clj` both passed completely.
+Delegates: `gpt-5.6-sol` (Reviewer).
+Next: Phase 1 U3 and U4 (Parallel lanes).
+
+## $(date +"%Y-%m-%d %H:%M:%S %Z") — Phase 1 U3, U4, U7
+Completed-GMT: $(date -u +"%Y-%m-%d %H:%M:%S GMT")
+Coding-Agent: glm-5.3 (parallel lanes)
+Session-ID: 1789669353000 (U3) / 1789669355000 (U4) / 1789669764000 (U7)
+Tree: dao.stream-redesign-v2@$(git rev-parse --short HEAD), committed
+Done:
+- U3: `ast-walker/vm-load-rows` implemented. Fixed `datoms->ast` to saturate `:tail?` for `:application` per UCF §2.4, ensuring exact image equivalence for the walker between row and datom lanes.
+- U4: `linearize/lower-rows` implemented. Kept `[:call argc tail?]` unfolded as required by the trap, pushing folding entirely to the decoder.
+- U7: `occurrences` emitted structurally, and root-scoped Datalog rules established for `dao.space.query` integration. Path prefixes conform to §2.5 exactly.
+Decisions: Unlocked U5 (validator) and U6 (extraction queries).
+Verification: Cross-platform tests passed (JVM, Node, Dart). Independent review by `gpt-5.6-sol` issued SIGN OFF.
+Delegates: `glm-5.3` (Coding Engineers), `gpt-5.6-sol` (Architect).
+Next: Phase 1 U5 and U6.

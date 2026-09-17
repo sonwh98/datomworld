@@ -3,6 +3,9 @@
             [yin.vm :as vm]
             [yin.vm.code :as code]
             [yin.vm.linearize :as linearize]
+            [yin.vm.malformed-rows :as malformed]
+            [yin.vm.parity-test :as parity]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as test-utils]))
 
 
@@ -73,6 +76,9 @@
                                      :source (lit nil)}}}},
    :ffi {:type :dao.stream.apply/call, :op :op/echo, :operands [(lit 1) (lit 2)]},
    :ffi-no-args {:type :dao.stream.apply/call, :op :op/ping, :operands []},
+   ;; §2.4 saturation: both lanes must materialize the same defaults.
+   :default-gensym {:type :vm/gensym},
+   :default-buffer {:type :stream/make},
    :store-and-control (app (lam '[a b c d]
                                 (tail (app (v 'vector) (v 'a) (v 'b) (v 'c) (v 'd))))
                            {:type :vm/store-put, :key 'k, :val 5}
@@ -333,6 +339,59 @@
 ;; Evaluation order against the walker
 ;; =============================================================================
 
+(defn- run-image
+  "A reference reading of the §4.2 core transitions over an image:
+   instruction maps in pc order with `:yin.code/target`/`:yin.code/body`
+   already pc integers. It exists to check the lowering's evaluation
+   order, not to stand in for the semantic VM."
+  [image primitives]
+  (loop [pc 0
+         val nil
+         st []
+         env {}
+         store {}
+         k []]
+    (let [i (nth image pc)]
+      (case (:yin.code/op i)
+        :const (recur (inc pc) (:yin.code/value i) st env store k)
+        :var (let [s (:yin.code/name i)
+                   x (cond (contains? env s) (get env s)
+                           (contains? store s) (get store s)
+                           :else (get primitives s))]
+               (recur (inc pc) x st env store k))
+        :closure (recur (inc pc)
+                        {:type :closure,
+                         :params (:yin.code/params i),
+                         :entry (:yin.code/body i),
+                         :env env}
+                        st env store k)
+        :push (recur (inc pc) val (conj st val) env store k)
+        :jump (recur (:yin.code/target i) val st env store k)
+        :branch-false (recur (if val (inc pc) (:yin.code/target i)) val st env store k)
+        :call (let [base (- (count st) (:yin.code/argc i) 1)
+                    f (nth st base)
+                    args (subvec st (inc base))
+                    st' (subvec st 0 base)]
+                (if (and (map? f) (= :closure (:type f)))
+                  (recur (:entry f)
+                         val
+                         st'
+                         (merge (:env f) (zipmap (:params f) args))
+                         store
+                         (if (:yin.code/tail? i)
+                           k
+                           (conj k {:pc (inc pc), :env env, :base base})))
+                  (let [r (apply f args)]
+                    (if (and (map? r) (= :vm/store-put (:effect r)))
+                      (recur (inc pc) (:val r) st' env (assoc store (:key r) (:val r)) k)
+                      (recur (inc pc) r st' env store k)))))
+        :return (if-let [frame (peek k)]
+                  (recur (:pc frame) val (subvec st 0 (:base frame)) (:env frame)
+                         store (pop k))
+                  val)
+        :halt val))))
+
+
 (defn- run-lowered
   "A reference reading of the §4.2 core transitions over a lowered segment:
    const var closure push call return jump branch-false halt, with
@@ -345,51 +404,7 @@
                        (:yin.code/target %) (update :yin.code/target pc-of)
                        (:yin.code/body %) (update :yin.code/body pc-of))
                     insts)]
-    (loop [pc 0
-           val nil
-           st []
-           env {}
-           store {}
-           k []]
-      (let [i (nth image pc)]
-        (case (:yin.code/op i)
-          :const (recur (inc pc) (:yin.code/value i) st env store k)
-          :var (let [s (:yin.code/name i)
-                     x (cond (contains? env s) (get env s)
-                             (contains? store s) (get store s)
-                             :else (get primitives s))]
-                 (recur (inc pc) x st env store k))
-          :closure (recur (inc pc)
-                          {:type :closure,
-                           :params (:yin.code/params i),
-                           :entry (:yin.code/body i),
-                           :env env}
-                          st env store k)
-          :push (recur (inc pc) val (conj st val) env store k)
-          :jump (recur (:yin.code/target i) val st env store k)
-          :branch-false (recur (if val (inc pc) (:yin.code/target i)) val st env store k)
-          :call (let [base (- (count st) (:yin.code/argc i) 1)
-                      f (nth st base)
-                      args (subvec st (inc base))
-                      st' (subvec st 0 base)]
-                  (if (and (map? f) (= :closure (:type f)))
-                    (recur (:entry f)
-                           val
-                           st'
-                           (merge (:env f) (zipmap (:params f) args))
-                           store
-                           (if (:yin.code/tail? i)
-                             k
-                             (conj k {:pc (inc pc), :env env, :base base})))
-                    (let [r (apply f args)]
-                      (if (and (map? r) (= :vm/store-put (:effect r)))
-                        (recur (inc pc) (:val r) st' env (assoc store (:key r) (:val r)) k)
-                        (recur (inc pc) r st' env store k)))))
-          :return (if-let [frame (peek k)]
-                    (recur (:pc frame) val (subvec st 0 (:base frame)) (:env frame)
-                           store (pop k))
-                    val)
-          :halt val)))))
+    (run-image image primitives)))
 
 
 (defn- recording-primitives
@@ -431,4 +446,212 @@
            @walker-log)
         "the walker's order is the reference")
     (is (= @walker-log @lowered-log))
+    (is (= (vm/value walker) result 11))))
+
+
+;; =============================================================================
+;; Row-lane lowering: the canonical instruction vector (UCF §7.3.2)
+;; =============================================================================
+
+(def ^:private worked-example-vector
+  "`((fn [x] (+ x 1)) 10)`, `[:closure params pc]` with the body's pc
+   resolved, `[:call argc tail?]` unfolded (the decoder folds tail? into
+   :tailcall), refs resolved, defaults saturated, no header."
+  [[:closure '[x] 6]
+   [:push]
+   [:const 10]
+   [:push]
+   [:call 1 false]
+   [:halt]
+   [:var '+]
+   [:push]
+   [:var 'x]
+   [:push]
+   [:const 1]
+   [:push]
+   [:call 2 true]
+   [:return]])
+
+
+(def ^:private worked-example-paths
+  "Each instruction's emitting node as a §2.5 structural path in row
+   positions (id 0, tag 1, first slot 2 — the base of §2.5's `[2 [3 0]]`
+   example, which `occurrences`' relation also uses): the root
+   application at [], its operator :lambda at [2] (operator is the
+   application's slot at row position 2) with its body at [2 3], the
+   operands at `[[3 j]]` steps under the root and `[2 3 [3 j]]` under the
+   body, and :return naming the lambda, as the datom lane's
+   `(emit! lambda :return)` does."
+  [[2] [] [[3 0]] [] [] [] [2 3 2] [2 3] [2 3 [3 0]] [2 3] [2 3 [3 1]]
+   [2 3] [2 3] [2]])
+
+
+(deftest lower-rows-worked-example-matches-the-design
+  (is (= worked-example-vector
+         (:vector (linearize/lower-rows (vm/ast->semantic-bytecode
+                                          worked-example))))))
+
+
+(deftest lower-rows-provenance-is-one-row-per-pc-keyed-by-occurrence
+  (let [bc (vm/ast->semantic-bytecode worked-example)
+        origin [:source :m :b 0]
+        {:keys [vector provenance]} (linearize/lower-rows bc origin)]
+    (is (= (mapv (fn [pc path] [pc origin (:root bc) path])
+                 (range)
+                 worked-example-paths)
+           provenance)
+        "one row per pc in pc order, origin verbatim, the tree's root id")
+    (is (= (count vector) (count provenance)))
+    (testing "origin defaults to nil and is stored verbatim"
+      (is (nil? (nth (first (:provenance (linearize/lower-rows bc))) 1)))
+      (is (= {:batch 7}
+             (nth (first (:provenance (linearize/lower-rows bc {:batch 7})))
+                  1))))))
+
+
+(defn- path-row
+  "The row id a §2.5 structural path names, walked through `node`/`nodes`
+   slots by the §2.3 table's row positions (id 0, tag 1, first slot 2):
+   a node slot is its row position, a nodes item a `[position i]` pair —
+   the same convention as `occurrences`' relation, which provenance joins."
+  [{:keys [root rows]} path]
+  (reduce (fn [id step]
+            (let [slot (fn [pos] (nth (get rows id) pos))]
+              (if (vector? step)
+                (nth (slot (first step)) (second step))
+                (slot step))))
+          root
+          path))
+
+
+(def ^:private emitting-tag
+  "The §2.3 tag each directly-emitted mnemonic lowers from; the structural
+   mnemonics (:push :jump :branch-false :halt :return) name no single tag."
+  {:const :literal,
+   :var :variable,
+   :closure :lambda,
+   :call :application,
+   :ffi-call :dao.stream.apply/call,
+   :gensym :vm/gensym,
+   :store-get :vm/store-get,
+   :store-put :vm/store-put,
+   :park :vm/park,
+   :resume :vm/resume,
+   :current-continuation :vm/current-continuation,
+   :stream-make :stream/make,
+   :stream-put :stream/put,
+   :stream-cursor :stream/cursor,
+   :stream-next :stream/next,
+   :stream-close :stream/close})
+
+
+(deftest lower-rows-provenance-paths-resolve-to-the-emitting-node
+  (doseq [[label ast] (into corpus (map (fn [[n a _]] [n a]) parity/corpus))]
+    (testing label
+      (let [bc (vm/ast->semantic-bytecode ast)
+            {:keys [vector provenance]} (linearize/lower-rows bc)
+            occ (vm/occurrences bc)]
+        (is (= (count vector) (count provenance)))
+        (doseq [[pc _origin root path] provenance
+                :let [mnem (nth (nth vector pc) 0)
+                      id (path-row bc path)]]
+          (is (contains? (:rows bc) id)
+              (str "path resolves at pc " pc))
+          (is (contains? occ [root path id])
+              (str "the §5.3 join key [root path node] is an occurrence"))
+          (when-let [tag (get emitting-tag mnem)]
+            (is (= tag (nth (get (:rows bc) id) 1))
+                (str mnem " at pc " pc " is emitted by a " tag))))))))
+
+
+(def ^:private mnemonic-aliases
+  "The §2.4 mnemonic → `vm/opcode-table` key mapping, mirroring the
+   loader's private table in `yin.vm.semantic`."
+  {:const :literal,
+   :var :load-var,
+   :closure :lambda,
+   :branch-false :branch,
+   :current-continuation :current-cont,
+   :ffi-call :dao.stream.apply/call})
+
+
+(defn- decode-vector
+  "The image shape `load-image` produces, decoded from a canonical vector:
+   mnemonics onto `vm/opcode-table` and `[:call argc tail?]` folded per the
+   loader's rule — the fold the vector deliberately leaves to the decoder.
+   Until U5's `load-vector` lands, this in-test decode is the decoder."
+  [v]
+  (mapv (fn [t]
+          (if (= :call (nth t 0))
+            (if (nth t 2)
+              [(:tailcall vm/opcode-table) (nth t 1)]
+              [(:call vm/opcode-table) (nth t 1)])
+            (into [(get vm/opcode-table
+                        (get mnemonic-aliases (nth t 0) (nth t 0)))]
+                  (subvec t 1))))
+        v))
+
+
+(deftest lower-rows-vector-decodes-to-the-datom-path-image
+  (doseq [[label ast] (into corpus (map (fn [[n a _]] [n a]) parity/corpus))]
+    (testing label
+      (let [image (semantic/load-image (linearize/lower (vm/ast->datoms ast)))
+            bc (vm/ast->semantic-bytecode ast)
+            {:keys [vector]} (linearize/lower-rows bc)]
+        (is (= (:length image) (count vector)))
+        (is (= (:code image) (decode-vector vector))
+            "the row lane's canonical vector decodes to the same image the
+             datom lane's load-image builds")
+        (is (= vector
+               (:vector (linearize/lower-rows
+                          (vm/ast->semantic-bytecode
+                            (vm/semantic-bytecode->ast bc)))))
+            "the vector is a function of the canonical rows: rows -> map
+             -> rows lowers identically")))))
+
+
+(deftest lower-rows-rejects-malformed-row-sets
+  (doseq [[name [_expected bc]] malformed/malformed-row-sets]
+    (testing name
+      ;; `Object` on Dart as the house idiom: cljd resolves no
+      ;; ExceptionInfo type for a typed catch.
+      (is (thrown? #?(:clj clojure.lang.ExceptionInfo
+                      :cljs cljs.core.ExceptionInfo
+                      :cljd Object)
+            (linearize/lower-rows bc))))))
+
+
+(defn- vector-image
+  "The map shape `run-image` reads, from a canonical instruction vector:
+   only the mnemonics the reference loop executes, which is exactly the
+   def-program vocabulary."
+  [v]
+  (mapv (fn [t]
+          (case (nth t 0)
+            :const {:yin.code/op :const, :yin.code/value (nth t 1)}
+            :var {:yin.code/op :var, :yin.code/name (nth t 1)}
+            :closure {:yin.code/op :closure,
+                      :yin.code/params (nth t 1),
+                      :yin.code/body (nth t 2)}
+            :call {:yin.code/op :call,
+                   :yin.code/argc (nth t 1),
+                   :yin.code/tail? (nth t 2)}
+            :jump {:yin.code/op :jump, :yin.code/target (nth t 1)}
+            :branch-false {:yin.code/op :branch-false,
+                           :yin.code/target (nth t 1)}
+            {:yin.code/op (nth t 0)}))
+        v))
+
+
+(deftest lower-rows-evaluation-order-matches-the-walker
+  (let [walker-log (atom [])
+        walker (vm/eval (test-utils/create-vm
+                          {:primitives (recording-primitives walker-log)})
+                        def-program)
+        row-log (atom [])
+        result (run-image (vector-image
+                            (:vector (linearize/lower-rows
+                                       (vm/ast->semantic-bytecode def-program))))
+                          (recording-primitives row-log))]
+    (is (= @walker-log @row-log))
     (is (= (vm/value walker) result 11))))

@@ -15,6 +15,7 @@
    `yin.vm.ast-walker-test` and in the divergence register, not here."
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as v2]
+            [yin.vm.ast-walker :as ast-walker]
             [yin.vm.test-utils :as tu]))
 
 
@@ -140,10 +141,20 @@
   (normalize (tu/compile-and-run ast)))
 
 
+(defn- run-v2-rows
+  "The same corpus fed to the walker as semantic-bytecode rows (§7.1's
+   direct row load, U3) instead of a datom batch: same values pinned."
+  [ast]
+  (normalize
+    (v2/value (v2/run (ast-walker/vm-load-rows (tu/create-vm)
+                                               (v2/ast->semantic-bytecode ast))))))
+
+
 (deftest ast-walker-parity-test
   (doseq [[name ast expected] corpus]
     (testing name
-      (is (= expected (run-v2 ast))))))
+      (is (= expected (run-v2 ast)))
+      (is (= expected (run-v2-rows ast)) "the walker fed on rows"))))
 
 
 (deftest ffi-round-trip-parity-test
@@ -207,7 +218,9 @@
                        {:type :stream/close,
                         :source (lit sref)})]
       (is (= nil (v2/value vm1)) "close returns nil")
-      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo :cljd cljd.core/ExceptionInfo) #"Stream append failed"
+      ;; `Object` on Dart as the house idiom: cljd resolves no
+      ;; ExceptionInfo type for a typed catch.
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo :cljd Object) #"Stream append failed"
             (v2/eval vm1 {:type :stream/put,
                           :target (lit sref),
                           :val (lit 99)}))

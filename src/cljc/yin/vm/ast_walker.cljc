@@ -713,6 +713,25 @@
            :value nil)))
 
 
+(defn vm-load-rows
+  "Load one semantic-bytecode row set `{:root id, :rows {id row}}` into the
+   VM: `vm/semantic-bytecode->ast` runs the §7.4 validator first and throws
+   `ex-info` carrying the defect's `:rule` and `:path` (or `:id`), then
+   reconstructs the map AST, and this applies the same execution-field
+   updates as `vm-load-program`. This is §9.1's loader, the successor of
+   the datom decode; the datom loader stays alongside it — both are legal
+   per-composition choices, and a composition wires whichever loader(s) it
+   wants."
+  [^ASTWalkerVM vm bc]
+  (let [ast (vm/semantic-bytecode->ast bc)]
+    (assoc vm
+           :program ast
+           :control ast
+           :halted? false
+           :blocked? false
+           :value nil)))
+
+
 (defn- vm-reset
   "Reset execution state, preserving the loaded AST program."
   [^ASTWalkerVM vm]

@@ -11,7 +11,13 @@
 
    Lowering reads the AST datom index directly rather than reconstructing
    maps, because every instruction names the AST entity it came from in
-   `:yin.code/source` and reconstructed maps have no entities."
+   `:yin.code/source` and reconstructed maps have no entities.
+
+   The row lane (`lower-rows`, `docs/design/yin.vm.code-as-tuples.md`
+   §5.1/§5.3) lowers the projected row set to the canonical positional
+   instruction vector of UCF §7.3.2 instead, threading §2.5 structural
+   paths for the provenance side table. It shares this flattening order;
+   the datom lane stays until the observer row lane retires it."
   (:require [dao.datom :as datom]
             [yin.vm :as vm]))
 
@@ -209,6 +215,145 @@
                                [[e :yin.code/source source t m]])))
                    (range)
                    code)))))
+
+
+(defn- row-slots
+  "The slot values of row `id` in §2.3 table order: its body minus the tag."
+  [rows id]
+  (subvec (get rows id) 2))
+
+
+(defn- flatten-rows
+  "The §5.3 flattening from `root` over rows, the row-lane twin of
+   `flatten-program`: the same recursion in the walker's evaluation order,
+   with `lower-node` reading slots by the grammar table's positions instead
+   of `get-attr` over an entity index. Returns `[code labels paths]`:
+   `code` is a vector of `[mnemonic & operands]` in pc order holding label
+   ids where a resolved pc belongs, `labels` maps each label to its pc,
+   and `paths` carries the emitting node's §2.5 structural path per pc.
+
+   The rows must already have passed `validate-rows`; nothing here
+   re-checks shape, arity, or slot kinds.
+
+   Path steps are §2.5 row positions (id 0, tag 1, first slot 2 — the
+   base of §2.5's own `[2 [3 0]]` example, which `occurrences`' relation
+   also uses and which provenance joins on `[root path]`): a `node` slot
+   is its row position, a `nodes` item the pair `[position i]`.
+   `validate-rows`' defect paths number the first slot 1; the example is
+   normative for occurrence keys."
+  [rows root]
+  (let [code (atom [])
+        paths (atom [])
+        labels (atom {})
+        bodies (atom [])
+        label-count (atom 0)
+        fresh! #(swap! label-count inc)
+        mark! (fn [l] (swap! labels assoc l (count @code)))
+        emit! (fn [path tuple]
+                (swap! paths conj path)
+                (swap! code conj tuple))]
+    (letfn
+      [(lower-node
+         [id path]
+         (let [tag (nth (get rows id) 1)
+               slots (row-slots rows id)]
+           (case tag
+             :literal (emit! path [:const (nth slots 0)])
+             :variable (emit! path [:var (nth slots 0)])
+             :lambda (let [l (fresh!)]
+                       (swap! bodies conj [l (nth slots 1) path])
+                       (emit! path [:closure (nth slots 0) l]))
+             :application (let [operands (nth slots 1)]
+                            (lower-node (nth slots 0) (conj path 2))
+                            (emit! path [:push])
+                            (dotimes [j (count operands)]
+                              (lower-node (nth operands j) (conj path [3 j]))
+                              (emit! path [:push]))
+                            (emit! path [:call (count operands) (nth slots 2)]))
+             :if (let [else (fresh!)
+                       end (fresh!)]
+                   (lower-node (nth slots 0) (conj path 2))
+                   (emit! path [:branch-false else])
+                   (lower-node (nth slots 1) (conj path 3))
+                   (emit! path [:jump end])
+                   (mark! else)
+                   (lower-node (nth slots 2) (conj path 4))
+                   (mark! end))
+             :dao.stream.apply/call (let [operands (nth slots 1)]
+                                      (dotimes [j (count operands)]
+                                        (lower-node (nth operands j)
+                                                    (conj path [3 j]))
+                                        (emit! path [:push]))
+                                      (emit! path [:ffi-call (nth slots 0)
+                                                   (count operands)]))
+             :stream/make (emit! path [:stream-make (nth slots 0)])
+             :stream/put (do (lower-node (nth slots 0) (conj path 2))
+                             (emit! path [:push])
+                             (lower-node (nth slots 1) (conj path 3))
+                             (emit! path [:stream-put]))
+             :stream/cursor (do (lower-node (nth slots 0) (conj path 2))
+                                (emit! path [:stream-cursor]))
+             :stream/next (do (lower-node (nth slots 0) (conj path 2))
+                              (emit! path [:stream-next]))
+             :stream/close (do (lower-node (nth slots 0) (conj path 2))
+                               (emit! path [:stream-close]))
+             :vm/gensym (emit! path [:gensym (nth slots 0)])
+             :vm/store-get (emit! path [:store-get (nth slots 0)])
+             :vm/store-put (emit! path [:store-put (nth slots 0) (nth slots 1)])
+             :vm/park (emit! path [:park])
+             :vm/current-continuation (emit! path [:current-continuation])
+             :vm/resume (do (lower-node (nth slots 1) (conj path 3))
+                            (emit! path [:resume (nth slots 0)]))
+             (throw (ex-info (str "Cannot lower row of type " tag)
+                             {:type tag, :id id})))))]
+      (lower-node root [])
+      (emit! [] [:halt])
+      ;; A body may hold lambdas of its own, which append to `bodies`
+      ;; while this loop runs; a body is lowered at its lambda's path
+      ;; continued through the lambda's body slot, and its :return names
+      ;; the lambda, as the datom lane's `(emit! lambda :return)` does.
+      (loop [i 0]
+        (when-let [[l body path] (get @bodies i)]
+          (mark! l)
+          (lower-node body (conj path 3))
+          (emit! path [:return])
+          (recur (inc i))))
+      [@code @labels @paths])))
+
+
+(defn lower-rows
+  "Lower one projected row set to the canonical instruction vector of UCF
+   §7.3.2 (`docs/design/yin.vm.code-as-tuples.md` §5.1): one positional
+   tuple per instruction, pc is the index, defaults saturated, refs
+   resolved to pcs, no header. `[:call argc tail?]` is kept unfolded for
+   the decoder to fold into `:tailcall`, exactly as the datom lane's
+   `load-image` does; a lowering that emitted the folded form would hash a
+   different vector and break the projection-path equality of U5.
+
+   `bc` is `yin.vm/ast->semantic-bytecode`'s `{:root id, :rows {id row}}`;
+   it is validated (§7.4) first and a defect throws naming it. `origin` is
+   opaque provenance input (§5.3), stored verbatim in every provenance
+   row; nil is legal. Returns `{:vector v, :provenance [[pc origin root
+   path] …]}` with one provenance row per pc in pc order, `path` being the
+   emitting node's §2.5 structural path (row-position steps — id 0, tag 1,
+   first slot 2; a `nodes` item a `[position i]` pair) rooted at the
+   tree's root row id, so every provenance path joins `occurrences`'s
+   relation on `[root path]` (§5.3)."
+  ([bc] (lower-rows bc nil))
+  ([{:keys [root rows] :as bc} origin]
+   (when-let [{:keys [rule path id]} (vm/validate-rows bc)]
+     (throw (ex-info "Cannot lower rows that fail validation"
+                     (cond-> {:rule rule}
+                       path (assoc :path path)
+                       id (assoc :id id)))))
+   (let [[code labels paths] (flatten-rows rows root)
+         resolve (fn [tuple]
+                   (case (nth tuple 0)
+                     (:jump :branch-false) (assoc tuple 1 (get labels (nth tuple 1)))
+                     :closure (assoc tuple 2 (get labels (nth tuple 2)))
+                     tuple))]
+     {:vector (mapv resolve code),
+      :provenance (mapv (fn [pc path] [pc origin root path]) (range) paths)})))
 
 
 (defn- ast-children
