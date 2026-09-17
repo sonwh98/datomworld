@@ -387,6 +387,21 @@ opens:
   on no wire and in no descriptor; only requires change. An undecided
   coexistence is a defect of the migration, not a steady state.
 
+  > **Status (2026-09-17): not yet — deferred, not undecided.** The
+  > recommendation above (rename `dao.runtime.v2` in the same change as
+  > `dao.stream.v2`'s own rename) is taken as this plan's decision. That
+  > trigger — `dao.stream.md`'s "when the last consumer has migrated" —
+  > is not close: a fresh census the same night this gate opened found
+  > roughly 45 live source files still requiring `dao.stream` v1's own
+  > transport implementations (`dao.stream.{apply,file,http,link,
+  > ringbuffer,udp,ws}`, `dao.stream.rpc.*`), with real, unmigrated
+  > consumers including `yin.io`'s file transports, `dao.gui.event`,
+  > `dao.postgraphics.terminal`, `dao.runtime` itself, `agent.tools`, and
+  > `agent.tzu`. No `dao.stream` v1 retirement plan exists yet. Recording
+  > this now, rather than leaving the namespace decision silent, is what
+  > keeps the coexistence a stated deferral instead of the undecided
+  > steady state this section warns against.
+
 ## Host matrix
 
 Every phase on clj, cljs (Node) and cljd. R1 is pure `.cljc` over
