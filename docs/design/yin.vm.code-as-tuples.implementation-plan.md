@@ -183,7 +183,7 @@ about.
 |---|---|---|---|
 | ~~`"ast-to-bytecode"` profile as a published pinned document; `yin.vm.semantic.md` §2.4/§5.3 amendment (item 14) and its `zipmap` corrections~~ — **done 2026-09-18** | §5.2.1, item 7, item 14 | D1 — answered | U8 |
 | derivation records, two-step verification, ledger event entities, naming rows, provenance link from naming fact to event (item 10) | §5.2, §5.2.2, §8.1–8.3, §8.6 | U4, U5 (U8 no longer blocks) | U9 |
-| rows and vectors materialized in `dao.jing`; `:yin.code/hash` written | §2.1, §4.1, UCF §7.3.2 | D3, `dao.jing.md`'s metadata-carry open item | U10 |
+| rows and vectors materialized in `dao.jing`; `:yin.code/hash` written | §2.1, §4.1, UCF §7.3.2 | D3 answered (individual rows); the intake-stream half of `dao.jing.md`'s metadata-carry open item remains | U10 |
 | the observer row lane: `program-loaders` switch, the program-input predicate, REPL eval path, for compositions that want a compiler + semantic VM attached | §9.2, item 9 | U3, U4, U5 (D2 dissolved — no topology gates this) | U11 |
 
 ### Missing — design work still owed to another document or the owner
@@ -300,28 +300,82 @@ VM) is not gated on a D2 answer, because there is no D2 answer to gate on
 The Phase 1 dependency graph and the summary table below are updated to
 drop D2 as a blocker.
 
-### D3 — how `dao.jing` stores a tree's rows [owner]
+### D3 — how `dao.jing` stores a tree's rows [Owner: individual rows, canonical; pack as optional transport only, 2026-09-17]
 
 §2.1 names this an Open Question and it is absent from §10. Individual
 rows (git-style: one address per node, shared subtrees shared across trees,
 N fetches per load, `:root-reachable` checked against what was fetched) or
 a pack per tree (one fetch, a pack address distinct from the root id, the
 validator's reachability rule is over the pack). It decides the loader's
-interface and it decides what `:yin.k/carried` carries. **Default [J]:**
-individual rows as the stored form, with a pack as an *optional* transport
-envelope that hashes to its own address and is verified row by row on
-receipt; this keeps §4.4's cross-tree sharing real rather than nominal.
-Gates U10 only.
+interface and it decides what `:yin.k/carried` carries.
+
+**Answered**, on referral to a Storage & Indexing specialist (the owner is
+not a CBOR/storage expert and asked the orchestrator to route this rather
+than judge it directly): **individual rows as the canonical stored grain;
+a pack exists only as an optional transport envelope, deferred until
+remote loading is shown to need it.** The specialist's finding: this is
+not an irreducible owner judgment call, it is settled by storage
+mechanics once examined —
+
+- **A pack saves close to zero encoding bytes.** With `stringref` off (as
+  `dao.jing.cbor.md` pins), there is no cross-row string deduplication to
+  gain; a pack's only possible benefit is fewer round trips, not less
+  storage.
+- **Physics forces row-grain fetching over the DHT regardless of this
+  decision.** The DHT's 1200-byte datagram budget busts a pack at roughly
+  three rows (`dao.jing.cbor.md`'s *Remote and DHT* section), so DHT
+  transport gets no benefit from packing even if it were made canonical.
+- **Pack-canonical would break root-id addressing.** A pack's address is
+  distinct from the tree's root id, which would need a root→pack alias
+  table — exactly the mutable-root/alias surface `dao.jing` and UCF
+  §7.3.4 already refuse elsewhere. Individual rows need no such alias.
+- **Cross-tree deduplication is real with individual rows, lost with
+  pack-canonical.** Two trees sharing an identical subtree get that
+  subtree under the same address with individual rows (§4.4's sharing is
+  real); a pack hashes its whole byte content as one unit, so identical
+  shared bytes are stored twice under two different pack addresses —
+  dedup lost, not merely nominal. This is the invariant-shaped argument
+  (`datom.world.md`'s "Interpretation Creates Semantics" — one truth, many
+  perspectives) that motivated the original default, now confirmed by the
+  storage mechanics rather than resting on architectural principle alone.
+- A separate invariant argument (graphs must be constructed explicitly
+  from tuples) was raised and walked back during this discussion: a pack
+  is one ordinary CBOR-encodable value, and refs inside it still resolve
+  explicitly, so this invariant does not actually discriminate between
+  the two options. It is not part of the final reasoning.
+
+**Loader interface**: `load-rows : handle root → {:root :rows}`, a BFS
+fetch, sitting in front of U2/U3 (already grain-agnostic). A pack, if ever
+built, is the exact reachable closure in pinned first-encounter BFS order
+(deterministic, so identical trees share a pack address), verified
+row-by-row on receipt — never trusted as a unit. **`:yin.k/carried`**:
+unchanged from UCF §7.3.4 — canonical instruction vectors travel inline,
+verified by hash and grammar; a row tree, if ever carried, travels as its
+row set named by root id, never as a pack.
+
+**Deferred, not built now**: an optional bulk-fetch handler
+(`:jing/get-batch` or similar) is a real extension point whenever remote
+loading is shown to be slow enough to need it — `dao.jing.remote`'s
+`serve-content!` already serves any `{op fn}` handler map
+(`remote.cljc:881`), so this is an additive handler, not new
+architecture, and is intentionally not scheduled as a Phase 1 unit.
 
 A prerequisite U10 cannot dodge, from `dao.jing.md:447-464`: no backend or
 wire codec carries metadata, and the file backend writes `pr-str`, so a
 row whose `data` slot carries a metadata-bearing literal materializes,
-loses its metadata, and makes the store unopenable on replay. The codec
-deliberately retains non-position metadata in payloads. `dao.jing.md`
-names code-as-tuples as the producer that makes this blocking. U10 must
-either land the fail-closed check in `dao.jing.file` and the transit codec
-or refuse metadata-bearing payloads at the encoder observer; that is a
-`dao.jing` unit and is on the Boundary table.
+loses its metadata, and makes the store unopenable on replay. **This
+prerequisite's storage/transport half is now designed** (not built) by
+`dao.jing.cbor.md`, fully reviewed as of 2026-09-17 across four rounds
+and two independent model families: CBOR's supported-values set carries
+metadata, preserved via Boring's `clojure/with-meta` mapping, through
+every opaque-byte-copying backend. **What remains open, orthogonal to
+this decision**: the intake-stream half — rows arriving via
+`dao.stream.v2` Transit, which still carries no metadata, so a
+metadata-bearing row must reach Jing through a direct `materialize!` call
+rather than the ordinary observer/stream pool, or it is corrupted
+upstream of Jing regardless of which storage grain is chosen. U10 must
+state which ingestion path it uses; that is a separate decision this
+section does not resolve.
 
 ### D4 — the shape of the medium and batch coordinates [owner + `dao.stream.md`]
 
@@ -390,8 +444,10 @@ Doc-only, one commit, this plan's own fixable gaps:
    and non-contradictory — each describes a different, independently legal
    composition-level choice of which observers attach to the map-AST
    stream (D2, dissolved, not a topology to pick).
-3. §2.1's storage Open Question: promote to §10 as item 15 (= D3), with the
-   `dao.jing.md` metadata-carry prerequisite named.
+3. §2.1's storage Open Question: promote to §10 as item 15 (= D3),
+   answered (individual rows, canonical; pack as optional transport,
+   deferred) — with the `dao.jing.md` metadata-carry prerequisite's
+   still-open intake-stream half named.
 4. §10.3: name `:dao.stream/identity` as the candidate medium coordinate
    and the batch coordinate as the open half (= D4).
 5. §10.8: add that UCF is uncommitted (= D6).
@@ -523,10 +579,12 @@ reassert keeps the reasserted address; a tampered vector reports
 `:yin.k/derivation-mismatch`, not a silent re-lower. Size: three to four
 days; the transactor and `query/current` exist, so this is composition.
 
-**U10 — content in `dao.jing` (D3, and the `dao.jing.md` metadata fix).**
-Rows and vectors materialized under their addresses; `:yin.code/hash`
-written; a loader that fetches by root id (rows) or address (vector) and
-runs U2/U5. Criteria: `materialize!` → `get` → validate round-trips every
+**U10 — content in `dao.jing` (D3 answered: individual rows; the
+`dao.jing.md` metadata fix's intake-stream half still open).** Rows and
+vectors materialized under their addresses, individually per D3 — no pack
+format to build; `:yin.code/hash` written; a `load-rows : handle root →
+{:root :rows}` BFS loader (D3's stated interface) and a loader that
+fetches by address (vector), both running U2/U5. Criteria: `materialize!` → `get` → validate round-trips every
 corpus tree and vector on all three hosts; a metadata-bearing literal
 either round-trips or is refused before the write. Size: two days once the
 backend question is settled; unbounded until it is.
@@ -588,7 +646,7 @@ Phase 0 ─┬─ U1 ───────────────────�
          └─ U7 ─────────────────────────────┘  │
                                                │
 U8 (done) ── U9 (needs U4, U5) ─────────────────┤
-D3 + dao.jing metadata fix ── U10 ─────────────┤
+U10 (D3 answered: individual rows; metadata intake half open) ┤
 U11 (needs U3, U4, U5; D2 dissolved) ──────────┘
 D6 ── U12 ── U13 ── U14 (needs U7)
 D4 ── U15 (needs U4)
@@ -596,8 +654,8 @@ D5 ── U16 (needs U15; macro.md Phase 1 first)
 ```
 
 Phase 1 needs no decision. D1 is answered and done; D2 is dissolved, not
-answered; D6 is an approval of text the plan can draft; D3, D4, D5 remain
-choices among stated options.
+answered; D3 is answered (individual rows, canonical); D6 is an approval
+of text the plan can draft; D4, D5 remain choices among stated options.
 
 ## Completion criteria
 
@@ -640,7 +698,7 @@ each:
 |---|---|---|---|
 | ~~D1 profile publication~~ | ~~U8, U9~~ | done | **answered 2026-09-18**: publish now, in `yin.vm.code-as-tuples.md`; one-segment-per-lambda left for a future `"ast-to-bytecode-v2"` |
 | ~~D2 walker medium~~ | ~~U11~~ | n/a | **dissolved 2026-09-18**: the "three topologies" framing assumed a mandatory pipeline shape that `dao.stream.md`'s payload-agnostic contract never requires; every observer on the map-AST stream is an independent, optional, per-composition attachment. Nothing to choose. |
-| D3 row storage grain | U10 | default stated | choosing; the `dao.jing` metadata fix |
+| ~~D3 row storage grain~~ | ~~U10~~ | done | **answered 2026-09-17**, on referral to a Storage & Indexing specialist: individual rows canonical, pack as optional transport only, deferred — settled by storage mechanics (no encoding-byte savings with `stringref` off, DHT's 1200-byte budget forces row-grain regardless, pack-canonical would need a root→pack alias table), not an irreducible owner call. The metadata fix's intake-stream half remains open, orthogonal to this decision. |
 | D4 medium and batch coordinates | U15, U16, U4's provenance meaning | the medium half | the batch half, which touches `dao.stream.md`'s cursor rules |
 | D5 expander datom-native vs row-native | U16 | default stated | choosing |
 | D6 UCF committed | U12–U14 | the amendment text | the commit |
@@ -707,7 +765,7 @@ telemetry or trace vocabulary; anything in the v1 lineage, which is gone.
 | UCF in git; UCF §7.6.1 amendments and the §7.3.4 supersession note (item 8) | owner, then U12 | D6 |
 | `ctx :incarnation` and token minting at construction (§8.4.1) | `yin.vm.macro.md`, its next revision | item 3; U16 |
 | a portable batch coordinate, or a ruling that none is needed | owner + `dao.stream.md` | D4 |
-| metadata carried or refused by `dao.jing.file` and the transit codec | `dao.jing.md`'s open item | D3; U10 |
+| metadata on the intake-stream path (`dao.stream.v2` Transit still carries none — the storage/transport half is designed by `dao.jing.cbor.md`, fully reviewed 2026-09-17, not yet built) | `dao.jing.md`'s open item | U10 |
 | the primitive-profile registry format | UCF §7.5.2/§7.11 | U13 |
 | a data structure for the work-item fixed point | a design round before U14 | item 5 |
 | `macro.md` header revision (3 → 8) and its stale "semantic/linearize do not exist yet" (`:1015`) | `yin.vm.macro.md` status note | Phase 0 may add the note |
@@ -746,3 +804,26 @@ telemetry or trace vocabulary; anything in the v1 lineage, which is gone.
   another optional observer). §7.1 and §6.1/§9.1 were never contradictory;
   each describes a different, equally legal composition. U11 no longer
   waits on a decision — it proceeds once U3, U4, U5 are ready.
+- **2026-09-17, owner decision D3.** Answered on referral to a Storage &
+  Indexing specialist rather than the owner judging CBOR/storage
+  mechanics directly: individual rows as the canonical stored grain, a
+  pack allowed only as an optional transport envelope, deferred until
+  remote loading needs it. Settled by storage mechanics, not left as an
+  architectural judgment call: a pack saves close to no encoding bytes
+  with `stringref` off; the DHT's 1200-byte budget forces row-grain
+  fetching past roughly three rows regardless of this decision;
+  pack-canonical would need a root→pack alias table the design otherwise
+  refuses; cross-tree deduplication is real with individual rows and
+  genuinely lost with pack-canonical. `docs/design/dao.jing.cbor.md`
+  (a separate CBOR storage migration plan, previously unreviewed) was
+  fully architecture-reviewed in the same session — four rounds, two
+  independent model families (Claude, GLM) — surfacing and fixing one
+  real defect (a JVM query-semantics understatement) the same-family
+  review chain alone had missed, which is why the cross-family pass was
+  requested. `U10`'s loader interface (`load-rows : handle root →
+  {:root :rows}`) and `:yin.k/carried` (unchanged, per UCF §7.3.4) are
+  both named directly by this answer. The metadata-carry prerequisite's
+  storage/transport half is now designed (not built) by
+  `dao.jing.cbor.md`; its intake-stream half (`dao.stream.v2` Transit
+  still carries no metadata) remains open and orthogonal to this
+  decision, owed to U10 to name which ingestion path it uses.
