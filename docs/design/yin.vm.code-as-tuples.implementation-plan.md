@@ -425,6 +425,10 @@ macros, as §8.5 and item 4 both say.
 
 ### D6 — item 8 needs a committed UCF before it needs an amendment [Owner: datom-native first, 2026-09-18]
 
+### D7 — metadata on the intake stream [Owner: additive dao.stream.cbor protocol, reject base64, 2026-09-18]
+
+The owner rejects wrapping CBOR in Base64 Transit. Instead, a new `dao.stream.cbor` wire protocol will be built additively alongside the existing `dao.stream.transit-json`. The REPL and intake streams can switch to this new binary WebSocket protocol to natively preserve metadata, without breaking existing Transit API clients. `dao.jing.cbor` can seamlessly run on top of whichever underlying stream protocol is active.
+
 UCF is untracked. Amending §7.6.1's names paragraph (`ucf.md:779-781`) and
 fixed point (`:757-758`), and recording code-as-tuples §7.2's supersession
 of `:302-303`, is a 20-line edit once the file is in git. The owner must
@@ -516,6 +520,7 @@ in the occurrence relation (U7) once it exists. Size: three to four days;
 this is the largest Phase 1 unit and the one with a real chance of an
 ordering bug, which the parity suite catches.
 
+[Owner Ruling 2026-09-18: Scrap UCF §7.3.4 legacy EAVTM projection `code/vector->datoms`.]
 **U5 — the §7.5 validator and the positional loader.**
 `code/well-formed-vector?` with §7.5's eight rules, defects naming a pc;
 `semantic/load-vector` decoding `(nth tuple i)` into the image, minting a
@@ -703,6 +708,7 @@ each:
 | D5 expander datom-native vs row-native | U16 | default stated | choosing |
 | D6 UCF committed | U12–U14 | the amendment text | the commit |
 
+| D7 intake stream metadata | U10 | done | **answered 2026-09-18**: Reject Base64 Transit wrap. Additively build `dao.stream.cbor` binary WebSocket protocol alongside Transit. |
 **How much is genuinely speculative.** Phase 3 — items 3, 4, 5, 8, 11 — is
 roughly two to three months of work against two documents (UCF, macro)
 that are themselves unimplemented proposals, and item 5 needs a data-
