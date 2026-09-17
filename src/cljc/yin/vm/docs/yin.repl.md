@@ -1,84 +1,129 @@
-# Yin REPL Usage Guide
+# Yin REPL v2 Usage Guide
 
-> [!WARNING]
-> **Status (2026-09-16):** v1 `yin.repl` and every alias below (`:clj-yin-repl`, `:cljs-yin-repl`, `:cljd-yin-repl`) were deleted by `yin.vm.v1-retirement.implementation-plan.md`. This guide is kept only as the baseline [yin.repl.v2.md](yin.repl.v2.md) describes differences from; start the REPL with `clj -M:clj-yin-repl-v2`.
+The DaoStream v2 Yin REPL: a local shell, a `connect` that reaches a remote
+one over v2 WebSockets, a `serve!` that answers, and nothing else. It runs on
+`yin.vm` and requires no v1 namespace. `yin.repl.md` describes the v1 REPL;
+this document describes only what differs.
 
-The Yin REPL can operate as both a local interactive shell and a WebSocket server, allowing remote connections for evaluation.
+## Starting and connecting
 
-## Starting the REPL Server
+The entry points are the v2 aliases; the flags behave as they do in v1:
 
-You can start a REPL server on a specific port using the `--port` flag. By default, the server binds to `127.0.0.1` (localhost only) for security. To bind to a different interface (e.g. `0.0.0.0` to allow external connections), use the `--host` flag. This is supported across JVM, Node.js, and Dart VM platforms.
-
-### Clojure (JVM)
-To run the JVM REPL server with a local prompt:
-```bash
-clj -M:clj-yin-repl --port 8080
-```
-
-To run the JVM REPL server in **headless** mode:
 ```bash
 clj -M:clj-yin-repl --port 8080 --headless
 ```
 
-### Node.js (ClojureScript)
-To compile and run the Node.js REPL server directly in one command:
+For ClojureDart (`cljd`), use the `v2-build` alias to compile the Dart source, and then run the generated executable natively via `dart run`:
+
 ```bash
-clj -M:cljs-yin-repl --port 8080
+clj -M:cljd-yin-repl-build compile
+dart run lib/cljd-out/yin/repl.dart --port 8080 --headless
 ```
 
-To run the Node.js REPL server in **headless** mode:
+For ClojureScript (`cljs` on Node), you can run it directly using the shadow-cljs alias:
+
 ```bash
 clj -M:cljs-yin-repl --port 8080 --headless
 ```
 
-### ClojureDart (Dart VM)
-To compile and run the ClojureDart REPL server directly in one command:
+Or you can compile it to a standalone Node script:
+
 ```bash
-clj -M:cljd-yin-repl --port 8080
+npx shadow-cljs release yin-repl
+node target/yin-repl.js --port 8080 --headless
 ```
 
-To run the ClojureDart REPL server in **headless** mode:
-```bash
-clj -M:cljd-yin-repl --port 8080 --headless
+```clojure
+yin> (connect "daostream:ws://localhost:8080/repl")
+Attaching to daostream:ws://localhost:8080/repl
+Connected to daostream:ws://localhost:8080/repl
 ```
 
-## Connecting to a Remote REPL
+An absent URL path means `/repl`; an explicit `/` remains `/`.
 
-Once a REPL server is running, you can connect to it from another interactive JVM REPL using the `connect` command.
+## What differs from v1
 
-1. Start a local REPL:
-   ```bash
-   clj -M:yin-repl
-   ```
+**`connect` returns immediately and reports its outcome when known.**
+v1's `connect` resolved over a promise (JVM) or future (Dart) and printed
+`Connected to …` only once the round trip completed. v2's `connect` composes
+the client boundary, attaches, and answers at once with `Attaching to …`; the
+driver prints `Connected to …` when the boundary reports `/established`, and
+reports `/not-found` (an authoritative disclaimer, not retried) or a
+reachability failure (which may succeed on retry) when that is what happened.
+No evaluation blocks on a promise, on any host.
 
-2. Connect to the remote server:
-   ```clojure
-   yin> (connect "daostream:ws://localhost:8080")
-   Connected to ws://localhost:8080
-   ```
+**`(vm :type)` offers `:ast-walker` only, and the default changed.**
+v1 defaulted to `:semantic`, until `yin.vm-consumers.implementation-plan.md`
+deleted `:semantic`, `:register`, `:stack` and `:space` and migrated v1's
+default to `:ast-walker` too. `:ast-walker` is now the only evaluator on
+either REPL; asking for another is an error naming what is supported.
 
-3. Evaluate expressions remotely:
-   All subsequent inputs (except local-only commands) will be sent to the remote REPL for evaluation.
-   ```clojure
-   yin> (+ 1 2)
-   3
-   ```
+**There is no `(telemetry)` command.** Telemetry is not part of the v2 slice
+in any form. `(telemetry)` is answered with a message naming the v1 REPL, and
+`--telemetry` / `--telemetry-stream` are rejected rather than ignored. There
+is no `ws://` telemetry sink.
 
-4. Disconnect to return to local evaluation:
-   ```clojure
-   yin> (disconnect)
-   Disconnected from remote shell
-   ```
+**Datom-literal evaluation runs on a VM-owned v2 ingress medium.** A datom
+program typed at the prompt is appended to the ast-walker's ingress ring
+buffer (declared capacity 4096) and the VM ingests it between batches. A gap —
+batches evicted before the VM saw them — is fatal to the current evaluation:
+the loss is reported and the shell refuses further evaluation until `(reset)`,
+rather than resuming as if execution were complete.
 
-## Command Reference
+**The evaluator is step-driven everywhere.** One `repl-step` owns all REPL and
+RPC state on every host; input adapters only append lines to the composition's
+input medium. A remote evaluation returns immediately with a request id, and
+the result prints when it completes. Input typed while a request is
+outstanding is queued, not evaluated; local control commands (`disconnect`,
+`quit`, `help`, `repl-state`) bypass that queue so a slow remote cannot trap
+the operator.
 
-| Command | Description |
-|---------|-------------|
-| `(help)` | Show available commands |
-| `(connect "url")` | Connect to a remote DaoStream WebSocket |
-| `(disconnect)` | Disconnect from the current remote session |
-| `(repl-state)` | Show status of the current REPL (local and remote) |
-| `(vm :type)` | Switch the evaluation VM (`:ast-walker`) |
-| `(lang :lang)` | Switch input language (`:clojure`, `:python`, `:php`) |
-| `(telemetry)` | Enable/disable telemetry output |
-| `(quit)` | Exit the REPL |
+**A killed connection is reported, never timed out.** Losing the connection
+detaches every outstanding request: the driver prints
+`;; remote request N lost: …` rather than holding the request against a
+deadline, because the layer has no clock. The served stream is untouched by a
+detach; typing `(connect …)` with the same URL reattaches through the same
+client medium — the deposit medium and its cursor survive the socket's death,
+and only the attachment id changes.
+
+**`stop!` ends the served stream.** A server shutdown closes the
+service-lifetime stream, and a connected client observes the ended stream —
+`The stream served at … ended` — which is terminal: there is nothing to
+reattach to. An ordinary socket death without the stream ending reports a
+detach instead, which does reattach.
+
+## Consequences of running on `yin.vm`
+
+These follow from the VM plan's divergence register:
+
+- **User-defined macros stop evaluating.** `yang.clojure` compiles macro call
+  sites to `:yin/macro-expand`; the ast-walker has no such branch and throws.
+  `defn` still works through its native compile path.
+- **`stream/take!` is gone.** Programs use `cursor` and `next!` on the v2
+  `stream` module, which this REPL registers.
+- **Park-on-full backpressure is absent under this composition.** The media
+  this REPL supplies are ring buffers that evict rather than answering `full`,
+  so writers never park. The VM itself remains total over `full`.
+
+## Server behavior
+
+`--port` serves one shared shell (as v1 does): every connected client
+evaluates against one serially threaded REPL state, and two clients each get
+their own answers. That shell is the server's own local prompt's shell — the
+one step owner threads the same value through both, so a definition typed at
+the server's `yin>` prompt answers a remote request in the same tick, and a
+definition a remote client makes is visible at the local prompt on the next
+tick. The endpoint evaluates locally or reports that it does not
+proxy — v1's chain-forwarding through a server's own remote connection is not
+part of this slice. `--host 127.0.0.1` remains the only boundary, as in v1.
+
+## Coexistence
+
+Both REPLs ship and both alias sets work: `yin.repl` and its aliases are
+untouched, and `dao.stream.rpc.*` keeps serving its existing consumers.
+Deleting v1 is the stream plan's end condition, once its last consumer has
+migrated.
+
+See [`docs/design/yin.repl.implementation-plan.md`](../../../../docs/design/yin.repl.implementation-plan.md)
+for the plan this REPL implements and the contract documents it is subordinate
+to.

@@ -480,7 +480,7 @@ slashes remain encoded. Repeated slashes and a trailing slash are significant.
 Query and fragment components are ignored for lookup and are absent from the
 descriptor. Resolution is an exact string lookup on this canonical form. The
 client offers the
-WebSocket subprotocol `dao.stream.v2.transit-json`, and the server refuses
+WebSocket subprotocol `dao.stream.transit-json`, and the server refuses
 the upgrade when that subprotocol is absent.
 
 After upgrade, the first WebSocket message sent by the server is exactly one
@@ -652,7 +652,7 @@ Close code `4000`, reason `dao.stream/ended`, maps to `:ws/ended`. Code `4004` i
   no watched future, so a repair that cancels on close must give it one.
   Even repaired, the residual is unbounded for a stalled peer and
   caller-owned: a late `onOpen` can be aborted, but the JDK offers no
-  handle to bound a peer that never completes the handshake. `yin.repl.v2`
+  handle to bound a peer that never completes the handshake. `yin.repl`
   is this gap's first consumer and `dao.jing.remote` its second, and
   neither can close it from where it stands.
 - Exact envelope key set (tracks the contract's descriptor TBD).

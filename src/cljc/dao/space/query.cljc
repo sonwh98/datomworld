@@ -14,15 +14,15 @@
      through `close-published!`).
 
    Raw vectors and raw maps are not database inputs and throw. A live
-   dao.stream.v2 handle becomes an input only through `snapshot`, the one
+   dao.stream handle becomes an input only through `snapshot`, the one
    place this namespace touches v2. Source scope is interpreter context,
    never a tuple slot."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.jing.coordinate :as jing-coordinate]
             [dao.space.index :as index]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.observe :as observe]))
+            [dao.stream :as stream]
+            [dao.stream.observe :as observe]))
 
 
 ;; =============================================================================
@@ -269,11 +269,11 @@
 
 
 ;; =============================================================================
-;; snapshot: the one dao.stream.v2 interpreter (Decision 3)
+;; snapshot: the one dao.stream interpreter (Decision 3)
 ;; =============================================================================
 
 (defn snapshot
-  "Turn a dao.stream.v2 reader handle into a relation value:
+  "Turn a dao.stream reader handle into a relation value:
 
      {:relation <relation value>
       :status   :ended | :blocked | :gap | :defect

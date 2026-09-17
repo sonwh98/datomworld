@@ -35,7 +35,7 @@
 
    The same namespace is also the *stateful* dao.stream observer of
    docs/design/dao.space.index.as-observer.md: `session` builds the consumer
-   half a `dao.stream.v2.observer/run-on-stream` session drives with
+   half a `dao.stream.observer/run-on-stream` session drives with
    `fold-batch`/`flush-staged`, `publish!`/`checkpoint`/`restore` publish and
    recover it, and `db-value` hands its live trees to `dao.space.query`. The
    index is a symmetric peer observer there — it never evaluates, and it
@@ -44,7 +44,7 @@
             [dao.data.btree.storage :as bts]
             [dao.datom :as datom]
             [dao.jing :as jing]
-            [dao.stream.v2 :as stream]))
+            [dao.stream :as stream]))
 
 
 ;; =============================================================================
@@ -415,7 +415,7 @@
 
 (defn- checked
   "Fold a defective result into an exception before anything is read from it.
-   The contract's own validator (dao.stream.v2/validate-outcome) answers nil
+   The contract's own validator (dao.stream/validate-outcome) answers nil
    for a conforming result and a defect map otherwise; interpreting an
    unvalidated result is how a loop ends up recurring on a nil cursor."
   [operation result]
@@ -430,7 +430,7 @@
    datoms.
 
    The local stream is on a complete-retention transport
-   (dao.stream.v2.memory-log), so a fresh :oldest cursor is the origin and
+   (dao.stream.memory-log), so a fresh :oldest cursor is the origin and
    `gap` cannot occur — completeness comes from the transport's declared
    retention, never from the anchor (dao.stream.md, *Complete history*).
    `blocked` (an open stream caught up) and `end` (a closed one fully read)
@@ -492,7 +492,7 @@
   (when-not (coll? intake-pool)
     (throw
       (ex-info
-        "publish-index! intake-pool must be a collection of writable dao.stream.v2 values"
+        "publish-index! intake-pool must be a collection of writable dao.stream values"
         {:intake-pool intake-pool})))
   (when (empty? intake-pool)
     (throw (ex-info "publish-index! intake-pool must be non-empty"
@@ -548,7 +548,7 @@
    observer has materialized those payloads yet. Because the build starts at
    the retained history's origin and reconstructs complete indexes,
    local-stream must be on a complete-retention transport
-   (dao.stream.v2.memory-log); the snapshot is complete before anything is
+   (dao.stream.memory-log); the snapshot is complete before anything is
    emitted.
 
    Usage:
@@ -598,7 +598,7 @@
 ;; =============================================================================
 
 ;; The index state is the consumer half of one
-;; dao.stream.v2.observer/run-on-stream session:
+;; dao.stream.observer/run-on-stream session:
 ;;
 ;;   {:indexes  {:eavt bt :aevt bt :avet bt :vaet bt}  ; dao.data.btree values,
 ;;                                                          structurally shared across batches
@@ -735,7 +735,7 @@
 
 (defn session
   "Construct the initial index state — the consumer half of one
-   `dao.stream.v2.observer` session (`{:observer o :consumer st}`; the
+   `dao.stream.observer` session (`{:observer o :consumer st}`; the
    composition attaches the observer half itself). opts:
 
      {:mode :resolved | :unresolved   fixed for the session's life (§3.1):
@@ -745,7 +745,7 @@
                                       per-batch tempids and owns every
                                       positive user id it allocates
       :schema {attr {:db/valueType ...}}  which attributes are refs
-      :intake w                        the dao.stream.v2 writer publications
+      :intake w                        the dao.stream writer publications
                                       append to; nil builds a session that
                                       folds but cannot publish (publish!
                                       throws until an intake is supplied)
@@ -763,7 +763,7 @@
   (validate-mode! mode)
   (validate-schema! schema)
   (when (and (some? intake) (not (stream/writer? intake)))
-    (throw (ex-info "index session :intake must be a dao.stream.v2 writer"
+    (throw (ex-info "index session :intake must be a dao.stream writer"
                     {:intake intake})))
   (validate-branching! (or branching-factor 512))
   (when (and (= :resolved mode) (some? ids))
@@ -1206,7 +1206,7 @@
   "checkpoint and coverage read both halves of a {:observer o :consumer c}
    session — the cursor and gap count live in the observer half, where
    run-on-stream advances them, including on a gap. The dependency runs
-   dao.space.index over the shape dao.stream.v2.observer publishes, never
+   dao.space.index over the shape dao.stream.observer publishes, never
    the reverse; the generic loop stays ignorant of every index field."
   [session]
   (let [{:keys [observer consumer]} session]
@@ -1316,7 +1316,7 @@
    hazard). :defects start fresh (drained diagnostics are not state); the
    durable :rejected is reinstated, and the composition re-attaches the
    observer at :cursor with :ingress-gaps seeded from the candidate
-   (dao.stream.v2.observer/attach's kept-cursor arity) — a partial index
+   (dao.stream.observer/attach's kept-cursor arity) — a partial index
    stays partial after restart.
 
    opts:
@@ -1333,7 +1333,7 @@
     (throw (ex-info "restore takes a checkpoint candidate carrying a manifest address"
                     {:candidate candidate})))
   (when-not (stream/writer? intake)
-    (throw (ex-info "restore :intake must be a dao.stream.v2 writer"
+    (throw (ex-info "restore :intake must be a dao.stream writer"
                     {:intake intake})))
   (when-not (= mode (:mode candidate))
     (throw (ex-info "checkpoint candidate mode does not match the session being constructed"

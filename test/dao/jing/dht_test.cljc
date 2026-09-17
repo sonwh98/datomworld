@@ -12,8 +12,8 @@
             [dao.jing.mem :as mem]
             [dao.jing.dht :as dht]
             [dao.jing.dht.kad :as kad]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.ringbuffer :as ringbuffer]))
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ringbuffer]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@
 
 
 (defn- open-stream
-  "A dao.stream.v2 ringbuffer reader handle pre-loaded with vals."
+  "A dao.stream ringbuffer reader handle pre-loaded with vals."
   [& vals]
   (let [{:dao.stream/keys [handle]}
         (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
@@ -392,7 +392,7 @@
 
 (deftest observer-equal-payloads-converge-and-replicate
   (testing
-    "equal payloads arriving through two dao.stream.v2 ringbuffers
+    "equal payloads arriving through two dao.stream ringbuffers
             materialize through the DHT into one local entry and replicate
             to the grid"
     (let [{:keys [stores]} (grid 2)

@@ -20,7 +20,7 @@ invariants they pin. Nothing is in production.
 about all three. The JVM transport parked inside `append!` (`ws/jvm.clj:158`
 joined the send future), so D1's claim was false *for the shipped transport*;
 that became **Phase 0**, a prerequisite repair of a live defect that also
-affects `yin.repl.v2`, committed on its own as `3228d0e`. The prescribed
+affects `yin.repl`, committed on its own as `3228d0e`. The prescribed
 timeout test could not pass under the plan's own S4; it was rewritten with an
 explicit release. Retaining timed-out requests leaked payloads for nothing;
 they are retired.
@@ -42,9 +42,9 @@ still the wrong place to rebuild the JVM establishment lifecycle, and Phase 0
 already fixed the defect that actually blocked this migration. So: **N2 and
 D2 now state what the shipped transport does and does not do, as a limit and
 not as a promise deferred**; §5.2 #6 asserts only what is assertable and
-cleans up what it can reach; the gap itself — live for `yin.repl.v2`
+cleans up what it can reach; the gap itself — live for `yin.repl`
 disconnecting while connecting — is recorded as owed by
-`dao.stream.v2.ws.jvm` in §8, and its earned substance is carried in §9 to a
+`dao.stream.ws.jvm` in §8, and its earned substance is carried in §9 to a
 named home. That is the §9 rule doing its job. **One cost is worth saying
 plainly, and it is recorded in N2**: a caller that opens `:dao.jing/remote`
 coordinates against an endpoint that accepts TCP and never completes the
@@ -70,9 +70,9 @@ sharpenings, three of which change the plan's shape:
    `remote-test_test.dart` (imports `rpc/ws.dart` from the test's `:15`
    require; no `with_server`) and `coordinate.dart` (no `validate_remote`).
    That works today only because v1 `dao.stream.rpc.*` has Dart twins.
-   `dao.stream.v2.ws.jvm` is a `.clj` file with none, so cljd owes this plan
+   `dao.stream.ws.jvm` is a `.clj` file with none, so cljd owes this plan
    two spellings: the JVM glue require must be spliced
-   `#?@(:cljd [] :clj [[dao.stream.v2.ws.jvm :as jvm]])` (`yin.repl.v2.host:16`),
+   `#?@(:cljd [] :clj [[dao.stream.ws.jvm :as jvm]])` (`yin.repl.host:16`),
    and the new JVM deftests must keep the unconditional-`deftest`, conditional-
    body form the existing `network-*` tests use — a `#?(:clj (deftest …))`
    would be registered by the host pass and missing from the emitted Dart.
@@ -87,7 +87,7 @@ sharpenings, three of which change the plan's shape:
    (a value with explicit outcomes instead of a cursor atom scanned by
    concurrent threads), not where the waiting is. This decides Q1 and Q2 —
    **once Phase 0 makes the JVM transport keep its own promise** (D1).
-3. **`yin.repl.v2` is a twin, not an in-place migration.** v1 `yin.repl`
+3. **`yin.repl` is a twin, not an in-place migration.** v1 `yin.repl`
    still requires `dao.stream.rpc.client` and `.ws` (`repl.cljc:12-13`) and is
    deleted with v1. The orchestrator log (2026-09-07) records the user
    refusing the twin shape for `dao.jing`. This plan migrates `dao.jing.remote`
@@ -150,7 +150,7 @@ The only thing v1 about the namespace is the JVM constructor `connect-content!`,
 which supplied v1's `rpc-ws/connect!` and `rpc-client/call!` as those
 injections, and the `comment` block showing `rpc-ws/start!` as the server. The
 migration is therefore a **new `connect-content!` and a new server
-constructor** over `dao.stream.v2.rpc`, plus a small portable step the JVM
+constructor** over `dao.stream.rpc`, plus a small portable step the JVM
 driver turns, with `content-client`, `default-handlers`, `dao.jing.coordinate`
 and the thirteen contract tests untouched. That is small, and the plan says so
 — with one prerequisite outside the namespace (Phase 0, done) that the
@@ -162,10 +162,10 @@ migration exposed rather than caused.
 
 Tests are current `remote_test` deftests unless named otherwise.
 
-### 2.0 The JVM send seam — `dao.stream.v2.ws.jvm`, Phase 0 (done)
+### 2.0 The JVM send seam — `dao.stream.ws.jvm`, Phase 0 (done)
 
-`test/dao/stream/v2/ws/jvm_test.clj` (seven deftests shipped in `3228d0e`),
-and `yin/repl/v2/host/jvm_test.clj` unchanged.
+`test/dao/stream/ws/jvm_test.clj` (seven deftests shipped in `3228d0e`),
+and `yin/repl/host/jvm_test.clj` unchanged.
 
 | # | Invariant | |
 |---|---|---|
@@ -192,7 +192,7 @@ narrowed to, and §8/§9 carry what a successor needs to change it.
 | H2 | Put validates that the address is a segment address hashing to the payload before the backend is consulted; either failure throws and stores nothing | `[D]` *Materialization rule* |
 | H3 | Put answers the backend's `:inserted`/`:present` verbatim; any other backend answer throws | `[D]` |
 | H4 | Get answers exactly `{:found? boolean :value v}`; stored `nil` is `{:found? true :value nil}` | `[T→D]` — the wire vocabulary, pinned by tests and a docstring; §9 gives it a durable home |
-| H5 | A handler that throws never escapes the server step: it becomes a `:dao.stream.v2.apply/handler-error` response, and an unknown op an `/unknown-operation` response | `[D]` **new** — v2 `apply/dispatch-request`'s rule replaces v1 `rpc.server`'s |
+| H5 | A handler that throws never escapes the server step: it becomes a `:dao.stream.apply/handler-error` response, and an unknown op an `/unknown-operation` response | `[D]` **new** — v2 `apply/dispatch-request`'s rule replaces v1 `rpc.server`'s |
 
 ### 2.2 Client handle — `content-client`, unchanged
 
@@ -242,7 +242,7 @@ tests named in §5.2.
 | S1 | `(serve-content! handlers port)` / `(… port opts)` serves any `{op fn}` map at `content-path` over a v2 WebSocket endpoint; each `:ws/payload` request is answered by `apply/dispatch-request` and the response appended to that attachment's socket handle | `[D]` **new** |
 | S2 | `stop!` detaches every session, releases the listener, stops the ticker; idempotent | `[D]` **new** |
 | S3 | A bind failure throws from `serve-content!` and retains nothing | `[D]` **new** — `serving/start!` answers `transport-error` |
-| S4 | The handler runs in the server's single driver thread; a handler that never returns stalls every session | `[D]` **new**, an accepted limit, the same one `yin.repl.v2.implementation-plan.md` records for R4 |
+| S4 | The handler runs in the server's single driver thread; a handler that never returns stalls every session | `[D]` **new**, an accepted limit, the same one `yin.repl.implementation-plan.md` records for R4 |
 | S5 | A handler result outside the portable domain is never dropped silently: it is replaced by a correlated `:dao.jing.remote/non-portable-result` error response, so the client throws N9's error rather than timing out. Any non-`ok` outcome from the response append retires the attachment (`stream/close!` on its socket handle), so the client observes N8's terminal loss rather than silence | `[D]` **new** — r2 |
 
 ### 2.5 Coordinate — unchanged
@@ -279,7 +279,7 @@ it, not of the stream" (*The readiness extension*), "cadence belongs to the
 runtime driving the interpreters" (*What it costs*), and the *Composition*
 section's driver "repeatedly calls the step, yielding execution as needed by
 the host runtime". A JVM thread that calls `rpc/poll!`, receives `idle`, and
-sleeps is that driver. `yin.repl.v2/-main` on the JVM is exactly this loop with
+sleeps is that driver. `yin.repl/-main` on the JVM is exactly this loop with
 a 25 ms tick (`v2.cljc:21`, `poll-loop!` at `:191`); the observer loop in
 `stigmergy_test:150-160` is another. No operation is made to wait: each
 `poll!` returns, each `request!` returns. The distinction is real, and
@@ -290,9 +290,9 @@ correction 2 shows v1 relied on it too.
 path `request!` → `append!` → `send!` parked in `.join` until the host had
 finished sending, before the host loop could look at its deadline, and the
 retry of an `:unsent` envelope reached the same path. The plan's request
-timeout could not bound that wait. This was a defect in `dao.stream.v2.ws.jvm`
+timeout could not bound that wait. This was a defect in `dao.stream.ws.jvm`
 against its own docstring and against `dao.stream.ws.md`'s `ok`, live for
-`yin.repl.v2`; it was not something this migration introduced, and it was not
+`yin.repl`; it was not something this migration introduced, and it was not
 something this migration could build on either. **Phase 0 repaired it
 (`3228d0e`, §4.0), and D1 is conditional on Phase 0 having landed.** After it,
 every operation on the call path returns without parking, and the only
@@ -361,9 +361,9 @@ exactly this**: the handle's phase is closed, nothing escapes to the caller,
 and a socket that opens later meets a closed handle whose `append!` answers
 `closed`. **What it does not guarantee is anything about the peer or the
 JDK-held connection**: no teardown, no EOF at any time, and one JDK
-connection held per stalled attempt for the process lifetime. `yin.repl.v2`
+connection held per stalled attempt for the process lifetime. `yin.repl`
 has the same limit today when an operator disconnects while connecting.
-Repairing it is establishment-lifecycle work in `dao.stream.v2.ws.jvm`, not
+Repairing it is establishment-lifecycle work in `dao.stream.ws.jvm`, not
 in a migration plan; §8 records it as owed and §9 carries what the repair
 needs to know. §5.2 #6 asserts the guaranteed facts, nothing more, and
 closes the sockets it opened itself.
@@ -390,12 +390,12 @@ the JDK. It is kept as the validation pin it is.
    operations — under a single-owner, single-awaited-call precondition."
   [state id budget]
   (let [state (if (rpc/unsent? state)
-                (:dao.stream.v2.rpc/state (rpc/request! state nil nil))
+                (:dao.stream.rpc/state (rpc/request! state nil nil))
                 state)
-        state (:dao.stream.v2.rpc/state (rpc/poll! state budget))
+        state (:dao.stream.rpc/state (rpc/poll! state budget))
         [completions state] (rpc/take-completed state)
         [_ state] (rpc/take-diagnostics state)
-        mine (first (filter #(= id (:dao.stream.v2.rpc/id %)) completions))]
+        mine (first (filter #(= id (:dao.stream.rpc/id %)) completions))]
     (cond
       mine {:state state :status :done :completion mine}
       (:terminal state) {:state state :status :terminal :reason (:terminal state)}
@@ -460,14 +460,14 @@ warned against.
 
 ### D4 — no rebind; a remote handle is opened, used, and closed
 
-`yin.repl.v2` rebinds because an operator's connection has a life beyond one
+`yin.repl` rebinds because an operator's connection has a life beyond one
 request. A `:dao.jing/remote` handle does not: `query/open-published!` opens
 one per manifest and `close-published!` closes it. After a terminal reason
 every call throws with that reason (N8), and the caller decides whether to
 open a new coordinate. Reattachment policy and the retained-envelope
 abandonment `driver.cljc:211-221` reasons about are therefore out.
 
-### D5 — `default-handlers` does not change; the server is `dao.stream.v2.serving` with an inbound step that owns its response outcomes
+### D5 — `default-handlers` does not change; the server is `dao.stream.serving` with an inbound step that owns its response outcomes
 
 Correction 8's measurement: the map is already what `apply/dispatch-request`
 consumes. What serves it is `serving/make-serving` with the one hook it
@@ -518,16 +518,16 @@ both directions — N7 outbound, S5 inbound — and `dao.jing.md` says so (§9).
 This remains a composition **for the JVM host, and says so**: `dao.stream.md`
 *Surfaces* permits an interpreter composed for a particular medium provided it
 does not claim to be contract-generic. A host whose sends can answer a
-transient `full` would need `yin.repl.v2.serve`'s `:pending-response`
+transient `full` would need `yin.repl.serve`'s `:pending-response`
 retention; the JVM edge excludes `full` after establishment (`ws.jvm:8-10`),
 so nothing here needs it.
 
-The rest of the composition is `yin.repl.v2.serve`'s, minus the shell: a
+The rest of the composition is `yin.repl.serve`'s, minus the shell: a
 capacity-1 service stream never appended to (it anchors the served identity),
 a 1024-element portable control medium, eight capacity-1 host-value handoff
 slots, a 256-element lifecycle medium for `listen!`'s deposits, a per-
 attachment 8192-element portable traffic medium with its cursor minted before
-the acknowledgement, and `dao.stream.v2.ws.jvm/listen!` as `:start-endpoint!`
+the acknowledgement, and `dao.stream.ws.jvm/listen!` as `:start-endpoint!`
 with `ws/accept-connection!` as `accept!`. A daemon **ticker thread** calls
 `serving/step!` every `:tick-ms` (default 1) until `stop!`. That thread is
 host policy inside a `#?(:clj …)` constructor whose caller owns `stop!`; it is
@@ -550,20 +550,20 @@ The coordinate's `:url` is a string, pinned by K1, `stigmergy_test` and
 and a `:dao.stream/identity`. `content-descriptor` derives them:
 `ws://host[:port][/path]`, default port 80 as the WebSocket scheme's, an
 absent path → `content-path` `"/jing"` (an explicit `/` stays `/`, the rule
-`yin.repl.v2.connect/repl-target` applies), identity the constant
+`yin.repl.connect/repl-target` applies), identity the constant
 `service-identity` `"dao.jing.remote/content"`. The identity is only gated
 locally (`ws/descriptor?` requires a string); the wire carries host, port and
 path, and the serving side checks its own descriptor against itself
 (`serving.cljc:231-232`), so a fixed constant is correct and matches
-`yin.repl.v2.connect/service-identity`'s precedent. `wss://`, a bracketed
+`yin.repl.connect/service-identity`'s precedent. `wss://`, a bracketed
 IPv6 authority, a missing host and a non-positive port throw before any
 socket, as `parse-url` reports them.
 
 The function is **public**, so its portable test needs no `#'` seam; it is
 `dao.jing.remote`'s own twenty lines, not a require of
-`yin.repl.v2.connect`: `dao.*` does not depend on `yin.*`, and `parse-url`
+`yin.repl.connect`: `dao.*` does not depend on `yin.*`, and `parse-url`
 carries REPL rules (`daostream:` prefix, `/repl` default) that do not belong
-here. Lifting the generic part into `dao.stream.v2.ws` beside
+here. Lifting the generic part into `dao.stream.ws` beside
 `canonical-path?` would serve both and is owed nowhere (§8).
 
 ### D8 — `dao.jing.dht.node` is a separate plan, and its work is on the decode side
@@ -575,7 +575,7 @@ DaoStream in it; its only v1 dependency is `dao.stream.transit`'s codec
 `dao/jing/dht`**.
 
 r1 called the second plan "a require swap". It is not. v1 `dao.stream.transit`
-delegates straight to cognitect; `dao.stream.v2.transit` runs
+delegates straight to cognitect; `dao.stream.transit` runs
 `ensure-portable!` on **both** `encode` and `decode` (`v2/transit.cljc:100,
 121`), and the portable domain excludes the tagged values cognitect decodes
 happily — uuid, bigint, bigdec, uri, quoted, link. The outbound direction is
@@ -598,8 +598,8 @@ planned. What follows describes **what shipped**, not what was drafted: three
 review rounds changed it in two respects, and a plan that misdescribes the
 commit it produced is worse than no plan. The divergences are marked.
 
-`src/clj/dao/stream/v2/ws/jvm.clj`, and a new
-`test/dao/stream/v2/ws/jvm_test.clj`. No public signature changed and no
+`src/clj/dao/stream/ws/jvm.clj`, and a new
+`test/dao/stream/ws/jvm_test.clj`. No public signature changed and no
 consumer moved.
 
 **Built**
@@ -690,7 +690,7 @@ a controllable incomplete future rather than a network timing test.
 
 **Verified on the committed tree** — `clojure -M:test`: **1443 tests /
 165370 assertions / 0 failures 0 errors**, which includes
-`yin/repl/v2/host/jvm_test.clj`, `slice_test` and the `yin.repl.v2`
+`yin/repl/host/jvm_test.clj`, `slice_test` and the `yin.repl`
 cross-host pair as the regression net for the consumers this repairs; none of
 their assertions changed. Mutation-tested, one mutant per review finding:
 dropping the once-only claim → 4 failures; chaining after failure → 1;
@@ -725,8 +725,8 @@ neutral: nothing existing changes, three lanes stay green by construction.
   `retire-call`, `completion-value` (D3), and an `await-established-step` —
   the D2 wait's body as one non-waiting advance returning `:established |
   :pending | :terminal`, so the wait is pinned without a socket. Requires
-  added: `dao.stream.v2`, `dao.stream.v2.apply`, `dao.stream.v2.rpc`,
-  `dao.stream.v2.rpc.ws`, `dao.stream.v2.transit`, `dao.stream.v2.ws` — all
+  added: `dao.stream`, `dao.stream.apply`, `dao.stream.rpc`,
+  `dao.stream.rpc.ws`, `dao.stream.transit`, `dao.stream.ws` — all
   `.cljc`, all three hosts.
 
 **Delete** — nothing.
@@ -742,7 +742,7 @@ neutral: nothing existing changes, three lanes stay green by construction.
    `apply/dispatch-request` over `default-handlers` on a memory store appends
    the response; `call-step` → `:done`, `completion-value` → the presence
    envelope. Then: an error response → throws N9's `{:operation :error}`;
-   a bare `:dao.stream.v2.apply/detached` appended to the reader →
+   a bare `:dao.stream.apply/detached` appended to the reader →
    `:terminal` with reason **when nothing is outstanding**; with an awaited
    call in flight the same event yields `:done` carrying a loss completion
    (N9), because the step reports the call's own fate before the
@@ -766,7 +766,7 @@ neutral: nothing existing changes, three lanes stay green by construction.
    with a `[address payload]` args vector each answer `request-undeliverable`,
    and after each `(drain-outboxes state)` the state's `:completed` and
    `:diagnostics` are empty and `:outstanding` is empty; the refused
-   outcomes' `:dao.stream.v2.rpc/reason` is `:dao.stream/invalid-value` every
+   outcomes' `:dao.stream.rpc/reason` is `:dao.stream/invalid-value` every
    time. Then an `invalid-request` (`op` not a keyword) → diagnostic appended
    → drained. Then swap the writer for a ring buffer: a fourth request
    completes normally through `call-step`. The assertion that matters is on
@@ -785,7 +785,7 @@ the server constructor swap together with every fixture that pairs them.
 
 **Build**
 
-- `#?@(:cljd [] :clj [[dao.stream.v2.ringbuffer :as ring] [dao.stream.v2.serving :as serving] [dao.stream.v2.ws.jvm :as jvm]])` — the
+- `#?@(:cljd [] :clj [[dao.stream.ringbuffer :as ring] [dao.stream.serving :as serving] [dao.stream.ws.jvm :as jvm]])` — the
   JVM glue require in the spelling correction 1 requires. (`ringbuffer` and
   `serving` are `.cljc` and could go in the shared list; keeping the three
   together says which functions are the host composition.)
@@ -821,13 +821,13 @@ the server constructor swap together with every fixture that pairs them.
   deadline `stream/close!` the handle, then throw), then
   `(content-client {:rpc (atom state) :handle h :attachment a :lock (Object.) :request-timeout-ms … :poll-interval-ms …} call! close!)`.
   A failed `attach!` outcome throws with the outcome map. The docstring
-  states the mint-before-attach order and why, as `yin.repl.v2.connect/open`'s
+  states the mint-before-attach order and why, as `yin.repl.connect/open`'s
   does ("the order is the point and is observable"), and states N2's limit
   in one sentence: a close before the socket opens does not tear down the
   JDK's establishment, so a stalled peer costs one held connection.
 - `#?(:clj (defn serve-content! …))` — D5 with S5's inbound step. Returns
   `{:port p :stop! f :serving s :lifecycle l}`. `:bind-host` option, default
-  `"127.0.0.1"` as `yin.repl.v2.serve/default-bind-host`; `:tick-ms` option.
+  `"127.0.0.1"` as `yin.repl.serve/default-bind-host`; `:tick-ms` option.
 - The `comment` block rewritten on `serve-content!` / `(:stop! server)`; the
   ns docstring rewritten (correction 4).
 
@@ -872,7 +872,7 @@ namespace and that is the seam.
 5. `connect-throws-on-a-refused-endpoint` — bind a `java.net.ServerSocket` on
    port 0, read its port, close it; `connect-content!` to that port with
    `:connect-timeout-ms 2000` throws with reason
-   `:dao.stream.v2.apply/transport-error` (`jvm/connect!`'s `whenComplete`
+   `:dao.stream.apply/transport-error` (`jvm/connect!`'s `whenComplete`
    error → `closed! 1006` → `:ws/transport-error`), and no handle escaped.
    This is N2's real establishment-failure pin; `network-invalid-url-test`
    stays as the validation pin it always was.
@@ -967,7 +967,7 @@ Residue greps, the closure criterion:
 
 | grep | files | before | after |
 |---|---|---|---|
-| `\.join` | `src/clj/dao/stream/v2/ws/jvm.clj` | 1 | 0 (Phase 0, done) |
+| `\.join` | `src/clj/dao/stream/ws/jvm.clj` | 1 | 0 (Phase 0, done) |
 | `rpc-ws/\|rpc-client/\|dao\.stream\.rpc` | `remote.cljc` | 7 | 0 |
 | same | `remote_test.cljc` | 8 | 0 |
 | same | `stigmergy_test.clj` | 3 | 0 |
@@ -990,7 +990,7 @@ against the shipped seam and claims nothing the seam does not do.
 
 | | clj | cljs (Node) | cljd |
 |---|---|---|---|
-| Phase 0, `dao.stream.v2.ws.jvm` send seam | repaired (`3228d0e`), tested without network | n/a — Node edge never joined | n/a — Dart edge never joined |
+| Phase 0, `dao.stream.ws.jvm` send seam | repaired (`3228d0e`), tested without network | n/a — Node edge never joined | n/a — Dart edge never joined |
 | `remote.cljc` portable core (Phase 1) | built, tested | built, tested | built, tested |
 | `connect-content!`, `call!`, `close!`, `serve-content!` | built, tested | excluded (`#?(:cljd nil :clj …)`) | excluded; the glue require spelled `#?@(:cljd [] :clj …)` |
 | `default-handlers`, `content-client` | unchanged | unchanged | unchanged |
@@ -1013,7 +1013,7 @@ map directly. They pin H1–H4, C1–C6 and know nothing about a socket.
 `network-materialize-and-get`, `network-two-clients-share`,
 `network-invalid-url`, `network-file-restart`, `network-presence-envelope`,
 plus §5.2 #3–#9. They pin N1–N3, N6, N7, N10, N11, S2, S3, S5 through
-`dao.stream.v2.ws.jvm`, and they are the ones that move or arrive.
+`dao.stream.ws.jvm`, and they are the ones that move or arrive.
 
 **Phase 1's five** sit between: they pin D3's step and D2's wait (N6's
 retirement and late-correlation rule, N8's terminal rule, N9's decode, N11's
@@ -1025,20 +1025,20 @@ with a controlled socket and no network.
 
 ## 8. Boundary — built here, and what is left owing by namespace
 
-Built here: Phase 0's repair of `dao.stream.v2.ws.jvm` (done);
+Built here: Phase 0's repair of `dao.stream.ws.jvm` (done);
 `dao.jing.remote` on v2 (both halves), its tests, the two fixtures that pair
 them, four documents.
 
 | owed | by | where it is recorded |
 |---|---|---|
-| **The establishment-cancel gap in the JVM edge**: `close!` before `onOpen` records a `:close-request` and does not cancel or abort the pending establishment, so a disconnect while connecting leaves the JDK connection held. Live today for `yin.repl.v2`'s `(disconnect)` during `:connecting`; live for `dao.jing.remote` on a connect timeout against a stalled peer (N2). What the repair needs to know is in §9 | `dao.stream.v2.ws.jvm` — transport work, on its own ticket, with `yin.repl.v2` as its first consumer; **not** `dao.jing.remote`, which has no handle to reach it | `dao.stream.ws.md` *Deferred*, written in Phase 2's doc step (§5.4) |
+| **The establishment-cancel gap in the JVM edge**: `close!` before `onOpen` records a `:close-request` and does not cancel or abort the pending establishment, so a disconnect while connecting leaves the JDK connection held. Live today for `yin.repl`'s `(disconnect)` during `:connecting`; live for `dao.jing.remote` on a connect timeout against a stalled peer (N2). What the repair needs to know is in §9 | `dao.stream.ws.jvm` — transport work, on its own ticket, with `yin.repl` as its first consumer; **not** `dao.jing.remote`, which has no handle to reach it | `dao.stream.ws.md` *Deferred*, written in Phase 2's doc step (§5.4) |
 | `dao.jing.dht.node` and `node_test` off `dao.stream.transit`, including the inbound decode policy for non-portable datagrams | its own plan (D8) | `dao.stream.md`'s consumer list keeps the DHT node |
 | a non-blocking remote handle — the stepped client with multi-id dispatch, and the consumer change it forces on B-tree hydration | `dao.data.btree.md` §5.4 / `dao.jing.md` *Open items* | §9 moves Decision 3's sketch there |
 | deletion of `dao.stream.rpc.*`, `dao.stream.ws`, `dao.stream.transit`, v1 `yin.repl` | the v1 deletion, per `dao.stream.md` | already recorded there |
 | whether the Dart edge's close-before-connect (`dart.cljd:121-137`, a stored request applied on connect) shares the gap — it cancels nothing either, though Dart's `WebSocket.connect` future is its own object | nobody; noted for the owner beside the JVM row | not this plan's host; the JVM is the only host `dao.jing.remote` runs on |
-| a generic URL→descriptor parser shared with `yin.repl.v2.connect` | nobody | optional; two private parsers is the cost |
-| `dao.stream.v2.ws.jvm/listen!` deposits `:yin.repl.v2.endpoint/*` codes from a `dao.*` namespace | nobody; noted for the owner | a naming leak, harmless to this plan; Phase 0 did not touch `listen!` |
-| `yin.repl.v2.implementation-plan.md:728` and `src/cljc/yin/vm/docs/yin.repl.v2.md:122` say `dao.stream.rpc.*` "keeps serving `dao.jing.remote`" | the owner — both describe their own slice's boundary at the time | left as written; they become historical the moment Phase 2 lands |
+| a generic URL→descriptor parser shared with `yin.repl.connect` | nobody | optional; two private parsers is the cost |
+| `dao.stream.ws.jvm/listen!` deposits `:yin.repl.endpoint/*` codes from a `dao.*` namespace | nobody; noted for the owner | a naming leak, harmless to this plan; Phase 0 did not touch `listen!` |
+| `yin.repl.implementation-plan.md:728` and `src/cljc/yin/vm/docs/yin.repl.md:122` say `dao.stream.rpc.*` "keeps serving `dao.jing.remote`" | the owner — both describe their own slice's boundary at the time | left as written; they become historical the moment Phase 2 lands |
 
 Explicitly not planned, per the brief: `yin.vm.*`, `dao.runtime`, `yin.io`,
 the demo surfaces, the v1 transports — and, per the owner's r5 decision, the
@@ -1102,7 +1102,7 @@ Every item has a home; each is moved before this file is deleted.
     completes the handshake never triggers one, and the JDK offers no
     handle to bound the wait.
   The home is the transport document because the property is the
-  transport's; `yin.repl.v2` is its first consumer and `dao.jing.remote` its
+  transport's; `yin.repl` is its first consumer and `dao.jing.remote` its
   second, and neither can fix it from where it stands.
 - **J1–J6, the JVM send seam's contract — already carried by `3228d0e`**,
   in three homes rather than one, as §4.0 records: the namespace docstring
@@ -1129,14 +1129,14 @@ Every item has a home; each is moved before this file is deleted.
 
 ## 10. End condition
 
-- **Phase 0 landed first, on its own commit (`3228d0e`)**: `dao.stream.v2.ws.jvm`
-  has no `.join`, J1–J6 are pinned without a network, and `yin.repl.v2`'s
+- **Phase 0 landed first, on its own commit (`3228d0e`)**: `dao.stream.ws.jvm`
+  has no `.join`, J1–J6 are pinned without a network, and `yin.repl`'s
   existing JVM tests pass unchanged. It is the only transport prerequisite.
-- `dao.jing.remote` requires `dao.jing`, `dao.stream.v2`,
-  `dao.stream.v2.apply`, `dao.stream.v2.rpc`, `dao.stream.v2.rpc.ws`,
-  `dao.stream.v2.transit`, `dao.stream.v2.ws`, and under
-  `#?@(:cljd [] :clj …)` `dao.stream.v2.ringbuffer`, `dao.stream.v2.serving`,
-  `dao.stream.v2.ws.jvm`. No `dao.stream.rpc.*`, no `dao.stream.ws`, no
+- `dao.jing.remote` requires `dao.jing`, `dao.stream`,
+  `dao.stream.apply`, `dao.stream.rpc`, `dao.stream.rpc.ws`,
+  `dao.stream.transit`, `dao.stream.ws`, and under
+  `#?@(:cljd [] :clj …)` `dao.stream.ringbuffer`, `dao.stream.serving`,
+  `dao.stream.ws.jvm`. No `dao.stream.rpc.*`, no `dao.stream.ws`, no
   `dao.stream`.
 - `content-client`, `default-handlers`, `dao.jing.coordinate`, the thirteen
   contract deftests, `index_test:616` and `before-open-send-answers-full`
@@ -1153,5 +1153,5 @@ Every item has a home; each is moved before this file is deleted.
 - Three lanes green, demo compiled, §5.5's greps at zero.
 - Nothing is owed to a later plan except D8's DHT node, the non-blocking
   handle already listed under `dao.jing.md` *Open items*, and the
-  establishment-cancel gap, which is owed by `dao.stream.v2.ws.jvm` and not
+  establishment-cancel gap, which is owed by `dao.stream.ws.jvm` and not
   by any plan of `dao.jing`'s.

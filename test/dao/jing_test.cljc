@@ -6,13 +6,13 @@
    intake-pool observer (observer-state/observe-step!/adopt-cursor), and
    the content-addressing discipline. The transitional CAS/root/evaluator/
    file/mem compatibility contracts are gone: this namespace requires only
-   dao.jing plus the dao.stream.v2 ringbuffer transport."
+   dao.jing plus the dao.stream ringbuffer transport."
   (:require [clojure.test :refer [deftest is testing]]
             #?(:clj [clojure.edn])
             [clojure.string :as str]
             [dao.jing :as jing]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.ringbuffer :as ringbuffer]))
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ringbuffer]))
 
 
 (defn mem-handle
@@ -33,14 +33,14 @@
 
 
 (defn ring-buffer
-  "A dao.stream.v2 ringbuffer creation spec."
+  "A dao.stream ringbuffer creation spec."
   [capacity]
   {:dao.stream/type :dao.stream/ringbuffer
    :dao.stream.ringbuffer/capacity capacity})
 
 
 (defn open-stream
-  "A dao.stream.v2 ringbuffer reader handle pre-loaded with vals."
+  "A dao.stream ringbuffer reader handle pre-loaded with vals."
   [& vals]
   (let [{:dao.stream/keys [handle]} (ringbuffer/create! (ring-buffer 8))]
     (doseq [v vals] (stream/append! handle v))
@@ -63,7 +63,7 @@
 
 (defrecord ScriptedResultStream
   [result]
-  ;; Test double: a dao.stream.v2 reader whose every stream/next answer is
+  ;; Test double: a dao.stream reader whose every stream/next answer is
   ;; the configured result, used to feed scripted outcomes into the pool.
   stream/IDaoStreamReader
 
@@ -764,7 +764,7 @@
 
 (deftest pool-signals-are-declared-total-over-outcomes-next
   (testing
-    "every outcome dao.stream.v2 declares for next reports as exactly one
+    "every outcome dao.stream declares for next reports as exactly one
             pool signal; the table fails if the contract grows"
     (let [expected {:dao.stream/ok :dao.stream/ok,
                     :dao.stream/blocked :dao.stream/blocked,

@@ -1,7 +1,7 @@
 (ns datomworld.demo.solar-system
   (:require [dao.postgraphics.terminal :as terminal]
             [dao.postgraphics.web :as pg]
-            [dao.stream.v2.ringbuffer :as rb]
+            [dao.stream.ringbuffer :as rb]
             [datomworld.demo.responsive :as responsive]
             [datomworld.demo.solar-system-scene :as scene]
             [reagent.core :as r]))

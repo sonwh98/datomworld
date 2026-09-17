@@ -5,7 +5,7 @@
    it, and the host calls `step` when it chooses — one `next` per call.
    Nothing is registered with the stream and nothing is invoked from inside a
    stream operation; cadence belongs to the host ticker that owns `step`."
-  (:require [dao.stream.v2 :as stream]))
+  (:require [dao.stream :as stream]))
 
 
 (defn new-generation-id

@@ -7,8 +7,8 @@
    to append, print, or ship. No functions, stream handles, or host objects
    survive into the result. This is the parent namespace's own file, sitting
    alongside the `dao.data.*` sub-namespaces; neither depends on the other."
-  (:require [dao.stream.v2 :as stream]
-            [dao.stream.v2.transit :as transit]))
+  (:require [dao.stream :as stream]
+            [dao.stream.transit :as transit]))
 
 
 (defn tag

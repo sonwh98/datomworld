@@ -1,7 +1,7 @@
 # Cross-Language Macro Execution Strategy
 
 Status: **not implemented, and its `yin.vm.macro/expand-all` target is
-deleted** (`yin.vm.v2-consumers.implementation-plan.md`, 2026-09-10). `yin.vm.v2`
+deleted** (`yin.vm-consumers.implementation-plan.md`, 2026-09-10). `yin.vm`
 ships a macro-free corpus by construction — the whole premise of Phase 4
 below no longer has an expander to run. Kept as a historical record of the
 strategy, not a live design.

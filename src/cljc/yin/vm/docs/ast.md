@@ -5,7 +5,7 @@ used by the Yin Virtual Machine. The AST is a language-agnostic, map-based
 structure that represents all executable code as immutable data.
 
 > **Status (2026-09-17):** rewritten against the live v2 evaluator,
-> `src/cljc/yin/vm/v2/ast_walker.cljc`. The v1 evaluator this document
+> `src/cljc/yin/vm/ast_walker.cljc`. The v1 evaluator this document
 > originally described (`yin.vm`/`walker`) was deleted by
 > `yin.vm.v1-retirement.implementation-plan.md`; every implementation
 > snippet below is quoted from the current v2 code, and every place where
@@ -35,20 +35,20 @@ Every AST node is a map with at minimum:
 ## Running examples against the live VM
 
 Every "Evaluation" example below uses the v2 walker's real public surface,
-exactly as its own tests do (`test/yin/vm/v2/ast_walker_test.cljc`):
+exactly as its own tests do (`test/yin/vm/ast_walker_test.cljc`):
 
 ```clojure
-(require '[yin.vm.v2 :as vm]
-         '[yin.vm.v2.test-utils :refer [create-vm]])
+(require '[yin.vm :as vm]
+         '[yin.vm.test-utils :refer [create-vm]])
 
 (let [result (vm/eval (create-vm) {:type :literal, :value 42})]
   (vm/value result)   ;; => 42
   (vm/halted? result)) ;; => true
 ```
 
-`create-vm` (from `yin.vm.v2.test-utils`) wraps
-`yin.vm.v2.ast-walker/create-vm` with the default primitive table; `vm/eval`,
-`vm/value`, `vm/halted?`, and `vm/environment` are the `yin.vm.v2/IVM` and
+`create-vm` (from `yin.vm.test-utils`) wraps
+`yin.vm.ast-walker/create-vm` with the default primitive table; `vm/eval`,
+`vm/value`, `vm/halted?`, and `vm/environment` are the `yin.vm/IVM` and
 `IVMState` protocol methods every v2 evaluator implements.
 
 ---
@@ -223,7 +223,7 @@ name in this exact order — the first hit wins:
 2. **Store** (`store`) — the global heap, in v2 checked *before* primitives.
 3. **Primitives** — built-in functions supplied to `create-vm`.
 4. **Module registry** — only reached for a namespaced name (e.g. `stream/put!`);
-   resolved by `yin.vm.v2.module/resolve-module` against the registry value the
+   resolved by `yin.vm.module/resolve-module` against the registry value the
    composition supplied, never a global.
 
 If none resolve, the lookup throws `ex-info` naming the unresolved symbol.
@@ -737,7 +737,7 @@ Continuations represent "the rest of the computation." Yin VM provides first-cla
 
 ## Part 8: Stream Operations
 
-Stream operations model all IO as data over `dao.stream.v2`. Every stream op
+Stream operations model all IO as data over `dao.stream`. Every stream op
 here goes through `engine/handle-effect`, which either completes immediately
 or parks the calling continuation in the VM's wait set until the transport's
 outcome is ready — there is no ambient waiter registration, and no operation
@@ -893,7 +893,7 @@ the transport's own outcome carries it forward.
  }
 ```
 
-> **Status (2026-09-17): not implemented in `yin.vm.v2.ast-walker` yet.**
+> **Status (2026-09-17): not implemented in `yin.vm.ast-walker` yet.**
 > The walker's `case` has no `:stream/close` arm — evaluating this node
 > throws `"Unknown AST node type"`. `docs/design/yin.vm.code-as-tuples.md`
 > §3.2 specifies the frame this arm needs (shaped like
@@ -915,7 +915,7 @@ the transport's own outcome carries it forward.
 ## Part 9: Macro Expansion
 
 > **Status (2026-09-17): this is not a runtime node type in any v2
-> evaluator, and never will be.** `yin.vm.v2.ast-walker`'s own docstring
+> evaluator, and never will be.** `yin.vm.ast-walker`'s own docstring
 > states the rule directly: "evaluators know nothing about macros
 > (decision 1 of `yin.vm.macro.md`)... Expansion is a process on the
 > syntax side of a medium boundary, so programs arrive here already
@@ -968,7 +968,7 @@ the FFI bridge.
 1. **Evaluate Operands** - The VM evaluates every node in `:operands`, left to right, exactly as `:application` does.
 2. **Park and Request** - `park-and-call` parks the continuation (`engine/park-continuation`) *before* touching the transport — deliberately, so an error raised later cannot strand a continuation with a consumed id — then encodes and appends a request naming `:op` and the evaluated arguments to the bridge's inbound (`call-in`) stream.
 3. **Retry-safe on `full`** - A `full` outcome on the append leaves the identical request in the wait set to retry; the call only starts waiting on a response once the append itself succeeds. `closed`, `invalid-value`, and `transport-error` fail the call at this point instead.
-4. **Await Response** - The continuation stays parked until a correlated reply lands on the bridge's outbound (`call-out`) stream (`:dao.stream.v2.apply/eval-call`), at which point `ffi/call-result` extracts the return value and the continuation resumes with it.
+4. **Await Response** - The continuation stays parked until a correlated reply lands on the bridge's outbound (`call-out`) stream (`:dao.stream.apply/eval-call`), at which point `ffi/call-result` extracts the return value and the continuation resumes with it.
 
 **Implementation (from `ast_walker.cljc`):**
 ```clojure
@@ -979,13 +979,13 @@ the FFI bridge.
     (park-and-call state op [] k env)
     (cesk-return state (first operands) env
                 {:frame {:op op, :operands operands, :evaluated []},
-                 :next k, :env env, :type :dao.stream.v2.apply/eval-operand}
+                 :next k, :env env, :type :dao.stream.apply/eval-operand}
                 (:value state))))
 
 (defn- park-and-call
   [state op args k env]
   (let [{:keys [call-in]} (ffi/require-call-pair! (:store state) op)
-        response-cont {:type :dao.stream.v2.apply/eval-call, :next k, :env env}
+        response-cont {:type :dao.stream.apply/eval-call, :next k, :env env}
         parked (engine/park-continuation state {:k response-cont, :env env})
         parked-id (get-in parked [:value :id])
         request (apply2/request parked-id op (vec args))
@@ -999,7 +999,7 @@ the FFI bridge.
       :dao.stream/full
       (-> parked
           (update :wait-set (fnil conj [])
-                  {:k {:type :dao.stream.v2.apply/request-sent, :parked-id parked-id,
+                  {:k {:type :dao.stream.apply/request-sent, :parked-id parked-id,
                        :next k, :env env, :op op}
                    :env env, :reason :put, :stream-id vm/call-in-stream-key, :datom request})
           (assoc :control nil :k nil :value :yin/blocked :blocked? true :halted? false))

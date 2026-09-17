@@ -3,7 +3,7 @@
 ## Summary
 
 `dao.gui.event` is a portable event interpreter built on DaoStream v2. In the
-demo implementations, those channels are bounded `dao.stream.v2.ringbuffer`
+demo implementations, those channels are bounded `dao.stream.ringbuffer`
 streams (evict-oldest). This is a direct application of Datom.world's first
 axiom, "everything is a stream": host observations, presented geometry, input
 profiles, timers, subscriptions, control messages, recognized events, and

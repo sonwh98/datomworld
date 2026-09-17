@@ -1,6 +1,6 @@
 (ns dao.space.transactor-test
   "Contract tests for dao.space.transactor: a single-writer value over an
-   explicit local dao.stream.v2 memory-log and an explicit DaoJing intake
+   explicit local dao.stream memory-log and an explicit DaoJing intake
    pool (docs/design/dao.jing.md, Publication from an agent).
 
    Every append!/transact! emits exactly ONE atomic transaction record
@@ -12,9 +12,9 @@
             [dao.jing :as jing]
             [dao.space.index :as index]
             [dao.space.transactor :as transactor]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.memory-log :as memory-log]
-            [dao.stream.v2.ringbuffer :as ringbuffer]))
+            [dao.stream :as stream]
+            [dao.stream.memory-log :as memory-log]
+            [dao.stream.ringbuffer :as ringbuffer]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -130,7 +130,7 @@
 
 
 (defn- open-intake
-  "A dao.stream.v2 ringbuffer intake writer."
+  "A dao.stream ringbuffer intake writer."
   [capacity]
   (:dao.stream/handle
     (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer

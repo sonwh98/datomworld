@@ -77,8 +77,8 @@ facts back into it at a higher level of abstraction.
 
 ## Amendment (2026-09-01): time-boxed exception for the dao.stream v2 WebSocket slice
 
-The `dao.stream.v2` WebSocket slice
-(`docs/design/dao.stream.v2.implementation-plan.md`, Phases 4–5) wires an
+The `dao.stream` WebSocket slice
+(`docs/design/dao.stream.implementation-plan.md`, Phases 4–5) wires an
 in-memory ring buffer as its boundary's deposit destination, not a `dao.space`
 writer. This is an exception to the decision above, and it is granted for a
 reason this ADR already records: the decision's own precondition — a writer
@@ -124,7 +124,7 @@ exception's first trigger go stale as described:
   boundary deposits — remains open, so the exception stands.
 - The retention bullet's "`:dao.stream/full`, `:dao.stream/gap` so loss is
   never silent" needs its v2 counterpart stated: the local log
-  (`dao.stream.v2.memory-log`) that `dao.space` now wires **excludes both** —
+  (`dao.stream.memory-log`) that `dao.space` now wires **excludes both** —
   it has no capacity to refuse and never evicts — and its completeness comes
   from that declared complete retention, not from outcome observability. See
   `dao.stream.md`, *Complete history*, and `dao.space.transactor.md` (T18):

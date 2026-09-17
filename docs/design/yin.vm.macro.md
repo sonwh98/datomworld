@@ -1,7 +1,7 @@
 # yin.vm.macro — Macro Expansion as a Stream Process
 
 Status: agreed design target (2026-09-13). This document is the macro
-contract for `yin.vm.v2`. It supersedes the v1 stream model in
+contract for `yin.vm`. It supersedes the v1 stream model in
 [`macro-design.md`](./macro-design.md), the strategy in
 [`../cross-language-macro.md`](../cross-language-macro.md), and the previous
 revision of this document, which integrated expansion into the evaluators;
@@ -30,7 +30,7 @@ The design follows from one framing and adds nothing to it:
    *source* medium (`program-in`), rewrites each batch to a fixpoint, and
    appends the result to a *program* medium (`program-out`) that evaluators
    observe. It is a forwarder in the sense of `dao.stream.md` §Composition,
-   driven by the same `dao.stream.v2.observer/run-on-stream` coordination that
+   driven by the same `dao.stream.observer/run-on-stream` coordination that
    drives an evaluator.
 3. **There is no phase.** "Compile time" and "runtime" named which cursor
    reached a batch first. With expansion on its own medium, the distinction
@@ -186,7 +186,7 @@ explicit `:root-id` option still overrides. This is a codec improvement
 independent of macros; the expander relies on it because it emits copies
 bottom-up and must not depend on emission order for root discovery.
 
-The codec (`yin.vm.v2/ast->datoms`, `datoms->ast`) keeps `:yin/macro?` on
+The codec (`yin.vm/ast->datoms`, `datoms->ast`) keeps `:yin/macro?` on
 lambdas and gains `:yin/root`. It drops `:yin/macro-expand`,
 `:yin/phase-policy`, `:yin/phase`, `:yin/capability` and the
 `:macro-expand-event` attributes: events are written by the expander through
@@ -195,7 +195,7 @@ not AST.
 
 ---
 
-## 3. The expander (`yin.vm.v2.macro`)
+## 3. The expander (`yin.vm.macro`)
 
 ### 3.1 Contract
 
@@ -347,7 +347,7 @@ value validated and re-encoded to datoms with fresh ids, and re-expansion
 continues over the index of the batch-so-far. Internal identity never
 appears in the map representation macros see (`valid-ast?` rejects `:eid`).
 The decode and encode at that boundary are the expander's own, aware of
-`:yin/macro-defined`; the shared codec (`yin.vm.v2/ast->datoms`,
+`:yin/macro-defined`; the shared codec (`yin.vm/ast->datoms`,
 `datoms->ast`) never learns the type, which makes it a loud backstop — a
 marker that somehow reached it would throw "Unknown AST node type" — rather
 than a component of the inner loop. **Order-sensitive steps iterate the
@@ -467,7 +467,7 @@ of the remaining maps (arity mismatch is
 `((:eval ctx) lambda-ast env prelude budget)`.
 
 The expander supplies its own body runner; today it is a throwaway
-`yin.vm.v2.ast-walker` driven by `step` in a counted loop, because
+`yin.vm.ast-walker` driven by `step` in a counted loop, because
 `engine/run-loop` has no fuel and a body that loops forever would otherwise
 stall the forwarder:
 
@@ -489,7 +489,7 @@ VM is an ordinary evaluator running an ordinary lambda. It has no
 `:make-stream` and no FFI pair, so stream and FFI effects fail with the
 existing constructor errors; `yin/def` inside a body writes to the throwaway
 store and is discarded; `require` resolves against `nil` modules and fails.
-The body sees only its parameters, the prelude, and `yin.vm.v2/primitives` —
+The body sees only its parameters, the prelude, and `yin.vm/primitives` —
 decision 6. Macro authors are told plainly: *a macro body may not call a
 function the program defined, and may not call another macro: the body is
 executed, not expanded, so a macro name inside it is an unbound variable.
@@ -506,7 +506,7 @@ payload bound at admission (§3.1 step 1), which is where such a bound
 belongs.
 
 "Run a lambda under a step budget in a fresh VM" is the one capability the
-expander needs that `yin.vm.v2` does not export today. It is a general
+expander needs that `yin.vm` does not export today. It is a general
 facility — any process that runs another's code wants it — and is the
 reason the expander can later become a `yin.vm` program itself (§7,
 Reserved) without any macro-specific primitive.
@@ -708,11 +708,11 @@ mislead: a nested expansion names the outer expansion's output node, not a
 call site in any source batch.
 "Every datom this expansion produced" is `[?d _ _ _ ?ev]` on the log.
 
-`yin.vm.v2.macro/event-schema` declares these attributes (`:yin/source-node`,
+`yin.vm.macro/event-schema` declares these attributes (`:yin/source-node`,
 `:yin/macro`, `:yin/expansion-root` as refs; `:yin/source-call` deliberately
 undeclared, so its value is left alone) for compositions that commit a
 log to `dao.space`; the transactor relocates only declared refs, so a
-composition merges this fragment with `yin.vm.v2/schema` before committing.
+composition merges this fragment with `yin.vm/schema` before committing.
 
 ### 4.2 Identity across media
 
@@ -757,7 +757,7 @@ because there is nothing left inside a VM to authorize.
 
 ## 5. The expander as an observer
 
-The expander is driven by `dao.stream.v2.observer/run-on-stream` with
+The expander is driven by `dao.stream.observer/run-on-stream` with
 its state in the `:consumer` slot — the coordination inspects no field of
 the consumer, so it drives an expander as readily as a VM:
 
@@ -853,7 +853,7 @@ compiler. None composes anything macro-related.
 
 ## 6. Compositions
 
-### 6.1 `yin.repl.v2`
+### 6.1 `yin.repl`
 
 `make-session` builds `program-in`, the expander (with `stdlib-forms`
 pre-loaded into its store), `program-out`, an optional log medium, and the
@@ -909,7 +909,7 @@ One `.cljc`; the expander is maps, vectors, and `reduce`. Symbols from
 `yin/gensym-sym` are built with `symbol`. The `#?(:cljd …)`-first
 conditional and `#?(:cljd Object :clj Throwable :cljs :default)` catch form
 are used as elsewhere in v2. Test discovery: confirm "Testing
-yin.vm.v2.macro-test" in the shadow `:node-test` output.
+yin.vm.macro-test" in the shadow `:node-test` output.
 
 ---
 
@@ -922,7 +922,7 @@ yin.vm.v2.macro-test" in the shadow `:node-test` output.
   macros are expanded by a process between media, never by an evaluator;
   call sites are ordinary applications; `eval` does not expand." Its Macros
   section records the deviations of Appendix A.
-- `yin.vm.v2`: `schema` gains `:yin/root` and `:yin/macro-name`, drops
+- `yin.vm`: `schema` gains `:yin/root` and `:yin/macro-name`, drops
   `:yin/phase-policy`, `:yin/phase`, `:yin/capability`, `:yin/source-call`,
   `:yin/macro`, `:yin/expansion-root`, `:yin/error` (event attributes move
   to the expander's emitter). `ast->datoms-with-root` emits the root fact;
@@ -931,19 +931,19 @@ yin.vm.v2.macro-test" in the shadow `:node-test` output.
 - `ast-walker`: the `:lambda` arm and `datoms->ast` continue to ignore
   `:macro?`; nothing else changes. The namespace docstring's "no macro
   branch" remark becomes the statement of decision 1.
-- `dao.stream.v2.observer/run-on-stream`: throw with the partial session in
+- `dao.stream.observer/run-on-stream`: throw with the partial session in
   `ex-data` (§5 prerequisite); existing callers are unchanged. Tests: A
   forwarded, B's load throws — the carried cursor is before B and a retry
   from it leaves exactly one A on the destination; A forwarded, B's `run`
   throws — the carried cursor is after B and `:consumer` is as `run` left it; a
   terminal read after a successful batch carries the post-batch session.
-- New `test/yin/vm/v2/v2_test.cljc` for the codec: root fact wins; dangling
+- New `test/yin/vm/v2_test.cljc` for the codec: root fact wins; dangling
   root errors; heuristic fallback unchanged; `compile` output unchanged
   *modulo the root fact* for macro-free programs (the fact is unconditional).
 
 ### Phase 1 — Expander and yang
 
-Deliverables: `src/cljc/yin/vm/v2/macro.cljc` (`expand-batch`, `expand`,
+Deliverables: `src/cljc/yin/vm/macro.cljc` (`expand-batch`, `expand`,
 `definitions`, `invoke`, `bind-params`, `valid-ast?`, `mark-tail`,
 `run-bounded`, prelude, `stdlib-forms`, `step`); `yang.clojure` per §6.2.
 
@@ -1012,7 +1012,7 @@ position is an unbound-variable error, not a call; a bad macro input prints
 its error and the *next* input evaluates normally (no head-of-line block);
 `repl-state` lists the store's macro names.
 
-Deferred to the semantic VM's own Phases 1–2 (`yin.vm.v2.semantic` and
+Deferred to the semantic VM's own Phases 1–2 (`yin.vm.semantic` and
 `linearize` do not exist yet): the `:semantic` VM type runs the same session
 with equal values, and a tail-position macro in a 10⁵-iteration loop keeps
 continuation depth 0 — measured by inspecting `k`, since equal values alone
@@ -1150,7 +1150,7 @@ design, withdrawn 2026-09-13:
 |    |                                                                                | reserved for forwarder defects                                                   |
 +----+--------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
 | 3  | Later exception replays earlier forwarded batches (astra P1-1)                 | Accepted as a defect of `run-on-stream`, not of this design; §5 prerequisite and |
-|    |                                                                                | Phase 0 deliverable on `dao.stream.v2.observer`: return progress with the error         |
+|    |                                                                                | Phase 0 deliverable on `dao.stream.observer`: return progress with the error         |
 +----+--------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
 | 4  | Operator rewritten into a macro name is not re-expanded (astra P1-3)           | §3.2 re-checks the rebuilt node once at the same depth                           |
 +----+--------------------------------------------------------------------------------+----------------------------------------------------------------------------------+

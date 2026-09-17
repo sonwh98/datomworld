@@ -16,7 +16,7 @@
                     [dao.jing.mem :as mem]
                     [dao.jing.dht :as dht]
                     [dao.jing.dht.node :as node]
-                    [dao.stream.v2.transit :as transit]
+                    [dao.stream.transit :as transit]
                     [cognitect.transit :as raw-transit])))
 
 
@@ -172,7 +172,7 @@
    :clj
    (deftest non-portable-tag-decode-failure-is-dropped-not-fatal
      (testing
-       "a datagram outside dao.stream.v2's portable domain is dropped on
+       "a datagram outside dao.stream's portable domain is dropped on
         decode, drawing no reply; the node keeps serving (D8: v2 decode
         throws where v1 did not, for a uuid/bigint/bigdec/uri/quoted/link
         tag)"

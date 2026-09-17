@@ -789,19 +789,19 @@ Absent from the public surface, by derivation from the invariants:
 
 ## The v2 namespace is transient
 
-`dao.stream.v2` exists to protect a working system while its consumers move,
+`dao.stream` exists to protect a working system while its consumers move,
 not to live forever. When the last consumer has migrated under its own plan
-and legacy `dao.stream` is deleted, **`dao.stream.v2` is renamed to
+and legacy `dao.stream` is deleted, **`dao.stream` is renamed to
 `dao.stream`** — decided, not left open. An undecided coexistence of both
 namespaces is a defect of the migration, not a steady state.
 
 This is recorded here because the plan that carried it,
-`dao.stream.v2.implementation-plan.md`, was consumed when its phases
+`dao.stream.implementation-plan.md`, was consumed when its phases
 completed; the decision it left open outlived it, and a transient plan is
 safe to delete only once nothing in it is still owed.
 
 The last v1 consumer migrated under `dao.stream.v1-retirement.implementation-plan.md`
 on 2026-09-17, and legacy `dao.stream` was deleted. The rename is now due.
 
-`dao.space` is done: `query`, `index` and `transactor` require `dao.stream.v2`,
+`dao.space` is done: `query`, `index` and `transactor` require `dao.stream`,
 and `schema` and `transact` require no stream namespace at all.

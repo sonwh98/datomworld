@@ -4,14 +4,14 @@ Status: design note, 2026-09-13. `dao.space.index` is already the dao.stream
 observer on the dao.space side: `snapshot-datoms` + `publish-index!` is one
 observer run — attach at `:oldest`, fold to `blocked`, publish, keep nothing.
 This note makes it a *stateful* observer, driven by
-`dao.stream.v2.observer/run-on-stream` over *any* `dao.stream.v2` medium. No
+`dao.stream.observer/run-on-stream` over *any* `dao.stream` medium. No
 new namespace: everything here is index realization, which `dao.space.index`
 already owns. The library specified here is payload-agnostic: it sees d5 rows
 and a supplied ref schema, and nothing below knows or cares what the rows
 mean or who else reads the medium. Subordinate to
 [`dao.space.md`](./dao.space.md) (write path, three boundaries),
 [`dao.stream.md`](./dao.stream.md) (§Composition), and the observer
-coordination already specified by `dao.stream.v2.observer`. It
+coordination already specified by `dao.stream.observer`. It
 composes with [`yin.vm.macro.md`](./yin.vm.macro.md) §4.2, whose "commit
 `program-in` first for durable provenance" becomes an instance of this
 note.
@@ -37,7 +37,7 @@ specifies only the index side.
    the mechanism becomes an observer over a medium — any medium, whoever
    writes it and whoever else reads it.
 2. **One coordination loop, one library.** `dao.space.index` is driven by
-   `dao.stream.v2.observer/run-on-stream` with its state in the `:consumer`
+   `dao.stream.observer/run-on-stream` with its state in the `:consumer`
    slot, exactly as an evaluator or the macro expander is. No second
    observer machinery, and no new namespace: "the dao.space observer" is a
    role `dao.space.index` plays when so driven, not a module.
@@ -66,7 +66,7 @@ specifies only the index side.
 
 ## 1. Today, and the gap
 
-All of `dao.space` is on `dao.stream.v2` (no v1 references remain). Its
+All of `dao.space` is on `dao.stream` (no v1 references remain). Its
 stream use has three shapes:
 
 | Piece | Shape today |
@@ -149,14 +149,14 @@ index/restore    candidate storage-opts → index-state          ; §4.2: the co
 ```
 
 `coverage` and `checkpoint` are the two operations that read both halves of a
-session. They are index-side functions over a shape `dao.stream.v2.observer`
+session. They are index-side functions over a shape `dao.stream.observer`
 publishes (`{:stream :cursor :ingress-gaps}`) — the dependency runs
-`dao.space.index → dao.stream.v2.observer`, never the reverse — and the
+`dao.space.index → dao.stream.observer`, never the reverse — and the
 generic loop stays ignorant of every index field.
 
 Driven as `(run-on-stream {:observer o :consumer index-state} ready?
-index/fold-batch index/flush-staged)` over any `dao.stream.v2` reader
-handle attached through `dao.stream.v2.observer/attach`. The coordination
+index/fold-batch index/flush-staged)` over any `dao.stream` reader
+handle attached through `dao.stream.observer/attach`. The coordination
 inspects no field of the index state; it drives it as readily as a VM —
 which is the point of decision 2. **Publication is an explicit composition
 step**, not a policy inside the loop: the composition calls `publish!`
@@ -390,7 +390,7 @@ and a declared-ref attribute for the log-local node — so that
 `event-schema` declares only the latter a ref and the index resolves it
 batch-locally while leaving the former as the value the join needs. The
 schema is the composition's to supply (for a program medium,
-`yin.vm.v2/schema`; for an expander's log, the amended `event-schema`); the
+`yin.vm/schema`; for an expander's log, the amended `event-schema`); the
 index learns which attributes are refs from it and nothing else. An
 undeclared attribute holding a negative number is a value, not a ref, and is
 left alone.
@@ -556,7 +556,7 @@ the durable store (§4.1 — not the query read path) and reinstates `:ids`,
 re-attaches the observer at `c` with `:ingress-gaps` reinstated (a partial
 index stays partial after restart; a fresh zero would make §3.2's offset
 check look safe again). Re-attaching *at a cursor* is a small addition to
-`dao.stream.v2.observer/attach`, which mints at `:oldest` today: a third
+`dao.stream.observer/attach`, which mints at `:oldest` today: a third
 arity `(attach attach! descriptor {:cursor c :ingress-gaps g})` returns
 `{:stream handle :cursor c :ingress-gaps g}` — the kept cursor, which
 `dao.stream.md` already says "covers repositioning", validated by the
@@ -661,14 +661,14 @@ not at publish) and *over what* (any medium, not only the writer's own).
 
 **Phase 0 — relocate the coordination loop (done 2026-09-13).** The
 `attach`/`observe-next`/`run-on-stream` loop lived at
-`yin.vm.v2.stream-observer` because the VM was its first consumer, but its
+`yin.vm.stream-observer` because the VM was its first consumer, but its
 own docstring says it inspects no evaluator field, and a `dao.space`
 namespace requiring `yin.vm.*` would invert the layering (`dao.stream` →
-`dao.space` → `yin.vm`, never back). It is now `dao.stream.v2.observer`
-(`src/cljc/dao/stream/v2/observer.cljc`, test
-`test/dao/stream/v2/observer_test.cljc`), beside `dao.stream.v2.observe`
-whose single `step` it loops over. The `yin.vm.v2` evaluators, the REPL, and
-the macro expander require it from there; `yin.vm.v2` keeps no observer code
+`dao.space` → `yin.vm`, never back). It is now `dao.stream.observer`
+(`src/cljc/dao/stream/observer.cljc`, test
+`test/dao/stream/observer_test.cljc`), beside `dao.stream.observe`
+whose single `step` it loops over. The `yin.vm` evaluators, the REPL, and
+the macro expander require it from there; `yin.vm` keeps no observer code
 of its own. The pending fix from `yin.vm.macro.md` §5 — keep the throw,
 carry the partial `{:observer :consumer}` session in `ex-data` — lands in this
 namespace.
@@ -722,7 +722,7 @@ where the read path is not already `:strong`, a session restored through
 
 **Phase 1 — a medium with batch-local tempids (composition test).** The
 index is exercised over a medium another observer also reads: two
-`dao.stream.v2.observer` sessions on one `program-out`, one driving
+`dao.stream.observer` sessions on one `program-out`, one driving
 `ast-walker`, one driving `dao.space.index` in `:unresolved` mode. The
 index code under test knows nothing of the VM; the test does. Tests:
 negative `e` rows are admitted and resolved, positive `e` on this medium is
@@ -775,7 +775,7 @@ checkpoint plus suffix when one is offered.
   then couples the sessions — a composition choice to state when it is
   made.
 - **Retention and `gap`.** Over an evicting transport the observer inherits
-  `dao.stream.v2.observer`'s gap accounting; an index with a gap is a partial
+  `dao.stream.observer`'s gap accounting; an index with a gap is a partial
   index and must say so, and a cross-session ordinal offset (§3.2) is void
   after one. Whether a published manifest should carry the gap count is
   undecided.

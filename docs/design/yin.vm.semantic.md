@@ -1,4 +1,4 @@
-# yin.vm.semantic on dao.stream.v2 — linear executable datoms
+# yin.vm.semantic on dao.stream — linear executable datoms
 
 Revision: 1 (2026-09-18) — the `"v2"` execution contract this document
 names is published in full by §2.4's "v2 contract revision history" note,
@@ -8,8 +8,8 @@ publication blocker. Prior text carried no revision line; this is the first.
 Status: Phase 0 contract. Sections §1–§6 are promoted verbatim from
 `collab/1789221648668-architect-semantic-vm-v2-design.claude-fable-5-1.findings.md`.
 The opcode table (§2.4) and the attribute tables (§2.2, §2.3) are the
-contract that `yin.vm.v2/code-schema`, `yin.vm.v2/opcode-table`, and
-`yin.vm.v2.code/well-formed?` implement. The integration and roadmap
+contract that `yin.vm/code-schema`, `yin.vm/opcode-table`, and
+`yin.vm.code/well-formed?` implement. The integration and roadmap
 sections remain in the findings note; §8 records the Phase 4 measurements.
 
 ---
@@ -30,7 +30,7 @@ one consumer, one order, no replay need, and no host boundary; putting a
 stream there is the per-value tax §4 of that note names as hopeless.
 
 **Interpretation Creates Semantics.** `[e :yin.code/op :call]` means nothing
-until `yin.vm.v2.semantic` reads it. The same datoms can be read by a query
+until `yin.vm.semantic` reads it. The same datoms can be read by a query
 ("all call sites of this closure"), a renderer (back to source through
 `:yin.code/source`), a verifier (every block ends in a terminator), or a
 different VM. The mapping from the keyword mnemonic in the datom to the
@@ -59,7 +59,7 @@ segment datoms it holds or was sent alongside.
 +--------------------------+----------------------------------------------------------------------------------+
 | Invariant                | How the design honors it                                                         |
 +--------------------------+----------------------------------------------------------------------------------+
-| No hidden global state   | Opcode table is a value in `yin.vm.v2`. Segments live in the VM record under     |
+| No hidden global state   | Opcode table is a value in `yin.vm`. Segments live in the VM record under     |
 |                          | `:code`. Primitives, modules, `:make-stream`, bridge handlers are all supplied   |
 |                          | at construction, as for the walker. No `defonce`, no registry.                   |
 +--------------------------+----------------------------------------------------------------------------------+
@@ -92,7 +92,7 @@ segment datoms it holds or was sent alongside.
 ### 2.1 Tuple format
 
 Executable datoms are canonical 5-tuples `[e a v t m]`, produced the same
-way `yin.vm.v2/ast->datoms` produces AST datoms: negative tempids for `e`,
+way `yin.vm/ast->datoms` produces AST datoms: negative tempids for `e`,
 `t` = 0 unless the linearizer is given one, `m` = `dao.datom/default-op`.
 Attributes live under the `:yin.code/*` namespace so that
 `engine/executable-program-datom?` (which selects `:yin/*`) does not confuse
@@ -204,13 +204,13 @@ says survives the log-structured reading; a register model would not.
 | `:ffi-call`             | `:yin.code/ffi-op kw`, `:yin.code/argc n`     | pop `n` args; park-and-call over the FFI pair                                    |
 +-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
 
-This is the AST vocabulary of `yin.vm.v2/ast->datoms` made linear, one for
+This is the AST vocabulary of `yin.vm/ast->datoms` made linear, one for
 one, plus the three sequencing primitives (`:push`, `:jump`, `:branch-false`)
 and `:halt`. `:yin/macro-expand` and `:vm/store-update` are outside both
 evaluators' supported corpus and are rejected at lowering with an error
 naming the node.
 
-**Opcode integers.** `yin.vm.v2/opcode-table` already assigns integers to
+**Opcode integers.** `yin.vm/opcode-table` already assigns integers to
 `:literal :load-var :lambda :call :return :branch :jump :gensym :store-get
 :store-put :stream-make :stream-put :stream-cursor :stream-next :stream-close
 :park :resume :current-cont :tailcall :dao.stream.apply/call`. The loader
@@ -225,7 +225,7 @@ mechanical is the point: a query asks for `:call`, the dispatch switches on
 **Saturation and defaults.** Two operand attributes fall back to a default
 when absent rather than failing to decode: `:gensym`'s `:yin.code/prefix`
 defaults to `"id"`; `:stream-make`'s `:yin.code/buffer` defaults to
-`yin.vm.v2/default-stream-capacity`. Every other operand attribute in the
+`yin.vm/default-stream-capacity`. Every other operand attribute in the
 §2.4 table is required by its op — the decoder does not guess at it.
 
 **The `"v2"` execution contract, published.** `yin.vm.universal-continuation-format.md`
@@ -237,7 +237,7 @@ and scheduler semantics, all in this section. All seven are already written,
 here or by direct citation:
 
 - **Mnemonic set**: the `:yin.code/op` column of §2.4's table, 21 values,
-  matching `yin.vm.v2.code/mnemonics`.
+  matching `yin.vm.code/mnemonics`.
 - **Per-mnemonic arity and operand kinds**: §2.4's "Operand attributes"
   column; enforced by §2.6 rule 2 (`:instruction-shape`) and rule 5
   (`:dangling-target`, for the three ref-bearing ops).
@@ -249,7 +249,7 @@ here or by direct citation:
   same order for the walker — one resolution rule, two evaluators).
 - **Last-value-wins rule**: a repeated single-valued instruction attribute
   keeps its last value in datom order, exactly as `code.cljc`'s
-  `index-batch` and `yin.vm.v2/index-datoms` both implement it.
+  `index-batch` and `yin.vm/index-datoms` both implement it.
 - **Effect outcome map**: §3.3's table.
 - **Scheduler semantics**: §3.5.
 
@@ -282,7 +282,7 @@ constant entity) is reserved and not needed for the current corpus.
 7. Every `:call`/`:ffi-call` has a non-negative `:yin.code/argc`.
 
 Violation is a load error naming the entity and rule. The loader is total
-over the outcomes of its inputs; it does not guess. `yin.vm.v2.code/rules`
+over the outcomes of its inputs; it does not guess. `yin.vm.code/rules`
 runs these seven, in this order, each assuming the earlier ones held; the
 first defect wins.
 
@@ -332,7 +332,7 @@ datom.
 
 The VM implements `IVM`; program ingress is exactly the walker's shape:
 
-- The host composes a program medium, attaches `yin.vm.v2.stream-observer`
+- The host composes a program medium, attaches `yin.vm.stream-observer`
   to it, and drives `observer/run-on-stream` with `engine/ready-for-ingress?`,
   a loader, and `vm/run`. The observer owns the handle, the cursor, and gap
   accounting. The VM holds no program stream.
@@ -345,7 +345,7 @@ The VM implements `IVM`; program ingress is exactly the walker's shape:
   different code. A composition that carries `:yin/*` AST datoms on
   its program stream hands the observer `(comp semantic/vm-load-program
   linearize/lower)` instead; the loader is composition-supplied, so no
-  evaluator learns which form travels. `yin.repl.v2.core/make-session` is
+  evaluator learns which form travels. `yin.repl.core/make-session` is
   where that choice is made.
 
 The step loop is then: `(aget code pc)` → integer `case` → transition. No
@@ -402,17 +402,17 @@ walker because the handlers are shared.
 Under a ring-buffer composition `full` never occurs and loss surfaces as a
 reader `gap`; the retention divergence stands as written.
 
-### 3.4 FFI through `dao.stream.v2.apply`
+### 3.4 FFI through `dao.stream.apply`
 
 `:ffi-call` pops `argc` arguments and runs the semantic `park-and-call`:
 check the pair (`ffi/require-call-pair!`) **before** parking; park the frame
-`{:type :dao.stream.v2.apply/eval-call :segment :pc (pc+1) :env :stack :next
+`{:type :dao.stream.apply/eval-call :segment :pc (pc+1) :env :stack :next
 k}`; `apply2/put-request!` on call-in; on `ok` add the call-out wait entry
 correlated by the parked id; on `full` retain the request in a
 `:request-sent` wait entry, as the walker does; the other outcomes fail the
 call naming the outcome. The host side (`ffi/bridge-step`, `ffi/maybe-run`)
 is used unchanged. `call-result` and `call-response-wait-entry` are private
-in `ast_walker.cljc` today; Phase 0 lifts both into `yin.vm.v2.ffi` so that
+in `ast_walker.cljc` today; Phase 0 lifts both into `yin.vm.ffi` so that
 correlation checking is written once (this is the one edit to an existing
 file the roadmap requires).
 
@@ -455,7 +455,7 @@ and, when enabled, per instruction:
 with `t` the step counter. This is the §6 endgame of the cesk-space plan:
 the machine executes from the image and *emits* its configuration, so
 `as-of` and causal debugging are queries over a stream, not interpretation
-from one. `yin.vm.v2.telemetry` is a stub that rejects a non-nil option; the
+from one. `yin.vm.telemetry` is a stub that rejects a non-nil option; the
 trace lands there when telemetry is designed, and nothing in Phase 1–3
 depends on it. It is listed so the hot loop is written with the emission
 seam in one place (the `cesk-return` equivalent) rather than retrofitted.
@@ -488,7 +488,7 @@ C = \langle seg, pc, val, St \rangle$$
 - **K (continuation)**: a vector of frames, innermost last. Frame kinds:
   `{:type :return :segment :pc :env :stack-base}` for calls, and the
   effect-continuation frames the engine already defines
-  (`:dao.stream.v2.apply/eval-call`, `:request-sent`), extended with
+  (`:dao.stream.apply/eval-call`, `:request-sent`), extended with
   `:segment :pc :stack`.
 
 Let `I = code[seg][pc]` be the decoded instruction and `I.x` its operands.
@@ -572,7 +572,7 @@ engineering (§6).
 
 ### 5.1 Placement and contract
 
-`yin.vm.v2.linearize` (not `yang.linearize`): yang owns syntax → AST and must
+`yin.vm.linearize` (not `yang.linearize`): yang owns syntax → AST and must
 stay ignorant of any evaluator; lowering AST → executable code is VM lineage
 and must stay ignorant of any surface syntax. Clojure, Python and PHP front
 ends all reach the linearizer through the one canonical form. The
@@ -743,7 +743,7 @@ Measured 2026-09-14 on the development machine (macOS, OpenJDK 21.0.2).
 `docs/cesk-space-optimization.md`. **Timed region.** `vm/run` alone: VM
 construction, AST → datoms, lowering, and the program load are outside it,
 and every timed call runs the same loaded VM value. **Harness.**
-`test/bench/yin_vm_v2_bench.cljc` (Criterium `quick-bench`; it checks the
+`test/bench/yin_vm_bench.cljc` (Criterium `quick-bench`; it checks the
 result is 0 before timing).
 
 ### 8.1 JVM
@@ -773,8 +773,8 @@ Measured on the host machine on 2026-09-14 with:
 clj -M:cljs -m shadow.cljs.devtools.cli compile vm-bench
 node target/vm-bench.js 500 5000
 
-clj -M:cljd compile yin.register-bench-cljd-v2
-dart run bin/register_bench_cljd_v2.dart                   # both evaluators, n=50000
+clj -M:cljd compile yin.register-bench-cljd
+dart run bin/register_bench_cljd.dart                   # both evaluators, n=50000
 ```
 
 | Mean time per run | Node.js (n=5000) | Dart (n=50000) | Ratio to walker |
@@ -791,11 +791,11 @@ JVM. Both hosts still clear the historic 0.76x register-VM line.
 
 ### 8.3 Default decision
 
-The semantic VM meets the performance line on the JVM, so `yin.repl.v2.core`
+The semantic VM meets the performance line on the JVM, so `yin.repl.core`
 now defaults to `:semantic`; `(vm :ast-walker)` still selects the walker.
 Behavioural parity for the switch rests on the Phase 1–3 suites and on a
 REPL corpus that produced identical output under both evaluators. The corpus
 covered arithmetic, `def`/`defn`, `*1` history, 10⁵ tail calls, 2·10⁴-deep
 non-tail recursion, streams, Python and PHP input, datom literals, and error
 text. Where the two still differ is recorded in
-[`yin.vm.v2.divergence-register.md`](./yin.vm.v2.divergence-register.md#the-semantic-vm-against-the-ast-walker).
+[`yin.vm.divergence-register.md`](./yin.vm.divergence-register.md#the-semantic-vm-against-the-ast-walker).

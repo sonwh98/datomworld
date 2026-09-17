@@ -125,7 +125,7 @@ embedded library: the Peer stays in-process on the JVM; agents reach it over the
 ### 2. The implemented agent write path
 
 Each agent creates one transactor value (`dao.space.transactor/create!`) over
-its own single-writer local stream — a `dao.stream.v2.memory-log`, whose
+its own single-writer local stream — a `dao.stream.memory-log`, whose
 declared complete retention is what the watermark scan and publication
 snapshot read from the origin — and an explicit DaoJing intake pool.
 `transactor/append!` / `transact!` append one atomic transaction record and
@@ -243,7 +243,7 @@ deposit API, no new namespaces:
    `dao.jing.remote/default-handlers`. A remote reader uses
    `dao.jing.remote/connect-content!`; both handles expose the same plain-data content
    effects.
-2. **Writes**: each agent owns a local `dao.stream.v2` memory-log and creates one
+2. **Writes**: each agent owns a local `dao.stream` memory-log and creates one
    transactor value with that stream plus an explicit DaoJing intake pool
    (`dao.space.transactor/create!`). It commits entity maps or datom vectors
    through `transactor/append!`/`transact!`, using integer stream-local entity ids; the

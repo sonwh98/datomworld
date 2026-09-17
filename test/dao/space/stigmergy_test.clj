@@ -29,9 +29,9 @@
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.transactor :as transactor]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.memory-log :as memory-log]
-            [dao.stream.v2.ringbuffer :as ringbuffer])
+            [dao.stream :as stream]
+            [dao.stream.memory-log :as memory-log]
+            [dao.stream.ringbuffer :as ringbuffer])
   (:import (java.io File)))
 
 

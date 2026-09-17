@@ -14,9 +14,9 @@
             [dao.space.query :as query]
             [dao.space.schema :as schema]
             [dao.space.transactor :as tx]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.memory-log :as memory-log]
-            [dao.stream.v2.ringbuffer :as ringbuffer]
+            [dao.stream :as stream]
+            [dao.stream.memory-log :as memory-log]
+            [dao.stream.ringbuffer :as ringbuffer]
             #?@(:cljd [["dart:io" :as dart-io]])))
 
 
@@ -667,7 +667,7 @@
 ;; earliest RETAINED position, so the surviving suffix reads as :blocked
 ;; and schema/current cannot distinguish it from complete history.
 ;; Completeness is the caller's declaration — a transport declaring
-;; complete retention (dao.stream.v2.memory-log), or a kept origin cursor
+;; complete retention (dao.stream.memory-log), or a kept origin cursor
 ;; minted before the first append and read through with no observed gap —
 ;; never schema's check. This test pins the limit so that a future change
 ;; which makes it detectable has to change a test and therefore the

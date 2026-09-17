@@ -21,7 +21,7 @@ The first compiler in the Yang collection. Transforms Clojure s-expressions into
 
 ### Usage Pattern
 
-> **Status (2026-09-16):** the execute step uses the v1 `yin.vm` API, deleted by `yin.vm.v1-retirement.implementation-plan.md`; see `test/yang/clojure_test.clj` for the `yin.vm.v2` equivalent.
+> **Status (2026-09-16):** the execute step uses the v1 `yin.vm` API, deleted by `yin.vm.v1-retirement.implementation-plan.md`; see `test/yang/clojure_test.clj` for the `yin.vm` equivalent.
 
 ```clojure
 (require '[yang.clojure :as clj-compiler])

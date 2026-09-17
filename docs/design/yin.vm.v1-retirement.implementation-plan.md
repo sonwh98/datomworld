@@ -5,12 +5,12 @@ Status: implementation plan for retiring the whole remaining v1 lineage —
 ast-walker VM (`yin.vm`, `yin.vm.{ast-walker, engine, ffi, runtime-adapter,
 stream-driver, telemetry}`) — by building a v2 twin for every consumer that
 still has none, then deleting v1 in one change. Successor to
-[`yin.vm.v2-consumers.implementation-plan.md`](./yin.vm.v2-consumers.implementation-plan.md)
+[`yin.vm-consumers.implementation-plan.md`](./yin.vm-consumers.implementation-plan.md)
 (the first slice, 2026-09-10), which left exactly this work in its *Boundary*
 table. Subordinate to [`dao.stream.md`](./dao.stream.md),
-[`yin.vm.v2.divergence-register.md`](./yin.vm.v2.divergence-register.md),
-[`yin.repl.v2.implementation-plan.md`](./yin.repl.v2.implementation-plan.md)
-and [`dao.runtime.v2.implementation-plan.md`](./dao.runtime.v2.implementation-plan.md).
+[`yin.vm.divergence-register.md`](./yin.vm.divergence-register.md),
+[`yin.repl.implementation-plan.md`](./yin.repl.implementation-plan.md)
+and [`dao.runtime.implementation-plan.md`](./dao.runtime.implementation-plan.md).
 
 Drafted 2026-09-16, architect r1, against a `grep`/`git` sweep of the tree
 on the `dao.stream-redesign-v2` branch at `3497fe4`. The revision history at
@@ -24,14 +24,14 @@ first slice deleted the four experimental VM models and the macro engine and
 migrated v1 `yin.repl` onto `:ast-walker` so its consumers kept working. Its
 *Boundary* section named what it left and why: v1 `yin.repl` has three live
 consumers with no v2 twin (the Flutter REPL widget and two telemetry
-servers), `dao.await` had not migrated, and `yin.vm.v2.parity-test` asserts
+servers), `dao.await` had not migrated, and `yin.vm.parity-test` asserts
 v2 against v1 in the same process. "No document schedules either." This is
 that document.
 
 The brief for this plan stated six facts from an evening's read-only
 investigation and asked that they be verified rather than trusted. Four hold.
 Two do not, and both change the shape of the work: **v2 telemetry emission
-does not exist** — `yin.vm.v2.telemetry` is a stub that *rejects* a telemetry
+does not exist** — `yin.vm.telemetry` is a stub that *rejects* a telemetry
 stream — and the v1 servers' only consumer, the browser telemetry viewer,
 speaks the v1 wire. See *What the brief got wrong*.
 
@@ -46,10 +46,10 @@ a later round re-verifies will be marked **[R]**.
 
 - **`dao.await` v1 has no consumer but its own test.** The only requires of
   `dao.await` outside the file itself are `test/dao/await_test.cljc:7` and its
-  `:require-macros` at `:10`. `dao.await.v2` (`src/cljc/dao/await/v2.cljc`,
-  238 lines) requires only `dao.stream.v2`, `yang.clojure`, `yin.vm.v2`,
-  `yin.vm.v2.ast-walker` and `yin.vm.v2.module` (`:36-40`), and its suite
-  `test/dao/await/v2_test.cljc` describes itself as "the v1 await suite,
+  `:require-macros` at `:10`. `dao.await` (`src/cljc/dao/await.cljc`,
+  238 lines) requires only `dao.stream`, `yang.clojure`, `yin.vm`,
+  `yin.vm.ast-walker` and `yin.vm.module` (`:36-40`), and its suite
+  `test/dao/await_test.cljc` describes itself as "the v1 await suite,
   ported". The design document `docs/design/dao.await.md` was already rewritten
   to the v2 rules under the dao.runtime plan's R3 (2026-09-06).
 - **Only the ast-walker slice of v1 `yin.vm` remains** — the seven source
@@ -66,15 +66,15 @@ a later round re-verifies will be marked **[R]**.
   `:cljd-yin-repl-build` (`deps.edn:54-60,76-89`), and `:telemetry-server`
   (`deps.edn:72`; shadow build of the same name).
 - **The v2 REPL stack is complete and the cljd host adapter exists.**
-  `yin.repl.v2.{core, driver, connect, serve, host, host.common}` (2,558
-  lines) plus host shadows `src/cljd/yin/repl/v2/host.cljd` (selects
-  `dao.stream.v2.ws.dart/websocket`, which supplies `:connect!`, `:bind!`,
-  `:unbind!` — `dart.cljd:113,225,257,291`) and `src/cljs/yin/repl/v2/host.cljs`
+  `yin.repl.{core, driver, connect, serve, host, host.common}` (2,558
+  lines) plus host shadows `src/cljd/yin/repl/host.cljd` (selects
+  `dao.stream.ws.dart/websocket`, which supplies `:connect!`, `:bind!`,
+  `:unbind!` — `dart.cljd:113,225,257,291`) and `src/cljs/yin/repl/host.cljs`
   (Node). `serve!` (`serve.cljc:184-326`) composes an endpoint from a
   `{:bind! :unbind!}` host and is tested against injected fake host functions
-  with no socket (`test/yin/repl/v2_serve_test.cljc:25-30,199-236`). A Dart
+  with no socket (`test/yin/repl_serve_test.cljc:25-30,199-236`). A Dart
   process already serves through it: the R5 cross-host peer's `--serve` role
-  (`test/yin/repl/v2/slice_peer.cljc`, built by `bb build:yin-repl-v2-peer`).
+  (`test/yin/repl/slice_peer.cljc`, built by `bb build:yin-repl-peer`).
 - **`remotes/origin/mr-clean` is noise.** It is an ancestor of `master` (284
   commits behind, 0 ahead; last commit `0745fd4`, 2026-05-21, a postgraphics
   demo). Nothing on it is unmerged. Likewise `origin/dao.await` is fully
@@ -83,14 +83,14 @@ a later round re-verifies will be marked **[R]**.
 ### What the brief got wrong
 
 **[B] v2 telemetry emission does not exist; the stub rejects it.** The brief
-said "v2 telemetry emission already exists at `src/cljc/yin/vm/v2/telemetry.cljc`
+said "v2 telemetry emission already exists at `src/cljc/yin/vm/telemetry.cljc`
 — the gap is specifically the SERVER processes". The file is 84 lines: `enabled?`
 is always false (`:37-40`), `emit-snapshot` is identity in both arities
 (`:79-83`), and `install` *throws* on a supplied `:telemetry` option
 (`:29-34,43-50`) — "a stub that merely recorded the model would accept a stream
 and then write nothing to it forever; silent acceptance is the one way this
 stub could mislead". The v2 REPL rejects `--telemetry` and `--telemetry-stream`
-by naming the v1 REPL (`yin/repl/v2.cljc:30-32,50-51`) and answers the
+by naming the v1 REPL (`yin/repl.cljc:30-32,50-51`) and answers the
 `(telemetry)` command with the same text (`core.cljc:78,95,589,652`). The
 divergence register records this as user-visible change 5 and lists what the
 real emit path still owes (`:54-57`, `:280-295`). So the v1 telemetry servers
@@ -115,7 +115,7 @@ over the v1 wire (`:8-10` require `dao.stream`, `dao.stream.apply`,
 `clj -M:clj-yin-repl --port 8080 --headless`). It is the live "Yin REPL" card
 in the public demo picker (`demo.cljs:46-49,64,82,214`). Deleting v1 `yin.repl`
 deletes the only server it can talk to. No browser adapter for
-`dao.stream.v2.ws` exists — `src/cljs/dao/stream/v2/ws/` holds `node.cljs` only,
+`dao.stream.ws` exists — `src/cljs/dao/stream/ws/` holds `node.cljs` only,
 and no `.cljs` under `src/` names `js/WebSocket` for v2. Decision D3.
 
 **v1 `yin.repl` loses `extra-primitives` on `(reset)`.** The widget merges
@@ -144,28 +144,28 @@ exists — grouped by disposition. Fifty files; the brief named eleven.
 
 | file | replaces | unit |
 |---|---|---|
-| `src/cljc/yin/repl/v2/embed.cljc` | the Flutter-free half of `flutter.cljd` (server lifecycle, status, stepping) | U2 |
-| `src/cljd/yin/repl/v2/flutter.cljd` | the Flutter half of `flutter.cljd` (notifiers, timer, `info-card`) | U2 |
-| `test/yin/repl/v2_embed_test.cljc` | `test/yin/repl_test.cljc`'s `connection-status-text-test` and the widget's untested server path | U2 |
-| `src/cljs/dao/stream/v2/ws/browser.cljs` | the browser's v1 `dao.stream.ws/connect!` | U4 |
-| `test/dao/stream/v2/ws/browser_test.cljs` | — | U4 |
-| `src/cljs/datomworld/demo/yin_repl_v2.cljs` | `yin_repl.cljs` (v1 wire) | U4 |
+| `src/cljc/yin/repl/embed.cljc` | the Flutter-free half of `flutter.cljd` (server lifecycle, status, stepping) | U2 |
+| `src/cljd/yin/repl/flutter.cljd` | the Flutter half of `flutter.cljd` (notifiers, timer, `info-card`) | U2 |
+| `test/yin/repl_embed_test.cljc` | `test/yin/repl_test.cljc`'s `connection-status-text-test` and the widget's untested server path | U2 |
+| `src/cljs/dao/stream/ws/browser.cljs` | the browser's v1 `dao.stream.ws/connect!` | U4 |
+| `test/dao/stream/ws/browser_test.cljs` | — | U4 |
+| `src/cljs/datomworld/demo/yin_repl.cljs` | `yin_repl.cljs` (v1 wire) | U4 |
 
 ### Migrated to keep working without v1
 
 | file | change | unit |
 |---|---|---|
-| `src/cljc/yin/repl/v2/core.cljc` | additive `:primitives` option on `create-state` (`:314-335`), stored in state and reapplied by `rebuild-session` (`:544`) so `(reset)` and `(vm …)` keep host primitives — D1 | U2 |
-| `src/cljd/datomworld/demo/dao_gui.cljd` | `:7` require → `yin.repl.v2.flutter`; `:292` "clj -M:clj-yin-repl" → `-v2`; `:293-296` connect string gains the `daostream:` prefix and `/repl` path per `connect/repl-target`; `:321,326` unchanged in shape | U2 |
+| `src/cljc/yin/repl/core.cljc` | additive `:primitives` option on `create-state` (`:314-335`), stored in state and reapplied by `rebuild-session` (`:544`) so `(reset)` and `(vm …)` keep host primitives — D1 | U2 |
+| `src/cljd/datomworld/demo/dao_gui.cljd` | `:7` require → `yin.repl.flutter`; `:292` "clj -M:clj-yin-repl" → `-v2`; `:293-296` connect string gains the `daostream:` prefix and `/repl` path per `connect/repl-target`; `:321,326` unchanged in shape | U2 |
 | `src/cljd/datomworld/demo/solar_system.cljd` | `:10` require; `:59,123` unchanged in shape | U2 |
-| `src/cljd/datomworld/demo/dao_gui.md` | `:41,181` compile command names `yin.repl` → the v2 widget namespace; `:120` desktop alias → `:clj-yin-repl-v2`; the connect form after `:125` gains prefix and path | U2 |
-| `src/cljs/datomworld/demo.cljs` | `:10` require → `yin_repl_v2`; `:214` case branch; `:46-49` card text | U4 |
-| `test/yang/clojure_test.clj`, `php_test.clj`, `python_test.clj` | requires (`:7-8` each) → `yin.vm.v2` + `yin.vm.v2.test-utils`; the `compile-and-run`/`run-ast` helpers rebuilt on `tu/create-vm` + `tu/make-observer-session` + `tu/queue-ast!` + `tu/run-session` so `env` and `vm-opts` still pass through; `python_test.clj:227` `vm/primitives` → `yin.vm.v2/primitives` (`v2.cljc:101`) | U5 |
-| `test/yin/vm/v2/parity_test.cljc` | four deftests (`:142,149,162,179`) compare against v1 in-process; the v1 side becomes **pinned expected values** recorded in the corpus, computed once from v1 before deletion — D4 | U5 |
+| `src/cljd/datomworld/demo/dao_gui.md` | `:41,181` compile command names `yin.repl` → the v2 widget namespace; `:120` desktop alias → `:clj-yin-repl`; the connect form after `:125` gains prefix and path | U2 |
+| `src/cljs/datomworld/demo.cljs` | `:10` require → `yin_repl`; `:214` case branch; `:46-49` card text | U4 |
+| `test/yang/clojure_test.clj`, `php_test.clj`, `python_test.clj` | requires (`:7-8` each) → `yin.vm` + `yin.vm.test-utils`; the `compile-and-run`/`run-ast` helpers rebuilt on `tu/create-vm` + `tu/make-observer-session` + `tu/queue-ast!` + `tu/run-session` so `env` and `vm-opts` still pass through; `python_test.clj:227` `vm/primitives` → `yin.vm/primitives` (`v2.cljc:101`) | U5 |
+| `test/yin/vm/parity_test.cljc` | four deftests (`:142,149,162,179`) compare against v1 in-process; the v1 side becomes **pinned expected values** recorded in the corpus, computed once from v1 before deletion — D4 | U5 |
 | `test/yin/module_test.cljc` | drop the unused `#?(:clj [yin.vm :as vm])` at `:16` | U5 |
-| `test/yin/repl/v2_build_test.clj` | three assertions that v1 entries are "unchanged"/"untouched"/"stays" (`deps-edn-…` testing block, `shadow-cljs-…` testing block, the `bin/yin_repl_main.dart` `.exists` check) are inverted to assert absence | U6 |
+| `test/yin/repl_build_test.clj` | three assertions that v1 entries are "unchanged"/"untouched"/"stays" (`deps-edn-…` testing block, `shadow-cljs-…` testing block, the `bin/yin_repl_main.dart` `.exists` check) are inverted to assert absence | U6 |
 | `test/dao/test_utils.cljc` | **[J]** `make-waitable-retry-stream` loses its last user (`runtime_regression_test.cljc:16`) and is removed; `make-non-waitable-stream` stays for the `dao.runtime` driver tests until R4 | U6 |
-| `src/cljc/yin/repl/v2.cljc:30-32`, `core.cljc:95` | `telemetry-text` says "run yin.repl for telemetry"; after U6 there is no v1 REPL to run — reword to name the owed telemetry plan (D2) | U6 |
+| `src/cljc/yin/repl.cljc:30-32`, `core.cljc:95` | `telemetry-text` says "run yin.repl for telemetry"; after U6 there is no v1 REPL to run — reword to name the owed telemetry plan (D2) | U6 |
 | `deps.edn` | delete `:clj-yin-repl` (`:54`), `:cljs-yin-repl` (`:55-60`), `:telemetry-server` (`:72`), `:cljd-yin-repl` (`:76-80`), `:cljd-yin-repl-build` (`:81-89`) | U6 |
 | `shadow-cljs.edn` | delete `:yin-repl` and `:telemetry-server` builds; **keep** `:telemetry-viewer` (transport item) | U6 |
 
@@ -173,17 +173,17 @@ exists — grouped by disposition. Fifty files; the brief named eleven.
 
 | file | requires | why deletion, not migration |
 |---|---|---|
-| `src/cljc/dao/await.cljc` | v1 `yin.vm`, `ast-walker`, `engine`, `dao.stream`, `yin.module` | twin `dao.await.v2` exists and is tested; no consumer | U1 |
-| `test/dao/await_test.cljc` | `dao.await` | ported as `test/dao/await/v2_test.cljc` | U1 |
-| `src/cljc/yin/repl.cljc` (1,076 lines) | v1 VM, v1 transports | twin `yin.repl.v2`; every consumer has a twin after U2–U4 | U6 |
+| `src/cljc/dao/await.cljc` | v1 `yin.vm`, `ast-walker`, `engine`, `dao.stream`, `yin.module` | twin `dao.await` exists and is tested; no consumer | U1 |
+| `test/dao/await_test.cljc` | `dao.await` | ported as `test/dao/await_test.cljc` | U1 |
+| `src/cljc/yin/repl.cljc` (1,076 lines) | v1 VM, v1 transports | twin `yin.repl`; every consumer has a twin after U2–U4 | U6 |
 | `src/cljd/yin/repl/flutter.cljd` | `yin.repl` | twin from U2 | U6 |
-| `src/clj/yin/vm/telemetry_server/jvm.clj`, `src/cljs/yin/vm/telemetry_server/node.cljs` | `yin.repl`, v1 `dao.stream.ws` | **[J]** a v1 REPL server on 8090 plus a v1 telemetry sink on 8091; the REPL half's twin is `yin.repl.v2 --port --headless`, the sink half has no v2 to serve — D2 | U6 |
-| `src/clj/yin/repl/runner.clj`, `bin/yin_repl_main.dart` | launch v1 `yin.repl` on Dart | twins `yin.repl.v2.runner`, `bin/yin_repl_v2_main.dart` exist | U6 |
+| `src/clj/yin/vm/telemetry_server/jvm.clj`, `src/cljs/yin/vm/telemetry_server/node.cljs` | `yin.repl`, v1 `dao.stream.ws` | **[J]** a v1 REPL server on 8090 plus a v1 telemetry sink on 8091; the REPL half's twin is `yin.repl --port --headless`, the sink half has no v2 to serve — D2 | U6 |
+| `src/clj/yin/repl/runner.clj`, `bin/yin_repl_main.dart` | launch v1 `yin.repl` on Dart | twins `yin.repl.runner`, `bin/yin_repl_main.dart` exist | U6 |
 | `src/cljs/datomworld/demo/yin_repl.cljs` | v1 wire | twin from U4 (D3) | U6 |
-| `src/cljc/yin/vm.cljc`, `src/cljc/yin/vm/{ast_walker, engine, ffi, runtime_adapter, stream_driver, telemetry}.cljc` | v1 `dao.stream`, `dao.runtime`, `yin.module` | the lineage itself; `yin.vm.v2/*` is the twin. `runtime_adapter.cljc` is also on `dao.runtime` R4's delete list; it goes here, and R4's list shrinks | U6 |
+| `src/cljc/yin/vm.cljc`, `src/cljc/yin/vm/{ast_walker, engine, ffi, runtime_adapter, stream_driver, telemetry}.cljc` | v1 `dao.stream`, `dao.runtime`, `yin.module` | the lineage itself; `yin.vm/*` is the twin. `runtime_adapter.cljc` is also on `dao.runtime` R4's delete list; it goes here, and R4's list shrinks | U6 |
 | `test/yin/repl_test.cljc` (22 deftests) | `yin.repl` | contract of a deleted file; v2 has `v2_core_test`, `v2_driver_test`, `v2_connect_test`, `v2_serve_test`, `v2_test`, `v2_adapter_test`, `v2_host_node_test`, `v2/host/jvm_test` | U6 |
-| `test/yin/vm/{ast_walker, engine, ffi, stream_driver, telemetry, runtime_adapter, runtime_regression}_test.cljc`, `test/yin/vm/test_utils.cljc` | v1 VM | contracts of deleted files; v2 twins under `test/yin/vm/v2/`. `runtime_adapter_test` and `runtime_regression_test` are also on R4's list; they go here | U6 |
-| `test/yin/vm/ast_conversion_test.cljc` (2 deftests) | v1 `yin.vm` codec | **[J]** `test/yin/vm/v2_test.cljc` has 24 deftests on the v2 codec; Phase 0 confirms both cases (`ast-datom-roundtrip`, `root-id-detection`) are covered there, ports any that is not, then this file goes | U5/U6 |
+| `test/yin/vm/{ast_walker, engine, ffi, stream_driver, telemetry, runtime_adapter, runtime_regression}_test.cljc`, `test/yin/vm/test_utils.cljc` | v1 VM | contracts of deleted files; v2 twins under `test/yin/vm/`. `runtime_adapter_test` and `runtime_regression_test` are also on R4's list; they go here | U6 |
+| `test/yin/vm/ast_conversion_test.cljc` (2 deftests) | v1 `yin.vm` codec | **[J]** `test/yin/vm_test.cljc` has 24 deftests on the v2 codec; Phase 0 confirms both cases (`ast-datom-roundtrip`, `root-id-detection`) are covered there, ports any that is not, then this file goes | U5/U6 |
 | `test/bench/stream_optimization_bench.cljc` | v1 `engine` | orphan bench; no build runs it | U6 |
 
 ### Unchanged, named so the reader can check
@@ -235,25 +235,25 @@ path mapped to `/repl` by `connect/repl-target`.
 
 **Disposition.** Two new files:
 
-- `src/cljc/yin/repl/v2/embed.cljc` — no Flutter, no Dart, no timer. It is the
+- `src/cljc/yin/repl/embed.cljc` — no Flutter, no Dart, no timer. It is the
   composition an embedding host drives, and it runs on all three hosts so it
   is testable on all three:
   - `(start {:keys [port bind-host advertised-host primitives host]})` →
     endpoint value: `(serve/serve! {:bind-port port :bind-host (or bind-host
     "0.0.0.0") :advertised-host advertised-host :host host :repl
     (core/create-state {:primitives primitives})})`. `host` defaults to
-    `(yin.repl.v2.host/websocket)`; a test injects the fake.
+    `(yin.repl.host/websocket)`; a test injects the fake.
   - `(step endpoint now)` → `[endpoint' lines]` = `serve/step` then
     `serve/take-outbox`; the caller only prints or displays.
   - `(status endpoint)` → `{:status … :clients n :url …}` from `serve/summary`;
     `(status-text status)` renders the line `info-card` shows. This replaces
     `repl/connection-status-text`.
   - `(stop endpoint)` → `serve/stop!`; `(stopped? endpoint)` → `serve/stopped?`.
-- `src/cljd/yin/repl/v2/flutter.cljd` — the notifiers, `default-port`,
+- `src/cljd/yin/repl/flutter.cljd` — the notifiers, `default-port`,
   `load-device-ip!` (ported verbatim), and:
   - `start-server!` — `stop-server!` first; then **load the device IP first
     and start the endpoint in its `.then`**, so the found IP (or `"localhost"`)
-    is the advertised host. One `Timer.periodic` of `yin.repl.v2/tick-millis`
+    is the advertised host. One `Timer.periodic` of `yin.repl/tick-millis`
     (25 ms) owns the endpoint atom: each tick calls `embed/step`, writes
     `status-text` into `server-status`, and is the only writer of that atom.
     This is `run-dart!`'s shape (`v2.cljc:349-395`) minus the shell.
@@ -274,7 +274,7 @@ is: `create-state` accepts `:primitives` (a map merged *over* the REPL
 primitives), stores it as `:extra-primitives`, and `make-session`/`make-vm`
 and `rebuild-session` (`:544`) read it — so `(reset)` and `(vm :ast-walker)`
 from the desktop keep the host functions, which v1 loses. One deftest in
-`test/yin/repl/v2_core_test.cljc` pins it: a state created with
+`test/yin/repl_core_test.cljc` pins it: a state created with
 `{:primitives {'answer (fn [] 42)}}` evaluates `(answer)` to 42 before and
 after `(reset)` and after `(vm :ast-walker)`.
 
@@ -297,7 +297,7 @@ every real consumer first", and the owner should confirm or reverse it.
 Each server is one `let` (`jvm.clj:10-13`, `node.cljs:9-12`): a v1
 `ws/listen!` on 8091 handed to `repl/create-state` as the telemetry stream,
 and `repl/serve!` on 8090. The REPL half has a v2 twin today —
-`clj -M:clj-yin-repl-v2 --port 8090 --headless` or the `:yin-repl-v2` node
+`clj -M:clj-yin-repl --port 8090 --headless` or the `:yin-repl` node
 build. The telemetry half is not a server; it is the v1 VM's emit path
 (`yin/vm/telemetry.cljc`, 282 lines: `snapshot-datoms`, `event-datoms`,
 `emit-snapshot`, the `:vm/*` schema) reached through the REPL's
@@ -320,7 +320,7 @@ delisted from the picker. So:
   no longer exists and name the owed plan instead. `telemetry-ui-design.md`
   and `vm-telemetry-design.md` get status notes. A **v2 telemetry plan** is
   owed (Boundary table) and the first thing it builds is the emit path;
-  its server is then one flag on `yin.repl.v2 --port`.
+  its server is then one flag on `yin.repl --port`.
 - **Alternative (Gate T):** if the owner wants telemetry parity before v1
   goes, U6 is gated on that plan landing. U1–U5 are unaffected either way.
 
@@ -335,22 +335,22 @@ and PHP silently. The "Yin REPL" card (`demo.cljs:46-49`) is a live picker
 entry whose only server is v1 `yin.repl`; deleting v1 without a port turns a
 public demo into a client of nothing. The port is real but bounded:
 
-- `src/cljs/dao/stream/v2/ws/browser.cljs` — a `:connect!`-only adapter over
-  the DOM `WebSocket`, the shape `dao.stream.v2.ws/make-attacher` asks for
+- `src/cljs/dao/stream/ws/browser.cljs` — a `:connect!`-only adapter over
+  the DOM `WebSocket`, the shape `dao.stream.ws/make-attacher` asks for
   (`host.cljc:23-27`: start connecting, never wait, synchronously return
   `{:send! … :close! …}`), mirroring `node.cljs`'s `connect!` with the DOM
   event names. No `:bind!` — a browser cannot listen — so it satisfies
   `host-common/adapter?` and not `binder?`, which is exactly the distinction
   `host.common` draws (`:28-37`).
-- `src/cljs/datomworld/demo/yin_repl_v2.cljs` — keeps the CodeMirror editor
+- `src/cljs/datomworld/demo/yin_repl.cljs` — keeps the CodeMirror editor
   and history panel; replaces the v1 `put-request!`/`poll-response` pair with
   `driver/create-state {:host browser-adapter}`, `driver/submit-line!` on
   Eval, and one non-overlapping `setInterval` of `tick-millis` that owns the
   driver state and drains `driver/take-outbox` into the history — the Node
   host's composition (`v2.cljc:264-308`) with the readline replaced by the
-  editor. Its instruction line names `clj -M:clj-yin-repl-v2 --port 8080
+  editor. Its instruction line names `clj -M:clj-yin-repl --port 8080
   --headless` and the `daostream:ws://…` URL.
-- It composes the adapter directly rather than through `yin.repl.v2.host`,
+- It composes the adapter directly rather than through `yin.repl.host`,
   because the cljs shadow of that namespace selects Node's `ws` package and
   is per-*build*, not per-platform; requiring it in the `:demo` browser build
   would pull `js/require` into the browser.
@@ -360,7 +360,7 @@ explicit decision to record here; the plan's default is the port.
 
 ### D4 — parity against a deleted v1 becomes pinned values [J]
 
-`yin.vm.v2.parity-test` exists to say "v2 agrees with v1 on this corpus". Once
+`yin.vm.parity-test` exists to say "v2 agrees with v1 on this corpus". Once
 v1 is gone the sentence has no right-hand side. Three options: delete the
 file (loses a regression corpus of roughly two dozen programs), keep v1 in `test/` only (keeps
 2,562 lines of deleted code alive for one test), or **pin**: extend each
@@ -372,16 +372,16 @@ name; its docstring says what the column is and when it was captured. The
 capture is a Phase 0 step so it is done against the tree the values come
 from.
 
-### D5 — `dao.await.v2` is not renamed here
+### D5 — `dao.await` is not renamed here
 
-`dao.stream.md:790-796` decides `dao.stream.v2` → `dao.stream` "when the last
+`dao.stream.md:790-796` decides `dao.stream` → `dao.stream` "when the last
 consumer has migrated", and the dao.runtime plan's R4 recommends
-`dao.runtime.v2` → `dao.runtime` "in the same change as `dao.stream.v2`'s
-rename". `dao.await.v2` registers module bindings under `'await` and
-`'dao.await.v2` (`v2.cljc:51-52`), so a rename changes what a program may
+`dao.runtime` → `dao.runtime` "in the same change as `dao.stream`'s
+rename". `dao.await` registers module bindings under `'await` and
+`'dao.await` (`v2.cljc:51-52`), so a rename changes what a program may
 write, not only a require. It belongs to the same rename wave as the other
 two, and this plan records it as owed rather than doing one of three renames
-early. `yin.vm.v2` and `yin.repl.v2` are the same question and the same
+early. `yin.vm` and `yin.repl` are the same question and the same
 answer.
 
 ### D6 — one deletion set, one change, after every twin has landed
@@ -399,8 +399,8 @@ names a deleted namespace or a test asserts a deleted file exists.
 
 Delete `src/cljc/dao/await.cljc` and `test/dao/await_test.cljc`. Nothing
 else changes. **Criteria:** the Phase 0 `dao.await` grep returns only
-`dao.await.v2` hits and `docs/`; `clj -M:test`, the shadow `:test` build and
-`clojure -M:cljd test` pass, and `Testing dao.await.v2-test` appears in the
+`dao.await` hits and `docs/`; `clj -M:test`, the shadow `:test` build and
+`clojure -M:cljd test` pass, and `Testing dao.await-test` appears in the
 Node output.
 
 ### U2 — the v2 Flutter REPL widget
@@ -418,16 +418,16 @@ and `dao_gui.md` repointed. v1 `flutter.cljd` is left in place until U6.
   request through an adopted session that calls a primitive supplied via
   `:primitives` returns its value; `(reset)` through the same session keeps
   that primitive; `stop` then stepping reaches `stopped?`. `Testing
-  yin.repl.v2-embed-test` appears in the Node output.
+  yin.repl.embed-test` appears in the Node output.
 - **Flutter startup smoke**, manual, the only check that exercises the
   `.cljd` widget itself:
   ```
-  mise exec -- clj -M:cljd compile yin.repl.v2.flutter datomworld.demo.dao-gui datomworld.demo.main
+  mise exec -- clj -M:cljd compile yin.repl.flutter datomworld.demo.dao-gui datomworld.demo.main
   mise exec -- flutter run
   ```
   Select **"dao.gui Prototype"**; the status line reaches "listening" and the
   card shows a `daostream:ws://<device-ip>:7777/repl` URL. From the desktop:
-  `mise exec -- clj -M:clj-yin-repl-v2`, `(connect "daostream:ws://<ip>:7777")`,
+  `mise exec -- clj -M:clj-yin-repl`, `(connect "daostream:ws://<ip>:7777")`,
   then `(show-sample-frame!)` returns and the frame changes; `(reset)` then
   `(show-sample-frame!)` still works (the v1 defect is not reproduced). Repeat
   the selection for "Solar System" with `(bodies)`. Stopping the demo returns
@@ -439,12 +439,12 @@ Per D2, no build in this plan. The unit exists so the owner's decision has a
 place to land: **default**, delete in U6 and record the owed v2 telemetry
 plan; **Gate T**, block U6 on that plan. If Gate T is chosen the shape of the
 twin is already determined — the emit path first, then `--telemetry-stream`
-on `yin.repl.v2` serving a second stream — and it is written as its own
+on `yin.repl` serving a second stream — and it is written as its own
 document, not appended here.
 
 ### U4 — the browser REPL client on the v2 wire
 
-Per D3: `browser.cljs`, `yin_repl_v2.cljs`, `browser_test.cljs`, the
+Per D3: `browser.cljs`, `yin_repl.cljs`, `browser_test.cljs`, the
 `demo.cljs` repoint. v1 `yin_repl.cljs` stays until U6.
 
 **Criteria:**
@@ -453,8 +453,8 @@ Per D3: `browser.cljs`, `yin_repl_v2.cljs`, `browser_test.cljs`, the
   as the peer since Node has no DOM socket — or a minimal `WebSocket` global
   shim) proves the adapter returns `{:send! :close!}` synchronously, deposits
   `:ws/opened` and `:ws/closed` through the boundary, and never blocks.
-  `Testing dao.stream.v2.ws.browser-test` appears in the output.
-- Manual: `clj -M:clj-yin-repl-v2 --port 8080 --headless` on the desktop;
+  `Testing dao.stream.ws.browser-test` appears in the output.
+- Manual: `clj -M:clj-yin-repl --port 8080 --headless` on the desktop;
   `/demo.html#yin-repl` connects, `(+ 1 2)` prints `3`, killing the server
   prints a detached notice rather than a timeout, restarting it and
   reconnecting works.
@@ -466,7 +466,7 @@ The three `yang` tests, `module_test.cljc`, the parity pin (D4), and the
 evaluator under them changes. **Criteria:** all three lanes green with v1
 still present; every deftest count unchanged except where a case was
 ported into `v2_test.cljc`; `test/README.md:137,143`'s template names
-`yin.vm.v2`.
+`yin.vm`.
 
 ### U6 — the deletion set
 
@@ -482,7 +482,7 @@ runtime_adapter, runtime_regression, stream_driver, telemetry}_test.cljc`;
 `test/yin/vm/test_utils.cljc`; `test/bench/stream_optimization_bench.cljc`.
 
 **Edit:** `deps.edn` (five aliases), `shadow-cljs.edn` (two builds),
-`test/yin/repl/v2_build_test.clj` (three inversions), `test/dao/test_utils.cljc`
+`test/yin/repl_build_test.clj` (three inversions), `test/dao/test_utils.cljc`
 (one helper), the two `telemetry-text` strings, and the prose below.
 
 **Local hygiene, not git:** `test/cljd-out/` is untracked and regenerated by
@@ -495,20 +495,20 @@ deleted namespace.
 
 - `src/cljc/yin/vm/docs/yin.repl.md` — the v1 usage guide that `README.md:163`
   links as *the* Yin REPL guide. Replace its content with the v2 guide's
-  entry points or repoint the README link to `yin.repl.v2.md`; do not leave a
+  entry points or repoint the README link to `yin.repl.md`; do not leave a
   guide for a deleted program as the linked one. `README.md:114` also names
   a `:yin-repl` alias that does not exist in `deps.edn` today; fix while there.
 - `docs/design/yin-repl-design.md` — v1's design; status note at the top.
-- `docs/design/yin.repl.v2.implementation-plan.md:691-697,702-708` — says v1
+- `docs/design/yin.repl.implementation-plan.md:691-697,702-708` — says v1
   `repl.cljc`, `runner.clj`, `flutter.cljd` are untouched and the Flutter
   widget is out of scope; status note that this plan did both.
-- `docs/design/yin.vm.v2-consumers.implementation-plan.md:475-483,511-520` —
+- `docs/design/yin.vm-consumers.implementation-plan.md:475-483,511-520` —
   the *Boundary* rows this plan clears; status note.
-- `docs/design/dao.runtime.v2.implementation-plan.md:219-223,352-354` —
-  strike `yin.repl`, `dao.await` and `yin.vm.v2.parity-test` from the R4
+- `docs/design/dao.runtime.implementation-plan.md:219-223,352-354` —
+  strike `yin.repl`, `dao.await` and `yin.vm.parity-test` from the R4
   gate and record that `runtime_adapter.cljc`, `runtime_adapter_test.cljc`
   and `runtime_regression_test.cljc` were deleted here; **R4 is open**.
-- `docs/design/yin.vm.v2.divergence-register.md:26-33` — change 1 says
+- `docs/design/yin.vm.divergence-register.md:26-33` — change 1 says
   "v1's REPL still has only `:ast-walker`"; there is no v1 REPL.
 - `docs/design/telemetry-ui-design.md`, `docs/design/vm-telemetry-design.md`
   — status notes: the servers and the emit path are deleted; v2 telemetry is
@@ -523,10 +523,10 @@ deleted namespace.
   `docs/orchestrator-log.md` and the documented non-hits.
 - `clj -M:test`, the shadow `:test` and `:demo` builds, `clojure -M:cljd
   test` and `bb test` (which builds the R5 Dart peer first) pass; `Testing
-  yin.repl.v2-embed-test`, `yin.vm.v2.parity-test`, `yang.clojure-test`,
-  `dao.stream.v2.ws.browser-test` appear in the Node output.
-- `clj -M:clj-yin-repl-v2`, the `:yin-repl-v2` node build and
-  `clj -M:cljd-yin-repl-v2` start; `--telemetry` is rejected with text that
+  yin.repl.embed-test`, `yin.vm.parity-test`, `yang.clojure-test`,
+  `dao.stream.ws.browser-test` appear in the Node output.
+- `clj -M:clj-yin-repl`, the `:yin-repl` node build and
+  `clj -M:cljd-yin-repl` start; `--telemetry` is rejected with text that
   names no v1 program.
 - The U2 Flutter smoke and the U4 browser check pass against the tree with
   v1 gone.
@@ -564,7 +564,7 @@ Phase 0 doc sweep adds. Living documents are corrected in U6.
 ## Completion criteria
 
 - Built (6): `embed.cljc`, `v2/flutter.cljd`, `v2_embed_test.cljc`,
-  `ws/browser.cljs`, `ws/browser_test.cljs`, `yin_repl_v2.cljs`.
+  `ws/browser.cljs`, `ws/browser_test.cljs`, `yin_repl.cljs`.
 - Migrated (14): `core.cljc`, `dao_gui.cljd`, `solar_system.cljd`,
   `dao_gui.md`, `demo.cljs`, three `yang` tests, `parity_test.cljc`,
   `module_test.cljc`, `v2_build_test.clj`, `test_utils.cljc`, the two
@@ -600,7 +600,7 @@ everything else into `embed.cljc` and the adapter, which the lanes do cover.
 endpoint atom and the only caller of `embed/step`; `stop-server!` does not
 step. The browser client's interval is the only owner of the driver state;
 the Eval button only appends. Both are the driver's one-step-owner rule
-(`yin.repl.v2.implementation-plan.md`, *The REPL driver*), which the
+(`yin.repl.implementation-plan.md`, *The REPL driver*), which the
 review of any implementation should check first.
 
 **Out of scope, explicitly:** the v1 transport deletion —
@@ -621,10 +621,10 @@ itself (opened, not executed); a v2 walker benchmark.
 
 | owed | by | recorded where |
 |---|---|---|
-| v2 telemetry: the emit path per the divergence register `:280-295`, a `:telemetry` option the v2 VMs accept, `(telemetry)` and `--telemetry-stream` on `yin.repl.v2`, a served telemetry stream | its own plan, `yin.vm.v2.telemetry.implementation-plan.md`, not written | D2; this table |
+| v2 telemetry: the emit path per the divergence register `:280-295`, a `:telemetry` option the v2 VMs accept, `(telemetry)` and `--telemetry-stream` on `yin.repl`, a served telemetry stream | its own plan, `yin.vm.telemetry.implementation-plan.md`, not written | D2; this table |
 | the owner's answer on D2 (default vs Gate T) and D3 (port vs retire) | the owner, before U6 | Phase 0 item 5 |
-| `dao.runtime` R4 — delete `dao.runtime`, its three drivers and their tests; decide the rename | the dao.runtime plan; **gate open after U6** | `dao.runtime.v2.implementation-plan.md:352-370` |
-| `dao.await.v2`, `dao.runtime.v2`, `dao.stream.v2`, `yin.vm.v2`, `yin.repl.v2` → unsuffixed | one rename wave, when the transport item lands | D5; `dao.stream.md:790-796` |
+| `dao.runtime` R4 — delete `dao.runtime`, its three drivers and their tests; decide the rename | the dao.runtime plan; **gate open after U6** | `dao.runtime.implementation-plan.md:352-370` |
+| `dao.await`, `dao.runtime`, `dao.stream`, `yin.vm`, `yin.repl` → unsuffixed | one rename wave, when the transport item lands | D5; `dao.stream.md:790-796` |
 | telemetry viewer, `yin.module`, the v1 transports | `dao.stream.v1-retirement` | done 2026-09-17 |
 | status notes in `src/cljc/yin/vm/docs/` beyond the Phase 0 list | this plan, Phase 2 | above |
 | `README.md:77` names `datomworld.demo.mr-clean` as the launched demo; the entry opens a picker | optional one-line fix | this table |
@@ -638,7 +638,7 @@ itself (opened, not executed); a v2 walker benchmark.
   namespace grep misses (D3, port before delete). Widget split into a
   Flutter-free `embed` composition and a thin view (D1), with the v1
   `(reset)`-drops-primitives defect named and not reproduced. Parity test
-  pinned rather than deleted (D4). `dao.await.v2` rename deferred to the
+  pinned rather than deleted (D4). `dao.await` rename deferred to the
   rename wave (D5). `mr-clean` checked and found fully merged. Test consumers
   of the v1 VM (`yang` ×3, `module_test`, orphan bench, `ast_conversion`)
   added as U5. `dao.runtime` R4 identified as opened by U6.

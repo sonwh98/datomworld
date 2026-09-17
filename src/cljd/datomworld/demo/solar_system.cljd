@@ -4,9 +4,9 @@
             ["package:flutter/material.dart" :as m]
             [dao.postgraphics.flutter :as pg]
             [dao.postgraphics.flutter.gpu :as pg-gpu]
-            [dao.stream.v2.ringbuffer :as rb]
+            [dao.stream.ringbuffer :as rb]
             [datomworld.demo.solar-system-scene :as scene]
-            [yin.repl.v2.flutter :as flutter-repl]))
+            [yin.repl.flutter :as flutter-repl]))
 
 
 (def ^:private frame-stream

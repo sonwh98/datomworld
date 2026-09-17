@@ -1,13 +1,13 @@
 (ns datomworld.demo
-  (:require [datomworld.demo.compilation-pipeline-v2 :as pipeline-v2]
-            [datomworld.demo.continuation-stream-v2 :as cont-demo-v2]
+  (:require [datomworld.demo.compilation-pipeline :as pipeline]
+            [datomworld.demo.continuation-stream :as cont-demo]
             [datomworld.demo.artifact :as artifact-demo]
             [datomworld.demo.earth-moon :as earth-moon-demo]
-            [datomworld.demo.equation-plotter-v2 :as plotter-demo-v2]
+            [datomworld.demo.equation-plotter :as plotter-demo]
             [datomworld.demo.responsive :as responsive]
             [datomworld.demo.solar-system :as solar-demo]
             [datomworld.demo.voxel :as voxel-demo]
-            [datomworld.demo.yin-repl-v2 :as yin-repl-demo]
+            [datomworld.demo.yin-repl :as yin-repl-demo]
             [reagent.core :as r]
             [reagent.dom :as rdom]))
 
@@ -30,18 +30,18 @@
     :icon "▣",
     :desc
     "First-person voxel chunk: WASD/arrows to fly through the same postgraphics frame program rendered on both Flutter GPU and browser canvas."}
-   {:id :pipeline-v2,
-    :label "Pipeline v2",
+   {:id :pipeline,
+    :label "Pipeline",
     :icon "⚙",
-    :desc "The Yin compilation pipeline on Yin VM v2 and DaoStream v2: Source -> AST -> canonical datoms -> ast-walker execution."}
-   {:id :continuation-v2,
-    :label "Continuation v2",
+    :desc "The Yin compilation pipeline on Yin VM and DaoStream: Source -> AST -> canonical datoms -> ast-walker execution."}
+   {:id :continuation,
+    :label "Continuation",
     :icon "⤱",
-    :desc "Two Yin VM v2 evaluators share one continuation across a DaoStream v2 medium."}
-   {:id :plotter-v2,
-    :label "Equation Plotter v2",
+    :desc "Two Yin VM evaluators share one continuation across a DaoStream medium."}
+   {:id :plotter,
+    :label "Equation Plotter",
     :icon "📈",
-    :desc "Equation plotter on Yin VM v2: the dao.stream.apply bridge dispatches through explicit v2 FFI state."}
+    :desc "Equation plotter on Yin VM: the dao.stream.apply bridge dispatches through explicit v2 FFI state."}
    {:id :yin-repl,
     :label "Yin REPL",
     :icon "λ",
@@ -49,20 +49,12 @@
 
 
 (defn- hash->demo
-  "#pipeline, #plotter and #continuation are kept as aliases into their -v2
-   picker entries: yin.vm.v2-consumers.implementation-plan.md D5 deletes the
-   v1 demos those hashes used to name, and public/chp/yin.chp:18 still links
-   to /demo.html#pipeline, so the URL keeps resolving even though the
-   address bar does not rewrite itself to the -v2 hash on arrival."
   [hash-value]
   (case hash-value
     "#yin-repl" :yin-repl
-    "#pipeline" :pipeline-v2
-    "#pipeline-v2" :pipeline-v2
-    "#plotter" :plotter-v2
-    "#plotter-v2" :plotter-v2
-    "#continuation" :continuation-v2
-    "#continuation-v2" :continuation-v2
+    "#pipeline" :pipeline
+    "#plotter" :plotter
+    "#continuation" :continuation
     "#solar-system" :solar-system
     "#earth-moon" :earth-moon
     "#artifact" :artifact
@@ -74,9 +66,9 @@
   [demo-id]
   (case demo-id
     :yin-repl "#yin-repl"
-    :pipeline-v2 "#pipeline-v2"
-    :plotter-v2 "#plotter-v2"
-    :continuation-v2 "#continuation-v2"
+    :pipeline "#pipeline"
+    :plotter "#plotter"
+    :continuation "#continuation"
     :solar-system "#solar-system"
     :earth-moon "#earth-moon"
     :artifact "#artifact"
@@ -205,9 +197,9 @@
     [:<>
      (case selected-demo
        :yin-repl [yin-repl-demo/main-view]
-       :pipeline-v2 [pipeline-v2/main-view]
-       :plotter-v2 [plotter-demo-v2/main-view]
-       :continuation-v2 [cont-demo-v2/main-view]
+       :pipeline [pipeline/main-view]
+       :plotter [plotter-demo/main-view]
+       :continuation [cont-demo/main-view]
        :solar-system [solar-demo/main-view]
        :earth-moon [earth-moon-demo/main-view]
        :artifact [artifact-demo/main-view]

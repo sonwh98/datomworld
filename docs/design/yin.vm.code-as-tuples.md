@@ -123,7 +123,7 @@ What never crosses:
 - **No datom-projection tempid is ever named by a ref, a ledger row, a
   closure, or a continuation.** The datom projection's `e` values are
   local; only addresses cross layers, and this is what retires the
-  `:eid` sharing of `src/cljc/yin/vm/v2.cljc:394-411` (§4.4).
+  `:eid` sharing of `src/cljc/yin/vm.cljc:394-411` (§4.4).
 - **Content identity is not occurrence identity.** An address says *what*
   a value is. Which source position, which batch, which call site, which
   expansion attempt produced it is occurrence information, and it is kept
@@ -153,7 +153,7 @@ node is a map of its tag and its named fields:
         :tail? true}}
 ```
 
-The fields are what the walker dispatches on today (`src/cljc/yin/vm/v2/ast_walker.cljc:333-470`); the `:lambda` arm already binds `params` by name, and the `:variable` arm already resolves through `resolve-var`'s env → store → primitives → modules fallthrough (`ast_walker.cljc:361-363`; the semantic VM's `:var` opcode does the same at `semantic.cljc:256-259`) — this design keeps that fallthrough rather than splitting free and bound references into separate node types (§4.5). Separately, closure application (`ast_walker.cljc:191`, and its hot-path copies at `:511`/`:553`; `semantic.cljc:200`) still binds arguments with `(zipmap params args)`, which leaves missing parameter names unbound rather than bound to `nil` — that binding change belongs to the application arm and the semantic VM's apply, not to `:lambda`.
+The fields are what the walker dispatches on today (`src/cljc/yin/vm/ast_walker.cljc:333-470`); the `:lambda` arm already binds `params` by name, and the `:variable` arm already resolves through `resolve-var`'s env → store → primitives → modules fallthrough (`ast_walker.cljc:361-363`; the semantic VM's `:var` opcode does the same at `semantic.cljc:256-259`) — this design keeps that fallthrough rather than splitting free and bound references into separate node types (§4.5). Separately, closure application (`ast_walker.cljc:191`, and its hot-path copies at `:511`/`:553`; `semantic.cljc:200`) still binds arguments with `(zipmap params args)`, which leaves missing parameter names unbound rather than bound to `nil` — that binding change belongs to the application arm and the semantic VM's apply, not to `:lambda`.
 
 The map AST is never hashed directly, never stored, never
 shipped. It exists on both sides of storage — frontend-side, where
@@ -212,7 +212,7 @@ re-derives what evaluation wrote (§2.6).
 Every slot in the table has one kind. The kind is fixed by the tag and the
 position; it is never inferred from the value. A literal whose value happens
 to look like a node is a value, which is the rule `linearize/ast-children`
-already states (`src/cljc/yin/vm/v2/linearize.cljc:230-242`).
+already states (`src/cljc/yin/vm/linearize.cljc:230-242`).
 
 +---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
 | Kind    | Admits                           | Notes                                                                                                                     |
@@ -232,7 +232,7 @@ already states (`src/cljc/yin/vm/v2/linearize.cljc:230-242`).
 +---------+----------------------------------+---------------------------------------------------------------------------------------------------------------------------+
 | `key`   | a store key: any value of the    | the store contract is a map lookup with no key restriction (`ast_walker.cljc:401`, `:402-404`); the linearizer admits any |
 |         | `data` kind                      | `plain-data?` key (`linearize.cljc:79-85`, `:138-141`) and the loader carries it through unchanged                        |
-|         |                                  | (`src/cljc/yin/vm/v2/semantic.cljc:577-579`), so symbols (`yin/def`), keywords (`test/yin/vm/v2/parity_test.cljc:99`), and|
+|         |                                  | (`src/cljc/yin/vm/semantic.cljc:577-579`), so symbols (`yin/def`), keywords (`test/yin/vm/parity_test.cljc:99`), and|
 |         |                                  | numbers are all portable keys today. `key` is a named kind rather than `data` only so that the same definition is cited by|
 |         |                                  | AST validation (§7.4), instruction validation (§7.5), dependency extraction (§7.7), and the store-slice encoding of UCF   |
 |         |                                  | §7.6.2; it is the `data` domain and nothing narrower                                                                      |
@@ -254,7 +254,7 @@ already states (`src/cljc/yin/vm/v2/linearize.cljc:230-242`).
 ### 2.3 The table
 
 The tag set is the walker's dispatch set reconciled with the codec's
-inventory (`src/cljc/yin/vm/v2.cljc:413-478`) under the two boundary calls
+inventory (`src/cljc/yin/vm.cljc:413-478`) under the two boundary calls
 of §3. The `Body arity` column counts the body items (tag plus slots). A full row's count is its body arity plus one (for the ID). This table is the **projection and reconstruction
 dictionary**: the slot list of a tag, in order, is exactly the map's key
 set beyond `:type` — the arity ↔ key-set correspondence — so the one
@@ -484,14 +484,14 @@ the arm **only under stated conditions**, and this document does not claim
 it as a general semantics-preserving migration:
 
 - `yin/def` and `f` resolve through `resolve-var`'s precedence, store
-  → primitives → modules (`src/cljc/yin/vm/v2/engine.cljc:46-58`), so the
+  → primitives → modules (`src/cljc/yin/vm/engine.cljc:46-58`), so the
   rewrite is equivalent only when neither `yin/def` nor `f` is shadowed by an enclosing `:lambda`'s params at the site (so both resolve as free names, through the fallthrough, rather than to a local binding);
 - the arm stores whatever `(apply f current args)` returns, as data
   (`ast_walker.cljc:410-415`), while an application interprets an
   effect-shaped return (`ast_walker.cljc:184-188`,
   `semantic.cljc:206-220`). An effect descriptor is itself plain data:
   `module/effect?` recognizes any map carrying `:effect`
-  (`src/cljc/yin/vm/v2/module.cljc:77-79`), and
+  (`src/cljc/yin/vm/module.cljc:77-79`), and
   `{:effect :vm/store-put :key :x :val 4}` passes `plain-data?`. So the
   rewrite is equivalent only when `f` returns plain data **that is not an
   effect descriptor under the applicable execution contract**; a result
@@ -502,8 +502,8 @@ it as a general semantics-preserving migration:
 
 One grammar truth: the instruction is real. The codec writes it
 (`v2.cljc:465-467`) and reads it back (`v2.cljc:549-550`), the linearizer
-lowers it (`linearize.cljc:135-136`), `yin.vm.v2.code/mnemonics` admits
-`:stream-close` (`src/cljc/yin/vm/v2/code.cljc:12-16`), the semantic VM
+lowers it (`linearize.cljc:135-136`), `yin.vm.code/mnemonics` admits
+`:stream-close` (`src/cljc/yin/vm/code.cljc:12-16`), the semantic VM
 decodes it (`semantic.cljc:585`) and executes it in its hot loop
 (`semantic.cljc:397-399`), and the engine handles the effect
 (`engine.cljc:480-482`). Only the walker lacks the arm
@@ -792,7 +792,7 @@ away*). The link is a **derivation record**, itself content-addressed
 {:yin.ledger/op       :derive
  :yin.ledger/input    <tree-address>
  :yin.ledger/output   <segment-address>
- :yin.ledger/function :yin.vm.v2/lower
+ :yin.ledger/function :yin.vm/lower
  :yin.ledger/profile  {:yin.lower/profile "ast-to-bytecode"          ; the lowering profile, §5.2.1
                        :yin.code/contract "v2"              ; the UCF §7.3.3 execution contract it targets
                        :yin.k/version     0}}
@@ -897,14 +897,14 @@ rows.
 
 **The Dedicated AST Indexer:** This row relation (called `$ast` in queries) is maintained by the dedicated AST indexer (§1). The indexer is a `dao.stream` observer peer to the evaluators (§7.1); its input is the row batches of §7.1; its output is this row relation plus the occurrence relation below; it is distinct from `dao.space.index`, which indexes datoms only (§6.5); it is a projection keeper per §1's Query layer, so discarding it loses nothing.
 
-`map → rows` is the **codec boundary projection** (`yin.vm.v2/ast->semantic-bytecode`): strip the §2.5
+`map → rows` is the **codec boundary projection** (`yin.vm/ast->semantic-bytecode`): strip the §2.5
 exclusions, saturate per §2.4, positionalize per the §2.3 dictionary,
 merkle per §4.1. It is the standing contract of the Encoder Observer, not a
 migration device (§9.1).
 
 `rows → map` is **load-time reconstruction** (§7.1): validate the rows
 (§7.4), then rebuild the map AST through the ids. The precedent is
-`datoms->ast` (`src/cljc/yin/vm/v2.cljc:494-559`), which already
+`datoms->ast` (`src/cljc/yin/vm.cljc:494-559`), which already
 rebuilds map ASTs from flat rows through entity ids — a `get-attr` per
 field over an entity index, recursion through child ids; the loader is
 its successor with content addresses in place of allocated ids.
@@ -1040,7 +1040,7 @@ vector (code medium), and the evaluator's loader takes it as is:
 |                      |                      | instead of attribute maps), store under `:code` with the address as the alias column UCF §7.3.4 requires                 |
 +----------------------+----------------------+--------------------------------------------------------------------------------------------------------------------------+
 | semantic,            | row set              | `lower` (§5.2) then the row above; composed by the composition exactly as `linearize/ast-loader` is today                |
-| AST medium           |                      | (`linearize.cljc:269-286`, chosen in `src/cljc/yin/repl/v2/core.cljc:63-68`)                                             |
+| AST medium           |                      | (`linearize.cljc:269-286`, chosen in `src/cljc/yin/repl/core.cljc:63-68`)                                             |
 +----------------------+----------------------+--------------------------------------------------------------------------------------------------------------------------+
 
 Datom-batch loading is the projection path: a batch of `:yin/*` datoms is
@@ -1357,9 +1357,9 @@ binding, which left a missing parameter name absent from the extended
 environment rather than explicitly `nil` — so it could fall through to
 whatever the closure's own captured environment (or, transitively, the
 store/primitives/modules chain) had under that name. Implemented as a
-single shared helper, `yin.vm.v2.engine/bind-params`, called from every
+single shared helper, `yin.vm.engine/bind-params`, called from every
 closure-application site in both v2 evaluators
-(`yin/vm/v2/ast_walker.cljc:192,513,555`, `yin/vm/v2/semantic.cljc:200`);
+(`yin/vm/ast_walker.cljc:192,513,555`, `yin/vm/semantic.cljc:200`);
 the v1 ast-walker this rule originally also described no longer exists,
 deleted by `yin.vm.v1-retirement.implementation-plan.md`. A missing
 parameter is `nil` and shadows any such fallthrough within the closure's
@@ -1509,7 +1509,7 @@ fields as attributes and the record's address as one more:
 [[:db/add ev :yin.ledger/op       :derive]
  [:db/add ev :yin.ledger/input    tree-addr]
  [:db/add ev :yin.ledger/output   seg-addr]
- [:db/add ev :yin.ledger/function :yin.vm.v2/lower]
+ [:db/add ev :yin.ledger/function :yin.vm/lower]
  [:db/add ev :yin.ledger/profile  {:yin.lower/profile "ast-to-bytecode" :yin.code/contract "v2" :yin.k/version 0}]
  [:db/add ev :yin.ledger/record   record-addr]]     ; ev is a tempid; m defaults to :db/assert
 ```
@@ -1666,7 +1666,7 @@ attempt across expanders and across executions. It is:
   cursor is a position minted by the stream for observation
   (`dao.stream.md:471-477`) and the memory log's `:dao.stream/newest`
   cursor is simply its current value count
-  (`src/cljc/dao/stream/v2/memory_log.cljc:105-110`), so two constructions
+  (`src/cljc/dao/stream/memory_log.cljc:105-110`), so two constructions
   with no append between them read one position. Nor does committing a
   record on the log allocate anything: `prepare-tx` is a pure function of
   the history it is handed (`src/cljc/dao/space/transact.cljc:189-207`),
@@ -1684,7 +1684,7 @@ attempt across expanders and across executions. It is:
 
   where `<token>` is a fresh random UUID minted by the host's library at
   the moment of construction (`random-uuid`, as the ring-buffer transport
-  already mints its stream identity, `src/cljc/dao/stream/v2/ringbuffer.cljc:27`).
+  already mints its stream identity, `src/cljc/dao/stream/ringbuffer.cljc:27`).
   The uniqueness warranty is the composition's, discharged by the token's
   122 random bits: it covers two expanders on one log, two expanders on
   two logs, and one expander constructed twice, with or without a
@@ -1914,7 +1914,7 @@ rows behind it. The semantics do not change; the boundary does.
 | `linearize.cljc:87-148`,                         | :yin/type)` becomes a lookup by row id); `ast-children` becomes a table lookup of `node`/`nodes` slot positions;    |
 | `:230-242`                                       | `lower` takes a row set and returns a vector plus the §5.3 provenance table; emits `:var name` and `:closure params body`; `lower-ast` (`:245-252`) goes away     |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
-| codec, `v2.cljc:372-559`                         | becomes `yin.vm.v2/ast->semantic-bytecode`, the projection pair of §6.5 mapping Universal AST to Canonical Rows/Datoms.            |
+| codec, `v2.cljc:372-559`                         | becomes `yin.vm/ast->semantic-bytecode`, the projection pair of §6.5 mapping Universal AST to Canonical Rows/Datoms.            |
 |                                                  | `:yin/root` and `:eid` removed; `:yin/address` added; retains `:yin/params` on lambda and `:yin/name` on variable |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | `code/mnemonics`, `code/well-formed?`,           | `code/mnemonics` (`code.cljc:12-16`) is unchanged (§4.5). `well-formed?` keeps judging datom batches on the projection path before projection; the shared vector validator of §7.5 runs on   |
@@ -1924,7 +1924,7 @@ rows behind it. The semantics do not change; the boundary does.
 | `semantic.cljc:524-596`                          |                                                                                                                     |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | frontends                                        | keep emitting map ASTs to the stream (as named universal ASTs). They do not perform the tuple projection. |
-| `src/cljc/yang/clojure.cljc`,                    | All projection to Semantic Tuples and side-tables is deferred to the Encoder Observer (`yin.vm.v2/ast->semantic-bytecode`).        |
+| `src/cljc/yang/clojure.cljc`,                    | All projection to Semantic Tuples and side-tables is deferred to the Encoder Observer (`yin.vm/ast->semantic-bytecode`).        |
 | `python.cljc`, `php.cljc`                        |                                                                                                                     |
 |                                                  | never survive the boundary. The r7 adapter's ordering rules become the standing contract: first reject any `:macro? |
 |                                                  | true` lambda that is not the value operand of a `yin/def` as `:stray-macro-lambda`, then turn each admitted one into|
@@ -1943,10 +1943,10 @@ outside this design; it stays on its own map path until it is retired.
 ### 9.2 The observer lane: an integration item to scope, not a solved detail
 
 Program input reaches an evaluator through
-`dao.stream.v2.observer/run-on-stream` (`src/cljc/dao/stream/v2/observer.cljc:217-247`),
+`dao.stream.observer/run-on-stream` (`src/cljc/dao/stream/observer.cljc:217-247`),
 which is shape-agnostic: it hands each observed batch to a
 composition-supplied `load`. The per-evaluator loaders are chosen in
-`yin.repl.v2.core/program-loaders` (`repl/v2/core.cljc:63-68`) and today
+`yin.repl.core/program-loaders` (`repl/v2/core.cljc:63-68`) and today
 accept datom batches; the REPL's own eval path still converts a
 semantic-VM AST through `ast->datoms` before it travels
 (`repl/v2/core.cljc:444-449`). Two things about the row lane are
@@ -1957,7 +1957,7 @@ semantic-VM AST through `ast->datoms` before it travels
   collection of them is
   a medium contract this design has not exercised end to end; §7.1 assumes
   one canonical value per batch. The shape must be fixed with the REPL
-  shell and the `yin.vm.v2.stream-observer` tests before the loaders are
+  shell and the `yin.vm.stream-observer` tests before the loaders are
   switched.
 - **The program-input predicate.** `engine/executable-program-datom?`
   (`engine.cljc:511-513`) decides what counts as program input by testing
@@ -2035,7 +2035,7 @@ seen from the migration side:
    preserved only through the adapter-derived catalogue; tuple-native
    frontends operate
    under the separate declaration-order contract stated there. The v2
-   expander itself does not exist yet (`src/cljc/yin/vm/v2/` has no
+   expander itself does not exist yet (`src/cljc/yin/vm/` has no
    `macro.cljc`) and is not a blocker for tuple evaluation without
    macros; §8.4's event shape is specified against `yin.vm.macro.md`, not
    against code.
@@ -2076,7 +2076,7 @@ seen from the migration side:
 11. **The primitive-profile registry** — inherited from UCF §7.11. Every
     retained name obligation is checked by profile under UCF §7.5.2, and
     §7.7.2 reads callable effects from profiles; until
-    `yin.vm.v2/primitives` (`v2.cljc:100-132`) is published with profiles,
+    `yin.vm/primitives` (`v2.cljc:100-132`) is published with profiles,
     dependency closure reports names and `:incomplete`, not satisfiable
     bindings.
 12. **Per-lambda subterm addressing** — dissolved by the flat-row form

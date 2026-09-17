@@ -68,9 +68,9 @@ One namespace, `src/cljc/dao/space/index.cljc`. Everything below is the index
   tree, loads only the seek path plus the matching range. The implementation
   is the same on JVM, ClojureScript, and ClojureDart.
 - **The snapshot** — `snapshot-datoms` reads an agent-local stream in full
-  through the dao.stream.v2 reader surface: mint an `:oldest` cursor, then
+  through the dao.stream reader surface: mint an `:oldest` cursor, then
   `next` to the tail. The local stream must be on a complete-retention
-  transport — a handle created by `dao.stream.v2.memory-log/create!`; its
+  transport — a handle created by `dao.stream.memory-log/create!`; its
   declared complete retention is why a fresh `:oldest` cursor is the origin,
   so the read starts at the logical sequence's beginning and `gap` cannot
   occur. `stream/reader?`/`stream/writer?` check *surfaces*, not retention —
@@ -227,8 +227,8 @@ it owns neither stream lifecycle — the local stream and intake pool are
 supplied, never created, registered, or closed:
 
 ```clojure
-(require '[dao.stream.v2.memory-log :as memory-log]
-         '[dao.stream.v2.ringbuffer :as ringbuffer]
+(require '[dao.stream.memory-log :as memory-log]
+         '[dao.stream.ringbuffer :as ringbuffer]
          '[dao.space.transactor :as transactor])
 
 (def local (:dao.stream/handle                        ; the agent's own log, a
@@ -253,7 +253,7 @@ record to the local stream per call, so no reader observes a torn transaction.
 On `create!` it reads the retained history from its origin and derives the
 next `t` (0 for an empty history, else 1 + the maximum datom t); the local
 stream must therefore be on a complete-retention transport —
-`dao.stream.v2.memory-log/create!`. `create!` validates reader/writer
+`dao.stream.memory-log/create!`. `create!` validates reader/writer
 *surfaces*, never retention: a `stream/reader?`/`stream/writer?` check does
 not establish complete retention, and supplying an evicting transport is a
 host-assembly defect (detectable, deliberately not checked — see
@@ -345,7 +345,7 @@ eager logical d5 reads through the opened published value.
   node or manifest format requires that strategy; the current implementation
   always performs a full rebuild. The design for this is
   [`dao.space.index.as-observer.md`](./dao.space.index.as-observer.md): this
-  library driven batch by batch through `dao.stream.v2.observer/run-on-stream`
+  library driven batch by batch through `dao.stream.observer/run-on-stream`
   over any medium, with `publish-index!` kept as the stateless special case.
 - **Async hydration** — remote reads over async backends use the hydration
   adapter (`dao.data.btree.storage/hydration-storage`, `hydrate!`); the async

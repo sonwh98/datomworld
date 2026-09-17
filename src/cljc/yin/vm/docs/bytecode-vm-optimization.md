@@ -1,9 +1,9 @@
 # Bytecode VM Mutable Inner Loop Optimization
 
 Status: **historical — RegisterVM and StackVM are deleted**
-(`yin.vm.v2-consumers.implementation-plan.md`, 2026-09-10), along with the
+(`yin.vm-consumers.implementation-plan.md`, 2026-09-10), along with the
 `clj -M:bench`/`:profile-*` harness this document's measurements cite.
-`yin.vm.v2` ships one evaluator, `ast-walker`; there is no bytecode VM to
+`yin.vm` ships one evaluator, `ast-walker`; there is no bytecode VM to
 optimize.
 
 ## Problem

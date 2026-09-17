@@ -3,10 +3,10 @@
 Status: migration plan, derived from and subordinate to
 [`dao.stream.md`](./dao.stream.md) (the contract) and
 [`datom.world.md`](./datom.world.md). Its transport prerequisite is
-[`dao.stream.v2.implementation-plan.md`](./dao.stream.v2.implementation-plan.md);
+[`dao.stream.implementation-plan.md`](./dao.stream.implementation-plan.md);
 its first consumer is
-[`yin.vm.v2.implementation-plan.md`](./yin.vm.v2.implementation-plan.md),
-whose phase V2 created `dao.runtime.v2` as a dependency of the VM port. This
+[`yin.vm.implementation-plan.md`](./yin.vm.implementation-plan.md),
+whose phase V2 created `dao.runtime` as a dependency of the VM port. This
 plan takes over ownership of that namespace, states the contract the VM plan
 left implicit, and names the phases between "the scheduler exists" and
 "legacy `dao.runtime` is deleted". This document is transient: it is consumed
@@ -35,7 +35,7 @@ None of these has a v2 counterpart, and the contract's *Explicitly Absent*
 section says each is absent by derivation from the invariants, not deferred.
 A `dao.runtime` that keeps them cannot schedule a v2 handle, and a v2 handle
 cannot be scheduled by anything else. That is why the VM plan built
-`dao.runtime.v2` before the VM kernel: "it is not a leaf and does not belong
+`dao.runtime` before the VM kernel: "it is not a leaf and does not belong
 in a first phase."
 
 The runtime also carries three **host drivers** — `dao.runtime.driver` on
@@ -58,10 +58,10 @@ deletion; it does not, and cannot, remove the v1 VM.
 
 The same two narrowings as the sibling plans:
 
-1. **`dao.runtime.v2` beside `dao.runtime`, not an in-place rewrite.** The v2
-   namespace already exists (`src/cljc/dao/runtime/v2.cljc`, 224 lines) with
-   `yin.vm.v2.runtime-adapter` (97 lines) beside it, and both are exercised
-   by `yin.vm.v2.engine` on all three hosts. Legacy keeps the v1 VM running.
+1. **`dao.runtime` beside `dao.runtime`, not an in-place rewrite.** The v2
+   namespace already exists (`src/cljc/dao/runtime.cljc`, 224 lines) with
+   `yin.vm.runtime-adapter` (97 lines) beside it, and both are exercised
+   by `yin.vm.engine` on all three hosts. Legacy keeps the v1 VM running.
    No compatibility facade, alias, or dual protocol: the legacy
    implementation and its tests are evidence about behavior, not
    constraints.
@@ -71,7 +71,7 @@ The same two narrowings as the sibling plans:
    destructive take, not a readiness extension, not a reshaping of the VM
    engine's seam onto the runtime (see *Decisions*).
 
-## What `dao.runtime.v2` is
+## What `dao.runtime` is
 
 The contract this namespace already implements, stated so that nothing in a
 later phase has to infer it from the code.
@@ -79,7 +79,7 @@ later phase has to infer it from the code.
 **State is a value.** `{:ready-queue [] :wait-set [] :blocked? false}` from
 `initial-state`. Every function takes that map and returns it, or returns
 `nil` where "no work" is the answer. The namespace holds no atom, no `defonce`,
-no host dependency, and requires only `dao.stream.v2`. A composition that
+no host dependency, and requires only `dao.stream`. A composition that
 needs the state to persist across host callbacks holds it; the runtime does
 not.
 
@@ -150,8 +150,8 @@ off.
 engine's `check-wait-set` resolves each entry's handle and cursor out of the
 VM store and polls the runtime with a singleton wait set so that a woken
 reader's successor is stored before the next entry sharing its cursor-ref is
-resolved (`yin/vm/v2/engine.cljc:277-320`). A resolver argument on
-`dao.runtime.v2/check-wait-set` would let the engine hand over the whole wait
+resolved (`yin/vm/engine.cljc:277-320`). A resolver argument on
+`dao.runtime/check-wait-set` would let the engine hand over the whole wait
 set at once. It is **not** adopted: the current seam works, is tested on three
 hosts, and was reviewed under the VM plan's V7; changing it re-opens that
 review for a shape the runtime's only consumer does not need. If a second
@@ -178,7 +178,7 @@ which is also how the contract-conformance harness induces declared outcomes.
 
 ## Divergence register
 
-Every place `dao.runtime.v2` deliberately differs from `dao.runtime`, with
+Every place `dao.runtime` deliberately differs from `dao.runtime`, with
 the reason. Saying which v1 behaviors are deliberately not mirrored *is* the
 register: a v2 suite that "covers the same scheduling" proves nothing unless
 the places it cannot cover are named.
@@ -211,21 +211,21 @@ Who requires legacy `dao.runtime` today, and what that means for deletion.
 
 | consumer                 | file                                                                                                                                           | migrates under                                                                                                           |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `yin.vm.engine` (v1 VM)  | `src/cljc/yin/vm/engine.cljc:5`                                                                                                                | `yin.vm.v2` plan — its engine already requires `dao.runtime.v2`; the v1 engine is deleted with v1 `yin.vm`, not migrated |
-| `yin.vm.runtime-adapter` | `src/cljc/yin/vm/runtime_adapter.cljc:3`                                                                                                       | same: `yin.vm.v2.runtime-adapter` exists; the v1 adapter is deleted with the v1 VM                                       |
-| `dao.runtime.driver` ×3  | `src/{clj,cljs,cljd}/dao/runtime/driver.*`                                                                                                     | **this plan**, R2 — done 2026-09-06; `dao.runtime.v2.driver` exists per host                                             |
+| `yin.vm.engine` (v1 VM)  | `src/cljc/yin/vm/engine.cljc:5`                                                                                                                | `yin.vm` plan — its engine already requires `dao.runtime`; the v1 engine is deleted with v1 `yin.vm`, not migrated |
+| `yin.vm.runtime-adapter` | `src/cljc/yin/vm/runtime_adapter.cljc:3`                                                                                                       | same: `yin.vm.runtime-adapter` exists; the v1 adapter is deleted with the v1 VM                                       |
+| `dao.runtime.driver` ×3  | `src/{clj,cljs,cljd}/dao/runtime/driver.*`                                                                                                     | **this plan**, R2 — done 2026-09-06; `dao.runtime.driver` exists per host                                             |
 | tests                    | `test/dao/runtime_test.cljc`, `test/dao/runtime/driver_*`, `test/yin/vm/runtime_adapter_test.cljc`, `test/yin/vm/runtime_regression_test.cljc` | deleted with what they test, R4                                                                                          |
-| design prose             | `docs/design/dao.await.md`                                                                                                                     | **this plan**, R3 — done 2026-09-06; the prose names `dao.runtime.v2` and states the v2 rules                            |
+| design prose             | `docs/design/dao.await.md`                                                                                                                     | **this plan**, R3 — done 2026-09-06; the prose names `dao.runtime` and states the v2 rules                            |
 
 The v1 VM's own consumers, which gated the v1 VM's deletion and therefore
 gated R4, were not this plan's to migrate. ~~`yin.repl`, `dao.await`, and the
-test `yin.vm.v2.parity-test`~~ — **cleared by
+test `yin.vm.parity-test`~~ — **cleared by
 `yin.vm.v1-retirement.implementation-plan.md` (2026-09-16):** `dao.await` and
 `yin.repl` are deleted, the parity test pins values instead of running v1,
 and the v1 VM (`yin.vm`, `yin.vm.engine`, `yin.vm.runtime-adapter`) is
 deleted. No v1 VM consumer remains.
 
-**Cleared by `yin.vm.v2-consumers.implementation-plan.md` (2026-09-10):**
+**Cleared by `yin.vm-consumers.implementation-plan.md` (2026-09-10):**
 `yin.demo`, `yin.vm.bytecode-bench`, `yin.register-bench-cljd`,
 `datomworld.demo.continuation-handoff`, `datomworld.demo.continuation-stream`,
 `datomworld.demo.compilation-pipeline`, `datomworld.demo.equation-plotter` are
@@ -239,20 +239,20 @@ it is off this list too.
 Recorded so the remaining phases start from evidence, not from the VM plan's
 description of what V2 would build.
 
-- `dao.runtime.v2`: `initial-state`, `park-task`, `enqueue-ready`,
+- `dao.runtime`: `initial-state`, `park-task`, `enqueue-ready`,
   `pop-ready`, `read-outcome->task`, `write-outcome->task`,
   `check-wait-set`, `handle-read`, `handle-write`, `handle-close`,
-  `run-once`, `run-loop`. Requires only `dao.stream.v2`.
-- `yin.vm.v2.runtime-adapter`: `vm-task`, `enqueue-woken-vm-entries`, plus
+  `run-once`, `run-loop`. Requires only `dao.stream`.
+- `yin.vm.runtime-adapter`: `vm-task`, `enqueue-woken-vm-entries`, plus
   the rule that a parked retry ending in a terminal outcome throws exactly as
   the immediate operation would (`terminal-resume-outcome`).
-- Tests: `test/dao/runtime/v2_test.cljc` (7 tests: state, queue discipline,
+- Tests: `test/dao/runtime_test.cljc` (7 tests: state, queue discipline,
   both classifiers, park-and-wake through the polling wait set, close does
   not wake, `run-once` resumes and leaves host-owned entries) and
-  `test/yin/vm/v2/runtime_adapter_test.cljc`. Both run on clj, cljs and cljd
-  (`test/cljd-out/dao/runtime/v2-test_test.dart` is generated). Verified
+  `test/yin/vm/runtime_adapter_test.cljc`. Both run on clj, cljs and cljd
+  (`test/cljd-out/dao/runtime-test_test.dart` is generated). Verified
   passing on the JVM on 2026-09-06.
-- Consumer: `yin.vm.v2.engine` requires both and drives them through its own
+- Consumer: `yin.vm.engine` requires both and drives them through its own
   `check-wait-set` and `run-loop`.
 
 ## Phase R1 — Scheduler totality and the poll/ready split
@@ -267,7 +267,7 @@ the totality made checkable.
   nil; it never calls `check-wait-set`. `run-loop` drains the ready queue,
   then polls once; if the poll moved anything it continues, else it returns.
   Whenever the ready queue's head is host-owned, `run-loop` returns the
-  state that holds it. The `yin.vm.v2.engine` loop already calls
+  state that holds it. The `yin.vm.engine` loop already calls
   `check-wait-set` itself before `rt/run-once` (`engine.cljc:335-336`), so
   it is unaffected; confirm with its suite rather than by inspection.
 - **Regression test for the discarded poll.** A fake writer handle scripted
@@ -279,7 +279,7 @@ the totality made checkable.
 - **Classification is declaration-driven.** Replace the hand-enumerated
   `doseq` in `read-outcome-classification-test` and
   `write-outcome-classification-test` with iteration over
-  `dao.stream.v2/outcomes-next` and `outcomes-append`: every declared
+  `dao.stream/outcomes-next` and `outcomes-append`: every declared
   outcome must classify to `[:wait]` or `[:ready …]`, exactly `blocked` and
   `full` may wait, and an outcome outside the declared set is terminal. A
   future contract outcome then fails the test instead of falling silently
@@ -289,19 +289,19 @@ the totality made checkable.
   `:status :dao.stream/gap` has its stored cursor replaced by the recovery
   cursor, so a program that resumes after a gap resumes from the right place.
 - **Docstring is the contract.** The namespace docstring gains the *What
-  `dao.runtime.v2` is* rules above in compressed form, so the file states its
+  `dao.runtime` is* rules above in compressed form, so the file states its
   own laws.
 
 Deliverable: `v2_test.cljc` green on clj, cljs and cljd with the new cases;
-`yin.vm.v2` engine, walker, FFI and parity suites unchanged and green.
+`yin.vm` engine, walker, FFI and parity suites unchanged and green.
 
-## Phase R2 — Host drivers (`dao.runtime.v2.driver`)
+## Phase R2 — Host drivers (`dao.runtime.driver`)
 
 Status: fully implemented (2026-09-06).
 
 One namespace name, three host files, as v1 has them:
-`src/clj/dao/runtime/v2/driver.clj`, `src/cljs/dao/runtime/v2/driver.cljs`,
-`src/cljd/dao/runtime/v2/driver.cljd`. Host isolation by file, so no
+`src/clj/dao/runtime/driver.clj`, `src/cljs/dao/runtime/driver.cljs`,
+`src/cljd/dao/runtime/driver.cljd`. Host isolation by file, so no
 reader-conditional trap applies.
 
 Each driver is the composition-side answer to "what calls `run-loop` again,
@@ -343,7 +343,7 @@ Status: fully implemented (2026-09-06).
 the stream supports `IDaoStreamWaitable`" and that "stream writes, drains, or
 closes wake the task" (lines 412-417). Update it to the v2 rules — wait set
 only, wake by poll, no drains, close wakes nothing — and to name
-`dao.runtime.v2` where it names `dao.runtime`. `dao.await` is not built and
+`dao.runtime` where it names `dao.runtime`. `dao.await` is not built and
 its plan is not this one; the prose changes so that when it is built it is
 built against the scheduler that will exist.
 
@@ -351,7 +351,7 @@ built against the scheduler that will exist.
 docstrings. They go with v1 `dao.stream` and are not edited here.
 
 R3 also brings the VM plan's scheduler prose with it: the port table's
-`:stream/put` row names `dao.runtime.v2`'s `check-wait-set` as what retries a
+`:stream/put` row names `dao.runtime`'s `check-wait-set` as what retries a
 parked writer, and the V7 section's status line now matches the header. The v1
 mechanism names in `yin.vm.streams-all-the-way-down.md` stay — that note is
 marked as written against v1 and read with the v2 contract in mind.
@@ -381,8 +381,8 @@ opens:
   `dao.test-utils` if `yin/vm/engine_test.cljc` — their remaining user, also
   v1 — is gone by then; otherwise they go with it.
 - Take **one explicit decision**, mirroring the stream plan's end condition:
-  `dao.runtime.v2` is renamed to `dao.runtime`, or keeps its name. The
-  recommendation is to rename, in the same change as `dao.stream.v2`'s
+  `dao.runtime` is renamed to `dao.runtime`, or keeps its name. The
+  recommendation is to rename, in the same change as `dao.stream`'s
   rename if that is the decision there, because the runtime's name appears
   on no wire and in no descriptor; only requires change. An undecided
   coexistence is a defect of the migration, not a steady state.
@@ -392,16 +392,16 @@ opens:
 ## Host matrix
 
 Every phase on clj, cljs (Node) and cljd. R1 is pure `.cljc` over
-`dao.stream.v2` and has no host branch. R2 is three host files by
+`dao.stream` and has no host branch. R2 is three host files by
 construction. The cljd test lane regenerates `test/cljd-out/`; only one
 process may own it at a time. Per the standing rule, confirm `Testing
-dao.runtime.v2-test` and `Testing dao.runtime.v2.driver-test` appear in the
+dao.runtime-test` and `Testing dao.runtime.driver-test` appear in the
 Node output rather than assuming discovery.
 
 ## Boundary of this plan
 
 **Untouched:** `dao.runtime`, `dao.runtime.driver`, `yin.vm.runtime-adapter`
-and their tests until R4; `yin.vm.v2.engine`'s wait-set seam (see
+and their tests until R4; `yin.vm.engine`'s wait-set seam (see
 *Decisions*); `dao.stream` v1 in every form.
 
 **Not in this plan, by design:**
@@ -423,13 +423,13 @@ and their tests until R4; `yin.vm.v2.engine`'s wait-set seam (see
 
 Complete when all of the following hold on clj, cljs (Node) and cljd:
 
-- `dao.runtime.v2` classifies every outcome the contract declares, polls only
+- `dao.runtime` classifies every outcome the contract declares, polls only
   through `check-wait-set`, never discards a polled state, and requires only
-  `dao.stream.v2`. Its suite proves each of those by construction.
-- `dao.runtime.v2.driver` exists per host with explicit state and
+  `dao.stream`. Its suite proves each of those by construction.
+- `dao.runtime.driver` exists per host with explicit state and
   configurable cadence, and its suite runs over v2 fixtures only.
 - `dao.await.md` describes the v2 scheduler.
-- No namespace under `dao.*.v2` or `yin.vm.v2` requires `dao.runtime`.
+- No namespace under `dao.*.v2` or `yin.vm` requires `dao.runtime`.
 - Once the v1 VM is gone: legacy `dao.runtime`, its drivers, the v1 adapter,
   and their tests are deleted, and the naming decision has been taken
   explicitly.

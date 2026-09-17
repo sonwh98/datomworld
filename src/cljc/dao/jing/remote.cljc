@@ -11,22 +11,22 @@
    are JVM-only."
   (:require [clojure.string :as str]
             [dao.jing :as jing]
-            [dao.stream.v2.apply :as apply]
-            [dao.stream.v2.rpc :as rpc]
-            [dao.stream.v2.ws :as ws]
+            [dao.stream.apply :as apply]
+            [dao.stream.rpc :as rpc]
+            [dao.stream.ws :as ws]
             ;; The :cljd branch must come first: ClojureDart's emit pass also
-            ;; matches :clj, and dao.stream.v2.ws.jvm has no Dart twin, so a
+            ;; matches :clj, and dao.stream.ws.jvm has no Dart twin, so a
             ;; :clj-first spelling would put the JVM glue into the Dart
             ;; imports.  The :cljd [] splice keeps every namespace the host
             ;; composition uses — its media, its decoder, its codec check,
             ;; and the JVM glue itself — out of the emitted Dart.
             #?@(:cljd []
-                :clj [[dao.stream.v2 :as stream]
-                      [dao.stream.v2.rpc.ws :as rpc.ws]
-                      [dao.stream.v2.transit :as transit]
-                      [dao.stream.v2.ringbuffer :as ring]
-                      [dao.stream.v2.serving :as serving]
-                      [dao.stream.v2.ws.jvm :as jvm]]))
+                :clj [[dao.stream :as stream]
+                      [dao.stream.rpc.ws :as rpc.ws]
+                      [dao.stream.transit :as transit]
+                      [dao.stream.ringbuffer :as ring]
+                      [dao.stream.serving :as serving]
+                      [dao.stream.ws.jvm :as jvm]]))
   #?(:cljs (:require-macros [dao.jing])))
 
 
@@ -231,7 +231,7 @@
 (defn- content-target
   "The served path a URL path names: an absent path means `content-path`,
    an explicit path stays as written (D7, the rule
-   `yin.repl.v2.connect/repl-target` applies)."
+   `yin.repl.connect/repl-target` applies)."
   [raw]
   (if (str/blank? (path-component raw))
     content-path
@@ -303,12 +303,12 @@
    operations — under a single-owner, single-awaited-call precondition."
   [state id budget]
   (let [state (if (rpc/unsent? state)
-                (:dao.stream.v2.rpc/state (rpc/request! state nil nil))
+                (:dao.stream.rpc/state (rpc/request! state nil nil))
                 state)
-        state (:dao.stream.v2.rpc/state (rpc/poll! state budget))
+        state (:dao.stream.rpc/state (rpc/poll! state budget))
         [completions state] (rpc/take-completed state)
         [_ state] (rpc/take-diagnostics state)
-        mine (first (filter #(= id (:dao.stream.v2.rpc/id %)) completions))]
+        mine (first (filter #(= id (:dao.stream.rpc/id %)) completions))]
     (cond
       mine {:state state :status :done :completion mine}
       (:terminal state) {:state state :status :terminal :reason (:terminal state)}
@@ -348,8 +348,8 @@
    carries a :reason instead of a response is a lost call and throws
    {:operation op :reason r} (N9)."
   [completion]
-  (let [op (:dao.stream.v2.rpc/op completion)
-        response (:dao.stream.v2.rpc/response completion)]
+  (let [op (:dao.stream.rpc/op completion)
+        response (:dao.stream.rpc/response completion)]
     (if (some? response)
       (if-let [error (apply/response-error response)]
         (throw (ex-info "remote error response"
@@ -357,7 +357,7 @@
         (apply/response-ok response))
       (throw (ex-info "remote completion lost"
                       {:operation op
-                       :reason (:dao.stream.v2.rpc/reason completion)})))))
+                       :reason (:dao.stream.rpc/reason completion)})))))
 
 
 (defn await-established-step
@@ -371,9 +371,9 @@
    here for the same reason call-step drains them."
   [state]
   (let [result (rpc/poll! state 1)
-        state' (drain-outboxes (:dao.stream.v2.rpc/state result))]
+        state' (drain-outboxes (:dao.stream.rpc/state result))]
     (cond
-      (= :dao.stream.v2.rpc/established (:dao.stream.v2.rpc/outcome result))
+      (= :dao.stream.rpc/established (:dao.stream.rpc/outcome result))
       {:state state' :status :established}
 
       (:terminal state')
@@ -416,7 +416,7 @@
 
 (def lifecycle-capacity
   "Declared capacity of the composition's host-listener lifecycle medium, in
-   elements — the medium `dao.stream.v2.ws.jvm/listen!` deposits into."
+   elements — the medium `dao.stream.ws.jvm/listen!` deposits into."
   256)
 
 
@@ -440,7 +440,7 @@
 
 (def default-bind-host
   "The interface a content endpoint binds when its options name none, as
-   `yin.repl.v2.serve`'s default does."
+   `yin.repl.serve`'s default does."
   "127.0.0.1")
 
 
@@ -546,34 +546,34 @@
                                   :poll-interval-ms poll-interval-ms})
        (locking lock
          (let [requested (rpc/request! @(:rpc client) op args)
-               outcome (:dao.stream.v2.rpc/outcome requested)
-               state (:dao.stream.v2.rpc/state requested)]
+               outcome (:dao.stream.rpc/outcome requested)
+               state (:dao.stream.rpc/state requested)]
            (case outcome
-             :dao.stream.v2.rpc/request-undeliverable
+             :dao.stream.rpc/request-undeliverable
              (settle! client state
                       (fn [_]
                         (throw (ex-info "remote request undeliverable"
                                         {:operation op
-                                         :request-id (:dao.stream.v2.rpc/id requested)
-                                         :reason (:dao.stream.v2.rpc/reason requested)}))))
+                                         :request-id (:dao.stream.rpc/id requested)
+                                         :reason (:dao.stream.rpc/reason requested)}))))
 
-             :dao.stream.v2.rpc/invalid-request
+             :dao.stream.rpc/invalid-request
              (settle! client state
                       (fn [_]
                         (throw (ex-info
                                  "invalid RPC request: op must be a keyword and args a vector"
                                  {:op op
                                   :args args
-                                  :reason :dao.stream.v2.rpc/invalid-request}))))
+                                  :reason :dao.stream.rpc/invalid-request}))))
 
-             :dao.stream.v2.rpc/allocator-error
+             :dao.stream.rpc/allocator-error
              (settle! client state
                       (fn [_]
                         (throw (ex-info "the RPC request allocator failed"
                                         {:operation op
-                                         :reason :dao.stream.v2.rpc/allocator-error}))))
+                                         :reason :dao.stream.rpc/allocator-error}))))
 
-             :dao.stream.v2.rpc/terminal
+             :dao.stream.rpc/terminal
              (settle! client state
                       (fn [_]
                         (throw (ex-info "remote call lost on a terminal attachment"
@@ -582,7 +582,7 @@
              ;; :requested and :pending-request enter the loop with the
              ;; allocated id; the timing options were read and validated
              ;; before the lock.
-             (let [id (:dao.stream.v2.rpc/id requested)
+             (let [id (:dao.stream.rpc/id requested)
                    deadline (+ (System/currentTimeMillis) request-timeout-ms)]
                (loop [state state]
                  (let [step (call-step state id response-poll-budget)]

@@ -7,7 +7,7 @@
    maps are rejected. `q` opens nothing and closes nothing; it returns a
    local result value carrying the find spec, and `collect` materializes
    it. `current` and `history` are the explicit d5 interpreters. A live
-   dao.stream.v2 handle becomes an input only through `snapshot`."
+   dao.stream handle becomes an input only through `snapshot`."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.edn :as edn]
             [dao.data.btree :as bt]
@@ -17,10 +17,10 @@
             [dao.jing.mem :as jing-mem]
             [dao.space.index :as index]
             [dao.space.query :as query]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.memory-log :as memory-log]
-            [dao.stream.v2.ringbuffer :as ringbuffer]
-            [yin.vm.v2 :as v2]
+            [dao.stream :as stream]
+            [dao.stream.memory-log :as memory-log]
+            [dao.stream.ringbuffer :as ringbuffer]
+            [yin.vm :as v2]
             #?@(:cljd [["dart:io" :as dart-io]])))
 
 
@@ -52,7 +52,7 @@
 
 
 (defn- ring-handle
-  "A dao.stream.v2 ringbuffer owner handle."
+  "A dao.stream ringbuffer owner handle."
   [capacity]
   (:dao.stream/handle
     (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
@@ -334,7 +334,7 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; S: snapshot — the one dao.stream.v2 interpreter
+;; S: snapshot — the one dao.stream interpreter
 ;; ---------------------------------------------------------------------------
 
 (deftest snapshot-of-an-open-buffer-is-blocked
@@ -574,7 +574,7 @@
 
 
 (defn- open-intake
-  "A dao.stream.v2 ringbuffer intake writer."
+  "A dao.stream ringbuffer intake writer."
   []
   (:dao.stream/handle
     (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
@@ -1115,7 +1115,7 @@
 ;; bound by an enclosing :lambda is derivable from the row structure alone,
 ;; so no :global tag exists anywhere in the rows. These tests run a
 ;; recursive rule set through the real q engine over the actual output of
-;; yin.vm.v2/ast->semantic-bytecode — the committed codec, not hand-typed
+;; yin.vm/ast->semantic-bytecode — the committed codec, not hand-typed
 ;; row literals.
 
 (def ^:private member?

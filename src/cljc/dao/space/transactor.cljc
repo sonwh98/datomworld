@@ -1,7 +1,7 @@
 (ns dao.space.transactor
   "The agent-side transactor: a plain value with explicit named operations
-   over an explicit local dao.stream.v2 handle plus an explicit intake pool
-   of dao.stream.v2 writers (docs/design/dao.jing.md, Publication from an
+   over an explicit local dao.stream handle plus an explicit intake pool
+   of dao.stream writers (docs/design/dao.jing.md, Publication from an
    agent; docs/design/dao.space.transactor.md).
 
    A transactor is not a stream in v2 — it is an interpreter over one
@@ -21,7 +21,7 @@
    create! validates surfaces, never retention: stream/reader? and
    stream/writer? do not establish the complete retention the history scan
    requires. The host composition supplies a handle created by
-   dao.stream.v2.memory-log/create!; supplying an evicting transport is a
+   dao.stream.memory-log/create!; supplying an evicting transport is a
    host-assembly defect (detectable, deliberately not checked — T18,
    docs/design/dao.space.transactor.md).
 
@@ -50,7 +50,7 @@
    the local stream or the intake pool."
   (:require [dao.datom :as datom]
             [dao.space.index :as index]
-            [dao.stream.v2 :as stream]))
+            [dao.stream :as stream]))
 
 
 (defn- entity->datoms
@@ -161,10 +161,10 @@
    both of which a caller can only abort on.
 
    Validates surfaces, never retention (D2/T18): stream/reader? and
-   stream/writer? check the dao.stream.v2 reader and writer surfaces, and
+   stream/writer? check the dao.stream reader and writer surfaces, and
    neither establishes the complete-retention transport the history scan
    requires. The host composition supplies a handle created by
-   dao.stream.v2.memory-log/create!; supplying an evicting transport is a
+   dao.stream.memory-log/create!; supplying an evicting transport is a
    host-assembly defect — detectable, deliberately not checked, because a
    type check would couple dao.space to memory-log by name and reject a
    future correct complete-retention transport."
@@ -184,12 +184,12 @@
                    (stream/writer? local-stream))
       (throw
         (ex-info
-          "transactor spec requires a :local-stream satisfying the dao.stream.v2 reader and writer surfaces"
+          "transactor spec requires a :local-stream satisfying the dao.stream reader and writer surfaces"
           {:spec spec})))
     (when-not (and (coll? intake-pool) (seq intake-pool))
       (throw
         (ex-info
-          "transactor spec requires a non-empty :intake-pool of streams satisfying the dao.stream.v2 writer surface"
+          "transactor spec requires a non-empty :intake-pool of streams satisfying the dao.stream writer surface"
           {:spec spec})))
     (doseq [intake intake-pool]
       (when-not (stream/writer? intake)

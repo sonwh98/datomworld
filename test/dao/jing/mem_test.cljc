@@ -7,7 +7,7 @@
    :put-content-fn, :get-content-fn, and :close-fn, and is consumed by
    dao.jing/materialize!, dao.jing/get, and dao.jing/close!. It embeds no
    intake stream and no source identity: addresses are derived solely from
-   payloads, equal payloads from a pool of dao.stream.v2 intake streams
+   payloads, equal payloads from a pool of dao.stream intake streams
    converge on exactly one entry, and an unequal payload at an existing
    address is an integrity failure, never an overwrite. The store's content
    is observed through mem/entries, the backend's test-facing view — the
@@ -15,8 +15,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.ringbuffer :as ringbuffer]))
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ringbuffer]))
 
 
 (defn throws?
@@ -32,7 +32,7 @@
 
 
 (defn open-stream
-  "A dao.stream.v2 ringbuffer reader handle pre-loaded with vals."
+  "A dao.stream ringbuffer reader handle pre-loaded with vals."
   [& vals]
   (let [{:dao.stream/keys [handle]}
         (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
@@ -206,7 +206,7 @@
 
 (deftest observer-pool-equal-payloads-converge-to-one-entry
   (testing
-    "equal payloads arriving through two dao.stream.v2 intake streams
+    "equal payloads arriving through two dao.stream intake streams
             land on exactly one stored entry carrying no source identity"
     (let [h (mem/create-content-mem)
           payload {:nested {:v [1 2 3]}}

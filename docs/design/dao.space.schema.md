@@ -28,7 +28,7 @@ and the unique-requires-card-one ruling (§3), the mode split between
 schema-structure and data violations (§3, §8), and `:source` openability
 (§4). The motivation
 is stated in the doc itself: what schema buys an adopter, and why optional
-is the only coherent form (§1). Migrated to dao.stream.v2 on 2026-09-09
+is the only coherent form (§1). Migrated to dao.stream on 2026-09-09
 (`bdbe6f9`, `6ea8bb5`): the wrapper
 is a plain map returning the transactor's receipts, and `schema/current`
 takes d5 values — relation, opened published index, or snapshot result —
@@ -530,7 +530,7 @@ history is required is a host-assembly defect of the same kind as the
 transactor's T18, knowable at wiring time by the composition that created
 the stream and caught at read time by nothing. The two instruments that
 make the declaration good are a transport declaring complete retention
-(`dao.stream.v2.memory-log`) and a kept origin cursor minted before the
+(`dao.stream.memory-log`) and a kept origin cursor minted before the
 first append and read through with no observed `gap`.
 
 One pull caveat, stated narrowly: card-one attributes now read unambiguously

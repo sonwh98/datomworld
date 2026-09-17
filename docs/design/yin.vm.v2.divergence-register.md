@@ -1,11 +1,11 @@
-# yin.vm.v2 — the divergence register
+# yin.vm — the divergence register
 
 Status: deliverable of phase V6 of
-[`yin.vm.v2.implementation-plan.md`](./yin.vm.v2.implementation-plan.md),
+[`yin.vm.implementation-plan.md`](./yin.vm.implementation-plan.md),
 amended by its phase V7. Subordinate to [`dao.stream.md`](./dao.stream.md)
 and [`datom.world.md`](./datom.world.md).
 
-Every place `yin.vm.v2` deliberately differs from `yin.vm`, with the reason.
+Every place `yin.vm` deliberately differs from `yin.vm`, with the reason.
 Saying which v1 behaviours are deliberately not mirrored *is* the register: a
 v2 suite that "covers the same programs" proves nothing unless the places it
 cannot cover are named.
@@ -26,13 +26,13 @@ for them.
 ## The five user-visible changes
 
 1. **The evaluator set shrinks and its default changes.** v2 ships one
-   evaluator, `yin.vm.v2.ast-walker`. v1's REPL defaulted to `:semantic`
-   until `yin.vm.v2-consumers.implementation-plan.md` (2026-09-10) deleted
+   evaluator, `yin.vm.ast-walker`. v1's REPL defaulted to `:semantic`
+   until `yin.vm-consumers.implementation-plan.md` (2026-09-10) deleted
    `:semantic`/`:register`/`:stack`/`:space` and migrated v1's default to
    `:ast-walker` too (`repl.cljc:174`); there is now only one evaluator on
    either REPL.
    *Semantic Phase 4:* v2 now ships a second evaluator,
-   `yin.vm.v2.semantic`, and `yin.repl.v2.core` defaults to it
+   `yin.vm.semantic`, and `yin.repl.core` defaults to it
    (`yin.vm.semantic.md` §8). v1's REPL was deleted on 2026-09-16
    (`yin.vm.v1-retirement.implementation-plan.md`); there is no v1 REPL.
 2. **User-defined macros stop evaluating.** `yang.clojure` emits
@@ -46,13 +46,13 @@ for them.
    and every other reader's data loss, and v1's `take!` took a stream ref
    rather than a cursor, so a v2 `take!` would need the
    reader-position-in-the-medium the contract retired. Programs use `cursor`
-   and `next!`. `yin.vm.v2.module/stream-module` has five bindings, not six;
-   `yin.vm.v2.engine` has no `:stream/take` branch and no `handle-take`.
+   and `next!`. `yin.vm.module/stream-module` has five bindings, not six;
+   `yin.vm.engine` has no `:stream/take` branch and no `handle-take`.
    An above-the-stream queue interpreter with explicit consume accounting is
    the deferred way back.
 4. **Park-on-full behaves differently under a ring-buffer composition.** See
    *The retention divergence* below.
-5. **Telemetry is absent.** `yin.vm.v2.telemetry` is a stub: `enabled?` is
+5. **Telemetry is absent.** `yin.vm.telemetry` is a stub: `enabled?` is
    false, `emit-snapshot` is identity, `type-tag` is real. A non-nil
    `:telemetry` option is **rejected**, not ignored, because a stub that
    merely recorded the model would accept a stream and then write nothing to
@@ -76,7 +76,7 @@ Consequences:
 - Under a ring-buffer composition, `append!` never returns `full`, so puts
   never park and loss surfaces as a `gap` at the *reader's* cursor instead.
 - The VM is still total over `full`, and `full` still parks in the polling
-  wait set (`dao.runtime.v2/write-outcome->task`). What a given composition
+  wait set (`dao.runtime/write-outcome->task`). What a given composition
   observes follows from the transport it chose, not from the VM.
 - No "same results as v1" claim covers a program that relies on backpressure.
   Backpressure semantics, if wanted later, come from the deferred queue
@@ -102,7 +102,7 @@ cursor meant absolute position zero, which equals `:dao.stream/oldest` on a
 fresh stream but diverges from `:dao.stream/newest` the moment a stream has
 history before the cursor exists. Tests pre-fill streams before constructing a
 VM, so v2 chooses `oldest` deliberately and
-`yin.vm.v2.ffi-test/history-before-the-cursor-is-not-skipped-test` pins it.
+`yin.vm.ffi-test/history-before-the-cursor-is-not-skipped-test` pins it.
 
 **Three mints, not four.** `call-in-cursor-key` (`vm.cljc:542`) is dropped:
 nothing in `src` read it, and the bridge cursor already covers reading
@@ -112,8 +112,8 @@ cursor.
 
 *V7:* the VM's mints are the call-out cursor (construction) and the bridge
 cursor (`ffi/attach`). The program cursor belongs to observer attachment and
-is minted inside `dao.stream.v2.observer/attach`, which requires only
-`dao.stream.v2` rather than `vm/mint-oldest`.
+is minted inside `dao.stream.observer/attach`, which requires only
+`dao.stream` rather than `vm/mint-oldest`.
 
 **Construction is all-or-nothing.** Creating the FFI pair and minting its
 cursors are stream operations with their own outcomes; any non-`ok` outcome
@@ -139,7 +139,7 @@ rewritten and made total.
 
 **Nil capacity has no v2 meaning.** v1's module-path zero-arity `make` yielded
 `{:capacity nil}`, meaning unbounded. Both the AST path and the module path now
-apply `yin.vm.v2/default-stream-capacity` (1024), so they agree.
+apply `yin.vm/default-stream-capacity` (1024), so they agree.
 
 ## Waiters
 
@@ -173,7 +173,7 @@ axioms forbid.
 - **The `stream` module has no v2 registrar.** `dao.stream.ringbuffer`
   registered a `'stream` module at load (`ringbuffer.cljc:457-464`, forced at
   390). The v2 ring buffer performs no such registration. Registering the
-  module is a composition step, and `yin.vm.v2.module` owns the definition.
+  module is a composition step, and `yin.vm.module` owns the definition.
   A composition registers it and supplies `:make-stream` together, or Yin
   source reaches no streams.
 
@@ -210,9 +210,9 @@ and `open-local-stream` (`vm.cljc:134-139`) — and those were the only reason
   resumable**: an evicted request is a parked call that can never be answered.
 - **The envelope changed shape.** v1's response was
   `{:dao.stream.apply/id :dao.stream.apply/value}` and could only succeed.
-  A `dao.stream.v2.apply` response carries exactly one of `ok` or `error`.
+  A `dao.stream.apply` response carries exactly one of `ok` or `error`.
   A missing handler was a host throw in v1's `dispatch-call`; it is now an
-  `:dao.stream.v2.apply/unknown-operation` error response that the parked
+  `:dao.stream.apply/unknown-operation` error response that the parked
   continuation raises when it unwraps. An exception still reaches the caller;
   it no longer escapes into the polling driver.
 - **Correlation is checked, not assumed.** v1 read whatever response arrived
@@ -236,7 +236,7 @@ v1 polled its `:in-stream` from inside the VM: `engine/run-on-stream` drove
 ingestion between evaluations, the VM carried `:in-stream`, `:in-cursor`, and
 `:ingress-gaps`, and `step` consumed a queued batch on an idle VM.
 
-*V7 moved this out of the VM.* `dao.stream.v2.observer` owns the attached
+*V7 moved this out of the VM.* `dao.stream.observer` owns the attached
 program handle, the program cursor, and the gap count; host composition
 attaches it through a unary capability and a portable descriptor, and drives
 it with `run-on-stream` over a `{:observer observer :consumer vm}` session using the
@@ -306,13 +306,13 @@ frames, and every transition allocates exactly one VM value through
 would only add drift risk.
 
 Parity over the macro-free corpus is asserted directly, in one process, by
-`yin.vm.v2.parity-test`, against values produced by v1 in the same run rather
+`yin.vm.parity-test`, against values produced by v1 in the same run rather
 than against values chosen freshly.
 
 ## The semantic VM against the ast-walker
 
 Deliverable of Phase 4 of [`yin.vm.semantic.md`](./yin.vm.semantic.md).
-Both evaluators run on `yin.vm.v2`, share `engine`, `ffi`, `module` and the
+Both evaluators run on `yin.vm`, share `engine`, `ffi`, `module` and the
 observer, and are measured against each other in §8 there. Everything above
 this section applies to both. This section lists only where they differ.
 
@@ -326,9 +326,9 @@ inspector can observe, not in the values programs compute.
 
 1. **`eval` refuses an AST.** The walker's `vm/eval` converts, loads, and
    runs an AST. The semantic VM executes only `:yin.code/*` segments and
-   throws on a non-nil AST. Lowering (`yin.vm.v2.linearize`) belongs to the
+   throws on a non-nil AST. Lowering (`yin.vm.linearize`) belongs to the
    composition: `linearize/ast-loader` wraps `vm-load-program` at the
-   observer boundary, and `yin.repl.v2.core/eval-ast` sends semantic-VM
+   observer boundary, and `yin.repl.core/eval-ast` sends semantic-VM
    input through the program medium rather than calling `eval`.
 2. **Closures print differently.** A walker closure carries its AST
    (`{:type :closure :params :body :env}`). A semantic closure carries a code
@@ -358,7 +358,7 @@ inspector can observe, not in the values programs compute.
    `ast-loader` lowers each batch below every loaded segment, so REPL
    batches never collide.
 7. **Continuation handoff is code plus registers.** The semantic handoff
-   demo (`datomworld.demo.continuation-handoff-v2`) ships the segment's code
+   demo (`datomworld.demo.continuation-handoff`) ships the segment's code
    datoms with the EDN-encoded registers. A continuation that holds a live
    stream resource is refused for shipment rather than shipped with a
    dangling handle.

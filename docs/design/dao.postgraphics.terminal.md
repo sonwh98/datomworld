@@ -130,7 +130,7 @@ cadence. Each host widget owns exactly one ticker at the frame interval (16 ms)
 that is the only caller of `step-until-blocked`, and cancels it on dispose or
 unmount: `Timer.periodic` in `dao.postgraphics.flutter`, `setInterval` in
 `dao.postgraphics.web`. This is the same one-step-owner shape as
-`yin.repl.v2.flutter`'s timer over `embed/step`. A frame is presented at most
+`yin.repl.flutter`'s timer over `embed/step`. A frame is presented at most
 one tick after it is put. A producer never steps the consumer: hiding the
 ticker inside `put-frame!` would reintroduce callback inversion under another
 name.

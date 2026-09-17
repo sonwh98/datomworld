@@ -74,8 +74,8 @@ content addressing.
 ### M2 — Transit without bytecode (60 errors + yin.repl load chain clear)
 
 Lift the pure tree-walking Transit JSON codec at
-`src/cljd/dao/stream/v2/transit/cljd.cljd` (touches only `dart:convert`) into
-a portable `.cljc` and give `dao.stream.v2.transit` a `:jolt` branch that uses
+`src/cljd/dao/stream/transit/cljd.cljd` (touches only `dart:convert`) into
+a portable `.cljc` and give `dao.stream.transit` a `:jolt` branch that uses
 it. This removes the cognitect transit-clj dependency — a Java library, so it
 can never "just work" on jolt — and the same lift serves the v1
 `dao.stream.transit` boundary. Requires a `:jolt` JSON parser (jolt stdlib or
@@ -83,13 +83,13 @@ a small pure parser).
 
 ### M3 — Runtime driver + WebSocket edge (3 errors + one load failure)
 
-- `src/clj/dao/runtime/v2/driver.clj` (`LinkedBlockingQueue`, `TimeUnit`):
+- `src/clj/dao/runtime/driver.clj` (`LinkedBlockingQueue`, `TimeUnit`):
   a `:jolt` timer/poll-based driver, patterned on the existing cljs/cljd
   drivers that already replace the blocking queue with timers/microtasks —
   proof the queue is swappable by design.
-- `src/clj/dao/stream/v2/ws/jvm.clj` (`java.net.http`, http-kit, ring):
+- `src/clj/dao/stream/ws/jvm.clj` (`java.net.http`, http-kit, ring):
   a jolt ws adapter supplying the `:connect!`/`:send!`/`:close!` map that
-  `dao.stream.v2.ws` requires. This is the **one genuinely open item** — it
+  `dao.stream.ws` requires. This is the **one genuinely open item** — it
   needs a socket library on jolt (`jolt.ffi` to C, or a Gambit-backed
   library). Until it exists, ws transports simply report the design-doc's
   qualified "unsupported" outcome, which is a correct state, not a failure.

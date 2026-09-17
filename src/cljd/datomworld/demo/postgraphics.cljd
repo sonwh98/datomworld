@@ -4,7 +4,7 @@
             ["dart:math" :as math]
             ["package:flutter/material.dart" :as m]
             [dao.postgraphics.flutter :as pg]
-            [dao.stream.v2.ringbuffer :as rb]))
+            [dao.stream.ringbuffer :as rb]))
 
 
 ;; Fixed canvas size. The widget is placed inside a SizedBox of this size.

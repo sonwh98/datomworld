@@ -431,7 +431,7 @@ The `:value` field is an implementation detail that holds temporary results betw
 
 ## Examples
 
-> **Status (2026-09-16):** these examples use the v1 `yin.vm` / `yin.vm.ast-walker` API, deleted by `yin.vm.v1-retirement.implementation-plan.md`; the live evaluator is `yin.vm.v2`.
+> **Status (2026-09-16):** these examples use the v1 `yin.vm` / `yin.vm.ast-walker` API, deleted by `yin.vm.v1-retirement.implementation-plan.md`; the live evaluator is `yin.vm`.
 
 ### Simple Evaluation
 

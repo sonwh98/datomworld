@@ -4,7 +4,7 @@
    specific timer, time source, keyboard mapping, and widget tree;
    everything else lives here so the two frontends stay in sync."
   (:require [dao.postgraphics.terminal :as terminal]
-            [dao.stream.v2.ringbuffer :as rb]
+            [dao.stream.ringbuffer :as rb]
             [datomworld.demo.voxel-scene :as scene]))
 
 

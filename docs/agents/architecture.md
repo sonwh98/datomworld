@@ -86,17 +86,17 @@ ASTs are materialized views over five orthogonal dimensions:
   4. Language (transformations): cross-language semantic preservation
   5. Execution (runtime): continuation state, stack frames, instruction pointers
 
-Status (`yin.vm.v2-consumers.implementation-plan.md`, 2026-09-10): SemanticVM,
+Status (`yin.vm-consumers.implementation-plan.md`, 2026-09-10): SemanticVM,
 the stack- and register-based bytecode VMs, and the WASM/native-code backends
 below were experimental proofs of the AST-projection argument, never more
-than one of `yin.vm.v2`'s consumers away from the ast-walker they compared
+than one of `yin.vm`'s consumers away from the ast-walker they compared
 against. They are deleted; `ASTWalkerVM` is the only evaluator. The argument
 they were proving — that the AST is canonical and any backend can project it
 — stands on its own and does not need a second live interpreter to
 demonstrate it; a future backend remains exactly as free to project these
 facts as it always was, it is just not one of these four today.
 
-`yin.vm.v2` ships one interpreter:
+`yin.vm` ships one interpreter:
   - ASTWalkerVM interprets AST maps via tree traversal (in-memory graphs).
 
 What the AST projection argument once demonstrated with a second live

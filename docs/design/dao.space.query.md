@@ -5,7 +5,7 @@ a relation value (`query/relation`, `query/entity-map-relation`), a datom
 view over one (`current`, `history`), or a published covered index the caller
 opened (`open-published!`). `q` opens nothing and closes nothing. A live
 DaoStream enters only through `snapshot`, the single interpreter over
-`dao.stream.v2.observe/step`. The index realization is owned by
+`dao.stream.observe/step`. The index realization is owned by
 `dao.space.index`, and `match` / `q` / `pull` run over one evaluator on every
 platform, returning a local result value that `collect` materializes. This
 document records the read model, the source model, the index-realization
@@ -156,7 +156,7 @@ between agents still runs through shared content storage.
 
 Query never reads a live stream during evaluation. A DaoStream v2 reader
 becomes a query input only by an explicit snapshot, and `snapshot` is the only
-function in this namespace that requires `dao.stream.v2`:
+function in this namespace that requires `dao.stream`:
 
 ```clojure
 (query/snapshot handle)
@@ -167,7 +167,7 @@ function in this namespace that requires `dao.stream.v2`:
 ;;     :read     raw}         ; :defect only
 ```
 
-It mints at `:dao.stream/oldest` and loops `dao.stream.v2.observe/step` with a
+It mints at `:dao.stream/oldest` and loops `dao.stream.observe/step` with a
 total effect — retain the value, answer `ok` — until the step stops.
 
 - **Every stopping outcome is data, never an exception.** `:ended` is a closed
@@ -181,7 +181,7 @@ total effect — retain the value, answer `ok` — until the step stops.
   handle.
 
 `snapshot` stays here until a second consumer needs it. If it is ever shared,
-it moves to `dao.stream.v2.observe` under **this** name — not as a `drain`.
+it moves to `dao.stream.observe` under **this** name — not as a `drain`.
 Nothing is drained: cursors are values, the source is append-only and
 retained, and reading to the tail leaves the sequence exactly as it was for
 every other observer. `drain` is the vocabulary of the destructive read that

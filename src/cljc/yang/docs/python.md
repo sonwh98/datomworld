@@ -96,7 +96,7 @@ This is the **Python compiler** in the Yang compiler collection. It parses Pytho
 
 ### End-to-End: Compile and Execute
 
-> **Status (2026-09-16):** this and the next example use the v1 `yin.vm` API, deleted by `yin.vm.v1-retirement.implementation-plan.md`; see `test/yang/python_test.clj` for the `yin.vm.v2` equivalent.
+> **Status (2026-09-16):** this and the next example use the v1 `yin.vm` API, deleted by `yin.vm.v1-retirement.implementation-plan.md`; see `test/yang/python_test.clj` for the `yin.vm` equivalent.
 
 ```clojure
 (require '[yang.python :as py])

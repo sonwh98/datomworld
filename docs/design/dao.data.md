@@ -1,7 +1,7 @@
 # DaoData
 
 Status: implemented (`src/cljc/dao/data.cljc`, `test/dao/data_test.cljc`).
-Wired into `yin.vm.v2.telemetry`/`yin.vm.v2.ffi` and the `yin.repl.v2`
+Wired into `yin.vm.telemetry`/`yin.vm.ffi` and the `yin.repl`
 driver/serve/connect operator-diagnostic sites. Reviewed by an independent
 adversarial pass and signed off by the Architect (see
 `docs/orchestrator-log.md` for the unit's entry).
@@ -29,9 +29,9 @@ The original discovery pass overstated how much of this duplication `tag`
 and `summarize` actually replace. Verified against the real code, site by
 site:
 
-- **Live classifier duplication — replaceable.** `yin/vm/v2/telemetry.cljc:58`'s
+- **Live classifier duplication — replaceable.** `yin/vm/telemetry.cljc:58`'s
   `type-tag` is evaluated before the FFI's no-op check
-  (`yin/vm/v2/ffi.cljc:209`), so it's live, not dead. `tag` can take over
+  (`yin/vm/ffi.cljc:209`), so it's live, not dead. `tag` can take over
   this responsibility, with a few deliberate vocabulary changes:
   `:host-fn` → `:fn`, ad hoc handle detection → `:stream`, and sets (which
   v1's `type-tag` mis-tags) → `:set`.
@@ -43,36 +43,36 @@ site:
   indentation, not truncation. Summarizing a value *before* handing it to
   `dao.pretty` can bound what gets printed, but that's composition, not
   replacement — `dao.pretty` stays as-is.
-- **`dao.await/v2` handle gating — not replaceable.** `dao/await/v2.cljc:164`
+- **`dao.await/v2` handle gating — not replaceable.** `dao/await.cljc:164`
   gates operational reader/writer handles for environment preparation.
   That's a capability check with behavioral consequences, not diagnostic
   classification; swapping in `stream/descriptor?` would change what the
   gate actually guarantees.
 - **Handoff demo's store-key convention — not replaceable.**
-  `datomworld/demo/continuation_handoff_v2.cljc:130` identifies resources
+  `datomworld/demo/continuation_handoff.cljc:130` identifies resources
   that block shipping execution state across the wire. A lossy, bounded
   summary can't preserve resumability, so it can't stand in for this
   policy.
-- **`dao.stream.v2` surface predicates — dependencies, not duplicates.**
-  `dao/stream/v2.cljc:194`'s protocol-capability predicates are what
+- **`dao.stream` surface predicates — dependencies, not duplicates.**
+  `dao/stream.cljc:194`'s protocol-capability predicates are what
   `tag`'s `:stream` branch is built on, not something it replaces.
 - **Five unnamed bounds (`take 12`, `12`, `40`, `200`, `500`) — partially
-  addressed.** Confirmed at `compilation_pipeline_v2.cljs:454`,
-  `continuation_stream_v2.cljs:208,636,644`, and
+  addressed.** Confirmed at `compilation_pipeline.cljs:454`,
+  `continuation_stream.cljs:208,636,644`, and
   `yin/vm/telemetry_viewer.cljs:147` (the last is legacy, not a live v2
   obligation). `summarize` can bound the *display data* each of these
   projects, but which frames to show, first-vs-last selection, and
   recent-history retention are all caller policy this abstraction was
   never meant to absorb.
 - **Unbounded operator-text printing — live, addressed once the earlier
-  fixes land.** Confirmed at `yin/repl/v2/driver.cljc:386`,
+  fixes land.** Confirmed at `yin/repl/driver.cljc:386`,
   `serve.cljc:348`, `connect.cljc:432` — genuine consumers, now that the
   lazy-sequence, number-portability, and `:chars` gaps above are closed.
 - **`flush-telemetry` — legacy, out of scope.** The print path at
   `yin/repl.cljc:384` belongs to the deprecated v1 REPL and establishes no
   live/v2 obligation.
 - **Dart WebSocket adapter's request summary — evidence overstated.**
-  `dao/stream/v2/ws/dart.cljd:156` projects a host request into
+  `dao/stream/ws/dart.cljd:156` projects a host request into
   method/path data, which is useful, but it has no string-length bound —
   calling it "the one correct instance of bounded summarization" wasn't
   accurate. It's a projection worth keeping as its own thing, not a
@@ -88,14 +88,14 @@ are.
 
 ```clojure
 (ns dao.data
-  (:require [dao.stream.v2 :as stream]
-            [dao.stream.v2.transit :as transit]))
+  (:require [dao.stream :as stream]
+            [dao.stream.transit :as transit]))
 
 (defn tag [x] ...)              ; classify x without entering it
 (defn summarize [x bounds] ...) ; bounded plain-data description of x
 ```
 
-The `stream` alias is `dao.stream.v2` specifically, stated explicitly
+The `stream` alias is `dao.stream` specifically, stated explicitly
 because `dao/stream.cljc` (v1) defines a similarly-named descriptor
 predicate over plain descriptor *maps*, not v2 handles — an easy
 namespace to grab by accident with the same short alias.
@@ -164,19 +164,19 @@ Rules:
   probe at all: it doesn't request even one element, since nothing about
   the result would depend on the answer.
 - Map keys are summarized the same as values.
-- A number outside `dao.stream.v2.transit`'s portable domain — non-finite,
+- A number outside `dao.stream.transit`'s portable domain — non-finite,
   a ratio, a BigInt/BigDecimal, or an integer or float outside
   ±9007199254740991 — has `:dao.data/value` set to `(str x)` instead of
   the raw number, with `:truncated?` true; a portable number keeps its
   literal value with `:truncated?` false. "Safe to ship" is a real claim
   about the live v2 wire codec, not a general description, so this reuses
-  `dao.stream.v2.transit/portable-value?` — the actual check the wire
+  `dao.stream.transit/portable-value?` — the actual check the wire
   boundary applies — rather than re-deriving the domain's bounds a second
   time and risking drift from the real contract. `tag` still classifies
   every number as `:number` regardless of portability; only the value
   `summarize` preserves depends on it. This is the same kind of
   small, justified dependency as `stream/descriptor?` in `tag` — `dao.data`
-  depends on `dao.stream.v2.transit` for exactly this one purpose.
+  depends on `dao.stream.transit` for exactly this one purpose.
 - A string longer than `:chars` is cut to its first `:chars` characters,
   with `:truncated?` true; a string at or under the bound carries the
   whole value with `:truncated?` false. This is the one bound that
@@ -260,7 +260,7 @@ Rules:
   This does not cover a third-party implementation that *throws* instead
   of returning a malformed outcome. Catching an arbitrary exception
   portably needs a host-specific `catch` clause — this project's own
-  precedent (`dao/stream/v2/ws.cljc`) needs a three-way reader conditional
+  precedent (`dao/stream/ws.cljc`) needs a three-way reader conditional
   for exactly that, because no single `catch` class name is valid on all
   of CLJ, CLJS, and CLJD. That conflicts directly with this namespace's
   own no-reader-conditionals constraint, and the constraint wins: a

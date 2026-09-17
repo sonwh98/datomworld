@@ -1,12 +1,12 @@
 
-# yin.vm.v2 consumers — the deletion plan
+# yin.vm consumers — the deletion plan
 
 Status: implementation plan for deleting the experimental v1 VM models
 (`yin.vm.{semantic, register, stack, space}`) and the macro engine
 (`yin.vm.macro`), with every file that requires them either deleted or
 migrated so the build stays green. Subordinate to
-[`yin.vm.v2.divergence-register.md`](./yin.vm.v2.divergence-register.md),
-[`dao.runtime.v2.implementation-plan.md`](./dao.runtime.v2.implementation-plan.md)
+[`yin.vm.divergence-register.md`](./yin.vm.divergence-register.md),
+[`dao.runtime.implementation-plan.md`](./dao.runtime.implementation-plan.md)
 and [`dao.stream.md`](./dao.stream.md).
 
 Revised 2026-09-10, three architect rounds: r1 against a consumer sweep of
@@ -17,15 +17,15 @@ the end records what each round changed.
 
 ## The problem and context
 
-The divergence register scopes `yin.vm.v2` to the ast-walker slice:
+The divergence register scopes `yin.vm` to the ast-walker slice:
 "`semantic`, `register`, `stack`, `space`, `macro` and `wasm` are not ported,
-so nothing here speaks for them" (`yin.vm.v2.divergence-register.md:20-21`).
-The v2 corpus is macro-free by construction (its change 2), and `yin.repl.v2`
+so nothing here speaks for them" (`yin.vm.divergence-register.md:20-21`).
+The v2 corpus is macro-free by construction (its change 2), and `yin.repl`
 ships one evaluator (its change 1). Porting the experimental models to
-`dao.stream.v2` would be a rewrite of each for no consumer; they are deleted.
+`dao.stream` would be a rewrite of each for no consumer; they are deleted.
 
 `dao.stream.md:806-808` records the decision: "The v1 VM lineage is deleted
-rather than migrated, under `yin.vm.v2-consumers.implementation-plan.md`,
+rather than migrated, under `yin.vm-consumers.implementation-plan.md`,
 because a v2 twin already exists for every one of its consumers." This plan
 is the first slice of that deletion — the models that have no v2 twin and no
 place in the ast-walker scope. It is not the whole v1 lineage; see *Boundary*.
@@ -94,13 +94,13 @@ live consumers; there are nine non-test, non-benchmark ones.
 | `src/cljc/yin/vm/stack.cljc` | `macro`, `semantic` | the model itself |
 | `src/cljc/yin/vm/space.cljc` | `macro`, `semantic` | the model itself |
 | `src/cljc/yin/vm/macro.cljc` | — | leaf; required only by the four above |
-| `src/cljc/datomworld/demo/continuation_handoff.cljc` | `register`, `stack` | **[J]** no `src/` consumer at all — only its own test requires it. Its v2 twin `continuation_handoff_v2.cljc` is what `continuation_stream_v2.cljs:36` uses. Migration already happened; this is the residue |
-| `src/clj/yin/demo.clj` | `register` | **[J]** twin `yin.demo-v2` (`demo_v2.clj:27-29`, on `yin.vm.v2`) exists; no `deps.edn` alias or doc runs `yin.demo`; the only run instruction is its own docstring |
-| `src/cljs/datomworld/demo/compilation_pipeline.cljs` | `register`, `semantic`, `stack` | **[J]** twin `compilation_pipeline_v2.cljs` is wired into `datomworld.demo` beside it — but the twin lacks the Python and PHP frontends; see D3, which closes that gap before this file goes |
-| `src/cljs/datomworld/demo/continuation_stream.cljs` | `register`, `stack` | **[J]** twin `continuation_stream_v2.cljs`, wired in; feature diff owed in Phase 0 |
-| `src/cljs/datomworld/demo/equation_plotter.cljs` | `register` | **[J]** twin `equation_plotter_v2.cljs`, wired in; feature diff owed in Phase 0 |
+| `src/cljc/datomworld/demo/continuation_handoff.cljc` | `register`, `stack` | **[J]** no `src/` consumer at all — only its own test requires it. Its v2 twin `continuation_handoff.cljc` is what `continuation_stream.cljs:36` uses. Migration already happened; this is the residue |
+| `src/clj/yin/demo.clj` | `register` | **[J]** twin `yin.demo` (`demo.clj:27-29`, on `yin.vm`) exists; no `deps.edn` alias or doc runs `yin.demo`; the only run instruction is its own docstring |
+| `src/cljs/datomworld/demo/compilation_pipeline.cljs` | `register`, `semantic`, `stack` | **[J]** twin `compilation_pipeline.cljs` is wired into `datomworld.demo` beside it — but the twin lacks the Python and PHP frontends; see D3, which closes that gap before this file goes |
+| `src/cljs/datomworld/demo/continuation_stream.cljs` | `register`, `stack` | **[J]** twin `continuation_stream.cljs`, wired in; feature diff owed in Phase 0 |
+| `src/cljs/datomworld/demo/equation_plotter.cljs` | `register` | **[J]** twin `equation_plotter.cljs`, wired in; feature diff owed in Phase 0 |
 | `src/cljd/yin/register_bench_cljd.cljd` | `register` | benchmark of a deleted model; no `bb.edn`/`deps.edn` entry compiles it |
-| `bin/register_bench_cljd.dart` | imports `lib/cljd-out/yin/register-bench-cljd.dart`, the compiled output of the file above | **[R]** a Dart launcher for a deleted bench; goes with it. Its twin `bin/register_bench_cljd_v2.dart` (for `src/cljd/yin/register_bench_cljd_v2.cljd`) stays. `bin/yin_repl_main.dart` imports v1 `repl.dart` and stays under D1 |
+| `bin/register_bench_cljd.dart` | imports `lib/cljd-out/yin/register-bench-cljd.dart`, the compiled output of the file above | **[R]** a Dart launcher for a deleted bench; goes with it. Its twin `bin/register_bench_cljd.dart` (for `src/cljd/yin/register_bench_cljd.cljd`) stays. `bin/yin_repl_main.dart` imports v1 `repl.dart` and stays under D1 |
 | `src/clj/yin/vm/bytecode_bench.clj` | `space`, `register`, `semantic`, `stack`, `ast-walker` | **[J]** it exists to compare the bytecode models against the walker (`--register-only`, `--stack-only`, `--semantic-only`, `--cesk-space-only`); with one model left it compares nothing. Delete rather than trim to `--ast-walker-only`. **[R]** Its **five** `deps.edn` aliases go with it: `:bench`, `:profile`, `:profile-fast`, `:profile-cesk-space`, `:profile-ast-walker` (`deps.edn:17-30`). A v2 walker bench, if wanted, is a new file under the VM plan |
 
 ### Migrated to keep working without the deleted VMs
@@ -110,9 +110,9 @@ live consumers; there are nine non-test, non-benchmark ones.
 | `src/cljc/yin/repl.cljc` | drop the three requires (`:19-21`); `vm-constructors` (`:33-37`) and `vm-labels` (`:40-44`) shrink to `:ast-walker`; `create-state`'s default `vm-type :semantic` (`:183`) becomes `:ast-walker`; both `help-text` branches (`:65`, `:74`) read `(vm :ast-walker)`. Nothing else in the file names a model. See D1 for why migrate and not delete |
 | `src/cljd/yin/repl/flutter.cljd` | **[R]** `start-server!` calls `(repl/create-state {:vm-type :semantic})` at `:60` — an explicit argument, untouched by the default change, and `make-vm` throws "Unknown Yin REPL VM type" the moment `:semantic` is gone. Both Flutter demos take this path (`dao_gui.cljd:321`, `solar_system.cljd:123`). **[J]** Change the call to `(repl/create-state {})` so the widget takes the REPL's default and never names a model again. See D1 for how this class of defect is caught |
 | `src/cljs/datomworld/demo.cljs` | **[R]** the three v1 aliases are used in exactly these places, and nowhere else (verified by a full read and `grep -nE "\b(pipeline\|cont-demo\|plotter-demo)/"`): the requires (`:2`, `:4`, `:8`); the picker cards (`:32-45`, `:62-…`, ids `:pipeline`, `:continuation`, `:plotter`); `hash->demo` rows (`:77,79,81`); `demo->hash` rows (`:95,97,99`); the `case` branches in `root-shell` (`:230,232,234`); and **a toolbar block at `:277-288`** that renders only `(when (= selected-demo :pipeline))` and calls `pipeline/show-explainer-video!`, `pipeline/layout-controls` and `pipeline/app-state`. r2 missed the toolbar block. The `cont-demo` and `plotter-demo` aliases have no such block; their only uses are the `case` branches. **Disposition:** delete the requires, the cards, the `case` branches, the `demo->hash` rows and the toolbar block; in `hash->demo` **keep** `"#pipeline"`, `"#plotter"`, `"#continuation"` and point them at `:pipeline-v2`, `:plotter-v2`, `:continuation-v2` (D5). The toolbar block goes with v1 rather than moving to the twin — see D3 for why. The `-v2` ids stay as they are; renaming them is not this plan's |
-| `src/cljs/datomworld/demo/compilation_pipeline_v2.cljs` | receives the Python and PHP frontends from v1 before v1 is deleted — see D3 |
+| `src/cljs/datomworld/demo/compilation_pipeline.cljs` | receives the Python and PHP frontends from v1 before v1 is deleted — see D3 |
 | `test/yin/vm/test_utils.cljc` | `vm-factories` (`:14-18`) becomes `{:ast-walker ast-walker/create-vm}`; drop the four requires (`:5-8`). `run-all-vms`, `queue-vm`, `queue-ast` are unchanged |
-| `test/yin/vm/runtime_regression_test.cljc` | **[R]** requires `register`, `semantic`, `stack` directly (`:8-10`); the body never uses those aliases — every deftest iterates `vtu/vm-factories` (`:17`, `:46`, `:84`, `:121`). Drop the three requires; nothing else changes, and the tests keep running over the walker alone until `dao.runtime.v2` R4 deletes the file |
+| `test/yin/vm/runtime_regression_test.cljc` | **[R]** requires `register`, `semantic`, `stack` directly (`:8-10`); the body never uses those aliases — every deftest iterates `vtu/vm-factories` (`:17`, `:46`, `:84`, `:121`). Drop the three requires; nothing else changes, and the tests keep running over the walker alone until `dao.runtime` R4 deletes the file |
 | `test/yin/vm/telemetry_test.cljc` | `eval-emits-step-and-halt-snapshots-across-cljc-vms-test` (`:50-56`) iterates a four-model map; reduce it to `:ast-walker` and drop the three requires (`:7-9`). The other four deftests already use only the walker |
 | `test/yin/repl_test.cljc` | `(vm :register)` at `:103` and `:142` becomes `(vm :ast-walker)` and the `"RegisterVM"` label assertion becomes `"ASTWalkerVM"`; the three `:semantic` default assertions at `:272`, `:296`, `:312` become `:ast-walker`. Add one deftest, see D1 |
 
@@ -123,8 +123,8 @@ live consumers; there are nine non-test, non-benchmark ones.
 | `test/yin/vm/semantic_test.cljc`, `register_test.cljc`, `stack_test.cljc`, `space_test.cljc` | contracts of deleted models. The first draft named only `space_test` |
 | `test/yin/vm/macro_test.cljc` | contract of the deleted engine; requires all four models |
 | `test/yang/macro_test.clj` | 3 of 4 deftests go through `semantic` with a macro registry. **[J]** the one walker-only test, `test-nested-defn-ast-walker` (`:186-196`), exercises `yang.clojure/compile-program` on nested `defn` and does not need macros; move it and the `compile-program-and-run` helper (`:23-30`) into `test/yang/clojure_test.clj` rather than lose it |
-| `test/yin/vm/parity_test.cljc` (v1) | 15 of 16 deftests compare the walker against the four models; the 16th, `stream-make-default-capacity-parity-test`, compares the walker's capacity to theirs. With one model there is no parity to assert. Delete whole. v2 parity is `test/yin/vm/v2/parity_test.cljc`, which requires v1 `ast-walker` only (`:16`) and is untouched |
-| `test/yin/vm/stream_listen_test.cljc` | its `datom-vms` factory (`:16-20`) is `semantic`/`register`/`stack` only; the walker is not in it. Delete whole. Ingress-on-a-stream for the walker is covered by `stream_driver_test` (v1) and `dao.stream.v2.observer`'s tests |
+| `test/yin/vm/parity_test.cljc` (v1) | 15 of 16 deftests compare the walker against the four models; the 16th, `stream-make-default-capacity-parity-test`, compares the walker's capacity to theirs. With one model there is no parity to assert. Delete whole. v2 parity is `test/yin/vm/parity_test.cljc`, which requires v1 `ast-walker` only (`:16`) and is untouched |
+| `test/yin/vm/stream_listen_test.cljc` | its `datom-vms` factory (`:16-20`) is `semantic`/`register`/`stack` only; the walker is not in it. Delete whole. Ingress-on-a-stream for the walker is covered by `stream_driver_test` (v1) and `dao.stream.observer`'s tests |
 | `test/datomworld/demo/continuation_handoff_test.cljc` | tests a deleted file |
 | `test/datomworld/demo/vm_state_keys_test.cljs` | requires `continuation-stream` (v1), `register`, `stack` |
 
@@ -142,13 +142,13 @@ touched.
 
 ### D1 — v1 `yin.repl` is migrated to `:ast-walker`, not deleted here [J]
 
-The brief asked whether v1 `yin.repl` is "fully superseded by `yin.repl.v2`
+The brief asked whether v1 `yin.repl` is "fully superseded by `yin.repl`
 and slated for its own deletion under a different plan". Verified against the
 tree:
 
-- `yin.repl.v2` is a twin, not an in-place migration
+- `yin.repl` is a twin, not an in-place migration
   (`dao.jing.remote.implementation-plan.md:90-92`;
-  `yin.repl.v2.implementation-plan.md:17-22` says v1 `yin.repl` is
+  `yin.repl.implementation-plan.md:17-22` says v1 `yin.repl` is
   "untouched, keep[s] running, and keep[s] their consumers ... until each
   consumer migrates under its own plan").
 - v1 `yin.repl`'s deletion is owed to "the v1 deletion, per `dao.stream.md`"
@@ -162,14 +162,14 @@ tree:
   `src/clj/yin/vm/telemetry_server/jvm.clj:5`,
   `src/cljs/yin/vm/telemetry_server/node.cljs:4`, `src/clj/yin/repl/runner.clj`,
   `bin/yin_repl_main.dart`, the `:yin-repl` shadow build (`shadow-cljs.edn:31`)
-  and three `deps.edn` aliases (`:68`, `:74`, `:101`). `src/cljd/yin/repl/v2/`
+  and three `deps.edn` aliases (`:68`, `:74`, `:101`). `src/cljd/yin/repl/`
   holds only `host.cljd`; there is no v2 Flutter widget.
 
 Deleting v1 `yin.repl` here would drag the Flutter GUI demos and both
 telemetry servers into a VM-deletion plan. Migrating it is five edits in
 `repl.cljc`, one in `flutter.cljd`, and six lines of test. So: migrate. The
 command surface becomes `(vm :ast-walker)`, the same shape
-`yin.repl.v2.core:50-53` already has, and the default changes from
+`yin.repl.core:50-53` already has, and the default changes from
 `:semantic` to `:ast-walker` — the same change the divergence register
 records as v2's user-visible change 1.
 
@@ -214,10 +214,10 @@ applied to v1.
 `dao.jing.remote.implementation-plan.md:1043-1044` and `dao.stream.md:806`
 leave "the demo surfaces" to their own plans. Both are read as: the surfaces
 migrate — get a v2 twin — under their own plan. For these two files the twin
-exists and is wired in (`continuation_handoff_v2.cljc`, `demo_v2.clj`), so
+exists and is wired in (`continuation_handoff.cljc`, `demo.clj`), so
 the migration is done and only the v1 file is left. A file with no consumer
 that requires a file this plan deletes has exactly one plan that can delete
-it: this one. `dao.runtime.v2.implementation-plan.md:219-223` names both as
+it: this one. `dao.runtime.implementation-plan.md:219-223` names both as
 v1-VM consumers gating R4, which this plan therefore clears.
 
 ### D3 — the three cljs browser demos are deleted here; the pipeline twin gets its frontends back first [J]
@@ -233,14 +233,14 @@ no other document plans their removal.
 offers Clojure, Python and PHP input (CodeMirror modes at `:2-3`, compilers
 `yang.python`/`yang.php` at `:19-20`, dispatch at `:862-863`, eight
 Python/PHP examples at `:894-917`, the selector at `:1552-1553`), while
-`compilation_pipeline_v2.cljs` compiles Clojure only (`:15`, `:40`). Deleting
+`compilation_pipeline.cljs` compiles Clojure only (`:15`, `:40`). Deleting
 v1 without more would silently remove Python and PHP from the public demo
 that `yin.chp` links to as "Try the Live Demo". That is a product regression,
 and nobody has signed off on one.
 
 **Disposition [J]:** the plan does not regress. Before v1 is deleted, port the
 language selector, the two compile branches, and the Python/PHP example
-snippets into `compilation_pipeline_v2.cljs`. The cost is small and the
+snippets into `compilation_pipeline.cljs`. The cost is small and the
 pieces are all in place: `yang.python/compile` and `yang.php/compile` are
 `.cljc` (`src/cljc/yang/`) and each returns a `:type`-keyed AST map
 (`python.cljc:402-404`, `php.cljc:519-521`) of the same shape
@@ -259,7 +259,7 @@ is v1-only chrome: an "Explainer Video" button that flips
 `:show-explainer-video?` in v1's own `app-state` (`compilation_pipeline.cljs:349-351`,
 modal at `:1816-1849`), and a "Layout" selector that drives v1's
 `relayout-ui!` pane-ratio system (`:1018-…`). The twin has neither a modal
-nor layout modes (`grep -n "explainer\|layout" compilation_pipeline_v2.cljs`
+nor layout modes (`grep -n "explainer\|layout" compilation_pipeline.cljs`
 is empty), so there is nothing in it for these controls to control; porting
 them means porting v1's layout machinery, which the paragraph above
 excludes. Both functions have no other caller in `src/` or `test/`. The video
@@ -348,7 +348,7 @@ An atomic commit exposes no partially-edited state.
 
 Port first (so the browser demo never loses a feature between commits, even
 though this lands as one commit): the Python/PHP frontends into
-`compilation_pipeline_v2.cljs` (D3).
+`compilation_pipeline.cljs` (D3).
 
 Delete:
 
@@ -375,8 +375,8 @@ the `:277-288` toolbar block), `test/yin/vm/test_utils.cljc`,
 
 Also in this change, because they describe the code being changed:
 
-- `src/cljc/yin/repl/v2/core.cljc:50-52` docstring and
-  `src/cljc/yin/vm/docs/yin.repl.v2.md:55-58` say the remaining evaluators
+- `src/cljc/yin/repl/core.cljc:50-52` docstring and
+  `src/cljc/yin/vm/docs/yin.repl.md:55-58` say the remaining evaluators
   "follow in the VM plan". They do not; rewrite to say they were deleted under
   this plan and `:ast-walker` is the only evaluator.
 - `src/cljc/yin/vm/docs/yin.repl.md:81` (v1 REPL command table) and
@@ -393,7 +393,7 @@ Also in this change, because they describe the code being changed:
   all pass; the `:demo` browser build compiles.
 - `clj -M:clj-yin-repl` starts; `(vm :ast-walker)` and `(reset)` work;
   `(vm :register)` reports the error naming `[:ast-walker]` as supported.
-- `clj -M -m yin.demo-v2` still prints 5050.
+- `clj -M -m yin.demo` still prints 5050.
 - **Flutter startup smoke (D1 item 3) [R]:** compile the real entry point,
   then run the app and take the picker route that reaches `start-server!`:
   ```
@@ -430,10 +430,10 @@ Historical documents get a one-line status note at the top, not a rewrite:
 
 Living documents get their facts corrected:
 
-- `docs/design/yin.vm.v2.divergence-register.md:30` says "`yin.vm.macro` was
+- `docs/design/yin.vm.divergence-register.md:30` says "`yin.vm.macro` was
   required only by `semantic`". It was required by all four models. Correct
   the sentence; the conclusion (the walker has no macro branch) stands.
-- `docs/design/dao.runtime.v2.implementation-plan.md:219-223`: strike the
+- `docs/design/dao.runtime.implementation-plan.md:219-223`: strike the
   consumers this plan cleared — `yin.demo`, `yin.vm.bytecode-bench`,
   `yin.register-bench-cljd`, `datomworld.demo.continuation-handoff`,
   `datomworld.demo.continuation-stream`, `datomworld.demo.compilation-pipeline`,
@@ -457,12 +457,12 @@ Every file this plan touches, in one list, so the reviewer can tick it:
   `bytecode_bench.clj`, 7 VM tests, `yang/macro_test.clj`,
   `continuation_handoff_test.cljc`, `vm_state_keys_test.cljs`, `wasm-vm.md`.
 - Migrated (9): `repl.cljc`, `flutter.cljd`, `demo.cljs`,
-  `compilation_pipeline_v2.cljs`, `test_utils.cljc`,
+  `compilation_pipeline.cljs`, `test_utils.cljc`,
   `runtime_regression_test.cljc`, `telemetry_test.cljc`, `repl_test.cljc`,
   `yang/clojure_test.clj`.
 - Config (1): `deps.edn` loses the five aliases `:bench`, `:profile`,
   `:profile-fast`, `:profile-cesk-space`, `:profile-ast-walker`.
-- Prose (14): the two `yin.repl.v2` sources, `yin.repl.md`,
+- Prose (14): the two `yin.repl` sources, `yin.repl.md`,
   `yin-repl-design.md`, `dao_gui.md`, the six historical docs, the divergence
   register, the dao.runtime plan.
 - Unchanged but verified (2): `public/chp/yin.chp:18` still resolves;
@@ -480,27 +480,27 @@ Every file this plan touches, in one list, so the reviewer can tick it:
 `yin.vm`, `yin.vm.{ast-walker, engine, ffi, telemetry, stream-driver,
 runtime-adapter}`, `dao.runtime`, and their tests. They are still required by
 v1 `yin.repl` (`repl.cljc:17-18`), `dao.await` (`await.cljc:25-27`) and
-`test/yin/vm/v2/parity_test.cljc:16` (v2 parity is asserted against v1 in the
+`test/yin/vm/parity_test.cljc:16` (v2 parity is asserted against v1 in the
 same process). Deleting them is the second slice of the v1 VM deletion that
 `dao.stream.md:806` assigns to this document's name; it needs v1 `yin.repl`'s
-consumers (D1) and `dao.await`'s migration to `dao.await.v2` resolved first,
+consumers (D1) and `dao.await`'s migration to `dao.await` resolved first,
 and no document schedules either.
 
 There are two different gates downstream of this plan. They are separated
 here.
 
-**Gate 1 — `dao.runtime.v2` R4, the VM gate.** R4 is "gated on v1
+**Gate 1 — `dao.runtime` R4, the VM gate.** R4 is "gated on v1
 `yin.vm.engine` no longer requiring `dao.runtime`, which is gated on the v1
-VM's ten consumers migrating" (`dao.runtime.v2.implementation-plan.md:352-354`,
+VM's ten consumers migrating" (`dao.runtime.implementation-plan.md:352-354`,
 census at `:219-223`). Of those ten, this plan clears eight (the seven struck
 in Phase 2 plus `datomworld.demo`) and leaves two: v1 `yin.repl` and
 `dao.await`. Plus one the runtime plan does not list because it is a test:
-`yin.vm.v2.parity-test`'s require of v1 `ast-walker`. **This plan does not
+`yin.vm.parity-test`'s require of v1 `ast-walker`. **This plan does not
 claim to open R4.** The first draft said it "fulfills the prerequisites for
 safely executing Phase R4"; it clears most of the gate and names what is left.
 
-**Gate 2 — the `dao.stream.v2` rename, the stream gate.** `dao.stream.md:790-796`
-renames `dao.stream.v2` to `dao.stream` only "when the last consumer has
+**Gate 2 — the `dao.stream` rename, the stream gate.** `dao.stream.md:790-796`
+renames `dao.stream` to `dao.stream` only "when the last consumer has
 migrated under its own plan and legacy `dao.stream` is deleted". That
 consumer list (`dao.stream.md:803-812`) is `yin.io`'s file transports with
 `dao.gui.event` and `dao.postgraphics.terminal`, `dao.runtime` (gate 1),
@@ -515,10 +515,10 @@ read as implying otherwise.
 | owed | by | recorded where |
 |---|---|---|
 | deletion of v1 `yin.repl` with `yin.repl.flutter`, both telemetry servers, `yin.repl.runner`, `bin/yin_repl_main.dart`, the `:yin-repl` build and its aliases | the v1 deletion, once `dao_gui.cljd`/`solar_system.cljd` have a v2 REPL widget or drop the REPL | `dao.stream.md` *remaining v1 consumers*; nothing more specific exists |
-| `dao.await` off v1 `yin.vm` | `dao.await`'s own plan (`dao.runtime.v2.implementation-plan.md:393-394`) | there |
+| `dao.await` off v1 `yin.vm` | `dao.await`'s own plan (`dao.runtime.implementation-plan.md:393-394`) | there |
 | v2 parity test off v1 `ast-walker` | the second VM deletion slice — parity against a deleted v1 needs pinned values instead | this table |
 | the second VM deletion slice (v1 walker lineage, then `dao.runtime` R4) | a successor to this plan, written when the three rows above are clear | this table; this is gate 1 |
-| the `dao.stream.v2` rename | whoever lands the last row of `dao.stream.md:803-812`; not a VM plan | `dao.stream.md:790-796`; this is gate 2 |
+| the `dao.stream` rename | whoever lands the last row of `dao.stream.md:803-812`; not a VM plan | `dao.stream.md:790-796`; this is gate 2 |
 | `equation_plotter`/`continuation_stream` v1→v2 feature diffs | this plan, Phase 0 | above |
 | whether the v2 pipeline should link the explainer video | the demo's owner; optional | D3 |
 | a v2 walker benchmark | nobody; optional | this table |
@@ -550,10 +550,10 @@ read as implying otherwise.
   `bin/register_bench_cljd.dart` given a deletion row; the Phase 0 sweep
   widened to three greps over `src test bin deps.edn bb.edn shadow-cljs.edn
   public`. D3's "assumption" replaced by the verified Python/PHP frontend gap
-  in `compilation_pipeline_v2.cljs`, with a port-before-delete disposition.
+  in `compilation_pipeline.cljs`, with a port-before-delete disposition.
   D5 added: `#pipeline`, `#plotter`, `#continuation` kept as alias routes so
   `yin.chp:18` keeps working. Boundary split into the R4 VM gate (this plan
-  clears eight of ten consumers) and the `dao.stream.v2` rename gate (this
+  clears eight of ten consumers) and the `dao.stream` rename gate (this
   plan clears four entries of a much longer list). Census: 28 → 31 files.
 - **2026-09-10, architect r1.** Consumer census added (28 files; the draft
   named 2). `wasm` dropped from the delete list — gone in `b8a6fce`. Phases 1

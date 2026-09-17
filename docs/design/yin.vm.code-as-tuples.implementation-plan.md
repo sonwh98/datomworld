@@ -53,7 +53,7 @@ corrected).
 
 ### What the brief got right
 
-- **No macro expander exists.** `src/cljc/yin/vm/v2/` holds
+- **No macro expander exists.** `src/cljc/yin/vm/` holds
   `ast_walker, code, engine, ffi, linearize, module, runtime_adapter,
   semantic, telemetry` and no `macro.cljc`; `grep` for `expand-batch`,
   `harvest`, `:incarnation` over `src/` returns nothing. `yin.vm.macro.md`
@@ -64,7 +64,7 @@ corrected).
   datoms and reads them through `vm/index-datoms` (`linearize.cljc:162-227`);
   `lower-ast` is `lower ∘ ast->datoms` (`:245-252`); `ast-loader` composes
   it in front of the semantic VM's datom loader (`:269-286`), chosen in
-  `yin.repl.v2.core/program-loaders` (`repl/v2/core.cljc:62-68`). Nothing in
+  `yin.repl.core/program-loaders` (`repl/v2/core.cljc:62-68`). Nothing in
   it touches a row.
 - **UCF has no implementation.** `:yin.k/`, `safepoint`, `dao.lease`,
   `:yin.code/contract`, `yin.ledger`, `yin.lower` — zero hits under `src/`
@@ -76,19 +76,19 @@ corrected).
 
 **[B] The row codec exists, is tested, and the round-trip law is already a
 passing test — item 13 is done, not "testable now."**
-`yin.vm.v2/ast->semantic-bytecode` and `semantic-bytecode->ast` live at
-`src/cljc/yin/vm/v2.cljc:590-826`, driven by `semantic-bytecode-grammar`
+`yin.vm/ast->semantic-bytecode` and `semantic-bytecode->ast` live at
+`src/cljc/yin/vm.cljc:590-826`, driven by `semantic-bytecode-grammar`
 (`:590-610`, all 17 §2.3 tags) and `semantic-bytecode-defaults` (`:613-620`,
 the §2.4 saturation table). They landed as `84f8eef` on 2026-09-16 after a
 five-round adversarial cycle (`docs/orchestrator-log.md:3389-3473`), then
-lost the `:global` tag in `c5cea20` (`:3510-3567`). `test/yin/vm/v2_test.cljc`
+lost the `:global` tag in `c5cea20` (`:3510-3567`). `test/yin/vm_test.cljc`
 carries 15 `semantic-bytecode-*` deftests over a 29-program canonical corpus
 that covers every tag (`:220-263`), including the numeric store key item 2
 demands (`:243`); `semantic-bytecode-round-trip-law` (`:266-271`) asserts
 both directions. `test/dao/space/query_test.cljc:1111-1320` runs Datalog
 over the codec's real output. The design's own §6.1 names the function.
 What the brief missed is exactly what a namespace grep for `codec` or
-`rows` misses: the code lives in `yin.vm.v2` itself under the name the
+`rows` misses: the code lives in `yin.vm` itself under the name the
 design gave it.
 
 **[B] What is missing on the row side is narrower and more specific than
@@ -370,7 +370,7 @@ and two independent model families: CBOR's supported-values set carries
 metadata, preserved via Boring's `clojure/with-meta` mapping, through
 every opaque-byte-copying backend. **What remains open, orthogonal to
 this decision**: the intake-stream half — rows arriving via
-`dao.stream.v2` Transit, which still carries no metadata, so a
+`dao.stream` Transit, which still carries no metadata, so a
 metadata-bearing row must reach Jing through a direct `materialize!` call
 rather than the ordinary observer/stream pool, or it is corrupted
 upstream of Jing regardless of which storage grain is chosen. U10 must
@@ -383,8 +383,8 @@ Item 3 says "the medium identity coordinate is whatever the composition
 names its program medium by; this document does not fix its shape." The
 sweep narrows what is available:
 
-- **Medium.** `dao.stream.v2` descriptors carry `:dao.stream/identity`, a
-  logical-stream identity (`dao/stream/v2.cljc:115,153,302`), already used by
+- **Medium.** `dao.stream` descriptors carry `:dao.stream/identity`, a
+  logical-stream identity (`dao/stream.cljc:115,153,302`), already used by
   `test_utils/make-observer-session` to attach. This is the obvious
   candidate and needs only a ruling that it is the coordinate.
 - **Batch.** This is the real gap. v2 cursors are opaque and positionless
@@ -467,11 +467,11 @@ U5 needs U4; U6 needs U4 and U5; U7 needs U2.
 frame shaped as `:eval-stream-cursor-source` (`ast_walker.cljc:319-326`),
 raising `{:effect :stream/close :stream ref}` through `engine/handle-effect`.
 Criteria: a parity case in `parity_test.cljc` closing a stream on both
-evaluators; `Testing yin.vm.v2.parity-test` in the Node output. Size: an
+evaluators; `Testing yin.vm.parity-test` in the Node output. Size: an
 afternoon.
 
 **U2 — the §7.4 validator and the malformed-row corpus.** A public
-`yin.vm.v2/validate-rows` (name per implementer) returning nil or the
+`yin.vm/validate-rows` (name per implementer) returning nil or the
 first defect `{:rule r :path p}` (or `:id` for an unreached row), rules in
 §7.4's order, each assuming the earlier held, mirroring `code/well-formed?`.
 `:slot-kind` gains `node` (`jing/segment-address?`), `data`/`key`
@@ -611,7 +611,7 @@ order-of-magnitude.
 and the §7.3.4 supersession note. A day, after the commit.
 
 **U13 — primitive profiles (item 11, UCF §7.11 blocker 7).** The profile
-record shape of UCF §7.5.2, `yin.vm.v2/primitives` published with one
+record shape of UCF §7.5.2, `yin.vm/primitives` published with one
 each (`yin/def` and `require` `:effectful`), reverse-lookup uniqueness at
 `create-vm`. A week; the design is UCF's, the registry format is unwritten.
 
@@ -664,8 +664,8 @@ of text the plan can draft; D4, D5 remain choices among stated options.
   over the parity corpus and a published malformed set for rows and
   vectors; the syntactic requirement set is equal from tree and segment;
   free names come from a root-scoped occurrence query over an emitted
-  relation. `Testing yin.vm.v2-test`, `yin.vm.v2.linearize-test`,
-  `yin.vm.v2.parity-test`, `dao.space.query-test` in the Node output;
+  relation. `Testing yin.vm-test`, `yin.vm.linearize-test`,
+  `yin.vm.parity-test`, `dao.space.query-test` in the Node output;
   `clj -M:test`, the shadow `:test` build and `clojure -M:cljd test` green
   (the CLJD lane was blocked on an unrelated bench-file bug at `84f8eef`
   and must be confirmed open before U2 lands).
@@ -765,7 +765,7 @@ telemetry or trace vocabulary; anything in the v1 lineage, which is gone.
 | UCF in git; UCF §7.6.1 amendments and the §7.3.4 supersession note (item 8) | owner, then U12 | D6 |
 | `ctx :incarnation` and token minting at construction (§8.4.1) | `yin.vm.macro.md`, its next revision | item 3; U16 |
 | a portable batch coordinate, or a ruling that none is needed | owner + `dao.stream.md` | D4 |
-| metadata on the intake-stream path (`dao.stream.v2` Transit still carries none — the storage/transport half is designed by `dao.jing.cbor.md`, fully reviewed 2026-09-17, not yet built) | `dao.jing.md`'s open item | U10 |
+| metadata on the intake-stream path (`dao.stream` Transit still carries none — the storage/transport half is designed by `dao.jing.cbor.md`, fully reviewed 2026-09-17, not yet built) | `dao.jing.md`'s open item | U10 |
 | the primitive-profile registry format | UCF §7.5.2/§7.11 | U13 |
 | a data structure for the work-item fixed point | a design round before U14 | item 5 |
 | `macro.md` header revision (3 → 8) and its stale "semantic/linearize do not exist yet" (`:1015`) | `yin.vm.macro.md` status note | Phase 0 may add the note |
@@ -824,6 +824,6 @@ telemetry or trace vocabulary; anything in the v1 lineage, which is gone.
   {:root :rows}`) and `:yin.k/carried` (unchanged, per UCF §7.3.4) are
   both named directly by this answer. The metadata-carry prerequisite's
   storage/transport half is now designed (not built) by
-  `dao.jing.cbor.md`; its intake-stream half (`dao.stream.v2` Transit
+  `dao.jing.cbor.md`; its intake-stream half (`dao.stream` Transit
   still carries no metadata) remains open and orthogonal to this
   decision, owed to U10 to name which ingestion path it uses.

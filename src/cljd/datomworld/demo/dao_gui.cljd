@@ -2,8 +2,8 @@
   (:require ["package:flutter/material.dart" :as m]
             [dao.gui.compiler :as dao.gui]
             [dao.postgraphics.flutter :as pg]
-            [dao.stream.v2.ringbuffer :as rb]
-            [yin.repl.v2.flutter :as flutter-repl]))
+            [dao.stream.ringbuffer :as rb]
+            [yin.repl.flutter :as flutter-repl]))
 
 
 (def ^:private frame-stream
@@ -287,7 +287,7 @@
                     .children
                     [(flutter-repl/info-card {}) (m/SizedBox .height 8.0)
                      (mono
-                       "1. Run `mise exec -- clj -M:clj-yin-repl-v2` on your desktop.")
+                       "1. Run `mise exec -- clj -M:clj-yin-repl` on your desktop.")
                      (mono (str
                              "2. Connect with `(connect \"daostream:ws://<ip>:"
                              flutter-repl/default-port

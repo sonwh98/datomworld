@@ -70,7 +70,7 @@ Quick reference for the Universal AST node types. See [ast.md](ast.md) for detai
 
 ## Quick Examples
 
-> **Status (2026-09-16):** these examples use the v1 `yin.vm` / `yin.vm.ast-walker` API, deleted by `yin.vm.v1-retirement.implementation-plan.md`; the live evaluator is `yin.vm.v2` (see `test/yin/vm/v2/test_utils.cljc` for how to run an AST).
+> **Status (2026-09-16):** these examples use the v1 `yin.vm` / `yin.vm.ast-walker` API, deleted by `yin.vm.v1-retirement.implementation-plan.md`; the live evaluator is `yin.vm` (see `test/yin/vm/test_utils.cljc` for how to run an AST).
 
 ### Evaluate a Literal
 ```clojure

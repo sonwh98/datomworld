@@ -11,7 +11,7 @@ claims cite the measured figures in `docs/cesk-space-optimization.md`;
 proposed machinery names the existing seam it would land in.
 
 **`yin.vm.space`, `register`, `stack` and their `clj -M:bench` harness are
-deleted** (`yin.vm.v2-consumers.implementation-plan.md`, 2026-09-10); every
+deleted** (`yin.vm-consumers.implementation-plan.md`, 2026-09-10); every
 reference to them below is historical, including the register-baseline
 fusion prototype in §5.3.
 

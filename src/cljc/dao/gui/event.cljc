@@ -15,7 +15,7 @@
             [dao.gui.event.keyboard :as keyboard]
             [dao.gui.event.pointer :as pointer]
             [dao.gui.event.trace :as trace]
-            [dao.stream.v2 :as ds]))
+            [dao.stream :as ds]))
 
 
 (def state-version 2)

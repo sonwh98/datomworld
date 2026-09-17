@@ -266,11 +266,11 @@ ever treated as a mutable root.
 
 ## Cursor tracking and recovery
 
-The observation step is `dao.stream.v2.observe`, shared with `forward` and
+The observation step is `dao.stream.observe`, shared with `forward` and
 the VM. `dao.jing/observe-step!` polls the pool round-robin and processes at
 most one payload per pool walk.
 
-The `dao.stream.v2.observe/step` core runs the materialization effect before
+The `dao.stream.observe/step` core runs the materialization effect before
 advancing the cursor. If materialization throws, the exception propagates
 before the cursor is advanced, so the caller's state is untouched and the
 same payload is reprocessed from the same cursor once the backend succeeds.
@@ -423,9 +423,9 @@ encoder is transitional until the pinned canonical byte encoding lands.
 - **ClojureDart's `list` mints metadata.** On ClojureDart, `(list ...)` and
   `(apply list ...)` return a list carrying `cljd.core`'s own reader metadata
   (`{:line … :column … :end-line … :end-column … :tag PersistentList}`).
-  `order-normalize`, `yin.vm.v2`'s semantic-bytecode projection, and the
-  ClojureDart Transit decoders (`dao.stream.v2.transit.cljd` behind
-  `dao.stream.v2.ws`'s incoming frames, and the older `dao.stream.transit`)
+  `order-normalize`, `yin.vm`'s semantic-bytecode projection, and the
+  ClojureDart Transit decoders (`dao.stream.transit.cljd` behind
+  `dao.stream.ws`'s incoming frames, and the older `dao.stream.transit`)
   clear metadata on the lists they mint, so neither normalization nor a list
   decoded off the wire fabricates it. Any other Dart code that builds a
   payload with `list` still hands `dao.jing` that metadata, and its `:tag`
@@ -448,7 +448,7 @@ encoder is transitional until the pinned canonical byte encoding lands.
   Metadata is now address-significant in the transitional encoder, but no
   durable backend or wire codec in the system carries metadata today: the
   file backend (`dao/jing/file.cljc`) writes payloads with plain `pr-str`,
-  and the transit codec (`dao/stream/v2/transit.cljc`) states metadata is not
+  and the transit codec (`dao/stream/transit.cljc`) states metadata is not
   on the wire and its portable-value check admits metadata-bearing
   collections without complaint. A metadata-bearing payload therefore passes
   `materialize!`'s put validation, is written with its metadata silently

@@ -2,7 +2,7 @@
 
 > **Status (2026-09-16):** this describes v1 `yin.repl`, deleted by
 > `yin.vm.v1-retirement.implementation-plan.md` U6. The live REPL is
-> `yin.repl.v2`; see `yin.repl.v2.implementation-plan.md`.
+> `yin.repl`; see `yin.repl.implementation-plan.md`.
 
 ## Overview
 
@@ -61,7 +61,7 @@ The **portable core** (`src/cljc/yin/repl.cljc`) contains all shell logic:
 The shell maintains a state atom:
 
 ```clojure
-{:vm-type         :ast-walker            ; VM backend (ast-walker is the only one; yin.vm.v2-consumers.implementation-plan.md deleted the rest)
+{:vm-type         :ast-walker            ; VM backend (ast-walker is the only one; yin.vm-consumers.implementation-plan.md deleted the rest)
  :lang            :clojure               ; Input language (clojure | python | php)
  :vm              <vm-instance>          ; Current VM instance (store persists across evals)
  :telemetry-stream nil | <dao.stream>    ; Stream for VM telemetry datoms
@@ -155,7 +155,7 @@ Expose the shell as a WebSocket server. Accept remote clients and dispatch `:op/
 
 `:ast-walker` is the only supported VM backend; the others
 (`:semantic`, `:register`, `:stack`, `:space`) were deleted under
-`yin.vm.v2-consumers.implementation-plan.md`. Warns that `:store` state is
+`yin.vm-consumers.implementation-plan.md`. Warns that `:store` state is
 lost and creates a fresh VM.
 
 ```clojure

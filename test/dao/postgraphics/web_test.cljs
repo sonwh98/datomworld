@@ -2,8 +2,8 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [dao.postgraphics.terminal :as terminal]
             [dao.postgraphics.web :as web]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.ringbuffer :as rb]))
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as rb]))
 
 
 (defn- make-stream

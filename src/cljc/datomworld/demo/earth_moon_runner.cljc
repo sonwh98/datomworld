@@ -6,7 +6,7 @@
    and the simulated-seconds math all live here so behavior stays in
    sync between frontends."
   (:require [dao.postgraphics.terminal :as terminal]
-            [dao.stream.v2.ringbuffer :as rb]
+            [dao.stream.ringbuffer :as rb]
             [datomworld.demo.earth-moon-scene :as scene]
             #?(:cljs [reagent.core :as r])))
 

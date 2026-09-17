@@ -388,7 +388,7 @@ indexes and saves them to storage; here that duty is decentralized with the rest
 Transactor. Indexing has two stages, mirroring Datomic's memory-index → disk-index pipeline
 but without a central transactor process:
 
-1. **Append** — the agent's writes land in its own local `dao.stream.v2`
+1. **Append** — the agent's writes land in its own local `dao.stream`
    memory-log as atomic transaction records (see
    [`dao.space.transactor`](dao.space.transactor.md)). The local stream is
    authoritative for the logical stream's process lifetime — the watermark and
@@ -439,7 +439,7 @@ scopes behave differently, and the difference is the point:
   available: content addressing deduplicates a re-emitted prefix, and the
   manifest is appended last.
 - **The process fails.** The local stream is a process-lifetime
-  `dao.stream.v2` memory-log and the intake streams are in-memory handles,
+  `dao.stream` memory-log and the intake streams are in-memory handles,
   so un-published local contents — and intake payloads a DaoJing observer
   has not yet materialized — may be lost; nothing tails a dead handle.
   Recovery has only what DaoJing has fully materialized: a restarted
@@ -514,7 +514,7 @@ while each stream remains
 a single-writer log with no shared write surface; and `publish!` delegates to
 `dao.space.index/publish-index!`, which snapshots the local stream and enqueues the covered
 indexes through the intake pool. The local stream must be created by
-`dao.stream.v2.memory-log/create!` — its declared complete retention is why
+`dao.stream.memory-log/create!` — its declared complete retention is why
 publication's snapshot reads from the origin; the reader/writer surface
 checks `create!` performs do not establish that retention. `create!` writes
 no registration record. The caller
@@ -525,9 +525,9 @@ merge can collide stream-local entity ids:
 ```clojure
 (require '[dao.jing :as jing]
          '[dao.jing.file :as file]
-         '[dao.stream.v2 :as stream]
-         '[dao.stream.v2.memory-log :as memory-log]
-         '[dao.stream.v2.ringbuffer :as ringbuffer]
+         '[dao.stream :as stream]
+         '[dao.stream.memory-log :as memory-log]
+         '[dao.stream.ringbuffer :as ringbuffer]
          '[dao.space.index :as index]
          '[dao.space.query :as query]
          '[dao.space.transactor :as transactor])

@@ -449,7 +449,7 @@ with its three residuals (symbol metadata not address-significant,
 pathological print collisions, ambient print-var leakage), byte-array
 identity hashing, and metadata carriage for the file/remote/DHT codecs —
 and which stay open: the intake transport's portable domain still carries
-no metadata, byte strings, or rich numerics (`dao.stream.v2` Transit), so
+no metadata, byte strings, or rich numerics (`dao.stream` Transit), so
 such payloads reach Jing only through direct `materialize!` calls and the
 intake fail-closed rule carries forward unchanged. The ClojureDart `list`
 producer obligation likewise carries forward, as *Encoding contract*

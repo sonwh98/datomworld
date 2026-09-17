@@ -3,8 +3,8 @@
    (docs/design/dao.data.md)."
   (:require [clojure.test :refer [are deftest is testing]]
             [dao.data :as data]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.ringbuffer :as ringbuffer]))
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ringbuffer]))
 
 
 (def bounds

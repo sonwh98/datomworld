@@ -1,0 +1,77 @@
+(ns dao.runtime.driver
+  "Composition-side cadence for dao.runtime on JS hosts.
+
+   The runtime never schedules itself; this namespace is one answer to \"what
+   calls run-loop again, and when\": run-pending! on the next microtask when
+   work is at hand, on one timer at the configured interval when only the
+   wait set remains. The driver holds no state of its own — no defonce, no
+   set-runtime!: make-driver returns a value the host keeps in an atom the
+   host creates, and every function here takes that atom. At most one
+   continuation (microtask or timer) is pending at any moment: run-pending!
+   cancels the timer it holds before arming another, and schedule-work!
+   cancels a pending poll timer so ready work runs on the next microtask
+   instead of one cadence later."
+  (:require [dao.runtime :as rt]))
+
+
+(defn make-driver
+  "Returns a driver state: the runtime state under :rt, the continuation
+   flags, the live timer handle, and the poll interval in ms. The host holds
+   it in an atom the host creates."
+  ([] (make-driver 20))
+  ([poll-ms]
+   {:rt (rt/initial-state)
+    ;; A continuation (microtask or timer) is pending.
+    :scheduled? false
+    ;; The pending continuation is a poll timer.
+    :polling? false
+    :timer nil
+    :poll-ms poll-ms}))
+
+
+(defn- cancel-timer!
+  "Cancel the live timer, if any, and forget it."
+  [driver-atom]
+  (when-let [timer (:timer @driver-atom)]
+    (js/clearTimeout timer)
+    (swap! driver-atom assoc :timer nil)))
+
+
+(defn run-pending!
+  "One tick: take over the continuation slot, run rt/run-loop, and when the
+   wait set is not empty afterwards arm one timer at the configured interval,
+   so parked tasks are retried on cadence without external work.
+
+   rt/run-loop returns with a non-empty ready queue only when its head is
+   host-owned; the composition that put it there reads it off, and nothing is
+   scheduled past it."
+  [driver-atom]
+  (cancel-timer! driver-atom)
+  (swap! driver-atom assoc :scheduled? false :polling? false)
+  (let [next-rt (rt/run-loop (:rt @driver-atom))]
+    (swap! driver-atom assoc :rt next-rt)
+    (when (seq (:wait-set next-rt))
+      (let [timer (js/setTimeout (fn [] (run-pending! driver-atom))
+                                 (:poll-ms @driver-atom))]
+        (swap! driver-atom assoc
+               :scheduled? true
+               :polling? true
+               :timer timer)
+        ;; A poll timer must not hold the Node event loop open by itself.
+        (when (and (exists? js/process) (.-unref timer))
+          (.unref timer))))))
+
+
+(defn schedule-work!
+  "Enqueue entries and make sure a run-pending! continuation is coming.
+   Coalesces: when a microtask continuation is already pending, later calls
+   only enqueue. When the pending continuation is a poll timer, cancel it —
+   ready work runs on the next microtask, not one cadence later — and
+   run-pending! re-arms the timer if the wait set still needs it."
+  [driver-atom entries]
+  (swap! driver-atom update :rt rt/enqueue-ready entries)
+  (let [driver @driver-atom]
+    (when (or (not (:scheduled? driver)) (:polling? driver))
+      (when (:polling? driver) (cancel-timer! driver-atom))
+      (swap! driver-atom assoc :scheduled? true :polling? false)
+      (js/queueMicrotask (fn [] (run-pending! driver-atom))))))

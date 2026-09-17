@@ -1,6 +1,6 @@
 # dao.space.transactor — The Agent-Side Transactor
 
-Status: implemented on `dao.stream.v2` (migrated 2026-09-09; the v1
+Status: implemented on `dao.stream` (migrated 2026-09-09; the v1
 `:transactor` DaoStream type it replaces is deleted). This document is the
 permanent record of the transactor's contract: what a transactor is, the
 invariants its tests pin, where durability lives, and the one wiring
@@ -15,7 +15,7 @@ requirement a host composition must honour. The executable contract is
 - `docs/design/dao.space.schema.md` — the validating wrapper that owns a
   transactor value
 - `docs/design/dao.jing.md` — the storage boundary publication targets
-- `docs/design/dao.stream.md` and `docs/design/dao.stream.v2.md` — the
+- `docs/design/dao.stream.md` and `docs/design/dao.stream.md` — the
   contract this namespace consumes
 
 ## A transactor is a value, not a stream
@@ -29,7 +29,7 @@ descriptor boundary v2 requires, so it was never a descriptor; its options
 map is now the constructor's plain **spec**:
 
 ```clojure
-(require '[dao.stream.v2.memory-log :as memory-log]
+(require '[dao.stream.memory-log :as memory-log]
          '[dao.space.transactor :as transactor])
 
 (def local (:dao.stream/handle
@@ -47,7 +47,7 @@ map is now the constructor's plain **spec**:
 ```
 
 There is no registry and no `open!` dispatch: `create!` is a plain function,
-following `query/open-published!`. A transactor implements no dao.stream.v2
+following `query/open-published!`. A transactor implements no dao.stream
 protocol at all — it is not on a stream, so it has no identity to project.
 `next` was pure delegation on a handle the caller still holds, and `closed?`
 is *Explicitly Absent* in v2 because "a predicate answer is stale the moment
@@ -110,7 +110,7 @@ is pinned by a writer double rather than left untested.
 ## T18: the local-log wiring requirement
 
 > The host composition supplies `dao.space` a local handle created by
-> `dao.stream.v2.memory-log/create!`. Its declared complete retention makes
+> `dao.stream.memory-log/create!`. Its declared complete retention makes
 > fresh `:oldest` cursors true origin cursors for `derive-next-t` and
 > `publish-index!`; supplying an evicting transport is a host-assembly defect.
 

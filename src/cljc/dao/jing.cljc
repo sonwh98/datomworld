@@ -9,16 +9,16 @@
    content addresses; arbitrary keys and mutable roots are outside DaoJing.
 
    The observer (observer-state / observe-step! / adopt-cursor) coordinates
-   an explicit intake pool of dao.stream.v2 reader handles and materializes
-   every payload through dao.stream.v2.observe/step. Pool membership and
+   an explicit intake pool of dao.stream reader handles and materializes
+   every payload through dao.stream.observe/step. Pool membership and
    every member's initial cursor are supplied by the caller; statuses and
    the scheduling index are ordinary immutable data. There are no atoms,
    globals, registration, or discovery, and the source stream never enters
    an address or a stored value."
   (:refer-clojure :exclude [get])
   (:require [clojure.string :as str]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.observe :as observe]
+            [dao.stream :as stream]
+            [dao.stream.observe :as observe]
             #?@(:cljs [[goog.crypt :as crypt] goog.crypt.Sha256])
             #?@(:cljd [["dart:convert" :as convert]])))
 
@@ -421,7 +421,7 @@
 (defn observer-state
   "Construct the observer state for an explicit intake pool.
 
-   members is a sequence of {:stream <dao.stream.v2 reader handle> :cursor
+   members is a sequence of {:stream <dao.stream reader handle> :cursor
    <opaque>} entries. The composition mints each cursor itself, from an
    anchor of its choosing, and hands it in; DaoJing never fabricates one.
    Returns plain data, no atoms or registration:
@@ -446,7 +446,7 @@
                                {:member member})))
                     (when-not (stream/reader? (:stream member))
                       (throw (ex-info
-                               "dao.jing pool member requires a dao.stream.v2 reader"
+                               "dao.jing pool member requires a dao.stream reader"
                                {:member member})))
                     {:stream (:stream member),
                      :cursor (:cursor member),
@@ -468,9 +468,9 @@
 
 (defn observe-step!
   "Walk the intake pool once from (:next state) and process at most one
-   payload, through dao.stream.v2.observe/step with materialize! as the
+   payload, through dao.stream.observe/step with materialize! as the
    effect. Returns {:state next-state :signal s ...} where the signal is
-   drawn from the same seven outcomes dao.stream.v2 declares for next:
+   drawn from the same seven outcomes dao.stream declares for next:
 
      {:signal :dao.stream/ok, :address a}
        a payload was materialized; the member advanced to the successor

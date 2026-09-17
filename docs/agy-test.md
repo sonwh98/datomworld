@@ -58,7 +58,7 @@ While high-level macro integration, basic stream transports, and query contracts
 
 ### 5. ~~`yin.vm.wasm` Boundary & OOM Fuzzing~~ — Obsolete
 `yin.vm.wasm` and `test/yin/vm/wasm_test.cljc` were deleted 2026-09-08
-(`b8a6fce`), before this item was ever actionable; `yin.vm.v2-consumers.implementation-plan.md`
+(`b8a6fce`), before this item was ever actionable; `yin.vm-consumers.implementation-plan.md`
 (2026-09-10) records it. There is no WASM backend to fuzz.
 
 ---

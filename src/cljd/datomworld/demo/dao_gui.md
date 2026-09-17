@@ -38,7 +38,7 @@ The examples below use `mise exec --` so they work even if your shell is not act
 The Flutter app runs generated Dart from `lib/cljd-out`, so compile CLJD before starting the app:
 
 ```bash
-mise exec -- clj -M:cljd compile yin.repl.v2.flutter datomworld.demo.dao-gui datomworld.demo.main
+mise exec -- clj -M:cljd compile yin.repl.flutter datomworld.demo.dao-gui datomworld.demo.main
 ```
 
 ## 2. Clean and run the app
@@ -117,7 +117,7 @@ iproxy 7778 7778
 Start a JVM Yin REPL:
 
 ```bash
-mise exec -- clj -M:clj-yin-repl-v2
+mise exec -- clj -M:clj-yin-repl
 ```
 
 Connect to the Flutter app (Android):
@@ -178,7 +178,7 @@ If the desktop REPL says `Connected...` but evaluation times out:
    ```
 3. Recompile CLJD and fully restart the app:
    ```bash
-   mise exec -- clj -M:cljd compile yin.repl.v2.flutter datomworld.demo.dao-gui datomworld.demo.main
+   mise exec -- clj -M:cljd compile yin.repl.flutter datomworld.demo.dao-gui datomworld.demo.main
    mise exec -- flutter clean
    mise exec -- flutter run
    ```

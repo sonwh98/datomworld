@@ -8,9 +8,9 @@ siblings) — by giving every live consumer a v2 shape, deleting every dead one,
 and then deleting v1 in one change. It is the last gate on the rename wave that
 [`dao.stream.md`](./dao.stream.md) (*The v2 namespace is transient*),
 [`yin.vm.v1-retirement.implementation-plan.md`](./yin.vm.v1-retirement.implementation-plan.md)
-D5, and [`dao.runtime.v2.implementation-plan.md`](./dao.runtime.v2.implementation-plan.md)
-R4 all defer to it: `dao.stream.v2`, `dao.runtime.v2`, `dao.await.v2`,
-`yin.vm.v2`, `yin.repl.v2` lose their suffix together, "when the last consumer
+D5, and [`dao.runtime.implementation-plan.md`](./dao.runtime.implementation-plan.md)
+R4 all defer to it: `dao.stream`, `dao.runtime`, `dao.await`,
+`yin.vm`, `yin.repl` lose their suffix together, "when the last consumer
 has migrated." Subordinate to `dao.stream.md`, which is the authority on what
 any v1 replacement must uphold.
 
@@ -62,7 +62,7 @@ corrected). Line numbers are as of the sweep.
 - **`dao.space` and `dao.jing` are done.** Every `dao.stream` token in
   `dao.space.{index, query, schema, transactor}`, `dao.jing`, `dao.jing.remote`,
   `dao.data` is a `:dao.stream/…` outcome keyword or docstring prose; their
-  requires name `dao.stream.v2` or no stream namespace. `dao.jing.file`
+  requires name `dao.stream` or no stream namespace. `dao.jing.file`
   states in its own docstring that "no dao.stream namespace is required"
   (`file.cljc:21-24`). Not scheduled.
 - **`telemetry_viewer.cljs` is dead** — confirmed and expanded under D1.
@@ -71,11 +71,11 @@ corrected). Line numbers are as of the sweep.
   specify the 3D vocabulary, precision pass, and textures/lighting of the
   graphics *language*; they mention `dao.stream` zero, one and one times, in
   passing. Nothing in them describes a stream migration. Not scheduled.
-- **The v2 demo surfaces exist where the brief hoped**: `dao.stream.v2.ws.browser`
-  (U4 of the VM plan) and `yin_repl_v2.cljs` are in the tree, and
-  `datomworld.demo.continuation-transport-v2` is a complete v2 twin of
+- **The v2 demo surfaces exist where the brief hoped**: `dao.stream.ws.browser`
+  (U4 of the VM plan) and `yin_repl.cljs` are in the tree, and
+  `datomworld.demo.continuation-transport` is a complete v2 twin of
   `datomworld.continuation-transport` whose docstring names the three v1
-  idioms it drops (`continuation_transport_v2.cljc:2-24`).
+  idioms it drops (`continuation_transport.cljc:2-24`).
 
 ### What the brief got wrong
 
@@ -88,7 +88,7 @@ handlers: each `ds/open!`s a v1 file transport and registers itself into
 reader of that registry was the v1 VM's `handle-effect`, deleted on
 2026-09-16. Today `module/get-effect-handler` and `module/resolve-module` are
 called from `test/yin/module_test.cljc` and nowhere else in `src/`; the v2 VM
-carries its own registry *value* (`yin.vm.v2.module`, "nothing in this
+carries its own registry *value* (`yin.vm.module`, "nothing in this
 namespace runs at load time, and nothing registers itself") and registers a
 `stream` module explicitly with no `io` module at all
 (`v2/module.cljc:125-135`). `yin.stream` (22 lines) registers a `'yin.stream`
@@ -117,11 +117,11 @@ namespace grep misses them; they are the two host halves of the terminal port
 **The WebSocket demo pair and the v1 continuation transport are superseded,
 not unmigrated.** `datomworld.continuation-transport` has exactly one
 consumer, its own test; the live continuation demo already runs on the v2
-twin (`continuation_stream_v2.cljs:38`, `continuation_handoff_v2_test.cljc:6`).
+twin (`continuation_stream.cljs:38`, `continuation_handoff_test.cljc:6`).
 `ws_demo_server.clj` and `ws_client_demo.cljs` demonstrate v1 `dao.stream.apply`
 over v1 `dao.stream.ws`; the same demonstration exists on v2 as the R5
-cross-host slice (`test/dao/stream/v2/slice_peer.cljc`, `slice_test.{clj,cljs,cljd}`,
-built by `bb build:yin-repl-v2-peer`) and as `yin.repl.v2 --port --headless`
+cross-host slice (`test/dao/stream/slice_peer.cljc`, `slice_test.{clj,cljs,cljd}`,
+built by `bb build:yin-repl-peer`) and as `yin.repl --port --headless`
 with the browser client. Decision D6.
 
 **Config and launch surfaces the brief did not name**: the `:bench`,
@@ -193,22 +193,22 @@ brief named about forty.
 | file | requires | why deletion, not migration | unit |
 |---|---|---|---|
 | `src/cljs/yin/vm/telemetry_viewer.cljs` (329), `test/yin/vm/telemetry_viewer_test.cljs`, `public/telemetry-viewer.html` | v1 `dao.stream`, `apply`, `ws` | D1: its servers were deleted 2026-09-16; already delisted from the picker | U1 |
-| `src/cljc/datomworld/continuation_transport.cljc` (99), `test/datomworld/continuation_transport_test.cljc` | v1 ring buffer | twin `demo/continuation_transport_v2.cljc` is the live demo's transport; no other consumer | U1 |
-| `src/clj/datomworld/ws_demo_server.clj`, `src/cljs/datomworld/ws_client_demo.cljs`, `bin/{run-ws-demo, start-ws-server, run-ws-client}.sh`, `docs/ws-demo.md` | v1 `apply` over v1 `ws` | D6: the R5 slice and `yin.repl.v2` demonstrate the same thing on v2 | U1 |
+| `src/cljc/datomworld/continuation_transport.cljc` (99), `test/datomworld/continuation_transport_test.cljc` | v1 ring buffer | twin `demo/continuation_transport.cljc` is the live demo's transport; no other consumer | U1 |
+| `src/clj/datomworld/ws_demo_server.clj`, `src/cljs/datomworld/ws_client_demo.cljs`, `bin/{run-ws-demo, start-ws-server, run-ws-client}.sh`, `docs/ws-demo.md` | v1 `apply` over v1 `ws` | D6: the R5 slice and `yin.repl` demonstrate the same thing on v2 | U1 |
 | `test/dao/test_utils.cljc` | v1 `dao.stream` | orphaned by R4 | U1 |
-| `test/datomworld/demo/artifact_stream_test.cljs` | v1 ring buffer | asserts v1 eviction semantics; `test/dao/stream/v2/ringbuffer_test.cljc` covers the v2 ones | U1 |
-| `test/dao/stream_bench.cljc` | v1 `dao.stream` | orphan bench of a deleted implementation; `test/bench/yin_vm_v2_bench.cljc` is the live bench | U1 |
+| `test/datomworld/demo/artifact_stream_test.cljs` | v1 ring buffer | asserts v1 eviction semantics; `test/dao/stream/ringbuffer_test.cljc` covers the v2 ones | U1 |
+| `test/dao/stream_bench.cljc` | v1 `dao.stream` | orphan bench of a deleted implementation; `test/bench/yin_vm_bench.cljc` is the live bench | U1 |
 | `src/cljc/agent/tzu.cljc` (397), `src/cljc/agent/tools.cljc` (236), `test/agent/{tzu,tools}_test.cljc`, `src/cljc/agent/{llm-configuration.md, env.example.sh}` | v1 `http` via blocking `take!!`, v1 `ringbuffer`, `file-*-stream` | **[J — owner decision]** D2 | U2 |
 | `src/cljc/yin/module.cljc` (114), `src/cljc/yin/stream.cljc` (22), `src/cljc/yin/io/{file, file_input_stream, file_output_stream}.cljc`, `test/yin/module_test.cljc` | v1 `file*` transports; a registry nothing reads | **[J — owner decision]** D3 | U2 |
-| `src/cljc/dao/stream.cljc` and the twenty transport files named in the header | — | the implementation itself; `dao.stream.v2/*` is the twin | U6 |
-| `test/dao/stream_test.cljc`, `test/dao/stream/{apply, file, http, link, rpc, transit, ws}_test.cljc`, `test/dao/stream/{file_input_stream, file_output_stream}_test.clj`, `test/dao/stream/rpc/retry_dedup_test.cljc` (2,058 lines) | v1 | contracts of deleted files; `test/dao/stream/v2/**` (19 files) is the twin suite | U6 |
+| `src/cljc/dao/stream.cljc` and the twenty transport files named in the header | — | the implementation itself; `dao.stream/*` is the twin | U6 |
+| `test/dao/stream_test.cljc`, `test/dao/stream/{apply, file, http, link, rpc, transit, ws}_test.cljc`, `test/dao/stream/{file_input_stream, file_output_stream}_test.clj`, `test/dao/stream/rpc/retry_dedup_test.cljc` (2,058 lines) | v1 | contracts of deleted files; `test/dao/stream/**` (19 files) is the twin suite | U6 |
 
 ### Unchanged, named so the reader can check
 
-- `yang.clojure`, `yang.python`, `yin.vm.v2.*`: the `:dao.stream.apply/call`
+- `yang.clojure`, `yang.python`, `yin.vm.*`: the `:dao.stream.apply/call`
   AST node, above.
-- `dao.space.*`, `dao.jing.*`, `dao.data`, `dao.runtime.v2`, `dao.await.v2`,
-  `yin.repl.v2.*`, `yin.vm.v2.*`, every `*_v2` demo: `:dao.stream/…`
+- `dao.space.*`, `dao.jing.*`, `dao.data`, `dao.runtime`, `dao.await`,
+  `yin.repl.*`, `yin.vm.*`, every `*_v2` demo: `:dao.stream/…`
   keywords only.
 - `src/cljc/datomworld/demo/artifact_runner.cljc`: requires `dao.gui.event`
   and no stream namespace; `advance-until-progress` reads only `:status`
@@ -235,7 +235,7 @@ already carries the 2026-09-16 status note saying "nothing serves it".
 Migrating a client of nothing onto v2 would produce a v2 client of nothing:
 v2 telemetry emission does not exist (VM plan D2) and is owed to its own
 plan, and when that plan builds a viewer it will build it against the v2
-wire and `yin.repl.v2`'s served stream, not port this file.
+wire and `yin.repl`'s served stream, not port this file.
 
 Deletion set: the two `.cljs` files, `public/telemetry-viewer.html`, the
 `:telemetry-viewer` shadow build, the `demo.cljs` require, card, hash route
@@ -306,7 +306,7 @@ registry is a value the composition supplies, with a `stream` module and no
 `io` module. `dao.stream.file.md` is the v1 design of the live-tail file
 transport `yin.io.file` opens; it names `yin.io.file-output-stream` and the
 `register-module!` calls as its integration (`:302-307,417`). v2 has no
-file transport. What v2 has instead is `dao.stream.v2.memory-log` for the
+file transport. What v2 has instead is `dao.stream.memory-log` for the
 complete-history local log and `dao.jing.file` for durability, and
 `dao.jing.file`'s own docstring is explicit that "the durable log is not a
 stream". A v2 file *transport* is therefore not a gap this plan is filling;
@@ -317,9 +317,9 @@ it is a transport nobody has designed and no consumer asks for.
 implementation deleted, no v2 twin owed by this plan). **Alternative:** keep
 the three `yin.io` namespaces as prose-only placeholders — rejected as
 written, because a namespace that registers into nothing is exactly the
-load-time side effect `yin.vm.v2.module` was written to remove. If the owner
+load-time side effect `yin.vm.module` was written to remove. If the owner
 wants file IO for Yin programs, the shape is an `io` module in
-`yin.vm.v2.module` whose effect handler opens a **v2** file transport; both
+`yin.vm.module` whose effect handler opens a **v2** file transport; both
 halves are new, and they are a plan of their own (Boundary).
 
 ### D4 — the terminal becomes a step-driven binding; the host owns cadence [J]
@@ -342,7 +342,7 @@ and submits to the canvas.
 and calls `next` when *it* chooses; "cadence belongs to the runtime driving
 the interpreters" (*What it costs*). In a Flutter widget or a browser
 component, the thing that drives is a ticker. The precedent is the VM plan's
-D1: `yin.repl.v2.flutter` owns one `Timer.periodic` that is the only caller
+D1: `yin.repl.flutter` owns one `Timer.periodic` that is the only caller
 of `embed/step`. The terminal is the same problem one layer down.
 
 **Disposition.** `dao.postgraphics.terminal` is rewritten in place — the
@@ -383,7 +383,7 @@ cancelled on dispose; `web.cljs` uses `requestAnimationFrame` or
 `setInterval` the same way, cancelled on unmount. Latency cost: at most one
 tick between append and present, on hosts that already render on ticks.
 
-**Not adopted:** `dao.stream.v2.observer/run-on-stream`. It is the right
+**Not adopted:** `dao.stream.observer/run-on-stream`. It is the right
 loop for VM-shaped consumers (attach capability, descriptor, batch
 semantics, `ready?`/`load`/`run`); the terminal holds a handle it was given
 and reads one value at a time. Composing the observer here would import a
@@ -471,9 +471,9 @@ Deleted rather than migrated: `datomworld.continuation-transport` (v2 twin
 in use, one consumer which is its own test) and the WebSocket demo pair with
 its scripts and `docs/ws-demo.md`. The latter demonstrated "CLJS in Node
 calling CLJ over a socket"; the R5 slice test does exactly that across all
-three hosts on the v2 wire, and `yin.repl.v2 --port --headless` with the
+three hosts on the v2 wire, and `yin.repl --port --headless` with the
 browser client is the same demonstration a visitor can run. Rebuilding a
-third copy on `dao.stream.v2.apply` would be a fourth v2 RPC demo.
+third copy on `dao.stream.apply` would be a fourth v2 RPC demo.
 
 ### D7 — one deletion commit, then one rename commit; the wire-keyword question is the owner's [second half answered: clean break, 2026-09-17]
 
@@ -486,14 +486,14 @@ namespace.
 
 U7 — the rename wave — is its own commit after U6, and it is bigger than
 "only requires change" (R4's phrasing) suggests. Ninety-nine files under
-`src/` and `test/` require `dao.stream.v2`; sixty-four require one of the
+`src/` and `test/` require `dao.stream`; sixty-four require one of the
 other four. That part is mechanical. What is not mechanical: the v2 apply
 and RPC protocols put the namespace in their **wire keywords**
-(`:dao.stream.v2.apply/id`, `/op`, `/args`, `/ok`, `/error`, `/request`,
-`/response` — `apply.cljc:15-21,119-120`; `:dao.stream.v2.rpc/*` —
-`rpc.cljc:21-25`; `:dao.stream.v2.rpc.ws/malformed-envelope`), and the ws
-transport names its subprotocol `"dao.stream.v2.transit-json"` (`ws.cljc:15`).
-`dao.await.v2` registers module bindings under `'dao.await.v2`, which is
+(`:dao.stream.apply/id`, `/op`, `/args`, `/ok`, `/error`, `/request`,
+`/response` — `apply.cljc:15-21,119-120`; `:dao.stream.rpc/*` —
+`rpc.cljc:21-25`; `:dao.stream.rpc.ws/malformed-envelope`), and the ws
+transport names its subprotocol `"dao.stream.transit-json"` (`ws.cljc:15`).
+`dao.await` registers module bindings under `'dao.await`, which is
 what a Yin program writes. **Answered:** the owner chose the clean break —
 rename the wire vocabulary with the namespaces, correct while nothing
 outside this tree speaks the wire — over freezing the `v2` inside the
@@ -530,11 +530,11 @@ HTTP transport is owed to nobody until a consumer asks.
    grep -rnE "ws-client-demo|ws_demo|telemetry-viewer|dao\.stream-bench|:atzu|agent\.tzu" deps.edn bb.edn shadow-cljs.edn bin public README.md docs
    ```
    Expected non-hits: the `:dao.stream.apply/call` AST node in `yang.*` and
-   `yin.vm.v2.*`; `:dao.stream/…` outcome keywords everywhere; the three v2
+   `yin.vm.*`; `:dao.stream/…` outcome keywords everywhere; the three v2
    driver-test docstrings that name `dao.test-utils` as history; the
-   `:woke` mentions in `dao.runtime.v2`, `dao.await.v2` and
-   `dao/await/v2_test` docstrings, which describe v1 as absent; the
-   "tail-position flag" comment at `yin/vm/v2.cljc:329`, which is the
+   `:woke` mentions in `dao.runtime`, `dao.await` and
+   `dao/await_test` docstrings, which describe v1 as absent; the
+   "tail-position flag" comment at `yin/vm.cljc:329`, which is the
    `:yin/tail?` attribute and not the ring-buffer function. After U3,
    `put-frame!` is a v2 name by D4 and its hits are census rows, not v1;
    `bind-stream!` must return nothing after U3.
@@ -579,7 +579,7 @@ After the owner's D2 and D3 answers. Two commits.
   buffer's module registration has had no reader since 2026-09-16 either.
 
 **Criteria:** the third Phase 0 sweep returns nothing under `src/`; all
-lanes green; `Testing yin.vm.v2.module-test` (or whichever v2 suite covers
+lanes green; `Testing yin.vm.module-test` (or whichever v2 suite covers
 the registry value) still appears in the Node output so the deletion did not
 take the v2 registry's tests with it.
 
@@ -682,7 +682,7 @@ running the lane.
   the "remaining v1 consumers" paragraph becomes a statement that the last
   consumer migrated under this plan on the commit's date, and that the
   rename is now due (U7).
-- `docs/design/dao.runtime.v2.implementation-plan.md:390-403` — the R4
+- `docs/design/dao.runtime.implementation-plan.md:390-403` — the R4
   status note says the trigger "is not close"; replace with "reached, see
   `dao.stream.v1-retirement`".
 - `docs/design/yin.vm.v1-retirement.implementation-plan.md:191-196,608-618,627-628`
@@ -698,7 +698,7 @@ running the lane.
 - All four Phase 0 sweeps return only hits under `docs/`, `collab/`,
   `docs/orchestrator-log.md` and the documented non-hits.
 - `clj -M:test`, the shadow `:test` and `:demo` builds, `clojure -M:cljd test`
-  and `bb test` pass; `Testing dao.stream.v2-test`,
+  and `bb test` pass; `Testing dao.stream-test`,
   `dao.postgraphics.terminal-test`, `dao.gui.event.bind-test` appear in the
   Node output.
 - Every U3/U4 manual check passes against the tree with v1 gone.
@@ -706,13 +706,13 @@ running the lane.
 
 ### U7 — the rename wave
 
-After U6, one commit, per D7: `dao.stream.v2` → `dao.stream` (directory
-`src/*/dao/stream/v2/**` → `src/*/dao/stream/**`, tests likewise),
-`dao.runtime.v2` → `dao.runtime`, `dao.await.v2` → `dao.await` (with its
-`'dao.await.v2` module name), `yin.vm.v2` → `yin.vm`, `yin.repl.v2` →
-`yin.repl` (with the `:clj-yin-repl-v2`, `:cljd-yin-repl-v2`,
-`:cljd-yin-repl-v2-build` aliases, the `:yin-repl-v2` and `:slice-peer`
-builds, `bin/yin_repl_v2_main.dart`, and `bb build:yin-repl-v2-peer`), the
+After U6, one commit, per D7: `dao.stream` → `dao.stream` (directory
+`src/*/dao/stream/**` → `src/*/dao/stream/**`, tests likewise),
+`dao.runtime` → `dao.runtime`, `dao.await` → `dao.await` (with its
+`'dao.await` module name), `yin.vm` → `yin.vm`, `yin.repl` →
+`yin.repl` (with the `:clj-yin-repl`, `:cljd-yin-repl`,
+`:cljd-yin-repl-build` aliases, the `:yin-repl` and `:slice-peer`
+builds, `bin/yin_repl_main.dart`, and `bb build:yin-repl-peer`), the
 `*_v2` demo files and their picker ids, and — per the owner's D7 answer —
 the wire keywords and subprotocol string. The `docs/design/*.v2.*` and
 `*-v2*` document names are left alone: they are history.
@@ -838,8 +838,8 @@ D2); a readiness extension; stream discovery.
 |---|---|---|
 | ~~the owner's answers on D2, D3, D7~~ — answered 2026-09-17: delete, delete, clean break | — | D2, D3, D7 |
 | a Yin-native agent over the harness, replacing `agent.tzu` | `agent.harness.md`'s plan | D2 |
-| an `io` module for `yin.vm.v2.module` over a v2 file transport, if wanted | its own plan, not written | D3 |
-| v2 telemetry emission and a viewer on the v2 wire | `yin.vm.v2.telemetry.implementation-plan.md`, not written | D1; VM plan D2 |
+| an `io` module for `yin.vm.module` over a v2 file transport, if wanted | its own plan, not written | D3 |
+| v2 telemetry emission and a viewer on the v2 wire | `yin.vm.telemetry.implementation-plan.md`, not written | D1; VM plan D2 |
 | the rename wave | U7 of this plan | D7; `dao.stream.md:790-796`; VM plan D5; runtime plan R4 |
 | status notes on the Phase 2 list | this plan, Phase 2 | above |
 

@@ -1,8 +1,8 @@
 (ns dao.postgraphics.terminal-test
   (:require [clojure.test :refer [deftest is testing]]
             [dao.postgraphics.terminal :as term]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.ringbuffer :as rb]))
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as rb]))
 
 
 (defn- ring

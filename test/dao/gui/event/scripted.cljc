@@ -3,7 +3,7 @@
 ;; transport-error — the runtime plan's fixture rule applies: a reified
 ;; handle returning the scripted outcome.
 (ns dao.gui.event.scripted
-  (:require [dao.stream.v2 :as stream]))
+  (:require [dao.stream :as stream]))
 
 
 (defn scripted-output

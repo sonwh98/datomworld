@@ -1,9 +1,9 @@
 (ns yang.clojure-test
   (:require [clojure.test :refer [deftest is testing]]
             [yang.clojure :as yang]
-            [yin.vm.v2 :as vm]
-            [yin.vm.v2.module :as module]
-            [yin.vm.v2.test-utils :as tu]))
+            [yin.vm :as vm]
+            [yin.vm.module :as module]
+            [yin.vm.test-utils :as tu]))
 
 
 ;; v1 registered the stream module globally at load time; the v2 composition

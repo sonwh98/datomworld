@@ -10,8 +10,8 @@
             [dao.gui.event :as event]
             [dao.gui.event.scripted :as scripted]
             [dao.gui.event.util :as u]
-            [dao.stream.v2 :as ds]
-            [dao.stream.v2.ringbuffer :as rb]))
+            [dao.stream :as ds]
+            [dao.stream.ringbuffer :as rb]))
 
 
 (def output-keys

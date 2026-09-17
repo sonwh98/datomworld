@@ -20,13 +20,13 @@
                  :autorun true}
 
           :vm-bench {:target :node-script
-                     :main bench.yin-vm-v2-bench/-main
+                     :main bench.yin-vm-bench/-main
                      :output-to "target/vm-bench.js"}
 
           :slice-peer {:target :node-script
-                       :main dao.stream.v2.slice-peer/-main
+                       :main dao.stream.slice-peer/-main
                        :output-to "target/slice-peer.js"}
 
-          :yin-repl-v2 {:target :node-script
-                        :main yin.repl.v2/-main
-                        :output-to "target/yin-repl-v2.js"}}}
+          :yin-repl {:target :node-script
+                        :main yin.repl/-main
+                        :output-to "target/yin-repl.js"}}}

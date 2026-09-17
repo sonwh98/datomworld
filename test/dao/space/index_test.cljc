@@ -21,10 +21,10 @@
                       [dao.jing.remote :as jing-remote]])
             [dao.space.index :as index]
             [dao.space.query :as query]
-            [dao.stream.v2 :as stream]
-            [dao.stream.v2.memory-log :as memory-log]
-            [dao.stream.v2.observer :as observer]
-            [dao.stream.v2.ringbuffer :as ringbuffer]))
+            [dao.stream :as stream]
+            [dao.stream.memory-log :as memory-log]
+            [dao.stream.observer :as observer]
+            [dao.stream.ringbuffer :as ringbuffer]))
 
 
 (defrecord MalformedResultStream
@@ -83,7 +83,7 @@
 
 
 (defn- open-intake
-  "A dao.stream.v2 ringbuffer intake writer with capacity large enough for
+  "A dao.stream ringbuffer intake writer with capacity large enough for
    the multi-node tests."
   ([] (open-intake 4096))
   ([capacity]

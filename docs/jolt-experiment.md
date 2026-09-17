@@ -37,7 +37,7 @@ Namespaces that fail to **load** under jolt (3 of 115):
 |---|---|---|
 | 230 | `No dependency provides java.security.MessageDigest` (jolt RFC 0014 `:jolt/provides` needed) | dao.jing, dao.jing.file, dao.jing.dht, dao.space.* (content addressing) |
 | 129 | `subseq/rsubseq require a sorted collection: class dao.data.btree.BTSet` | dao.data.btree-protocols-test, dao.data.btree-durability-test |
-| 60 | `Unknown class TransitFactory$Format` | dao.stream.v2.transit-test, yin.repl.v2* |
+| 60 | `Unknown class TransitFactory$Format` | dao.stream.transit-test, yin.repl* |
 | 29 | `No matching field or method: Double/isFinite` | dao.jing, dao.postgraphics.math |
 | 25 | `No matching field or method: java.util.Arrays/parallelSort` | dao.stream.log → dao.jing.file fixture path |
 | 25 | `No matching ctor found for java.io.RandomAccessFile` | dao.jing.file |
@@ -97,22 +97,22 @@ Half right. I/O host dependencies are behind v1's `open!` multimethod and `defop
 |---|---|---|
 | MessageDigest (230) | one call in `dao.jing`, already reader-conditional per host | No |
 | subseq on BTSet (129) | `dao.data.btree` implements `clojure.lang.Sorted` | No, jolt dispatch bug |
-| transit classes (60) | `dao.stream.transit`, `dao.stream.v2.transit` | Yes, but a Java library, not an interop line |
+| transit classes (60) | `dao.stream.transit`, `dao.stream.transit` | Yes, but a Java library, not an interop line |
 | Double/isFinite (29) | `dao.postgraphics.math`, `validation`, `v2.transit`, demo scenes | Mostly no |
 | parallelSort (25) | `dao.data.arrays` | Already a host shim, one site |
 | RandomAccessFile (25) | `dao.stream.log` only | Yes |
 | DatagramSocket (13) | `dao.stream.udp` and `dao.jing.dht.node` | Half: dht.node duplicates the socket code |
-| LinkedBlockingQueue (3) | `dao.runtime.driver`, `dao.runtime.v2.driver` | Yes |
+| LinkedBlockingQueue (3) | `dao.runtime.driver`, `dao.runtime.driver` | Yes |
 | http-kit load failures | `dao.stream.http`, `world.server`, `ollama` | Yes, but a Java library |
 
 Two abstraction leaks: `dao.jing.dht.node` reimplements sockets instead of opening a udp stream, and `dao.jing.file` reaches into the log stream record's `:raf` field to fsync.
 
-### `dao.stream.v2`
+### `dao.stream`
 
 The claim holds much better against v2, which is already built as a pure portable core plus per-host edge files:
 
-- Core namespaces (`dao.stream.v2`, `apply`, `forward`, `ringbuffer`, `serving`, `rpc`, `rpc.ws`, `dao.runtime.v2`) contain no JDK interop; the only reader conditionals are `catch` clauses.
-- Host edges are separate files selected by extension: `ws/jvm.clj`, `ws/node.cljs`, `ws/dart.cljd`, `runtime/v2/driver.{clj,cljs,cljd}`, `transit/cljd.cljd`. `dao.stream.v2.ws` knows no WebSocket library and receives `:connect!`/`:send!`/`:close!` from the adapter.
+- Core namespaces (`dao.stream`, `apply`, `forward`, `ringbuffer`, `serving`, `rpc`, `rpc.ws`, `dao.runtime`) contain no JDK interop; the only reader conditionals are `catch` clauses.
+- Host edges are separate files selected by extension: `ws/jvm.clj`, `ws/node.cljs`, `ws/dart.cljd`, `runtime/v2/driver.{clj,cljs,cljd}`, `transit/cljd.cljd`. `dao.stream.ws` knows no WebSocket library and receives `:connect!`/`:send!`/`:close!` from the adapter.
 - The v2 plan removes the registry on purpose: no multimethod, no load-time side effect, dispatch is a host-owned map.
 - The cljs and cljd drivers (timers/microtasks instead of a queue) prove the blocking queue is swappable.
 
@@ -120,11 +120,11 @@ The v2 jolt port surface is three files:
 
 | File | JVM dependency | Jolt errors it explains |
 |---|---|---|
-| `src/cljc/dao/stream/v2/transit.cljc` `:clj` branch | cognitect transit-clj, ByteArray streams, `Double/isFinite` | 60 |
-| `src/clj/dao/runtime/v2/driver.clj` | `LinkedBlockingQueue`, `TimeUnit` | 3 |
-| `src/clj/dao/stream/v2/ws/jvm.clj` | `java.net.http` client, http-kit, ring protocols | load failure |
+| `src/cljc/dao/stream/transit.cljc` `:clj` branch | cognitect transit-clj, ByteArray streams, `Double/isFinite` | 60 |
+| `src/clj/dao/runtime/driver.clj` | `LinkedBlockingQueue`, `TimeUnit` | 3 |
+| `src/clj/dao/stream/ws/jvm.clj` | `java.net.http` client, http-kit, ring protocols | load failure |
 
-Because jolt reads `.clj` files and gives `:jolt` branches precedence over `:clj`, the port is a `:jolt` branch in `transit.cljc`, a `:jolt` (timer-based) branch in the driver, and a ws adapter for whatever socket library jolt provides. The transit branch has a ready donor: `src/cljd/dao/stream/v2/transit/cljd.cljd` is a pure tree-walking Transit JSON codec that touches only `dart:convert` and a few Dart types; lifted to `.cljc` it gives jolt a codec with no bytecode dependency.
+Because jolt reads `.clj` files and gives `:jolt` branches precedence over `:clj`, the port is a `:jolt` branch in `transit.cljc`, a `:jolt` (timer-based) branch in the driver, and a ws adapter for whatever socket library jolt provides. The transit branch has a ready donor: `src/cljd/dao/stream/transit/cljd.cljd` is a pure tree-walking Transit JSON codec that touches only `dart:convert` and a few Dart types; lifted to `.cljc` it gives jolt a codec with no bytecode dependency.
 
 ### What v2 does not cover
 

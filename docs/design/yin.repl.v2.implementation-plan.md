@@ -3,13 +3,13 @@
 Status: implementation plan, derived from and subordinate to `dao.stream.md`
 (the contract) and `dao.stream.ws.md` (the WebSocket specification). Where this
 plan and either document disagree, they win. It is a sibling of
-`dao.stream.v2.implementation-plan.md` and depends on part of it; that sibling
-owns the transport, the VM plan's V1 owns `dao.stream.v2.apply` and the
+`dao.stream.implementation-plan.md` and depends on part of it; that sibling
+owns the transport, the VM plan's V1 owns `dao.stream.apply` and the
 socket-free RPC core, and this plan owns only the WebSocket RPC decoder and the
 REPL. This document is transient: it is consumed as its phases complete.
 
 Revised against a five-model review of 2026-09-02
-(`collab/review-yin-repl-v2-plan.*.stdout.log`), which found the first draft
+(`collab/review-yin-repl-plan.*.stdout.log`), which found the first draft
 unexecutable on two counts: it claimed a v1-free REPL while `yin.vm` consumes
 its streams through v1 protocols, and it claimed the REPL "already owns a
 polling loop" when v1's RPC client owned it. Both are settled below.
@@ -20,7 +20,7 @@ here is a new namespace alongside the one it replaces. `dao.stream`,
 keep running, and keep their consumers. This is not a refactor; it is a second
 implementation built beside the first, and the two coexist until each consumer
 migrates under its own plan. There are exactly **two additive build-configuration
-exceptions**: a new `:yin-repl-v2` `:node-script` build in `shadow-cljs.edn` and
+exceptions**: a new `:yin-repl` `:node-script` build in `shadow-cljs.edn` and
 four new aliases in `deps.edn`, both discussed under *Namespaces and files*.
 No existing alias or build is changed or removed.
 
@@ -52,8 +52,8 @@ VM's `:in-stream` with v1 `ds/next` seeding `{:position 0}`
 with v1 `ds/append!`. A v2 handle implements none of that, so handing the v1 VM
 a v2 stream throws on the first evaluation.
 
-**The v2 REPL therefore runs on `yin.vm.v2`**, specified in
-[`yin.vm.v2.implementation-plan.md`](./yin.vm.v2.implementation-plan.md) and a
+**The v2 REPL therefore runs on `yin.vm`**, specified in
+[`yin.vm.implementation-plan.md`](./yin.vm.implementation-plan.md) and a
 prerequisite of this plan. That is a second VM beside the first, ~3,142 lines,
 built on v2 streams throughout, requiring no v1 namespace.
 
@@ -62,7 +62,7 @@ What follows from it:
 - **Datom-literal evaluation works**, because the shell owns a v2 program ring
   buffer and appends datom batches through its writer. Since the VM plan's V7,
   the shell — not the VM — owns that medium: it composes the descriptor, the
-  unary attacher, and an attached `dao.stream.v2.observer` beside the VM,
+  unary attacher, and an attached `dao.stream.observer` beside the VM,
   and datom evaluation drives `observer/run-on-stream`; the VM accepts no
   `:in-stream` of its own.
 - **`(telemetry)` is out**, in every form. The VM plan ships a stub telemetry
@@ -90,7 +90,7 @@ What follows from it:
 An earlier draft of this plan took the opposite route — constructing the v1 VM
 with `:in-stream nil`, which `engine.cljc:310` guards on, and dropping
 datom-eval and telemetry from the slice. That works and is recorded here because
-it remains the fallback if `yin.vm.v2` slips: the REPL can ship transport-first
+it remains the fallback if `yin.vm` slips: the REPL can ship transport-first
 with a v1 VM and no VM-owned streams, then gain both features when the v2 VM
 lands. It is not the plan.
 
@@ -98,31 +98,31 @@ lands. It is not the plan.
 
 | New | File |
 |-----|------|
-| `dao.stream.v2.rpc.ws` | `src/cljc/dao/stream/v2/rpc/ws.cljc` |
-| `yin.repl.v2.core` | `src/cljc/yin/repl/v2/core.cljc` |
-| `yin.repl.v2.driver` | `src/cljc/yin/repl/v2/driver.cljc` |
-| `yin.repl.v2` | `src/cljc/yin/repl/v2.cljc` |
-| `yin.repl.v2.runner` | `src/clj/yin/repl/v2/runner.clj` |
+| `dao.stream.rpc.ws` | `src/cljc/dao/stream/rpc/ws.cljc` |
+| `yin.repl.core` | `src/cljc/yin/repl/core.cljc` |
+| `yin.repl.driver` | `src/cljc/yin/repl/driver.cljc` |
+| `yin.repl` | `src/cljc/yin/repl.cljc` |
+| `yin.repl.runner` | `src/clj/yin/repl/runner.clj` |
 
-`dao.stream.v2`, `dao.stream.v2.ringbuffer` and `dao.stream.v2.ws` are the
-sibling plan's deliverables. The cljd half of `dao.stream.v2.ws` is this plan's,
-per *Prerequisites*. `dao.stream.v2.apply`, `dao.stream.v2.rpc.client`, and
-`dao.stream.v2.rpc.server` belong to the VM plan's V1 and are dependencies,
+`dao.stream`, `dao.stream.ringbuffer` and `dao.stream.ws` are the
+sibling plan's deliverables. The cljd half of `dao.stream.ws` is this plan's,
+per *Prerequisites*. `dao.stream.apply`, `dao.stream.rpc.client`, and
+`dao.stream.rpc.server` belong to the VM plan's V1 and are dependencies,
 not files owned here.
 
 **Build configuration — the two additive exceptions.** `deps.edn` gains
-`:clj-yin-repl-v2`,
-`:cljs-yin-repl-v2`, `:cljd-yin-repl-v2` and `:cljd-yin-repl-v2-build` beside
+`:clj-yin-repl`,
+`:cljs-yin-repl`, `:cljd-yin-repl` and `:cljd-yin-repl-build` beside
 the existing set. But `:cljs-yin-repl` is only
 `shadow.cljs.devtools.cli run yin.repl/-main`, which executes a Clojure function
 on the JVM; the Node REPL is the `:yin-repl` **`:node-script`** build in
-`shadow-cljs.edn`. So the cljs deliverable needs a `:yin-repl-v2` build added
+`shadow-cljs.edn`. So the cljs deliverable needs a `:yin-repl` build added
 there. These are the plan's only edits to existing files. Both are purely
 additive: no existing alias or build is changed, removed, or repointed. The
 aliases are required to name the three new host entry points and the cljd build;
 the Shadow build is required because a Node artifact cannot be defined outside
 `shadow-cljs.edn`. `bin/` gains a v2 Dart entry importing
-`lib/cljd-out/yin/repl/v2.dart`, since `runner.clj:13` runs
+`lib/cljd-out/yin/repl.dart`, since `runner.clj:13` runs
 `bin/yin_repl_main.dart` rather than the alias's `:output-dir`.
 
 **cljd file layout, decided now.** v1's precedent is a *shadow*
@@ -135,7 +135,7 @@ a gate on each phase. The verbatim copy from `yin/repl.cljc` contains bare
 `#?(:clj …)` blocks (lines 63, 836 among others) that must be rewritten as they
 are copied; a shadow `.cljd` is the fallback if any file resists.
 
-**On duplication.** `yin.repl.v2` cannot share code with `yin.repl`, because
+**On duplication.** `yin.repl` cannot share code with `yin.repl`, because
 sharing would mean editing it, and the helpers are `defn-` so they cannot be
 reached anyway. Reviewers disagreed on the size — one counted ~350 of 1085 lines
 as verbatim-copyable, another 620–680 — and agreed on the shape: **the split is
@@ -147,8 +147,8 @@ chain (381–451), `eval-datoms` (454), `handle-command` (552), and the whole
 `eval-input` chain (652–731).
 
 R2's first deliverable is therefore a **function-level inventory** of all 1085
-lines marked *copy verbatim*, *copy and adapt*, or *rewrite*. `yin.repl.v2.core`
-holds the verbatim set; `yin.repl.v2` holds the rest. Guessing the boundary is
+lines marked *copy verbatim*, *copy and adapt*, or *rewrite*. `yin.repl.core`
+holds the verbatim set; `yin.repl` holds the rest. Guessing the boundary is
 what produced the wrong estimate twice.
 
 ## The v2 RPC layer
@@ -167,10 +167,10 @@ shape: under a transport with no reader surface the two directions are two
 streams, and pretending otherwise is what produced the hidden inbox.
 
 **The RPC core consumes a transport-neutral lifecycle vocabulary owned by
-`dao.stream.v2.apply`:** `:dao.stream.v2.apply/established`, `/detached`,
+`dao.stream.apply`:** `:dao.stream.apply/established`, `/detached`,
 `/ended`, `/not-found`, `/transport-error`, and `/diagnostic` (the leading
 namespace is elided after the first spelling). Only
-`dao.stream.v2.rpc.ws` knows `:ws/…`; its decoder translates WebSocket events
+`dao.stream.rpc.ws` knows `:ws/…`; its decoder translates WebSocket events
 to these values before the core transition algebra sees them.
 
 **Client state, explicitly:**
@@ -248,7 +248,7 @@ envelopes and malformed payload responses are likewise consumed once and
 forwarded as diagnostics, never retried or mistaken for responses. This keeps
 the decoder open to additive vocabulary without coupling it to the pending ws
 amendment.
-`dao.stream.v2.rpc.ws` supplies that `:decode` and consumes the **whole**
+`dao.stream.rpc.ws` supplies that `:decode` and consumes the **whole**
 `attach!` result including `:dao.stream/attachment`. R1 tested over bare ring
 buffers passes and then breaks at R3 unless this seam is built in R1.
 
@@ -286,12 +286,12 @@ exact recovery cursor; and `:dao.stream/end`,
 `:dao.stream/transport-error` record the terminal reason without changing the
 cursor. These are exhaustive over the contract's `next` and `append!` outcomes.
 
-**V1's `dao.stream.v2.apply` is the sole envelope owner.** R1 mirrors and
+**V1's `dao.stream.apply` is the sole envelope owner.** R1 mirrors and
 requires it; neither R1 nor either RPC namespace defines competing keys. The
-request is `{:dao.stream.v2.apply/id id :dao.stream.v2.apply/op op
-:dao.stream.v2.apply/args args}`. Success and error responses preserve that id
-and carry exactly one of `:dao.stream.v2.apply/ok` or
-`:dao.stream.v2.apply/error`; the latter is plain data with a qualified code
+request is `{:dao.stream.apply/id id :dao.stream.apply/op op
+:dao.stream.apply/args args}`. Success and error responses preserve that id
+and carry exactly one of `:dao.stream.apply/ok` or
+`:dao.stream.apply/error`; the latter is plain data with a qualified code
 and message, never a host exception. An id must be present and non-nil, the op
 must be a keyword, and args must be a vector. Predicates, constructors,
 correlation-id representation and validation all belong to V1. This section is
@@ -309,7 +309,7 @@ not, and never did: `rpc-client/wait-for-response` owned it
 the cljd main's at 1044). The three main loops are **line-event loops**, not
 response-poll loops.
 
-So the driver is a deliverable, not a caller convenience. `yin.repl.v2.driver`
+So the driver is a deliverable, not a caller convenience. `yin.repl.driver`
 owns one step:
 
 ```clojure
@@ -325,7 +325,7 @@ completions, updates prompt state, and returns the next state. It never loops on
 
 Every host gets one composition-owned input ring buffer of capacity 1024 and a
 cursor held only by `repl-step`. A line producer appends
-`{:yin.repl.v2.input/line <string>}` and returns; it does not evaluate, request,
+`{:yin.repl.input/line <string>}` and returns; it does not evaluate, request,
 poll, print, prompt, or mutate a completion. The ring buffer makes the handoff
 thread-safe and explicit. A `gap` means typed lines were evicted: `repl-step`
 prints a loss notice, resumes at the recovery cursor, and evaluates none of the
@@ -419,17 +419,17 @@ locally or reports that it does not proxy.
 
 ## Prerequisites
 
-From [`yin.vm.v2.implementation-plan.md`](./yin.vm.v2.implementation-plan.md):
+From [`yin.vm.implementation-plan.md`](./yin.vm.implementation-plan.md):
 
-- **Through Phase V5** — `yin.vm.v2.ast-walker` and its closure. It needs only
+- **Through Phase V5** — `yin.vm.ast-walker` and its closure. It needs only
   the sibling stream plan's Phases 1 and 2.
-- **V1 specifically gates this plan's R1**, because `dao.stream.v2.apply` owns
-  the request/response envelope and `dao.stream.v2.rpc.client`/`.server` are
+- **V1 specifically gates this plan's R1**, because `dao.stream.apply` owns
+  the request/response envelope and `dao.stream.rpc.client`/`.server` are
   built there, socket-free. R1 is therefore **blocked**, not merely sequenced —
   the earlier draft's "executable today" was wrong on two counts: no
-  `dao.stream.v2*` exists, and the envelope has an owner elsewhere.
+  `dao.stream*` exists, and the envelope has an owner elsewhere.
 
-From `dao.stream.v2.implementation-plan.md`:
+From `dao.stream.implementation-plan.md`:
 
 - **Phase 1 and Phase 2, completed** — the protocols, the result convention, and
   the ring buffer, including the conformance harness that Phase 1 defines and
@@ -469,11 +469,11 @@ waited on are now in `dao.stream.ws.md`:
 
 **Nothing here is executable today.** R1 is blocked on the VM plan's V1, R2 on
 its V5, and both on the sibling stream plan's Phases 1 and 2 — none of which
-exists: `src/cljc/dao/stream/v2*` is absent from the tree. R3 through R5 are
+exists: `src/cljc/dao/stream*` is absent from the tree. R3 through R5 are
 additionally gated on Phase 4a of the sibling plan. The plan states this rather
 than sequencing past it.
 
-## Phase R1 — `dao.stream.v2.rpc.ws`
+## Phase R1 — `dao.stream.rpc.ws`
 
 The envelope, the client and the server are the VM plan's V1. What is left here
 is the one piece that needs a transport.
@@ -483,7 +483,7 @@ is the one piece that needs a transport.
   only `:ws/payload`, distinguishes reconnectable `:ws/closed` from terminal
   `:ws/ended`, preserves requests across survivable `:ws/error`, converts all
   known lifecycle and diagnostic kinds to the transport-neutral
-  `:dao.stream.v2.apply/…` vocabulary, and forwards unknown
+  `:dao.stream.apply/…` vocabulary, and forwards unknown
   current-vocabulary events as non-terminal diagnostics.
 - `init-client` from the whole `attach!` result, so `:dao.stream/attachment`
   becomes `:me`.
@@ -501,18 +501,18 @@ neutral translation, one terminal completion, and no retained outstanding
 request. Actual close-code and two-endpoint behavior belongs to the sibling
 stream plan's Phase 4a wire-close conformance suite.
 
-## Phase R2 — `yin.repl.v2` and its driver, local only
+## Phase R2 — `yin.repl` and its driver, local only
 
 No socket, no wire, no RPC.
 
 - **The function-level inventory** of `yin/repl.cljc` first; then
-  `yin.repl.v2.core` and `yin.repl.v2`.
-- `make-vm` constructs a `yin.vm.v2.ast-walker`, supplies `:make-stream` bound
+  `yin.repl.core` and `yin.repl`.
+- `make-vm` constructs a `yin.vm.ast-walker`, supplies `:make-stream` bound
   to the v2 ring buffer, and registers the v2 `stream` module. Per the VM
   plan's V7 it hands the VM **no program stream**: instead the shell creates
   the program ring buffer with a **declared capacity of 4096 elements**,
   retains its writer handle, builds the resolver and unary attacher beside
-  that medium, attaches a `dao.stream.v2.observer` through the composed
+  that medium, attaches a `dao.stream.observer` through the composed
   descriptor-only entry, and stores `:program-stream`, `:observer`, and `:vm`
   separately in shell state. `eval-datoms` appends through the writer and
   drives `run-on-stream` with `engine/ready-for-ingress?`,
@@ -539,12 +539,12 @@ No socket, no wire, no RPC.
 - **`repl-state` without `closed?`.** The state carries a per-stream last-outcome
   ledger with an explicit `:untried` value, since an idle stream has no last
   operation and there is nothing to ask.
-- `yin.repl.v2.driver` with `repl-step`, and the per-host tickers.
+- `yin.repl.driver` with `repl-step`, and the per-host tickers.
 - The four `deps.edn` aliases and the `shadow-cljs.edn` build **land here**, not
   in R5, because R2's deliverable is stated in terms of them.
 
-Deliverable: a working local REPL on all three hosts — `clj -M:clj-yin-repl-v2`,
-the `:yin-repl-v2` node build, `clj -M:cljd-yin-repl-v2` — requiring no v1
+Deliverable: a working local REPL on all three hosts — `clj -M:clj-yin-repl`,
+the `:yin-repl` node build, `clj -M:cljd-yin-repl` — requiring no v1
 namespace.
 
 ## Phase R3 — The client side
@@ -616,7 +616,7 @@ namespace.
   immediately with an endpoint value containing that medium and cursor, the
   service handle, and host resources. Host
   callbacks only transform and deposit envelopes shaped
-  `{:yin.repl.v2.endpoint/event <kind> :yin.repl.v2.endpoint/value <plain-data>}`.
+  `{:yin.repl.endpoint/event <kind> :yin.repl.endpoint/value <plain-data>}`.
   The fixed event set is `:bind-succeeded` (bound host and port),
   `:bind-failed` (qualified code and message), `:upgrade-failed` (plain request
   summary, qualified code and message), `:listener-error` (qualified code and
@@ -648,7 +648,7 @@ namespace.
 
 Per host, then across hosts.
 
-`clj -M:clj-yin-repl-v2 --port 8080 --headless`; from a second process
+`clj -M:clj-yin-repl --port 8080 --headless`; from a second process
 `(connect "daostream:ws://localhost:8080/repl")`; evaluate; disconnect;
 reconnect. Verify:
 
@@ -665,7 +665,7 @@ Then the cross-host pair: a cljd client against a JVM server, and a Node client
 against a cljd server. The descriptor crossed a codec and the wire is the same
 wire; if that fails, the contract was implemented three times rather than once.
 
-`src/cljc/yin/vm/docs/yin.repl.v2.md` is written here. The existing
+`src/cljc/yin/vm/docs/yin.repl.md` is written here. The existing
 `yin.repl.md` is left alone. The new document states what differs: `connect`
 returns immediately and reports its outcome when known, `(vm :type)` offers
 `:ast-walker` only, and there is no `(telemetry)` command.
@@ -682,7 +682,7 @@ All three hosts, first class, every phase.
   inventing a signal.
 - On cljd, `add` after close throws `StateError` synchronously and must be
   classified to `:dao.stream/closed`. The v2 codec is owned by
-  `dao.stream.v2.transit`; its cljd implementation may adapt algorithms from
+  `dao.stream.transit`; its cljd implementation may adapt algorithms from
   `src/cljd/dao/stream/transit.cljd` but must not require that legacy namespace.
 - Full cljd namespace compilation gates each phase, per *Namespaces and files*.
 
@@ -725,8 +725,8 @@ the bounded handoff limits pending acceptance, not established-session count.
 
 Complete when, on each of clj, cljs (Node) and cljd, a v2 REPL server accepts a
 connection from a second process, evaluates forms sent to it, and survives a
-disconnect and reattach — with `yin.repl.v2` requiring no v1 namespace, which
-running on `yin.vm.v2` makes true rather than aspirational. R5's four facts plus
+disconnect and reattach — with `yin.repl` requiring no v1 namespace, which
+running on `yin.vm` makes true rather than aspirational. R5's four facts plus
 the cross-host pair are the test.
 
 Coexistence is the expected end state. Both REPLs ship, both alias sets work,

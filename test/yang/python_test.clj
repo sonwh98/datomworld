@@ -2,8 +2,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [yang.clojure :as clj]
             [yang.python :as py]
-            [yin.vm.v2 :as vm]
-            [yin.vm.v2.test-utils :as tu]))
+            [yin.vm :as vm]
+            [yin.vm.test-utils :as tu]))
 
 
 (defn compile-and-run

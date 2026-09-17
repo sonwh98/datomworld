@@ -21,17 +21,17 @@ not been started, and it gates the completion of the second.
 
 | Plan | Status |
 |---|---|
-| [`dao.stream.v2.implementation-plan.md`](./design/dao.stream.v2.implementation-plan.md) | Phases 1–5 implemented and reviewed. **Complete.** |
-| [`yin.repl.v2.implementation-plan.md`](./design/yin.repl.v2.implementation-plan.md) | R1–R5 implemented and signed off. **Complete.** |
-| [`yin.vm.v2.implementation-plan.md`](./design/yin.vm.v2.implementation-plan.md) | Implemented, architect-signed-off, and parity-tested. **Complete.** |
+| [`dao.stream.implementation-plan.md`](./design/dao.stream.implementation-plan.md) | Phases 1–5 implemented and reviewed. **Complete.** |
+| [`yin.repl.implementation-plan.md`](./design/yin.repl.implementation-plan.md) | R1–R5 implemented and signed off. **Complete.** |
+| [`yin.vm.implementation-plan.md`](./design/yin.vm.implementation-plan.md) | Implemented, architect-signed-off, and parity-tested. **Complete.** |
 
 What is built and working: the v2 stream contract, ring buffer, descriptors, the
 ws transport with forwarding and serving, the v2 RPC layer, and a complete v2
 REPL client and server with host WebSocket adapters composed on all three hosts.
 
-`yin.repl.v2.host` (`.cljc`/`.cljs`/`.cljd`) holds only `websocket` — the one
+`yin.repl.host` (`.cljc`/`.cljs`/`.cljd`) holds only `websocket` — the one
 thing that differs per build. Everything portable lives in
-`yin.repl.v2.host.common`. A `.cljs`/`.cljd` shadow replaces the portable
+`yin.repl.host.common`. A `.cljs`/`.cljd` shadow replaces the portable
 namespace *wholesale*, so anything portable put back into it will drift silently;
 that has already happened once.
 
@@ -39,7 +39,7 @@ that has already happened once.
 
 ## 2. The remaining work, in the order it should be done
 
-### A. `dao.stream.v2` Phase 5 — the slice, end to end
+### A. `dao.stream` Phase 5 — the slice, end to end
 
 **Two processes, not two compositions in one process.** Every test in the tree
 today is in-process. The plan is explicit that a same-process socket test "cannot
@@ -65,9 +65,9 @@ the mismatch is a typo in the plan, not a missing item):
 5. Serving A's stream through a second endpoint produces different reachability
    descriptors whose `:dao.stream/identity` values are equal.
 
-### B. `yin.repl.v2` Phase R5 — end to end
+### B. `yin.repl` Phase R5 — end to end
 
-Per host first, then across hosts. `clj -M:clj-yin-repl-v2 --port 8080
+Per host first, then across hosts. `clj -M:clj-yin-repl --port 8080
 --headless`; from a second process `(connect "daostream:ws://localhost:8080/repl")`.
 Verify four facts:
 
@@ -84,40 +84,40 @@ against a cljd server. The plan's reasoning is worth handing to whoever
 implements it — "the descriptor crossed a codec and the wire is the same wire; if
 that fails, the contract was implemented three times rather than once."
 
-R5 also owes `src/cljc/yin/vm/docs/yin.repl.v2.md`, which does not exist. It
+R5 also owes `src/cljc/yin/vm/docs/yin.repl.md`, which does not exist. It
 states what differs from v1: `connect` returns immediately and reports its
 outcome when known, `(vm :type)` offers `:ast-walker` only, and there is no
 `(telemetry)` command. `yin.repl.md` is left alone.
 
-Entry points are already wired — `deps.edn` has `:clj-yin-repl-v2`,
-`:cljs-yin-repl-v2`, `:cljd-yin-repl-v2` and `:cljd-yin-repl-v2-build`, each with
+Entry points are already wired — `deps.edn` has `:clj-yin-repl`,
+`:cljs-yin-repl`, `:cljd-yin-repl` and `:cljd-yin-repl-build`, each with
 a `-main`. Ctrl-C shutdown is wired on all three hosts.
 
-### C. `yin.vm.v2` — unstarted, and it gates B's completion
+### C. `yin.vm` — unstarted, and it gates B's completion
 
 **This is the part most likely to be missed.** The REPL plan's end condition
-requires `yin.repl.v2` to need *no v1 namespace*, "which running on `yin.vm.v2`
+requires `yin.repl` to need *no v1 namespace*, "which running on `yin.vm`
 makes true rather than aspirational." That is not satisfied today, and R5 will
 not satisfy it:
 
 ```
-yin.repl.v2.core  →  yin.vm, yin.vm.ast-walker      (v1)
+yin.repl.core  →  yin.vm, yin.vm.ast-walker      (v1)
 yin.vm            →  dao.stream                      (v1)
 yin.vm.ast-walker →  dao.stream, dao.stream.apply, yin.module   (v1)
 ```
 
-`src/cljc/yin/vm/v2/` does not exist. The plan is written and architect-signed
-off (see `archive/architect-yin-vm-v2-signoff-r*` and
+`src/cljc/yin/vm/` does not exist. The plan is written and architect-signed
+off (see `archive/architect-yin-vm-signoff-r*` and
 `architect-vm-v2-round.claude-fable-5-1.findings.md`), but nothing implements it.
-Its own end condition: `yin.vm.v2.ast-walker` evaluates a macro-free corpus and
+Its own end condition: `yin.vm.ast-walker` evaluates a macro-free corpus and
 exercises ingress and FFI over v2 streams with telemetry disabled, at parity with
 v1 except where the divergence register says otherwise, with no namespace under
-`yin.vm.v2` or `dao.*.v2` requiring v1 `dao.stream`, `dao.runtime`,
+`yin.vm` or `dao.*.v2` requiring v1 `dao.stream`, `dao.runtime`,
 `dao.stream.apply` or `yin.module`.
 
 So "finish the phases" is three tracks, not two. Decide with the user whether
-`yin.vm.v2` is in scope for this push or is a separate one; do not silently
-declare the REPL plan complete after R5 while `yin.vm.v2` is missing.
+`yin.vm` is in scope for this push or is a separate one; do not silently
+declare the REPL plan complete after R5 while `yin.vm` is missing.
 
 ### Sequencing
 
@@ -156,7 +156,7 @@ Two plan-level residual risks bear directly on the facts you must test:
   cljs/cljd parity tests are not equivalent concurrency evidence; a green Node or
   Dart run does not stand in for the JVM one.
 
-One thing to check rather than assume: `dao.stream.v2`'s end condition says the
+One thing to check rather than assume: `dao.stream`'s end condition says the
 slice is "explicitly incomplete on cljd until the cljd ws transport lands." That
 transport landed in `6422c8b`, so the blocker looks cleared — but nobody has
 verified it against Phase 4's full criteria.
@@ -165,19 +165,19 @@ verified it against Phase 4's full criteria.
 
 ## 4. Definition of done
 
-- **`dao.stream.v2`**: Phases 1–5 pass on clj and cljs, and on cljd now that its
+- **`dao.stream`**: Phases 1–5 pass on clj and cljs, and on cljd now that its
   ws transport exists. Flow control is explicitly *not* part of this and does not
   hold it open.
-- **`yin.repl.v2`**: on each of clj, cljs (Node) and cljd, a v2 REPL server
+- **`yin.repl`**: on each of clj, cljs (Node) and cljd, a v2 REPL server
   accepts a connection from a second process, evaluates, and survives disconnect
-  and reattach — with `yin.repl.v2` requiring no v1 namespace. R5's four facts
+  and reattach — with `yin.repl` requiring no v1 namespace. R5's four facts
   plus the cross-host pair are the test.
-- **`yin.vm.v2`**: as quoted in §2C.
+- **`yin.vm`**: as quoted in §2C.
 
 Coexistence is the expected end state for the REPL: both REPLs ship, both alias
 sets work. Deleting v1 is the *stream* plan's end condition, once its last
 consumer has migrated — and when the slice is complete, one decision is taken
-explicitly: `dao.stream.v2` is renamed to `dao.stream`, or keeps its name
+explicitly: `dao.stream` is renamed to `dao.stream`, or keeps its name
 permanently. An undecided coexistence of both namespaces is a defect of the
 migration, not a steady state.
 
@@ -234,9 +234,9 @@ rounds. Findings headers carry the reviewer session IDs, so a prior review can b
 resumed instead of re-derived.
 
 Start with `architect-phase5-r3-r4-signoff.fable.findings.md` and the four
-verification rounds after it. `architect-dao-stream-v2-open-items{,-r2}` carry
+verification rounds after it. `architect-dao-stream-open-items{,-r2}` carry
 the contract amendments that produced the `:ws/attachment` semantics Phase 5
-tests. `architect-yin-vm-v2-signoff-r*` is the VM v2 design record.
+tests. `architect-yin-vm-signoff-r*` is the VM v2 design record.
 
 Live artifacts sit in `collab/` until their work is committed, then move to
 `archive/` under Responsibility 7.
