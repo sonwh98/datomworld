@@ -2,8 +2,8 @@
   (:require [dao.gui.event :as event]
             [dao.postgraphics.terminal :as terminal]
             [dao.postgraphics.web :as pg]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer :as rb]
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.ringbuffer :as rb]
             [datomworld.demo.artifact-runner :as runner]
             [datomworld.demo.artifact-scene :as scene]
             [datomworld.demo.responsive :as responsive]
@@ -11,9 +11,8 @@
 
 
 (defonce frame-stream
-  (ds/open! {:dao.stream/type :ringbuffer,
-             :capacity 4,
-             :eviction-policy :evict-oldest}))
+  (:dao.stream/handle (rb/create! {:dao.stream/type rb/transport-type,
+                                   rb/capacity-key 4})))
 
 
 (defonce scene-state (r/atom runner/initial-state))
@@ -32,11 +31,17 @@
 (defonce runtime-time* (atom -1))
 
 
+(defn- ring-stream
+  "A v2 evict-oldest ring buffer handle."
+  [capacity]
+  (:dao.stream/handle
+    (rb/create! {:dao.stream/type rb/transport-type,
+                 rb/capacity-key capacity})))
+
+
 (defn- open-runtime-input-stream
   []
-  (ds/open! {:dao.stream/type :ringbuffer,
-             :capacity 1024,
-             :eviction-policy :evict-oldest}))
+  (ring-stream 1024))
 
 
 (defonce ids*
@@ -47,8 +52,9 @@
 
 
 (defonce signal-stream
-  (ds/open!
-    {:dao.stream/type :ringbuffer, :capacity 32, :eviction-policy :reject}))
+  ;; evict-oldest is the only v2 ring buffer; nothing reads this lane in a
+  ;; tight loop, so eviction over refusal changes nothing observable
+  (ring-stream 32))
 
 
 (defonce active-pointers* (atom {}))
@@ -64,13 +70,7 @@
 
 (defn- open-output-streams
   []
-  (into {}
-        (map (fn [k]
-               [k
-                (ds/open! {:dao.stream/type :ringbuffer,
-                           :capacity 64,
-                           :eviction-policy :evict-oldest})])
-             output-keys)))
+  (zipmap output-keys (map (fn [_k] (ring-stream 64)) output-keys)))
 
 
 (defn- advance!
@@ -82,12 +82,15 @@
                 (let [state (get-in result [:binding :state])
                       runtime-seq (inc (long (or (:last-runtime-seq state) -1)))
                       runtime-time-us (inc (long (or (:last-runtime-time-us state)
-                                                     -1)))]
+                                                     -1)))
+                      ;; a freshly minted :newest cursor — the v2 form of
+                      ;; the tail position this recovery always resumed at
+                      resume (when-let [s @runtime-input-stream*]
+                               (:dao.stream/cursor
+                                 (stream/cursor s stream/anchor-newest)))]
                   (event/recover-input-gap
                     (:binding result)
-                    {:position (if-let [s @runtime-input-stream*]
-                                 (rb/tail-position s)
-                                 0)}
+                    resume
                     {:runtime/seq runtime-seq,
                      :runtime/time-us runtime-time-us,
                      :runtime/source :terminal,
@@ -95,11 +98,12 @@
                                      :generation-id (:generation-id state),
                                      :reason :stream-capacity}}))
                 (:binding result)))
-      (doseq [[k stream] @output-streams*]
-        (loop [cursor (get @output-cursors* k {:position 0})]
-          (let [read (ds/next stream cursor)]
-            (if (map? read)
-              (let [value (:ok read)]
+      (doseq [[k out] @output-streams*]
+        (loop [cursor (get @output-cursors* k)]
+          (let [read (stream/next out cursor)]
+            (case (:dao.stream/outcome read)
+              :dao.stream/ok
+              (let [value (:dao.stream/value read)]
                 (when (and (= k :gesture) (runner/drag-gesture? value))
                   (prn "dao.gui.event drag -> dao.stream" value))
                 (when (= k :gesture)
@@ -107,18 +111,19 @@
                 (when (= k :keyboard)
                   (prn "dao.stream keyboard -> scene" value)
                   (swap! scene-state runner/reduce-keyboard value))
-                (recur (:cursor read)))
-              (if (= :daostream/gap read)
-                (do (prn "dao.stream output gap; resuming at tail" k)
-                    (swap! output-cursors* assoc
-                           k
-                           {:position (rb/tail-position stream)}))
-                (swap! output-cursors* assoc k cursor)))))))))
+                (recur (:dao.stream/cursor read)))
+              ;; an evicted output position: resume from the recovery
+              ;; cursor the gap outcome carried
+              :dao.stream/gap
+              (do (prn "dao.stream output gap; resuming" k)
+                  (swap! output-cursors* assoc k (:dao.stream/cursor read)))
+              ;; blocked, end, and terminal outcomes park the cursor
+              (swap! output-cursors* assoc k cursor))))))))
 
 
 (defn- append-runtime!
   [value]
-  (when-let [stream @runtime-input-stream*]
+  (when-let [input @runtime-input-stream*]
     (let [seq (inc @runtime-seq*)
           requested-time (or (:runtime/time-us value) seq)
           time-us (max (inc @runtime-time*) (long requested-time))
@@ -126,7 +131,8 @@
                           :runtime/seq seq
                           :runtime/time-us time-us)]
       (prn "dao.stream <-" envelope)
-      (when (= :ok (:result (ds/append! stream envelope)))
+      (when (= :dao.stream/ok (:dao.stream/outcome
+                                (stream/append! input envelope)))
         (reset! runtime-seq* seq)
         (reset! runtime-time* time-us)
         (advance!)))))
@@ -143,7 +149,14 @@
                           :profile-id 1})]
     (reset! runtime-input-stream* input-stream)
     (reset! output-streams* outputs)
-    (reset! output-cursors* {})
+    ;; mint one origin cursor per output over the empty stream, so an
+    ;; eviction between advances is a reported gap, never a silent skip
+    (reset! output-cursors*
+            (into {} (map (fn [[k out]]
+                            [k (:dao.stream/cursor
+                                 (stream/cursor out
+                                                stream/anchor-oldest))]))
+                  outputs))
     (reset! runtime-seq* 0)
     (reset! keyboard-seq* -1)
     (reset! pointer-seq* -1)
@@ -452,7 +465,7 @@
        "This demo illustrates the first axiom, "
        [:strong "everything is a stream"] ". Pointer, keyboard, geometry, "
        "timer, and subscription values travel through bounded "
-       [:code "dao.stream.ring-buffer"] " streams into " [:code "dao.gui.event"]
+       [:code "dao.stream"] " ring buffers into " [:code "dao.gui.event"]
        ". The interpreter emits semantic interaction "
        "values, which update immutable camera state and the next frame."]
       [:ul

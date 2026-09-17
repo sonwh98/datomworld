@@ -15,7 +15,7 @@
             [dao.gui.event.keyboard :as keyboard]
             [dao.gui.event.pointer :as pointer]
             [dao.gui.event.trace :as trace]
-            [dao.stream :as ds]))
+            [dao.stream.v2 :as ds]))
 
 
 (def state-version 2)
@@ -735,10 +735,19 @@
               stream (get-in binding [:outputs destination])]
           (if (nil? stream)
             (recur (update binding :pending subvec 1))
-            (let [result (ds/append! stream value)]
-              (if (= :full (:result result))
+            (let [outcome (:dao.stream/outcome (ds/append! stream value))]
+              (cond
+                ;; only full parks: a transport may refuse transiently
+                (= :dao.stream/full outcome)
                 (enter-park binding destination value)
-                (recur (update binding :pending subvec 1))))))))))
+                (= :dao.stream/ok outcome)
+                (recur (update binding :pending subvec 1))
+                ;; closed, invalid-value, and transport-error mean the
+                ;; output is gone: drop the value with one diagnostic
+                ;; rather than parking on it or retrying
+                :else (do (prn "dao.gui.event output gone; dropping pending"
+                               {:destination destination, :outcome outcome})
+                          (recur (update binding :pending subvec 1)))))))))))
 
 
 (defn- close-outputs
@@ -751,15 +760,18 @@
 
 
 (defn advance
-  "The public binding driver over real DaoStreams. Retries pending output
-  in order before reading; reads at most one runtime input per call;
-  consumes it exactly once and retains the cursor even if its output
+  "The public binding driver over DaoStream v2 handles. Retries pending
+  output in order before reading; reads at most one runtime input per
+  call; consumes it exactly once and retains the cursor even if its output
   subsequently parks; steps the total reducer and routes the ordered
   outputs to their destination streams. Returns {:binding next-binding
   :status ...} where status is :advanced, :parked, :blocked, :end,
-  :input-gap, or :closed. After one valid teardown input is fully flushed
-  the binding closes all seven runtime-owned outputs; later inputs are
-  ignored."
+  :input-gap, :transport-error, or :closed; an :input-gap result also
+  carries :recovery-cursor, the cursor the gap outcome carried. After one
+  valid teardown input is fully flushed the binding closes all seven
+  runtime-owned outputs; later inputs are ignored. A terminal input
+  outcome is retained: later calls return :transport-error without
+  reading again."
   [binding]
   (if (:closed? binding)
     {:binding binding, :status :closed}
@@ -767,40 +779,74 @@
       (cond
         (:park flushed) {:binding flushed, :status :parked}
         (:teardown? flushed) {:binding (close-outputs flushed), :status :closed}
+        ;; the input lane died on a terminal outcome: report it again
+        ;; without issuing another read
+        (:input-error? flushed) {:binding flushed, :status :transport-error}
         :else
         (let [input (get-in binding [:inputs :runtime-input])
-              result (ds/next input (or (:cursor binding) {:position 0}))]
-          (cond
-            (map? result)
-            (let [{next-state :state, outputs :outputs}
-                  (step (:state flushed) (:ok result))
-                  stepped (assoc flushed
-                                 :state next-state
-                                 :cursor (:cursor result)
-                                 :pending (enqueue-outputs (:pending flushed)
-                                                           outputs)
-                                 :teardown? (boolean (:closed next-state)))
-                  flushed' (flush-pending stepped)]
-              (cond (:park flushed') {:binding flushed', :status :parked}
-                    (:teardown? flushed')
-                    {:binding (close-outputs flushed'), :status :closed}
-                    :else {:binding flushed', :status :advanced}))
-            (= result :blocked) {:binding flushed, :status :blocked}
-            (= result :end) {:binding flushed, :status :end}
-            ;; a bare gap cannot construct the canonical input-loss
-            ;; envelope: report without advancing the cursor
-            (= result :daostream/gap) {:binding flushed, :status :input-gap}
-            :else {:binding flushed, :status :blocked}))))))
+              {minted :dao.stream/cursor, mint-outcome :dao.stream/outcome}
+              (when (nil? (:cursor binding))
+                (ds/cursor input ds/anchor-oldest))]
+          (if (and (some? mint-outcome)
+                   (not= :dao.stream/ok mint-outcome))
+            ;; the input handle cannot mint the origin cursor at all
+            {:binding (if (= :dao.stream/closed mint-outcome)
+                        flushed
+                        (assoc flushed :input-error? true)),
+             :status (if (= :dao.stream/closed mint-outcome)
+                       :end
+                       :transport-error)}
+            (let [cursor (or (:cursor binding) minted)
+                  result (ds/next input cursor)
+                  ;; the minted origin cursor is retained even when the
+                  ;; first read observes nothing: re-minting oldest after
+                  ;; an eviction would silently skip the gap
+                  binding' (assoc flushed :cursor cursor)]
+              (case (:dao.stream/outcome result)
+                :dao.stream/ok
+                (let [{next-state :state, outputs :outputs}
+                      (step (:state flushed) (:dao.stream/value result))
+                      stepped (assoc binding'
+                                     :state next-state
+                                     :cursor (:dao.stream/cursor result)
+                                     :pending (enqueue-outputs
+                                                (:pending flushed)
+                                                outputs)
+                                     :teardown? (boolean
+                                                  (:closed next-state)))
+                      flushed' (flush-pending stepped)]
+                  (cond (:park flushed') {:binding flushed', :status :parked}
+                        (:teardown? flushed')
+                        {:binding (close-outputs flushed'), :status :closed}
+                        :else {:binding flushed', :status :advanced}))
+                :dao.stream/blocked {:binding binding', :status :blocked}
+                :dao.stream/end {:binding binding', :status :end}
+                ;; a bare gap cannot construct the canonical input-loss
+                ;; envelope: report the transport's recovery cursor
+                ;; without advancing the binding's own cursor
+                :dao.stream/gap {:binding binding',
+                                 :status :input-gap,
+                                 :recovery-cursor (:dao.stream/cursor result)}
+                ;; cursor-mismatch, invalid-cursor, and transport-error:
+                ;; a binding that retried a dead cursor forever is the
+                ;; spin the runtime plan's classifier forbids, so the
+                ;; terminal outcome is retained and never re-read
+                {:binding (assoc binding' :input-error? true),
+                 :status :transport-error}))))))))
 
 
 (defn recover-input-gap
   "Resume a binding after a transport-owned input-loss envelope.
 
-  The caller supplies a cursor positioned after the discarded input. The
+  The caller supplies a cursor positioned after the discarded input — the
+  recovery cursor an :input-gap advance result carried, or any cursor the
+  host minted on the input stream; it is never a fabricated position. The
   envelope is interpreted normally, so active pointer arenas and held keys
   are cancelled and the cancellation outputs remain ordered with pending
   output. This is deliberately separate from `advance`: a bare stream gap
-  does not contain enough information to recover by itself."
+  does not contain enough information to recover by itself. The fresh
+  cursor clears any retained terminal input outcome: the host has
+  re-established the input lane."
   [binding cursor runtime-input]
   (let [{next-state :state, outputs :outputs} (step (:state binding)
                                                     runtime-input)]
@@ -809,6 +855,7 @@
            :cursor cursor
            :pending (enqueue-outputs (:pending binding) outputs)
            :teardown? (boolean (:closed next-state))
+           :input-error? false
            :park nil)))
 
 
@@ -818,8 +865,13 @@
   input stream and read cursor, the seven output streams, the immutable
   interpreter state, the ordered pending-output queue, teardown and
   parked-interval state, and an :offer function exposing the total reducer
-  for direct replay."
-  [{:keys [inputs outputs], :as _spec}]
+  for direct replay. The spec's optional :cursor is the initial read
+  cursor; without one the first advance mints :dao.stream/oldest. Origin
+  observation from that mint is a timing discipline holding only when the
+  first advance itself happens before production begins, not a property
+  bind guarantees by having been called early (see dao.gui.event.md's
+  Binding Contract)."
+  [{:keys [inputs outputs cursor], :as _spec}]
   (letfn [(make
             [state cursor pending teardown?]
             {:dao.gui.event/binding-version state-version,
@@ -830,10 +882,11 @@
              :pending pending,
              :teardown? teardown?,
              :closed? false,
+             :input-error? false,
              :park nil,
              :offer (fn [runtime-input]
                       (let [{next-state :state, out :outputs}
                             (step state runtime-input)]
                         {:binding (make next-state cursor pending teardown?),
                          :outputs out}))})]
-    (make (initial-state) {:position 0} [] false)))
+    (make (initial-state) cursor [] false)))
