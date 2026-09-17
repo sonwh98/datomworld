@@ -584,6 +584,8 @@ reassert keeps the reasserted address; a tampered vector reports
 `:yin.k/derivation-mismatch`, not a silent re-lower. Size: three to four
 days; the transactor and `query/current` exist, so this is composition.
 
+**U10a — Stream Codec Parameterization & dao.stream.cbor (D7).** Refactor `src/cljc/dao/stream/ws.cljc` to extract the hardcoded Transit calls into a parameterized codec interface (a seam). Upgrade all four host WebSocket adapters to pass binary frames through without tearing down the connection on NUL strings. Implement the explicit `dao.stream.cbor` WebSocket subprotocol negotiation, and configure Boring to serve as a lossless stream profile (no Jing normalizations). Size: three to four days.
+
 **U10 — content in `dao.jing` (D3 answered: individual rows; the
 `dao.jing.md` metadata fix's intake-stream half still open).** Rows and
 vectors materialized under their addresses, individually per D3 — no pack
