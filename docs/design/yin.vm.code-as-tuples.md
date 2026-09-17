@@ -1144,15 +1144,15 @@ UCF §7.3.4 checks are translated as follows.
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | Rule             | Defect when                                                                                                                                         |
 +==================+=====================================================================================================================================================+
-| `:nonempty`      | the vector has no instructions                                                                                                                      |
+| `:nonempty`      | the vector has no instructions, or the outer sequence is not a `vector?` — the canonical positional form (UCF §7.3.2), never a list                  |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
-| `:mnemonic`      | the first element is not a mnemonic of `code/mnemonics` (`code.cljc:12-16`)                                                                         |
+| `:mnemonic`      | the first element is not a mnemonic of `code/mnemonics` (`code.cljc:12-16`), or the element is not a `vector?` tuple — the same canonical-form rule  |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:arity`         | the tuple's count differs from the mnemonic's arity in `yin.vm.semantic.md` §2.4 as saturated by UCF §7.3.2                                         |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:operand-kind`  | an operand is not of its kind: `:const` and `:store-put` values or `:store-get`/`:store-put` keys fail `plain-data?` (the `key` kind of §2.2), a    |
 |                  | a `:var` name is not a symbol, a `:closure` params is not a vector of symbols, a `:ffi-call` op or `:resume` parked id is not a keyword, a `:gensym`  |
-|                  | prefix is not a string                                                                                                                              |
+|                  | prefix is not a string, a `:call` tail? is not exactly boolean, a `:stream-make` buffer is not a non-negative integer                                |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:saturation`    | a saturated operand (`:gensym` prefix, `:stream-make` buffer, `:call` tail?, `:ffi-call` argc) is nil                                               |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+

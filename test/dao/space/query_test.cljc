@@ -21,6 +21,9 @@
             [dao.stream.memory-log :as memory-log]
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as v2]
+            [yin.vm.code :as code]
+            [yin.vm.linearize :as linearize]
+            [yin.vm.parity-test :as parity]
             #?@(:cljd [["dart:io" :as dart-io]])))
 
 
@@ -1430,3 +1433,111 @@
         "contrast: the row-only rules have no :if/:stream edge clauses,
           so they cannot reach s's binder and overcount s as free —
           §4.5's conservative-but-imprecise failure mode, now tested")))
+
+
+;; ---------------------------------------------------------------------------
+;; §7.7 syntactic extraction and the §7.7.1 footprint table (U6)
+;; ---------------------------------------------------------------------------
+;; The code part of UCF §7.6.1's conservative fixed point: queries over
+;; $ast (flat rows of the reachable trees) and $code (segment-qualified
+;; rows of the reachable segments). §7.7.1's conformance obligation: for
+;; every corpus tree, the requirement set from the tree equals the one
+;; from its lowered segment in every field the syntactic queries fill.
+
+(def ^:private requirements-kitchen-sink
+  "One tree touching every requirement the syntactic queries fill: both
+   store directions, FFI, a parked id, every effect-raising tag, and the
+   numeric-key criterion (item 2) in the same tree."
+  {:type :if,
+   :test {:type :vm/store-get, :key 'k},
+   :consequent {:type :stream/put,
+                :target {:type :stream/make, :buffer 8},
+                :val {:type :stream/next,
+                      :source {:type :stream/cursor,
+                               :source {:type :variable, :name 's}}}},
+   :alternate {:type :vm/resume,
+               :parked-id :p1,
+               :val {:type :dao.stream.apply/call,
+                     :op :op/echo,
+                     :operands [{:type :vm/store-put, :key 99, :val 1}
+                                {:type :vm/gensym, :prefix "g"}
+                                {:type :vm/current-continuation}
+                                {:type :vm/park}
+                                {:type :stream/close,
+                                 :source {:type :variable, :name 's}}]}}})
+
+
+(def ^:private requirements-corpus
+  "`parity/corpus` plus the kitchen sink and single-node key trees, so the
+   conformance equality runs over programs that fill every field and
+   programs that fill none."
+  (into (map (fn [[name ast]] [name ast]) parity/corpus)
+        [["kitchen sink" requirements-kitchen-sink]
+         ["numeric store key" {:type :vm/store-put, :key 99, :val 1}]
+         ["keyword store key" {:type :vm/store-get, :key :k}]
+         ["park" {:type :vm/park}]]))
+
+
+(defn- tree-db
+  "The `$ast` relation of one tree: its flat rows."
+  [ast]
+  (rel (vals (:rows (v2/ast->semantic-bytecode ast)))))
+
+
+(defn- segment-db
+  "The `$code` relation of one tree's lowered segment: its
+   segment-qualified rows."
+  [ast]
+  (rel (code/project-segment-qualified
+         (:vector (linearize/lower-rows (v2/ast->semantic-bytecode ast))))))
+
+
+(deftest footprint-table-has-a-row-for-every-tag-and-mnemonic
+  (let [table (get v2/footprint-table "v2")]
+    (is (= (set (keys v2/semantic-bytecode-grammar)) (set (keys (:tags table))))
+        "every §2.3 tag: no external effect is an explicit #{}, never an
+          absence (§7.7.1)")
+    (is (= code/mnemonics (set (keys (:mnemonics table))))
+        "every §2.4 mnemonic")
+    (is (= #{:stream/make :stream/put :stream/cursor :stream/next
+             :stream/close}
+           (into #{} (mapcat val) (:tags table)))
+        "the identifiers contributed are exactly the effects the machine
+          raises (`{:effect …}` in semantic.cljc's hot loop); FFI, park,
+          resume, gensym, store, and current-continuation contribute none")))
+
+
+(deftest ast-requirements-extract-each-field
+  (is (= {:store-keys #{99 'k},
+          :ffi-ops #{:op/echo},
+          :parked-ids #{:p1},
+          :effects #{:stream/make :stream/put :stream/cursor :stream/next
+                     :stream/close}}
+         (v2/ast-requirements (tree-db requirements-kitchen-sink)))
+      "both store directions, the FFI op, the parked id, and every
+        effect-raising tag normalized by the footprint table — an FFI call
+        contributes no effect identifier"))
+
+
+(deftest requirement-sets-from-tree-and-segment-are-equal
+  (doseq [[name ast] requirements-corpus]
+    (testing name
+      (is (= (v2/ast-requirements (tree-db ast))
+             (v2/segment-requirements (segment-db ast)))
+          "§7.7.1's conformance obligation: equal in store keys, FFI ops,
+            parked ids, and normalized effects — the tree's tags and the
+            segment's mnemonics normalize to the same vocabulary"))))
+
+
+(deftest code-joins-store-put-key-to-ast-by-value
+  ;; U6's criteria: a $code query joining a :store-put key to a
+  ;; :vm/store-put row by value across the two relations — tree rows and
+  ;; segment rows share operand values even though they share no ids
+  (let [ast requirements-kitchen-sink
+        joined (qq '[:find ?key :in $ast $code
+                     :where [$ast _ :vm/store-put ?key _]
+                     [$code _ _ :store-put ?key _]]
+                   (tree-db ast) (segment-db ast))]
+    (is (= #{[99]} joined)
+        "the numeric store-put key joins its tree row to its segment row by
+          value")))
