@@ -40,10 +40,3 @@
 
 
   (closed? [_this] (:closed @state-atom)))
-
-
-(defn make-non-waitable-stream
-  ([] (make-non-waitable-stream nil))
-  ([capacity]
-   (->NonWaitableStream
-     (atom {:buffer {}, :tail 0, :closed false, :capacity capacity}))))
