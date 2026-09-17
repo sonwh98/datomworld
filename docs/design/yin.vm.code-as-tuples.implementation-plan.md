@@ -183,7 +183,7 @@ about.
 |---|---|---|---|
 | ~~`"ast-to-bytecode"` profile as a published pinned document; `yin.vm.semantic.md` §2.4/§5.3 amendment (item 14) and its `zipmap` corrections~~ — **done 2026-09-18** | §5.2.1, item 7, item 14 | D1 — answered | U8 |
 | derivation records, two-step verification, ledger event entities, naming rows, provenance link from naming fact to event (item 10) | §5.2, §5.2.2, §8.1–8.3, §8.6 | U4, U5 (U8 no longer blocks) | U9 |
-| rows and vectors materialized in `dao.jing`; `:yin.code/hash` written | §2.1, §4.1, UCF §7.3.2 | D3 answered (individual rows); the intake-stream half of `dao.jing.md`'s metadata-carry open item remains | U10 |
+| rows and vectors materialized in `dao.jing`; `:yin.code/hash` written | §2.1, §4.1, UCF §7.3.2 | D3 answered (individual rows); the intake-stream metadata issue is resolved by D7 (dao.stream.cbor) | U10 |
 | the observer row lane: `program-loaders` switch, the program-input predicate, REPL eval path, for compositions that want a compiler + semantic VM attached | §9.2, item 9 | U3, U4, U5 (D2 dissolved — no topology gates this) | U11 |
 
 ### Missing — design work still owed to another document or the owner
@@ -584,7 +584,10 @@ reassert keeps the reasserted address; a tampered vector reports
 `:yin.k/derivation-mismatch`, not a silent re-lower. Size: three to four
 days; the transactor and `query/current` exist, so this is composition.
 
-**U10a — Stream Codec Parameterization & dao.stream.cbor (D7).** Refactor `src/cljc/dao/stream/ws.cljc` to extract the hardcoded Transit calls into a parameterized codec interface (a seam). Upgrade all four host WebSocket adapters to pass binary frames through without tearing down the connection on NUL strings. Implement the explicit `dao.stream.cbor` WebSocket subprotocol negotiation, and configure Boring to serve as a lossless stream profile (no Jing normalizations). Size: three to four days.
+**U10a — Stream Codec Parameterization & dao.stream.cbor (D7).** Parameterize the single `dao.stream.ws` state machine with an explicit codec profile containing the subprotocol name, frame kind, value-domain predicate, encoder, and decoder. Preserve `dao.stream.transit-json` and its text-wire behavior unchanged. Upgrade the JVM, browser, Node, and Dart adapters to send and receive typed text/binary messages without content sniffing or NUL sentinels. Add deterministic dual-subprotocol negotiation: the attaching composition explicitly selects a profile; an endpoint may serve the same logical-stream identity concurrently through either profile; no silent downgrade is permitted. Preserve the existing envelopes and lifecycle.
+
+Define a stream-owned, structurally lossless CBOR portable domain that preserves metadata (including reader positions) and collection distinctions. Implement it with pinned Boring on JVM/CLJS and a byte-compatible Dart codec; do not reuse Jing normalizations. Prove compatibility with dual-client tests. Size: one to two weeks.
+
 
 **U10 — content in `dao.jing` (D3 answered: individual rows; the
 `dao.jing.md` metadata fix's intake-stream half still open).** Rows and
