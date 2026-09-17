@@ -299,7 +299,10 @@ normative EDN shapes:
   rejected terminal-local ingress sequence number, and interactive truth
   remains at the previous presented ID.
 - **Protocol Error:** `{:message/kind :dao.terminal/protocol-error :error/kind <keyword> :frame-id <int>}`.
-  Signals an invalid state transition (e.g., `:future-frame-tap`).
+  Signals an invalid state transition (e.g., `:future-frame-tap`). The
+  `:dao.terminal/transport-error` kind additionally carries
+  `:dao.stream/outcome <keyword>`, and its `:frame-id` may be `nil` (see
+  below).
 - **Frame Skipped:** `{:message/kind :dao.terminal/frame-skipped :submission-id <int>}`.
   Makes an explicit gap in the terminal's submission sequence visible
   downstream when submission `N` never becomes a presented frame.
@@ -309,13 +312,24 @@ For v1, signal keyword vocabularies are constrained:
 - **Frame Rejection `:reason`** MUST be one of `:validation-failure`,
   `:unloadable-image`, or `:unsupported-op`
 - **Protocol Error `:error/kind`** MUST be one of `:future-frame-tap`,
-  `:out-of-order-frame-events`, or `:stale-generation-tap`.
+  `:out-of-order-frame-events`, `:stale-generation-tap`, or the
+  terminal-owned `:dao.terminal/transport-error`.
   `:future-frame-tap` is emitted when a tap is tagged with a frame-id
   greater than any presented frame in the current generation.
   `:out-of-order-frame-events` is emitted when geometry or tap events for
   frame `N` arrive after events for a later frame on the same generation.
   `:stale-generation-tap` is emitted when a tap is tagged with a frame-id
   whose generation has been superseded by a VM Reset Signal.
+  `:dao.terminal/transport-error` is emitted once, when the terminal's frame
+  stream stops being readable and the binding stops: the DaoStream `next`
+  outcomes `:dao.stream/end`, `:dao.stream/transport-error`,
+  `:dao.stream/cursor-mismatch`, and `:dao.stream/invalid-cursor` all map to
+  it, and the triggering outcome is carried verbatim as `:dao.stream/outcome`.
+  (`:dao.stream/blocked` and `:dao.stream/gap` are not errors: the first is
+  retried on the next step, the second emits a Frame Skipped Signal.) Its
+  `:frame-id` is the presented-frame ID of the last frame presented in the
+  current generation — not a submission ID, which also counts rejected and
+  skipped submissions — or `nil` when no frame has been presented.
 
 `:dao.gui.event/no-active-frame` is not a protocol error. It is an event-runtime
 diagnostic kind used when a tap arrives before any frame in the current

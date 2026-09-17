@@ -2,13 +2,26 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [dao.postgraphics.terminal :as terminal]
             [dao.postgraphics.web :as web]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]))
+            [dao.stream.v2 :as stream]
+            [dao.stream.v2.ringbuffer :as rb]))
 
 
 (defn- make-stream
-  []
-  (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}))
+  ([] (make-stream 64))
+  ([capacity]
+   (:dao.stream/handle (rb/create! {:dao.stream/type rb/transport-type,
+                                    rb/capacity-key capacity}))))
+
+
+(defn- values
+  "Every value retained on handle, oldest first."
+  [handle]
+  (loop [cursor (:dao.stream/cursor (stream/cursor handle :dao.stream/oldest))
+         acc []]
+    (let [read (stream/next handle cursor)]
+      (if (= :dao.stream/ok (:dao.stream/outcome read))
+        (recur (:dao.stream/cursor read) (conj acc (:dao.stream/value read)))
+        acc))))
 
 
 (defn- fake-canvas
@@ -64,11 +77,14 @@
       (terminal/put-frame!
         frames
         [{:op/kind :draw/fill-rect, :rect [10 10 20 20], :color [1 0 0 1]}])
+      (is (empty? @calls) "put-frame! wakes nothing; the host tick presents")
+      (is (= :blocked (#'web/tick! handle)))
       (let [names (set (map first @calls))]
         (is (contains? names :putImageData) "software backend blits its buffer")
         (is (contains? names :fillRect)
             "the 2D rect reaches the native painter via the dispatcher"))
-      (when-let [close! (:close! handle)] (close!)))))
+      (swap! (:binding* handle) terminal/close)
+      (is (= :closed (#'web/tick! handle))))))
 
 
 (deftest binding-lowers-valid-frames-and-signals-rejections
@@ -95,14 +111,41 @@
         [{:op/kind :draw/fill-rect, :rect [0 0 10 10], :color [1 1 1 1]}])
       (terminal/put-frame! frames
                            [{:op/kind :draw/fill-rect, :rect [0 0 -1 1]}])
+      (is (empty? @submissions) "nothing is presented before the host ticks")
+      (is (= :blocked (#'web/tick! handle)))
       (is (= "web-test" (:generation-id handle)))
       (is (= 1 (count @submissions)) "only the valid frame is submitted")
       (is (= :draw-2d (get-in @submissions [0 :passes 0 :draws 0 :pipeline])))
       (is (= 1 (count @errors)) "the invalid frame triggers on-error")
-      (is (= :dao.terminal/reset
-             (:message/kind (:ok (ds/next signals {:position 0})))))
-      (is (= {:message/kind :dao.terminal/rejection,
-              :submission-id 1,
-              :reason :validation-failure}
-             (:ok (ds/next signals {:position 1}))))
-      (when-let [close! (:close! handle)] (close!)))))
+      (is (= [{:message/kind :dao.terminal/reset, :generation-id "web-test"}
+              {:message/kind :dao.terminal/rejection,
+               :submission-id 1,
+               :reason :validation-failure}]
+             (values signals))))))
+
+
+(deftest binding-mints-at-newest-and-signals-gaps
+  (testing "a frame put before binding is not presented; an eviction the
+            cursor spans yields a frame-skipped signal, then presents"
+    (let [frames (make-stream 1)
+          signals (make-stream)
+          submissions (atom [])
+          frame [{:op/kind :draw/fill-rect, :rect [0 0 10 10], :color [1 1 1 1]}]
+          _ (terminal/put-frame! frames frame)
+          handle (#'web/bind-frame-stream!
+                  nil
+                  frames
+                  {:viewport-size (fn [] [100 50]),
+                   :signal-stream signals,
+                   :backend {:submit! (fn [_canvas lowered]
+                                        (swap! submissions conj lowered)),
+                             :supports-render-targets? true,
+                             :supports-image? true}})]
+      (is (= :blocked (#'web/tick! handle)))
+      (is (empty? @submissions) "the frame put before bind is not presented")
+      (terminal/put-frame! frames frame)
+      (terminal/put-frame! frames frame)
+      (is (= :blocked (#'web/tick! handle)))
+      (is (= 1 (count @submissions)))
+      (is (= [:dao.terminal/reset :dao.terminal/frame-skipped]
+             (map :message/kind (values signals)))))))

@@ -2,15 +2,13 @@
   (:require ["package:flutter/material.dart" :as m]
             [dao.gui.compiler :as dao.gui]
             [dao.postgraphics.flutter :as pg]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
+            [dao.stream.v2.ringbuffer :as rb]
             [yin.repl.v2.flutter :as flutter-repl]))
 
 
 (def ^:private frame-stream
-  (ds/open! {:dao.stream/type :ringbuffer,
-             :capacity 8,
-             :eviction-policy :evict-oldest}))
+  (:dao.stream/handle (rb/create! {:dao.stream/type rb/transport-type,
+                                   rb/capacity-key 8})))
 
 
 (def ^:private design-width 420.0)
@@ -360,6 +358,11 @@
                            surface-height (* surface-width
                                              (/ design-height design-width))
                            dims [surface-width surface-height]]
+                       ;; A resize re-renders into the already-bound
+                       ;; terminal. The first render of a mount comes from
+                       ;; :on-bind below: the terminal's cursor is minted at
+                       ;; :dao.stream/newest, so a frame put here before the
+                       ;; child binds would never be presented.
                        (when (not= dims @surface-size)
                          (reset! surface-size dims)
                          (when (contains? #{:sample :demo} @surface-mode)
@@ -385,7 +388,9 @@
                                                surface-height
                                                .child
                                                (pg/postgraphics-widget
-                                                 frame-stream)))))))
+                                                 frame-stream
+                                                 :on-bind
+                                                 render-built-in-surface!)))))))
                  (m/SizedBox .height 12.0)
                  (m/Row .children
                         [(m/Expanded .child

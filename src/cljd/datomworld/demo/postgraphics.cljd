@@ -4,8 +4,7 @@
             ["dart:math" :as math]
             ["package:flutter/material.dart" :as m]
             [dao.postgraphics.flutter :as pg]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]))
+            [dao.stream.v2.ringbuffer :as rb]))
 
 
 ;; Fixed canvas size. The widget is placed inside a SizedBox of this size.
@@ -101,9 +100,9 @@
 
 (defn main
   []
-  (let [stream (ds/open! {:dao.stream/type :ringbuffer,
-                          :capacity 4,
-                          :eviction-policy :evict-oldest})
+  (let [stream (:dao.stream/handle (rb/create! {:dao.stream/type
+                                                rb/transport-type,
+                                                rb/capacity-key 4}))
         tick (atom 0)
         fps-count (atom 0)
         fps-display (atom 0)

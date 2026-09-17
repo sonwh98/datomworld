@@ -6,16 +6,14 @@
    and the simulated-seconds math all live here so behavior stays in
    sync between frontends."
   (:require [dao.postgraphics.terminal :as terminal]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
+            [dao.stream.v2.ringbuffer :as rb]
             [datomworld.demo.earth-moon-scene :as scene]
             #?(:cljs [reagent.core :as r])))
 
 
 (defonce frame-stream
-  (ds/open! {:dao.stream/type :ringbuffer,
-             :capacity 4,
-             :eviction-policy :evict-oldest}))
+  (:dao.stream/handle (rb/create! {:dao.stream/type rb/transport-type,
+                                   rb/capacity-key 4})))
 
 
 ;; scene-state must be a Reagent atom in CLJS so the Pause/Animate button
