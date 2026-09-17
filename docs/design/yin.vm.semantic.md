@@ -1,5 +1,10 @@
 # yin.vm.semantic on dao.stream.v2 — linear executable datoms
 
+Revision: 1 (2026-09-18) — the `"v2"` execution contract this document
+names is published in full by §2.4's "v2 contract revision history" note,
+per `yin.vm.universal-continuation-format.md` §7.11's contract-revision-
+publication blocker. Prior text carried no revision line; this is the first.
+
 Status: Phase 0 contract. Sections §1–§6 are promoted verbatim from
 `collab/1789221648668-architect-semantic-vm-v2-design.claude-fable-5-1.findings.md`.
 The opcode table (§2.4) and the attribute tables (§2.2, §2.3) are the
@@ -163,7 +168,7 @@ says survives the log-structured reading; a register model would not.
 +-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
 | `:push`                 | —                                             | `St ← St ⧺ [val]`                                                                |
 +-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:call`                 | `:yin.code/argc n`, `:yin.code/tail? bool`    | pop `n` args and the operator below them; apply (§4.3)                           |
+| `:call`                 | `:yin.code/argc n`, `:yin.code/tail? bool`    | pop `n` args and the operator below them; apply (§4.2)                           |
 +-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
 | `:return`               | —                                             | pop frame from `K`; restore `pc`, `E`, stack base; `val` unchanged; empty `K`    |
 |                         |                                               | halts                                                                            |
@@ -210,11 +215,46 @@ naming the node.
 :store-put :stream-make :stream-put :stream-cursor :stream-next :stream-close
 :park :resume :current-cont :tailcall :dao.stream.apply/call`. The loader
 maps mnemonics onto that table (`:const`→`:literal`, `:var`→`:load-var`,
-`:closure`→`:lambda`, `:branch-false`→`:branch`, `:ffi-call`→
-`:dao.stream.apply/call`, `:call`+`:tail? true`→`:tailcall`) and the table
-gains `:push 22` and `:halt 23`. `:move` stays unused. Keeping the datom
-mnemonics semantic and the image integers mechanical is the point: a query
-asks for `:call`, the dispatch switches on `5` or `20`.
+`:closure`→`:lambda`, `:branch-false`→`:branch`, `:current-continuation`→
+`:current-cont`, `:ffi-call`→`:dao.stream.apply/call`, `:call`+`:tail? true`→
+`:tailcall`) and the table gains `:push 22` and `:halt 23`. `:move` stays
+unused. Keeping the datom mnemonics semantic and the image integers
+mechanical is the point: a query asks for `:call`, the dispatch switches on
+`5` or `20`.
+
+**Saturation and defaults.** Two operand attributes fall back to a default
+when absent rather than failing to decode: `:gensym`'s `:yin.code/prefix`
+defaults to `"id"`; `:stream-make`'s `:yin.code/buffer` defaults to
+`yin.vm.v2/default-stream-capacity`. Every other operand attribute in the
+§2.4 table is required by its op — the decoder does not guess at it.
+
+**The `"v2"` execution contract, published.** `yin.vm.universal-continuation-format.md`
+§7.11 names a contract-revision-publication blocker for `:yin.code/contract
+"v2"`: a revision history naming the mnemonic set, per-mnemonic arity and
+operand kinds, the saturation/defaults table, the opcode table and
+transitions, resolution and last-value-wins rules, the effect outcome map,
+and scheduler semantics, all in this section. All seven are already written,
+here or by direct citation:
+
+- **Mnemonic set**: the `:yin.code/op` column of §2.4's table, 21 values,
+  matching `yin.vm.v2.code/mnemonics`.
+- **Per-mnemonic arity and operand kinds**: §2.4's "Operand attributes"
+  column; enforced by §2.6 rule 2 (`:instruction-shape`) and rule 5
+  (`:dangling-target`, for the three ref-bearing ops).
+- **Saturation/defaults**: the paragraph directly above.
+- **Opcode table and transitions**: the "Opcode integers" paragraph above
+  for the mnemonic→integer mapping; §4.2 for the transition equations.
+- **Resolution rule**: §4.2's $\rho$ = `engine/resolve-var`,
+  env → store → primitives → module registry (`ast.md` Part 2 gives the
+  same order for the walker — one resolution rule, two evaluators).
+- **Last-value-wins rule**: a repeated single-valued instruction attribute
+  keeps its last value in datom order, exactly as `code.cljc`'s
+  `index-batch` and `yin.vm.v2/index-datoms` both implement it.
+- **Effect outcome map**: §3.3's table.
+- **Scheduler semantics**: §3.5.
+
+This is the whole `"v2"` contract by reference, not a duplicate of it —
+each piece has exactly one home, and this note is that home's index.
 
 ### 2.5 Constants and literals
 
@@ -229,16 +269,22 @@ constant entity) is reserved and not needed for the current corpus.
 ### 2.6 Well-formedness (checked by the loader, tested in Phase 0)
 
 1. Exactly one entity with `:yin.code/type :segment` per batch.
-2. Instruction pcs are exactly `0 .. length-1`, each once.
-3. The batch is sorted by pc (so a loader can fill the array in one pass).
-4. Every `:yin.code/target` and `:yin.code/body` resolves to an instruction
-   of the same segment.
-5. Every basic block ends in a terminator (`:jump`, `:return`, `:halt`) or
+2. Every instruction entity names this segment (`:yin.code/segment`) and
+   carries a §2.4 mnemonic (`:yin.code/op`); the later rules read both, so a
+   batch that lacks them cannot be judged by them (`:instruction-shape`).
+3. Instruction pcs are exactly `0 .. length-1`, each once.
+4. The batch is sorted by pc (so a loader can fill the array in one pass).
+5. Every `:yin.code/target` and `:yin.code/body` resolves to an instruction
+   of the same segment, and a `:jump`, `:branch-false`, or `:closure`
+   without its required ref resolves nowhere and fails the same rule.
+6. Every basic block ends in a terminator (`:jump`, `:return`, `:halt`) or
    falls into a labelled successor; pc `length-1` is a terminator.
-6. Every `:call`/`:ffi-call` has a non-negative `:yin.code/argc`.
+7. Every `:call`/`:ffi-call` has a non-negative `:yin.code/argc`.
 
 Violation is a load error naming the entity and rule. The loader is total
-over the outcomes of its inputs; it does not guess.
+over the outcomes of its inputs; it does not guess. `yin.vm.v2.code/rules`
+runs these seven, in this order, each assuming the earlier ones held; the
+first defect wins.
 
 ### 2.7 A worked segment
 
@@ -428,8 +474,15 @@ C = \langle seg, pc, val, St \rangle$$
   because it is part of what the machine is *doing*, and it is saved in
   frames).
 - **E (environment)**: a persistent map `sym → value`, extended on closure
-  entry with `merge closure-env (zipmap params args)`, as the walker does.
-  Lexical addressing is reserved (§6.4).
+  entry with `merge closure-env (engine/bind-params params args)`, as the
+  walker does. `bind-params` binds each param to its positional argument and
+  **nil-fills** any parameter left over on an under-arity call — it is not
+  `zipmap`, which would silently omit the unbound parameter names from the
+  extended environment entirely (`yin.vm.code-as-tuples.md` §7.7.2's
+  argument-to-named-parameter binding rule: arguments match `params` by
+  position, each bound to its name; under-arity → missing names bound to
+  `nil`; extra arguments beyond `params`' length are dropped). Lexical
+  addressing is reserved (§6.4).
 - **S (store)**: the map `key → value` holding `yin/def` results, stream
   handles, cursor entries, and the FFI pair — unchanged from `engine`.
 - **K (continuation)**: a vector of frames, innermost last. Frame kinds:
@@ -623,7 +676,7 @@ array slot.
 +--------------------------+--------------------------------------------+--------------------------------------------------------+
 | test an `if`             | frame map (1)                              | 0                                                      |
 +--------------------------+--------------------------------------------+--------------------------------------------------------+
-| call a closure           | `zipmap`, `merge` (2)                      | `zipmap`, `merge`, return frame (3), 2 if tail         |
+| call a closure           | `bind-params`, `merge` (2)                 | `bind-params`, `merge`, return frame (3), 2 if tail    |
 +--------------------------+--------------------------------------------+--------------------------------------------------------+
 | every non-hot transition | one `ASTWalkerVM` record                   | 0 (registers stay in `loop` locals until a park point) |
 +--------------------------+--------------------------------------------+--------------------------------------------------------+

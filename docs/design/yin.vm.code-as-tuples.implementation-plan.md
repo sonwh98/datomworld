@@ -183,8 +183,8 @@ implementation detail.
 
 | what | design | blocked on | unit |
 |---|---|---|---|
-| `"ast-to-bytecode"` profile as a published pinned document; `yin.vm.semantic.md` §2.4/§5.3 amendment (item 14) and its `zipmap` corrections | §5.2.1, item 7, item 14 | D1 | U8 |
-| derivation records, two-step verification, ledger event entities, naming rows, provenance link from naming fact to event (item 10) | §5.2, §5.2.2, §8.1–8.3, §8.6 | D1, U8 | U9 |
+| ~~`"ast-to-bytecode"` profile as a published pinned document; `yin.vm.semantic.md` §2.4/§5.3 amendment (item 14) and its `zipmap` corrections~~ — **done 2026-09-18** | §5.2.1, item 7, item 14 | D1 — answered | U8 |
+| derivation records, two-step verification, ledger event entities, naming rows, provenance link from naming fact to event (item 10) | §5.2, §5.2.2, §8.1–8.3, §8.6 | U4, U5 (U8 no longer blocks) | U9 |
 | rows and vectors materialized in `dao.jing`; `:yin.code/hash` written | §2.1, §4.1, UCF §7.3.2 | D3, `dao.jing.md`'s metadata-carry open item | U10 |
 | the observer row lane: batch shape, `program-loaders` switch, the program-input predicate, REPL eval path | §9.2, item 9 | D2 | U11 |
 
@@ -212,7 +212,7 @@ implementation detail.
 
 ## Decisions
 
-### D1 — the lowering profile is published by copying, not by designing [J, owner signs]
+### D1 — the lowering profile is published by copying, not by designing [Owner: publish now, in yin.vm.code-as-tuples.md, 2026-09-18]
 
 Everything `"ast-to-bytecode"` must pin is already written in §5.2.1's table and is
 already what `linearize/flatten-program` does: walker order, labels numbered
@@ -241,8 +241,15 @@ to `yin.vm.semantic.md` is a documentation act. What is *not* mechanical:
   edit, because a profile targeting an unpublished contract cannot be
   verified either.
 
-Owner action: approve the text U8 produces. No code waits on this except
-U9; U4 emits the vector without a record and is not blocked.
+**Answered.** The owner chose to publish now, as a section inside
+`yin.vm.code-as-tuples.md` itself (§5.2.1's existing table), rather than a
+sibling `yin.vm.lowering-profile.md` and rather than holding off on the
+one-segment-per-lambda question first. U8 is done: §10 items 7 and 14 of
+`yin.vm.code-as-tuples.md` are marked published/done, and
+`yin.vm.semantic.md` revision 1 carries the argument-binding rule, the
+two `zipmap` corrections, the four drift fixes, and the `"v2"` contract
+revision history UCF blocker 6 asked for. U9 is unblocked on this half of
+its dependency (still needs U4, U5).
 
 ### D2 — which medium the walker attaches to [owner]
 
@@ -471,12 +478,13 @@ parallel lanes (U1‖U2‖U3, then U4, then U5‖U7, then U6).
 
 ### Phase 2 — after a decision, then mechanical
 
-**U8 — profile and contract publication (D1).** A section in
-`yin.vm.code-as-tuples.md` or a sibling `yin.vm.lowering-profile.md`
-pinning `"ast-to-bytecode"` by the §5.2.1 table; `yin.vm.semantic.md` amended per
+**U8 — profile and contract publication (D1). Done, 2026-09-18.** §5.2.1's
+existing table in `yin.vm.code-as-tuples.md` now stands as the published
+`"ast-to-bytecode"` profile (§10 items 7 and 14 marked done);
+`yin.vm.semantic.md` amended per
 D1 (item 14's binding rule, the `zipmap` corrections, the four drifts, a
 revision line, and the `"v2"` contract revision history UCF blocker 6
-asks for). Docs only; owner approves.
+asks for). Docs only.
 
 **U9 — derivation records and the ledger (D1, U8, U4, U5).** Record maps
 of §8.2, content-addressed; `:derive` written by `lower-rows`'s caller;
@@ -603,7 +611,7 @@ rest, and the plan drafts what it can for each:
 
 | decision | gates | can be drafted by the plan | needs the owner for |
 |---|---|---|---|
-| D1 profile publication | U8, U9 | yes, from §5.2.1 | approval; the one-segment-per-lambda ruling |
+| ~~D1 profile publication~~ | ~~U8, U9~~ | done | **answered 2026-09-18**: publish now, in `yin.vm.code-as-tuples.md`; one-segment-per-lambda left for a future `"ast-to-bytecode-v2"` |
 | D2 walker medium | U11 | default stated | choosing among three topologies |
 | D3 row storage grain | U10 | default stated | choosing; the `dao.jing` metadata fix |
 | D4 medium and batch coordinates | U15, U16, U4's provenance meaning | the medium half | the batch half, which touches `dao.stream.md`'s cursor rules |

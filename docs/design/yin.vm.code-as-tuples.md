@@ -2052,9 +2052,11 @@ seen from the migration side:
    published with the execution-contract stamp, and the tree/segment
    requirement-set equality must be tested over the corpus. FFI ops are a
    receiver capability requirement, never a store-slice requirement.
-7. **The lowering profile** (§5.2.1): `"ast-to-bytecode"` must be published as a
-   pinned document before any derivation record is written; until then
-   no derivation can be verified, only content integrity (§5.2.2).
+7. **The lowering profile** (§5.2.1) — **published 2026-09-18**. §5.2.1's
+   table pins `"ast-to-bytecode"` exactly as `linearize/flatten-program`
+   already behaves, per D1 of `yin.vm.code-as-tuples.implementation-plan.md`
+   (published by copying, not by designing). A derivation record can now
+   be verified in full, not only its content integrity (§5.2.2).
 8. **UCF §7.6.1 needs two amendments** (§7.7.2, §7.7.3): its
    any-carried-environment satisfaction sentence is unsound and must be
    replaced by the store-slice-by-key / profile rule of §7.7.2 (an environment never
@@ -2087,8 +2089,19 @@ seen from the migration side:
     tested over the corpus before any row set is treated as canonical.
     The corpus already lives as map ASTs in the test tree, so the test
     is writable now.
-14. **`yin.vm.semantic.md` Instruction Grammar Amendment** (§5.1) — the `ast-to-bytecode` lowering
-    profile (§5.2.1) pins the §5.3 table of `yin.vm.semantic.md`, which is currently
-    the name-based one. That document's §2.4 and §5.3 must be amended to add
-    the argument-to-named-parameter binding rule of §7.7.2 (arguments match `params` by position, each bound to its name; under-arity call → missing parameter names bound to `nil`; extra arguments beyond the params list length are dropped)
-    before any derivation record is written.
+14. **`yin.vm.semantic.md` Instruction Grammar Amendment** (§5.1) —
+    **done 2026-09-18**, alongside item 7. `yin.vm.semantic.md` revision 1
+    adds the argument-to-named-parameter binding rule of §7.7.2 to §4.1
+    (correcting two stale `zipmap` references to the real
+    `engine/bind-params` nil-fill behavior), and publishes the `"v2"`
+    execution contract's revision history in §2.4 per
+    `yin.vm.universal-continuation-format.md` §7.11's contract-revision-
+    publication blocker. Along the way, four documentation drifts the
+    2026-09-17 sweep found are corrected: §2.6 was missing the
+    `:instruction-shape` well-formedness rule (`well-formed?` runs seven
+    rules, the doc had six) and did not state the ref-required-ness of
+    `:jump`/`:branch-false`/`:closure`; the decoder's `"id"` gensym-prefix
+    and stream-make capacity defaults were undocumented; the
+    `:current-continuation → :current-cont` opcode alias was missing from
+    §2.4's mapping list; and the `:call` row's apply-rule citation pointed
+    at §4.3 (commentary) instead of §4.2 (the actual transition equations).
