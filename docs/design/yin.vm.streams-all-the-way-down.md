@@ -16,7 +16,7 @@ reference to them below is historical, including the register-baseline
 fusion prototype in §5.3.
 
 **Written against dao.stream v1; read with the v2 contract in mind**
-(annotated 2026-09-03, after the `dao.stream.md` redesign). The core theses
+(annotated 2026-09-03, after the `dao.stream.md` redesign; v1 was deleted 2026-09-17). The core theses
 survive v2 — cursor-as-program-counter (opaque cursors make it stronger),
 boundaries as declared and sized data, the no-waiter conclusion (v2 deletes
 the waiter machinery outright), and §6's storage invariant, which is

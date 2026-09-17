@@ -800,17 +800,8 @@ This is recorded here because the plan that carried it,
 completed; the decision it left open outlived it, and a transient plan is
 safe to delete only once nothing in it is still owed.
 
-The remaining v1 consumers, each migrating under its own plan:
-`yin.io`'s file transports with `dao.gui.event` and
-`dao.postgraphics.terminal`, `dao.runtime` (gated on the v1 VM's deletion),
-`agent.tools`, and the demo and server surfaces. The v1 VM lineage is deleted
-rather than migrated, under `yin.vm.v2-consumers.implementation-plan.md`,
-because a v2 twin already exists for every one of its consumers. So are the v1
-transports themselves — `dao.stream.{apply, file, file-input-stream,
-file-output-stream, http, link, ringbuffer, udp, ws}` and `dao.stream.rpc.*`,
-with their ClojureDart siblings: they are v1's own implementation, not
-consumers of it, and they go when it does rather than acquiring v2 twins one
-by one.
+The last v1 consumer migrated under `dao.stream.v1-retirement.implementation-plan.md`
+on 2026-09-17, and legacy `dao.stream` was deleted. The rename is now due.
 
 `dao.space` is done: `query`, `index` and `transactor` require `dao.stream.v2`,
 and `schema` and `transact` require no stream namespace at all.

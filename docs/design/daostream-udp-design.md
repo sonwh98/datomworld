@@ -1,3 +1,5 @@
+> **Status (2026-09-17):** v1 design. Implementation deleted under `dao.stream.v1-retirement.implementation-plan.md`.
+
 # DaoStream UDP Transport Design
 
 ## Overview

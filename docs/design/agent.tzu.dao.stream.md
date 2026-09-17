@@ -1,3 +1,5 @@
+> **Status (2026-09-17):** v1 design. Implementation deleted under `dao.stream.v1-retirement.implementation-plan.md`.
+
 # Design: Agent Tzu Tool Usage & dao.stream Integration
 
 > **Status (2026-09-17):** `agent.tzu` and `agent.tools` were deleted by

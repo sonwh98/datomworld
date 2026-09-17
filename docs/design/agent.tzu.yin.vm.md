@@ -1,3 +1,5 @@
+> **Status (2026-09-17):** v1 design. Implementation deleted under `dao.stream.v1-retirement.implementation-plan.md`.
+
 # Plan: Porting Agent Tzu to Yin.VM
 
 > **Status (2026-09-17):** `agent.tzu` and `agent.tools` were deleted by
