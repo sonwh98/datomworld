@@ -5,7 +5,9 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [yang.clojure :as yang]
-            [yin.vm :as vm]))
+            [yin.vm :as vm]
+            [yin.vm.malformed-rows :as malformed]
+            [yin.vm.parity-test :as parity]))
 
 
 (defn- error-message
@@ -263,12 +265,41 @@
                semantic-bytecode-corpus))))
 
 
+(def ^:private repl-form-corpus
+  "Clojure forms `yang/compile` turns into canonical map ASTs, standing in
+   for the REPL corpus of §7.2 part 1: lambda, application, if, let, do,
+   quote, `dao.stream.apply/call`, and stream forms as the REPL compiles
+   them."
+  ['(+ 1 2)
+   '(fn [x] x)
+   '(fn [x y] (+ x y))
+   '(if true 1 2)
+   '(let [x 1 y 2] (+ x y))
+   '(do 1 2 3)
+   '(quote (+ 1 2))
+   '(dao.stream.apply/call :op/echo 1 2)
+   '(stream/make 10)
+   '(stream/put! s 42)
+   '(stream/cursor s)
+   '(stream/next! c)])
+
+
 (deftest semantic-bytecode-round-trip-law
   (doseq [ast semantic-bytecode-corpus]
     (let [bc (vm/ast->semantic-bytecode ast)]
       (is (= ast (vm/semantic-bytecode->ast bc)) "map -> rows -> map")
       (is (= bc (vm/ast->semantic-bytecode (vm/semantic-bytecode->ast bc)))
-          "rows -> map -> rows"))))
+          "rows -> map -> rows")))
+  (testing "rows -> map -> rows over parity_test.cljc's corpus"
+    (doseq [[name ast] parity/corpus]
+      (testing name
+        (let [bc (vm/ast->semantic-bytecode ast)]
+          (is (= bc (vm/ast->semantic-bytecode (vm/semantic-bytecode->ast bc))))))))
+  (testing "rows -> map -> rows over yang/compile of the REPL corpus"
+    (doseq [form repl-form-corpus]
+      (testing (pr-str form)
+        (let [bc (vm/ast->semantic-bytecode (yang/compile form))]
+          (is (= bc (vm/ast->semantic-bytecode (vm/semantic-bytecode->ast bc)))))))))
 
 
 (deftest semantic-bytecode-list-payloads-mint-no-metadata
@@ -339,6 +370,13 @@
                                       {:type :stream/make})))))
 
 
+(deftest malformed-row-sets-each-name-exactly-their-own-rule
+  (doseq [[name [expected bc]] malformed/malformed-row-sets]
+    (testing name
+      (is (= expected (vm/validate-rows bc)))
+      (is (= (:rule expected) (error-rule #(vm/semantic-bytecode->ast bc)))))))
+
+
 (deftest semantic-bytecode-reconstruction-validates
   (let [{:keys [root rows], :as bc}
         (vm/ast->semantic-bytecode (app (local 'f) [(lit 1)] true))
@@ -354,7 +392,11 @@
                             (assoc-in bc [:rows op-id 2] 'g)))))
       (is (= :content-address
              (error-rule #(vm/semantic-bytecode->ast
-                            (assoc-in bc [:rows (:root bc)] (get rows op-id)))))))
+                            (-> bc
+                                (assoc-in [:rows (:root bc)] (get rows op-id))
+                                ;; validate-rows checks root-reachable first, so the
+                                ;; rows this reroot orphans must not linger
+                                (update :rows select-keys [(:root bc)])))))))
     (testing ":id-resolves"
       (is (= :id-resolves
              (error-rule #(vm/semantic-bytecode->ast (update bc :rows dissoc op-id)))))

@@ -42,25 +42,9 @@
   -9007199254740991)
 
 
-(defn- plain-data?
-  "True when `x` is data a code datom may carry (§2.5): scalars and
-   collections of them, never a host function or object. Metadata travels
-   with the value, so it must be plain data too."
-  [x]
-  (or (nil? x)
-      (and (cond (or (boolean? x) (number? x) (string? x) (keyword? x)
-                     (symbol? x))
-                 true
-                 (map? x) (and (every? plain-data? (keys x))
-                               (every? plain-data? (vals x)))
-                 (coll? x) (every? plain-data? x)
-                 :else false)
-           (plain-data? (meta x)))))
-
-
 (defn- reject-host-value!
   [source attr v]
-  (when-not (plain-data? v)
+  (when-not (vm/plain-data? v)
     (throw (ex-info (str "Cannot lower a host value into " attr)
                     {:node source, :attr attr, :value v}))))
 

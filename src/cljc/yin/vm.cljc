@@ -581,6 +581,22 @@
                        {:type node-type, :root-id root-id}))))))
 
 
+(defn plain-data?
+  "True when `x` is data a row or code datom may carry (§2.2, §2.5): scalars
+   and collections of them, never a host function or object. Metadata
+   travels with the value, so it must be plain data too."
+  [x]
+  (or (nil? x)
+      (and (cond (or (boolean? x) (number? x) (string? x) (keyword? x)
+                     (symbol? x))
+                 true
+                 (map? x) (and (every? plain-data? (keys x))
+                               (every? plain-data? (vals x)))
+                 (coll? x) (every? plain-data? x)
+                 :else false)
+           (plain-data? (meta x)))))
+
+
 ;; =============================================================================
 ;; Semantic bytecode: flat content-addressed rows
 ;; =============================================================================
@@ -743,16 +759,166 @@
         {:root root, :rows @rows}))))
 
 
+(defn- semantic-bytecode-slot-kind-ok?
+  "§2.2/§7.4 `:slot-kind`: whether `v` conforms to slot `kind`."
+  [kind v]
+  (case kind
+    :node (jing/segment-address? v)
+    :nodes (and (vector? v) (nil? (meta v)) (every? jing/segment-address? v))
+    (:data :key) (plain-data? v)
+    :sym (symbol? v)
+    :syms (and (vector? v) (nil? (meta v)) (every? symbol? v))
+    :kw (keyword? v)
+    :str (string? v)
+    :int (and (integer? v) (not (neg? v)))
+    :bool (or (true? v) (false? v))))
+
+
+(defn- semantic-bytecode-row-tag
+  [row]
+  (when (and (vector? row) (<= 2 (count row)))
+    (nth row 1)))
+
+
+(defn- semantic-bytecode-child-refs
+  "`[[path-suffix child-id] ..]` for every `node`/`nodes` slot of a row
+   whose `tag` and `body` already passed `:arity`, in slot order; a `node`
+   slot's suffix is its slot index, a `nodes` slot's suffix is `[slot-index
+   item-index]` (§2.5)."
+  [tag body]
+  (let [slots (get semantic-bytecode-grammar tag)]
+    (mapcat (fn [i [_ kind] v]
+              (case kind
+                :node [[[i] v]]
+                :nodes (map-indexed (fn [j cid] [[[i j] cid]]) v)
+                nil))
+            (range 1 (inc (count slots))) slots (rest body))))
+
+
+(defn validate-rows
+  "§7.4: validate a projected row set before reconstruction. `rows` is
+   `{id [id tag & slots]}`; `root` is the root row's id.
+
+   Returns nil when every row is well-formed, else the first defect as
+   `{:rule r :path p}`, or `{:rule :root-reachable :id id}` for a row of the
+   loaded set nothing reaches. Rules run in §7.4's order -- `:tag`,
+   `:arity`, `:slot-kind`, `:saturation`, `:id-resolves`, `:acyclic`,
+   `:root-reachable` -- discovered by descending from the root row, so a
+   path is always available except for `:root-reachable`'s unreached rows.
+   Each rule assumes the earlier ones held."
+  [{:keys [root rows]}]
+  (let [safe-tag (fn [row] (when (and (vector? row) (<= 2 (count row))) (nth row 1)))
+        safe-slots (fn [tag] (get semantic-bytecode-grammar tag))
+        safe-children (fn [id]
+                        (let [row (get rows id)]
+                          (if row
+                            (let [tag (safe-tag row)
+                                  slots (safe-slots tag)]
+                              (if (and slots (= (count slots) (dec (count (subvec row 1)))))
+                                (mapcat (fn [i [_ kind] v]
+                                          (case kind
+                                            :node (if (semantic-bytecode-slot-kind-ok? kind v) [[[i] v]] [])
+                                            :nodes (if (semantic-bytecode-slot-kind-ok? kind v)
+                                                     (map-indexed (fn [j cid] [[i j] cid]) v)
+                                                     [])
+                                            nil))
+                                        (range 1 (inc (count slots))) slots (rest (subvec row 1)))
+                                []))
+                            [])))
+        paths (loop [queue [[root []]]
+                     q-idx 0
+                     visited {root []}]
+                (if (= q-idx (count queue))
+                  visited
+                  (let [[id path] (nth queue q-idx)
+                        children (safe-children id)
+                        unvisited (remove #(contains? visited (second %)) children)
+                        new-visited (into {} (map (fn [[suffix cid]] [cid (into path suffix)])) unvisited)]
+                    (recur (into queue (map (fn [[suffix cid]] [cid (into path suffix)]) unvisited))
+                           (inc q-idx)
+                           (merge visited new-visited)))))
+        defect-path (fn [id] (get paths id))
+        defect-res (fn [rule id & [path-suffix]]
+                     (if-let [p (defect-path id)]
+                       {:rule rule :path (if path-suffix (into p path-suffix) p)}
+                       {:rule rule :id id}))
+        tag-defect (some (fn [[id row]]
+                           (let [tag (safe-tag row)]
+                             (when-not (safe-slots tag)
+                               (defect-res :tag id))))
+                         rows)
+        arity-defect (some (fn [[id row]]
+                             (let [tag (safe-tag row)
+                                   slots (safe-slots tag)
+                                   body (subvec row 1)]
+                               (when (not= (count slots) (dec (count body)))
+                                 (defect-res :arity id))))
+                           rows)
+        slot-kind-defect (some (fn [[id row]]
+                                 (let [tag (safe-tag row)
+                                       slots (safe-slots tag)
+                                       body (subvec row 1)]
+                                   (some identity
+                                         (map (fn [i [field kind] v]
+                                                (when-not (or (semantic-bytecode-slot-kind-ok? kind v)
+                                                              (and (nil? v) (contains? semantic-bytecode-defaults [tag field])))
+                                                  (defect-res :slot-kind id [i])))
+                                              (range 1 (inc (count slots))) slots (rest body)))))
+                               rows)
+        saturation-defect (some (fn [[id row]]
+                                  (let [tag (safe-tag row)
+                                        slots (safe-slots tag)
+                                        body (subvec row 1)]
+                                    (some identity
+                                          (map (fn [i [field kind] v]
+                                                 (when (and (nil? v)
+                                                            (contains? semantic-bytecode-defaults [tag field]))
+                                                   (defect-res :saturation id [i])))
+                                               (range 1 (inc (count slots))) slots (rest body)))))
+                                rows)
+        id-resolves-defect (or (when-not (contains? rows root)
+                                 {:rule :id-resolves :path []})
+                               (some (fn [[id row]]
+                                       (some (fn [[suffix cid]]
+                                               (when-not (contains? rows cid)
+                                                 (defect-res :id-resolves id suffix)))
+                                             (safe-children id)))
+                                     rows))
+        acyclic-defect (letfn [(check-cycle
+                                 [id on-path]
+                                 (cond
+                                   (contains? on-path id) (defect-res :acyclic id)
+                                   :else
+                                   (let [row (get rows id)]
+                                     (when row
+                                       (let [on-path' (conj on-path id)]
+                                         (some (fn [[suffix cid]]
+                                                 (check-cycle cid on-path'))
+                                               (safe-children id)))))))]
+                         (check-cycle root #{}))
+        root-reachable-defect (some (fn [id]
+                                      (when-not (contains? paths id)
+                                        {:rule :root-reachable :id id}))
+                                    (keys rows))]
+    (or tag-defect arity-defect slot-kind-defect saturation-defect id-resolves-defect acyclic-defect root-reachable-defect)))
+
+
 (defn semantic-bytecode->ast
   "Reconstruct the canonical map AST from `{:root row-id, :rows {row-id row}}`
    (§7.1 load-time reconstruction), the inverse of `ast->semantic-bytecode`.
 
-   Every reached row is validated before use; a defect throws `ex-info` whose
-   data carries `:rule` (`:shape`, `:content-address`, `:tag`, `:arity`,
-   `:slot-kind`, `:saturation`, or `:id-resolves`) and the offending `:id`.
-   Nothing is re-defaulted. A row reached through several parents is rebuilt
-   once and shared."
-  [{:keys [root rows]}]
+   Calls `validate-rows` first; a defect throws `ex-info` carrying its
+   `:rule` and `:path` (or `:id`). Every reached row is then rebuilt, which
+   still runs its own `:shape` and `:content-address` checks -- the address
+   check is not a structural grammar rule (§7.5) and stays separate. Nothing
+   is re-defaulted. A row reached through several parents is rebuilt once
+   and shared."
+  [{:keys [root rows], :as bc}]
+  (when-let [{:keys [rule path id]} (validate-rows bc)]
+    (throw (ex-info "Semantic bytecode row set failed validation"
+                    (cond-> {:rule rule}
+                      path (assoc :path path)
+                      id (assoc :id id)))))
   (let [built (atom {})]
     (letfn
       [(defect

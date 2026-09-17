@@ -5428,3 +5428,14 @@ Decisions: N/A, mechanical against plan.
 Verification: Parity suite passed (1265 tests).
 Delegates: None.
 Next: U2 (the validator), currently delegated to `claude-sonnet-5`.
+
+## 2026-09-18 00:47:31 ICT — Phase 1 U2: the §7.4 validator
+Completed-GMT: 2026-09-17 17:47:31 GMT
+Coding-Agent: claude
+Session-ID: 22783059-64d1-4105-86d0-f63035084892
+Tree: dao.stream-redesign-v2@720707c9, committed
+Done: Implemented U2 (`yin.vm/validate-rows`, slot kinds, acyclicity, root-reachability, malformed row test corpus).
+Decisions: N/A, mechanical against plan.
+Verification: Passed the extended `semantic-bytecode-round-trip-law` on parity and REPL corpus.
+Delegates: `claude-sonnet-5` (VM Runtime).
+Next: U3 and U4 (Parallel lanes).
