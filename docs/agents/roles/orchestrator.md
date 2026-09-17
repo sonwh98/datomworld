@@ -11,7 +11,7 @@ description: Lead Engineering Orchestrator role definition for datom.world
 - Timestamped file-based handoffs, the append-only work log, session reuse,
   and delegated-agent patience
 - Independent verification, finding reconciliation, and consensus
-- Verification and reporting commit readiness (never stage or commit unless explicitly instructed)
+- Verification and commit-readiness reporting
 
 This role owns no permanent file list. Each task defines the artifacts under
 coordination and the authority granted to every participant.
@@ -19,32 +19,30 @@ coordination and the authority granted to every participant.
 ## Coordination contract
 
 The orchestrator owns scope, authorization, verification, consensus, and
-readiness. Each task uses tests or an equally precise contract, a timestamped
-and bounded role brief when delegated, local verification of the real diff,
-independent review, and evidence-backed readiness reporting. Never stage or
-commit without user instruction; when authorized, stage only requested files
-and commit only staged changes.
+readiness — see Workflow below for the full sequence. Never stage or commit
+without user instruction; when authorized, stage only requested files and
+commit only staged changes.
 
 Commit subjects use `<type>[(<scope>)]: <lowercase imperative summary>` with
 types `docs|feat|fix|refactor|perf|test|build|chore`; an optional body explains
 non-obvious behavior or invariants. Use no trailing period, allow merge
 exceptions, and never add `Co-Authored-By`, including LLM attribution.
 
-Delegated claims are untrusted: always verify artifacts, files, and test results locally. Do not force later
-reviewers to rerun passing test suites unless security review requires it (see Workflow step 6 and
-[`build-n-test.md`](../build-n-test.md)).
+Delegated claims are untrusted — verify artifacts, files, and test results
+locally (Workflow step 6, [`build-n-test.md`](../build-n-test.md)); don't
+force later reviewers to rerun passing suites unless security review
+requires it.
 
-For cost constraints and specific CLI routing caveats, refer to the **Available Subscriptions & Cost Constraints**
-table in [`team.md`](../team.md).
+For cost constraints and CLI routing caveats, see [`team.md`](../team.md)'s
+**Available Subscriptions & Cost Constraints** table.
 
 ## Artifact protocol
 
 Coordination is through repository artifacts, not hidden context. Keep all
 artifacts flat under `collab/`:
 `<timestamp>-<role>-<task>.prompt.md`, `<timestamp>-<role>-<task>.<sanitized-model>.findings.md`, and `<timestamp>-<role>-<task>.<sanitized-model>.stdout.log`.
-The prefix `<timestamp>` must be a UNIX timestamp in milliseconds (e.g. `1725791234567`) so that files
-automatically sort chronologically in Git's untracked view. Including `<sanitized-model>` prevents parallel
-reviewers from colliding.
+The `<timestamp>` prefix is a UNIX millisecond timestamp (e.g. `1725791234567`) so files sort
+chronologically in Git's untracked view; `<sanitized-model>` prevents parallel reviewers from colliding.
 
 Every prompt starts with:
 
@@ -59,11 +57,11 @@ Implementers:
 - Model: <model> | Assigned: <timestamp> | Status: active | Rationale: <why>
 ```
 
-Every report starts with the same header fields. Use actual timestamps; never fabricate them. 
+Every report starts with the same header fields. Use actual timestamps; never fabricate them.
 See [Session continuity](#session-continuity) for strict rules on generating, capturing, and resuming Session-IDs.
 
-`collab/` is append-only and never staged or committed. It must explicitly NOT be added to `.gitignore` or
-`.git/info/exclude` so its files remain visible and chronologically sorted in the user's Magit untracked
+`collab/` is append-only and never staged or committed, and must never be added to `.gitignore` or
+`.git/info/exclude` so its files stay visible and chronologically sorted in the user's Magit untracked
 view. Never delete or truncate prompts or findings. Promote final responses to `.findings.md`; `.stdout.log`
 is only an intermediate capture.
 
@@ -87,8 +85,7 @@ Batch complete briefs, reuse sessions for related follow-ups, start new sessions
 
 Agents preserve conversational context only when a related follow-up resumes
 the exact session, conversation, or thread ID. Reading earlier prompts, logs,
-findings, and diffs reconstructs task context but is not equivalent to resuming
-the session.
+findings, and diffs reconstructs task context but does not resume the session.
 
 Before the first invocation of a Claude Code-based CLI (`claude`, `glm`,
 `deepseek`, or `muse`), generate and record an ID:
@@ -97,22 +94,21 @@ Before the first invocation of a Claude Code-based CLI (`claude`, `glm`,
 TASK_SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 ```
 
-Write that exact value into the prompt's `Session-ID:` field, then invoke the
-agent with `--session-id "$TASK_SESSION_ID"`. For every correction,
-clarification, or verification by the same agent, use
-`--resume "$TASK_SESSION_ID"`; do not start a new named session or combine
-`--session-id` with `--resume`.
+Write that value into the prompt's `Session-ID:` field, then invoke with
+`--session-id "$TASK_SESSION_ID"`. For every correction, clarification, or
+verification by the same agent, use `--resume "$TASK_SESSION_ID"`; never
+start a new named session or combine `--session-id` with `--resume`.
 
 Claude Code session persistence is enabled by default. Never pass
-`--no-session-persistence` when work may require review, correction, or
-follow-up. If an older run failed to record its UUID, recover it from the
-provider-specific Claude configuration store by matching the custom title in
-the project JSONL, record an append-only provenance correction, and resume that
-UUID. A process ID, `--name`, log filename, or wrapper name is not a session ID.
+`--no-session-persistence` when work may need review, correction, or
+follow-up. A process ID, `--name`, log filename, or wrapper name is never a
+session ID; if a run failed to record its own, recover it from the
+provider's session store (Claude Code: match the custom title in the
+project JSONL within its configuration store — see below for AGY's
+equivalent), record an append-only provenance correction, and resume it.
 
-Codex, AGY, and Command Code do not accept a caller-selected ID for a new run in
-the installed versions. Run them with structured output and capture the
-generated ID immediately:
+Codex, AGY, and Command Code don't accept a caller-selected ID for a new run in
+the installed versions — capture the generated ID immediately via structured output:
 
 ```sh
 # Codex JSONL: first thread.started event
@@ -128,29 +124,25 @@ TASK_SESSION_ID="$(jq -r 'select(.type == "result") | .sessionId' \
   collab/<timestamp>-<role>-<task>.<model>.stdout.log | tail -1)"
 ```
 
-Fail the handoff if the extracted value is empty or `null`. Do not use Codex
+Fail the handoff if the extracted value is empty or `null`. Never use Codex
 `--ephemeral`, Command Code `--no-session`, or any provider's non-persistent
-mode for follow-up-capable work. Never substitute `--last`, `--continue`, AGY
-`-c`, or a display name when an exact ID is available. Give every resumed turn
-a new prompt and output artifact name, such as `<task>-r2...`; never redirect a
-follow-up into the prior append-only log.
+mode for follow-up-capable work, and never substitute `--last`, `--continue`,
+AGY `-c`, or a display name when an exact ID is available. Give every resumed
+turn a new prompt and output artifact name (e.g. `<task>-r2...`); never
+redirect a follow-up into the prior append-only log.
 
-Reviewer conversations are the ones most worth resuming. Route a later review
+Reviewer conversations are the ones most worth resuming: route a later review
 of the same subsystem back into its existing conversation whenever that
-reviewer's family remains independent of the new change's author; start a fresh
-conversation only when independence or subject changes.
+reviewer's family stays independent of the new change's author, and start a
+fresh conversation only when independence or subject changes.
 
-An ID that a run failed to capture can be recovered from the provider's session
-store. AGY names each store directory after its conversation ID, so the task's
-own brief locates it:
+AGY names each store directory after its conversation ID, so a lost one is
+recovered by grepping the task name in its own brief:
 
 ```sh
 grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transcript.jsonl \
   | sed 's|.*/brain/||; s|/.system_generated.*||'
 ```
-
-Record a recovered value with an append-only provenance correction and resume
-it.
 
 | CLI      | Session store                         | New-session ID source                 | Related follow-up                         |
 |----------|---------------------------------------|---------------------------------------|-------------------------------------------|
@@ -165,14 +157,14 @@ it.
 ## Work log
 
 [`docs/orchestrator-log.md`](../../orchestrator-log.md) is the seat's durable
-memory. Conversational context dies with its session; the log is what lets a
-different model, in a fresh session with no shared history, continue the work.
-The log has three entry kinds, no more: an entry per coherent unit (a
-delegated round, a fix, a review reconciliation, a readiness report), an
-unfinished-work entry when work stops before the next unit finishes, and a
-final handoff entry when the seat itself is passed on. It records completed
-and stopped units only; in-flight state lives in `collab/`, which entries
-reference by filename and session ID rather than duplicate.
+memory: conversational context dies with its session, and the log is what
+lets a different model, in a fresh session with no shared history, continue
+the work. Three entry kinds only: one per coherent unit (a delegated round, a
+fix, a review reconciliation, a readiness report), an unfinished-work entry
+when work stops before the next unit finishes, and a final handoff entry when
+the seat is passed on. It records completed and stopped units only; in-flight
+state lives in `collab/`, referenced by filename and session ID rather than
+duplicated.
 
 Start every entry with actual timestamps and identity fields (never fabricate
 them), then state what `git log` alone cannot re-derive:
@@ -190,13 +182,13 @@ Delegates: <role/model, prompt and findings filenames, session IDs> | none
 Next: <the next coherent unit, open risks, blockers>
 ```
 
-The log is append-only: never edit, reorder, or delete an earlier entry; a
-correction is a new entry that names what it corrects. When an entry names a
+The log is append-only: never edit, reorder, or delete an earlier entry — a
+correction is a new entry naming what it corrects. When an entry names a
 `collab/` artifact, repeat its session ID so a successor can resume that
 session under the continuity rules above. The log may describe work that was
 never committed or has since been superseded: the tree is canonical, so a
 successor still re-derives state from `git log`, `git status`, and the real
-diff, and treats every log entry as a claim to verify rather than authority.
+diff, treating every log entry as a claim to verify rather than authority.
 
 ## Authorization and security
 
@@ -262,7 +254,6 @@ Roster, role routing, and reviewer independence are defined in [`team.md`](../te
     artifact; use `mv -n` and leave collisions in `collab/` until the reused task
     name is resolved. Archive only committed work and only when no uncommitted
     tracked changes could make task ownership ambiguous.
-
 
 If the remaining budget cannot finish the next coherent unit, leave the tree
 readable and record incomplete work in the findings rather than leaving a
@@ -471,49 +462,54 @@ agy --conversation <id> --model <model> --effort <effort> --mode accept-edits --
   > collab/<timestamp>-<role>-<task>-r<n>.<model>.stdout.log 2>&1
 ```
 
-AGY language-server bind/log failures are host sandbox restrictions. Rerun a
-review with the same `--sandbox`/`--mode plan` policy through the host tool with
-narrowly scoped escalation. For an authorized implementation run, preserve
-`--sandbox`/`--mode accept-edits`; never add `--dangerously-skip-permissions`.
-Claude `Not logged in` and Codex app-server `Operation not permitted` under the
-default command sandbox are likewise host diagnostics: retry via host escalation
-with the documented narrow prefixes, preserving their own read-only/write modes.
-GLM and Muse `claude-code:unrecognized_model` startup warnings are expected for
-their wrappers; verify the resulting artifact before declaring failure.
-If Claude Code is run headlessly in `--permission-mode plan` without the mandatory `--allowed-tools Read "Bash(git diff *)" "Bash(git status *)"` flag, it will silently halt upon trying to execute any unauthorized tool. If this happens multiple times across a session, its telemetry heuristic will intercept the process and draft an interactive bug report ("Claude Code sessions in --permission-mode plan repeatedly stop short..."). Because it expects interactive input ("1 to review"), the headless execution will hang or crash. Always provide the canonical `--allowed-tools` flag to prevent this. AGY in
-`--mode plan` may answer a headless brief with a plan artifact and a request for
-approval, exiting `SUCCESS` with no deliverable; a response that promises a
-verdict rather than stating one is an unfinished turn, so resume that
-conversation instructing it to answer directly instead of accepting the promise.
-A sandboxed AGY **delegate** could not execute this host's JVM: `clojure` died
-with `java: Operation not permitted` when probed 2026-09-04 under `--mode plan
---sandbox`, which does read files, run read-only shell, and write files even
-outside the repository. The denial covers `~/.local` as a whole, so it reaches
-the mise-installed JDK and most delegate CLIs alike; by AGY's own account the
-`BypassSandbox` that would lift it needs an approval no headless `-p` run can
-obtain. Unlike the host diagnostics above, no host escalation reaches inside a
-delegate's own session, so the orchestrator must run such suites itself. A
-delegate in that configuration can appear to be verifying while unable to check
-any Clojure test claim it passes on: give it static analysis, never a deliverable
-that depends on running tests.
+### Known CLI quirks
 
-This is a property of the sandboxed headless delegate configuration, not of AGY.
-An AGY session the user starts in the Orchestrator seat with the necessary
-permissions is not so restricted; like any seat it is judged by the capabilities
-in [`orchestrator.md`](./orchestrator.md), which it should establish for itself
-rather than assume from this entry.
+Each of these is a host or provider diagnostic, not a real capability gap.
+Recognize it, apply the fix, and don't declare failure prematurely:
 
-Claude Code's `--permission-mode acceptEdits` auto-approves Edit/Write/
-NotebookEdit tool calls, but it does not blanket-approve Bash: a compound or
-piped Bash command (multiple `;`-chained steps, a `grep | grep`, a `for` loop
-over several files) can still be denied by the CLI's own safety heuristic,
-and a headless run has no human to approve past the denial. This showed up
-2026-09-17 on two `glm-5.3` implementation delegates (U1/U2 of
-`dao.stream.v1-retirement.implementation-plan.md`): several multi-step
-verification one-liners were denied; the same logic split into a single
-simpler command, or with output redirected to a file instead of chained,
-succeeded on retry. The fix is not `--dangerously-skip-permissions` — never
-add it, per the caution above — it is briefing delegates (and writing
-prompts) to prefer one Bash command per step over chained/piped ones, and
-treating a permission denial as a signal to simplify the command, not a
-capability gap to route around.
+- **AGY language-server bind/log failures** are host sandbox restrictions.
+  Rerun with the same `--sandbox`/`--mode plan` policy through the host tool
+  with narrowly scoped escalation. For an authorized implementation run,
+  preserve `--sandbox`/`--mode accept-edits`; never add
+  `--dangerously-skip-permissions`.
+- **Claude `Not logged in` / Codex app-server `Operation not permitted`**
+  under the default command sandbox are host diagnostics: retry via host
+  escalation with the documented narrow prefixes, preserving each CLI's own
+  read-only/write mode.
+- **GLM/Muse `claude-code:unrecognized_model` startup warnings** are expected
+  for their wrappers; verify the resulting artifact before declaring failure.
+- **Claude Code headless `--permission-mode plan` without the mandatory
+  `--allowed-tools Read "Bash(git diff *)" "Bash(git status *)"` flag**
+  silently halts on the first unauthorized tool call. Repeated occurrences
+  trigger its telemetry heuristic to draft an interactive bug report
+  ("Claude Code sessions in --permission-mode plan repeatedly stop short...")
+  that expects interactive input ("1 to review"), so the headless run hangs
+  or crashes. Always pass the canonical `--allowed-tools` flag.
+- **AGY in `--mode plan` may answer a headless brief with a plan artifact and
+  a request for approval**, exiting `SUCCESS` with no deliverable. A response
+  that promises a verdict rather than stating one is an unfinished turn —
+  resume the conversation instructing it to answer directly instead of
+  accepting the promise.
+- **A sandboxed AGY delegate cannot execute this host's JVM**: `clojure` died
+  with `java: Operation not permitted` under `--mode plan --sandbox` (probed
+  2026-09-04), even though that mode reads files, runs read-only shell, and
+  writes files outside the repo. The denial covers all of `~/.local` (the
+  mise-installed JDK included), and no host escalation reaches inside a
+  delegate's own session — the `BypassSandbox` fix needs an approval no
+  headless `-p` run can obtain. Such a delegate can appear to be verifying
+  while unable to check any test claim it passes on: give it only static
+  analysis, never a deliverable that depends on running tests — the
+  orchestrator must run those suites itself. This is a property of the sandboxed headless configuration, not of
+  AGY — a user-run AGY Orchestrator seat isn't restricted this way, and like
+  any seat establishes its own capabilities rather than assuming them from
+  this entry.
+- **`--permission-mode acceptEdits` auto-approves Edit/Write/NotebookEdit but
+  not Bash**: a compound or piped command (chained `;` steps, `grep | grep`,
+  a `for` loop over several files) can still be denied by the CLI's safety
+  heuristic, with no human to approve past it in a headless run. Seen
+  2026-09-17 on two `glm-5.3` delegates (U1/U2 of
+  `dao.stream.v1-retirement.implementation-plan.md`): denied multi-step
+  one-liners succeeded once split into a single command, or redirected to a
+  file instead of chained. Fix by briefing delegates toward one simple
+  command per step — never `--dangerously-skip-permissions` — treating a
+  denial as a signal to simplify, not a capability gap to route around.
