@@ -23,16 +23,20 @@ integrity verification. Backends store and retrieve opaque bytes by address
 and provide their own durability guarantees. They need no knowledge of CBOR,
 Clojure values, datoms, indexes, or manifests. **One exception, narrower
 than "backend" vs. "not a backend":** `dao.jing.file` is the only backend
-whose own on-disk frame format is itself a CBOR structure — a two-element
-`[digest payload-bytes]` array that must be parsed to find the frame
-boundary (see *Memory and files*). `dao.jing.mem` has no framing at all (a
-flat address→bytes map); `dao.jing.remote`/`dao.jing.dht` frame with
-Base64-inside-Transit, never a raw CBOR array. `dao.jing.file` alone needs
-this exception because of what its frame shape is, not because it is more
-or less "Jing's own" than any other backend in this source tree — all of
-`memory`/`file`/`remote`/`dht` are equally in-repo; only PostgreSQL and S3
-are genuinely third-party and not yet built. The exception is that
-`dao.jing.file` parses its own frame with Jing's shared codec, never a
+that re-ingests its own output across process death — it must persist an
+append-only log and later replay it with no external message boundary to
+mark records, so it alone must invent a self-describing frame, which is
+why that frame is itself a CBOR structure (a two-element
+`[digest payload-bytes]` array; see *Memory and files*). `dao.jing.mem`
+never persists, so it has no framing at all; `dao.jing.remote`/`dao.jing.dht`
+get record boundaries for free from Transit's own message envelopes, so
+they frame with Base64-inside-Transit, never a raw CBOR array. This is not
+about `dao.jing.file` being more or less "Jing's own" than any other
+backend in this source tree — all of `memory`/`file`/`remote`/`dht` are
+equally in-repo; only PostgreSQL and S3 are genuinely third-party and not
+yet built. What is third-party-implementable is the byte-store *contract*
+itself, not any particular shipped implementation of it. The exception is
+that `dao.jing.file` parses its own frame with Jing's shared codec, never a
 divergent per-backend codec or value interpretation.
 
 ```text
@@ -231,10 +235,11 @@ integer/float kind, decimal scale, and float zero sign still affect bytes.
 **This is the only place this plan threads new runtime behavior into an
 existing consumer's comparison/equality logic outside `dao.jing*` — a real
 boundary widening, not a violation.** (The Implementation sequence's step 5
-also touches `dao.data.btree.storage`, but only as a mechanical swap of
-what a verification check hashes against; it carries none of this
-section's new-runtime-dependency weight and doesn't need the same
-sign-off.) Pushing portable `=`/`hash`/`compare` into `dao.space.index`'s
+also touches `dao.data.btree.md` §5.2's verification default, but that is
+a default flip §5.2 already pre-authorizes for exactly this trigger, not
+new or changed code; it carries none of this section's new-runtime-
+dependency weight and doesn't need the same sign-off.) Pushing portable
+`=`/`hash`/`compare` into `dao.space.index`'s
 datom comparators and `dao.space.query`'s builtins is architecturally
 sound (an interpreter consuming a storage-adjacent utility, not the
 reverse), but it is the widest blast radius in this plan and needs
@@ -259,10 +264,23 @@ remaining outside this migration. Where host-native dispatch cannot satisfy
 the contract, the consumer's numeric comparison/equality/hash boundary must
 use explicit portable operations consistently. Reusing an upstream record
 representation alone does not satisfy this requirement. One intended
-consequence, uniform with today's JVM behavior: covered-index membership
-and matching are by numeric value while content addressing is kind-strict,
-so `[e a 1 t m]` and `[e a 1.0 t m]` are one index entry with two distinct
-content addresses.
+consequence: covered-index membership and matching are by numeric value
+while content addressing is kind-strict, so `[e a 1 t m]`
+and `[e a 1.0 t m]` are one index entry with two distinct content
+addresses. **This is only half "uniform with today's JVM behavior."**
+Covered-index membership already is (`compare-vals` already dispatches to
+host `compare`, and JVM `(compare 1 1.0)` is `0`). Query matching is not:
+`dao.space.query`'s `=` builtin binds host Clojure `=` directly
+(`query.cljc:751`), and JVM `(= 1 1.0)` is `false` today — Clojure's `=`
+is kind-strict. Routing `=` through the portable numeric-value equality
+above flips that to `true` on the JVM. This is a real, intended change to
+JVM query semantics, not a continuation of existing behavior, and the
+`dao.space` sign-off in the paragraph above should be read with that in
+mind. Also left open by this document: `min`/`max` over mixed numeric
+kinds that compare equal return one of the two operands, and which one is
+host-arbitrary today (Clojure's `min`/`max` return the second argument on
+a tie, e.g. `(min 1 1.0)` ⟹ `1.0`); this plan does not pin a tie-break
+rule for the portable versions, and it should before implementation.
 
 - Provide a portable `float64` constructor/carrier. JavaScript callers use
   it for integral floating-point values such as `1.0`; ordinary integral
@@ -434,15 +452,20 @@ records.
    them, with the arithmetic builtins left host-native per *Numeric
    identity* — the deepest of this migration's changes outside the
    `dao.jing*` namespaces, threading new runtime behavior into an existing
-   consumer's comparison/equality logic (step 5's `dao.data.btree.storage`
-   change is shallower: a mechanical swap of what a verification check
-   hashes against, not new runtime dependency).
+   consumer's comparison/equality logic (step 5's `dao.data.btree.md` §5.2
+   change is shallower: a pre-authorized default flip, not new code or a
+   new runtime dependency).
 4. Migrate remote and DHT byte transport, including validation, missing-value
    behavior, transport limits, and errors.
-5. Update documentation and downstream address fixtures — including the
-   `dao.data.btree.storage` adapter and `dao.data.btree.md` §5.2, whose
-   verification must become a byte-hash check, is cross-host valid under
-   this plan, and whose default-off rationale is superseded — then run the
+5. Update documentation and downstream address fixtures — including
+   `dao.data.btree.md` §5.2, whose same-host-only verification default is
+   **a default flip, not a code or format change**: §5.2 already
+   pre-authorizes this exact trigger ("when the canonical byte encoding
+   lands... the default flips to on and the same-host restriction
+   disappears — the check itself needs no format change, only a stable
+   encoding under it"). This CBOR migration is that stable encoding
+   landing; `dao.data.btree.storage`'s rehash-and-compare check is
+   unchanged code, now verified safe to default on. Then run the
    repository's JVM, Node, and Dart suites and applicable lint checks.
 
 Required test scenarios:
