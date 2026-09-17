@@ -21,15 +21,19 @@ Replace Jing's handwritten hash encoding and EDN persistence with canonical
 CBOR bytes. Jing owns the value-to-bytes contract, content addressing, and
 integrity verification. Backends store and retrieve opaque bytes by address
 and provide their own durability guarantees. They need no knowledge of CBOR,
-Clojure values, datoms, indexes, or manifests. This "no CBOR knowledge"
-promise is about *pluggable, third-party-implementable* backends
-(PostgreSQL, S3, and the memory/remote/DHT byte-store implementations) —
-`dao.jing.file` is Jing's own built-in durability implementation, not a
-third-party backend, and it is explicitly allowed to own a thin CBOR
-framing envelope around the byte-store boundary (see *Memory and files*):
-that envelope is Jing's own shared codec applied to a two-element
-`[digest payload-bytes]` record, never a divergent per-backend codec or
-value interpretation.
+Clojure values, datoms, indexes, or manifests. **One exception, narrower
+than "backend" vs. "not a backend":** `dao.jing.file` is the only backend
+whose own on-disk frame format is itself a CBOR structure — a two-element
+`[digest payload-bytes]` array that must be parsed to find the frame
+boundary (see *Memory and files*). `dao.jing.mem` has no framing at all (a
+flat address→bytes map); `dao.jing.remote`/`dao.jing.dht` frame with
+Base64-inside-Transit, never a raw CBOR array. `dao.jing.file` alone needs
+this exception because of what its frame shape is, not because it is more
+or less "Jing's own" than any other backend in this source tree — all of
+`memory`/`file`/`remote`/`dht` are equally in-repo; only PostgreSQL and S3
+are genuinely third-party and not yet built. The exception is that
+`dao.jing.file` parses its own frame with Jing's shared codec, never a
+divergent per-backend codec or value interpretation.
 
 ```text
 write: value -> canonical CBOR bytes -> SHA-256 address -> backend
@@ -224,13 +228,18 @@ and canonical NaN last; canonical NaNs are equal to each other for this
 portable contract. Content identity remains stricter than numeric equality:
 integer/float kind, decimal scale, and float zero sign still affect bytes.
 
-**This is the plan's one change outside `dao.jing*`, and it is a real
-boundary widening, not a violation.** Pushing portable `=`/`hash`/`compare`
-into `dao.space.index`'s datom comparators and `dao.space.query`'s builtins
-is architecturally sound (an interpreter consuming a storage-adjacent
-utility, not the reverse), but it is the widest blast radius in this
-plan and needs explicit sign-off from whoever owns `dao.space` before
-implementation starts on this section, separate from Jing's own review.
+**This is the only place this plan threads new runtime behavior into an
+existing consumer's comparison/equality logic outside `dao.jing*` — a real
+boundary widening, not a violation.** (The Implementation sequence's step 5
+also touches `dao.data.btree.storage`, but only as a mechanical swap of
+what a verification check hashes against; it carries none of this
+section's new-runtime-dependency weight and doesn't need the same
+sign-off.) Pushing portable `=`/`hash`/`compare` into `dao.space.index`'s
+datom comparators and `dao.space.query`'s builtins is architecturally
+sound (an interpreter consuming a storage-adjacent utility, not the
+reverse), but it is the widest blast radius in this plan and needs
+explicit sign-off from whoever owns `dao.space` before implementation
+starts on this section, separate from Jing's own review.
 
 These operations must govern datom ordering in `dao.space.index` —
 `compare-vals` and the EAVT/AEVT/AVET/VAET comparators; the generic
@@ -293,7 +302,9 @@ content addresses.
 ## Backend changes
 
 All existing backends move to the shared byte-store boundary. No backend
-selects a different value codec or re-hashes a host-specific representation.
+selects a different value codec or re-hashes a host-specific representation
+— with one named exception, `dao.jing.file`'s own frame parsing (see the
+Objective's carve-out, and *Memory and files* below).
 
 ### Memory and files
 
@@ -302,11 +313,11 @@ backend retains its append-only length framing, durability rules, duplicate
 validation, and torn-tail recovery. Each frame contains a CBOR
 `[digest payload-bytes]` record: digest is a raw 32-byte SHA-256 byte string
 and payload-bytes contains the exact canonical payload. **`dao.jing.file`
-itself owns parsing and constructing this two-element frame** — it is Jing's
-own code, using Jing's own shared codec, not a third-party backend
-inventing a codec of its own; the "backends need no CBOR knowledge" promise
-above is about the pluggable byte-store layer underneath this framing, not
-about `dao.jing.file` as a whole. The wrapper owns keyword↔digest
+itself owns parsing and constructing this two-element frame**, with Jing's
+own shared codec — the exception the Objective names above, needed because
+`dao.jing.file`'s frame shape is itself a CBOR structure, unlike
+`dao.jing.mem`'s unframed map or `dao.jing.remote`/`dao.jing.dht`'s
+Base64-inside-Transit framing. The wrapper owns keyword↔digest
 conversion, so file framing has no identifier-codec
 dependency. Replay checks the digest length and compares it byte-for-byte
 with the payload's SHA-256. The outer record is backend framing and does
@@ -421,8 +432,11 @@ records.
    arm of `dao.space.index/compare-vals` (the EAVT/AEVT/AVET/VAET datom
    comparators) and `dao.space.query`'s comparison builtins route through
    them, with the arithmetic builtins left host-native per *Numeric
-   identity* — this migration's only change outside the `dao.jing*`
-   namespaces.
+   identity* — the deepest of this migration's changes outside the
+   `dao.jing*` namespaces, threading new runtime behavior into an existing
+   consumer's comparison/equality logic (step 5's `dao.data.btree.storage`
+   change is shallower: a mechanical swap of what a verification check
+   hashes against, not new runtime dependency).
 4. Migrate remote and DHT byte transport, including validation, missing-value
    behavior, transport limits, and errors.
 5. Update documentation and downstream address fixtures — including the
