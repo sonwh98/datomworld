@@ -586,7 +586,7 @@ days; the transactor and `query/current` exist, so this is composition.
 
 **U10a — Stream Codec Parameterization & dao.stream.cbor (D7).** Parameterize the single `dao.stream.ws` state machine with an explicit codec profile containing the subprotocol name, frame kind, value-domain predicate, encoder, and decoder. Preserve `dao.stream.transit-json` and its text-wire behavior unchanged. Upgrade the JVM, browser, Node, and Dart adapters to send and receive typed text/binary messages without content sniffing or NUL sentinels. Add deterministic dual-subprotocol negotiation: the attaching composition explicitly selects a profile; an endpoint may serve the same logical-stream identity concurrently through either profile; no silent downgrade is permitted. Preserve the existing envelopes and lifecycle.
 
-Define a stream-owned, structurally lossless CBOR portable domain that preserves metadata (including reader positions) and collection distinctions. Implement it with pinned Boring on JVM/CLJS and a byte-compatible Dart codec; do not reuse Jing normalizations. Prove compatibility with dual-client tests. Size: one to two weeks.
+Define a stream-owned, structurally lossless CBOR portable domain that preserves metadata (including reader positions) and collection distinctions. Implement it with pinned Boring on JVM/CLJS and by wrapping the official `cbor` package from pub.dev for Dart (do not build the binary parser from scratch); do not reuse Jing normalizations. Prove compatibility with dual-client tests. Size: three to four days.
 
 
 **U10 — content in `dao.jing` (D3 answered: individual rows; the
