@@ -301,6 +301,14 @@
             [:p
              "The JVM hides runtime state behind bytecode. The EVM prices computation but limits introspection. Yin reifies continuations as data. "
              "That single change enables distributed execution, dynamic transformation, zero-copy migration, and queries over the running program itself."]]]
+          
+          [:details.faq
+           [:summary "If a running program (a continuation) is saved to the database and moved to a completely different machine, do the internal memory IDs clash? Do I have to manually rewrite them ('parallel transport')?"]
+           [:div
+            [:p "You do not manually rewrite IDs, provided the continuation is exported in the Universal Continuation Format (UCF). A continuation parked inside one VM still contains that VM's local segment IDs and is not portable by itself."]
+            [:p "When the VM lifts the parked state into UCF, it replaces every local segment reference—in the current control state, return and effect frames, and closures—with the content address of the segment's canonical instruction vector. Program counters remain relative to that vector. The UCF value also identifies the complete execution contract needed to interpret the code."]
+            [:p "On the receiving machine, the resumer checks the contract, verifies the code's address and tuple grammar, and resolves the address from its code index, code carried with the continuation, or dao.jing. If that code is already loaded, the VM reuses its existing local ID. Otherwise, it may mint a fresh local ID that does not conflict with a live segment. An address-to-local-ID alias records that association without allowing an existing ID to be redirected."]
+            [:p "Thus local IDs may exist in a VM's memory or local database, but they do not cross the portable UCF boundary as code identity. The UCF lift/lower process performs the required coordinate translation automatically. (Note: This protocol is currently proposed/deferred rather than a completed heterogeneous-migration feature)."]]]
           [:details.faq
            [:summary "There are several VMs. Why?"]
            [:div
