@@ -197,3 +197,18 @@
                       [(v2/value vm1) (v2/value (v2/eval vm1 (read-ast sref)))])]
       (is (= 99 (first v2-result)) "put returns the value")
       (is (= [99 99] v2-result)))))
+
+
+(deftest stream-close-parity-test
+  (testing "closing a stream (v1 returned nil, captured 2026-09-18)"
+    (let [vm0 (v2/eval (tu/create-vm) {:type :stream/make, :buffer 4})
+          sref (v2/value vm0)
+          vm1 (v2/eval vm0
+                       {:type :stream/close,
+                        :source (lit sref)})]
+      (is (= nil (v2/value vm1)) "close returns nil")
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Stream append failed"
+            (v2/eval vm1 {:type :stream/put,
+                          :target (lit sref),
+                          :val (lit 99)}))
+          "put is refused on closed stream"))))

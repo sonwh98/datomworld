@@ -317,6 +317,14 @@
                      :k nil
                      :halted? false)
               (cesk-return state nil env (:next k) value)))
+          :eval-stream-close-source
+          (let [stream-ref (:value state)
+                effect {:effect :stream/close, :stream stream-ref}
+                {:keys [state value]} (engine/handle-effect
+                                        state
+                                        effect
+                                        {:restore-fn ast-walker-restore})]
+            (cesk-return state nil env (:next k) value))
           :eval-stream-cursor-source
           (let [stream-ref (:value state)
                 effect {:effect :stream/cursor, :stream stream-ref}
@@ -466,6 +474,13 @@
           (:source node)
           env
           {:frame node, :next k, :env env, :type :eval-stream-next-cursor}
+          (:value state))
+        :stream/close
+        (cesk-return
+          state
+          (:source node)
+          env
+          {:frame node, :next k, :env env, :type :eval-stream-close-source}
           (:value state))
         (throw (ex-info "Unknown AST node type" {:type type, :node node}))))))
 

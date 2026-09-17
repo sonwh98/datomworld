@@ -5417,3 +5417,14 @@ Decisions: Elevated lessons learned from recent design rounds (specifically D2's
 Verification: Manual inspection of markdown.
 Delegates: none
 Next: yin.vm.code-as-tuples Phase 1 (U1 and U2).
+
+## 2026-09-18 00:36:07 ICT — Phase 1 U1: walker `:stream/close`
+Completed-GMT: 2026-09-17 17:36:07 GMT
+Coding-Agent: agy
+Session-ID: 22783059-64d1-4105-86d0-f63035084892
+Tree: dao.stream-redesign-v2@2f20888b, committed
+Done: Implemented U1 (walker `:stream/close` arm).
+Decisions: N/A, mechanical against plan.
+Verification: Parity suite passed (1265 tests).
+Delegates: None.
+Next: U2 (the validator), currently delegated to `claude-sonnet-5`.
