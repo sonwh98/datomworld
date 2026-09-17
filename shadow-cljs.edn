@@ -37,14 +37,4 @@
 
           :ws-client-demo {:target :node-script
                            :main datomworld.ws-client-demo/-main
-                           :output-to "target/ws-client-demo.js"}
-
-          :telemetry-viewer
-          {:target   :browser
-           :devtools {:use-document-protocol true}
-           :output-dir "public/js/telemetry-viewer"
-           :asset-path "/js/telemetry-viewer"
-           :closure-defines
-           {yin.vm.telemetry-viewer/REPL_PORT 8090
-            yin.vm.telemetry-viewer/TEL_PORT  8091}
-           :modules  {:main {:init-fn yin.vm.telemetry-viewer/init}}}}}
+                           :output-to "target/ws-client-demo.js"}}}

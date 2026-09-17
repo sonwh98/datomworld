@@ -9,8 +9,7 @@
             [datomworld.demo.voxel :as voxel-demo]
             [datomworld.demo.yin-repl-v2 :as yin-repl-demo]
             [reagent.core :as r]
-            [reagent.dom :as rdom]
-            [yin.vm.telemetry-viewer :as tv]))
+            [reagent.dom :as rdom]))
 
 
 (def demo-options
@@ -46,11 +45,7 @@
    {:id :yin-repl,
     :label "Yin REPL",
     :icon "λ",
-    :desc "Browser CodeMirror client for a remote Yin REPL over WebSockets."}
-   #_{:id :telemetry,
-      :label "VM Telemetry Viewer",
-      :icon "📡",
-      :desc "Live telemetry and REPL for running VMs."}])
+    :desc "Browser CodeMirror client for a remote Yin REPL over WebSockets."}])
 
 
 (defn- hash->demo
@@ -68,7 +63,6 @@
     "#plotter-v2" :plotter-v2
     "#continuation" :continuation-v2
     "#continuation-v2" :continuation-v2
-    "#telemetry" :telemetry
     "#solar-system" :solar-system
     "#earth-moon" :earth-moon
     "#artifact" :artifact
@@ -83,7 +77,6 @@
     :pipeline-v2 "#pipeline-v2"
     :plotter-v2 "#plotter-v2"
     :continuation-v2 "#continuation-v2"
-    :telemetry "#telemetry"
     :solar-system "#solar-system"
     :earth-moon "#earth-moon"
     :artifact "#artifact"
@@ -215,7 +208,6 @@
        :pipeline-v2 [pipeline-v2/main-view]
        :plotter-v2 [plotter-demo-v2/main-view]
        :continuation-v2 [cont-demo-v2/main-view]
-       :telemetry [tv/main-panel]
        :solar-system [solar-demo/main-view]
        :earth-moon [earth-moon-demo/main-view]
        :artifact [artifact-demo/main-view]

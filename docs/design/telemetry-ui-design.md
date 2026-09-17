@@ -3,7 +3,8 @@
 > **Status (2026-09-16):** the v1 telemetry servers and the v1 VM's emit path
 > were deleted by `yin.vm.v1-retirement.implementation-plan.md` (D2). The
 > viewer still compiles but nothing serves it; v2 telemetry is owed to its own
-> plan.
+> plan. (2026-09-17: the viewer file itself is now deleted too, by
+> `dao.stream.v1-retirement.implementation-plan.md` U1.)
 
 ## Overview
 
