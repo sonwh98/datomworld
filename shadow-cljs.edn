@@ -34,7 +34,4 @@
           :yin-repl-v2 {:target :node-script
                         :main yin.repl.v2/-main
                         :output-to "target/yin-repl-v2.js"}
-
-          :ws-client-demo {:target :node-script
-                           :main datomworld.ws-client-demo/-main
-                           :output-to "target/ws-client-demo.js"}}}
+}}
