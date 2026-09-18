@@ -17,7 +17,9 @@
    §5.1/§5.3) lowers the projected row set to the canonical positional
    instruction vector of UCF §7.3.2 instead, threading §2.5 structural
    paths for the provenance side table. It shares this flattening order;
-   the datom lane stays until the observer row lane retires it."
+   the datom lane stays beside it for media that carry datoms (§7.1's
+   projection path), and `rows-loader` composes the row lane for the row
+   medium an encoder observer forwards to (`yin.vm.encoder`)."
   (:require [dao.datom :as datom]
             [yin.vm :as vm]))
 
@@ -399,3 +401,19 @@
                         (min (- datom/first-user-id) (vm/loaded-code-floor (:code vm)))
                         (map first datoms))]
       (load-program vm (lower datoms {:id-start (dec floor)})))))
+
+
+(defn rows-loader
+  "Adapt a vector loader (`semantic/load-vector`) into the row lane's loader
+   for a row medium (§7.1): each observed batch is one tree's canonical row
+   set `{:root id, :rows {id row}}`, already projected by whatever producer
+   owns the medium — the encoder observer, for the composition that
+   attaches the semantic VM behind one (`yin.vm.encoder`). The set is
+   validated (§7.4), lowered to the canonical instruction vector (§5.1),
+   and loaded; a batch of any other shape fails validation and throws.
+
+   The composition makes this choice; no evaluator learns which form
+   travels."
+  [load-vector]
+  (fn [vm bc]
+    (load-vector vm (:vector (lower-rows bc)))))

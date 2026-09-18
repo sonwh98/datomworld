@@ -1,17 +1,25 @@
 (ns yin.vm.semantic-stream-observer-test
-  "Program observation composed beside the semantic VM.
+  "Program observation composed beside the semantic VM, over the row lane
+   (§7.1).
 
-   The medium carries `:yin/*` AST datoms, as the REPL's does, so the session
-   hands `dao.stream.observer/run-on-stream` the §3.1 composition
-   `(linearize/ast-loader semantic/vm-load-program)` beside
-   `engine/ready-for-ingress?` and `vm/run`. The observer, the readiness
-   predicate, and the runner are the ones the ast-walker suite uses."
+   The row medium carries each program as the canonical row set of one tree
+   — `queue-rows!`'s shape — and the evaluator observer hands
+   `dao.stream.observer/run-on-stream` the row-fed loader
+   `(linearize/rows-loader semantic/load-vector)` beside
+   `engine/ready-for-ingress?` and `vm/run`. The encoder stage that
+   forwards to that medium is exercised end to end beside it
+   (`tu/make-encoder-session`, the two-stage topology the REPL runs):
+   projection of map-AST and datom batches, independent cursors and
+   attachments, and gap and blocked-program behavior across both stages.
+   The observer, the readiness predicate, and the runner are the ones the
+   ast-walker suite uses."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.observer :as observer]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
+            [yin.vm.malformed-rows :as malformed]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
@@ -21,6 +29,9 @@
   (try (thunk) nil
        (catch #?(:clj Exception :cljs js/Error :cljd Object) e
          (or (ex-data e) {}))))
+
+
+(def ^:private load-rows (linearize/rows-loader semantic/load-vector))
 
 
 (def ^:private load-ast (linearize/ast-loader semantic/vm-load-program))
@@ -39,7 +50,7 @@
 
 
 (defn- run-session
-  ([session] (run-session session load-ast))
+  ([session] (run-session session load-rows))
   ([session load-program]
    (observer/run-on-stream session engine/ready-for-ingress? load-program run-vm)))
 
@@ -71,33 +82,36 @@
 ;; Coordination
 ;; =============================================================================
 
-(deftest a-queued-program-runs-test
+(deftest a-queued-row-set-runs-test
   (let [vm (:consumer (-> (make-session)
-                          (tu/queue-ast! (lit 42))
+                          (tu/queue-rows! (lit 42))
                           run-session))]
     (is (vm/halted? vm))
     (is (= 42 (vm/value vm)))
     (is (nil? (vm/continuation vm)))
-    (is (= 1 (count (:code vm))) "One batch lowered to one segment")))
+    (is (= 1 (count (:code vm))) "One batch lowered to one segment")
+    (is (every? :address (vals (:code vm)))
+        "The row lane loads through load-vector, so every image is aliased
+          by its vector's address")))
 
 
 (deftest an-idle-step-waits-for-the-observer-test
   (testing "Queued input is not loaded by the VM itself"
-    (let [session (tu/queue-ast! (make-session) (lit 42))]
+    (let [session (tu/queue-rows! (make-session) (lit 42))]
       (is (= (:consumer session) (vm/step (:consumer session))))
       (is (empty? (:code (:consumer session)))))))
 
 
 (deftest successive-batches-run-test
-  (testing "Two queued programs both run"
+  (testing "Two queued row sets both run"
     (is (= 5 (vm/value (:consumer (-> (make-session)
-                                      (tu/queue-ast! (lit 1))
-                                      (tu/queue-ast! (binop '+ (lit 2) (lit 3)))
+                                      (tu/queue-rows! (lit 1))
+                                      (tu/queue-rows! (binop '+ (lit 2) (lit 3)))
                                       run-session))))))
   (testing "Programs of the same shape lower to distinct segments"
     (let [vm (:consumer (-> (make-session)
-                            (tu/queue-ast! (lit 1))
-                            (tu/queue-ast! (lit 2))
+                            (tu/queue-rows! (lit 1))
+                            (tu/queue-rows! (lit 2))
                             run-session))]
       (is (= 2 (vm/value vm)))
       (is (= 2 (count (:code vm)))))))
@@ -112,10 +126,10 @@
                               :params ['x],
                               :body (binop '+ {:type :variable, :name 'x} (lit 1))}]}
           vm (:consumer (-> (make-session)
-                            (tu/queue-ast! define)
-                            (tu/queue-ast! {:type :application,
-                                            :operator {:type :variable, :name 'inc1},
-                                            :operands [(lit 10)]})
+                            (tu/queue-rows! define)
+                            (tu/queue-rows! {:type :application,
+                                             :operator {:type :variable, :name 'inc1},
+                                             :operands [(lit 10)]})
                             run-session))]
       (is (= 11 (vm/value vm))))))
 
@@ -123,7 +137,7 @@
 (deftest ingress-across-a-gap-test
   (testing "An evicted batch is counted and the next one still runs"
     (let [session (make-session 2)]
-      (doseq [v [1 2 3]] (tu/queue-ast! session (lit v)))
+      (doseq [v [1 2 3]] (tu/queue-rows! session (lit v)))
       (let [session' (run-session session)]
         (is (= 1 (:ingress-gaps (:observer session'))))
         (is (= 3 (vm/value (:consumer session'))))))))
@@ -131,8 +145,8 @@
 
 (deftest a-blocked-program-holds-the-next-batch-test
   (let [session (-> (make-session)
-                    (tu/queue-ast! (read-first 4))
-                    (tu/queue-ast! (lit 9))
+                    (tu/queue-rows! (read-first 4))
+                    (tu/queue-rows! (lit 9))
                     run-session)
         parked (:consumer session)]
     (testing "A parked read suspends coordination before the next batch"
@@ -150,14 +164,84 @@
           (is (= 2 (count (:code done)))))))))
 
 
-(deftest a-malformed-batch-is-rejected-by-the-lowering-loader-test
-  (let [session (make-session)]
-    (stream/append! (:stream (:observer session)) [[1 :not/yin 1 0 true]])
-    (let [data (throws-ex-data #(run-session session))]
-      (is (some? data))
-      (is (= (:cursor (:observer session))
-             (:cursor (:observer (:session data))))
-          "The carried session names the cursor before the failing batch"))))
+;; =============================================================================
+;; The encoder stage and the row medium
+;; =============================================================================
+
+(deftest the-two-observer-stages-compose-end-to-end-test
+  (let [new-vm #(semantic/create-vm {:make-stream tu/make-stream})]
+    (testing "The encoder projects and forwards; the VM's own observer runs"
+      (let [session (tu/make-encoder-session (new-vm))]
+        (stream/append! (:program session) (binop '* (lit 6) (lit 7)))
+        (let [run (tu/run-encoder-session session)
+              vm (:consumer (:evaluator run))]
+          (is (= 42 (vm/value vm)))
+          (is (every? :address (vals (:code vm)))
+              "the rows reached load-vector, not the datom lane")
+          (testing "Two attachments, two cursors, one per medium"
+            (let [enc (:observer (:encoder run))
+                  evl (:observer (:evaluator run))]
+              (is (not= (:stream enc) (:stream evl))
+                  "each stage is attached to its own medium")
+              (is (not= (:cursor enc) (:cursor evl))
+                  "each stage's cursor is its own medium's")
+              (is (= :blocked (:status (observer/observe-next enc)))
+                  "the program medium is drained behind the encoder")
+              (is (= :blocked (:status (observer/observe-next evl)))
+                  "the row medium is drained behind the evaluator"))))))
+    (testing "A gap on the program medium is the encoder's to count"
+      (let [session (tu/make-encoder-session (new-vm) 2)]
+        (doseq [v [1 2 3]] (stream/append! (:program session) (lit v)))
+        (let [run (tu/run-encoder-session session)]
+          (is (= 1 (:ingress-gaps (:observer (:encoder run)))))
+          (is (zero? (:ingress-gaps (:observer (:evaluator run))))
+              "the row medium lost nothing; the loss never crossed it")
+          (is (= 3 (vm/value (:consumer (:evaluator run))))))))
+    (testing "A datom batch rides the same stages through the projection adapter"
+      (let [session (tu/make-encoder-session (new-vm))]
+        (stream/append! (:program session)
+                        (vec (vm/ast->datoms (binop '+ (lit 2) (lit 3)))))
+        (is (= 5 (vm/value (:consumer (:evaluator (tu/run-encoder-session session))))))))
+    (testing "A blocked program holds the next batch behind the row medium"
+      (let [session (tu/make-encoder-session (new-vm))]
+        (stream/append! (:program session) (read-first 4))
+        (stream/append! (:program session) (lit 9))
+        (let [run (tu/run-encoder-session session)
+              parked (:consumer (:evaluator run))]
+          (is (vm/blocked? parked))
+          (is (= :blocked (:status (observer/observe-next
+                                     (:observer (:encoder run)))))
+              "the encoder drained the program medium")
+          (is (= :ok (:status (observer/observe-next
+                                (:observer (:evaluator run)))))
+              "the second batch waits on the row medium, ahead of the
+                evaluator's cursor")
+          (let [entry (first (:wait-set parked))
+                handle (get (vm/store parked) (:stream-id entry))]
+            (stream/append! handle :woken)
+            (let [done (:consumer (:evaluator (tu/run-encoder-session run)))]
+              (is (vm/halted? done))
+              (is (= 9 (vm/value done)))
+              (is (= 2 (count (:code done)))))))))))
+
+
+(deftest the-datom-lane-stays-a-legal-composition-test
+  (testing "A datom medium with the datom-lane loader still runs"
+    (is (= 5 (vm/value (:consumer (-> (make-session)
+                                      (tu/queue-ast! (binop '+ (lit 2) (lit 3)))
+                                      (run-session load-ast))))))))
+
+
+(deftest a-malformed-row-set-is-rejected-by-the-row-fed-loader-test
+  (doseq [[name [_expected bc]] malformed/malformed-row-sets]
+    (testing (str name)
+      (let [session (make-session)]
+        (stream/append! (:stream (:observer session)) bc)
+        (let [data (throws-ex-data #(run-session session))]
+          (is (some? data))
+          (is (= (:cursor (:observer session))
+                 (:cursor (:observer (:session data))))
+              "The carried session names the cursor before the failing batch"))))))
 
 
 (deftest a-code-medium-needs-no-lowering-test

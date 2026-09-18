@@ -3,8 +3,9 @@
 
    This namespace owns no socket, atom, promise, callback, clock, or namespace
    global.  It holds the one shell value a driver threads: the evaluator beside
-   its separately-owned program medium — writer, descriptor, unary attacher,
-   and attached stream observer — the language, the value history, the v2
+   its separately-owned program media — for the semantic VM, the program
+   medium the encoder observer watches and the row medium the VM's own
+   observer watches — the language, the value history, the v2
    output medium with its cursor, and a per-medium ledger recording the last
    outcome that medium answered.  Every function takes a state and returns the
    next one.
@@ -22,6 +23,7 @@
             [yang.python :as yang.python]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
@@ -60,12 +62,18 @@
 
 
 (def program-loaders
-  "The loader the observer hands each program batch, per evaluator.  The
-   shell's program medium carries `:yin/*` AST datoms, so the semantic VM's
-   code loader is composed behind the lowering; neither evaluator learns
-   which form travels."
+  "The loader the evaluator observer hands each row-medium batch, per
+   evaluator.  The ast-walker keeps one stage — its medium carries `:yin/*`
+   AST datoms and its loader is the datom-lane one.  The semantic VM runs
+   the row lane (§7.1) behind two observer stages (`yin.vm.encoder`): the
+   encoder observer over the program medium projects each observed batch —
+   the map AST the compilers emit, a datom literal through §9.1's datom→row
+   adapter — and forwards it to the row medium, and the evaluator observer
+   the composition attaches there independently hands each canonical row
+   set to `linearize/rows-loader` over `semantic/load-vector`.  Neither
+   evaluator learns which form travels."
   {:ast-walker ast-walker/vm-load-program
-   :semantic (linearize/ast-loader semantic/vm-load-program)})
+   :semantic (linearize/rows-loader semantic/load-vector)})
 
 
 (def lang-labels {:clojure "Clojure" :python "Python" :php "PHP"})
@@ -280,34 +288,54 @@
      :make-stream make-ring-stream})))
 
 
-(defn- make-program-attachment
-  "Create the composition-owned program medium, the unary attachment entry
-   bound to it for this medium's lifetime, and an observer attached through
-   that entry.
+(defn- make-attachment
+  "Create one composition-owned medium of `capacity` elements, the unary
+   attachment entry bound to it for this medium's lifetime, and an observer
+   attached through that entry.
 
    The resolver maps the descriptor's identity to the owner handle this
    composition created, which is host composition around the ring buffer's own
    attach mechanism: the observer itself sees only a descriptor and a unary
    capability, so no transport detail crosses into it."
-  []
+  [capacity]
   (let [writer (:dao.stream/handle
                  (ring/create! {:dao.stream/type ring/transport-type
-                                ring/capacity-key ingress-capacity}))
+                                ring/capacity-key capacity}))
         descriptor (:dao.stream/descriptor (stream/descriptor writer))
         attach! (ring/make-attacher {(:dao.stream/identity descriptor) writer})]
-    {:program-stream writer
+    {:stream writer
      :observer (observer/attach attach! descriptor)}))
 
 
 (defn- make-session
-  "Build the program medium, its attachment, the observer, the VM, and the
-   program loader the observer feeds it together.  Reset and VM selection
-   call this, so the whole composition is rebuilt as one and the attachment
-   capability is bound exactly once per medium lifetime."
+  "Build the evaluator, its media, their attachments and observers, and the
+   loader the evaluator observer feeds the VM, together.  Reset and VM
+   selection call this, so the whole composition is rebuilt as one and each
+   attachment capability is bound exactly once per medium lifetime.
+
+   The ast-walker keeps one stage: its observer loads each program batch
+   and runs it.  The semantic VM composes two (`yin.vm.encoder`): the
+   encoder observer over the program medium forwards each projected batch
+   to the row medium, and the evaluator observer — attached to the row
+   medium independently, with its own cursor — loads each row set and runs
+   it.  A non-semantic session carries no row medium."
   [vm-type output-stream extra-primitives]
-  (merge {:vm (make-vm vm-type output-stream extra-primitives)
-          :load-program (get program-loaders vm-type)}
-         (make-program-attachment)))
+  (let [vm (make-vm vm-type output-stream extra-primitives)
+        program (make-attachment ingress-capacity)]
+    (if (= :semantic vm-type)
+      (let [rows (make-attachment ingress-capacity)]
+        {:vm vm
+         :load-program (get program-loaders vm-type)
+         :program-stream (:stream program)
+         :observer (:observer program)
+         :row-stream (:stream rows)
+         :row-observer (:observer rows)})
+      {:vm vm
+       :load-program (get program-loaders vm-type)
+       :program-stream (:stream program)
+       :observer (:observer program)
+       :row-stream nil
+       :row-observer nil})))
 
 
 (defn- run-vm
@@ -326,7 +354,7 @@
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
-         {:keys [program-stream observer vm load-program]}
+         {:keys [program-stream observer row-stream row-observer vm load-program]}
          (make-session vm-type output-stream primitives)]
      {:lang lang
       :vm-type vm-type
@@ -335,6 +363,8 @@
       :load-program load-program
       :program-stream program-stream
       :observer observer
+      :row-stream row-stream
+      :row-observer row-observer
       :output-stream output-stream
       :output-cursor output-cursor
       :ledger {:output :untried}
@@ -428,92 +458,144 @@
      (str output-text (format-value value))]))
 
 
+(defn- drain-observer
+  "Advance one observer past every batch still on its medium, keeping any
+   gap it recovers across.  A nil observer — a session without that medium —
+   stays nil."
+  [observer]
+  (when observer
+    (loop [observer observer]
+      (let [{:keys [status] observer' :observer} (observer/observe-next observer)]
+        (if (#{:ok :gap} status) (recur observer') observer')))))
+
+
 (defn- consume-failed-round
   "Answer a round that threw with a recoverable shell state.
 
-   The failed input is consumed exactly once: the observer resumes from the
-   session the throw carried, or from where the round began when it carried
-   none, and reads past every batch still on the program medium.  The shell
-   is the only appender and appends one batch per round, so what remains is
-   the failed batch alone.  The VM is the one the round began with, so a
-   half-run continuation cannot be resumed — and its error replayed — by the
-   next input.  Output the round already emitted is drained here, once."
+   The failed input is consumed exactly once: each of the session's
+   observers resumes from the session the throw carried — the failing
+   stage's, matched by the medium it holds — or from where the round began
+   when it carried none, and reads past every batch still on its medium.
+   The shell is the only appender and appends one batch per round, so what
+   remains is the failed batch alone.  The VM is the one the round began
+   with, so a half-run continuation cannot be resumed — and its error
+   replayed — by the next input.  Output the round already emitted is
+   drained here, once."
   [state error]
-  (let [observer (loop [observer (or (get-in (ex-data error) [:session :observer])
-                                     (:observer state))]
-                   (let [{:keys [status] observer' :observer} (observer/observe-next observer)]
-                     (if (#{:ok :gap} status) (recur observer') observer')))
+  (let [carried (get-in (ex-data error) [:session :observer])
+        resume (fn [observer]
+                 (if (and observer carried (= (:stream carried) (:stream observer)))
+                   carried
+                   observer))
+        program (drain-observer (resume (:observer state)))
+        rows (drain-observer (resume (:row-observer state)))
+        gaps-before (+ (:ingress-gaps (:observer state) 0)
+                       (:ingress-gaps (:row-observer state) 0))
+        gaps-after (+ (:ingress-gaps program 0) (:ingress-gaps rows 0))
         [state' output-text]
         (drain-output
-          (cond-> (assoc state :observer observer)
-            (> (:ingress-gaps observer 0) (:ingress-gaps (:observer state) 0))
+          (cond-> (assoc state :observer program :row-observer rows)
+            (> gaps-after gaps-before)
             (assoc :ingress-loss? true)))]
     [state' (str output-text (format-error error))]))
 
 
-(declare eval-datoms)
+(declare eval-program)
 
 
 (defn- eval-ast
   "Evaluate a compiled AST.  The ast-walker evaluates it directly; the
    semantic VM executes only code segments, so its AST travels the program
-   medium as datoms and is lowered by the session's loader."
+   medium as emitted — the map itself, not its datoms — and the session's
+   encoder observer projects it to rows and forwards them to the row medium
+   the VM's own observer watches."
   [state ast]
   (cond
     (:ingress-loss? state) [state (str "Error: " ingress-loss-text)]
-    (= :semantic (:vm-type state)) (eval-datoms state (vm/ast->datoms ast))
+    (= :semantic (:vm-type state)) (eval-program state ast)
     :else (let [state' (inject-last-value state)]
             (finalize-eval state state' (vm/eval (:vm state') ast)))))
 
 
-(defn- eval-datoms
-  "Evaluate one datom-literal program by appending it through the program
-   medium's writer and then driving observer coordination, which loads and
-   runs every observed batch.
+(defn- run-program-stages
+  "Drive the observer stages one program round runs.
 
-   The observer recovers across a gap on its own, but the shell reads the gap
-   count around the round: an increase means one or more batches were never
-   run, so resuming as though execution were complete would report a result
-   built on programs the VM never saw.  The loss is reported and the shell
-   refuses further evaluation until `(reset)`.
+   The ast-walker has one stage: its observer loads each observed batch
+   into the VM and runs it.  The semantic VM has two (`yin.vm.encoder`):
+   first the encoder observer over the program medium projects each
+   observed batch and forwards it to the row medium, then the evaluator
+   observer — attached to that row medium independently, with its own
+   cursor — loads each row set and runs the VM.  The stages meet only at
+   the row medium; neither calls the other."
+  [{:keys [vm-type load-program] :as state}]
+  (if (= :semantic vm-type)
+    (let [encoder-session
+          (encoder/forward-on-stream {:observer (:observer state),
+                                      :consumer (:row-stream state)})
+          {:keys [observer] vm :consumer}
+          (observer/run-on-stream {:observer (:row-observer state),
+                                   :consumer (:vm state)}
+                                  engine/ready-for-ingress?
+                                  load-program
+                                  run-vm)]
+      {:observer (:observer encoder-session), :row-observer observer, :vm vm})
+    (let [{:keys [observer] vm :consumer}
+          (observer/run-on-stream {:observer (:observer state),
+                                   :consumer (:vm state)}
+                                  engine/ready-for-ingress?
+                                  load-program
+                                  run-vm)]
+      {:observer observer, :vm vm})))
+
+
+(defn- eval-program
+  "Evaluate one program batch by appending it through the program medium's
+   writer and then driving the session's observer stages, which load and
+   run every observed batch.  A batch is the map AST the compilers emit or
+   a datom-literal program; the semantic VM's encoder observer projects
+   either to rows before the VM's own observer sees it (§7.1).
+
+   The observers recover across a gap on their own, but the shell reads the
+   gap counts around the round: an increase on any medium means one or more
+   batches were never run, so resuming as though execution were complete
+   would report a result built on programs the VM never saw.  The loss is
+   reported and the shell refuses further evaluation until `(reset)`.
 
    A completed program's lexical environment does not outlive it: the VM's
    environment is restored to the one the round began with, as `vm/eval`
    does.  A round that throws is consumed by `consume-failed-round`."
-  [state datoms]
+  [state batch]
   (if (:ingress-loss? state)
     [state (str "Error: " ingress-loss-text)]
     (let [state' (inject-last-value state)
-          append (stream/append! (:program-stream state') (vec datoms))]
+          append (stream/append! (:program-stream state') batch)]
       (if-not (= :dao.stream/ok (:dao.stream/outcome append))
-        [state (str "Error: datom batch not ingested: "
+        [state (str "Error: program batch not ingested: "
                     (name (:dao.stream/outcome append)))]
         (try
-          (let [observer0 (:observer state')
-                gaps-before (:ingress-gaps observer0 0)
-                {:keys [observer] vm :consumer}
-                (observer/run-on-stream {:observer observer0,
-                                         :consumer (:vm state')}
-                                        engine/ready-for-ingress?
-                                        (:load-program state')
-                                        run-vm)
-                state'' (assoc state' :observer observer :vm vm)]
+          (let [gaps-before (+ (:ingress-gaps (:observer state') 0)
+                               (:ingress-gaps (:row-observer state') 0))
+                stages (run-program-stages state')
+                state'' (merge state' stages)
+                gaps-after (+ (:ingress-gaps (:observer state'') 0)
+                              (:ingress-gaps (:row-observer state'') 0))]
             (cond
-              (> (:ingress-gaps observer 0) gaps-before)
+              (> gaps-after gaps-before)
               [(assoc state'' :ingress-loss? true)
                (str "Error: " ingress-loss-text)]
 
-              (vm/halted? vm)
+              (vm/halted? (:vm state''))
               (finalize-eval state state''
-                             (engine/restore-initial-env (:env (:vm state')) vm))
+                             (engine/restore-initial-env (:env (:vm state'))
+                                                         (:vm state'')))
 
               :else
               (throw
                 (ex-info
-                  "Datom stream did not form a complete, runnable Yin VM program.
+                  "Program stream did not form a complete, runnable Yin VM program.
 Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
-                  {:root-id (:root-id (vm/index-datoms datoms))
-                   :datom-count (count datoms)}))))
+                  {:vm-type (:vm-type state')
+                   :batch (if (map? batch) :ast (count batch))}))))
           (catch #?(:cljd Object :clj Exception :cljs js/Error) error
             (consume-failed-round state error)))))))
 
@@ -553,11 +635,11 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 
 
 (defn- rebuild-session
-  "Replace the VM and its program medium, attachment, and observer.  The
-   value history is cleared with them: a closure in `*1` names a code segment
-   the old VM held, which the new one does not."
+  "Replace the VM and its media, attachments, and observers.  The value
+   history is cleared with them: a closure in `*1` names a code segment the
+   old VM held, which the new one does not."
   [state vm-type]
-  (let [{:keys [program-stream observer vm load-program]}
+  (let [{:keys [program-stream observer row-stream row-observer vm load-program]}
         (make-session vm-type (:output-stream state) (:extra-primitives state))]
     (assoc state
            :vm-type vm-type
@@ -565,6 +647,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
            :load-program load-program
            :program-stream program-stream
            :observer observer
+           :row-stream row-stream
+           :row-observer row-observer
            :ingress-loss? false
            :last-value nil
            :last-value-2 nil
@@ -608,7 +692,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
           form (when (= 1 (count forms)) (first forms))]
       (cond
         (and form (command-form? form)) (handle-command state form)
-        (and form (datom-stream? form)) (eval-datoms state form)
+        (and form (datom-stream? form)) (eval-program state (vec form))
         (and form (ast-map? form)) (eval-ast state form)
         forms (if (= :clojure (:lang state))
                 (eval-ast state (compile-clojure-forms forms))
@@ -645,17 +729,18 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 
    The stream summaries read the ledger rather than asking a handle whether it
    is closed: v2 has no `closed?`, and an idle medium has no last operation.
-   The program medium is the composition's own, observed beside the VM, so the
-   shell reports what it knows of it — the declared capacity, the gaps the
-   observer counted, and whether a loss has already refused further
-   evaluation."
+   The program media are the composition's own, observed beside the VM, so
+   the shell reports what it knows of them — the declared capacity, the gaps
+   the session's observers counted, and whether a loss has already refused
+   further evaluation."
   [state]
   {:lang (:lang state)
    :vm {:type (:vm-type state)
         :halted? (vm/halted? (:vm state))
         :blocked? (vm/blocked? (:vm state))
         :in-stream {:capacity ingress-capacity
-                    :gaps (:ingress-gaps (:observer state) 0)
+                    :gaps (+ (:ingress-gaps (:observer state) 0)
+                             (:ingress-gaps (:row-observer state) 0))
                     :lost? (boolean (:ingress-loss? state))}}
    :running? (:running? state)
    :output {:cursor (:output-cursor state)

@@ -24,7 +24,6 @@
      nothing in this namespace polls a program stream."
   (:refer-clojure :exclude [gensym])
   (:require [clojure.set]
-            [dao.datom :as datom]
             [dao.runtime :as rt]
             [dao.stream :as stream]
             [yin.vm :as vm]
@@ -508,17 +507,11 @@
 ;; =============================================================================
 
 (def default-compiled-cache-limit 8)
-(def ^:private derived-metadata-eid (:db/derived datom/reserved))
 
 
 (defn build-program-index
   [datoms]
   (group-by first (vec datoms)))
-
-
-(defn executable-program-datom?
-  [[_e a _v _t m]]
-  (and (keyword? a) (= "yin" (namespace a)) (not= m derived-metadata-eid)))
 
 
 (defn frame-versions
@@ -595,22 +588,3 @@
            (some? (:program-root-eid vm)))
     (ensure-compiled-version vm (:program-version vm) compile-fn)
     [vm nil]))
-
-
-(defn append-program-datoms
-  ([vm new-datoms] (append-program-datoms vm new-datoms nil))
-  ([vm new-datoms new-root-eid]
-   (when-not (some? (:program-root-eid vm))
-     (fail "append-program-datoms requires a canonical program" {}))
-   (let [appended (vec new-datoms)]
-     (if (and (empty? appended) (nil? new-root-eid))
-       vm
-       (let [version (inc (or (:program-version vm) 0))
-             dirty? (or (some executable-program-datom? appended)
-                        (some? new-root-eid))]
-         (assoc vm
-                :program-version version
-                :program-root-eid (or new-root-eid (:program-root-eid vm))
-                :compile-dirty? (or (:compile-dirty? vm) dirty?)
-                :datoms (into (vec (or (:datoms vm) [])) appended)
-                :datom-index (if dirty? nil (:datom-index vm))))))))

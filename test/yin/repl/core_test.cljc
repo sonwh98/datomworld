@@ -41,6 +41,11 @@
     (is (some? (:observer state))
         "an observer is attached beside the VM, not inside it")
     (is (zero? (:ingress-gaps (:observer state))))
+    (is (some? (:row-stream state))
+        "the semantic session owns a row medium beside the program medium")
+    (is (some? (:row-observer state))
+        "the VM's own observer is attached to the row medium")
+    (is (zero? (:ingress-gaps (:row-observer state))))
     (is (false? (:ingress-loss? state)))))
 
 
@@ -93,14 +98,28 @@
     (is (= "42" after-vm) "(vm …) rebuilds the session with the host functions")))
 
 
-(deftest the-semantic-vm-evaluates-through-the-lowering-loader
-  ;; The program medium is shared by every state threaded from one session,
+(deftest the-semantic-vm-evaluates-through-both-observer-stages
+  ;; The program media are shared by every state threaded from one session,
   ;; so each case starts from its own session rather than a stale state.
   (let [semantic-state #(first (core/eval-input (core/create-state) "(vm :semantic)"))]
-    (testing "source lowers to a code segment and runs"
+    (testing "source loads a code segment and runs"
       (let [[state' result] (core/eval-input (semantic-state) "(+ 1 2)")]
         (is (= "3" result))
         (is (= 1 (count (:code (:vm state')))))))
+    (testing "the segment came through the row lane, not the datom lane"
+      (let [[state' _] (core/eval-input (semantic-state) "(+ 1 2)")]
+        (is (every? :address (vals (:code (:vm state'))))
+            "only load-vector aliases a segment by its vector's address")))
+    (testing "the session composes two stages over two media"
+      (let [[state' _] (core/eval-input (semantic-state) "(+ 1 2)")]
+        (is (not (identical? (:program-stream state') (:row-stream state')))
+            "the program medium and the row medium are distinct")
+        (is (not (identical? (:stream (:observer state'))
+                             (:stream (:row-observer state'))))
+            "the encoder and the evaluator are attached independently")))
+    (testing "a map AST travels the medium as emitted, not as datoms"
+      (is (= "7" (second (core/eval-input (semantic-state)
+                                          "{:type :literal, :value 7}")))))
     (testing "definitions, recursion, and history span successive programs"
       (let [[state' result]
             (evaluate (semantic-state)
@@ -112,7 +131,7 @@
             "each program is its own segment; earlier closures still resolve")))
     (testing "printed output precedes the value"
       (is (= "hi\nnil" (second (core/eval-input (semantic-state) "(println \"hi\")")))))
-    (testing "a datom literal is lowered like compiled source"
+    (testing "a datom literal rides the projection adapter like compiled source"
       (is (= "99" (second (core/eval-input (semantic-state)
                                            "[[-1 :yin/type :literal 0 1]
                                              [-1 :yin/value 99 0 1]]")))))
@@ -178,6 +197,11 @@
     (is (not (identical? (:observer state) (:observer state')))
         "the observer is reattached to the new medium")
     (is (zero? (:ingress-gaps (:observer state'))))
+    (is (not (identical? (:row-stream state) (:row-stream state')))
+        "the row medium is rebuilt with the VM")
+    (is (not (identical? (:row-observer state) (:row-observer state')))
+        "the evaluator observer is reattached to the new row medium")
+    (is (zero? (:ingress-gaps (:row-observer state'))))
     (is (identical? (:output-stream state) (:output-stream state'))
         "the output medium belongs to the composition, not to the VM")))
 
