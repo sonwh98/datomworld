@@ -14,6 +14,11 @@
    events carrying a `MessageEvent`/`CloseEvent`) for `ws`'s `EventEmitter`
    surface.
 
+   Frames are typed end to end: `binaryType` is pinned to `arraybuffer`, a
+   text frame's string reaches `:message!`, a binary frame's bytes reach
+   `:binary!` as an `ArrayBuffer` view, and this adapter never inspects
+   payload content to classify either.
+
    Host matrix declaration (per `dao.stream.ws.md`): the DOM `WebSocket.send`
    accepts into an opaque host buffer and exposes no outbound high-water
    signal, so transient `:dao.stream/full` is excluded by nature on this host,
@@ -21,15 +26,6 @@
    classifies as ok; while the attachment is establishing, the transport's own
    phase gate answers `full` without touching the socket."
   (:require [dao.stream.ws :as ws]))
-
-
-(def binary-message-text
-  "Routed through `:message!` in place of a binary frame's bytes.  Mirrors
-   `dao.stream.ws.node/binary-message-text`: a NUL byte is not valid
-   Transit JSON in any position, so the transport performs its own
-   decode-failure teardown (deposit plus close 4002) without this adapter
-   inspecting frame content."
-  (.fromCharCode js/String 0))
 
 
 (defn socket-url
@@ -44,18 +40,18 @@
    The socket's `message`, `close`, and `error` events become adapter entries;
    the DOM `open` event is deliberately not subscribed because an HTTP upgrade
    is never a resolution -- the first `:ws/accept` or `:ws/disclaim` frame is.
-   A `MessageEvent`'s `data` is the frame's string for a text frame; anything
-   else (an `ArrayBuffer` or `Blob`, depending on the socket's `binaryType`) is
-   routed as `binary-message-text` without this adapter reading it, which is
-   what keeps the classification synchronous.  The host `error` event carries
-   no usable data and never crosses: the adapter deposits nothing itself, the
-   transport's diagnostic entry does."
+   A `MessageEvent`'s `data` is the frame's string for a text frame and
+   reaches `:message!`; anything else is an `ArrayBuffer` (`binaryType` is
+   pinned in `connect!`) whose bytes reach `:binary!` as a `Uint8Array` view.
+   The host `error` event carries no usable data and never crosses: the
+   adapter deposits nothing itself, the transport's diagnostic entry does."
   [socket adapter]
   (.addEventListener ^js socket "message"
                      (fn [event]
                        (let [data (.-data ^js event)]
-                         ((:message! adapter)
-                          (if (string? data) data binary-message-text)))))
+                         (if (string? data)
+                           ((:message! adapter) data)
+                           ((:binary! adapter) (js/Uint8Array. data))))))
   (.addEventListener ^js socket "close"
                      (fn [event]
                        ((:closed! adapter) (.-code ^js event) (.-reason ^js event))))
@@ -66,9 +62,11 @@
 
 (defn raw-socket
   "The `{:send! :close!}` view of one host socket, which is the only shape
-   `dao.stream.ws` accepts from a host."
+   `dao.stream.ws` accepts from a host.  `send!` takes the attachment codec's
+   payload and lets the host dispatch on its type — a String sends a text
+   frame, a typed array a binary frame."
   [socket]
-  {:send! (fn [text] (.send ^js socket text))
+  {:send! (fn [payload] (.send ^js socket payload))
    :close! (fn [code reason] (.close ^js socket code reason))})
 
 
@@ -76,12 +74,16 @@
   "The `:connect!` host seam for `dao.stream.ws/make-attacher` in the
    browser.
 
-   Starts connection establishment to the descriptor's URL with the v2
-   subprotocol and synchronously returns the raw socket view; the connection
-   resolves asynchronously and every socket event reaches the adapter map the
+   Starts connection establishment to the descriptor's URL offering exactly
+   the subprotocol of the transport's selected codec profile (the adapter
+   map's `:ws/codec`) — a peer that does not speak it fails the handshake —
+   and synchronously returns the raw socket view; the connection resolves
+   asynchronously and every socket event reaches the adapter map the
    transport built.  The deposit medium and its already-minted cursor are the
    caller's composition, not arguments here."
   [descriptor adapter]
-  (let [socket (js/WebSocket. (socket-url descriptor) ws/subprotocol)]
+  (let [socket (js/WebSocket. (socket-url descriptor)
+                              (get-in adapter [:ws/codec :ws/subprotocol] ws/subprotocol))]
+    (set! (.-binaryType ^js socket) "arraybuffer")
     (wire! socket adapter)
     (raw-socket socket)))

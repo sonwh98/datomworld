@@ -17,6 +17,7 @@
             [clojure.string :as str]
             [dao.stream :as stream]
             [dao.stream.apply :as apply]
+            [dao.stream.cbor :as cbor]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc :as rpc]
             [dao.stream.rpc.ws :as rpc-ws]
@@ -357,76 +358,93 @@
    a per-attachment RPC service registry the inbound interpreter fills, and
    the listener the start policy retains.  The adapter owns none of it.
 
+   `:codecs` (an optional key of the map arity) selects the endpoint's codec
+   table and therefore the subprotocols its listener negotiates; the default
+   is the Transit-only table, exactly as before the dual-profile work.
+
    The served descriptor carries a placeholder port because the bound port is
    only known after listening; each test repairs reachability for its client
    from the bound address, exactly as the R4 bind/advertised split prescribes."
-  []
-  (let [served (buffer)
-        control (buffer)
-        offer (buffer 1)
-        ack (buffer 1)
-        table-descriptor (assoc (descriptor) :ws/port 1)
-        endpoint (ws/make-endpoint
-                   {:served {"/yin/repl" table-descriptor}
-                    :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
-                    :control-admission admission
-                    :slots [{:offer {:dao.stream/handle offer :dao.stream/surface #{:writer}}
-                             :offer-admission handoff-admission
-                             :ack {:dao.stream/handle ack :dao.stream/surface #{:writer}}
-                             :ack-admission handoff-admission
-                             :ack-cursor (newest ack)}]
-                    :expiry-ms nil})
-        traffic-media (atom {})
-        services (atom {})
-        listener (atom nil)
-        composition (serving/make-serving
-                      {:endpoint endpoint
-                       :served {"/yin/repl" {:descriptor table-descriptor :stream served}}
-                       :control-reader control
-                       :control-cursor (newest control)
-                       :slots [{:offer-reader offer
-                                :offer-cursor (newest offer)
-                                :ack-writer {:dao.stream/handle ack
-                                             :dao.stream/surface #{:writer}}}]
-                       :make-traffic (fn [offer-event]
-                                       (let [traffic (buffer)]
-                                         (swap! traffic-media
-                                                assoc (:ws/attachment offer-event) traffic)
-                                         {:traffic {:dao.stream/handle traffic
-                                                    :dao.stream/surface #{:writer}}
-                                          :admission admission
-                                          :reader traffic
-                                          :cursor (newest traffic)}))
-                       :inbound-step (fn [session event]
-                                       (when (and (= :ws/payload (:ws/event event))
-                                                  (apply/request? (:ws/value event)))
-                                         (let [attachment (:ws/attachment event)]
-                                           (when-not (get @services attachment)
-                                             (let [requests (buffer)]
-                                               (swap! services assoc attachment
-                                                      {:requests requests
-                                                       :service (apply/server-state
-                                                                  (newest requests))
-                                                       :socket (:socket-handle session)})))
-                                           (stream/append!
-                                             (:requests (get @services attachment))
-                                             (:ws/value event)))))
-                       :start-endpoint! (fn [ep]
-                                          (let [l (node/listen! ep
-                                                                {:host "127.0.0.1" :port 0})]
-                                            (reset! listener l)
-                                            {:dao.stream/outcome :dao.stream/ok}))
-                       :stop-endpoint! (fn [_]
-                                         (node/stop-listening! @listener)
-                                         {:dao.stream/outcome :dao.stream/ok})})]
-    {:served served
-     :control control
-     :offer offer
-     :listener listener
-     :traffic-media traffic-media
-     :services services
-     :composition composition
-     :descriptor table-descriptor}))
+  ([] (server-fixture {}))
+  ([{:keys [codecs slot-count] :or {slot-count 1} :as _options}]
+   (let [served (buffer)
+         control (buffer)
+         handoffs (mapv (fn [_] {:offer (buffer 1) :ack (buffer 1)}) (range slot-count))
+         table-descriptor (assoc (descriptor) :ws/port 1)
+         endpoint (ws/make-endpoint
+                    (cond-> {:served {"/yin/repl" table-descriptor}
+                             :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
+                             :control-admission admission
+                             :slots (mapv (fn [{:keys [offer ack]}]
+                                            {:offer {:dao.stream/handle offer
+                                                     :dao.stream/surface #{:writer}}
+                                             :offer-admission handoff-admission
+                                             :ack {:dao.stream/handle ack
+                                                   :dao.stream/surface #{:writer}}
+                                             :ack-admission handoff-admission
+                                             :ack-cursor (newest ack)})
+                                          handoffs)
+                             :expiry-ms nil}
+                      codecs (assoc :codecs codecs)))
+         traffic-media (atom {})
+         services (atom {})
+         listener-errors (atom [])
+         listener (atom nil)
+         composition (serving/make-serving
+                       {:endpoint endpoint
+                        :served {"/yin/repl" {:descriptor table-descriptor :stream served}}
+                        :control-reader control
+                        :control-cursor (newest control)
+                        :slots (mapv (fn [{:keys [offer ack]}]
+                                       {:offer-reader offer
+                                        :offer-cursor (newest offer)
+                                        :ack-writer {:dao.stream/handle ack
+                                                     :dao.stream/surface #{:writer}}})
+                                     handoffs)
+                        :make-traffic (fn [offer-event]
+                                        (let [traffic (buffer)]
+                                          (swap! traffic-media
+                                                 assoc (:ws/attachment offer-event) traffic)
+                                          {:traffic {:dao.stream/handle traffic
+                                                     :dao.stream/surface #{:writer}}
+                                           :admission admission
+                                           :reader traffic
+                                           :cursor (newest traffic)}))
+                        :inbound-step (fn [session event]
+                                        (when (and (= :ws/payload (:ws/event event))
+                                                   (apply/request? (:ws/value event)))
+                                          (let [attachment (:ws/attachment event)]
+                                            (when-not (get @services attachment)
+                                              (let [requests (buffer)]
+                                                (swap! services assoc attachment
+                                                       {:requests requests
+                                                        :service (apply/server-state
+                                                                   (newest requests))
+                                                        :socket (:socket-handle session)})))
+                                            (stream/append!
+                                              (:requests (get @services attachment))
+                                              (:ws/value event)))))
+                        :start-endpoint! (fn [ep]
+                                           (let [l (node/listen! ep
+                                                                 {:host "127.0.0.1" :port 0
+                                                                  :on-error #(swap! listener-errors conj :listener-error)
+                                                                  ;; The listener negotiates exactly the
+                                                                  ;; endpoint's own codec table.
+                                                                  :codecs (:codecs ep)})]
+                                             (reset! listener l)
+                                             {:dao.stream/outcome :dao.stream/ok}))
+                        :stop-endpoint! (fn [_]
+                                          (node/stop-listening! @listener)
+                                          {:dao.stream/outcome :dao.stream/ok})})]
+     {:served served
+      :control control
+      :offer (:offer (first handoffs))
+      :listener listener
+      :listener-errors listener-errors
+      :traffic-media traffic-media
+      :services services
+      :composition composition
+      :descriptor table-descriptor})))
 
 
 (defn- server-tick
@@ -444,21 +462,24 @@
 (defn- make-client
   "The R3 client boundary: create the deposit medium, mint its newest cursor,
    compose the boundary, and only then attach.  RPC client state is built from
-   the whole attach result, so `:me` is the transport-minted attachment id."
-  [client-descriptor]
-  (let [traffic (buffer)
-        cursor (newest traffic)
-        attach ((ws/make-attacher
-                  {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
-                   :admission admission
-                   :connect! node/connect!})
-                client-descriptor)]
-    {:traffic traffic
-     :cursor cursor
-     :attach attach
-     :handle (:dao.stream/handle attach)
-     :rpc-atom (atom (rpc-ws/init-client attach traffic cursor))
-     :completed (atom [])}))
+   the whole attach result, so `:me` is the transport-minted attachment id.
+   The optional map arity selects the wire codec profile (default Transit)."
+  ([client-descriptor] (make-client client-descriptor {}))
+  ([client-descriptor {:keys [codec] :as _options}]
+   (let [traffic (buffer)
+         cursor (newest traffic)
+         attach ((ws/make-attacher
+                   (cond-> {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
+                            :admission admission
+                            :connect! node/connect!}
+                     codec (assoc :codec codec)))
+                 client-descriptor)]
+     {:traffic traffic
+      :cursor cursor
+      :attach attach
+      :handle (:dao.stream/handle attach)
+      :rpc-atom (atom (rpc-ws/init-client attach traffic cursor))
+      :completed (atom [])})))
 
 
 (defn- client-tick!
@@ -818,3 +839,98 @@
                                                              (stream/close! (:dao.stream/handle attach-2))
                                                              (teardown! fixture [] server ticker)
                                                              (finish))))))))))))))))
+
+
+;; =============================================================================
+;; The dual-subprotocol wire: one listener, two codec profiles
+;; =============================================================================
+
+
+(deftest transit-and-cbor-clients-round-trip-through-one-listener
+  ;; Dual-client compatibility: one Node listener negotiates both profiles,
+  ;; a Transit client and a CBOR client attach concurrently to the same
+  ;; served path, and each completes an RPC round trip over its own frame
+  ;; kind — text frames for one, binary frames for the other, no sniffing.
+  (async done
+         ;; Two handoff slots: both sessions hand off concurrently rather than
+         ;; racing one slot's release.
+         (let [fixture (server-fixture {:codecs [transit/profile cbor/profile]
+                                        :slot-count 2})
+               finish (finish-once done)
+               server (js/setInterval (fn [] (server-tick fixture (.now js/Date))) 10)]
+           (after-bound fixture server finish
+                        (fn [port]
+                          (let [d (assoc (:descriptor fixture) :ws/port port)
+                                transit-client (make-client d)
+                                cbor-client (make-client d {:codec cbor/profile})
+                                transit-ticker (client-ticker transit-client)
+                                cbor-ticker (client-ticker cbor-client)]
+                            (reset! (:rpc-atom transit-client)
+                                    (:dao.stream.rpc/state
+                                      (rpc/request! @(:rpc-atom transit-client)
+                                                    :op/echo ["text-payload"])))
+                            ;; Metadata rides the CBOR profile only: if the
+                            ;; binary session were silently downgraded to the
+                            ;; Transit text wire, the echoed reader position
+                            ;; would come back stripped.
+                            (reset! (:rpc-atom cbor-client)
+                                    (:dao.stream.rpc/state
+                                      (rpc/request! @(:rpc-atom cbor-client) :op/echo
+                                                    [(with-meta [:bin-payload] {:line 5})])))
+                            (after 4000 (fn []
+                                          (and (seq @(:completed transit-client))
+                                               (seq @(:completed cbor-client))))
+                                   "both round trips never completed"
+                                   fixture server [transit-client cbor-client] finish
+                                   (fn [_]
+                                     (let [response (fn [c]
+                                                      (apply/response-ok
+                                                        (:dao.stream.rpc/response
+                                                          (first @(:completed c)))))]
+                                       (is (= [:echo "text-payload"] (response transit-client)))
+                                       (is (= [:echo [:bin-payload]] (response cbor-client))
+                                           (str "cbor client saw "
+                                                (pr-str (event-kinds (:traffic cbor-client))))))
+                                     (is (= {:line 5}
+                                            (meta (second (response cbor-client))))
+                                         "the CBOR session kept its metadata end to end; a
+                                            downgrade to the text wire would strip it")
+                                     (is (= cbor/profile
+                                            (:ws/codec (ws/adapter (:handle cbor-client))))))
+                                   (stream/close! (:handle transit-client))
+                                   (stream/close! (:handle cbor-client))
+                                   (teardown! fixture [] server transit-ticker cbor-ticker)
+                                   (finish))))))))
+
+
+(deftest a-cbor-client-is-refused-by-a-transit-only-endpoint
+  ;; Mixed-version handshake failure: a client offering only dao.stream.cbor
+  ;; against an endpoint composed with Transit alone fails its handshake —
+  ;; an HTTP refusal before the upgrade, never a silent downgrade to text.
+  (async done
+         (let [fixture (server-fixture) ; Transit-only table
+               finish (finish-once done)
+               server (js/setInterval (fn [] (server-tick fixture (.now js/Date))) 10)]
+           (after-bound fixture server finish
+                        (fn [port]
+                          (let [raw ^js (new (.-WebSocket ws-package)
+                                             (str "ws://127.0.0.1:" port "/yin/repl")
+                                             "dao.stream.cbor")
+                                errors (atom [])
+                                closes (atom [])]
+                            (.on raw "error" (fn [e] (swap! errors conj (.-message ^js e))))
+                            (.on raw "close" (fn [code _reason] (swap! closes conj code)))
+                            (after 4000 (fn [] (seq @errors))
+                                   "refused connection never failed" fixture server [] finish
+                                   (fn [_]
+                                     (is (some #(str/includes? % "400") @errors)
+                                         (str "expected a refused handshake, got "
+                                              (pr-str @errors)))
+                                     (is (not (some #(= 1002 %) @closes))
+                                         "no upgraded socket was closed after the fact")
+                                     ;; The refusal precedes the endpoint: no handoff slot
+                                     ;; or traffic medium was consumed.
+                                     (is (empty? (drain (:offer fixture))))
+                                     (is (empty? @(:traffic-media fixture)))
+                                     (teardown! fixture [] server)
+                                     (finish)))))))))

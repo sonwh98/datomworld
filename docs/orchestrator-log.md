@@ -5468,3 +5468,4 @@ Next: Phase 1 U5 and U6.
 - **U5:** Validator (`code/well-formed-vector?`) and positional loader (`semantic/load-vector`) implemented by `glm-5.3`. EAVTM projection scrapped per Owner ruling. Architect `gpt-5.6-sol` signed off.
 
 - **U6:** Segment rows, syntactic extraction queries, and footprint table implemented by `glm-5.3` and signed off by `gpt-5.6-sol`. **Phase 1 Complete.**
+- **U10a:** Stream Codec Parameterization & dao.stream.cbor implemented by `glm-5.3` and signed off by `claude-fable-5-1`.

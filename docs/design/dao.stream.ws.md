@@ -478,13 +478,25 @@ segments are removed; percent-encoded unreserved octets are decoded; remaining
 percent hex digits are upper-case; an empty URI path becomes `/`; and encoded
 slashes remain encoded. Repeated slashes and a trailing slash are significant.
 Query and fragment components are ignored for lookup and are absent from the
-descriptor. Resolution is an exact string lookup on this canonical form. The
-client offers the
-WebSocket subprotocol `dao.stream.transit-json`, and the server refuses
-the upgrade when that subprotocol is absent.
+descriptor. Resolution is an exact string lookup on this canonical form.
+
+Subprotocol selection is explicit on both ends, because the wire codec is a
+composition choice carried as a **codec profile**: the subprotocol name it
+negotiates, its frame kind (`:text` or `:binary`), the portable-value
+predicate for its domain, and its encoder and decoder. Two profiles exist —
+`dao.stream.transit-json` (text frames) and `dao.stream.cbor` (binary
+frames) — and both run the same state machine, envelopes, and lifecycle. A
+client offers exactly the subprotocol of its selected profile; an endpoint
+serves exactly the profiles it was composed with, concurrently and through
+the same served paths. The endpoint negotiates deterministically: a named
+offer it does not serve is refused before the upgrade completes, never
+silently downgraded to a codec the client did not select, and an absent
+name is the `dao.stream.transit-json` default for sockets that negotiated
+nothing.
 
 After upgrade, the first WebSocket message sent by the server is exactly one
-Transit-JSON text frame:
+frame in the negotiated codec — one Transit-JSON text frame or one CBOR
+binary frame:
 
 ```clojure
 {:ws/frame :ws/accept}
@@ -587,8 +599,10 @@ The wire is a serialization boundary. Every element must survive the codec
 structurally unchanged; a handle can never travel — its portable
 descriptor can.
 
-The wire codec is **Transit JSON encoded as one UTF-8 WebSocket text
-message per value**. Every application value is framed as:
+The wire codec is the connection's codec profile (see The Handshake):
+**Transit JSON encoded as one UTF-8 WebSocket text message per value**, or
+**canonical CBOR encoded as one WebSocket binary message per value**. Every
+application value is framed as:
 
 ```clojure
 {:ws/frame :ws/value
@@ -598,20 +612,35 @@ message per value**. Every application value is framed as:
 The portable value domain is `nil`, booleans, strings, qualified or
 unqualified keywords and symbols, safe integers in
 `[-9007199254740991, 9007199254740991]`, finite doubles, vectors, lists,
-sets, and maps recursively composed from that domain. No custom Transit
-handlers or metadata participate in this protocol. A sender unable to
-encode a value in this domain returns `:dao.stream/invalid-value` and sends
-nothing. Across hosts, numeric structural equality is by mathematical value
-within this domain: an integral finite double and the equal safe integer are
-equivalent even if a host codec materializes different numeric classes.
+sets, and maps recursively composed from that domain. The Transit profile is
+exactly that domain — no custom handlers and no metadata participate. The
+CBOR profile is that domain widened with metadata — recursively portable
+metadata on collections and symbols, reader positions included — and it
+keeps lists and vectors distinct: identifiers ride CBOR tag 39, sets ride
+tag 258, and metadata and list-hood ride tag 27 frames (`clojure/with-meta`
+and `dao.stream/list`). A sender unable to encode a value in its profile's
+domain returns `:dao.stream/invalid-value` and sends nothing. Across hosts,
+numeric structural equality is by mathematical value within this domain: an
+integral finite double and the equal safe integer are equivalent even if a
+host codec materializes different numeric classes.
+
+The CBOR wire is **canonical CBOR only, enforced on receive**: a receiver
+decodes, re-encodes, and byte-compares, so an indefinite length, a
+non-minimal integer, a non-shortest float, duplicate map keys, or map keys
+outside canonical bytewise order are protocol failures, not silently
+normalized input. The price is roughly one extra encode per inbound
+message; the return is a byte-exact wire across all three hosts and a
+duplicate-key guard no host codec can skip.
 
 All protocol keywords use exactly one namespace separator — for example
 `:ws/frame`, never a multi-slash spelling such as `:ws/wire/frame` — so the
 vocabulary reads on clj, cljs, and cljd.
 
-A text message that is not valid Transit JSON, a binary message, an unknown
-`:ws/frame` value, a missing required key, a value outside the portable
-domain, or a `:ws/value` frame received before `:ws/accept` has been sent is
+A message of the profile's wrong frame kind, a text message that is not
+valid Transit JSON, a binary payload that is not canonical CBOR inside the
+profile's portable domain, an unknown `:ws/frame` value, a missing required
+key, a value outside the portable domain, or a `:ws/value` frame received
+before `:ws/accept` has been sent is
 a protocol failure. Once an attachment identity exists, the
 receiver first deposits:
 

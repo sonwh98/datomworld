@@ -31,7 +31,10 @@
      :default false))
 
 
-(defn- safe-number?
+(defn safe-number?
+  "True for the cross-host numeric domain: finite and within the safe
+   integer bounds.  Public so `dao.stream.cbor` can state the same numeric
+   rule the Transit profile states."
   [x]
   (and (finite-number? x)
        (if (integer? x)
@@ -128,6 +131,18 @@
     (throw (ex-info "invalid DaoStream v2 descriptor"
                     {:error :invalid-descriptor :descriptor descriptor})))
   (encode descriptor))
+
+
+(def profile
+  "The `dao.stream.ws` codec profile for this codec: one UTF-8 WebSocket text
+   message per value, the `dao.stream.transit-json` subprotocol, and the
+   portable-value domain above.  A profile is plain composition data; the
+   transport never special-cases it."
+  {:ws/subprotocol "dao.stream.transit-json"
+   :ws/frame-kind :text
+   :ws/portable-value? portable-value?
+   :ws/encode encode
+   :ws/decode decode})
 
 
 (defn decode-descriptor

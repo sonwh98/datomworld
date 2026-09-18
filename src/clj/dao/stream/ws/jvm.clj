@@ -11,20 +11,47 @@
    delivery: `send!` returns as soon as the host has taken the message, and a
    send that fails afterwards is reported on the stream as `:ws/error` then a
    terminal `:ws/closed`.  Nothing here joins, parks, or sleeps — the operation
-   must return what is true when it is called."
+   must return what is true when it is called.
+
+   Frames are typed end to end: text payloads ride `sendText`/`onText`, binary
+   payloads ride `sendBinary`/`onBinary`, and this adapter never inspects a
+   payload to classify it.  Fragmented messages (text or binary) are assembled
+   so the transport sees one message per callback boundary."
   (:require [clojure.string :as str]
+            [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
             [org.httpkit.server :as http]
             [ring.websocket.protocols :as wsp])
-  (:import [java.net URI]
+  (:import [java.io ByteArrayOutputStream]
+           [java.net URI]
            [java.net.http HttpClient WebSocket WebSocket$Listener]
            [java.nio ByteBuffer]
            [java.util.concurrent CompletableFuture]))
 
 
-(def binary-message-text
-  "A text value guaranteed to fail Transit JSON decoding."
-  "\u0000")
+(def default-codecs
+  "The listener's codec table when a composition names none: Transit only."
+  [transit/profile])
+
+
+(defn offered-subprotocols
+  "The upgrade request's offered subprotocol list, split and trimmed."
+  [request]
+  (->> (str/split (str (get-in request [:headers "sec-websocket-protocol"])) #",")
+       (map str/trim)
+       (remove str/blank?)))
+
+
+(defn negotiate
+  "Pick the first endpoint codec (in endpoint order) the upgrade offered, or
+   nil when the offer shares no subprotocol with the endpoint — the
+   deterministic dual-subprotocol rule.  A mismatch is a failed handshake,
+   not a downgrade."
+  [codecs offered]
+  (some (fn [codec]
+          (when (some #(= (:ws/subprotocol codec) %) offered)
+            codec))
+        codecs))
 
 
 (def ^:private unreserved?
@@ -153,9 +180,12 @@
                         (accept [_ _v error] (when error (fail!)))))
                     nil)
                 ::failed)))]
-    {:send! (fn [message]
+    {:send! (fn [payload]
               (if-let [socket (:socket @connection)]
-                (let [result (chain! #(.sendText ^WebSocket socket message true))]
+                (let [result (chain! #(if (string? payload)
+                                        (.sendText ^WebSocket socket payload true)
+                                        (.sendBinary ^WebSocket socket
+                                                     (ByteBuffer/wrap ^bytes payload) true)))]
                   ;; A failed connection is permanently gone, so it answers
                   ;; `closed`, not the retryable `full` that `false` would
                   ;; mean: an append that read the handle's open phase before
@@ -174,11 +204,16 @@
 
 
 (defn connect!
-  "Start an asynchronous JVM client attachment and return its raw socket seam."
+  "Start an asynchronous JVM client attachment and return its raw socket seam.
+
+   The client offers exactly the subprotocol of the codec profile the
+   transport selected (the adapter map's `:ws/codec`), so a peer that does
+   not speak it fails the handshake rather than being downgraded."
   [descriptor adapter]
   (let [connection (atom {:socket nil :future nil :close-request nil
                           :pending nil :failed? false})
         text (StringBuilder.)
+        binary (ByteArrayOutputStream.)
         listener
         (reify WebSocket$Listener
           (onOpen
@@ -199,11 +234,16 @@
             (completed))
 
           (onBinary
-            [_ socket _data last?]
-            ;; Java may fragment one binary message across callbacks.  The
-            ;; transport must see one rejected message, not one per fragment.
-            (when last?
-              ((:message! adapter) binary-message-text))
+            [_ socket data last?]
+            ;; Java may fragment one binary message across callbacks; the
+            ;; assembled bytes are one `:binary!` entry, never a sentinel.
+            (let [chunk (byte-array (.remaining ^ByteBuffer data))]
+              (.get ^ByteBuffer data chunk)
+              (.write binary chunk)
+              (when last?
+                (let [message (.toByteArray binary)]
+                  (.reset binary)
+                  ((:binary! adapter) message))))
             (.request ^WebSocket socket 1)
             (completed))
 
@@ -227,7 +267,9 @@
             ((:error! adapter))))
         builder (-> (HttpClient/newHttpClient)
                     (.newWebSocketBuilder)
-                    (.subprotocols ws/subprotocol (make-array String 0)))
+                    (.subprotocols (get-in adapter [:ws/codec :ws/subprotocol]
+                                           ws/subprotocol)
+                                   (make-array String 0)))
         future (.buildAsync builder (URI/create (socket-url descriptor)) listener)]
     (swap! connection assoc :future future)
     (.whenComplete future
@@ -239,28 +281,38 @@
     (client-socket connection adapter)))
 
 
-(defn- offered-subprotocol?
-  [request]
-  (boolean
-    (some #(= ws/subprotocol (str/trim %))
-          (str/split (str (get-in request [:headers "sec-websocket-protocol"])) #","))))
-
-
 (defn- server-socket
-  [socket]
-  {:send! (fn [message] (wsp/-send socket message))
-   :close! (fn [code reason] (wsp/-close socket code reason))})
+  "The raw-socket seam over one upgraded server connection.  `:send!` takes
+   the attachment codec's payload — a String or bytes — and routes each to
+   its typed frame; the negotiated subprotocol name travels with the seam so
+   `ws/accept-connection!` resolves this connection's codec profile."
+  ([socket] (server-socket socket nil))
+  ([socket subprotocol]
+   {:send! (fn [payload]
+             (wsp/-send socket (if (string? payload)
+                                 payload
+                                 (ByteBuffer/wrap ^bytes payload))))
+    :close! (fn [code reason] (wsp/-close socket code reason))
+    :ws/subprotocol subprotocol}))
+
+
+(defn- byte-buffer->bytes
+  [^ByteBuffer buffer]
+  (let [b (byte-array (.remaining buffer))]
+    (.get buffer b)
+    b))
 
 
 (defn- listener
-  [request accept! clock deposit!]
+  [request accept! clock deposit! codec]
   (let [adapter (atom nil)]
     (reify wsp/Listener
       (on-open
         [_ socket]
         (try
           (let [target (or (canonical-path (:uri request)) (:uri request))
-                result (accept! target (server-socket socket) (clock))]
+                result (accept! target (server-socket socket (:ws/subprotocol codec))
+                                (clock))]
             (when-let [handle (:ws/handle result)]
               (reset! adapter (ws/adapter handle))))
           (catch Throwable _
@@ -272,7 +324,9 @@
       (on-message
         [_ _socket message]
         (when-let [a @adapter]
-          ((:message! a) (if (string? message) message binary-message-text))))
+          (if (string? message)
+            ((:message! a) message)
+            ((:binary! a) (byte-buffer->bytes ^ByteBuffer message)))))
 
       (on-pong [_ _socket _data] nil)
 
@@ -291,27 +345,34 @@
 
 
 (defn listen!
-  "Bind an http-kit WebSocket listener for one composed endpoint."
-  [{:keys [bind-host bind-port accept! deposit!] :as options}]
+  "Bind an http-kit WebSocket listener for one composed endpoint.
+
+   `:codecs` is the endpoint's codec profile table (default Transit only).
+   An upgrade offering any table subprotocol completes with the negotiated
+   one; an upgrade offering none is refused before it completes — a
+   mixed-version peer fails its handshake rather than being downgraded."
+  [{:keys [bind-host bind-port accept! deposit! codecs] :as options}]
   (let [clock #(System/currentTimeMillis)
+        codecs (or (seq codecs) default-codecs)
         handler (fn [request]
-                  (cond
-                    (and (:websocket? request) (offered-subprotocol? request))
-                    {:ring.websocket/listener
-                     (listener request accept! clock deposit!)
-                     :ring.websocket/protocol ws/subprotocol}
+                  (let [negotiated (negotiate codecs (offered-subprotocols request))]
+                    (cond
+                      (and (:websocket? request) negotiated)
+                      {:ring.websocket/listener
+                       (listener request accept! clock deposit! negotiated)
+                       :ring.websocket/protocol (:ws/subprotocol negotiated)}
 
-                    (:websocket? request)
-                    (do
-                      (deposit! :upgrade-failed
-                                {:code :yin.repl.endpoint/subprotocol-required
-                                 :message "the WebSocket upgrade omitted the v2 subprotocol"})
+                      (:websocket? request)
+                      (do
+                        (deposit! :upgrade-failed
+                                  {:code :yin.repl.endpoint/subprotocol-required
+                                   :message "the WebSocket upgrade offered no supported subprotocol"})
+                        {:status 400 :headers {"content-type" "text/plain"}
+                         :body "dao.stream/subprotocol-required"})
+
+                      :else
                       {:status 400 :headers {"content-type" "text/plain"}
-                       :body "dao.stream/subprotocol-required"})
-
-                    :else
-                    {:status 400 :headers {"content-type" "text/plain"}
-                     :body "dao.stream/websocket-required"}))
+                       :body "dao.stream/websocket-required"})))
         server (http/run-server handler {:ip bind-host
                                          :port bind-port
                                          :legacy-return-value? false

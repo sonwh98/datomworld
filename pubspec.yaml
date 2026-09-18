@@ -2,7 +2,8 @@ name: datomworld_cljd
 description: ClojureDart experiment for Datomworld
 publish_to: 'none'
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  # cbor 6.5.1 (the dao.stream.cbor Dart codec) requires >=3.7.0.
+  sdk: ">=3.7.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -10,6 +11,7 @@ dependencies:
   flutter_gpu:
     sdk: flutter
   http: ^1.2.0
+  cbor: 6.5.1
 
 dev_dependencies:
   flutter_test:

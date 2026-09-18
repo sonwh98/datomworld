@@ -19,6 +19,10 @@
    and never schedules `endpoint-step` -- the composition driver owns every
    tick.
 
+   Frames are typed end to end: a text frame's UTF-8 string reaches
+   `:message!`, a binary frame's bytes reach `:binary!`, and this adapter
+   never inspects payload content to classify either.
+
    Host matrix declaration (per `dao.stream.ws.md`): Node's `ws` `send`
    accepts into an opaque host buffer and exposes no outbound high-water
    signal, so transient `:dao.stream/full` is excluded by nature on this host.
@@ -27,20 +31,36 @@
    without touching the socket."
   (:require ["ws" :as ws-package]
             [clojure.string :as str]
+            [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]))
 
 
 (def subprotocol-refusal-code 1002)
 
 
-(def binary-message-text
-  "Routed through `:message!` in place of a binary frame's bytes.  A NUL byte
-   is not valid Transit JSON in any position, so the transport performs its
-   own decode-failure teardown (deposit plus close 4002) without this adapter
-   inspecting frame content: binary is a wire-level fact of the text codec,
-   and the only honest signal the callback boundary accepts is a message the
-   codec must reject."
-  (.fromCharCode js/String 0))
+(def default-codecs
+  "The listener's codec table when a composition names none: Transit only."
+  [transit/profile])
+
+
+(defn offered-subprotocols
+  "The upgrade request's offered subprotocol list, split and trimmed."
+  [request]
+  (->> (str/split (str (some-> ^js request .-headers (aget "sec-websocket-protocol"))) #",")
+       (map str/trim)
+       (remove str/blank?)))
+
+
+(defn negotiate
+  "Pick the first endpoint codec (in endpoint order) the upgrade offered, or
+   nil when the offer shares no subprotocol with the endpoint — the
+   deterministic dual-subprotocol rule.  A mismatch is a failed handshake,
+   not a downgrade."
+  [codecs offered]
+  (some (fn [codec]
+          (when (some #(= (:ws/subprotocol codec) %) offered)
+            codec))
+        codecs))
 
 
 (def ^:private unreserved
@@ -128,15 +148,16 @@
    The socket's 'message', 'close', and 'error' events become adapter entries;
    the 'open' event is deliberately not subscribed because an HTTP upgrade is
    never a resolution -- the first `:ws/accept` or `:ws/disclaim` frame is.
-   Text arrives as the frame's UTF-8 string; a binary frame is routed as
-   `binary-message-text`, which the transport's decode must reject.  The host
-   error object never crosses: the adapter deposits nothing itself, the
-   transport's diagnostic entry does."
+   Text arrives as the frame's UTF-8 string through `:message!`; a binary
+   frame's bytes reach `:binary!` untouched.  The host error object never
+   crosses: the adapter deposits nothing itself, the transport's diagnostic
+   entry does."
   [socket adapter]
   (.on ^js socket "message"
        (fn [data is-binary]
-         ((:message! adapter)
-          (if is-binary binary-message-text (.toString ^js data "utf8")))))
+         (if is-binary
+           ((:binary! adapter) data)
+           ((:message! adapter) (.toString ^js data "utf8")))))
   (.on ^js socket "close"
        (fn [code _reason] ((:closed! adapter) code _reason)))
   (.on ^js socket "error"
@@ -146,37 +167,35 @@
 
 (defn raw-socket
   "The `{:send! :close!}` view of one host socket, which is the only shape
-   `dao.stream.ws` accepts from a host.  `send!` returns the host library's
-   answer (nil on Node, classified as ok); `close!` asks the host for a
-   closing handshake and never waits for its completion."
-  [socket]
-  {:send! (fn [text] (.send ^js socket text))
-   :close! (fn [code reason] (.close ^js socket code reason))})
+   `dao.stream.ws` accepts from a host.  `send!` takes the attachment codec's
+   payload and lets the host library dispatch on its type — a String sends a
+   text frame, a Buffer or typed array a binary frame.  `send!` returns the
+   host library's answer (nil on Node, classified as ok); `close!` asks the
+   host for a closing handshake and never waits for its completion."
+  ([socket] (raw-socket socket nil))
+  ([socket subprotocol]
+   {:send! (fn [payload] (.send ^js socket payload))
+    :close! (fn [code reason] (.close ^js socket code reason))
+    :ws/subprotocol subprotocol}))
 
 
 (defn connect!
   "The `:connect!` host seam for `dao.stream.ws/make-attacher` on Node.
 
-   Starts connection establishment to the descriptor's URL with the v2
-   subprotocol and synchronously returns the raw socket view; the connection
-   resolves asynchronously and every socket event reaches the adapter map the
+   Starts connection establishment to the descriptor's URL offering exactly
+   the subprotocol of the transport's selected codec profile (the adapter
+   map's `:ws/codec`) — a peer that does not speak it fails the handshake —
+   and synchronously returns the raw socket view; the connection resolves
+   asynchronously and every socket event reaches the adapter map the
    transport built.  The deposit medium and its already-minted cursor are the
    caller's composition, not arguments here: attach! deposits nothing before
    resolution and no event can outrun a cursor minted first."
   [descriptor adapter]
-  (let [socket (new (.-WebSocket ws-package) (socket-url descriptor) ws/subprotocol)]
+  (let [socket (new (.-WebSocket ws-package)
+                    (socket-url descriptor)
+                    (get-in adapter [:ws/codec :ws/subprotocol] ws/subprotocol))]
     (wire! socket adapter)
     (raw-socket socket)))
-
-
-(defn- offers-subprotocol?
-  "True when the upgrade request offers the v2 subprotocol.  `ws` hands
-   `verifyClient` the raw request, so the offer is read from its header rather
-   than from the negotiated socket, which does not exist yet."
-  [request]
-  (let [header (some-> ^js request .-headers (aget "sec-websocket-protocol"))]
-    (boolean (some #(= ws/subprotocol (str/trim %))
-                   (str/split (str header) #",")))))
 
 
 (defn listen!
@@ -184,18 +203,22 @@
 
    `options` are `:host` (default a loopback bind), `:port` (default 0 for an
    assigned port), `:clock` (a no-argument host clock reading, default
-   `js/Date.now`), `:accept!` (`(fn [path socket now] …)`, default this
+   `js/Date.now`), `:codecs` (the endpoint's codec profile table, default
+   Transit only), `:accept!` (`(fn [path socket now] …)`, default this
    endpoint's `ws/accept-connection!`, so a serving composition can inject the
    same seam it owns), `:on-listening` (called with the bound address map once
    the server reports listening) and `:on-error` (the sole observer of the
    server's 'error' event; the default no-op only prevents the host process
    from dying on an unhandled EventEmitter error).
 
-   Every upgrade that offers the v2 subprotocol is presented to `accept!` with
-   the canonical request-target path and a host clock reading, which is what
-   makes the endpoint's configured pending-slot expiry effective.  An upgrade
-   without the subprotocol is refused before the upgrade completes (HTTP 400)
-   and never reaches the endpoint, its handoff slots, or the disclaimer.
+   Every upgrade that offers any table subprotocol is negotiated
+   deterministically — the first codec in table order that the client offered
+   — and presented to `accept!` with the canonical request-target path, a
+   host clock reading, and the negotiated subprotocol on the socket seam.  An
+   upgrade offering no supported subprotocol is refused before the upgrade
+   completes (HTTP 400) and never reaches the endpoint, its handoff slots, or
+   the disclaimer: a mixed-version peer fails its handshake rather than being
+   downgraded.
 
    Binding is asynchronous on Node: `:on-listening` reports it, and
    `listener-address`/`listener-port` stay nil until then; the R4 lifecycle
@@ -203,20 +226,22 @@
    never schedules the endpoint and retains no connection state: the driver owns
    `endpoint-step` cadence, and the returned listener is plain host data."
   ([endpoint] (listen! endpoint {}))
-  ([endpoint {:keys [host port clock accept! on-listening on-error]
+  ([endpoint {:keys [host port clock codecs accept! on-listening on-error]
               :or {host "127.0.0.1" port 0}}]
    (let [clock (or clock #(js/Date.now))
+         codecs (vec (or (seq codecs) default-codecs))
+         supported (set (map :ws/subprotocol codecs))
          accept! (or accept!
                      (fn [path socket now]
                        (ws/accept-connection! endpoint path socket now)))
          server (new (.-WebSocketServer ws-package)
                      #js {:host host
                           :port port
-                          ;; The v2 subprotocol is wire protocol, so its
+                          ;; The subprotocol is wire protocol, so its
                           ;; selection belongs to the endpoint's host edge:
-                          ;; absent means the upgrade is not a v2 stream, and
-                          ;; the spec refuses the upgrade rather than
-                          ;; completing it and closing.
+                          ;; an unsupported offer means the upgrade is not a
+                          ;; stream this endpoint speaks, and the spec refuses
+                          ;; the upgrade rather than completing it and closing.
                           ;; `ws` selects the asynchronous form of this hook by
                           ;; `Function.length === 2`, so this must compile to a
                           ;; generated function of exactly two declared
@@ -227,24 +252,26 @@
                           ;; deprecated in `ws` 8; the replacement is an
                           ;; explicit `upgrade` handler, at the next major.
                           :verifyClient (fn [info cb]
-                                          (if (offers-subprotocol? (.-req ^js info))
+                                          (if (negotiate codecs (offered-subprotocols (.-req ^js info)))
                                             (cb true)
                                             (cb false 400
                                                 "dao.stream/subprotocol-required")))
                           :handleProtocols (fn [protocols _request]
-                                             (when (.has ^js protocols ws/subprotocol)
-                                               ws/subprotocol))})]
+                                             (:ws/subprotocol
+                                               (negotiate codecs
+                                                          (array-seq (js/Array.from protocols)))))})]
      (.on ^js server "error" (fn [_error] (when (fn? on-error) (on-error))))
      (.on ^js server "listening"
           (fn [] (when (fn? on-listening) (on-listening (.address ^js server)))))
      (.on ^js server "connection"
           (fn [socket request]
             ;; Defence in depth behind `verifyClient`: a socket that reached
-            ;; this event without the negotiated subprotocol is not a v2 stream.
-            (if (not= ws/subprotocol (.-protocol ^js socket))
+            ;; this event without a negotiated table subprotocol is not a
+            ;; stream this endpoint speaks.
+            (if (not (contains? supported (.-protocol ^js socket)))
               (.close ^js socket subprotocol-refusal-code
                       "dao.stream/subprotocol-required")
-              (let [raw (raw-socket socket)
+              (let [raw (raw-socket socket (.-protocol ^js socket))
                     ;; Lookup is exact on the canonical form; an
                     ;; uncanonicalizable target can match no canonical table
                     ;; entry, so the raw target reaches the same disclaimer.

@@ -5,7 +5,14 @@
    its raw socket and supplies the small synchronous `:connect!`, `:send!`, and
    `:close!` functions below.  The public DaoStream surface is consequently
    callback-free, non-waiting, and portable; socket callbacks enter only through
-   the adapter map returned to the host while it constructs a connection."
+   the adapter map returned to the host while it constructs a connection.
+
+   The wire codec is a composition choice carried as an explicit codec profile
+   (see `codec-profile?`): the `dao.stream.transit-json` text subprotocol and
+   the additive `dao.stream.cbor` binary subprotocol run the same state
+   machine, envelopes, and lifecycle.  Selection is explicit on both ends — a
+   client offers exactly its selected subprotocol, an endpoint serves exactly
+   the profiles it was composed with — so no silent downgrade exists."
   (:require [dao.stream :as stream]
             [dao.stream.transit :as transit]
             [clojure.string :as str]))
@@ -16,6 +23,29 @@
 (def ended-close-code 4000)
 (def protocol-close-code 4002)
 (def disclaim-close-code 4004)
+
+
+(defn codec-profile?
+  "True for one codec profile: the WebSocket subprotocol name it negotiates,
+   the frame kind its payloads ride (:text or :binary), the portable-value
+   predicate for its domain, and its encoder and decoder over host payloads
+   (strings for text profiles, host bytes for binary profiles)."
+  [x]
+  (and (map? x)
+       (string? (:ws/subprotocol x))
+       (contains? #{:text :binary} (:ws/frame-kind x))
+       (fn? (:ws/portable-value? x))
+       (fn? (:ws/encode x))
+       (fn? (:ws/decode x))))
+
+
+(defn checked-codec
+  "Validate one composition-supplied codec profile, defaulting to Transit."
+  [x]
+  (let [codec (or x transit/profile)]
+    (when-not (codec-profile? codec)
+      (throw (ex-info "invalid DaoStream WebSocket codec profile" {:codec x})))
+    codec))
 
 
 (defn- outcome
@@ -39,16 +69,20 @@
 
 (defn descriptor?
   "The settled WebSocket descriptor gate.  It names a served stream, not a
-   particular connection, and contains only portable reachability data."
-  [x]
-  (and (map? x)
-       (= transport-type (:dao.stream/type x))
-       (string? (:dao.stream/identity x))
-       (string? (:ws/host x))
-       (integer? (:ws/port x))
-       (pos? (:ws/port x))
-       (canonical-path? (:ws/path x))
-       (transit/portable-value? x)))
+   particular connection, and contains only portable reachability data.
+   The one-argument form keeps the Transit domain as the public default; a
+   composition selecting a codec profile gates the same descriptor against
+   that profile's domain."
+  ([x] (descriptor? x transit/profile))
+  ([x codec]
+   (and (map? x)
+        (= transport-type (:dao.stream/type x))
+        (string? (:dao.stream/identity x))
+        (string? (:ws/host x))
+        (integer? (:ws/port x))
+        (pos? (:ws/port x))
+        (canonical-path? (:ws/path x))
+        ((:ws/portable-value? codec) x))))
 
 
 (defn admission?
@@ -93,9 +127,12 @@
 
 
 (defn- send-result
-  [socket text]
+  [socket payload]
+  ;; The payload is whatever the attachment's codec produced — a string for
+  ;; text profiles, host bytes for binary profiles.  The transport never
+  ;; inspects it; the host `:send!` seam owns the typed frame.
   (try
-    (let [x ((:send! socket) text)]
+    (let [x ((:send! socket) payload)]
       (cond
         (or (nil? x) (= true x) (= :ok x)) (outcome :dao.stream/ok)
         (= false x) (outcome :dao.stream/full)
@@ -150,7 +187,7 @@
 
 
 (deftype WsHandle
-  [state descriptor attachment]
+  [state descriptor attachment codec]
 
   stream/IDaoStreamDescriptor
 
@@ -169,10 +206,10 @@
       (cond
         (= :closed phase) (outcome :dao.stream/closed)
         (not= :open phase) (outcome :dao.stream/full)
-        (not (transit/portable-value? value)) (outcome :dao.stream/invalid-value)
+        (not ((:ws/portable-value? codec) value)) (outcome :dao.stream/invalid-value)
         :else (try
-                (send-result socket (transit/encode {:ws/frame :ws/value
-                                                     :ws/value value}))
+                (send-result socket ((:ws/encode codec) {:ws/frame :ws/value
+                                                         :ws/value value}))
                 (catch #?(:cljd Object :clj Throwable :cljs :default) _
                   (outcome :dao.stream/invalid-value))))))
 
@@ -214,10 +251,10 @@
 
 
 (defn- new-handle
-  [descriptor attachment target phase socket]
+  [descriptor attachment target phase socket codec]
   (let [state (atom {:phase phase :socket socket :deposit target
                      :resolution? false :terminal? false})]
-    [(WsHandle. state descriptor attachment) state]))
+    [(WsHandle. state descriptor attachment codec) state]))
 
 
 (defn- protocol-failure!
@@ -256,14 +293,15 @@
       (invoke-close! (:socket @state) disclaim-close-code "dao.stream/not-found"))))
 
 
-(defn receive!
-  "Adapter entry for one text WebSocket message.  It performs only wire
-   validation and envelope translation; application values are never judged."
-  [handle text]
+(defn- deliver!
+  "Decode one inbound frame payload with the handle's codec and dispatch its
+   envelope.  Wire validation only; application values are never judged."
+  [handle payload]
   (let [state (.-state ^WsHandle handle)
-        attachment (.-attachment ^WsHandle handle)]
+        attachment (.-attachment ^WsHandle handle)
+        codec (.-codec ^WsHandle handle)]
     (try
-      (let [frame (transit/decode text)]
+      (let [frame ((:ws/decode codec) payload)]
         (cond
           (and (= :ws/accept (:ws/frame frame)) (= :connecting (:phase @state)))
           (opened! handle)
@@ -274,12 +312,34 @@
           (and (= :ws/value (:ws/frame frame))
                (contains? frame :ws/value)
                (= :open (:phase @state))
-               (transit/portable-value? (:ws/value frame)))
+               ((:ws/portable-value? codec) (:ws/value frame)))
           (emit! state attachment :ws/payload (:ws/value frame))
 
           :else (protocol-failure! state attachment)))
       (catch #?(:cljd Object :clj Throwable :cljs :default) _
         (protocol-failure! state attachment)))))
+
+
+(defn receive!
+  "Adapter entry for one text WebSocket message.  A text frame on a binary
+   profile is a protocol failure — the transport reads the frame's declared
+   kind, never its content."
+  [handle text]
+  (if (= :text (:ws/frame-kind (.-codec ^WsHandle handle)))
+    (deliver! handle text)
+    (protocol-failure! (.-state ^WsHandle handle)
+                       (.-attachment ^WsHandle handle))))
+
+
+(defn receive-binary!
+  "Adapter entry for one binary WebSocket message (a host byte payload):
+   byte[] on the JVM, Uint8Array on ClojureScript, Uint8List on Dart.  A
+   binary frame on a text profile is a protocol failure."
+  [handle bytes]
+  (if (= :binary (:ws/frame-kind (.-codec ^WsHandle handle)))
+    (deliver! handle bytes)
+    (protocol-failure! (.-state ^WsHandle handle)
+                       (.-attachment ^WsHandle handle))))
 
 
 (defn closed!
@@ -296,12 +356,18 @@
 
 (defn adapter
   "The only callback-shaped value, for a host socket adapter while wiring its
-   private listener.  It is not a DaoStream API and never reaches consumers."
+   private listener.  It is not a DaoStream API and never reaches consumers.
+   `:message!` receives text frames and `:binary!` binary frames — the two
+   typed facts a host reports without inspecting content — and `:ws/codec`
+   is the connection's profile, so a host `:connect!` seam can negotiate the
+   selected subprotocol without any second channel."
   [handle]
   {:opened! #(opened! handle)
    :disclaimed! #(disclaimed! handle)
    :message! #(receive! handle %)
+   :binary! #(receive-binary! handle %)
    :closed! #(closed! handle %1 %2)
+   :ws/codec (.-codec ^WsHandle handle)
    :error! #(emit-reason! (.-state ^WsHandle handle) (.-attachment ^WsHandle handle)
                           :ws/error :ws/socket-error)})
 
@@ -311,17 +377,22 @@
 
    `:connect!` receives the descriptor and the private adapter map, starts
    connection establishment, and synchronously returns a raw-socket adapter
-   containing `:send!` and `:close!`.  It must not wait for the peer."
-  [{:keys [traffic admission connect!] :as config}]
-  (let [target (checked-target traffic admission)]
+   containing `:send!` and `:close!`.  It must not wait for the peer.
+
+   `:codec` selects the wire profile explicitly (default: Transit).  The
+   offer is exactly the selected subprotocol, so a peer that does not speak
+   it fails the handshake rather than being downgraded."
+  [{:keys [traffic admission connect! codec] :as config}]
+  (let [target (checked-target traffic admission)
+        codec (checked-codec codec)]
     (when-not (fn? connect!)
       (throw (ex-info "WebSocket host composition requires :connect!" {:config config})))
     (fn attach!
       [descriptor]
-      (if-not (descriptor? descriptor)
+      (if-not (descriptor? descriptor codec)
         (outcome :dao.stream/invalid-descriptor)
         (let [id (attachment-id)
-              [handle state] (new-handle descriptor id target :connecting nil)]
+              [handle state] (new-handle descriptor id target :connecting nil codec)]
           (try
             (let [socket (connect! descriptor (adapter handle))]
               (if (and (map? socket) (fn? (:send! socket)) (fn? (:close! socket)))
@@ -337,14 +408,22 @@
 ;; Server acceptance is intentionally an endpoint composition object, not a
 ;; global transport directory.  Its slots are supplied and owned by the host.
 (defn make-endpoint
-  [{:keys [served control control-admission slots] :as config}]
-  (let [control-target (checked-target control control-admission)]
+  [{:keys [served control control-admission slots codecs] :as config}]
+  (let [control-target (checked-target control control-admission)
+        codecs (or codecs [transit/profile])]
     (when-not (and (map? served) (seq slots))
       (throw (ex-info "WebSocket endpoint needs served paths and handoff slots" {:config config})))
+    (when-not (and (seq codecs) (every? codec-profile? codecs))
+      (throw (ex-info "WebSocket endpoint needs at least one codec profile" {:codecs codecs})))
+    (when-not (apply distinct? (map :ws/subprotocol codecs))
+      (throw (ex-info "WebSocket endpoint codec subprotocols must be distinct" {:codecs codecs})))
     (when-not (= :portable-values (:value-domain control-admission))
       (throw (ex-info "endpoint control medium must carry portable values" {:admission control-admission})))
     (doseq [[path descriptor] served]
-      (when-not (and (= path (:ws/path descriptor)) (descriptor? descriptor))
+      ;; A served descriptor crosses under every profile the endpoint speaks,
+      ;; or the profile that cannot carry it must not be offered.
+      (when-not (and (= path (:ws/path descriptor))
+                     (every? #(descriptor? descriptor %) codecs))
         (throw (ex-info "invalid served descriptor" {:path path :descriptor descriptor}))))
     (doseq [slot slots]
       (checked-target (:offer slot) (:offer-admission slot))
@@ -356,6 +435,8 @@
                      (some? (:ack-cursor slot)))
         (throw (ex-info "invalid capacity-one WebSocket handoff slot" {:slot slot}))))
     {:config config
+     :codecs codecs
+     :codec-index (zipmap (map :ws/subprotocol codecs) codecs)
      :state (atom {:control control-target
                    :slots (mapv (fn [slot]
                                   (assoc slot :status :free)) slots)
@@ -381,7 +462,7 @@
          (fn [s]
            (-> s
                (update-in [:slots index] dissoc
-                          :attachment :handle :handle-state :opened-at)
+                          :attachment :handle :handle-state :codec :opened-at)
                (assoc-in [:slots index :status] :free)
                (update :connections dissoc attachment)))))
 
@@ -389,14 +470,29 @@
 (defn accept-connection!
   "Bounded upgrade callback entry.  A bad path or exhausted slots is closed
    immediately; a valid path deposits precisely one host-local offer and waits
-   for `endpoint-step` to consume a matching acknowledgement."
+   for `endpoint-step` to consume a matching acknowledgement.
+
+   The socket seam may carry `:ws/subprotocol`, the subprotocol the host
+   negotiated for this upgrade.  An endpoint serves every profile it was
+   composed with, concurrently and through the same served paths; a named
+   subprotocol it does not speak is a refused handshake, never a downgrade,
+   and an absent name is the Transit default for sockets that negotiated
+   nothing (direct composition and tests)."
   ([endpoint path socket] (accept-connection! endpoint path socket nil))
   ([endpoint path socket now]
    (let [{:keys [served]} (:config endpoint)
+         offered (:ws/subprotocol socket)
+         codec (if (nil? offered)
+                 transit/profile
+                 (get (:codec-index endpoint) offered))
          descriptor (get served path)]
      (cond
+       (nil? codec)
+       (do (invoke-close! socket protocol-close-code "dao.stream/subprotocol-unsupported")
+           {:ws/status :ws/unsupported-subprotocol})
+
        (nil? descriptor)
-       (do (send-result socket (transit/encode {:ws/frame :ws/disclaim}))
+       (do (send-result socket ((:ws/encode codec) {:ws/frame :ws/disclaim}))
            (invoke-close! socket disclaim-close-code "dao.stream/not-found")
            {:ws/status :ws/disclaimed})
 
@@ -418,7 +514,7 @@
                {:ws/status :ws/full})
            (let [[index slot] @chosen
                  id (attachment-id)
-                 [handle hstate] (new-handle descriptor id (endpoint-target endpoint) :pending socket)
+                 [handle hstate] (new-handle descriptor id (endpoint-target endpoint) :pending socket codec)
                  offer {:ws/attachment id :ws/event :ws/accepted
                         :ws/handle {:dao.stream/handle handle
                                     :dao.stream/surface #{:writer :closable}}}
@@ -430,6 +526,7 @@
                                       (assoc-in [:slots index :attachment] id)
                                       (assoc-in [:slots index :handle] handle)
                                       (assoc-in [:slots index :handle-state] hstate)
+                                      (assoc-in [:slots index :codec] codec)
                                       (assoc-in [:slots index :opened-at] now)
                                       (assoc-in [:connections id] handle))))
                    {:ws/status :ws/pending :ws/attachment id :ws/handle handle})
@@ -452,9 +549,10 @@
   [endpoint index slot ack]
   (let [hstate (:handle-state slot)
         socket (:socket @hstate)
+        codec (:codec slot)
         target (:ws/deposit ack)]
     (swap! hstate assoc :deposit target :phase :open :resolution? true)
-    (let [sent (send-result socket (transit/encode {:ws/frame :ws/accept}))]
+    (let [sent (send-result socket ((:ws/encode codec) {:ws/frame :ws/accept}))]
       (when-not (= :dao.stream/ok (:dao.stream/outcome sent))
         (swap! hstate assoc :phase :closed)
         (invoke-close! socket 1011 "dao.stream/accept-failed")

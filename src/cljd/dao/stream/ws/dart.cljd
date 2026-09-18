@@ -4,18 +4,22 @@
    Host objects live only in this namespace.  Socket callbacks immediately
    become calls to the transport adapter, whose only observable effect is a
    plain-data deposit.  The returned `websocket` value is the complete host
-   seam consumed by `yin.repl.connect` and `yin.repl.serve`."
+   seam consumed by `yin.repl.connect` and `yin.repl.serve`.
+
+   Frames are typed end to end: a text frame's string reaches `:message!`, a
+   binary frame's bytes reach `:binary!` as the socket's byte list, and this
+   adapter never inspects payload content to classify either."
   (:require ["dart:async" :as async]
             ["dart:core" :as core]
             ["dart:io" :as io]
             [clojure.string :as str]
+            [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]))
 
 
-(def binary-message-text
-  "An invalid Transit text value used to route a binary frame through the
-   transport's ordinary decode-failure teardown."
-  (core/String.fromCharCode 0))
+(def default-codecs
+  "The listener's codec table when a composition names none: Transit only."
+  [transit/profile])
 
 
 (def ^:private unreserved
@@ -86,10 +90,16 @@
 
 
 (defn- raw-socket
-  [socket]
-  (let [socket ^io/WebSocket socket]
-    (socket-view (fn [text] (.add socket text))
-                 (fn [code reason] (.close socket code reason)))))
+  ([socket] (raw-socket socket nil))
+  ([socket subprotocol]
+   (let [socket ^io/WebSocket socket]
+     ;; `.add` dispatches on payload type: a String sends a text frame, a
+     ;; byte list a binary frame.  The socket seam carries the negotiated
+     ;; subprotocol so `ws/accept-connection!` resolves this connection's
+     ;; codec profile.
+     (assoc (socket-view (fn [payload] (.add socket payload))
+                         (fn [code reason] (.close socket code reason)))
+            :ws/subprotocol subprotocol))))
 
 
 (defn- wire!
@@ -99,8 +109,9 @@
    (let [socket ^io/WebSocket socket]
      (.listen socket
               (fn [value]
-                ((:message! adapter)
-                 (if (string? value) value binary-message-text)))
+                (if (string? value)
+                  ((:message! adapter) value)
+                  ((:binary! adapter) value)))
               .onError (fn [_error] ((:error! adapter)))
               .onDone (fn []
                         ((:closed! adapter)
@@ -113,23 +124,28 @@
 (defn connect!
   "Begin a Dart WebSocket connection and synchronously return its raw view.
 
+   The client offers exactly the subprotocol of the transport's selected
+   codec profile (the adapter map's `:ws/codec`), so a peer that does not
+   speak it fails the handshake rather than being downgraded.
+
    Dart creates the socket asynchronously, so the view closes over one private
    boundary atom.  No message can be sent before the transport receives the
    peer's accept frame; by then the socket has been installed."
   [descriptor adapter]
   (let [socket-ref (atom nil)
         close-request (atom nil)
+        subprotocol (get-in adapter [:ws/codec :ws/subprotocol] ws/subprotocol)
         raw (socket-view
-              (fn [text]
+              (fn [payload]
                 (if-let [^io/WebSocket socket @socket-ref]
-                  (.add socket text)
+                  (.add socket payload)
                   (throw (core/StateError. "WebSocket is not connected"))))
               (fn [code reason]
                 (if-let [^io/WebSocket socket @socket-ref]
                   (.close socket code reason)
                   (reset! close-request [code reason]))))]
     (-> (io/WebSocket.connect (socket-url descriptor)
-                              .protocols [ws/subprotocol])
+                              .protocols [subprotocol])
         (.then (fn [socket]
                  (reset! socket-ref socket)
                  (wire! socket adapter)
@@ -168,34 +184,51 @@
     (.close response)))
 
 
-(defn- offered-subprotocol?
+(defn- offered-subprotocols
   [request]
   (let [header (.value (.-headers ^io/HttpRequest request)
                        "sec-websocket-protocol")]
-    (boolean
-      (and header
-           (some #(= ws/subprotocol (str/trim %))
-                 (str/split header #","))))))
+    (if header
+      (->> (str/split header #",")
+           (map str/trim)
+           (remove str/blank?))
+      ())))
+
+
+(defn negotiate
+  "Pick the first endpoint codec (in endpoint order) the upgrade offered, or
+   nil when the offer shares no subprotocol with the endpoint — the
+   deterministic dual-subprotocol rule.  A mismatch is a failed handshake,
+   not a downgrade."
+  [codecs offered]
+  (some (fn [codec]
+          (when (some #(= (:ws/subprotocol codec) %) offered)
+            codec))
+        codecs))
 
 
 (defn- handle-request!
-  [{:keys [accept! deposit!] :as config} request]
+  [{:keys [accept! deposit! codecs] :as config} request]
   (let [request ^io/HttpRequest request
-        summary (request-summary request)]
+        summary (request-summary request)
+        codecs (or (seq codecs) default-codecs)
+        negotiated (negotiate codecs (offered-subprotocols request))]
     (if-not (and (io/WebSocketTransformer.isUpgradeRequest request)
-                 (offered-subprotocol? request))
+                 negotiated)
       (do
         (reject-upgrade! request)
         (deposit! :upgrade-failed
                   (assoc summary
                          :code :yin.repl.endpoint/subprotocol-required
-                         :message "the WebSocket upgrade did not offer the v2 subprotocol")))
+                         :message "the WebSocket upgrade offered no supported subprotocol")))
       (-> (io/WebSocketTransformer.upgrade
-            request .protocolSelector (fn [_protocols] ws/subprotocol))
+            request
+            .protocolSelector
+            (fn [_protocols] (:ws/subprotocol negotiated)))
           (.then (fn [socket]
                    (try
                      (let [connections (:ws.dart/connections config)
-                           raw (raw-socket socket)
+                           raw (raw-socket socket (:ws/subprotocol negotiated))
                            path (or (canonical-path (str (.-uri request)))
                                     (str (.-uri request)))
                            accepted (accept! path raw (now-ms))]
