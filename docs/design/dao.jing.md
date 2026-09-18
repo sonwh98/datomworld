@@ -519,6 +519,16 @@ encoder is transitional until the pinned canonical byte encoding lands.
   an async backend over this client, `hydrate-async`, and
   `store-tree-async`.
 
+  **Status 2026-09-18 (consumer side):** built.
+  `dao.jing.remote.async/async-content` is the async backend: it owns one
+  stepped state as its single step owner, queues requests from any
+  caller, and drives `step` with a self-rescheduling pump (setTimeout /
+  Dart `Timer` / the JVM delayed executor, or an injected `:schedule`),
+  answering each request's callback exactly once with its published
+  completion. `dao.data.btree.storage/hydrate-async` and
+  `store-tree-async` consume it through a `hydration-storage` whose
+  source is that handle; see `dao.data.btree.md` §6 Phase 4 notes.
+
 ## Lineage
 
 DaoJing combines two constraints:
