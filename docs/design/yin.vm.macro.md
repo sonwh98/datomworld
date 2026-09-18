@@ -336,7 +336,10 @@ Initial harvest controls all calls in the current batch. Post-harvest controls
 the next batch; there is no mid-batch mutation.
 
 Post-harvest starts from the store before initial harvest and walks the final
-occurrence tree. A plain `(yin/def <literal sym> value)` removes `sym`; a valid
+occurrence tree.
+It walks only the expanded run tree, so declarations and plain definitions in
+the batch's other trees are batch-local: they take part in initial harvest and
+do not persist into the next batch's store. A plain `(yin/def <literal sym> value)` removes `sym`; a valid
 stand-in installs its catalogue entry; later occurrences win.
 
 Declaration order is:
@@ -465,6 +468,13 @@ The runner counts VM transitions and rejects:
 - scheduled work outside the single body continuation as `:suspended`; and
 - any effect constructor absent from the closed body environment.
 
+The runner's rejection data is `{:kind :fuel-guard :steps n}`,
+`{:kind :suspended}`, `{:kind :effect-guard :tag t}` for an executed stream
+constructor tag `t`, and `{:kind :body-error :message s}` when the body throws
+(an unresolved name, a prelude rejection, a host primitive failure). The
+expander adds `:macro macro-root`. The `:message` of a host-thrown error is
+host-dependent text; hosts agree on `:kind`, not on the message.
+
 This is a private expander capability, not an evaluator macro feature. Its
 contract is deterministic, host-independent, no host IO, and no retention of
 arguments.
@@ -540,19 +550,34 @@ pass is unsound.
 | Rule | Failure |
 |---|---|
 | batch tuple, run index, side-row arity | `{:kind :malformed-input :reason :batch-shape}` |
+| packet is `[root-address rows]` | `{:kind :malformed-input :reason :packet-shape}` |
 | closed tag vocabulary | `{:kind :malformed-input :reason :unknown-tag :address a}` |
 | row arity and slot kinds | `{:kind :malformed-input :reason :row-shape :address a}` |
+| recursively plain values | `{:kind :malformed-input :reason :host-value :address a}` |
+| no stand-in-shaped value | `{:kind :malformed-input :reason :marker-in-payload :address a}` |
 | address matches body | `{:kind :malformed-input :reason :address-mismatch :address a}` |
+| one address, one body | `{:kind :malformed-input :reason :address-conflict :address a}` |
 | child resolves internally | `{:kind :malformed-input :reason :dangling-child :address a :child c}` |
 | child relation acyclic | `{:kind :malformed-input :reason :cyclic :address a :path p}` |
 | all rows root-reachable | `{:kind :malformed-input :reason :unreachable-row :address a}` |
-| recursively plain values | `{:kind :malformed-input :reason :host-value :address a}` |
 | complete ordered harvest | `{:kind :malformed-input :reason :harvest-catalogue :ordinal h}` |
 | declared lambda definition | `{:kind :malformed-input :reason :stray-macro-declaration :tree j :path p}` |
 
-The first error is deterministic: trees by index, catalogue problems by
-ordinal, otherwise addresses in canonical byte order and slots in grammar
-order.
+Rules run in the table's order. The plain-value and marker checks precede
+address verification, so a host value is never hashed. `:address-conflict`
+catches two bodies that share an address while differing in metadata the
+transitional address encoding does not hash. It is checked within one packet
+and again when the batch's trees are merged into one working index: the
+cross-tree merge verifies one address, one body, and names the later tree.
+
+An error about a member tree carries `:tree j`. A definition occurrence
+missing from the harvest catalogue fails as `:harvest-catalogue` with
+`:ordinal nil` and the occurrence's `:tree` and `:path`. A present but
+invalid entry names its `:ordinal`.
+
+The first error is deterministic: trees by index, cross-tree conflicts by tree
+index, catalogue problems by ordinal, otherwise addresses in canonical byte
+order and slots in grammar order.
 
 ### 7.2 Expansion output
 
@@ -564,6 +589,10 @@ unknown tags or slots; or marker-shaped data in a value slot.
 ```clojure
 {:kind :invalid-output :macro macro-root :path path :reason reason}
 ```
+
+`reason` is one of the §7.1 packet reasons, including `:packet-shape` for a
+result that is not a packet. It is `:address-conflict` when a result row
+shares an address with a working row but has a metadata-distinct body.
 
 ### 7.3 Guards
 
@@ -624,7 +653,14 @@ and nil for `parent-event`, `input-root`, `call-path`, `macro-root`, and
 safely identify a member tree; the source medium and batch remain observable.
 
 The root slots are content addresses with the same meaning on every medium.
-`call-path` distinguishes shared application occurrences. No medium-local code
+`call-path` distinguishes shared application occurrences. It is relative to
+the event's `input-root` frame: the selected source tree root after stand-in
+replacement for an initial expansion, and the parent event's `output-root` for
+a nested one. A call recognized only after its operator was rewritten is not
+nested in the operator's expansion. It logs its source occurrence coordinates:
+the source `origin`, nil `parent-event`, the frame's `input-root`, and its
+`call-path` in that frame. Guard and invalid-output errors instead name
+the absolute path in the run tree. No medium-local code
 identity or identity repair appears in provenance.
 
 ### 8.3 Log packet
