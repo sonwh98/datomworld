@@ -5510,3 +5510,8 @@ Next: Stage and commit the u16-macro-expander worktree, then merge to dao.stream
 - **Execution**: Zhipu GLM-5.3
 - **Outcome**: The agent discovered that the core of `dao.jing.remote` was actually already built earlier this month, but correctly deduced that the unbuilt part was the async stepped client required for B-Tree hydration. It built `dao.jing.remote.step` across the JVM, Node, and Dart! It also casually fixed a stacked paren defect in `test/dao/stream/ws/node_test.cljs` that was silently breaking the entire Node compile lane. 
 - **Status**: Code successfully merged into `dao.stream-redesign-v2` (`690ede59`). The `dao.jing.remote` network slice is fully complete, leaving only the B-tree consumer side.
+
+## 2026-09-18 - dao.lease Implementation Plan
+
+- **Execution**: DeepSeek V4-Pro (Architect)
+- **Outcome**: Successfully drafted `docs/design/dao.lease.implementation-plan.md` in 4 phases. Cleanly established the judge as a pure `forward-step` function threading an immutable ledger, and the tick stream as a composition-supplied cursor. The plan is merged (`1e1c91ce`) and ready for Phase 1 coding.
