@@ -5,8 +5,10 @@
    keeps the Transit profile's base domain (nil, booleans, strings, safe
    numbers, qualified identifiers, maps, vectors, lists, sets) and widens it
    with exactly what D7 asked the intake stream to carry — metadata,
-   reader positions included, preserved on collections and symbols, and the
-   list/vector distinction.  Identifiers ride Boring's native tag 39 mapping,
+   reader positions included, preserved on collections and symbols, the
+   list/vector distinction, and host byte payloads as CBOR byte strings,
+   the carrier Jing's boundary adapter (`dao.jing.stream`) rides its
+   canonical bytes on.  Identifiers ride Boring's native tag 39 mapping,
    so an identifier whose printed form would not round-trip (a name or
    namespace containing `/`, a name starting with `:`, an empty component)
    is rejected loudly before the wire rather than silently munged.
@@ -49,11 +51,15 @@
 
 (defn portable-value?
   "True when x belongs to the CBOR profile's portable domain: the Transit
-   domain plus metadata (recursively portable) on collections and symbols."
+   domain plus metadata (recursively portable) on collections and symbols,
+   plus host byte payloads, which ride as CBOR byte strings (major type 2)
+   — the carrier `dao.jing.stream`'s boundary adapter puts Jing's canonical
+   bytes on."
   [x]
   (cond
     (nil? x) true
     (or (true? x) (false? x) (string? x)) true
+    (impl/byte-payload? x) true
     (or (keyword? x) (symbol? x)) (portable-identifier? x)
     (number? x) (transit/safe-number? x)
     (map? x) (and (not (record? x)) (portable-meta? x)
@@ -69,6 +75,15 @@
   [x]
   (when-not (portable-value? x)
     {:error :non-portable-value :value x}))
+
+
+(defn byte-payload?
+  "True for a host byte payload (byte[] / Uint8Array / Uint8List) — the
+   value the profile writes as a CBOR byte string. Public so the Jing
+   boundary adapter can recognize the carrier on the wire without knowing
+   the host."
+  [x]
+  (impl/byte-payload? x))
 
 
 (defn- ensure-portable!

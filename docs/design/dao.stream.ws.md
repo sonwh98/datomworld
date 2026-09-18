@@ -615,7 +615,10 @@ unqualified keywords and symbols, safe integers in
 sets, and maps recursively composed from that domain. The Transit profile is
 exactly that domain — no custom handlers and no metadata participate. The
 CBOR profile is that domain widened with metadata — recursively portable
-metadata on collections and symbols, reader positions included — and it
+metadata on collections and symbols, reader positions included — with host
+byte payloads (`byte[]` / `Uint8Array` / `Uint8List`) riding as CBOR byte
+strings (major type 2), the carrier `dao.jing.stream`'s boundary adapter
+puts Jing's canonical bytes on, and it
 keeps lists and vectors distinct: identifiers ride CBOR tag 39, sets ride
 tag 258, and metadata and list-hood ride tag 27 frames (`clojure/with-meta`
 and `dao.stream/list`). A sender unable to encode a value in its profile's

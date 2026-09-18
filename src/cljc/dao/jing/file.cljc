@@ -79,6 +79,24 @@
                     {:address address, :payload payload}))))
 
 
+(defn- validate-codec-round-trip!
+  "Fail closed on content this backend's own text codec cannot carry
+   (dao.jing.md, Open items: every backend must either carry metadata
+   through or refuse). The frame layer writes `pr-str` and replays through
+   EDN, and `pr-str` drops collection metadata — which the address does
+   NOT drop — so a metadata-bearing payload would be written with its
+   metadata silently gone and fail the open on replay, unopenably. The
+   rule is the doc's own: a payload whose round trip through the backend's
+   codec does not hash back to its address is refused here, before any
+   byte is written. Reader positions round-trip fine (the address ignores
+   them), so they are not refused."
+  [payload]
+  (let [replayed (edn/read-string (pr-str payload))]
+    (when-not (= (jing/content-hash payload) (jing/content-hash replayed))
+      (throw (ex-info "Payload does not survive this backend's text codec: its round trip would not hash to its content address"
+                      {:payload payload, :replayed replayed})))))
+
+
 (defn- validate-frame!
   [record]
   (if (and (vector? record) (= 2 (count record)))
@@ -273,6 +291,7 @@
   (fn content-put!
     [address payload]
     (validate-address-payload! address payload)
+    (validate-codec-round-trip! payload)
     (with-lock
       lock
       (fn []

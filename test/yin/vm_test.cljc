@@ -236,7 +236,7 @@
   {:type :application, :operator operator, :operands operands, :tail? tail?})
 
 
-(def ^:private semantic-bytecode-corpus
+(def semantic-bytecode-corpus
   "Canonical map ASTs (every saturated field stated) covering every §2.3 tag."
   [(lit 1) (lit "s") (lit nil) (lit :k) (lit '[1 (2 3) #{4}]) (lit {:a 1})
    (local 'x)

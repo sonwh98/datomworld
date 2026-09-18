@@ -269,15 +269,35 @@
 
 
 (defn sha256
-  "SHA-256 hex digest of string s."
+  "SHA-256 hex digest of the UTF-8 bytes of string s. Every host digests
+   the same bytes: handing goog.crypt.Sha256 the string itself hashes
+   char codes, which diverges from the JVM and Dart on any non-ASCII
+   payload and mints host-specific addresses."
   [s]
   #?(:clj (let [digest (java.security.MessageDigest/getInstance "SHA-256")
                 bytes (.digest digest (.getBytes s "UTF-8"))]
             (apply str (map (partial format "%02x") bytes)))
      :cljs (let [hasher (new goog.crypt.Sha256)]
-             (.update hasher s)
+             (.update hasher (crypt/stringToUtf8ByteArray s))
              (crypt/byteArrayToHex (.digest hasher)))
      :cljd (let [padded (pad-message (utf8-bytes s))
+                 chunks (partition 64 padded)
+                 final-h (reduce process-chunk initial-h chunks)]
+             (bytes->hex final-h))))
+
+
+(defn sha256-bytes
+  "SHA-256 hex digest of host bytes bs (byte[] on the JVM, Uint8Array on
+   ClojureScript, Uint8List on Dart). `(sha256-bytes (canonical-bytes v))`
+   is `(content-hash v)` — the two are one digest over one byte stream."
+  [bs]
+  #?(:clj (let [digest (java.security.MessageDigest/getInstance "SHA-256")
+                bytes (.digest digest ^bytes bs)]
+            (apply str (map (partial format "%02x") bytes)))
+     :cljs (let [hasher (new goog.crypt.Sha256)]
+             (.update hasher bs)
+             (crypt/byteArrayToHex (.digest hasher)))
+     :cljd (let [padded (pad-message bs)
                  chunks (partition 64 padded)
                  final-h (reduce process-chunk initial-h chunks)]
              (bytes->hex final-h))))
@@ -295,6 +315,22 @@
    change together."
   [v]
   (sha256 (order-normalized-print v)))
+
+
+(defn canonical-bytes
+  "Host UTF-8 bytes (byte[] / Uint8Array / Uint8List) of the
+   order-normalized print of v — the exact bytes `content-hash` digests, so
+   `(sha256-bytes (canonical-bytes v))` is `(content-hash v)`. This is the
+   byte form Jing content travels in across a `dao.stream` boundary: the
+   Jing boundary adapter (`dao.jing.stream`) wraps these per codec profile,
+   so a payload crosses any transport as its addressed bytes and no
+   transport's value domain ever re-encodes — or silently normalizes — the
+   content itself."
+  [v]
+  (let [text (order-normalized-print v)]
+    #?(:clj (.getBytes ^String text "UTF-8")
+       :cljs (js/Uint8Array.from (crypt/stringToUtf8ByteArray text))
+       :cljd (utf8-bytes text))))
 
 
 (defn segment-key

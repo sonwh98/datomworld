@@ -462,6 +462,19 @@ encoder is transitional until the pinned canonical byte encoding lands.
   metadata-bearing payloads. Every backend and transport must, before that
   point, either carry metadata through or explicitly refuse a payload whose
   round trip through its own codec would not hash back to its address.
+
+  **Status 2026-09-18 (U10):** the storage half is closed. The file
+  backend's put now applies exactly this rule — a payload whose
+  `pr-str`/EDN round trip does not hash back to its address (any
+  metadata-bearing payload, since `pr-str` drops collection metadata the
+  address keeps) is refused before a byte is written; the memory backend
+  carries values verbatim, so metadata round-trips there. The transport
+  half is answered differently: Jing content never crosses a transport as
+  a bare payload value. `dao.jing.stream`'s boundary adapter wraps the
+  canonical bytes (`dao.jing/canonical-bytes`, the exact bytes the address
+  digests) as a CBOR byte string on the `dao.stream.cbor` profile and as a
+  named vector of octets on `dao.stream.transit-json`, so no transport's
+  value domain — metadata-blind or not — re-encodes the content.
 - **Durable observer checkpoints / long-running runner.** `observer-state`
   and `observe-step!` are single-step and in-process. The checkpoint records,
   per member, the stream coordinate plus the transport-minted cursor; the

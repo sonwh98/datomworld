@@ -77,6 +77,13 @@
     m))
 
 
+(defn byte-payload?
+  "True for the host byte payload the codec writes as a CBOR byte string
+   (major type 2): Uint8List here, Boring's byte[]/Uint8Array elsewhere."
+  [x]
+  (dart/is? x Uint8List))
+
+
 ;; ---------------------------------------------------------------------------
 ;; Encoding: portable value -> CborValue tree -> canonical bytes
 ;; ---------------------------------------------------------------------------
@@ -144,6 +151,10 @@
     (int? x) (cbor/CborSmallInt. x)
     (double? x) (cbor/CborFloat. x)
     (string? x) (cbor/CborString. x)
+    ;; before the identifier branch and as a plain value: a host byte
+    ;; payload is a CBOR byte string (major 2), never a tagged carrier —
+    ;; Boring writes its byte-string type the same way, so the bytes agree
+    (dart/is? x Uint8List) (cbor/CborBytes. x)
     (or (keyword? x) (symbol? x))
     ;; `when`, not `and`: if-some binds false as a value, and a keyword's
     ;; (symbol? x) guard must reduce to nil, never a false "metadata" map.
@@ -254,6 +265,15 @@
       (no-tags? v) (str v)
       (only-tag? v 39) (from-tag39 (str v))
       :else (out-of-profile {:value v}))
+
+    ;; A byte string decodes to its bytes — major 2 carries no other
+    ;; meaning in this profile.  The tags guard rejects CborBigInt, which
+    ;; extends CborBytes but rides tags 2/3; that value has no producer
+    ;; here and is out of profile.
+    (dart/is? v cbor/CborBytes)
+    (if (no-tags? v)
+      (Uint8List.fromList (.-bytes v))
+      (out-of-profile {:value v}))
 
     (dart/is? v cbor/CborList)
     (cond

@@ -97,6 +97,40 @@
                (str "encode drifted for " (pr-str expected))))))
 
 
+     (defn- byte-value
+       [octets]
+       #?(:clj (byte-array (mapv unchecked-byte octets))
+          :cljs (js/Uint8Array.from (to-array (vec octets)))))
+
+
+     (deftest byte-strings-ride-as-major-type-2
+       ;; Host byte payloads are the carrier Jing's boundary adapter
+       ;; (`dao.jing.stream`) rides its canonical bytes on. Frozen frame
+       ;; bytes as everywhere: bare, named (the adapter's own wrap shape),
+       ;; and the 0x58 length boundary at 24 bytes. The carried bytes are
+       ;; compared by hex, not =: host byte arrays are not = values.
+       (let [fixtures
+             [["430001ff" [0 1 255] (byte-value [0 1 255])]
+              ["a1d82778193a64616f2e6a696e672f63616e6f6e6963616c2d6279746573430001ff"
+               [0 1 255]
+               {:dao.jing/canonical-bytes (byte-value [0 1 255])}]
+              [(str "5818" (apply str (repeat 24 "07")))
+               (repeat 24 7)
+               (byte-value (repeat 24 7))]]]
+         (doseq [[hex octets value] fixtures]
+           (is (cbor/portable-value? value) "a byte payload is in the domain")
+           (is (= hex (to-hex (cbor/encode value)))
+               (str "encode drifted for " hex))
+           (let [back (cbor/decode (from-hex hex))
+                 carried (if (map? back)
+                           (:dao.jing/canonical-bytes back)
+                           back)]
+             (is (= hex (to-hex (cbor/encode back)))
+                 (str "decode drifted for " hex))
+             (is (= (to-hex (byte-value octets)) (to-hex (byte-value carried)))
+                 "the decoded bytes are the expected bytes")))))
+
+
      (deftest round-trips-preserve-collection-distinctions-and-metadata
        (let [corpus [nil true false "" "s" :k :n/k 's 'n/s 0 -1 9007199254740991
                      1.5 1.1 -0.0
@@ -154,6 +188,7 @@
                       "ff"                       ; break-stop alone
                       "a201020103"               ; duplicate map keys
                       "9f01ff"                   ; indefinite-length array
+                      "5fff"                     ; indefinite-length byte string
                       "1801"                     ; non-minimal integer encoding
                       "fa3fc00000"               ; float32 1.5 where f9 3e00 suffices
                       "d93e7101"                 ; unknown tag 15985

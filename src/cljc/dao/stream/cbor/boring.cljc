@@ -36,6 +36,17 @@
 
 #?(:cljd nil
    :default
+   (defn byte-payload?
+     "True for the host byte payload Boring writes as a CBOR byte string
+      (major type 2): byte[] on the JVM, Uint8Array on ClojureScript. The
+      carrier Jing's boundary adapter rides its canonical bytes on."
+     [x]
+     #?(:clj (bytes? x)
+        :cljs (instance? js/Uint8Array x))))
+
+
+#?(:cljd nil
+   :default
    (def list-frame-tag
      "The symbol naming the list frame on both the encode and decode sides."
      'dao.stream/list))
