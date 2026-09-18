@@ -122,6 +122,12 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | reasoning and safety. **Best for:** Autonomous multi-step          | cautious/gated. **Avoid for:** Simple refactoring; managing vast    |
 |                             | workflows, one-shot feature implementations, general daily tasks.  | project architectures; unbounded exploratory coding.                |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `minimax/m3`                | Natively multimodal with 1M context. **Best for:** Large codebase  | Can fall into thinking loops; gives up early on difficult tasks.    |
+|                             | comprehension, orchestrating subagents, iterative refactoring.     | **Avoid for:** One-shot mission critical coding, unbounded tasks.   |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `mimo-v2.5-pro`             | 1.02T MoE tailored for IDE integration. **Best for:** IDE-         | Struggles with "lost in the middle" in massive contexts; can      |
+|                             | integrated coding agents, high-volume automation, complex design.  | spoil stable code. **Avoid for:** Verification-poor environments.   |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `moonshotai/kimi-k2.7-code` | Extremely long context window tailored for SWE and long-horizon    | Niche ecosystem; less generalized reasoning outside of code.        |
 |                             | coding. **Best for:** Context-heavy frontend or terminal tasks.    | **Avoid for:** Core VM or indexing logic requiring broad            |
 |                             |                                                                    | theoretical knowledge.                                              |
@@ -150,7 +156,7 @@ cost align with the task.
 Every change must be reviewed by a model from a **different family** to ensure
 independent defect discovery. Never silently substitute a same-family reviewer.
 The families represented in the Model Strengths table are: **Claude**,
-**DeepSeek**, **Gemini**, **GLM**, **GPT**, **Kimi**, **Muse**, and **Qwen**.
+**DeepSeek**, **Gemini**, **GLM**, **GPT**, **Kimi**, **MiMo**, **MiniMax**, **Muse**, and **Qwen**.
 Any author from one family must be reviewed by a model from a different family.
 
 Routine review applies only when independent; architectural or security review
