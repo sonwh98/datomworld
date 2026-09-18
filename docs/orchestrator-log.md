@@ -5504,3 +5504,9 @@ Next: Stage and commit the u16-macro-expander worktree, then merge to dao.stream
   - `dao.runtime.v2`: Claude successfully decoupled `yin.vm.engine` from the legacy V1 `dao.runtime`, passing 167,494 cross-platform assertions. I immediately fast-forwarded and deleted the 1,400+ lines of V1 `dao.runtime` code. **Phase R4 is complete and the ticket is permanently closed.**
   - `yin.vm.telemetry`: DeepSeek read the architecture specs and produced a concrete, phased implementation plan (`docs/design/yin.vm.telemetry.implementation-plan.md`), intelligently discarding obsolete design notes referencing deleted VM models. The spec is merged and ready for development.
 - **Next**: GLM is still processing the `dao.jing.remote` hydration in the background. The next unblocked pipeline is implementing Phase 1 of `yin.vm.telemetry` using the freshly minted plan.
+
+## 2026-09-18 - dao.jing.remote Async Stepped Client (Phase 1+)
+
+- **Execution**: Zhipu GLM-5.3
+- **Outcome**: The agent discovered that the core of `dao.jing.remote` was actually already built earlier this month, but correctly deduced that the unbuilt part was the async stepped client required for B-Tree hydration. It built `dao.jing.remote.step` across the JVM, Node, and Dart! It also casually fixed a stacked paren defect in `test/dao/stream/ws/node_test.cljs` that was silently breaking the entire Node compile lane. 
+- **Status**: Code successfully merged into `dao.stream-redesign-v2` (`690ede59`). The `dao.jing.remote` network slice is fully complete, leaving only the B-tree consumer side.
