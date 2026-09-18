@@ -54,7 +54,7 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | cmd             | Flat: CommandCode.ai Go plan ($1/mo)   | Use freely within budget. Used to invoke any LLMs not directly listed in this table.                        |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| codex           | Flat: ChatGPT Plus ($20/mo)            | Use freely within budget.                                                                                   |
+| codex           | Flat: ChatGPT Plus ($20/mo)            | Strict rate limits. Reserved strictly for Architectural Review roles. Do not assign implementation tasks.   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | deepseek        | Metered: Pay-by-token                  | Variable cost. Reserve for work worth the expense. V4-Pro is being superseded by V4.1 Flash; prefer Flash.  |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
@@ -111,16 +111,16 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 | `gpt-5.6-luna`              | High-frequency, latency-sensitive tasks. **Best for:** Simple      | Poor long-form context processing and reasoning. **Avoid for:**     |
 |                             | network stream framing, classification, and extraction.            | Complex AST compilation; long-running agentic tasks.                |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-5.6-sol`               | Flagship tier for complex reasoning and advanced coding agents.    | High cost and latency when complex reasoning modes are enabled.     |
-|                             | **Best for:** High-stakes security, routine complex reviews.       | **Avoid for:** Tasks requiring strict alignment and extreme caution.|
+| `gpt-5.6-sol`               | Flagship tier for complex reasoning and advanced coding agents.    | Strict rate limits. **Avoid for:** Implementation tasks. Reserved   |
+|                             | **Best for:** High-stakes security, routine complex reviews.       | exclusively for Architectural Review.                               |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `gpt-5.6-terra`             | The "default" balanced model for daily workflows. **Best for:**    | Struggles with the deepest compiler lowering edge cases. **Avoid    |
 |                             | Daily business workflows, production engineering, network streams, | for:** Top-level system architecture; extreme specialized reasoning.|
 |                             | VM runtimes, subagent fallback.                                    |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-6-astra`               | True "computer operator" capabilities; generational leap in deep   | Expensive ($10/$50); less transparent architecture; can be overly   |
-|                             | reasoning and safety. **Best for:** Autonomous multi-step          | cautious/gated. **Avoid for:** Simple refactoring; managing vast    |
-|                             | workflows, one-shot feature implementations, general daily tasks.  | project architectures; unbounded exploratory coding.                |
+| `gpt-6-astra`               | True "computer operator" capabilities; generational leap in deep   | Strict rate limits. **Avoid for:** Implementation tasks. Reserved   |
+|                             | reasoning and safety. **Best for:** Autonomous multi-step          | exclusively for Architectural Review.                               |
+|                             | workflows, one-shot feature implementations, general daily tasks.  |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `minimax/m3`                | Natively multimodal with 1M context. **Best for:** Large codebase  | Can fall into thinking loops; gives up early on difficult tasks.    |
 |                             | comprehension, orchestrating subagents, iterative refactoring.     | **Avoid for:** One-shot mission critical coding, unbounded tasks.   |
