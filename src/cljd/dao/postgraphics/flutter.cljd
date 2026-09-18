@@ -1,5 +1,6 @@
 (ns dao.postgraphics.flutter
-  (:require ["dart:core" :as dart]
+  (:require ["dart:async" :as async]
+            ["dart:core" :as dart]
             ["dart:typed_data" :as type]
             ["dart:ui" :as ui]
             ["package:flutter/material.dart" :as m]
@@ -324,9 +325,24 @@
                     {:backend requested, :allowed #{:auto :gpu :software}}))))
 
 
-(defn- close-binding!
-  [binding]
-  ((:close! binding)))
+(def ^:private frame-interval-ms 16)
+
+
+(defn- start-frame-ticker!
+  "Starts the one Timer.periodic that owns `step` for binding*: each tick
+   steps the binding until it is blocked. The stream wakes nothing, so a
+   frame is presented at most one tick after it is put."
+  [binding*]
+  (async/Timer.periodic
+    (dart/Duration .milliseconds frame-interval-ms)
+    (fn [_]
+      (let [{:keys [binding]} (terminal/step-until-blocked @binding*)]
+        (reset! binding* binding)))))
+
+
+(defn- cancel-frame-ticker!
+  [^async/Timer ticker]
+  (.cancel ticker))
 
 
 (defn- frame-stream-widget
@@ -334,8 +350,13 @@
 
    All per-demo state lives in the widget's State (via cljd.flutter/widget's
    :managed bindings), so it survives parent rebuilds (resize/LayoutBuilder)
-   instead of being recreated — and the stream reader is closed on dispose
+   instead of being recreated — and the frame ticker is cancelled on dispose
    rather than leaked.  State:
+     binding*      the terminal binding value; only the ticker steps it
+     _bound        result of :on-bind, called once right after binding so a
+                   producer's initial frame lands after the :newest cursor
+     _ticker       one Timer.periodic at the frame interval, the sole caller
+                   of terminal/step-until-blocked
      frame*        latest frame the painter renders
      frame-seq*    monotonic id bumped per accepted frame (the change signal)
      rendered-seq* the frame-seq the software path last rasterized
@@ -350,34 +371,37 @@
        image is painted even if the frame stream has since paused.  The
        seq guard in paint-3d! stops that decode-triggered repaint from kicking
        a redundant re-render."
-  [frame-stream & {:keys [on-error on-paint-error signal-stream backend]}]
+  [frame-stream & {:keys [on-error on-paint-error signal-stream backend on-bind]}]
   (let [backend-mode (resolve-backend-mode backend (gpu-render/gpu-available?))]
     (f/widget :managed
               [frame* (atom []) :dispose nil :refresh-on :never frame-seq*
                (atom 0) :dispose nil :refresh-on :never rendered-seq* (atom -1)
                :dispose nil :refresh-on :never image-holder (atom nil) :dispose
                nil :refresh-on :never decoding? (atom false) :dispose nil
-               :refresh-on :never _binding
-               (terminal/bind-stream!
-                 frame-stream
-                 {:validate-frame! #(lower/validate-frame!
-                                      %
-                                      {:supports-render-targets? false,
-                                       :supports-image? false,
-                                       :texture-source-valid?
-                                       (fn [s]
-                                         (or (instance? gpu/Texture s)
-                                             (instance? tex/PgTexture s)))}),
-                  :present-frame!
-                  (fn [frame] (reset! frame* frame) (swap! frame-seq* inc)),
-                  :signal-stream signal-stream,
-                  :on-error (or on-error
-                                (fn [e]
-                                  (dart/print
-                                    (str "Invalid frame rejected ("
-                                         (name (terminal/rejection-reason e))
-                                         "): " e))))}) :dispose close-binding!
-               :refresh-on :never]
+               :refresh-on :never binding*
+               (atom
+                 (terminal/bind
+                   frame-stream
+                   {:validate-frame! #(lower/validate-frame!
+                                        %
+                                        {:supports-render-targets? false,
+                                         :supports-image? false,
+                                         :texture-source-valid?
+                                         (fn [s]
+                                           (or (instance? gpu/Texture s)
+                                               (instance? tex/PgTexture s)))}),
+                    :present-frame!
+                    (fn [frame] (reset! frame* frame) (swap! frame-seq* inc)),
+                    :signal-handle signal-stream,
+                    :on-error (or on-error
+                                  (fn [e]
+                                    (dart/print
+                                      (str "Invalid frame rejected ("
+                                           (name (terminal/rejection-reason e))
+                                           "): " e))))})) :dispose nil
+               :refresh-on :never _bound (when on-bind (on-bind)) :dispose nil
+               :refresh-on :never _ticker (start-frame-ticker! binding*)
+               :dispose cancel-frame-ticker! :refresh-on :never]
               :watch
               [_frame-seq frame-seq* _image image-holder]
               (m/CustomPaint. .painter
@@ -393,18 +417,23 @@
 
 (defn postgraphics-widget
   "Returns a Flutter widget that renders dao.postgraphics frame programs from
-  frame-stream.
+  frame-stream, a DaoStream v2 handle.
 
   Options:
   - :on-error      callback receiving the exception when a frame is rejected
   - :on-paint-error callback receiving exceptions raised while painting
   - :backend       :auto (default), :gpu, or :software
-  - :signal-stream dao.stream to which canonical terminal signals
+  - :signal-stream DaoStream v2 writer to which canonical terminal signals
                    (:dao.terminal/reset, :dao.terminal/rejection) are emitted;
-                   required for participants in dao.gui.event"
-  [frame-stream & {:keys [on-error on-paint-error signal-stream backend]}]
+                   required for participants in dao.gui.event
+  - :on-bind       no-arg fn called once per mount, right after the terminal
+                   binds (cursor minted at :dao.stream/newest). Frames put
+                   before binding are never presented, so a producer emits its
+                   initial frame here."
+  [frame-stream & {:keys [on-error on-paint-error signal-stream backend on-bind]}]
   (frame-stream-widget frame-stream
                        :on-error on-error
                        :on-paint-error on-paint-error
                        :signal-stream signal-stream
-                       :backend backend))
+                       :backend backend
+                       :on-bind on-bind))

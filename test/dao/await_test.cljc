@@ -1,13 +1,37 @@
 (ns dao.await-test
-  "Tests for dao.await — homomorphic async syntax compiled into Yin VM programs.
+  "Tests for dao.await — the v1 await suite, ported to yin.vm and
+   dao.stream.
 
-   Tests follow TDD: written before implementation. They drive the public API
-   defined in docs/design/dao.await.md V1: explicit cursors and explicit :env."
+   Same expectations as test/dao/await_test.cljc wherever the surface is
+   unchanged. The v2-specific divergences asserted here: no :woke (resume
+   polls the wait set instead of splicing a wake list), outcome-map reads,
+   and a parked writer's retry being the poll's append."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.await :as await]
             [dao.stream :as ds]
-            [dao.stream.ringbuffer])
+            [dao.stream.ringbuffer :as ringbuffer])
   #?(:cljs (:require-macros [dao.await])))
+
+
+(defn- new-stream
+  "A v2 ring buffer handle, or throw. The test's composition choice, not
+   the await layer's."
+  [capacity]
+  (let [result (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type,
+                                    ringbuffer/capacity-key capacity})]
+    (if (= :dao.stream/ok (:dao.stream/outcome result))
+      (:dao.stream/handle result)
+      (throw (ex-info "Test stream creation failed" {:result result})))))
+
+
+(defn- value-at-oldest
+  "Read the value at the oldest-anchor cursor of handle, as data."
+  [handle]
+  (let [minted (ds/cursor handle ds/anchor-oldest)]
+    (when (= :dao.stream/ok (:dao.stream/outcome minted))
+      (let [read (ds/next handle (:dao.stream/cursor minted))]
+        (when (= :dao.stream/ok (:dao.stream/outcome read))
+          (:dao.stream/value read))))))
 
 
 ;; =============================================================================
@@ -43,7 +67,7 @@
 
 (deftest read-prefilled-stream-test
   (testing "await/<! returns the value pre-written to the stream"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+    (let [s (new-stream 10)
           _ (ds/append! s 42)
           proc (await/go {:env {'s s}} (let [c (await/cursor s)] (await/<! c)))
           {:keys [value blocked?]} (await/run proc)]
@@ -53,21 +77,20 @@
 
 (deftest write-to-stream-test
   (testing "await/>! appends to the stream and the program sees the value"
-    (let [out (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+    (let [out (new-stream 10)
           proc (await/go {:env {'out out}} (await/>! out :hello))
           {:keys [value blocked?]} (await/run proc)]
       (is (false? blocked?))
       (is (= :hello value) "the write returns the value written")
-      (let [c {:position 0}
-            {:keys [ok]} (ds/next out c)]
-        (is (= :hello ok) "the host can read what the program wrote")))))
+      (is (= :hello (value-at-oldest out))
+          "the host can read what the program wrote"))))
 
 
 (deftest read-then-write-test
   (testing "a go body can read, transform, and write"
     (let
-      [in (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
-       out (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+      [in (new-stream 10)
+       out (new-stream 10)
        _ (ds/append! in 10)
        ;; go* with quoted body: arithmetic on the value read from the
        ;; stream is meaningful at runtime but trips kondo's type inference
@@ -78,7 +101,7 @@
          {'in in, 'out out})
        {:keys [value]} (await/run proc)]
       (is (= 11 value))
-      (let [{:keys [ok]} (ds/next out {:position 0})] (is (= 11 ok))))))
+      (is (= 11 (value-at-oldest out))))))
 
 
 ;; =============================================================================
@@ -87,7 +110,7 @@
 
 (deftest empty-read-blocks-test
   (testing "reading from an empty open stream blocks"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+    (let [s (new-stream 10)
           proc (await/go {:env {'s s}} (let [c (await/cursor s)] (await/<! c)))
           result (await/run proc)]
       (is (true? (:blocked? result)))
@@ -96,14 +119,60 @@
 
 (deftest blocked-read-resumes-after-put-test
   (testing "a blocked read resumes after the host writes a value"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+    (let [s (new-stream 10)
           proc (await/go {:env {'s s}} (let [c (await/cursor s)] (await/<! c)))
           blocked (await/run proc)
           _ (is (true? (:blocked? blocked)))
-          {:keys [woke]} (ds/append! s 99)
-          done (await/resume blocked {:woke woke})]
+          ;; The append wakes nothing; it just makes the next poll resolve.
+          _ (ds/append! s 99)
+          done (await/resume blocked)]
       (is (false? (:blocked? done)))
       (is (= 99 (:value done))))))
+
+
+(deftest resume-without-data-stays-blocked-test
+  (testing "resume is a poll: with nothing appended the process stays parked"
+    (let [s (new-stream 10)
+          proc (await/go {:env {'s s}} (let [c (await/cursor s)] (await/<! c)))
+          blocked (await/run proc)
+          still (await/resume blocked)]
+      (is (true? (:blocked? still)))
+      (is (= :yin/blocked (:value still))))))
+
+
+(deftest blocked-read-resumes-to-end-on-close-test
+  (testing "a read parked on a stream that then closes learns end from its
+            own next, per the :stream/next contract"
+    (let [s (new-stream 10)
+          proc (await/go {:env {'s s}} (let [c (await/cursor s)] (await/<! c)))
+          blocked (await/run proc)
+          _ (is (true? (:blocked? blocked)))
+          ;; close! wakes nothing either
+          _ (ds/close! s)
+          done (await/resume blocked)]
+      (is (false? (:blocked? done)))
+      (is (nil? (:value done)) "end reads as nil"))))
+
+
+(deftest parked-writer-resumed-by-poll-test
+  (testing "a >! that parks on full is retried by the wait-set poll's append"
+    (let [append-count (atom 0)
+          s (reify
+              ds/IDaoStreamWriter
+              (append!
+                [_ _v]
+                (if (= 1 (swap! append-count inc))
+                  {:dao.stream/outcome :dao.stream/full}
+                  {:dao.stream/outcome :dao.stream/ok})))
+          proc (await/go {:env {'s s}} (await/>! s :payload))
+          {:keys [value blocked?]} (await/run proc)]
+      ;; The v2 ring buffer never answers full, so the handle is scripted:
+      ;; full once, ok thereafter. The run's own blocked-branch poll retries
+      ;; the append and resolves the writer in the same run.
+      (is (false? blocked?))
+      (is (= :payload value))
+      (is (= 2 @append-count)
+          "the parked write was re-attempted exactly once by the poll"))))
 
 
 ;; =============================================================================
@@ -134,7 +203,7 @@
 
 (deftest process-descriptor-shape-test
   (testing "process value carries ast + datoms + env"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+    (let [s (new-stream 10)
           proc (await/go {:env {'s s}} (await/cursor s))]
       (is (= :dao.await/process (:type proc)))
       (is (some? (:ast proc)))
@@ -150,7 +219,7 @@
 
 (deftest cursor-creates-cursor-ref-test
   (testing "await/cursor evaluates to a cursor-ref"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+    (let [s (new-stream 10)
           proc (await/go {:env {'s s}} (await/cursor s))
           {:keys [value]} (await/run proc)]
       (is (= :cursor-ref (:type value)))
@@ -163,7 +232,7 @@
 
 (deftest cursor-advances-across-reads-test
   (testing "reads through the same cursor see successive values"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 10})
+    (let [s (new-stream 10)
           _ (ds/append! s :a)
           _ (ds/append! s :b)
           proc (await/go {:env {'s s}}

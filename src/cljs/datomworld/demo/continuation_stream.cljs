@@ -1,4 +1,30 @@
 (ns datomworld.demo.continuation-stream
+  "Two semantic VMs cooperatively run one program, shipping the continuation
+   between them through a DaoStream v2 medium.
+
+   Source compiles through yang to a Universal AST, which
+   `yin.vm.linearize` lowers to one `:yin.code/*` segment. VM-A loads it
+   and steps; every handoff interval the owner's registers — segment, pc,
+   accumulator, operand stack, environment, continuation frames — are
+   appended to the medium as one batch together with the segment's datoms
+   (`datomworld.demo.continuation-handoff`, §7 of yin.vm.semantic.md).
+
+   Nothing is handed over off-stream. The registers travel as EDN text, and
+   the receiver is a fresh VM that loads the shipped segment through the
+   ordinary loader and installs the registers it read back, so the only
+   thing the two machines share is the medium. Primitives, modules, and the
+   FFI pair are each receiving composition's own.
+
+   The demo loads explicitly instead of through the observer composition
+   because it animates one `vm/step` at a time. A handoff happens only at an
+   instruction boundary with no wait set, ready queue, parked continuation,
+   or stream handle in the sender's store.
+
+   There is no namespace-global state. Each mounted view owns a session: its
+   state, its host-event medium, and its interpreter's animation frame. Host
+   adapters only append clicks and edits to that medium as events; the
+   session interpreter, driven by animation frames, reads them, folds them
+   through `handle-event`, and advances a live run."
   (:require ["@codemirror/state" :refer [EditorState]]
             ["@codemirror/theme-one-dark" :refer [oneDark]]
             ["@codemirror/view" :refer [EditorView]]
@@ -6,16 +32,18 @@
             ["codemirror" :refer [basicSetup]]
             [cljs.reader :as reader]
             [clojure.string :as str]
-            [dao.stream :as ds]
-            [datomworld.continuation-transport :as ct]
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ringbuffer]
             [datomworld.demo.continuation-handoff :as handoff]
+            [datomworld.demo.continuation-transport :as ct]
             [datomworld.demo.responsive :as responsive]
             [reagent.core :as r]
             [yang.clojure :as yang]
             [yin.demo.utils :as demo.utils]
             [yin.vm :as vm]
-            [yin.vm.register :as register]
-            [yin.vm.stack :as stack]))
+            [yin.vm.linearize :as linearize]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]))
 
 
 (def source-example
@@ -32,15 +60,36 @@
 (def ^:private pretty-print demo.utils/pretty-print)
 
 
-(defn stream-last-vec
-  "Read all available values from stream s, return the last n as a vector."
-  [s n]
-  (loop [c {:position 0}
-         acc []]
-    (let [r (ds/next s c)]
-      (if (map? r)
-        (recur (:cursor r) (conj acc (:ok r)))
-        (vec (take-last n acc))))))
+;; =============================================================================
+;; The composition
+;; =============================================================================
+
+(defn- make-stream
+  "The `:make-stream` each VM is handed: one DaoStream v2 ring buffer per
+   call. A nil capacity is the VM's default, not an unbounded stream."
+  [capacity]
+  (ringbuffer/create!
+    {:dao.stream/type ringbuffer/transport-type,
+     ringbuffer/capacity-key (or capacity vm/default-stream-capacity)}))
+
+
+(defn make-vm
+  "Construct one v2 evaluator for this demo. The composition supplies the
+   transport, the primitives and the module registry; there is no default for
+   the transport, and a VM built without one cannot create streams."
+  [_vm-key]
+  (semantic/create-vm
+    {:primitives vm/primitives,
+     :modules (module/register-stream-module (module/default-registry)),
+     :make-stream make-stream}))
+
+
+(defn create-loaded-vm
+  "Load one code segment onto a fresh VM. This is the loader host
+   composition hands to observer coordination; the demo calls it directly
+   because it animates single steps rather than running to halt."
+  [code-datoms]
+  (semantic/vm-load-program (make-vm :vm-a) (vec code-datoms)))
 
 
 (defn codemirror-editor
@@ -111,73 +160,39 @@
                          style)}])})))
 
 
-(defonce app-state
-  (let [{:keys [k-stream cursors pending-ks]} (ct/init-state [:register-vm
-                                                              :stack-vm])]
-    (r/atom
-      {:source-code source-example,
-       :ast nil,
-       :ast-datoms nil,
-       :register-asm nil,
-       :register-bytecode nil,
-       :register-pool nil,
-       :register-source-map nil,
-       :register-reg-count nil,
-       :stack-asm nil,
-       :stack-bytecode nil,
-       :stack-pool nil,
-       :stack-source-map nil,
-       :register-vm nil,
-       :stack-vm nil,
-       :owner :register-vm,
-       :steps 0,
-       :handoffs 0,
-       :steps-since-handoff 0,
-       :handoff-interval 50,
-       :running false,
-       :completed? false,
-       :result nil,
-       :k-stream k-stream,
-       :cursors cursors,
-       :pending-ks pending-ks,
-       :error nil})))
+(defn- fresh-run
+  "`state` with no VMs and a fresh continuation medium: the run starts over."
+  [state]
+  (merge state
+         (ct/init-state [:vm-a :vm-b])
+         {:vm-a nil,
+          :vm-b nil,
+          :owner :vm-a,
+          :steps 0,
+          :handoffs 0,
+          :steps-since-handoff 0,
+          :running false,
+          :completed? false,
+          :result nil,
+          :error nil}))
 
 
-(defonce run-raf-id (atom nil))
+(defn initial-state
+  []
+  (fresh-run {:source-code source-example,
+              :ast nil,
+              :datoms nil,
+              :handoff-interval 50}))
 
 
-(defn k-depth
-  [k]
-  (loop [frame k depth 0] (if frame (recur (:next frame) (inc depth)) depth)))
-
-
-(defn k-frames
-  [frames]
-  (->> (or frames [])
-       (take 12)
-       (mapv (fn [frame]
-               {:type (:type frame),
-                :control (:control frame),
-                :result-reg (:result-reg frame)}))))
-
-
-(defn stack-k-frames
-  [frames]
-  (->> (or frames [])
-       (take 12)
-       (mapv (fn [frame]
-               {:control (:control frame),
-                :stack-size (count (:stack frame))}))))
-
-
-(defn stack-vm?
-  [vm-key]
-  (handoff/stack-vm? vm-key))
-
+;; =============================================================================
+;; Observing VM state
+;; =============================================================================
 
 (defn vm-control-counter
+  "The semantic VM's control is `{:segment id :pc n}`; the pc is the counter."
   [_vm-key vm-state]
-  (when vm-state (:control vm-state)))
+  (when vm-state (get-in vm-state [:control :pc])))
 
 
 (defn vm-k-depth
@@ -185,190 +200,87 @@
   (when vm-state (count (or (vm/continuation vm-state) []))))
 
 
-(defn vm-state->k
-  [vm-key vm-state]
-  (handoff/vm-state->handoff vm-key vm-state))
-
-
-(defn k->vm-state
-  [vm-key k]
-  (handoff/handoff->vm-state vm-key k))
+(defn v2-k-frames
+  "Summarize the continuation's frames, innermost last. A semantic frame is
+   {:type :return :segment id :pc n :env E :stack-base n}."
+  [frames]
+  (->> (or frames [])
+       (take-last 12)
+       (mapv (fn [frame]
+               {:type (:type frame),
+                :return-pc (:pc frame),
+                :bound (count (or (:env frame) {}))}))))
 
 
 (defn other-vm
   [vm-key]
-  (if (= vm-key :register-vm) :stack-vm :register-vm))
-
-
-(defn- queue-vm
-  [vm-state datoms]
-  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
-        queued-vm (assoc vm-state
-                         :in-stream in-stream
-                         :in-cursor {:position 0})]
-    (ds/append! in-stream (vec datoms))
-    queued-vm))
-
-
-(defn create-loaded-register-vm
-  [ast-datoms]
-  (queue-vm (register/create-vm) ast-datoms))
-
-
-(defn create-loaded-stack-vm
-  [ast-datoms]
-  (queue-vm (stack/create-vm) ast-datoms))
-
-
-(defn create-initial-vm
-  [state vm-key]
-  (if (stack-vm? vm-key)
-    (when (:ast-datoms state) (create-loaded-stack-vm (:ast-datoms state)))
-    (when (:ast-datoms state) (create-loaded-register-vm (:ast-datoms state)))))
+  (if (= vm-key :vm-a) :vm-b :vm-a))
 
 
 (defn enqueue-k
+  "Ship the sender's continuation: the segment datoms and its registers, as
+   one batch on the medium."
   [state from to from-vm-state]
-  (let [recipient-vm-state (or (get state to) (create-initial-vm state to))
-        k (vm-state->k to recipient-vm-state)
-        summary {:kind :k,
+  (let [summary {:kind :k,
                  :from from,
                  :to to,
                  :control (vm-control-counter from from-vm-state),
                  :k-depth (vm-k-depth from from-vm-state)}]
-    (ct/enqueue-k state summary k)))
+    (ct/enqueue-batch state
+                      summary
+                      (handoff/continuation-datoms (:datoms state)
+                                                   from-vm-state))))
 
 
 (defn activate-owner-from-stream
+  "Rebuild the owner from the next batch addressed to it, if one has
+   arrived."
   [state]
   (let [owner (:owner state)]
     (if (get state owner)
       [state false]
       (let [[state* message] (ct/consume-k-for state owner)]
         (if message
-          [(assoc state* owner (k->vm-state owner (:k message))) true]
+          [(assoc state*
+                  owner
+                  (handoff/datoms->semantic-vm (:batch message)
+                                               #(make-vm owner)))
+           true]
           [state* false])))))
 
 
-(defn stop-run-loop!
-  []
-  (when @run-raf-id
-    (js/cancelAnimationFrame @run-raf-id)
-    (reset! run-raf-id nil))
-  (swap! app-state assoc :running false))
+;; =============================================================================
+;; State transitions
+;; =============================================================================
+
+(defn invalidate-compiled-state
+  [state]
+  (assoc (fresh-run state) :ast nil :datoms nil))
 
 
-(defn invalidate-compiled-state!
-  []
-  (stop-run-loop!)
-  (let [{:keys [k-stream cursors pending-ks]} (ct/init-state [:register-vm
-                                                              :stack-vm])]
-    (swap! app-state assoc
-           :ast nil
-           :ast-datoms nil
-           :register-asm nil
-           :register-bytecode nil
-           :register-pool nil
-           :register-source-map nil
-           :register-reg-count nil
-           :stack-asm nil
-           :stack-bytecode nil
-           :stack-pool nil
-           :stack-source-map nil
-           :register-vm nil
-           :stack-vm nil
-           :owner :register-vm
-           :steps 0
-           :handoffs 0
-           :steps-since-handoff 0
-           :k-stream k-stream
-           :cursors cursors
-           :pending-ks pending-ks
-           :completed? false
-           :result nil
-           :error nil)))
+(defn reset-execution
+  [state]
+  (if-let [datoms (:datoms state)]
+    (assoc (fresh-run state) :vm-a (create-loaded-vm datoms))
+    state))
 
 
-(defn set-source-code!
-  [next-source]
-  (let [current-source (:source-code @app-state)]
-    (when (not= next-source current-source)
-      (invalidate-compiled-state!)
-      (swap! app-state assoc :source-code next-source))))
-
-
-(defn reset-execution!
-  []
-  (let [{:keys [ast-datoms]} @app-state]
-    (when ast-datoms
-      (stop-run-loop!)
-      (let [{:keys [k-stream cursors pending-ks]} (ct/init-state [:register-vm
-                                                                  :stack-vm])
-            initial-vm (create-loaded-register-vm ast-datoms)]
-        (swap! app-state assoc
-               :register-vm initial-vm
-               :stack-vm nil
-               :owner :register-vm
-               :steps 0
-               :handoffs 0
-               :steps-since-handoff 0
-               :k-stream k-stream
-               :cursors cursors
-               :pending-ks pending-ks
-               :completed? false
-               :result nil
-               :error nil)))))
-
-
-(defn compile-source!
-  []
-  (stop-run-loop!)
-  (let [source (:source-code @app-state)]
-    (try
-      (let [forms (reader/read-string (str "[" source "]"))
-            ast (yang/compile-program forms)
-            ast-datoms (vm/ast->datoms ast)
-            {:keys [asm reg-count]} (register/ast-datoms->asm ast-datoms)
-            {:keys [bytecode pool source-map]} (register/assemble asm)
-            stack-asm (stack/ast-datoms->asm ast-datoms)
-            {stack-bytecode :bytecode,
-             stack-pool :pool,
-             stack-source-map :source-map}
-            (stack/assemble stack-asm)
-            {:keys [k-stream cursors pending-ks]} (ct/init-state [:register-vm
-                                                                  :stack-vm])
-            initial-vm (create-loaded-register-vm ast-datoms)]
-        (swap! app-state assoc
-               :ast ast
-               :ast-datoms ast-datoms
-               :register-asm asm
-               :register-bytecode bytecode
-               :register-pool pool
-               :register-source-map source-map
-               :register-reg-count reg-count
-               :stack-asm stack-asm
-               :stack-bytecode stack-bytecode
-               :stack-pool stack-pool
-               :stack-source-map stack-source-map
-               :register-vm initial-vm
-               :stack-vm nil
-               :owner :register-vm
-               :steps 0
-               :handoffs 0
-               :steps-since-handoff 0
-               :k-stream k-stream
-               :cursors cursors
-               :pending-ks pending-ks
-               :running false
-               :completed? false
-               :result nil
-               :error nil))
-      (catch :default e
-        (swap! app-state assoc
-               :error (str "Compile error: " (.-message e))
-               :running false
-               :completed? false
-               :result nil)))))
+(defn compile-source
+  [state]
+  (try
+    (let [forms (reader/read-string (str "[" (:source-code state) "]"))
+          ast (yang/compile-program forms)
+          datoms (linearize/lower-ast ast)]
+      (assoc (fresh-run state)
+             :ast ast
+             :datoms datoms
+             :vm-a (create-loaded-vm datoms)))
+    (catch :default e
+      (assoc state
+             :error (str "Compile error: " (.-message e))
+             :running false
+             :completed? false
+             :result nil))))
 
 
 (defn emit-handoff
@@ -384,8 +296,7 @@
 
 (defn step-state
   [state]
-  (if (or (nil? (:register-bytecode state))
-          (nil? (:stack-bytecode state))
+  (if (or (nil? (:datoms state))
           (:completed? state))
     (assoc state :running false)
     (let [owner (:owner state)
@@ -409,8 +320,9 @@
                                    (assoc :completed? true)
                                    (assoc :running false)
                                    (assoc :result (vm/value stepped)))
-                               (>= (:steps-since-handoff stepped-state)
-                                   (:handoff-interval stepped-state))
+                               (and (>= (:steps-since-handoff stepped-state)
+                                        (:handoff-interval stepped-state))
+                                    (handoff/shippable? stepped))
                                (emit-handoff stepped-state owner stepped)
                                :else stepped-state))
                        (catch :default e
@@ -423,85 +335,145 @@
 (def steps-per-frame 80)
 
 
-(declare run-frame!)
+(defn run-frame
+  [state]
+  (loop [i 0
+         s state]
+    (if (or (>= i steps-per-frame)
+            (not (:running s))
+            (:completed? s))
+      s
+      (recur (inc i) (step-state s)))))
 
 
-(defn step-once!
+(defn handle-event
+  "Fold one host event into the session state."
+  [state {:keys [event] :as e}]
+  (case event
+    :compile (compile-source state)
+    :reset (reset-execution state)
+    :step (step-state (assoc state :running false))
+    :toggle-run (cond (:running state) (assoc state :running false)
+                      (:datoms state) (assoc state :running true :error nil)
+                      :else state)
+    :set-source (if (= (:source e) (:source-code state))
+                  state
+                  (assoc (invalidate-compiled-state state)
+                         :source-code (:source e)))
+    :set-interval (assoc state :handoff-interval (:interval e))
+    :unmount (assoc state :running false :unmounted? true)
+    state))
+
+
+;; =============================================================================
+;; The session: one mounted composition's state, events, and frame
+;; =============================================================================
+
+(def ^:private host-event-attr :demo.continuation/host-event)
+
+
+(defn make-session
+  "Everything one mounted view owns. Host events are appended to `:events`
+   and read back from `:cursor`; `:raf-id` is the interpreter's pending
+   frame, if any."
   []
-  (stop-run-loop!) (swap! app-state step-state))
+  (let [events (:dao.stream/handle (ct/make-medium))]
+    {:state (r/atom (initial-state)),
+     :events events,
+     :cursor (atom (ct/oldest-cursor! events)),
+     :raf-id (atom nil)}))
 
 
-(defn run-frame!
-  []
-  (swap! app-state (fn [state]
-                     (loop [i 0
-                            s state]
-                       (if (or (>= i steps-per-frame)
-                               (not (:running s))
-                               (:completed? s))
-                         s
-                         (recur (inc i) (step-state s))))))
-  (if (:running @app-state)
-    (reset! run-raf-id (js/requestAnimationFrame run-frame!))
-    (reset! run-raf-id nil)))
+(defn- deposit!
+  "The only operation a host adapter is handed: append one host event to
+   `events` and return nil."
+  [events event]
+  (let [outcome (:dao.stream/outcome
+                  (stream/append! events [[0 host-event-attr event 0 0]]))]
+    (when-not (= :dao.stream/ok outcome)
+      (throw (ex-info "Host event not appended"
+                      {:event event, :outcome outcome}))))
+  nil)
 
 
-(defn toggle-run!
-  []
-  (if (:running @app-state)
-    (stop-run-loop!)
-    (when (and (:register-bytecode @app-state) (:stack-bytecode @app-state))
-      (swap! app-state assoc :running true :error nil)
-      (when @run-raf-id (js/cancelAnimationFrame @run-raf-id))
-      (reset! run-raf-id (js/requestAnimationFrame run-frame!)))))
+(def host-transforms
+  "Each entry turns the host's arguments into one plain-data event. DOM
+   events are classified here and never cross onto the medium."
+  {:mount (constantly {:event :compile}),
+   :unmount (constantly {:event :unmount}),
+   :compile (constantly {:event :compile}),
+   :reset (constantly {:event :reset}),
+   :step (constantly {:event :step}),
+   :toggle-run (constantly {:event :toggle-run}),
+   :set-source (fn [source] {:event :set-source, :source source}),
+   :set-interval (fn [^js dom-event]
+                   (let [parsed (js/parseInt (.. dom-event -target -value) 10)]
+                     {:event :set-interval,
+                      :interval (if (js/isNaN parsed) 1 (max 1 parsed))}))})
 
+
+(defn make-adapter
+  "A map of host entry points over `deposit`. Each entry transforms the
+   host's arguments to one event and deposits it; it returns nil to the host
+   and invokes no application code."
+  [deposit transforms]
+  (into {}
+        (map (fn [[k transform]]
+               [k (fn [& args] (deposit (apply transform args)) nil)]))
+        transforms))
+
+
+(defn- tick!
+  "One frame of the session interpreter: fold every host event now visible
+   past the cursor, advance a live run, and render. It schedules its next
+   frame until it has read `:unmount`."
+  [{:keys [state events cursor raf-id], :as session}]
+  (let [[datoms cursor'] (ct/read-events-from events @cursor)]
+    (reset! cursor cursor')
+    (swap! state
+           #(run-frame (reduce handle-event % (map (fn [[_ _ v]] v) datoms)))))
+  ;; Render now, so no render ever sees state behind the events already read.
+  (r/flush)
+  (reset! raf-id (when-not (:unmounted? @state)
+                   (js/requestAnimationFrame (fn [_] (tick! session))))))
+
+
+(defn start-interpreter!
+  "Drive the session interpreter from animation frames, independently of the
+   host events it consumes."
+  [{:keys [raf-id], :as session}]
+  (when-not @raf-id
+    (reset! raf-id (js/requestAnimationFrame (fn [_] (tick! session))))))
+
+
+;; =============================================================================
+;; Views
+;; =============================================================================
 
 (defn vm->cesk
-  [vm-key vm-state asm source-map]
+  [vm-key vm-state]
   (when vm-state
-    (let [control (vm-control-counter vm-key vm-state)
-          instr-idx (get source-map control)
-          instr (when (number? instr-idx) (get asm instr-idx))
-          continuation (vm/continuation vm-state)]
-      (if (stack-vm? vm-key)
-        {:control {:control control,
-                   :instruction-index instr-idx,
-                   :instruction instr,
-                   :halted? (:halted? vm-state),
-                   :blocked? (:blocked? vm-state)},
-         :environment (:env vm-state),
-         :store (:store vm-state),
-         :continuation {:depth (count (or continuation [])),
-                        :frames (stack-k-frames continuation)},
-         :stack (:stack vm-state),
-         :ready-queue-count (count (or (:ready-queue vm-state) [])),
-         :wait-set-count (count (or (:wait-set vm-state) [])),
-         :value (:value vm-state)}
-        {:control {:control control,
-                   :instruction-index instr-idx,
-                   :instruction instr,
-                   :halted? (:halted? vm-state),
-                   :blocked? (:blocked? vm-state)},
-         :environment (:env vm-state),
-         :store (:store vm-state),
-         :continuation {:depth (count (or continuation [])),
-                        :frames (k-frames continuation)},
-         :registers (:regs vm-state),
-         :ready-queue-count (count (or (:ready-queue vm-state) [])),
-         :wait-set-count (count (or (:wait-set vm-state) [])),
-         :value (:value vm-state)}))))
+    (let [continuation (vm/continuation vm-state)]
+      {:control {:segment (get-in vm-state [:control :segment]),
+                 :pc (vm-control-counter vm-key vm-state),
+                 :stack (:stack vm-state),
+                 :halted? (:halted? vm-state),
+                 :blocked? (:blocked? vm-state)},
+       :environment (:env vm-state),
+       :store (:store vm-state),
+       :continuation {:depth (count (or continuation [])),
+                      :frames (v2-k-frames continuation)},
+       :parked (count (or (:parked vm-state) {})),
+       :ready-queue-count (count (or (:ready-queue vm-state) [])),
+       :wait-set-count (count (or (:wait-set vm-state) [])),
+       :value (:value vm-state)})))
 
 
-(defn asm-listing
-  [asm active-idx]
-  (if (seq asm)
-    (str/join
-      "\n"
-      (map-indexed
-        (fn [idx instr]
-          (str (if (= idx active-idx) "=> " "   ") idx "  " (pr-str instr)))
-        asm))
-    "Compile source to view assembly."))
+(defn datom-listing
+  [datoms]
+  (if (seq datoms)
+    (str/join "\n" (map-indexed (fn [i d] (str i "  " (pr-str d))) datoms))
+    "Compile source to view the code datoms."))
 
 
 (defn card
@@ -532,22 +504,16 @@
 
 
 (defn vm-window
-  [vm-key title border-color]
-  (let [{:keys [owner]} @app-state
-        asm (if (stack-vm? vm-key)
-              (:stack-asm @app-state)
-              (:register-asm @app-state))
-        source-map (if (stack-vm? vm-key)
-                     (:stack-source-map @app-state)
-                     (:register-source-map @app-state))
-        vm-state (get @app-state vm-key)
+  [state vm-key title border-color]
+  (let [{:keys [owner]} state
+        vm-state (get state vm-key)
         active? (= owner vm-key)
-        active-idx (when vm-state
-                     (get source-map (vm-control-counter vm-key vm-state)))
-        cesk (or (vm->cesk vm-key vm-state asm source-map)
+        cesk (or (vm->cesk vm-key vm-state)
                  {:state :waiting-for-continuation})
         status (cond (nil? vm-state) "Waiting"
-                     (:halted? vm-state) "Halted"
+                     (:halted? vm-state) (if (seq (:parked vm-state))
+                                           "Parked"
+                                           "Halted")
                      active? "Running"
                      :else "Parked snapshot")]
     [:div
@@ -569,15 +535,11 @@
        status]]
      [:div
       {:style {:display "grid",
-               :grid-template-rows "140px 1fr",
+               :grid-template-rows "1fr",
                :gap "8px",
                :padding "8px",
                :flex "1",
                :min-height "0"}}
-      [codemirror-editor
-       {:value (asm-listing asm active-idx),
-        :read-only true,
-        :style {:height "140px"}}]
       [codemirror-editor
        {:value (pretty-print cesk),
         :read-only true,
@@ -585,24 +547,23 @@
 
 
 (defn controls-panel
-  []
-  (let [{:keys [running handoff-interval]} @app-state
-        compiled? (and (:register-bytecode @app-state)
-                       (:stack-bytecode @app-state))]
+  [state adapter]
+  (let [{:keys [running handoff-interval]} state
+        compiled? (boolean (:datoms state))]
     [:div
      {:style
       {:display "flex", :flex-wrap "wrap", :align-items "center", :gap "8px"}}
      [:button
-      {:on-click compile-source!,
+      {:on-click (:compile adapter),
        :style {:background "#1f6feb",
                :color "#fff",
                :border "none",
                :padding "8px 12px",
                :border-radius "5px",
                :cursor "pointer",
-               :font-size "12px"}} "Compile -> Bytecode"]
+               :font-size "12px"}} "Compile -> Datoms"]
      [:button
-      {:on-click reset-execution!,
+      {:on-click (:reset adapter),
        :disabled (not compiled?),
        :style {:background (if compiled? "#6e7681" "#333"),
                :color "#fff",
@@ -612,7 +573,7 @@
                :cursor (if compiled? "pointer" "not-allowed"),
                :font-size "12px"}} "Reset"]
      [:button
-      {:on-click step-once!,
+      {:on-click (:step adapter),
        :disabled (not compiled?),
        :style {:background (if compiled? "#238636" "#333"),
                :color "#fff",
@@ -622,7 +583,7 @@
                :cursor (if compiled? "pointer" "not-allowed"),
                :font-size "12px"}} "Step"]
      [:button
-      {:on-click toggle-run!,
+      {:on-click (:toggle-run adapter),
        :disabled (not compiled?),
        :style {:background (cond (not compiled?) "#333"
                                  running "#da3633"
@@ -643,11 +604,7 @@
        {:type "number",
         :min 1,
         :value handoff-interval,
-        :on-change (fn [e]
-                     (let [raw (.. e -target -value)
-                           parsed (js/parseInt raw 10)
-                           interval (if (js/isNaN parsed) 1 (max 1 parsed))]
-                       (swap! app-state assoc :handoff-interval interval))),
+        :on-change (:set-interval adapter),
         :style {:width "60px",
                 :background "#0a0f1e",
                 :border "1px solid #2d3b55",
@@ -658,118 +615,112 @@
 
 (defn main-view
   []
-  (r/create-class
-    {:display-name "continuation-stream-main",
-     :component-did-mount (fn []
-                            (when-not (and (:register-bytecode @app-state)
-                                           (:stack-bytecode @app-state))
-                              (compile-source!))),
-     :component-will-unmount (fn [] (stop-run-loop!)),
-     :reagent-render
-     (fn []
-       (let [{:keys [source-code register-asm register-bytecode register-pool
-                     register-reg-count stack-asm stack-bytecode stack-pool
-                     k-stream cursors steps handoffs owner completed? result
-                     error]}
-             @app-state
-             register-vm (:register-vm @app-state)
-             stack-vm (:stack-vm @app-state)
-             bytecode-view
-             (if (and register-bytecode stack-bytecode)
-               (pretty-print {:register-vm {:reg-count register-reg-count,
-                                            :pool register-pool,
-                                            :bytecode register-bytecode,
-                                            :asm (mapv vector
-                                                       (range (count
-                                                                register-asm))
-                                                       register-asm)},
-                              :stack-vm {:pool stack-pool,
-                                         :bytecode stack-bytecode,
-                                         :asm (mapv vector
-                                                    (range (count stack-asm))
-                                                    stack-asm)}})
-               "Compile source to generate register and stack bytecode.")
-             queue-view (pretty-print (ct/in-flight-summary k-stream cursors))
-             stream-view (pretty-print (stream-last-vec k-stream 200))
-             run-summary
-             {:owner owner,
-              :steps steps,
-              :handoffs handoffs,
-              :register-vm-control (vm-control-counter :register-vm
-                                                       register-vm),
-              :stack-vm-control (vm-control-counter :stack-vm stack-vm),
-              :register-cursor (get-in cursors [:register-vm :position]),
-              :stack-cursor (get-in cursors [:stack-vm :position]),
-              :stream-length (count k-stream),
-              :completed? completed?,
-              :result result}]
-         [:div
-          {:style {:min-height "100vh",
-                   :background "#060817",
-                   :color "#c5c6c7",
-                   :padding "96px 16px 24px",
-                   :display "flex",
-                   :flex-direction "column",
-                   :gap "12px",
-                   :box-sizing "border-box"}}
-          [:div
-           {:style {:display "flex",
-                    :justify-content "space-between",
-                    :align-items "center",
-                    :gap "12px",
-                    :flex-wrap "wrap"}}
-           [:h1 {:style {:margin 0, :font-size "1.4rem", :color "#f1f5ff"}}
-            "Register VM + Stack VM Continuation Stream"]] [controls-panel]
-          [:div
-           {:style {:display "grid",
-                    :grid-template-columns (responsive/auto-fit-grid 320),
-                    :gap "12px",
-                    :flex "1",
-                    :min-height "0"}}
-           [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
-            [card "Source" "CodeMirror editor: Clojure code"
-             [codemirror-editor
-              {:value source-code,
-               :on-change set-source-code!,
-               :style {:height "100%"}}]]]
-           [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
-            [card "Compiled Bytecode"
-             "Compiled from source via yang -> AST datoms -> register and stack asm."
-             [codemirror-editor
-              {:value bytecode-view,
-               :read-only true,
-               :style {:height "100%"}}]]]
-           [:div {:style {:min-height (responsive/fluid-height 320 50 460)}}
-            [card "Register VM"
-             "Register machine CESK state while ownership changes."
-             [vm-window :register-vm "Register VM" "#3b82f6"]]]
-           [:div {:style {:min-height (responsive/fluid-height 320 50 460)}}
-            [card "Stack VM"
-             "Stack machine CESK state while ownership changes."
-             [vm-window :stack-vm "Stack VM" "#22c55e"]]]
-           [:div {:style {:min-height (responsive/fluid-height 240 34 320)}}
-            [card "In-Flight"
-             "Continuations between VM cursor and stream head."
-             [codemirror-editor
-              {:value queue-view, :read-only true, :style {:height "100%"}}]]]
-           [:div {:style {:min-height (responsive/fluid-height 240 34 320)}}
-            [card "Stream Datoms"
-             "Append-only stream facts for continuation emit/deliver events."
-             [codemirror-editor
-              {:value stream-view,
-               :read-only true,
-               :auto-scroll-bottom true,
-               :style {:height "100%"}}]]]
-           [:div {:style {:min-height (responsive/fluid-height 240 34 320)}}
-            [card "Run Summary" "Execution totals and final value."
-             [codemirror-editor
-              {:value (pretty-print run-summary),
-               :read-only true,
-               :style {:height "100%"}}]]]]
-          (when error
+  (let [session (make-session)
+        adapter (make-adapter (partial deposit! (:events session))
+                              host-transforms)]
+    (r/create-class
+      {:display-name "continuation-stream-main",
+       :component-did-mount (fn []
+                              ((:mount adapter))
+                              (start-interpreter! session)),
+       :component-will-unmount (:unmount adapter),
+       :reagent-render
+       (fn []
+         (let [state @(:state session)
+               {:keys [source-code datoms k-stream cursors steps handoffs owner
+                       completed? result error vm-a vm-b]}
+               state
+               program-view
+               (if datoms
+                 (pretty-print {:code-datoms (count datoms),
+                                :datoms (take 40 datoms)})
+                 "Compile source to generate code datoms.")
+               queue-view (pretty-print (ct/in-flight-summary k-stream cursors))
+               stream-view
+               (pretty-print
+                 (let [[events _] (ct/read-events-from k-stream
+                                                       (ct/oldest-cursor!
+                                                         k-stream))]
+                   (take-last 200 events)))
+               run-summary
+               {:owner owner,
+                :steps steps,
+                :handoffs handoffs,
+                :vm-a-control (vm-control-counter :vm-a vm-a),
+                :vm-b-control (vm-control-counter :vm-b vm-b),
+                :vm-a-k-depth (vm-k-depth :vm-a vm-a),
+                :vm-b-k-depth (vm-k-depth :vm-b vm-b),
+                :pending-ks (count (:pending-ks state)),
+                :transport-capacity ct/transport-capacity,
+                :completed? completed?,
+                :result result}]
+           [:div
+            {:style {:min-height "100vh",
+                     :background "#060817",
+                     :color "#c5c6c7",
+                     :padding "96px 16px 24px",
+                     :display "flex",
+                     :flex-direction "column",
+                     :gap "12px",
+                     :box-sizing "border-box"}}
             [:div
-             {:style {:background "rgba(255,0,0,0.2)",
-                      :border "1px solid #da3633",
-                      :padding "8px",
-                      :font-size "12px",
-                      :color "#f85149"}} error])]))}))
+             {:style {:display "flex",
+                      :justify-content "space-between",
+                      :align-items "center",
+                      :gap "12px",
+                      :flex-wrap "wrap"}}
+             [:h1 {:style {:margin 0, :font-size "1.4rem", :color "#f1f5ff"}}
+              "Semantic VM Continuation Stream"]] [controls-panel state adapter]
+            [:div
+             {:style {:display "grid",
+                      :grid-template-columns (responsive/auto-fit-grid 320),
+                      :gap "12px",
+                      :flex "1",
+                      :min-height "0"}}
+             [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
+              [card "Source" "CodeMirror editor: Clojure code"
+               [codemirror-editor
+                {:value source-code,
+                 :on-change (:set-source adapter),
+                 :style {:height "100%"}}]]]
+             [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
+              [card "Code Segment"
+               "yang -> AST -> linearize: the :yin.code/* datoms shipped with every handoff."
+               [codemirror-editor
+                {:value program-view,
+                 :read-only true,
+                 :style {:height "100%"}}]]]
+             [:div {:style {:min-height (responsive/fluid-height 320 50 460)}}
+              [card "VM-A (semantic)"
+               "CESK state while ownership changes."
+               [vm-window state :vm-a "VM-A" "#3b82f6"]]]
+             [:div {:style {:min-height (responsive/fluid-height 320 50 460)}}
+              [card "VM-B (semantic)"
+               "CESK state while ownership changes."
+               [vm-window state :vm-b "VM-B" "#22c55e"]]]
+             [:div {:style {:min-height (responsive/fluid-height 240 34 320)}}
+              [card "In-Flight"
+               "Continuations between each VM cursor and stream head."
+               [codemirror-editor
+                {:value queue-view, :read-only true, :style {:height "100%"}}]]]
+             [:div {:style {:min-height (responsive/fluid-height 240 34 320)}}
+              [card "Stream Events"
+               "Handoff batches on the medium: segment datoms, EDN registers, summary."
+               [codemirror-editor
+                {:value stream-view,
+                 :read-only true,
+                 :auto-scroll-bottom true,
+                 :style {:height "100%"}}]]]
+             [:div {:style {:min-height (responsive/fluid-height 240 34 320)}}
+              [card "Run Summary" "Execution totals and final value."
+               [codemirror-editor
+                {:value (pretty-print run-summary),
+                 :read-only true,
+                 :style {:height "100%"}}]]]]
+            (when error
+              [:div
+               {:style {:background "rgba(255,0,0,0.2)",
+                        :border "1px solid #da3633",
+                        :padding "8px",
+                        :font-size "12px",
+                        :color "#f85149"}} error])]))})))

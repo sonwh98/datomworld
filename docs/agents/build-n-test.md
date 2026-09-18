@@ -26,6 +26,13 @@ clj -M:cljd compile
 clj -M:kondo --lint <path>
 ```
 
+`bb test:cljd`'s `dart test` globs everything under `test/cljd-out/`,
+which the cljd compile does not prune when a source file is deleted or
+renamed. A stale compiled `.dart` test for an already-deleted namespace
+can silently pass, giving a false-clean run. Run `rm -rf test/cljd-out`
+before any `bb test:cljd` you're relying on to prove a deletion (or
+similar rename/removal) actually took effect.
+
 ## Testing Philosophy & TDD
 
 Write tests before implementing features (TDD).

@@ -1,459 +1,275 @@
 (ns datomworld.demo.compilation-pipeline
+  "The Yin compilation pipeline on Yin VM v2: Source -> AST -> canonical
+   datoms -> ast-walker execution.
+
+   The v1 demo (`datomworld.demo.compilation-pipeline`) compiled the same
+   source through four evaluators — stack, register, semantic and ast-walker —
+   and showed each one's bytecode beside the shared datom store, with a
+   `dao.space` query panel over the transacted datoms.
+
+   `yin.vm` ships one evaluator. The divergence register states it
+   directly: `semantic`, `register`, `stack`, `space`, `macro` and `wasm` are
+   not ported, and user macros throw. So this pipeline has one compilation
+   path and one execution path:
+
+   - **Source -> AST** is unchanged: `yang.clojure/compile-program`.
+   - **AST -> canonical datoms** is unchanged: `vm/ast->datoms` is shared
+     kernel, reused by v2 rather than forked.
+   - **Execution** is `yin.vm.ast-walker`, constructed with a
+     composition-supplied `:make-stream` over the DaoStream v2 ring buffer.
+     There is no bytecode, no assembler, no pool and no source map to show.
+   - Programs are loaded with `ast-walker/vm-load-program`, the loader host
+     composition hands to observer coordination. The demo calls it directly
+     because it animates one `vm/step` at a time; the VM owns no program
+     medium of its own and accepts no `:in-stream`.
+
+   What the v1 demo showed that this one cannot: register and stack
+   instruction listings with active-instruction highlighting, the semantic
+   evaluator's AST database, and `dao.space` queries over the transacted
+   datoms. Those are v1 evaluator features, not v2 gaps in a demo.
+
+   The Clojure/Python/PHP language selection (`yang.clojure`, `yang.python`,
+   `yang.php` all compile to the same `:yin/*` AST) is ported from v1
+   unchanged — it is a Source->AST axis, orthogonal to which evaluator runs
+   the result, and dropping it would be a product regression this plan does
+   not make."
   (:require ["@codemirror/lang-php" :refer [php]]
             ["@codemirror/lang-python" :refer [python]]
-            ["@codemirror/state" :refer
-             [EditorState StateField StateEffect RangeSet]]
+            ["@codemirror/state" :refer [EditorState]]
             ["@codemirror/theme-one-dark" :refer [oneDark]]
-            ["@codemirror/view" :refer [EditorView Decoration]]
+            ["@codemirror/view" :refer [EditorView]]
             ["@nextjournal/lang-clojure" :refer [clojure]]
             ["codemirror" :refer [basicSetup]]
             [cljs.reader :as reader]
-            [clojure.walk :as walk]
-            [dao.datom :as datom]
-            [dao.space.query :as query]
-            [dao.space.transact :as transact]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
+            [clojure.string :as str]
+            [dao.stream.ringbuffer :as ringbuffer]
+            [datomworld.demo.responsive :as responsive]
             [reagent.core :as r]
             [yang.clojure :as yang]
             [yang.php :as php-comp]
             [yang.python :as py]
             [yin.demo.utils :as demo.utils]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as walker]
-            [yin.vm.register :as register]
-            [yin.vm.semantic :as semantic]
-            [yin.vm.stack :as stack]))
+            [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.module :as module]))
 
 
 (def ^:private pretty-print demo.utils/pretty-print)
 
 
-(def highlight-decoration (.mark Decoration #js {:class "cm-highlight-node"}))
+(def default-source
+  "(defn fact [n acc]
+  (if (= n 0)
+    acc
+    (fact (- n 1) (* n acc))))
+
+(fact 10 1)")
 
 
-(def set-highlight (.define StateEffect))
+;; =============================================================================
+;; The composition
+;; =============================================================================
+
+(defn- make-stream
+  "The `:make-stream` this composition hands the VM: one DaoStream v2 ring
+   buffer per call. A nil capacity is the VM's default, not an unbounded
+   stream; v2 has no unbounded mode."
+  [capacity]
+  (ringbuffer/create!
+    {:dao.stream/type ringbuffer/transport-type,
+     ringbuffer/capacity-key (or capacity vm/default-stream-capacity)}))
 
 
-(def highlight-field
-  (.define StateField
-           #js {:create (fn [] (.-none Decoration)),
-                :update (fn [decorations tr]
-                          (let [effects (.-effects tr)]
-                            (reduce (fn [decs effect]
-                                      (if (.is effect set-highlight)
-                                        (let [v (.-value effect)]
-                                          (if (and (vector? v) (= 2 (count v)))
-                                            (let [[start end] v]
-                                              (try (.of RangeSet
-                                                        #js
-                                                        [(.range
-                                                           highlight-decoration
-                                                           start
-                                                           end)])
-                                                   (catch js/Error _ decs)))
-                                            (.-none Decoration)))
-                                        decs))
-                                    decorations
-                                    effects))),
-                :provide (fn [f] (.from (.-decorations EditorView) f))}))
+(defn- make-vm
+  []
+  (ast-walker/create-vm
+    {:primitives vm/primitives,
+     :modules (module/register-stream-module (module/default-registry)),
+     :make-stream make-stream}))
 
 
-(def card-order [:source :walker :semantic :register :stack :query])
-
-
-(def layout-style-options
-  [{:id :circuit, :label "Circuit Board"} {:id :circular, :label "Circular"}])
-
-
-(def layout-pairs
-  (vec (for [i (range (count card-order))
-             j (range (inc i) (count card-order))]
-         [(nth card-order i) (nth card-order j)])))
-
-
-(defn- clamp
-  [n low high]
-  (if (< high low)
-    low
-    (-> n
-        (max low)
-        (min high))))
-
-
-(defn- rounded
-  [n]
-  (js/Math.round n))
-
-
-(defn- compact-layout
-  [width height]
-  (let [padding-x 16
-        top 80
-        gap 20
-        card-w (-> (- width (* 2 padding-x))
-                   (clamp 280 720)
-                   rounded)
-        can-two-cols? (>= width (+ (* 2 card-w) (* 3 padding-x)))
-        x-single (rounded (clamp (/ (- width card-w) 2)
-                                 padding-x
-                                 (- width card-w padding-x)))
-        x-left (if can-two-cols? padding-x x-single)
-        x-right (if can-two-cols? (- width card-w padding-x) x-single)
-        row-h (-> (/ (- height 180) 3)
-                  (clamp 230 340)
-                  rounded)
-        heights {:source (+ row-h 20),
-                 :walker (+ row-h 20),
-                 :semantic row-h,
-                 :register row-h,
-                 :stack row-h,
-                 :query row-h}
-        x-by-id {:source x-left,
-                 :walker x-right,
-                 :semantic x-left,
-                 :register x-right,
-                 :stack x-left,
-                 :query x-right}]
-    (loop [ids card-order
-           y top
-           acc {}]
-      (if-let [id (first ids)]
-        (let [h (get heights id row-h)]
-          (recur (rest ids)
-                 (+ y h gap)
-                 (assoc acc
-                        id {:x (get x-by-id id x-left), :y y, :w card-w, :h h})))
-        acc))))
-
-
-(defn- card-size-profile
-  [width height]
-  (let [main-w (-> (/ width 4.4)
-                   (clamp 280 390)
-                   rounded)
-        side-w (-> (/ width 5.2)
-                   (clamp 250 340)
-                   rounded)
-        main-h (-> (/ height 2.65)
-                   (clamp 290 430)
-                   rounded)
-        side-h (-> (/ height 3.25)
-                   (clamp 230 330)
-                   rounded)]
-    {:source {:w main-w, :h main-h},
-     :walker {:w main-w, :h main-h},
-     :semantic {:w main-w, :h main-h},
-     :register {:w side-w, :h side-h},
-     :stack {:w side-w, :h side-h},
-     :query {:w side-w, :h side-h}}))
-
-
-(defn- style-anchors
-  [layout-style]
-  (case layout-style
-    :circular {:source [0.23 0.48],
-               :walker [0.5 0.16],
-               :semantic [0.56 0.5],
-               :register [0.82 0.28],
-               :stack [0.78 0.72],
-               :query [0.36 0.82]}
-    ;; Default to a circuit-board flow with explicit wire channels.
-    {:source [0.14 0.31],
-     :walker [0.57 0.16],
-     :semantic [0.5 0.57],
-     :register [0.87 0.26],
-     :stack [0.85 0.74],
-     :query [0.19 0.79]}))
-
-
-(defn- overlap-deltas
-  [a b gap]
-  (let [ax (+ (:x a) (/ (:w a) 2))
-        ay (+ (:y a) (/ (:h a) 2))
-        bx (+ (:x b) (/ (:w b) 2))
-        by (+ (:y b) (/ (:h b) 2))
-        dx (- ax bx)
-        dy (- ay by)
-        req-x (+ (/ (+ (:w a) (:w b)) 2) gap)
-        req-y (+ (/ (+ (:h a) (:h b)) 2) gap)
-        overlap-x (- req-x (js/Math.abs dx))
-        overlap-y (- req-y (js/Math.abs dy))]
-    (when (and (> overlap-x 0) (> overlap-y 0))
-      {:dx dx, :dy dy, :overlap-x overlap-x, :overlap-y overlap-y})))
-
-
-(defn- normalize-layout-bounds
-  [positions]
-  (reduce-kv (fn [acc id p]
-               (assoc acc
-                      id (-> p
-                             (update :x #(rounded (max 24 %)))
-                             (update :y #(rounded (max 84 %))))))
-             {}
-             positions))
-
-
-(defn- separate-overlap
-  [positions [id-a id-b] gap]
-  (let [a (get positions id-a)
-        b (get positions id-b)]
-    (if-let [{:keys [dx dy overlap-x overlap-y]}
-             (and a b (overlap-deltas a b gap))]
-      (let [move-x? (< overlap-x overlap-y)
-            idx-a (.indexOf card-order id-a)
-            idx-b (.indexOf card-order id-b)
-            dir-x (cond (> dx 0) 1
-                        (< dx 0) -1
-                        (< idx-a idx-b) -1
-                        :else 1)
-            dir-y (cond (> dy 0) 1
-                        (< dy 0) -1
-                        (< idx-a idx-b) -1
-                        :else 1)
-            shift (/ (+ (if move-x? overlap-x overlap-y) 2) 2)
-            [a* b*] (if move-x?
-                      [(update a :x + (* dir-x shift))
-                       (update b :x - (* dir-x shift))]
-                      [(update a :y + (* dir-y shift))
-                       (update b :y - (* dir-y shift))])]
-        (assoc positions
-               id-a a*
-               id-b b*))
-      positions)))
-
-
-(defn- resolve-overlaps
-  [positions gap]
-  (loop [i 0
-         pos (normalize-layout-bounds positions)]
-    (if (>= i 120)
-      (normalize-layout-bounds pos)
-      (let [next-pos (normalize-layout-bounds
-                       (reduce (fn [acc pair] (separate-overlap acc pair gap))
-                               pos
-                               layout-pairs))]
-        (if (= next-pos pos) next-pos (recur (inc i) next-pos))))))
-
-
-(defn responsive-layout
-  [layout-style width height]
-  (let [seed-positions (if (< width 980)
-                         (compact-layout width height)
-                         (let [anchors (style-anchors layout-style)
-                               sizes (card-size-profile width height)
-                               padding-x 24
-                               padding-top 84
-                               padding-bottom 24]
-                           (reduce-kv
-                             (fn [acc id [ax ay]]
-                               (let [{:keys [w h]} (get sizes id)
-                                     x (rounded (clamp (- (* width ax) (/ w 2))
-                                                       padding-x
-                                                       (- width w padding-x)))
-                                     y (rounded (clamp
-                                                  (- (* height ay) (/ h 2))
-                                                  padding-top
-                                                  (- height h padding-bottom)))]
-                                 (assoc acc id {:x x, :y y, :w w, :h h})))
-                             {}
-                             anchors)))
-        min-gap (cond (< width 1100) 24
-                      (< width 1500) 36
-                      :else 52)]
-    (resolve-overlaps seed-positions min-gap)))
-
-
-(def default-positions
-  (let [width (or (some-> js/window
-                          .-innerWidth)
-                  1600)
-        height (or (some-> js/window
-                           .-innerHeight)
-                   1000)]
-    (responsive-layout :circuit width height)))
-
-
-(def default-vm-pane-ratios
-  {:walker {:top 0.55, :middle 0.25, :bottom 0.2},
-   :semantic {:top 0.55, :middle 0.25, :bottom 0.2},
-   :register {:top 0.55, :middle 0.25, :bottom 0.2},
-   :stack {:top 0.55, :middle 0.25, :bottom 0.2}})
+(defn- load-program!
+  "Load one canonical datom batch onto a fresh VM."
+  [datoms]
+  (ast-walker/vm-load-program (make-vm) (vec datoms)))
 
 
 (defonce app-state
-  (r/atom
-    {:source-lang :clojure,
-     :source-code "(+ 4 5)",
-     :ast-as-text "",
-     :compiled-asts nil,
-     :walker-result nil,
-     :semantic-result nil,
-     :datoms nil,
-     :dao-db nil,
-     :root-ids nil,
-     :root-eids nil,
-     :semantic-stats nil,
-     :register-asm nil,
-     :register-datoms nil,
-     :register-root-ids nil,
-     :register-bytecode nil,
-     :register-result nil,
-     :register-source-map nil,
-     :stack-asm nil,
-     :stack-datoms nil,
-     :stack-root-ids nil,
-     :stack-bytecode nil,
-     :stack-result nil,
-     :stack-source-map nil,
-     :query-text "[:find ?e ?type\n :where [?e :yin/type ?type]]",
-     :query-inputs "",
-     :query-result nil,
-     :error nil,
-     :layout-style :circuit,
-     :layout-touched? false,
-     :show-explainer-video? false,
-     :ui-positions default-positions,
-     :z-order (vec (keys default-positions)),
-     :collapsed #{},
-     :drag-state nil,
-     :resize-state nil,
-     :panel-resize-state nil,
-     :vm-pane-ratios default-vm-pane-ratios,
-     :walker-source-map nil,
-     ;; Per-window VM states for stepping execution
-     :vm-states {:register {:state nil, :running false, :expanded false},
-                 :stack {:state nil, :running false, :expanded false},
-                 :semantic {:state nil, :running false, :expanded false},
-                 :walker {:state nil, :running false, :expanded false}}}))
+  (r/atom {:source default-source,
+           :source-lang :clojure,
+           :ast nil,
+           :datom-groups nil,
+           :datoms nil,
+           :walker nil,
+           :walker-running false,
+           :walker-result nil,
+           :steps 0,
+           :error nil}))
 
 
-(when (or (nil? (:ui-positions @app-state))
-          (not (:h (:source (:ui-positions @app-state))))
-          (= 750 (:y (:query (:ui-positions @app-state)))))
-  (swap! app-state assoc :ui-positions default-positions))
+(defonce run-raf-id (atom nil))
 
 
-(when (nil? (:layout-style @app-state))
-  (swap! app-state assoc :layout-style :circuit))
-
-
-(when (nil? (:layout-touched? @app-state))
-  (swap! app-state assoc :layout-touched? false))
-
-
-(when (nil? (:vm-pane-ratios @app-state))
-  (swap! app-state assoc :vm-pane-ratios default-vm-pane-ratios))
-
-
-(defn show-explainer-video!
+(defn stop-run-loop!
   []
-  (swap! app-state assoc :show-explainer-video? true))
+  (when @run-raf-id
+    (js/cancelAnimationFrame @run-raf-id)
+    (reset! run-raf-id nil))
+  (swap! app-state assoc :walker-running false))
 
 
-(defn- normalize-pane-ratios
-  [ratios]
-  (let [total (+ (:top ratios) (:middle ratios) (:bottom ratios))]
-    (if (pos? total)
-      (-> ratios
-          (update :top / total)
-          (update :middle / total)
-          (update :bottom / total))
-      {:top 0.55, :middle 0.25, :bottom 0.2})))
+(defn set-source!
+  [next-source]
+  (stop-run-loop!)
+  (swap! app-state assoc
+         :source next-source
+         :ast nil
+         :datom-groups nil
+         :datoms nil
+         :walker nil
+         :walker-result nil
+         :steps 0
+         :error nil))
 
 
-(defn- clamp-pane-ratios
-  [ratios]
-  (let [min-ratio 0.12
-        top (clamp (or (:top ratios) 0.55) min-ratio (- 1 (* 2 min-ratio)))
-        middle-max (- 1 top min-ratio)
-        middle (clamp (or (:middle ratios) 0.25) min-ratio middle-max)
-        bottom (- 1 top middle)]
-    (normalize-pane-ratios {:top top, :middle middle, :bottom bottom})))
+(defn set-source-lang!
+  [next-lang]
+  (stop-run-loop!)
+  (swap! app-state assoc
+         :source-lang next-lang
+         :ast nil
+         :datom-groups nil
+         :datoms nil
+         :walker nil
+         :walker-result nil
+         :steps 0
+         :error nil))
 
 
-(defn- resize-pane-ratios
-  [ratios divider dy height]
-  (let [{:keys [top middle bottom]} (clamp-pane-ratios ratios)
-        delta (/ dy (max 1 height))]
-    (clamp-pane-ratios
-      (case divider
-        :top-middle
-        {:top (+ top delta), :middle (- middle delta), :bottom bottom}
-        :middle-bottom
-        {:top top, :middle (+ middle delta), :bottom (- bottom delta)}
-        {:top top, :middle middle, :bottom bottom}))))
+(defn compile-source!
+  []
+  (stop-run-loop!)
+  (try (let [source (:source @app-state)
+             lang (:source-lang @app-state)
+             ast (case lang
+                   :clojure (yang/compile-program
+                              (reader/read-string (str "[" source "]")))
+                   :python (py/compile source)
+                   :php (php-comp/compile source))
+             datoms (vec (vm/ast->datoms ast))
+             walker (load-program! datoms)]
+         (swap! app-state assoc
+                :ast ast
+                :datoms datoms
+                :walker walker
+                :walker-running false
+                :walker-result nil
+                :steps 0
+                :error nil))
+       (catch :default e
+         (swap! app-state assoc
+                :error (str "Compile error: " (.-message e))
+                :ast nil
+                :datoms nil
+                :walker nil
+                :walker-running false
+                :walker-result nil))))
 
 
-(defn- start-panel-resize!
-  [e vm-key divider]
-  (.preventDefault e)
-  (.stopPropagation e)
-  (let [ratios (get-in @app-state
-                       [:vm-pane-ratios vm-key]
-                       (get default-vm-pane-ratios vm-key))
-        height (or (get-in @app-state [:ui-positions vm-key :h])
-                   (some-> e
-                           .-currentTarget
-                           .-parentElement
-                           .-clientHeight)
-                   1)]
-    (swap! app-state assoc
-           :panel-resize-state
-           {:vm-key vm-key,
-            :divider divider,
-            :start-y (.-clientY e),
-            :height height,
-            :ratios (clamp-pane-ratios ratios)})))
+(defn reset-walker!
+  []
+  (let [{:keys [datoms]} @app-state]
+    (when (seq datoms)
+      (stop-run-loop!)
+      (swap! app-state assoc
+             :walker (load-program! datoms)
+             :walker-running false
+             :walker-result nil
+             :steps 0
+             :error nil))))
 
 
-(defn- relayout-ui!
-  ([] (relayout-ui! {}))
-  ([{:keys [force? style mark-touched?],
-     :or {force? false, mark-touched? false}}]
-   (let [width (or (some-> js/window
-                           .-innerWidth)
-                   1600)
-         height (or (some-> js/window
-                            .-innerHeight)
-                    1000)]
-     (swap! app-state
-            (fn [state]
-              (let [layout-style (or style (:layout-style state) :circuit)
-                    touched? (boolean (:layout-touched? state))
-                    should-relayout? (or force? (not touched?))
-                    positions (when should-relayout?
-                                (responsive-layout layout-style width height))]
-                (cond-> (assoc state :layout-style layout-style)
-                  positions (assoc :ui-positions positions)
-                  positions (update :z-order
-                                    (fn [z-order]
-                                      (if (and (vector? z-order)
-                                               (= (set z-order) (set card-order)))
-                                        z-order
-                                        card-order)))
-                  mark-touched? (assoc :layout-touched? true))))))))
+(defn- step-state
+  "One step as a pure state transition, shared by `step-walker!` and
+   `run-frame!`'s inner loop."
+  [state]
+  (let [vm (:walker state)]
+    (cond (nil? vm) (assoc state :walker-running false)
+          (vm/halted? vm) (assoc state :walker-running false)
+          :else (try (let [vm' (vm/step vm)]
+                       (assoc state
+                              :walker vm'
+                              :steps (inc (:steps state))
+                              :walker-result (when (vm/halted? vm')
+                                               (vm/value vm'))
+                              :walker-running (not (vm/halted? vm'))
+                              :error nil))
+                     (catch :default e
+                       (assoc state
+                              :walker-running false
+                              :error (str "VM step error: "
+                                          (.-message e))))))))
 
+
+(defn step-walker!
+  []
+  (stop-run-loop!)
+  (swap! app-state step-state))
+
+
+(def steps-per-frame 200)
+
+
+(defn run-frame!
+  []
+  (swap! app-state
+         (fn [state]
+           (loop [i 0
+                  s state]
+             (if (or (>= i steps-per-frame)
+                     (not (:walker-running s))
+                     (:walker-result s))
+               s
+               (recur (inc i) (step-state s))))))
+  (let [running (:walker-running @app-state)]
+    (if running
+      (reset! run-raf-id (js/requestAnimationFrame run-frame!))
+      (reset! run-raf-id nil))))
+
+
+(defn toggle-run!
+  []
+  (let [{:keys [walker walker-running]} @app-state]
+    (cond (nil? walker) nil
+          walker-running (stop-run-loop!)
+          (vm/halted? walker) nil
+          :else (do (swap! app-state assoc :walker-running true :error nil)
+                    (reset! run-raf-id
+                            (js/requestAnimationFrame run-frame!))))))
+
+
+;; =============================================================================
+;; CodeMirror editor
+;; =============================================================================
 
 (defn codemirror-editor
-  [{:keys [value on-change read-only language highlight-range]}]
+  [{:keys [value on-change read-only language]}]
   (let [view-ref (r/atom nil)
         el-ref (atom nil)]
     (r/create-class
-      {:display-name "codemirror-editor",
+      {:display-name "pipeline-v2-codemirror-editor",
        :component-did-mount
-       (fn [_this]
+       (fn [_]
          (when-let [node @el-ref]
-           (let [lang-ext (case language
-                            :python (python)
-                            :php (php #js {:plain true})
-                            (clojure))
-                 theme (.theme EditorView
+           (let [theme (.theme EditorView
                                #js {"&" #js {:height "100%"},
                                     ".cm-scroller" #js {:overflow "auto"}})
+                 lang-ext (case (or language :clojure)
+                            :python (python)
+                            :php (php #js {:plain true})
+                            :clojure (clojure))
                  extensions
-                 (cond-> #js [basicSetup lang-ext oneDark theme
-                              highlight-field]
+                 (cond-> #js [basicSetup lang-ext oneDark theme]
                    read-only (.concat #js [(.of (.-editable EditorView)
                                                 false)])
                    on-change
@@ -465,38 +281,24 @@
                                 (on-change
                                   (.. update -state -doc toString)))))]))
                  state (.create EditorState
-                                #js {:doc value, :extensions extensions})
+                                #js {:doc (or value ""),
+                                     :extensions extensions})
                  view (new EditorView #js {:state state, :parent node})]
-             (when highlight-range
-               (.dispatch view
-                          #js {:effects #js [(.of set-highlight
-                                                  highlight-range)]}))
              (reset! view-ref view)))),
        :component-did-update
-       (fn [this old-argv]
-         (let [{:keys [value highlight-range]} (r/props this)
-               old-highlight-range (:highlight-range (second old-argv))]
+       (fn [this _]
+         (let [{:keys [value]} (r/props this)]
            (when-let [view @view-ref]
-             (let [current-value (.. view -state -doc toString)]
-               (when (not= value current-value)
+             (let [current (.. view -state -doc toString)]
+               (when (not= value current)
                  (.dispatch view
                             #js {:changes #js
                                           {:from 0,
                                            :to (.. view -state -doc -length),
-                                           :insert value}})))
-             (when (not= highlight-range old-highlight-range)
-               (let [effects #js [(.of set-highlight highlight-range)]
-                     effects (if (and highlight-range
-                                      (not= highlight-range
-                                            old-highlight-range))
-                               (.concat effects
-                                        #js [(.scrollIntoView
-                                               EditorView
-                                               (first highlight-range))])
-                               effects)]
-                 (.dispatch view #js {:effects effects})))))),
-       :component-will-unmount (fn [_this]
-                                 (when-let [view @view-ref] (.destroy view))),
+                                           :insert (or value "")}})))))),
+       :component-will-unmount (fn [_]
+                                 (when-let [view @view-ref]
+                                   (.destroy view))),
        :reagent-render
        (fn [{:keys [style]}]
          [:div
@@ -508,373 +310,35 @@
                          style)}])})))
 
 
-(defn add-yin-ids
-  "Recursively add unique :yin/id to every AST node."
-  [ast]
-  (let [id (atom 0)]
-    (walk/postwalk
-      (fn [x] (if (and (map? x) (:type x)) (assoc x :yin/id (swap! id inc)) x))
-      ast)))
+;; =============================================================================
+;; UI
+;; =============================================================================
 
-
-(defn ast->pretty-text
-  [ast]
-  (pretty-print ast))
-
-
-(defn read-ast-forms
-  [state]
-  (let [{:keys [compiled-asts ast-as-text]} state]
-    (or compiled-asts (reader/read-string (str "[" ast-as-text "]")))))
-
-
-(defn set-vm-state!
-  [app-state vm-key state]
-  (swap! app-state assoc-in [:vm-states vm-key :state] state)
-  (swap! app-state assoc-in [:vm-states vm-key :running] false))
-
-
-(defn clear-vm-state!
-  [app-state vm-key]
-  (set-vm-state! app-state vm-key nil))
-
-
-(defn- queue-vm-state
-  "Attach a fresh ingress stream to a VM and queue one or more datom
-   transactions on it. Each element of `txns` is a vector of datoms
-   representing a single program form / transaction."
-  [vm-state txns]
-  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
-        queued-state (assoc vm-state
-                            :in-stream in-stream
-                            :in-cursor {:position 0})]
-    (doseq [tx txns] (ds/append! in-stream (vec tx)))
-    (assoc queued-state :halted? false)))
-
-
-(defn load-stack-state
-  [_root-id datom-groups]
-  (queue-vm-state (stack/create-vm) datom-groups))
-
-
-(defn load-register-state
-  [_root-id datom-groups]
-  (queue-vm-state (register/create-vm) datom-groups))
-
-
-(defn load-semantic-state
-  [_root-id datom-groups]
-  (queue-vm-state (semantic/create-vm) datom-groups))
-
-
-(defn load-walker-state
-  [ast]
-  (queue-vm-state (walker/create-vm) [(vm/ast->datoms ast)]))
-
-
-(defn compile-stack
-  [app-state]
-  (try
-    (let [forms (read-ast-forms @app-state)
-          results (mapv (fn [ast]
-                          (let [datoms (vm/ast->datoms ast)
-                                root-id (apply max (map first datoms))
-                                asm (stack/ast-datoms->asm datoms)
-                                result (stack/assemble asm)]
-                            {:asm asm,
-                             :datoms datoms,
-                             :root-id root-id,
-                             :bytecode (:bytecode result),
-                             :pool (:pool result),
-                             :source-map (:source-map result)}))
-                        forms)
-          last-result (last results)
-          initial-state (when last-result
-                          (load-stack-state (:root-id last-result)
-                                            (mapv :datoms results)))]
-      (swap! app-state assoc
-             :stack-asm (mapv :asm results)
-             :stack-datoms (mapv :datoms results)
-             :stack-root-ids (mapv :root-id results)
-             :stack-bytecode (mapv :bytecode results)
-             :stack-pool (mapv :pool results)
-             :stack-source-map (mapv :source-map results)
-             :error nil)
-      (set-vm-state! app-state :stack initial-state)
-      results)
-    (catch :default e
-      (swap! app-state assoc
-             :error (str "Stack Compile Error: " (.-message e))
-             :stack-asm nil
-             :stack-datoms nil
-             :stack-root-ids nil
-             :stack-bytecode nil)
-      (clear-vm-state! app-state :stack)
-      nil)))
-
-
-(defn reset-stack
-  "Reset stack VM to initial state from canonical datom program."
-  [app-state]
-  (let [datom-groups (:stack-datoms @app-state)
-        root-id (last (:stack-root-ids @app-state))]
-    (when (and (seq datom-groups) root-id)
-      (let [initial-state (load-stack-state root-id datom-groups)]
-        (set-vm-state! app-state :stack initial-state)
-        (swap! app-state assoc :stack-result nil)))))
-
-
-(def steps-per-frame 100)
-
-
-(defn step-vm
-  "Execute one instruction in the given VM."
-  [app-state vm-key result-key]
-  (let [state (get-in @app-state [:vm-states vm-key :state])]
-    (when (and state (not (vm/halted? state)))
-      (try (let [new-state (vm/step state)]
-             (swap! app-state assoc-in [:vm-states vm-key :state] new-state)
-             (when (vm/halted? new-state)
-               (swap! app-state assoc result-key (vm/value new-state))
-               (swap! app-state assoc-in [:vm-states vm-key :running] false)))
-           (catch js/Error e
-             (swap! app-state assoc
-                    :error
-                    (str (name vm-key) " VM Step Error: " (.-message e)))
-             (swap! app-state assoc-in [:vm-states vm-key :running] false))))))
-
-
-(defn run-vm-loop
-  "Auto-step loop for the given VM using requestAnimationFrame."
-  [app-state vm-key result-key]
-  (let [running (get-in @app-state [:vm-states vm-key :running])
-        initial-state (get-in @app-state [:vm-states vm-key :state])]
-    (when (and running initial-state (not (vm/halted? initial-state)))
-      (try (loop [i 0
-                  state initial-state]
-             (if (or (>= i steps-per-frame) (vm/halted? state))
-               (do (swap! app-state assoc-in [:vm-states vm-key :state] state)
-                   (if (vm/halted? state)
-                     (do (swap! app-state assoc result-key (vm/value state))
-                         (swap! app-state assoc-in
-                                [:vm-states vm-key :running]
-                                false))
-                     (js/requestAnimationFrame
-                       #(run-vm-loop app-state vm-key result-key))))
-               (recur (inc i) (vm/step state))))
-           (catch js/Error e
-             (swap! app-state assoc
-                    :error
-                    (str (name vm-key) " VM Error: " (.-message e)))
-             (swap! app-state assoc-in [:vm-states vm-key :running] false))))))
-
-
-(defn toggle-run-vm
-  "Toggle auto-stepping for the given VM."
-  [app-state vm-key result-key]
-  (let [running (get-in @app-state [:vm-states vm-key :running])]
-    (swap! app-state assoc-in [:vm-states vm-key :running] (not running))
-    (when (not running) (run-vm-loop app-state vm-key result-key))))
-
-
-(defn reset-walker
-  "Reset AST Walker VM to initial state."
-  [app-state]
-  (let [input (:ast-as-text @app-state)]
-    (try (let [forms (reader/read-string (str "[" input "]"))
-               last-form (last forms)
-               ast-with-ids (add-yin-ids last-form)
-               text (ast->pretty-text ast-with-ids)
-               vm-loaded (load-walker-state ast-with-ids)]
-           (swap! app-state assoc :ast-as-text text :walker-source-map nil)
-           (set-vm-state! app-state :walker vm-loaded)
-           (swap! app-state assoc :walker-result nil))
-         (catch js/Error e
-           (.error js/console "AST Walker Reset Error:" e)
-           (swap! app-state assoc
-                  :error
-                  (str "AST Walker Reset Error: " (.-message e)))))))
-
-
-(defn compile-ast
-  [app-state]
-  (try
-    (let [forms (read-ast-forms @app-state)
-          all-datom-groups (mapv vm/ast->datoms forms)
-          all-datoms-before (vec (mapcat identity all-datom-groups))
-          root-ids (mapv (fn [dg] (apply max (map first dg))) all-datom-groups)
-          tx-data (vm/datoms->tx-data all-datoms-before)
-          ast-db (semantic/create-ast-db)
-          max-schema-eid (apply max (map first ast-db))
-          {:keys [tempids datoms]} (transact/prepare-tx
-                                     {:base-datoms ast-db,
-                                      :next-eid (max datom/first-user-id
-                                                     (inc max-schema-eid)),
-                                      :tx-data tx-data})
-          dao-db (into ast-db datoms)
-          all-datoms (vec (query/current-state-seq dao-db))
-          root-eids (mapv #(get tempids % %) root-ids)
-          stats {:total-datoms (count all-datoms),
-                 :lambdas (count (semantic/find-lambdas dao-db)),
-                 :applications (count (semantic/find-applications dao-db)),
-                 :variables (count (semantic/find-variables dao-db)),
-                 :literals (count (semantic/find-by-type dao-db :literal))}
-          last-root (last root-eids)
-          initial-state (when last-root
-                          (load-semantic-state last-root all-datom-groups))]
-      (swap! app-state assoc
-             :datoms all-datoms
-             :datom-groups all-datom-groups
-             :dao-db dao-db
-             :root-ids root-ids
-             :root-eids root-eids
-             :semantic-stats stats
-             :error nil)
-      (set-vm-state! app-state :semantic initial-state)
-      all-datoms)
-    (catch :default e
-      (swap! app-state assoc
-             :error (.-message e)
-             :datoms nil
-             :datom-groups nil
-             :dao-db nil
-             :root-ids nil
-             :semantic-stats nil)
-      (clear-vm-state! app-state :semantic)
-      nil)))
-
-
-(defn reset-semantic
-  "Reset semantic VM to initial state."
-  [app-state]
-  (let [datom-groups (:datom-groups @app-state)
-        root-ids (or (:root-eids @app-state) (:root-ids @app-state))
-        last-root (last root-ids)]
-    (when (and (seq datom-groups) last-root)
-      (let [initial-state (load-semantic-state last-root datom-groups)]
-        (set-vm-state! app-state :semantic initial-state)
-        (swap! app-state assoc :semantic-result nil)))))
-
-
-(defn- parse-in-bindings
-  "Extract extra binding symbols from a query's :in clause (everything after $)."
-  [query]
-  (let [pairs (partition 2 1 query)
-        in-idx (some (fn [[a b]] (when (= a :in) b)) pairs)]
-    (when in-idx
-      (let [in-start (.indexOf query :in)
-            ;; Collect symbols after :in until next keyword or end
-            after-in (drop (inc in-start) query)
-            bindings (take-while #(not (keyword? %)) after-in)]
-        ;; Drop the implicit $ binding
-        (filter #(not= % '$) bindings)))))
-
-
-(defn run-query
-  [app-state]
-  (let [db (:dao-db @app-state)]
-    (if (nil? db)
-      (swap! app-state assoc
-             :error "No database. Click \"Compile ->\" first."
-             :query-result nil)
-      (try (let [query (reader/read-string (:query-text @app-state))
-                 extra-bindings (parse-in-bindings query)
-                 extra-vals (when (seq extra-bindings)
-                              (let [input-text (or (:query-inputs @app-state)
-                                                   "")]
-                                (reader/read-string (str "[" input-text "]"))))
-                 source (query/current (query/relation db))
-                 result (query/collect
-                          (apply query/q query source (or extra-vals [])))]
-             (swap! app-state assoc :query-result result :error nil))
-           (catch js/Error e
-             (swap! app-state assoc
-                    :error (str "Query Error: " (.-message e))
-                    :query-result nil))))))
-
-
-(defn compile-register
-  [app-state]
-  (try
-    (let [forms (read-ast-forms @app-state)
-          results (mapv (fn [ast]
-                          (let [datoms (vm/ast->datoms ast)
-                                root-id (apply max (map first datoms))
-                                {:keys [asm reg-count]}
-                                (register/ast-datoms->asm datoms)
-                                result (register/assemble asm)]
-                            {:asm asm,
-                             :datoms datoms,
-                             :root-id root-id,
-                             :reg-count reg-count,
-                             :bytecode (:bytecode result),
-                             :pool (:pool result),
-                             :source-map (:source-map result)}))
-                        forms)
-          last-result (last results)
-          initial-state (when last-result
-                          (load-register-state (:root-id last-result)
-                                               (mapv :datoms results)))]
-      (swap! app-state assoc
-             :register-asm (mapv :asm results)
-             :register-datoms (mapv :datoms results)
-             :register-root-ids (mapv :root-id results)
-             :register-bytecode (mapv :bytecode results)
-             :register-pool (mapv :pool results)
-             :register-reg-counts (mapv :reg-count results)
-             :register-source-map (mapv :source-map results)
-             :error nil)
-      (set-vm-state! app-state :register initial-state)
-      results)
-    (catch :default e
-      (swap! app-state assoc
-             :error (str "Register Compile Error: " (.-message e))
-             :register-asm nil
-             :register-datoms nil
-             :register-root-ids nil
-             :register-bytecode nil)
-      (clear-vm-state! app-state :register)
-      nil)))
-
-
-(defn reset-register
-  "Reset register VM to initial state from canonical datom program."
-  [app-state]
-  (let [datom-groups (:register-datoms @app-state)
-        root-id (last (:register-root-ids @app-state))
-        state (get-in @app-state [:vm-states :register :state])]
-    (when (and (seq datom-groups) root-id)
-      (let [initial-state (if (and state (satisfies? vm/IVM state))
-                            (vm/reset state)
-                            (load-register-state root-id datom-groups))]
-        (set-vm-state! app-state :register initial-state)
-        (swap! app-state assoc :register-result nil)))))
-
-
-(defn compile-source
-  [app-state]
-  (let [input (:source-code @app-state)
-        lang (:source-lang @app-state)]
-    (try (let [asts (case lang
-                      :clojure (let [forms (reader/read-string
-                                             (str "[" input "]"))]
-                                 [(yang/compile-program forms)])
-                      :python (let [ast (py/compile input)] [ast])
-                      :php (let [ast (php-comp/compile input)] [ast]))
-               last-ast (last asts)
-               ast-with-ids (add-yin-ids last-ast)
-               text (ast->pretty-text ast-with-ids)]
-           (swap! app-state assoc
-                  :ast-as-text text
-                  :compiled-asts asts
-                  :walker-source-map nil
-                  :error nil)
-           (set-vm-state! app-state :walker (load-walker-state ast-with-ids))
-           (swap! app-state assoc :walker-result nil))
-         (catch :default e
-           (swap! app-state assoc
-                  :error (str "Compile Error: " (.-message e))
-                  :compiled-asts nil)))))
+(defn- card
+  [title subtitle body]
+  [:div
+   {:style {:background "#0e1328",
+            :border "1px solid #2d3b55",
+            :box-shadow "0 10px 25px rgba(0,0,0,0.5)",
+            :display "flex",
+            :flex-direction "column",
+            :min-height "0"}}
+   [:div
+    {:style {:background "#151b33",
+             :padding "8px 10px",
+             :border-bottom "1px solid #2d3b55",
+             :display "flex",
+             :flex-direction "column",
+             :gap "2px"}}
+    [:strong {:style {:color "#f1f5ff", :font-size "13px"}} title]
+    [:span {:style {:color "#8b949e", :font-size "11px"}} subtitle]]
+   [:div
+    {:style {:padding "10px",
+             :display "flex",
+             :flex-direction "column",
+             :gap "8px",
+             :flex "1",
+             :min-height "0"}} body]])
 
 
 (def code-examples
@@ -919,7 +383,7 @@
     "function fib($n) {\n  if ($n < 2) {\n    return $n;\n  } else {\n    return fib($n - 1) + fib($n - 2);\n  }\n}\nfib(7);"}])
 
 
-(defn dropdown-menu
+(defn- dropdown-menu
   [_items _on-select]
   (let [open? (r/atom false)]
     (fn [items on-select]
@@ -962,895 +426,218 @@
              name])])])))
 
 
-(defn hamburger-menu
-  [app-state]
-  [dropdown-menu code-examples
-   (fn [ex]
-     (swap! app-state assoc :source-code (:code ex) :source-lang (:lang ex)))])
-
-
-(def query-examples
-  [{:name "All node types",
-    :query "[:find ?e ?type\n :where [?e :yin/type ?type]]"}
-   {:name "Find literals",
-    :query
-    "[:find ?e ?v\n :where\n [?e :yin/type :literal]\n [?e :yin/value ?v]]"}
-   {:name "Find variables",
-    :query
-    "[:find ?e ?name\n :where\n [?e :yin/type :variable]\n [?e :yin/name ?name]]"}
-   {:name "Find lambdas",
-    :query
-    "[:find ?e ?params\n :where\n [?e :yin/type :lambda]\n [?e :yin/params ?params]]"}
-   {:name "Find applications",
-    :query
-    "[:find ?e ?op\n :where\n [?e :yin/type :application]\n [?e :yin/operator ?op]]"}
-   {:name "Find conditionals", :query "[:find ?e\n :where [?e :yin/type :if]]"}
-   {:name "All attributes for entity",
-    :query "[:find ?e ?a ?v\n :where [?e ?a ?v]]"}
-   {:name "Lambda body structure",
-    :query
-    "[:find ?lam ?body ?body-type\n :where\n [?lam :yin/type :lambda]\n [?lam :yin/body ?body]\n [?body :yin/type ?body-type]]"}
-   {:name "AST depth (app nesting)",
-    :query
-    "[:find ?app ?op-type\n :where\n [?app :yin/type :application]\n [?app :yin/operator ?op]\n [?op :yin/type ?op-type]]"}
-   {:name "Leaf nodes (no children)",
-    :query
-    "[:find ?e ?type\n :where\n [?e :yin/type ?type]\n (not [?e :yin/body _])\n (not [?e :yin/operator _])\n (not [?e :yin/test _])]"}
-   {:name "Nested applications",
-    :query
-    "[:find ?outer ?inner\n :where\n [?outer :yin/type :application]\n [?outer :yin/operands ?inner]\n [?inner :yin/type :application]]"}
-   {:name "If-branch types",
-    :query
-    "[:find ?if ?cons-type ?alt-type\n :where\n [?if :yin/type :if]\n [?if :yin/consequent ?cons]\n [?cons :yin/type ?cons-type]\n [?if :yin/alternate ?alt]\n [?alt :yin/type ?alt-type]]"}
-   {:name "Lambda call sites",
-    :query
-    "[:find ?app ?lam\n :where\n [?app :yin/type :application]\n [?app :yin/operator ?lam]\n [?lam :yin/type :lambda]]"}
-   {:name "Entity count by type",
-    :query "[:find ?type (count ?e)\n :where [?e :yin/type ?type]]"}])
-
-
-(defn query-menu
-  [app-state]
-  [dropdown-menu query-examples
-   (fn [ex] (swap! app-state assoc :query-text (:query ex)))])
-
-
-(defn layout-controls
-  [app-state]
-  (let [layout-style (:layout-style @app-state)]
-    [:div
-     {:style {:display "flex",
-              :align-items "center",
-              :gap "8px",
-              :padding "6px 8px",
-              :background "rgba(14,19,40,0.9)",
-              :border "1px solid #2d3b55",
-              :border-radius "6px",
-              :z-index "140"}}
-     [:span {:style {:font-size "12px", :color "#8b949e"}} "Layout"]
-     [:select
-      {:value (name layout-style),
-       :on-change (fn [e]
-                    (let [next-style (keyword (.. e -target -value))]
-                      (relayout-ui! {:force? true,
-                                     :style next-style,
-                                     :mark-touched? true}))),
-       :style {:background "#0e1328",
-               :color "#c5c6c7",
-               :border "1px solid #2d3b55",
-               :font-size "12px",
-               :padding "2px 4px"}}
-      (for [{:keys [id label]} layout-style-options]
-        ^{:key (name id)} [:option {:value (name id)} label])]]))
-
-
-(defn vm-control-buttons
-  "Render Step/Run/Reset buttons for a VM."
-  [app-state {:keys [vm-key step-fn toggle-run-fn reset-fn]}]
-  (let [vm-state (get-in @app-state [:vm-states vm-key])
-        running (:running vm-state)
-        state (:state vm-state)
-        halted (when state
-                 (try (if (satisfies? vm/IVM state)
-                        (vm/halted? state)
-                        (or (:halted? state) false))
-                      (catch js/Error _ (or (:halted? state) false))))]
-    [:div {:style {:display "flex", :gap "5px", :margin-bottom "4px"}}
-     [:button
-      {:on-click step-fn,
-       :disabled (or running halted (nil? state)),
-       :style
-       {:background (if (or running halted (nil? state)) "#333" "#1f6feb"),
-        :color "#fff",
-        :border "none",
-        :padding "5px 10px",
-        :border-radius "4px",
-        :cursor (if (or running halted (nil? state)) "not-allowed" "pointer"),
-        :font-size "12px"}} "Step"]
-     [:button
-      {:on-click toggle-run-fn,
-       :disabled (or halted (nil? state)),
-       :style {:background (cond (or halted (nil? state)) "#333"
-                                 running "#da3633"
-                                 :else "#238636"),
-               :color "#fff",
-               :border "none",
-               :padding "5px 10px",
-               :border-radius "4px",
-               :cursor (if (or halted (nil? state)) "not-allowed" "pointer"),
-               :font-size "12px"}} (if running "Pause" "Run")]
-     [:button
-      {:on-click reset-fn,
-       :disabled (nil? state),
-       :style {:background (if (nil? state) "#333" "#6e7681"),
-               :color "#fff",
-               :border "none",
-               :padding "5px 10px",
-               :border-radius "4px",
-               :cursor (if (nil? state) "not-allowed" "pointer"),
-               :font-size "12px"}} "Reset"]]))
-
-
-(defn vm-state-display
-  "Common VM state display. Takes vm-key and three render fns:
-   - summary-fn:  (fn [state] data-or-nil) - collapsed editor content
-   - expanded-fn: (fn [state] data-or-nil) - expanded editor content"
-  [app-state codemirror-editor {:keys [vm-key summary-fn expanded-fn]}]
-  (let [vm-state (get-in @app-state [:vm-states vm-key])
-        state (:state vm-state)
-        expanded (:expanded vm-state)]
-    (when state
-      (let [display-data (or (when (and expanded expanded-fn)
-                               (expanded-fn state))
-                             (when summary-fn (summary-fn state))
-                             state)]
-        [:div
-         {:style {:padding "5px",
-                  :background "#0d1117",
-                  :border "1px solid #30363d",
-                  :display "flex",
-                  :flex-direction "column",
-                  :overflow "hidden",
-                  :height "100%",
-                  :min-height "0"}}
-         [:div
-          {:style {:display "flex",
-                   :justify-content "flex-end",
-                   :align-items "center"}}
-          [:button
-           {:on-click
-            #(swap! app-state update-in [:vm-states vm-key :expanded] not),
-            :style {:background "none",
-                    :border "none",
-                    :color "#58a6ff",
-                    :cursor "pointer",
-                    :font-size "10px"}} (if expanded "Collapse" "Expand")]]
-         [codemirror-editor
-          {:value (pretty-print display-data),
-           :read-only true,
-           :style {:flex "1", :min-height "0", :margin-top "5px"}}]]))))
-
-
-(defn vm-result-editor
-  [codemirror-editor value show-result?]
-  [:div
-   {:style {:background "#0d1117",
-            :padding "4px",
-            :border "1px solid #30363d",
-            :display "flex",
-            :flex-direction "column",
-            :overflow "hidden",
-            :height "100%",
-            :min-height "0"}}
-   [:strong {:style {:margin-bottom "3px", :font-size "11px"}} "Result:"]
-   [codemirror-editor
-    {:value (if show-result? (pretty-print value) ""),
-     :read-only true,
-     :style {:flex "1", :min-height "0"}}]])
-
-
-(defn vm-divider
-  [vm-key divider]
-  [:div
-   {:style {:height "8px",
-            :cursor "ns-resize",
-            :background "#121a30",
-            :border-top "1px solid #2d3b55",
-            :border-bottom "1px solid #2d3b55"},
-    :on-mouse-down #(start-panel-resize! % vm-key divider)}])
-
-
-(defn vm-split-layout
-  [vm-key top-content middle-content bottom-content]
-  (let [ratios (get-in @app-state
-                       [:vm-pane-ratios vm-key]
-                       (get default-vm-pane-ratios vm-key))
-        {:keys [top middle bottom]} (clamp-pane-ratios ratios)]
-    [:div
-     {:style {:display "grid",
-              :grid-template-rows
-              (str top "fr 8px " middle "fr 8px " bottom "fr"),
-              :gap "0",
-              :flex "1",
-              :min-height "0",
-              :overflow "hidden"}}
-     [:div {:style {:min-height "0", :overflow "hidden"}} top-content]
-     [vm-divider vm-key :top-middle]
-     [:div {:style {:min-height "0", :overflow "hidden"}} middle-content]
-     [vm-divider vm-key :middle-bottom]
-     [:div {:style {:min-height "0", :overflow "hidden"}} bottom-content]]))
-
-
-(defn bring-to-front!
-  [id]
-  (swap! app-state update
-         :z-order
-         (fn [order] (conj (vec (remove #(= % id) order)) id))))
-
-
-(defn draggable-card
-  [id title content]
-  (let [positions (r/cursor app-state [:ui-positions])
-        z-order (r/cursor app-state [:z-order])
-        collapsed-state (r/cursor app-state [:collapsed])
-        drag-state (r/cursor app-state [:drag-state])
-        resize-state (r/cursor app-state [:resize-state])
-        pos (get @positions id)
-        collapsed? (contains? @collapsed-state id)
-        base-z (or (some-> @z-order
-                           (.indexOf id)
-                           (+ 10))
-                   10)
-        z-index (cond (= (:id @drag-state) id) 1000
-                      (= (:id @resize-state) id) 1000
-                      :else base-z)]
-    [:div
-     {:on-mouse-down #(bring-to-front! id),
-      :style {:position "absolute",
-              :left (:x pos),
-              :top (:y pos),
-              :width (:w pos),
-              :height (if collapsed? "auto" (:h pos)),
-              :min-height (if collapsed? "auto" "200px"),
-              :background "#0e1328",
-              :border "1px solid #2d3b55",
-              :box-shadow "0 10px 25px rgba(0,0,0,0.5)",
-              :z-index z-index,
-              :color "#c5c6c7",
-              :display "flex",
-              :flex-direction "column"}}
-     [:div
-      {:style {:background "#151b33",
-               :padding "5px 10px",
-               :cursor "move",
-               :border-bottom "1px solid #2d3b55",
-               :font-weight "bold",
-               :color "#f1f5ff",
-               :user-select "none",
-               :display "flex",
-               :justify-content "space-between",
-               :align-items "center"},
-       :on-mouse-down (fn [e]
-                        (.preventDefault e)
-                        (reset! drag-state {:id id,
-                                            :start-x (.-clientX e),
-                                            :start-y (.-clientY e),
-                                            :initial-pos pos}))} [:span title]
-      [:button
-       {:on-click (fn [e]
-                    (.stopPropagation e)
-                    (swap! collapsed-state (if collapsed? disj conj) id)),
-        :style {:background "none",
-                :border "none",
-                :color "#c5c6c7",
-                :cursor "pointer",
-                :font-size "16px",
-                :line-height "1",
-                :padding "0 5px"}} (if collapsed? "+" "−")]]
-     (when-not collapsed?
-       [:div
-        {:style {:padding "10px",
-                 :flex "1",
-                 :display "flex",
-                 :flex-direction "column",
-                 :overflow "hidden"}} content])
-     ;; Resize handle
-     (when-not collapsed?
-       [:div
-        {:style {:position "absolute",
-                 :bottom "0",
-                 :right "0",
-                 :width "15px",
-                 :height "15px",
-                 :cursor "nwse-resize",
-                 :background
-                 "linear-gradient(135deg, transparent 50%, #2d3b55 50%)"},
-         :on-mouse-down (fn [e]
-                          (.preventDefault e)
-                          (.stopPropagation e)
-                          (reset! resize-state {:id id,
-                                                :start-x (.-clientX e),
-                                                :start-y (.-clientY e),
-                                                :initial-pos pos}))}])]))
-
-
-(defn connection-line
-  [from-id to-id label on-click]
-  (let [positions (:ui-positions @app-state)
-        collapsed (:collapsed @app-state)
-        from (if (map? from-id) from-id (get positions from-id))
-        to (if (map? to-id) to-id (get positions to-id))]
-    (when (and from to)
-      (let [from-is-map? (map? from-id)
-            to-is-map? (map? to-id)
-            from-collapsed? (and (not from-is-map?)
-                                 (contains? collapsed from-id))
-            vertical? (and (= from-id :semantic) (= to-id :query))
-            from-h (if from-collapsed? 35 (or (:h from) 0))
-            start-x (cond from-is-map? (:x from)
-                          vertical? (+ (:x from) (/ (:w from) 2))
-                          :else (+ (:x from) (:w from)))
-            start-y (cond from-is-map? (:y from)
-                          vertical? (+ (:y from) from-h)
-                          :else (+ (:y from) (/ from-h 2)))
-            end-x (cond to-is-map? (:x to)
-                        vertical? (+ (:x to) (/ (:w to) 2))
-                        :else (:x to))
-            end-y (cond to-is-map? (:y to)
-                        vertical? (:y to)
-                        :else (+ (:y to) 20))
-            dx (Math/abs (- end-x start-x))
-            dy (Math/abs (- end-y start-y))
-            cp1-x (if vertical? start-x (+ start-x (/ dx 2)))
-            cp1-y (if vertical? (+ start-y (/ dy 2)) start-y)
-            cp2-x (if vertical? end-x (- end-x (/ dx 2)))
-            cp2-y (if vertical? (- end-y (/ dy 2)) end-y)
-            path-d (str "M " start-x
-                        " " start-y
-                        " C " cp1-x
-                        " " cp1-y
-                        ", " cp2-x
-                        " " cp2-y
-                        ", " end-x
-                        " " end-y)
-            mid-x (+ start-x (/ (- end-x start-x) 2))
-            mid-y (+ start-y (/ (- end-y start-y) 2))]
-        [:g
-         [:path {:d path-d, :fill "none", :stroke "#444c56", :stroke-width "2"}]
-         (when-not to-is-map?
-           [:circle {:cx end-x, :cy end-y, :r "4", :fill "#444c56"}])
-         (when (and label on-click)
-           [:foreignObject
-            {:x (- mid-x 40),
-             :y (- mid-y 15),
-             :width "80",
-             :height "30",
-             :style {:pointer-events "auto"}}
-            [:div {:style {:display "flex", :justify-content "center"}}
-             [:button
-              {:on-click on-click,
-               :style {:background "#0e1328",
-                       :border "1px solid #2d3b55",
-                       :border-radius "4px",
-                       :cursor "pointer",
-                       :font-size "12px",
-                       :color "#c5c6c7"}} label]]])]))))
-
-
-(defn handle-mouse-move
-  [e]
-  (let [panel (:panel-resize-state @app-state)
-        drag (:drag-state @app-state)
-        resize (:resize-state @app-state)]
-    (cond
-      panel
-      (let [dy (- (.-clientY e) (:start-y panel))
-            vm-key (:vm-key panel)
-            divider (:divider panel)
-            new-ratios
-            (resize-pane-ratios (:ratios panel) divider dy (:height panel))]
-        (swap! app-state assoc-in [:vm-pane-ratios vm-key] new-ratios))
-      drag (let [dx (- (.-clientX e) (:start-x drag))
-                 dy (- (.-clientY e) (:start-y drag))
-                 new-x (+ (:x (:initial-pos drag)) dx)
-                 new-y (+ (:y (:initial-pos drag)) dy)]
-             (when (or (not= dx 0) (not= dy 0))
-               (swap! app-state assoc :layout-touched? true))
-             (swap! app-state assoc-in [:ui-positions (:id drag) :x] new-x)
-             (swap! app-state assoc-in [:ui-positions (:id drag) :y] new-y))
-      resize
-      (let [dx (- (.-clientX e) (:start-x resize))
-            dy (- (.-clientY e) (:start-y resize))
-            new-w (max 200 (+ (:w (:initial-pos resize)) dx))
-            new-h (max 150 (+ (:h (:initial-pos resize)) dy))]
-        (when (or (not= dx 0) (not= dy 0))
-          (swap! app-state assoc :layout-touched? true))
-        (swap! app-state assoc-in [:ui-positions (:id resize) :w] new-w)
-        (swap! app-state assoc-in [:ui-positions (:id resize) :h] new-h)))))
-
-
-(defn handle-mouse-up
-  [_e]
+(defn- select-example!
+  [{:keys [code lang]}]
+  (stop-run-loop!)
   (swap! app-state assoc
-         :panel-resize-state nil
-         :drag-state nil
-         :resize-state nil))
+         :source code,
+         :source-lang lang,
+         :ast nil,
+         :datom-groups nil,
+         :datoms nil,
+         :walker nil,
+         :walker-result nil,
+         :steps 0,
+         :error nil))
 
 
-(defonce resize-raf-id (atom nil))
+(defn- walker-cesk
+  [vm-state]
+  (when vm-state
+    (let [continuation (vm/continuation vm-state)]
+      {:control (let [c (vm/control vm-state)]
+                  (or (:type c) (when (some? c) :program-root))),
+       :environment (:env vm-state),
+       :store (:store vm-state),
+       :continuation {:depth (count (or continuation [])),
+                      :frames (->> (or continuation [])
+                                   (take 12)
+                                   (mapv (fn [frame]
+                                           {:type (:type frame),
+                                            :node-type (get-in frame
+                                                               [:frame
+                                                                :type])})))},
+       :parked (count (or (:parked vm-state) {})),
+       :ready-queue-count (count (or (:ready-queue vm-state) [])),
+       :wait-set-count (count (or (:wait-set vm-state) [])),
+       :halted? (:halted? vm-state),
+       :blocked? (:blocked? vm-state),
+       :value (:value vm-state)})))
 
 
-(defn handle-window-resize
-  [_e]
-  (when-not @resize-raf-id
-    (reset! resize-raf-id (js/requestAnimationFrame (fn []
-                                                      (reset! resize-raf-id nil)
-                                                      (relayout-ui!))))))
+(defn- datom-listing
+  [datoms]
+  (str/join "\n"
+            (map-indexed (fn [i d] (str i ": " (pr-str d))) datoms)))
 
 
-(defn datom-list-view
-  [datoms active-id]
-  [:div
-   {:style {:height "100%",
-            :min-height "0",
-            :overflow "auto",
-            :font-family "monospace",
-            :font-size "12px",
-            :background "#0e1328",
-            :color "#c5c6c7",
-            :padding "5px"}}
-   (for [[i d] (map-indexed vector datoms)]
-     ^{:key i}
-     [:div
-      {:ref (fn [el]
-              (when (and el (= (first d) active-id))
-                (.scrollIntoView el
-                                 #js {:block "nearest", :behavior "smooth"}))),
-       :style {:background (if (= (first d) active-id) "#264f78" "transparent"),
-               :padding "2px 4px",
-               :border-bottom "1px solid #1e263a"}} (pr-str d)])])
-
-
-(defn instruction-list-view
-  [instructions active-idx]
-  [:div
-   {:style {:height "100%",
-            :min-height "0",
-            :overflow "auto",
-            :font-family "monospace",
-            :font-size "12px",
-            :background "#0e1328",
-            :color "#c5c6c7",
-            :padding "5px"}}
-   (for [[i instr] (map-indexed vector instructions)]
-     ^{:key i}
-     [:div
-      {:ref (fn [el]
-              (when (and el (= i active-idx))
-                (.scrollIntoView el
-                                 #js {:block "nearest", :behavior "smooth"}))),
-       :style {:background (if (= i active-idx) "#264f78" "transparent"),
-               :padding "2px 4px",
-               :border-bottom "1px solid #1e263a"}}
-      (str i ": " (pr-str instr))])])
-
-
-(defn- active-reg-idx
-  []
-  (let [reg-state (get-in @app-state [:vm-states :register :state])
-        reg-control (:control reg-state)
-        reg-map (last (:register-source-map @app-state))]
-    (get reg-map reg-control)))
-
-
-(defn- active-stack-idx
-  []
-  (let [stack-state (get-in @app-state [:vm-states :stack :state])
-        stack-control (:control stack-state)
-        stack-map (last (:stack-source-map @app-state))]
-    (get stack-map stack-control)))
+(defn- ast-text
+  [ast]
+  (if ast (pretty-print ast) "Compile source to view the AST."))
 
 
 (defn main-view
   []
   (r/create-class
-    {:component-did-mount
+    {:display-name "compilation-pipeline-main",
+     :component-did-mount
      (fn []
-       (js/window.addEventListener "mousemove" handle-mouse-move)
-       (js/window.addEventListener "mouseup" handle-mouse-up)
-       (js/window.addEventListener "resize" handle-window-resize)
-       (relayout-ui!)),
-     :component-will-unmount
-     (fn []
-       (js/window.removeEventListener "mousemove" handle-mouse-move)
-       (js/window.removeEventListener "mouseup" handle-mouse-up)
-       (js/window.removeEventListener "resize" handle-window-resize)),
+       (when-not (:datoms @app-state) (compile-source!))),
+     :component-will-unmount (fn [] (stop-run-loop!)),
      :reagent-render
      (fn []
-       (let [asm-vm-state (get-in @app-state [:vm-states :semantic :state])
-             asm-control (:control asm-vm-state)
-             active-asm-id (when (= :node (:type asm-control))
-                             (:id asm-control))
-             reg-state (get-in @app-state [:vm-states :register :state])
-             reg-asm (last (:register-asm @app-state))
-             stack-state (get-in @app-state [:vm-states :stack :state])
-             stack-asm (last (:stack-asm @app-state))
-             active-reg-instr (active-reg-idx)
-             active-stack-instr (active-stack-idx)
-             max-dims (reduce (fn [acc [_ p]]
-                                {:w (max (:w acc) (+ (:x p) (:w p) 100)),
-                                 :h (max (:h acc) (+ (:y p) (:h p) 100))})
-                              {:w 0, :h 0}
-                              (:ui-positions @app-state))
-             width (max js/window.innerWidth (:w max-dims))
-             height (max js/window.innerHeight (:h max-dims))]
+       (let [{:keys [source source-lang ast datoms walker walker-running
+                     walker-result steps error]}
+             @app-state
+             cesk (walker-cesk walker)
+             halted? (when walker (vm/halted? walker))]
          [:div
-          {:style {:width width,
-                   :height height,
-                   :position "relative",
-                   :overflow "auto",
+          {:style {:min-height "100vh",
                    :background "#060817",
-                   :color "#c5c6c7"}}
-          (let [pos (:ui-positions @app-state)
-                src (:source pos)
-                walk (:walker pos)
-                sem (:semantic pos)
-                reg (:register pos)
-                ;; Calculate where the Compile button would be
-                start-x (+ (:x src) (:w src))
-                start-y (+ (:y src) (/ (:h src) 2))
-                end-x (:x walk)
-                end-y (+ (:y walk) 20)
-                fork-point {:x (+ start-x (/ (- end-x start-x) 2)),
-                            :y (+ start-y (/ (- end-y start-y) 2))}
-                ;; Calculate where the Bytecode button would be
-                b-start-x (+ (:x sem) (:w sem))
-                b-start-y (+ (:y sem) (/ (:h sem) 2))
-                b-end-x (:x reg)
-                bytecode-fork-point {:x (+ b-start-x
-                                           (/ (- b-end-x b-start-x) 2)),
-                                     :y b-start-y}]
-            [:svg
-             {:style {:position "absolute",
-                      :top 0,
-                      :left 0,
-                      :width "100%",
-                      :height "100%",
-                      :pointer-events "none",
-                      :z-index 0}}
-             [connection-line :source fork-point "Compile ->"
-              (fn [] (compile-source app-state) (compile-ast app-state))]
-             [connection-line fork-point :walker nil nil]
-             [connection-line fork-point :semantic nil nil]
-             [connection-line :semantic bytecode-fork-point "-> Bytecode"
-              (fn [] (compile-register app-state) (compile-stack app-state))]
-             [connection-line bytecode-fork-point :register nil nil]
-             [connection-line bytecode-fork-point :stack nil nil]
-             #_[connection-line :semantic :query "d/q ->"
-                  (fn [] (run-query app-state))]])
-          [draggable-card :source "Source Code"
+                   :color "#c5c6c7",
+                   :padding "96px 16px 24px",
+                   :display "flex",
+                   :flex-direction "column",
+                   :gap "12px",
+                   :box-sizing "border-box"}}
+          [:div
+           {:style {:display "flex",
+                    :justify-content "space-between",
+                    :align-items "center",
+                    :gap "12px",
+                    :flex-wrap "wrap"}}
+           [:h1 {:style {:margin 0, :font-size "1.4rem", :color "#f1f5ff"}}
+            "Yin VM v2 Compilation Pipeline"]
            [:div
             {:style {:display "flex",
-                     :flex-direction "column",
-                     :flex "1",
-                     :overflow "hidden"}}
-            [:div
-             {:style {:display "flex",
-                      :justify-content "space-between",
-                      :align-items "center",
-                      :margin-bottom "5px"}}
-             [:select
-              {:value (:source-lang @app-state),
-               :on-change (fn [e]
-                            (swap! app-state assoc
-                                   :source-lang
-                                   (keyword (.. e -target -value)))),
-               :style {:background "#0e1328",
-                       :color "#c5c6c7",
-                       :border "1px solid #2d3b55"}}
-              [:option {:value "clojure"} "Clojure"]
-              [:option {:value "python"} "Python"]
-              [:option {:value "php"} "PHP"]] [hamburger-menu app-state]]
-            [codemirror-editor
-             {:key (:source-lang @app-state),
-              :value (:source-code @app-state),
-              :language (:source-lang @app-state),
-              :on-change (fn [v] (swap! app-state assoc :source-code v))}]
-            [:div
-             {:style {:marginTop "10px", :fontSize "0.8em", :color "#8b949e"}}
-             "Select examples from the menu ☰ above."]]]
-          [draggable-card :walker "AST Walker"
-           (let [walker-vm-state (get-in @app-state
-                                         [:vm-states :walker :state])
-                 walker-ctrl (:control walker-vm-state)
-                 walker-id (:yin/id walker-ctrl)
-                 walker-range (get (:walker-source-map @app-state) walker-id)
-                 walker-halted? (and walker-vm-state
-                                     (vm/halted? walker-vm-state))
-                 walker-value (when walker-halted?
-                                (vm/value walker-vm-state))]
-             [vm-split-layout :walker
-              [codemirror-editor
-               {:value (:ast-as-text @app-state),
-                :highlight-range walker-range,
-                :on-change (fn [v]
-                             ;; Keep compiled ASTs when this change is
-                             ;; just a programmatic refresh from
-                             ;; compile-source.
-                             (if (= v (:ast-as-text @app-state))
-                               (swap! app-state assoc :ast-as-text v)
-                               (swap! app-state assoc
-                                      :ast-as-text v
-                                      :compiled-asts nil)))}]
-              [:div
-               {:style {:display "flex",
-                        :flex-direction "column",
-                        :height "100%",
-                        :min-height "0",
-                        :padding-top "4px",
-                        :overflow "hidden"}}
-               [vm-control-buttons app-state
-                {:vm-key :walker,
-                 :step-fn #(step-vm app-state :walker :walker-result),
-                 :toggle-run-fn
-                 #(toggle-run-vm app-state :walker :walker-result),
-                 :reset-fn #(reset-walker app-state)}]
-               [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
-                [vm-state-display app-state codemirror-editor
-                 {:vm-key :walker,
-                  :status-fn
-                  (fn [state]
-                    (cond (vm/halted? state) "HALTED"
-                          (:control state)
-                          (str "Control: "
-                               (or (get-in state [:control :type])
-                                   (pr-str (:control state))))
-                          (seq (vm/continuation state))
-                          (str "Cont: "
-                               (or (:type (first (vm/continuation state)))
-                                   "pending"))
-                          :else "Returning...")),
-                  :summary-fn (fn [state]
-                                (when (not (vm/halted? state))
-                                  (let [ctrl (:control state)]
-                                    (when ctrl {:control ctrl})))),
-                  :expanded-fn (fn [state]
-                                 {:control (:control state),
-                                  :env-keys (vec (keys (:env state))),
-                                  :continuation-depth
-                                  (count (or (vm/continuation state) [])),
-                                  :value (:value state)})}]]]
-              [vm-result-editor codemirror-editor walker-value
-               walker-halted?]])]
-          [draggable-card :semantic "Semantic VM"
-           [vm-split-layout :semantic
-            [datom-list-view (:datoms @app-state) active-asm-id]
-            [:div
-             {:style {:display "flex",
-                      :flex-direction "column",
-                      :height "100%",
-                      :min-height "0",
-                      :padding-top "4px",
-                      :overflow "hidden"}}
-             [vm-control-buttons app-state
-              {:vm-key :semantic,
-               :step-fn #(step-vm app-state :semantic :semantic-result),
-               :toggle-run-fn
-               #(toggle-run-vm app-state :semantic :semantic-result),
-               :reset-fn #(reset-semantic app-state)}]
-             [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
-              [vm-state-display app-state codemirror-editor
-               {:vm-key :semantic,
-                :status-fn (fn [state]
-                             (if (:halted? state)
-                               "HALTED"
-                               (let [ctrl (:control state)]
-                                 (if (= :node (:type ctrl))
-                                   (str "Node: " (:id ctrl))
-                                   (str "Val: " (pr-str (:val ctrl))))))),
-                :summary-fn
-                (fn [state]
-                  (when (not (:halted? state))
-                    (let [ctrl (:control state)
-                          info (if (= :node (:type ctrl))
-                                 (let [attrs (let
-                                               [tx-data (vm/datoms->tx-data
-                                                          (:datoms state))
-                                                ast-db
-                                                (semantic/create-ast-db)
-                                                {:keys [datoms]}
-                                                (transact/prepare-tx
-                                                  {:base-datoms ast-db,
-                                                   :tx-data tx-data})
-                                                dao-db (into ast-db datoms)]
-                                               (query/entity-attrs
-                                                 (query/current
-                                                   (query/relation dao-db))
-                                                 (:id ctrl)))]
-                                   (str (:yin/type attrs)))
-                                 "Returning...")]
-                      {:control ctrl, :info info}))),
-                :expanded-fn (fn [state]
-                               {:control (:control state),
-                                :env-keys (vec (keys (:env state))),
-                                :continuation-depth
-                                (count (or (vm/continuation state) [])),
-                                :value (:value state)})}]]]
-            [vm-result-editor codemirror-editor (:value asm-vm-state)
-             (boolean (and asm-vm-state (:halted? asm-vm-state)))]]]
-          [draggable-card :register "Register VM"
-           [vm-split-layout :register
-            [instruction-list-view reg-asm active-reg-instr]
-            [:div
-             {:style {:display "flex",
-                      :flex-direction "column",
-                      :height "100%",
-                      :min-height "0",
-                      :padding-top "4px",
-                      :overflow "hidden"}}
-             [vm-control-buttons app-state
-              {:vm-key :register,
-               :step-fn #(step-vm app-state :register :register-result),
-               :toggle-run-fn
-               #(toggle-run-vm app-state :register :register-result),
-               :reset-fn #(reset-register app-state)}]
-             [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
-              [vm-state-display app-state codemirror-editor
-               {:vm-key :register,
-                :status-fn (fn [state]
-                             (if (:halted? state)
-                               "HALTED"
-                               (str "control: " (:control state)))),
-                :summary-fn (fn [state]
-                              (let [regs (:regs state)
-                                    active (filter (fn [[_i v]] (some? v))
-                                                   (map-indexed vector regs))]
-                                {:control (:control state),
-                                 :active-regs (into {} (take 4 active))})),
-                :expanded-fn (fn [state]
-                               {:control (:control state),
-                                :regs (:regs state),
-                                :env-keys (vec (keys (:env state))),
-                                :continuation-depth
-                                (count (or (vm/continuation state) [])),
-                                :value (:value state)})}]]]
-            [vm-result-editor codemirror-editor (:value reg-state)
-             (boolean (and reg-state (:halted? reg-state)))]]]
-          [draggable-card :stack "Stack VM"
-           [vm-split-layout :stack
-            [instruction-list-view stack-asm active-stack-instr]
-            [:div
-             {:style {:display "flex",
-                      :flex-direction "column",
-                      :height "100%",
-                      :min-height "0",
-                      :padding-top "4px",
-                      :overflow "hidden"}}
-             [vm-control-buttons app-state
-              {:vm-key :stack,
-               :step-fn #(step-vm app-state :stack :stack-result),
-               :toggle-run-fn #(toggle-run-vm app-state :stack :stack-result),
-               :reset-fn #(reset-stack app-state)}]
-             [:div {:style {:flex "1", :min-height "0", :overflow "hidden"}}
-              [vm-state-display app-state codemirror-editor
-               {:vm-key :stack,
-                :status-fn (fn [state]
-                             (if (:halted? state)
-                               "HALTED"
-                               (str "control: " (:control state)))),
-                :summary-fn (fn [state]
-                              {:control (:control state),
-                               :stack-tail (vec (take-last 3 (:stack state))),
-                               :stack-size (count (:stack state))}),
-                :expanded-fn (fn [state]
-                               {:control (:control state),
-                                :stack (:stack state),
-                                :env-keys (vec (keys (:env state))),
-                                :continuation-depth
-                                (count (or (vm/continuation state) [])),
-                                :value (:value state)})}]]]
-            [vm-result-editor codemirror-editor (:value stack-state)
-             (boolean (and stack-state (:halted? stack-state)))]]]
-          [draggable-card :query "Datalog Query"
-           [:div
-            {:style {:display "flex",
-                     :flex-direction "column",
-                     :flex "1",
-                     :overflow "hidden"}}
-            [:div
-             {:style {:display "flex",
-                      :justify-content "flex-end",
-                      :margin-bottom "5px"}} [query-menu app-state]]
-            [codemirror-editor
-             {:value (:query-text @app-state),
-              :on-change (fn [v] (swap! app-state assoc :query-text v)),
-              :style {:flex "1", :min-height "80px"}}]
-            [:div
-             {:style {:display "flex",
-                      :align-items "center",
-                      :gap "5px",
-                      :margin-top "5px"}}
-             [:span {:style {:font-size "11px", :color "#8b949e"}} ":in"]
-             [:input
-              {:value (:query-inputs @app-state),
-               :placeholder "extra inputs (e.g. 1)",
-               :on-change (fn [e]
-                            (swap! app-state assoc
-                                   :query-inputs
-                                   (.. e -target -value))),
-               :style {:flex "1",
-                       :background "#0a0f1e",
-                       :border "1px solid #2d3b55",
-                       :border-radius "4px",
-                       :color "#c5c6c7",
-                       :font-size "12px",
-                       :font-family "monospace",
-                       :padding "3px 6px",
-                       :outline "none"}}]]
+                     :gap "8px",
+                     :align-items "center",
+                     :flex-wrap "wrap"}}
             [:button
-             {:on-click #(run-query app-state),
-              :style {:marginTop "5px",
-                      :background "#238636",
+             {:on-click compile-source!,
+              :style {:background "#1f6feb",
                       :color "#fff",
                       :border "none",
-                      :padding "5px 10px",
-                      :border-radius "4px",
-                      :cursor "pointer"}} "Run Query"]
-            [codemirror-editor
-             {:value (if-let [result (:query-result @app-state)]
-                       (pretty-print (vec (sort result)))
-                       ""),
-              :read-only true,
-              :style {:flex "1", :min-height "80px", :marginTop "5px"}}]]]
-          (when (:error @app-state)
-            [:div
-             {:style {:position "absolute",
-                      :bottom "10px",
-                      :left "10px",
-                      :right "10px",
-                      :background "rgba(255,0,0,0.2)",
-                      :border "1px solid #da3633",
-                      :padding "10px",
-                      :color "#f85149"}} [:strong "Error: "]
-             (:error @app-state)])
-          (when (:show-explainer-video? @app-state)
-            [:div
-             {:style {:position "fixed",
-                      :inset 0,
-                      :z-index "300",
-                      :background "rgba(6, 8, 23, 0.88)",
-                      :display "flex",
-                      :align-items "center",
-                      :justify-content "center"},
-              :on-click #(swap! app-state assoc :show-explainer-video? false)}
+                      :padding "8px 12px",
+                      :border-radius "5px",
+                      :cursor "pointer",
+                      :font-size "12px"}} "Compile"]
+            [:button
+             {:on-click reset-walker!,
+              :disabled (not (seq datoms)),
+              :style {:background (if (seq datoms) "#6e7681" "#333"),
+                      :color "#fff",
+                      :border "none",
+                      :padding "8px 12px",
+                      :border-radius "5px",
+                      :cursor (if (seq datoms) "pointer" "not-allowed"),
+                      :font-size "12px"}} "Reset"]
+            [:button
+             {:on-click step-walker!,
+              :disabled (or (not (seq datoms)) halted?),
+              :style {:background (if (and (seq datoms) (not halted?))
+                                    "#238636"
+                                    "#333"),
+                      :color "#fff",
+                      :border "none",
+                      :padding "8px 12px",
+                      :border-radius "5px",
+                      :cursor (if (and (seq datoms) (not halted?))
+                                "pointer"
+                                "not-allowed"),
+                      :font-size "12px"}} "Step"]
+            [:button
+             {:on-click toggle-run!,
+              :disabled (or (not (seq datoms)) halted?),
+              :style {:background (cond (not (seq datoms)) "#333"
+                                        halted? "#333"
+                                        walker-running "#da3633"
+                                        :else "#238636"),
+                      :color "#fff",
+                      :border "none",
+                      :padding "8px 12px",
+                      :border-radius "5px",
+                      :cursor (if (and (seq datoms) (not halted?))
+                                "pointer"
+                                "not-allowed"),
+                      :font-size "12px"}}
+             (if walker-running "Pause" "Run")]
+            [:span {:style {:color "#8b949e", :font-size "12px"}}
+             (str steps " steps")]]]
+          [:div
+           {:style {:display "grid",
+                    :grid-template-columns (responsive/auto-fit-grid 320),
+                    :gap "12px",
+                    :flex "1",
+                    :min-height "0"}}
+           [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
+            [card "Source" "CodeMirror editor: Clojure, Python or PHP"
              [:div
-              {:style {:position "relative",
-                       :width "min(960px, 92vw)",
-                       :max-height "90vh",
-                       :background "#060817",
-                       :border "1px solid #2d3b55",
-                       :border-radius "10px",
-                       :padding "12px"},
-               :on-click #(.stopPropagation %)}
-              [:button
-               {:on-click
-                #(swap! app-state assoc :show-explainer-video? false),
-                :style {:position "absolute",
-                        :top "8px",
-                        :right "8px",
-                        :z-index "2",
-                        :background "#0e1328",
-                        :color "#f1f5ff",
-                        :border "1px solid #2d3b55",
-                        :border-radius "4px",
-                        :padding "4px 8px",
-                        :cursor "pointer"}} "Close"]
-              [:video
-               {:src "/The_Performance_Paradox.mp4",
-                :controls true,
-                :autoPlay true,
-                :style {:display "block",
-                        :width "100%",
-                        :height "auto",
-                        :max-height "82vh",
-                        :border-radius "6px"}}]]])]))}))
+              {:style {:display "flex",
+                       :flex-direction "column",
+                       :flex "1",
+                       :min-height "0"}}
+              [:div
+               {:style {:display "flex",
+                        :justify-content "space-between",
+                        :align-items "center",
+                        :margin-bottom "5px"}}
+               [:select
+                {:value (name source-lang),
+                 :on-change (fn [e]
+                              (set-source-lang!
+                                (keyword (.. e -target -value)))),
+                 :style {:background "#0e1328",
+                         :color "#c5c6c7",
+                         :border "1px solid #2d3b55"}}
+                [:option {:value "clojure"} "Clojure"]
+                [:option {:value "python"} "Python"]
+                [:option {:value "php"} "PHP"]]
+               [dropdown-menu code-examples select-example!]]
+              [codemirror-editor
+               {:key source-lang,
+                :value source,
+                :language source-lang,
+                :on-change set-source!,
+                :style {:height "100%"}}]]]]
+           [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
+            [card "AST"
+             "yang.clojure/compile-program"
+             [codemirror-editor
+              {:value (ast-text ast),
+               :read-only true,
+               :style {:height "100%"}}]]]
+           [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
+            [card (str "Canonical Datoms" (when datoms
+                                            (str " (" (count datoms) ")")))
+             "vm/ast->datoms — the v2 program representation"
+             [codemirror-editor
+              {:value (if (seq datoms)
+                        (datom-listing datoms)
+                        "Compile source to view the canonical datoms."),
+               :read-only true,
+               :style {:height "100%"}}]]]
+           [:div {:style {:min-height (responsive/fluid-height 320 50 460)}}
+            [card "ASTWalker VM (v2)"
+             "CESK state, one vm/step at a time"
+             [codemirror-editor
+              {:value (or (some-> cesk pretty-print)
+                          "Compile source to construct the VM."),
+               :read-only true,
+               :style {:height "100%"}}]]]
+           [:div {:style {:min-height (responsive/fluid-height 240 34 320)}}
+            [card "Result"
+             "The value the evaluator computed"
+             [codemirror-editor
+              {:value (cond walker-result (pr-str walker-result)
+                            halted? (str "Halted: " (pr-str (vm/value walker)))
+                            :else "Step or Run to compute a value."),
+               :read-only true,
+               :style {:height "100%"}}]]]]
+          (when error
+            [:div
+             {:style {:background "rgba(255,0,0,0.2)",
+                      :border "1px solid #da3633",
+                      :padding "8px",
+                      :font-size "12px",
+                      :color "#f85149"}} error])]))}))

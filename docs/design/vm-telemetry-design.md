@@ -1,8 +1,18 @@
 # VM Telemetry Plan
 
+> **Status (2026-09-18):** v2 is built. The emit path (`yin.vm.telemetry`:
+> `enabled?`, `install`, `emit-snapshot`, `snapshot-datoms`, the `summarize-*`
+> helpers) landed via
+> [`yin.vm.telemetry.implementation-plan.md`](./yin.vm.telemetry.implementation-plan.md)
+> Phase 1, its test suite Phase 2 — this note replaces the earlier "v2
+> telemetry is owed to its own plan" deferral. The telemetry *viewer* is
+> still not built; see [`telemetry-ui-design.md`](./telemetry-ui-design.md).
+> (2026-09-16: the v1 implementation and its servers were deleted by
+> `yin.vm.v1-retirement.implementation-plan.md` D2.)
+
 ## Summary
 
-Build a new shared CLJC telemetry module that all current CLJC VMs use to publish live VM state as datoms onto an explicit `dao.stream` sink. The first version is opt-in, disabled by default, and covers `ast-walker`, `semantic`, `stack`, `register`, and `wasm`. It emits full state snapshots at runtime boundaries so downstream JIT and GC interpreters can consume one canonical stream.
+Build a new shared CLJC telemetry module that all current CLJC VMs use to publish live VM state as datoms onto an explicit `dao.stream` sink. The first version is opt-in, disabled by default, and covers `ast-walker` and `semantic` — the two CLJC VMs that remain; `stack`, `register`, and `wasm` were deleted with the v1 models (`yin.vm.v2-consumers.implementation-plan.md`) and are not resurrected. It emits full state snapshots at runtime boundaries so downstream JIT and GC interpreters can consume one canonical stream.
 
 ## Key Changes
 
@@ -80,13 +90,18 @@ Build a new shared CLJC telemetry module that all current CLJC VMs use to publis
   - park and resume emit snapshots with correct phase
   - blocked and halt exits from `run-loop` emit terminal snapshots once
 - Per-VM smoke tests
-  - one test each for `ast_walker`, `semantic`, `stack`, `register`, and `wasm`
+  - one test each for `ast_walker` and `semantic` (the live models; `stack`,
+    `register`, and `wasm` are gone)
   - execute a tiny program and assert telemetry stream contains at least `:init`, `:step`, and `:halt`
 - Bridge test
   - `dao.stream.apply` path emits a `:bridge` snapshot and preserves resumed state
 - Serialization tests
   - store summaries never embed raw stream instances or host functions directly
   - cursor and stream summaries preserve IDs and positions needed by analyzers
+
+(2026-09-18: this suite exists — landed as Phase 2 of
+`yin.vm.telemetry.implementation-plan.md`, parameterized over the two live
+models.)
 
 ## Assumptions and Defaults
 

@@ -1,692 +1,746 @@
 (ns yin.vm.macro-test
-  "Tests for the unified compile-time and runtime macro expansion engine.
-   Covers the spec from docs/macros.md."
+  "U16 Phase 1 acceptance (`docs/design/yin.vm.macro.md` §11): the
+   row-native expander over canonical tree packets, its bounded body runner
+   and prelude, tail recomputation, event rows, and the observer's staging
+   and error draining."
   (:require [clojure.test :refer [deftest is testing]]
-            [dao.space.query :as query]
-            [dao.stream.ringbuffer]
+            [dao.jing :as jing]
+            [dao.stream :as stream]
             [yang.clojure :as yang]
             [yin.vm :as vm]
-            [yin.vm.macro :as macro]
-            [yin.vm.register :as register]
-            [yin.vm.semantic :as semantic]
-            [yin.vm.space :as space]
-            [yin.vm.stack :as stack]
-            [yin.vm.test-utils :as vtu]))
-
-
-(defn- make-literal-macro
-  "Create a macro function that always expands to a literal value node.
-   Returns {:datoms [...] :root-eid eid}."
-  [value]
-  (fn [{:keys [fresh-eid]}]
-    (let [eid (fresh-eid)]
-      {:datoms [[eid :yin/type :literal 0 1] [eid :yin/value value 0 1]],
-       :root-eid eid})))
-
-
-(defn- make-identity-macro
-  "Create a macro function that expands to its first argument's EID
-   (passes the first arg through unchanged)."
-  []
-  (fn [{:keys [arg-eids]}] {:datoms [], :root-eid (first arg-eids)}))
-
-
-(defn- make-swap-args-macro
-  "Create a macro that swaps operands of a binary application.
-   Builds (op arg2 arg1) from the input (op arg1 arg2)."
-  []
-  (fn [{:keys [arg-eids fresh-eid]}]
-    ;; arg-eids = [op-eid arg1-eid arg2-eid]
-    (let [[op-eid arg1-eid arg2-eid] arg-eids
-          app-eid (fresh-eid)]
-      {:datoms [[app-eid :yin/type :application 0 1]
-                [app-eid :yin/operator op-eid 0 1]
-                [app-eid :yin/operands [arg2-eid arg1-eid] 0 1]],
-       :root-eid app-eid})))
+            [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.macro :as m]
+            [yin.vm.test-utils :as tu]))
 
 
 ;; =============================================================================
-;; Macro representation: lambda with :yin/macro? true
+;; Batch construction
 ;; =============================================================================
 
-(deftest macro-lambda-schema-test
-  (testing "Lambda with :yin/macro? true and :yin/phase-policy is valid"
-    (let [datoms [[-16 :yin/type :lambda 0 1] [-16 :yin/macro? true 0 1]
-                  [-16 :yin/phase-policy :compile 0 1] [-16 :yin/params [] 0 1]
-                  [-16 :yin/body -17 0 1] [-17 :yin/type :literal 0 1]
-                  [-17 :yin/value 42 0 1]]
-          {:keys [get-attr]} (vm/index-datoms datoms)]
-      (is (= :lambda (get-attr -16 :yin/type)))
-      (is (= true (get-attr -16 :yin/macro?)))
-      (is (= :compile (get-attr -16 :yin/phase-policy))))))
+(defn- c
+  "Compile a Clojure form to the Universal AST (tail marks are recomputed by
+   the expander, so the frontend's are irrelevant here)."
+  [form]
+  (yang/compile form))
 
 
-;; =============================================================================
-;; expand-once: single macro-expand node
-;; =============================================================================
-
-(deftest expand-once-simple-test
-  (testing "Expands a top-level :yin/macro-expand node"
-    ;; Program: (my-macro) → expands to literal 99
-    ;; macro-lambda-eid = -30, call-eid = root
-    (let [macro-lambda-eid -30
-          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
-                       [-16 :yin/operator macro-lambda-eid 0 1]
-                       [-16 :yin/operands [] 0 1]]
-          registry {macro-lambda-eid (make-literal-macro 99)}
-          result (macro/expand-once call-datoms -16 registry)]
-      (is (true? (:expanded? result)))
-      (is (not= -16 (:root-eid result)) "Root should have changed")
-      ;; New root should be the literal 99 node
-      (let [{:keys [get-attr]} (vm/index-datoms (:datoms result)
-                                                {:root-id (:root-eid result)})]
-        (is (= :literal (get-attr (:root-eid result) :yin/type)))
-        (is (= 99 (get-attr (:root-eid result) :yin/value))))))
-  (testing "No expansion when no :yin/macro-expand nodes"
-    (let [datoms [[-16 :yin/type :literal 0 1] [-16 :yin/value 42 0 1]]
-          result (macro/expand-once datoms -16 {})]
-      (is (false? (:expanded? result)))
-      (is (= -16 (:root-eid result)))
-      (is (= datoms (:datoms result))))))
+(defn- call
+  "An application AST of `op` (a symbol) on operand ASTs: how a frontend
+   writes a macro call, which is an ordinary application."
+  [op & operands]
+  {:type :application, :operator {:type :variable, :name op}, :operands (vec operands)})
 
 
-;; =============================================================================
-;; Expansion event entity (provenance)
-;; =============================================================================
-
-(deftest expansion-event-provenance-test
-  (testing "Expansion produces a :macro-expand-event entity"
-    (let [macro-lambda-eid -30
-          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
-                       [-16 :yin/operator macro-lambda-eid 0 1]
-                       [-16 :yin/operands [] 0 1]]
-          registry {macro-lambda-eid (make-literal-macro 7)}
-          {:keys [datoms]} (macro/expand-once call-datoms -16 registry)
-          ;; Find the expansion event entity
-          event-datoms (filter (fn [[_e a v]]
-                                 (and (= a :yin/type)
-                                      (= v :macro-expand-event)))
-                               datoms)
-          event-eid (ffirst event-datoms)
-          {:keys [get-attr]} (vm/index-datoms datoms)]
-      (is (some? event-eid) "An expansion event entity should exist")
-      (is (= :macro-expand-event (get-attr event-eid :yin/type)))
-      (is (= -16 (get-attr event-eid :yin/source-call))
-          "source-call links to original call site")
-      (is (= macro-lambda-eid (get-attr event-eid :yin/macro))
-          "macro links to macro lambda EID")
-      (is (= :compile (get-attr event-eid :yin/phase)))
-      (is (some? (get-attr event-eid :yin/expansion-root))
-          "expansion-root points to the new root node")))
-  (testing "Original call datoms are immutable after expansion"
-    (let [macro-lambda-eid -30
-          original-call-datom [-16 :yin/type :yin/macro-expand 0 1]
-          call-datoms [original-call-datom
-                       [-16 :yin/operator macro-lambda-eid 0 1]
-                       [-16 :yin/operands [] 0 1]]
-          registry {macro-lambda-eid (make-literal-macro 55)}
-          {:keys [datoms]} (macro/expand-once call-datoms -16 registry)]
-      ;; Original datom must still be present and unchanged
-      (is (some #(= % original-call-datom) datoms)
-          "Original :yin/macro-expand datom is immutable and preserved")))
-  (testing "Expansion output datoms carry m = expansion-event-eid"
-    (let [macro-lambda-eid -30
-          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
-                       [-16 :yin/operator macro-lambda-eid 0 1]
-                       [-16 :yin/operands [] 0 1]]
-          registry {macro-lambda-eid (make-literal-macro 3)}
-          {:keys [datoms]} (macro/expand-once call-datoms -16 registry)
-          ;; Find event EID
-          event-eid (ffirst (filter (fn [[_e a v]]
-                                      (and (= a :yin/type)
-                                           (= v :macro-expand-event)))
-                                    datoms))
-          ;; Find expansion output datoms (m = event-eid)
-          exp-output (filter (fn [[_e _a _v _t m]] (= m event-eid)) datoms)]
-      (is (seq exp-output) "Expansion output datoms have m = event-eid"))))
+(def ^:private grammar vm/semantic-bytecode-grammar)
 
 
-;; =============================================================================
-;; Nested expansion: macro inside a larger program
-;; =============================================================================
-
-(deftest nested-expansion-test
-  (testing "Macro inside an application is correctly patched up"
-    ;; Program: (+ (my-macro) 10) → (+ 99 10)
-    (let [macro-lambda-eid -30
-          ;; Build datoms for (+ (my-macro) 10)
-          ;; literal 10
-          lit10-eid -20
-          ;; macro-expand call (my-macro)
-          call-eid -19
-          ;; variable '+'
-          plus-eid -18
-          ;; application (+ (my-macro) 10)
-          app-eid -16
-          datoms [[app-eid :yin/type :application 0 1]
-                  [app-eid :yin/operator plus-eid 0 1]
-                  [app-eid :yin/operands [call-eid lit10-eid] 0 1]
-                  [plus-eid :yin/type :variable 0 1] [plus-eid :yin/name '+ 0 1]
-                  [call-eid :yin/type :yin/macro-expand 0 1]
-                  [call-eid :yin/operator macro-lambda-eid 0 1]
-                  [call-eid :yin/operands [] 0 1]
-                  [lit10-eid :yin/type :literal 0 1]
-                  [lit10-eid :yin/value 10 0 1]]
-          registry {macro-lambda-eid (make-literal-macro 99)}
-          {:keys [datoms root-eid expanded?]}
-          (macro/expand-once datoms app-eid registry)
-          {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
-      (is (true? expanded?))
-      ;; New root should be a new application node
-      (is (= :application (get-attr root-eid :yin/type)))
-      ;; Its operands: one literal (99 from expansion) and the original
-      ;; literal 10
-      (let [operands (get-attr root-eid :yin/operands)]
-        (is (= 2 (count operands)))
-        (let [[first-op second-op] operands]
-          (is (= :literal (get-attr first-op :yin/type)))
-          (is (= 99 (get-attr first-op :yin/value)))
-          (is (= :literal (get-attr second-op :yin/type)))
-          (is (= 10 (get-attr second-op :yin/value))))))))
+(defn- def-paths
+  "Every `(yin/def <literal-symbol> v)` occurrence path of a packet, in the
+   §3.5 declaration order a producer writes: an application whose operator
+   is a lambda visits its operands and then the lambda body; everything else
+   visits child slots in grammar order."
+  [[root rows]]
+  (let [index (into {} (map (fn [r] [(first r) r])) rows)
+        def? (fn [row]
+               (and (= :application (nth row 1))
+                    (= [:variable 'yin/def] (subvec (get index (nth row 2)) 1))
+                    (= 2 (count (nth row 3)))
+                    (let [n (get index (first (nth row 3)))]
+                      (and (= :literal (nth n 1)) (symbol? (nth n 2))))))]
+    (letfn [(walk [a path]
+              (let [row (get index a)
+                    kids (mapcat (fn [i [_ kind]]
+                                   (let [pos (+ i 2)]
+                                     (case kind
+                                       :node [[pos (nth row pos)]]
+                                       :nodes (map-indexed (fn [j x] [[pos j] x]) (nth row pos))
+                                       nil)))
+                                 (range) (get grammar (nth row 1)))]
+                (concat (when (def? row) [path])
+                        (if (and (= :application (nth row 1))
+                                 (= :lambda (nth (get index (nth row 2)) 1)))
+                          (concat (mapcat (fn [[coord x]] (walk x (conj path coord)))
+                                          (rest kids))
+                                  (walk (nth (get index (nth row 2)) 3) (conj path 2 3)))
+                          (mapcat (fn [[coord x]] (walk x (conj path coord))) kids)))))]
+      (vec (walk root [])))))
 
 
-;; =============================================================================
-;; expand-all: fixpoint expansion
-;; =============================================================================
+(defn- batch
+  "A batch of ASTs. `opts`: `:run` (default 0), `:declare` a predicate on
+   `[tree path]` (default: every definition whose value is a lambda — in these
+   tests, `def` of a `fn` is a macro unless stated), and `:order` a function
+   reordering the `[tree path]` occurrences before ordinals are assigned."
+  ([asts] (batch asts {}))
+  ([asts {:keys [run declare order], :or {run 0, order identity}}]
+   (let [trees (mapv m/ast->packet asts)
+         occs (order (vec (for [[j t] (map-indexed vector trees)
+                                p (def-paths t)]
+                            [j p])))
+         lambda-at? (fn [[j p]]
+                      (let [[root rows] (nth trees j)
+                            index (into {} (map (fn [r] [(first r) r])) rows)
+                            a (reduce (fn [a coord]
+                                        (let [row (get index a)]
+                                          (if (vector? coord)
+                                            (nth (nth row (first coord)) (second coord))
+                                            (nth row coord))))
+                                      root p)
+                            value (second (nth (get index a) 3))]
+                        (= :lambda (nth (get index value) 1))))
+         declared? (or declare lambda-at?)]
+     [:yin.program/batch
+      trees
+      run
+      (vec (for [[j p] occs :when (declared? [j p])] [:yin.macro/definition j p]))
+      (vec (map-indexed (fn [h [j p]] [:yin.macro/harvest h j p]) occs))])))
 
-(deftest fixpoint-test
-  (testing "Terminates when no new :yin/macro-expand datoms are emitted"
-    (let [macro-lambda-eid -30
-          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
-                       [-16 :yin/operator macro-lambda-eid 0 1]
-                       [-16 :yin/operands [] 0 1]]
-          registry {macro-lambda-eid (make-literal-macro 42)}
-          {:keys [datoms root-eid]} (macro/expand-all call-datoms -16 registry)
-          {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
-      (is (= :literal (get-attr root-eid :yin/type)))
-      (is (= 42 (get-attr root-eid :yin/value)))))
-  (testing "Recursive macro expansion terminates at fixpoint"
-    ;; First pass: (macro-a) → (macro-b)
-    ;; Second pass: (macro-b) → literal 7
-    (let [macro-a-eid -30
-          macro-b-eid -31
-          ;; macro-a expands to a call to macro-b
-          macro-a-fn (fn [{:keys [fresh-eid]}]
-                       (let [call-eid (fresh-eid)]
-                         {:datoms [[call-eid :yin/type :yin/macro-expand 0 1]
-                                   [call-eid :yin/operator macro-b-eid 0 1]
-                                   [call-eid :yin/operands [] 0 1]],
-                          :root-eid call-eid}))
-          ;; macro-b expands to literal 7
-          macro-b-fn (make-literal-macro 7)
-          registry {macro-a-eid macro-a-fn, macro-b-eid macro-b-fn}
-          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
-                       [-16 :yin/operator macro-a-eid 0 1]
-                       [-16 :yin/operands [] 0 1]]
-          {:keys [datoms root-eid]} (macro/expand-all call-datoms -16 registry)
-          {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
-      (is (= :literal (get-attr root-eid :yin/type)))
-      (is (= 7 (get-attr root-eid :yin/value))))))
+
+(def ^:private token #uuid "00000000-0000-0000-0000-000000000016")
+
+
+(defn- ctx
+  ([] (ctx {}))
+  ([opts] (m/make-ctx (merge {:token token, :source-medium :program-in} opts))))
+
+
+(defn- seeded
+  "A context whose store holds `defn` and the given `name -> fn form` macros."
+  ([] (seeded {} {}))
+  ([macros] (seeded macros {}))
+  ([macros opts]
+   (let [base (ctx opts)
+         defs (for [[nm form] macros] (list 'def nm form))]
+     (assoc base :store
+            (m/seed-store base (cond-> [m/stdlib-forms]
+                                 (seq defs) (conj (batch [(c (cons 'do defs))]))))))))
+
+
+(defn- expected
+  "The canonical packet of an AST as the expander emits it: tails recomputed."
+  [ast]
+  (m/mark-tail (m/ast->packet ast)))
+
+
+(defn- same-tree?
+  [a b]
+  (and (= (first a) (first b)) (= (set (second a)) (set (second b)))))
+
+
+(defn- tags
+  [[_ rows]]
+  (set (map second rows)))
+
+
+(defn- macro-root
+  "The lambda root the store holds for `nm`."
+  [store nm]
+  (first (get store nm)))
+
+
+(defn- lambda-root
+  [form]
+  (first (m/ast->packet (c form))))
+
+
+(def ^:private transformers
+  {'ident '(fn [x] x),
+   'wrap '(fn [x] (yin/application (yin/lambda (quote [_]) (yin/literal nil))
+                                   (conj [] x))),
+   'discard '(fn [x] (yin/literal nil)),
+   'reorder '(fn [a b] (yin/sequence-body (conj (conj [] b) a))),
+   'duplicate '(fn [x] (yin/sequence-body (conj (conj [] x) x))),
+   'keep-first '(fn [a b] a),
+   'keep-second '(fn [a b] b),
+   'twice '(fn [x] (yin/application (yin/variable (quote +)) (conj (conj [] x) x))),
+   'get-twice '(fn [] (yin/variable (quote twice))),
+   'forever '(fn [] (yin/application (yin/variable (quote forever)) [])),
+   'into-test '(fn [x] (yin/if x (yin/literal 1) (yin/literal 2))),
+   'swap2 '(fn [a b] (yin/sequence-body (conj (conj [] b) a))),
+   'fresh '(fn [] (yin/variable (yin/gensym-sym "g")))})
 
 
 ;; =============================================================================
-;; Guard limits
+;; Standard forms and harvest
 ;; =============================================================================
 
-(deftest guard-overflow-test
-  (testing "Depth guard throws on infinite recursive expansion"
-    (let [macro-eid -30
-          ;; Self-referential macro: always expands to another macro-expand
-          ;; call
-          looping-macro (fn [{:keys [fresh-eid]}]
-                          (let [call-eid (fresh-eid)]
-                            {:datoms [[call-eid :yin/type :yin/macro-expand 0 1]
-                                      [call-eid :yin/operator macro-eid 0 1]
-                                      [call-eid :yin/operands [] 0 1]],
-                             :root-eid call-eid}))
-          call-datoms [[-16 :yin/type :yin/macro-expand 0 1]
-                       [-16 :yin/operator macro-eid 0 1]
-                       [-16 :yin/operands [] 0 1]]
-          registry {macro-eid looping-macro}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo
-               :cljs cljs.core.ExceptionInfo
-               :cljd Object)
-            #"depth guard exceeded"
-            (macro/expand-all call-datoms -16 registry {:max-depth 5}))))))
+(deftest standard-defn-equals-direct-definition
+  (let [cx (seeded)]
+    (testing "one body form"
+      (let [out (m/expand (batch [(call 'defn {:type :variable, :name 'f}
+                                        (c '[x]) (c '(+ x 1)))])
+                          cx)]
+        (is (same-tree? (expected (c '(def f (fn [x] (+ x 1))))) out))))
+    (testing "several body forms lower through the reference do"
+      (let [out (m/expand (batch [(call 'defn {:type :variable, :name 'g}
+                                        (c '[x]) (c '(print x)) (c '(+ x 1)))])
+                          cx)]
+        (is (same-tree? (expected (c '(def g (fn [x] (do (print x) (+ x 1))))))
+                        out))))
+    (testing "stdlib seeding leaves defn in the store and emits the name"
+      (let [r (m/expand-batch m/stdlib-forms (ctx))]
+        (is (= :ok (:status r)))
+        (is (contains? (:store (:ctx r)) 'defn))
+        (is (same-tree? (m/ast->packet (c ''defn)) (:tree r)))))))
 
 
-;; =============================================================================
-;; Compile-time macro expansion via register VM
-;; =============================================================================
-
-(deftest compile-time-register-test
-  (testing "Register VM expands :yin/macro-expand before bytecode compilation"
-    (let [macro-lambda-eid -30
-          call-eid -16
-          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
-                  [call-eid :yin/operator macro-lambda-eid 0 1]
-                  [call-eid :yin/operands [] 0 1]]
-          registry {macro-lambda-eid (make-literal-macro 77)}
-          vm (-> (vtu/queue-vm (register/create-vm {:macro-registry registry})
-                               datoms)
-                 (vm/run))]
-      (is (= 77 (vm/value vm)))))
-  (testing "Register VM: macro that returns identity of first arg"
-    (let [macro-lambda-eid -30
-          lit-eid -18
-          call-eid -16
-          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
-                  [call-eid :yin/operator macro-lambda-eid 0 1]
-                  [call-eid :yin/operands [lit-eid] 0 1]
-                  [lit-eid :yin/type :literal 0 1] [lit-eid :yin/value 123 0 1]]
-          registry {macro-lambda-eid (make-identity-macro)}
-          vm (-> (vtu/queue-vm (register/create-vm {:macro-registry registry})
-                               datoms)
-                 (vm/run))]
-      (is (= 123 (vm/value vm))))))
+(deftest definitions-in-unexecuted-and-disconnected-trees-are-harvested
+  (testing "a declaration in a branch that never runs is active now"
+    (let [out (m/expand (batch [(c '(do (if false (def m (fn [x] x)) nil)
+                                        (m 5)))])
+                        (ctx))]
+      (is (same-tree? (expected (c '(do (if false 'm nil) 5))) out))))
+  (testing "a disconnected tree admits a definition for the run tree"
+    (let [out (m/expand (batch [(c '(m 5)) (c '(def m (fn [x] x)))]) (ctx))]
+      (is (same-tree? (expected (c 5)) out)))))
 
 
-;; =============================================================================
-;; Compile-time macro expansion via stack VM
-;; =============================================================================
+(deftest harvest-ordinal-decides-last-wins
+  (let [a '(fn [x] (yin/literal :a))
+        b '(fn [x] (yin/literal :b))
+        trees [(c '(m 0)) (c (list 'def 'm a)) (c (list 'def 'm b))]]
+    (is (same-tree? (expected (c :b)) (m/expand (batch trees) (ctx)))
+        "catalogue order is tree order here")
+    (is (same-tree? (expected (c :a)) (m/expand (batch trees {:order (comp vec reverse)})
+                                                (ctx)))
+        "the same trees with reversed ordinals let the first tree win")
+    (testing "a later plain definition removes the macro for the whole batch"
+      (let [out (m/expand (batch [(c '(m 0)) (c (list 'def 'm a)) (c '(def m 1))])
+                          (ctx))]
+        (is (same-tree? (expected (c '(m 0))) out))))))
 
-(deftest compile-time-stack-test
-  (testing "Stack VM expands :yin/macro-expand before bytecode compilation"
-    (let [macro-lambda-eid -30
-          call-eid -16
-          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
-                  [call-eid :yin/operator macro-lambda-eid 0 1]
-                  [call-eid :yin/operands [] 0 1]]
-          registry {macro-lambda-eid (make-literal-macro 88)}
-          vm (-> (vtu/queue-vm (stack/create-vm {:macro-registry registry})
-                               datoms)
-                 (vm/run))]
-      (is (= 88 (vm/value vm))))))
+
+(deftest declared-definitions-are-replaced-and-never-reach-output
+  (let [r (m/expand-batch (batch [(c '(do (def m (fn [x] x)) (m 7)))]) (ctx))]
+    (is (= :ok (:status r)))
+    (is (not (contains? (tags (:tree r)) :yin.macro/defined)))
+    (is (same-tree? (expected (c '(do 'm 7))) (:tree r)))
+    (is (= (lambda-root '(fn [x] x)) (macro-root (:store (:ctx r)) 'm))
+        "the declaration survives in the next store")))
+
+
+(deftest plain-redefinition-removes-a-macro
+  (let [cx (:ctx (m/expand-batch (batch [(c '(def m (fn [x] x)))]) (ctx)))
+        _ (is (contains? (:store cx) 'm))
+        r (m/expand-batch (batch [(c '(do (def m 1) (m 2)))]) cx)]
+    (is (same-tree? (expected (c '(do (def m 1) (m 2)))) (:tree r))
+        "the removal governs the current batch")
+    (is (not (contains? (:store (:ctx r)) 'm)) "and the next")))
 
 
 ;; =============================================================================
-;; Runtime macro expansion via semantic VM
+;; Stand-ins and post-harvest
 ;; =============================================================================
 
-(deftest runtime-semantic-test
-  (testing "Semantic VM expands :yin/macro-expand at runtime"
-    (let [macro-lambda-eid -30
-          call-eid -16
-          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
-                  [call-eid :yin/operator macro-lambda-eid 0 1]
-                  [call-eid :yin/operands [] 0 1]]
-          registry {macro-lambda-eid (make-literal-macro 55)}
-          vm (-> (vtu/queue-vm (semantic/create-vm {:macro-registry registry})
-                               datoms)
-                 (vm/run))]
-      (is (= 55 (vm/value vm)))))
-  (testing "Semantic VM: runtime macro with arg passthrough"
-    (let [macro-lambda-eid -30
-          lit-eid -18
-          call-eid -16
-          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
-                  [call-eid :yin/operator macro-lambda-eid 0 1]
-                  [call-eid :yin/operands [lit-eid] 0 1]
-                  [lit-eid :yin/type :literal 0 1] [lit-eid :yin/value 321 0 1]]
-          registry {macro-lambda-eid (make-identity-macro)}
-          vm (-> (vtu/queue-vm (semantic/create-vm {:macro-registry registry})
-                               datoms)
-                 (vm/run))]
-      (is (= 321 (vm/value vm))))))
+(deftest transformations-preserve-the-specified-catalogue-entry
+  (let [cx (seeded transformers)
+        a '(fn [x] (yin/literal :a))
+        b '(fn [x] (yin/literal :b))
+        next-m (fn [form]
+                 (let [r (m/expand-batch (batch [(c form)]) cx)]
+                   (is (= :ok (:status r)) (pr-str form))
+                   (is (not (contains? (tags (:tree r)) :yin.macro/defined)))
+                   (macro-root (:store (:ctx r)) 'm)))]
+    (is (= (lambda-root a) (next-m (list 'ident (list 'def 'm a)))) "identity")
+    (is (= (lambda-root a) (next-m (list 'wrap (list 'def 'm a)))) "wrap")
+    (is (nil? (next-m (list 'discard (list 'def 'm a)))) "discard")
+    (is (= (lambda-root a) (next-m (list 'duplicate (list 'def 'm a)))) "duplicate")
+    (is (= (lambda-root a) (next-m (list 'reorder (list 'def 'm a) (list 'def 'm b))))
+        "reorder: the moved first definition is now last")
+    (is (= (lambda-root a) (next-m (list 'keep-first (list 'def 'm a) (list 'def 'm b))))
+        "keep-first keeps the first body")
+    (is (= (lambda-root b) (next-m (list 'keep-second (list 'def 'm a) (list 'def 'm b))))
+        "keep-second keeps the second body")
+    (testing "a discarded declaration is still active in its own batch"
+      (let [out (m/expand (batch [(c (list 'do (list 'discard (list 'def 'm a)) '(m 0)))])
+                          cx)]
+        (is (same-tree? (expected (c '(do nil :a))) out))))))
 
 
-;; =============================================================================
-;; Compile/runtime expansion parity (same macro + input, same result)
-;; =============================================================================
-
-(deftest expansion-parity-test
-  (testing "All VMs produce the same result for the same macro expansion"
-    (let [macro-lambda-eid -30
-          call-eid -16
-          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
-                  [call-eid :yin/operator macro-lambda-eid 0 1]
-                  [call-eid :yin/operands [] 0 1]]
-          registry {macro-lambda-eid (make-literal-macro 42)}
-          run-vm (fn [create-fn]
-                   (-> (vtu/queue-vm (create-fn {:macro-registry registry})
-                                     datoms)
-                       (vm/run)
-                       (vm/value)))]
-      (is (= 42 (run-vm register/create-vm)) "Register VM")
-      (is (= 42 (run-vm stack/create-vm)) "Stack VM")
-      (is (= 42 (run-vm semantic/create-vm)) "Semantic VM")
-      (is (= 42 (run-vm space/create-vm)) "Space VM"))))
+(defn- standin-packet
+  [nm k]
+  (let [body [:yin.macro/defined nm k]
+        a (jing/segment-key body)]
+    [a [(into [a] body)]]))
 
 
-;; =============================================================================
-;; Macro that transforms operands
-;; =============================================================================
+(defn- fabricating-eval
+  "A body runner that answers `fab` with a fabricated result and runs every
+   other macro normally."
+  [fab-root result]
+  (fn [{:keys [macro-tree] :as req}]
+    (if (= fab-root (first macro-tree))
+      {:value result}
+      (m/bounded-row-evaluator req))))
 
-(deftest operand-transform-test
-  (testing "Macro receives correct arg-eids and can build new AST from them"
-    ;; macro (swap-args op a b) → (op b a)
-    ;; Expand (swap-args - 10 3) → (- 3 10) = -7
-    (let [macro-lambda-eid -30
-          ;; operand nodes for swap-args call: op=minus, a=10, b=3
-          minus-eid -18
-          lit10-eid -19
-          lit3-eid -20
-          call-eid -16
-          datoms
-          [[call-eid :yin/type :yin/macro-expand 0 1]
-           [call-eid :yin/operator macro-lambda-eid 0 1]
-           [call-eid :yin/operands [minus-eid lit10-eid lit3-eid] 0 1]
-           [minus-eid :yin/type :variable 0 1] [minus-eid :yin/name '- 0 1]
-           [lit10-eid :yin/type :literal 0 1] [lit10-eid :yin/value 10 0 1]
-           [lit3-eid :yin/type :literal 0 1] [lit3-eid :yin/value 3 0 1]]
-          registry {macro-lambda-eid (make-swap-args-macro)}]
-      ;; Verify compile-time result
-      (let [vm (-> (vtu/queue-vm (register/create-vm {:macro-registry registry})
-                                 datoms)
-                   (vm/run))]
-        (is (= -7 (vm/value vm)) "Register VM: (- 3 10) = -7"))
-      ;; Verify semantic VM (runtime expansion)
-      (let [vm (-> (vtu/queue-vm (semantic/create-vm {:macro-registry registry})
-                                 datoms)
-                   (vm/run))]
-        (is (= -7 (vm/value vm)) "Semantic VM: (- 3 10) = -7"))
-      ;; Verify space VM (runtime expansion)
-      (let [vm (-> (vtu/queue-vm (space/create-vm {:macro-registry registry})
-                                 datoms)
-                   (vm/run))]
-        (is (= -7 (vm/value vm)) "Space VM: (- 3 10) = -7")))))
+
+(deftest fabricated-standins-resolve-only-when-valid
+  (let [a '(fn [x] (yin/literal :a))
+        b '(fn [x] (yin/literal :b))
+        fab-form '(fn [] (yin/literal :fab))
+        fab-root (lambda-root fab-form)
+        run (fn [result]
+              (let [cx (seeded {'fab fab-form} {:eval (fabricating-eval fab-root result)})
+                    r (m/expand-batch
+                        (batch [(c (list 'do (list 'def 'm a) (list 'def 'm b) '(fab)))])
+                        cx)]
+                (is (= :ok (:status r)))
+                (is (not (contains? (tags (:tree r)) :yin.macro/defined)))
+                (macro-root (:store (:ctx r)) 'm)))]
+    (is (= (lambda-root b) (run (standin-packet 'm 7))) "unknown k: no store effect")
+    (is (= (lambda-root b) (run (standin-packet 'other 0))) "mismatched name: no effect")
+    (is (= (lambda-root a) (run (standin-packet 'm 0)))
+        "a valid stand-in moved after B makes A win at its final position")))
 
 
 ;; =============================================================================
-;; Expansion event query: source-call -> expansion-event -> expansion-root
+;; Expansion order, shadowing, and recognition
 ;; =============================================================================
 
-(deftest expansion-event-query-contract-test
-  (testing "Query chain: source-call -> expansion-event -> expansion-root"
-    (let [macro-lambda-eid -30
-          call-eid -16
-          datoms [[call-eid :yin/type :yin/macro-expand 0 1]
-                  [call-eid :yin/operator macro-lambda-eid 0 1]
-                  [call-eid :yin/operands [] 0 1]]
-          registry {macro-lambda-eid (make-literal-macro 5)}
-          {:keys [datoms root-eid]} (macro/expand-all datoms call-eid registry)
-          {:keys [get-attr by-entity]} (vm/index-datoms datoms
-                                                        {:root-id root-eid})
-          ;; Find the event entity
-          event-eid (first (keep (fn [[eid]]
-                                   (when (= :macro-expand-event
-                                            (get-attr eid :yin/type))
-                                     eid))
-                                 by-entity))]
-      ;; Query chain must resolve
-      (is (some? event-eid))
-      (is (= call-eid (get-attr event-eid :yin/source-call))
-          "source-call -> original call site")
-      (is (= macro-lambda-eid (get-attr event-eid :yin/macro))
-          "macro -> macro lambda EID")
-      (let [exp-root (get-attr event-eid :yin/expansion-root)]
-        (is (some? exp-root) "expansion-root is set")
-        (is (= root-eid exp-root) "expansion-root matches final root-eid")
-        (is (= :literal (get-attr exp-root :yin/type))
-            "expansion-root is the literal node")))))
+(deftest outermost-first-binders
+  (let [cx (seeded transformers)
+        out (m/expand (batch [(call 'defn {:type :variable, :name 'f}
+                                    (c '[twice]) (c '(twice 1)))])
+                      cx)]
+    (is (same-tree? (expected (c '(def f (fn [twice] (twice 1))))) out)
+        "defn establishes the parameter before its body is inspected")))
+
+
+(deftest operator-rewritten-to-a-macro-name-is-reconsidered
+  (let [r (m/expand-batch (batch [(c '((get-twice) 5))]) (seeded transformers))]
+    (is (same-tree? (expected (c '(+ 5 5))) (:tree r)))
+    (is (= 2 (count (second (:log r)))) "one event for the operator, one for the call")))
+
+
+(deftest lexical-shadowing
+  (let [out (m/expand (batch [(c '((fn [twice] (twice 1)) (twice 2)))])
+                      (seeded transformers))]
+    (is (same-tree? (expected (c '((fn [twice] (twice 1)) (+ 2 2)))) out)
+        "a parameter shadows its body only, never the sibling operand")))
+
+
+(deftest macro-names-in-operand-position-are-ordinary-variables
+  (let [out (m/expand (batch [(c '(f twice))]) (seeded transformers))]
+    (is (same-tree? (expected (c '(f twice))) out))))
 
 
 ;; =============================================================================
-;; Bootstrap: defmacro-fn unit tests
+;; Guards and invalid data
 ;; =============================================================================
 
-(deftest defmacro-fn-unit-test
-  (testing "defmacro-fn produces correct datoms for name/params/body"
-    ;; Build minimal datoms: name as :literal, params as :literal, body as
-    ;; :literal
-    (let [name-eid -100
-          params-eid -101
-          body-eid -102
-          datoms
-          [[name-eid :yin/type :literal 0 1] [name-eid :yin/value 'my-mac 0 1]
-           [params-eid :yin/type :literal 0 1]
-           [params-eid :yin/value '[x] 0 1] [body-eid :yin/type :literal 0 1]
-           [body-eid :yin/value 42 0 1]]
-          {:keys [get-attr]} (vm/index-datoms datoms)
-          eid-counter (atom -200)
-          fresh-eid #(swap! eid-counter dec)
-          ctx {:arg-eids [name-eid params-eid body-eid],
-               :get-attr get-attr,
-               :fresh-eid fresh-eid,
-               :phase :compile}
-          result (macro/defmacro-fn ctx)
-          result-datoms (:datoms result)
-          root-eid (:root-eid result)
-          {:keys [get-attr]} (vm/index-datoms result-datoms)]
-      ;; Root is an :application (the def node)
-      (is (= :application (get-attr root-eid :yin/type)) "root is :application")
-      ;; Operator is a :variable named yin/def
-      (let [op-eid (get-attr root-eid :yin/operator)]
-        (is (= :variable (get-attr op-eid :yin/type)))
-        (is (= 'yin/def (get-attr op-eid :yin/name))))
-      ;; Operands: [key-eid lambda-eid]
-      (let [[key-eid lambda-eid] (get-attr root-eid :yin/operands)]
-        ;; key is a :literal with the macro name
-        (is (= :literal (get-attr key-eid :yin/type)))
-        (is (= 'my-mac (get-attr key-eid :yin/value)))
-        ;; lambda has :yin/macro? true and :yin/phase-policy :compile
-        (is (= :lambda (get-attr lambda-eid :yin/type)))
-        (is (= true (get-attr lambda-eid :yin/macro?)))
-        (is (= :compile (get-attr lambda-eid :yin/phase-policy)))
-        (is (= '[x] (get-attr lambda-eid :yin/params)))
-        (is (= body-eid (get-attr lambda-eid :yin/body)))))))
+(defn- error-of
+  [form cx]
+  (let [r (m/expand-batch (batch [(c form)]) cx)]
+    (is (= :error (:status r)))
+    (is (nil? (:tree r)))
+    (:error r)))
 
 
-(deftest defmacro-fn-variable-name-test
-  (testing "defmacro-fn resolves name from :variable node (yang source form)"
-    ;; yang emits (defmacro my-mac ...) with my-mac as a :variable node
-    (let [name-eid -110
-          params-eid -111
-          body-eid -112
-          datoms
-          [[name-eid :yin/type :variable 0 1] [name-eid :yin/name 'my-mac 0 1]
-           [params-eid :yin/type :literal 0 1]
-           [params-eid :yin/value '[a b] 0 1]
-           [body-eid :yin/type :literal 0 1] [body-eid :yin/value nil 0 1]]
-          {:keys [get-attr]} (vm/index-datoms datoms)
-          eid-counter (atom -200)
-          fresh-eid #(swap! eid-counter dec)
-          ctx {:arg-eids [name-eid params-eid body-eid],
-               :get-attr get-attr,
-               :fresh-eid fresh-eid,
-               :phase :compile}
-          result (macro/defmacro-fn ctx)
-          {:keys [get-attr]} (vm/index-datoms (:datoms result))
-          [key-eid lambda-eid] (get-attr (:root-eid result) :yin/operands)]
-      (is (= 'my-mac (get-attr key-eid :yin/value))
-          "macro name extracted from :variable node")
-      (is (= '[a b] (get-attr lambda-eid :yin/params))))))
+(deftest guards
+  (testing "depth"
+    (is (= {:kind :depth-guard, :depth 3, :path []}
+           (error-of '(forever) (seeded transformers {:guards {:max-depth 3}})))))
+  (testing "rows per expansion"
+    (is (= {:kind :row-guard, :scope :expansion, :rows 3}
+           (error-of '(twice 1)
+                     (seeded transformers {:guards {:max-rows-per-expansion 2}})))))
+  (testing "rows per batch"
+    ;; (twice 1) admits 3 rows; its result adds (+ 1 1) and + for 5
+    (is (= {:kind :row-guard, :scope :batch, :rows 5}
+           (error-of '(twice 1)
+                     (assoc-in (seeded transformers) [:guards :max-rows-per-batch] 4)))))
+  (testing "fuel"
+    (is (= :fuel-guard
+           (:kind (error-of '(twice 1) (seeded transformers {:guards {:max-steps 3}}))))))
+  (testing "arity"
+    (is (= {:kind :arity, :macro (lambda-root (transformers 'twice)), :expected 1, :got 2}
+           (error-of '(twice 1 2) (seeded transformers))))
+    (is (= :arity (:kind (error-of '(reorder 1) (seeded transformers))))))
+  (testing "suspension and closed effects"
+    (let [parker {:type :lambda, :params [], :body {:type :vm/park}}
+          streamer {:type :lambda, :params [], :body {:type :stream/make, :buffer 1}}
+          base (ctx)
+          cx (assoc base :store (m/seed-store base [(batch [{:type :application,
+                                                               :operator {:type :variable, :name 'yin/def},
+                                                               :operands [{:type :literal, :value 'p} parker]}])
+                                                    (batch [{:type :application,
+                                                               :operator {:type :variable, :name 'yin/def},
+                                                               :operands [{:type :literal, :value 's} streamer]}])]))]
+      (is (= :suspended (:kind (error-of '(p) cx))))
+      (is (= {:kind :effect-guard, :tag :stream/make}
+             (dissoc (error-of '(s) cx) :macro)))))
+  (testing "a body that throws is a body error, never a throw"
+    (is (= :body-error (:kind (error-of '(boom) (seeded {'boom '(fn [] (nope))})))))))
 
 
-;; =============================================================================
-;; defmacro end-to-end: expand-all with default-macro-registry
-;; =============================================================================
-
-(deftest defmacro-expand-all-test
-  (testing
-    "expand-all expands (defmacro identity-mac [x] x) via default-macro-registry"
-    ;; Build datoms for: (defmacro identity-mac [x] x-ref)
-    ;; which is a :yin/macro-expand node with operator = defmacro-eid
-    ;; arg-eids = [name-lit params-lit body-var]
-    (let [name-eid -10
-          params-eid -11
-          body-eid -12
-          mac-call -13
-          datoms [[name-eid :yin/type :literal 0 1]
-                  [name-eid :yin/value 'identity-mac 0 1]
-                  [params-eid :yin/type :literal 0 1]
-                  [params-eid :yin/value '[x] 0 1]
-                  [body-eid :yin/type :variable 0 1] [body-eid :yin/name 'x 0 1]
-                  ;; The defmacro call site
-                  [mac-call :yin/type :yin/macro-expand 0 1]
-                  [mac-call :yin/operator macro/defmacro-eid 0 1]
-                  [mac-call :yin/operands [name-eid params-eid body-eid] 0 1]]
-          {:keys [datoms root-eid]}
-          (macro/expand-all datoms mac-call macro/default-macro-registry)
-          {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
-      ;; After expansion, the root should be a :application (yin/def ...)
-      (is (= :application (get-attr root-eid :yin/type))
-          "root is a yin/def application")
-      (let [op-eid (get-attr root-eid :yin/operator)]
-        (is (= 'yin/def (get-attr op-eid :yin/name)) "operator is yin/def"))
-      (let [[key-eid lambda-eid] (get-attr root-eid :yin/operands)]
-        (is (= 'identity-mac (get-attr key-eid :yin/value))
-            "key is 'identity-mac")
-        (is (= true (get-attr lambda-eid :yin/macro?))
-            "lambda has :yin/macro? true")
-        (is (= :compile (get-attr lambda-eid :yin/phase-policy))
-            "lambda has :yin/phase-policy :compile")))))
+(defn- literal-row
+  [v]
+  (let [body [:literal v]] (into [(jing/segment-key body)] body)))
 
 
-;; =============================================================================
-;; yang.clojure compile-program: defmacro emits :yin/macro-expand
-;; =============================================================================
+(deftest admission-rejects-invalid-input
+  (let [host-row (literal-row (fn [] 1))
+        marker-row (literal-row [:yin.macro/defined 'm 0])
+        err (fn [b] (:error (m/expand-batch b (ctx))))]
+    (is (= :host-value (:reason (err [:yin.program/batch [[(first host-row) [host-row]]] 0 [] []]))))
+    (is (= :marker-in-payload
+           (:reason (err [:yin.program/batch [[(first marker-row) [marker-row]]] 0 [] []]))))
+    (is (= {:kind :malformed-input, :reason :batch-shape} (err [:yin.program/batch [] 0 [] []])))
+    (let [[root rows] (m/ast->packet (c '(f 1)))
+          lit (literal-row 9)]
+      (is (= :address-mismatch
+             (:reason (err [:yin.program/batch [[root (conj rows [(first lit) :literal 8])]]
+                            0 [] []]))))
+      (is (= :unreachable-row
+             (:reason (err [:yin.program/batch [[root (conj rows lit)]] 0 [] []]))))
+      (is (= :dangling-child
+             (:reason (err [:yin.program/batch [[root (subvec rows 0 1)]] 0 [] []]))))
+      (is (= :unknown-tag
+             (:reason (err [:yin.program/batch
+                            [(standin-packet 'm 0)] 0 [] []])))))
+    (testing "trees that are each valid may not disagree on one address"
+      (let [r1 (literal-row (with-meta 'x {:tag 1}))
+            r2 (literal-row (with-meta 'x {:tag 2}))]
+        (is (= (first r1) (first r2)) "the address ignores scalar metadata")
+        (is (nil? (m/valid-tree? [(first r2) [r2]])))
+        (is (= {:kind :malformed-input, :reason :address-conflict, :tree 1,
+                :address (first r2)}
+               (err [:yin.program/batch [[(first r1) [r1]] [(first r2) [r2]]] 0 [] []])))
+        (is (= :ok (:status (m/expand-batch [:yin.program/batch
+                                             [[(first r1) [r1]] [(first r1) [r1]]]
+                                             0 [] []]
+                                            (ctx))))
+            "identical shared rows merge")))
+    (testing "harvest catalogue"
+      (let [t (m/ast->packet (c '(def m (fn [x] x))))]
+        (is (= {:kind :malformed-input, :reason :harvest-catalogue, :ordinal nil,
+                :tree 0, :path []}
+               (err [:yin.program/batch [t] 0 [] []])) "missing")
+        (is (= :harvest-catalogue
+               (:reason (err [:yin.program/batch [t] 0 []
+                              [[:yin.macro/harvest 0 0 []] [:yin.macro/harvest 1 0 []]]])))
+            "duplicate")
+        (is (= {:kind :malformed-input, :reason :harvest-catalogue, :ordinal 1}
+               (err [:yin.program/batch [t] 0 [] [[:yin.macro/harvest 1 0 []]]]))
+            "non-contiguous")
+        (is (= :harvest-catalogue
+               (:reason (err [:yin.program/batch [t] 0 [] [[:yin.macro/harvest 0 0 [3]]]])))
+            "non-definition")
+        (is (= {:kind :malformed-input, :reason :stray-macro-declaration, :tree 0, :path [3]}
+               (err [:yin.program/batch [t] 0 [[:yin.macro/definition 0 [3]]]
+                     [[:yin.macro/harvest 0 0 []]]])))
+        (let [plain (m/ast->packet (c '(def m 1)))]
+          (is (= :stray-macro-declaration
+                 (:reason (err [:yin.program/batch [plain] 0 [[:yin.macro/definition 0 []]]
+                                [[:yin.macro/harvest 0 0 []]]])))
+              "a declaration on a non-lambda definition"))))))
 
-(deftest yang-compile-program-defmacro-test
-  (testing "compile-program with defmacro emits :yin/macro-expand call site"
-    (let [ast (yang/compile-program '[(defmacro identity-mac
-                                        [x]
-                                        x)
-                                      (identity-mac 99)])
-          datoms (vm/ast->datoms ast)
-          {:keys [get-attr by-entity]} (vm/index-datoms datoms)
-          ;; Find any :yin/macro-expand node
-          mac-expand-eid
-          (some (fn [eid]
-                  (when (= :yin/macro-expand (get-attr eid :yin/type)) eid))
-                (keys by-entity))]
-      (is (some? mac-expand-eid)
-          "compile-program emits at least one :yin/macro-expand node")
-      (when mac-expand-eid
-        (let [op-eid (get-attr mac-expand-eid :yin/operator)]
-          (is
-            (= :lambda (get-attr op-eid :yin/type))
-            "macro-expand operator is the macro lambda directly (no synthetic name lookup)")
-          (is (true? (get-attr op-eid :yin/macro?))
-              "operator lambda carries :yin/macro? true")
-          ;; Macro identity: the call-site operator EID must equal the
-          ;; lambda EID stored in the yin/def application.  Verifies
-          ;; shared-reference deduplication: Both the definition operand
-          ;; and the call-site operator resolve to the same entity.
-          (let [def-app-eid
-                (some (fn [eid]
-                        (when (and (= :application (get-attr eid :yin/type))
-                                   (= 'yin/def
-                                      (get-attr (get-attr eid :yin/operator)
-                                                :yin/name)))
-                          eid))
-                      (keys by-entity))
-                stored-lambda-eid (when def-app-eid
-                                    (second (get-attr def-app-eid
-                                                      :yin/operands)))]
-            (is (some? def-app-eid)
-                "datom stream contains a yin/def application for the macro")
-            (is
-              (= stored-lambda-eid op-eid)
-              "call-site operator EID equals stored yin/def lambda EID (canonical macro identity)")))))))
+
+(deftest invalid-output-is-an-error
+  (let [fab-form '(fn [] (yin/literal :fab))
+        fab-root (lambda-root fab-form)
+        run (fn [result input]
+              (let [cx (seeded {'fab fab-form} {:eval (fabricating-eval fab-root result)})]
+                (:error (m/expand-batch (batch [(c input)]) cx))))
+        host (literal-row (fn [] 1))
+        marker (literal-row [:yin.macro/defined 'm 0])]
+    (is (= {:kind :invalid-output, :macro fab-root, :path [], :reason :host-value}
+           (run [(first host) [host]] '(fab))))
+    (is (= :marker-in-payload (:reason (run [(first marker) [marker]] '(fab)))))
+    (is (= :packet-shape (:reason (run 42 '(fab)))) "not a packet")
+    (let [[root rows] (m/ast->packet (c '(f 1)))]
+      (is (= :dangling-child (:reason (run [root (subvec rows 0 1)] '(fab))))))
+    (testing "an address already holding a metadata-distinct body"
+      (let [x1 (with-meta 'x {:tag 1})
+            x2 (with-meta 'x {:tag 2})
+            row (literal-row x2)]
+        (is (= (first row) (first (literal-row x1))) "the address ignores scalar metadata")
+        (is (= :address-conflict
+               (:reason (run [(first row) [row]]
+                             (list 'do (list 'quote x1) '(fab))))))))))
 
 
 ;; =============================================================================
-;; User macro: VM-native execution without host fn registration
+;; Tail marks
 ;; =============================================================================
 
-(deftest user-macro-vm-native-execution-test
-  (testing
-    "user macro defined via defmacro expands via VM, no host fn registration needed"
-    ;; Build datoms as if (defmacro identity-mac [x] x) already ran: lambda
-    ;; entity with :yin/macro? true and body = variable 'x plus the
-    ;; (yin/def identity-mac lambda) structure for
-    ;; find-macro-lambda-by-name Then (identity-mac 42): :yin/macro-expand
-    ;; with variable operator 'identity-mac
-    (let [body-eid -100   ; :variable 'x
-          lambda-eid -101 ; lambda entity
-          def-eid -102    ; (yin/def identity-mac lambda) application
-          op-eid -103     ; :variable 'yin/def
-          key-eid -104    ; :literal 'identity-mac
-          lit42-eid -200  ; :literal 42
-          var-eid -201    ; :variable 'identity-mac (operator of call)
-          call-eid -202   ; :yin/macro-expand call
-          datoms
-          [[body-eid :yin/type :variable 0 1] [body-eid :yin/name 'x 0 1]
-           [lambda-eid :yin/type :lambda 0 1]
-           [lambda-eid :yin/macro? true 0 1]
-           [lambda-eid :yin/phase-policy :compile 0 1]
-           [lambda-eid :yin/params '[x] 0 1]
-           [lambda-eid :yin/body body-eid 0 1]
-           [op-eid :yin/type :variable 0 1] [op-eid :yin/name 'yin/def 0 1]
-           [key-eid :yin/type :literal 0 1]
-           [key-eid :yin/value 'identity-mac 0 1]
-           [def-eid :yin/type :application 0 1]
-           [def-eid :yin/operator op-eid 0 1]
-           [def-eid :yin/operands [key-eid lambda-eid] 0 1]
-           [lit42-eid :yin/type :literal 0 1] [lit42-eid :yin/value 42 0 1]
-           [var-eid :yin/type :variable 0 1]
-           [var-eid :yin/name 'identity-mac 0 1]
-           [call-eid :yin/type :yin/macro-expand 0 1]
-           [call-eid :yin/operator var-eid 0 1]
-           [call-eid :yin/operands [lit42-eid] 0 1]]
-          invoke-fn (fn [leid ctx]
-                      (semantic/invoke-macro-lambda leid ctx datoms))
-          {:keys [datoms root-eid]} (macro/expand-all
-                                      (vec datoms)
-                                      call-eid
-                                      macro/default-macro-registry
-                                      {:invoke-lambda invoke-fn})
-          {:keys [get-attr]} (vm/index-datoms datoms {:root-id root-eid})]
-      (is (= :literal (get-attr root-eid :yin/type))
-          "expansion root is a literal node")
-      (is (= 42 (get-attr root-eid :yin/value))
-          "expansion root has value 42"))))
+(defn- tail-of
+  "The tail? slot of the application whose operator is the variable `f`."
+  [[_ rows] f]
+  (let [index (into {} (map (fn [r] [(first r) r])) rows)]
+    (set (for [r rows
+               :when (and (= :application (nth r 1))
+                          (= [:variable f] (subvec (get index (nth r 2)) 1)))]
+           (nth r 4)))))
 
 
-(deftest yang-macro-ordering-test
-  (testing "macro name not visible to forms before its defmacro"
-    (let [;; (identity-mac 1) appears BEFORE (defmacro identity-mac ...)
-          ;; so it should compile as a regular :application, not
-          ;; :yin/macro-expand
-          ast (yang/compile-program '[(identity-mac 1)
-                                      (defmacro identity-mac
-                                        [x]
-                                        x)])
-          datoms (vm/ast->datoms ast)
-          {:keys [get-attr by-entity]} (vm/index-datoms datoms)
-          ;; Find any :yin/macro-expand node whose operator is identity-mac
-          identity-mac-expand
-          (some (fn [eid]
-                  (when (= :yin/macro-expand (get-attr eid :yin/type))
-                    (let [op-eid (get-attr eid :yin/operator)]
-                      (when (= 'identity-mac (get-attr op-eid :yin/name))
-                        eid))))
-                (keys by-entity))]
-      (is
-        (nil? identity-mac-expand)
-        "identity-mac call before defmacro is not emitted as :yin/macro-expand"))))
+(deftest tail-marks-are-recomputed-after-syntax-moves
+  (let [cx (seeded transformers)]
+    (testing "a tail application moved into a test is cleared"
+      (let [in {:type :application,
+                :operator {:type :variable, :name 'into-test},
+                :operands [{:type :application, :operator {:type :variable, :name 'f},
+                            :operands [], :tail? true}]}
+            out (m/expand (batch [in]) cx)]
+        (is (= #{false} (tail-of out 'f)))))
+    (testing "an operand moved to the last sequence position is set"
+      (let [out (m/expand (batch [(c '(swap2 (f 1) (g 2)))]) cx)]
+        (is (= #{true} (tail-of out 'f)))
+        (is (= #{false} (tail-of out 'g)))))))
 
 
 ;; =============================================================================
-;; Semantic VM: append-program-datoms for boundary-runtime test
+;; Determinism and events
 ;; =============================================================================
 
-(deftest semantic-append-datoms-test
-  (testing
-    "semantic-append-datoms adds nodes to the VM index without resetting state"
-    (let [vm (semantic/create-vm)
-          ;; Load initial program: literal 1
-          initial-datoms [[-16 :yin/type :literal 0 1] [-16 :yin/value 1 0 1]]
-          vm-loaded (vtu/queue-vm vm initial-datoms)
-          ;; Append new datoms: a new literal node
-          new-datoms [[-30 :yin/type :literal 0 1] [-30 :yin/value 99 0 1]]
-          vm-appended (semantic/semantic-append-datoms vm-loaded new-datoms)]
-      ;; Original program still evaluates correctly
-      (is (= 1 (vm/value (vm/run vm-loaded))))
-      ;; After append, new node is accessible in the index
-      (is (seq (query/collect (query/q '[:find ?e :where [?e :yin/value 99]]
-                                       (query/current (query/relation
-                                                        (:db vm-appended))))))
-          "Appended node is queryable through the DaoDB-backed AST"))))
+(deftest equal-input-and-context-yield-equal-trees-and-events
+  (let [cx (seeded transformers)
+        b (batch [(c '(do (fresh) (twice (fresh))))])
+        r1 (m/expand-batch b cx)
+        r2 (m/expand-batch b cx)]
+    (is (= :ok (:status r1)))
+    (is (= (:tree r1) (:tree r2)))
+    (is (= (:log r1) (:log r2)))
+    (is (= (:ctx r1) (:ctx r2)))))
+
+
+(deftest attempts-share-outputs-but-never-events
+  (let [cx (seeded transformers)
+        r (m/expand-batch (batch [(c '(do (twice 1) (twice 1)))]) cx)
+        [tag events produced] (:log r)]
+    (is (= :yin.macro/log tag))
+    (is (= 2 (count events)))
+    (is (apply = (map #(nth % 9) events)) "one output root")
+    (is (apply distinct? (map first events)) "two event addresses")
+    (is (= 1 (count produced)) "produced trees deduplicate by root")
+    (is (= [[token 0] [token 1]] (map #(nth % 2) events)) "attempt order")
+    (testing "event shape"
+      (let [[e-addr tag attempt t origin parent input call-path macro out error] (first events)]
+        (is (= e-addr (jing/segment-key (subvec (first events) 1))))
+        (is (= :yin.macro/expand tag))
+        (is (= 0 t))
+        (is (= [:source :program-in 0 0] origin))
+        (is (nil? parent))
+        (is (some? input))
+        (is (vector? call-path))
+        (is (= (lambda-root (transformers 'twice)) macro))
+        (is (some? out))
+        (is (nil? error))))
+    (testing "a call recognized after an operator rewrite is a source occurrence"
+      (let [r (m/expand-batch (batch [(c '((get-twice) 5))]) cx)
+            [e1 e2] (second (:log r))]
+        (is (= [:source :program-in 0 0] (nth e1 4)))
+        (is (= [2] (nth e1 7)))
+        (is (= [:source :program-in 0 0] (nth e2 4)))
+        (is (nil? (nth e2 5)) "the operator expansion is not the call's parent")
+        (is (= [] (nth e2 7)))))
+    (testing "a nested event names its parent and no origin"
+      (let [r (m/expand-batch (batch [(c '(ident (twice 1)))]) cx)
+            [e1 e2] (second (:log r))]
+        (is (nil? (nth e2 4)))
+        (is (= (first e1) (nth e2 5)))
+        (is (= (nth e1 9) (nth e2 6)) "the child's input root is the parent's output")
+        (is (= [] (nth e2 7)))))
+    (testing "an admission failure consumes an attempt and records its error"
+      (let [r (m/expand-batch [:yin.program/batch [] 0 [] []] cx)
+            [e] (second (:log r))]
+        (is (= [token 0] (nth e 2)))
+        (is (= [:source :program-in 0 nil] (nth e 4)))
+        (is (= [nil nil nil nil nil] (subvec e 5 10)))
+        (is (= {:kind :malformed-input, :reason :batch-shape} (nth e 10)))
+        (is (= 1 (:attempt (:ctx r))))
+        (is (= 1 (:t (:ctx r))))))))
+
+
+(deftest gensyms-are-attempt-scoped
+  (let [cx (seeded transformers)
+        [_ rows] (m/expand (batch [(c '(do (fresh) (fresh)))]) cx)
+        names (set (keep #(when (= :variable (nth % 1)) (nth % 2)) rows))]
+    (is (contains? names (symbol (str "g__" token "_0_0"))))
+    (is (contains? names (symbol (str "g__" token "_1_0"))))))
+
+
+;; =============================================================================
+;; Observer: staging, retries, draining
+;; =============================================================================
+
+(defn- scripted-writer
+  "A writer answering the queued outcomes, then `ok`; it records every
+   accepted value."
+  [outcomes]
+  (let [accepted (atom [])
+        queue (atom outcomes)]
+    {:accepted accepted,
+     :writer (reify stream/IDaoStreamWriter
+               (append! [_ v]
+                 (let [o (or (first @queue) :dao.stream/ok)]
+                   (swap! queue rest)
+                   (when (= :dao.stream/ok o) (swap! accepted conj v))
+                   {:dao.stream/outcome o})))}))
+
+
+(defn- session
+  [cx out log]
+  (let [{:keys [writer observer]} (tu/make-attachment 8)]
+    {:program writer,
+     :session {:observer observer, :consumer (m/make-expander cx out log)}}))
+
+
+(defn- throws-data
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj Exception :cljs js/Error :cljd Object) e
+         (ex-data e))))
+
+
+(deftest staged-retry-reuses-attempt-identity-and-gensyms
+  (let [cx (seeded transformers)
+        out (scripted-writer [:dao.stream/full])
+        log (scripted-writer [])
+        {:keys [program session]} (session cx (:writer out) (:writer log))
+        _ (stream/append! program (batch [(c '(fresh))]))
+        s1 (m/step session)
+        staged (get-in s1 [:consumer :out-staged])
+        attempts (get-in s1 [:consumer :ctx :attempt])]
+    (is (some? staged) "full retains the exact payload")
+    (is (= [] @(:accepted out)))
+    (is (= 1 (count @(:accepted log))) "the log destination cleared independently")
+    (is (not (m/ready? (:consumer s1))))
+    (let [s2 (m/step s1)]
+      (is (= [staged] @(:accepted out)) "the retry publishes the staged tree unchanged")
+      (is (= attempts (get-in s2 [:consumer :ctx :attempt])) "no new attempt")
+      (is (= 1 (count @(:accepted log))) "the cleared log is not republished")
+      (is (= {:errors [], :forwarded 1} (second (m/drain-errors s2)))))))
+
+
+(deftest per-destination-retry-after-full
+  (let [cx (seeded transformers)
+        out (scripted-writer [])
+        log (scripted-writer [:dao.stream/full :dao.stream/full])
+        {:keys [program session]} (session cx (:writer out) (:writer log))
+        _ (stream/append! program (batch [(c '(twice 1))]))
+        _ (stream/append! program (batch [(c '(twice 2))]))
+        s1 (m/step session)]
+    (is (= 1 (count @(:accepted out))) "out=ok publishes once")
+    (is (nil? (get-in s1 [:consumer :out-staged])))
+    (is (some? (get-in s1 [:consumer :log-staged])) "log=full retries only the log")
+    (is (= 1 (get-in s1 [:consumer :ctx :t])) "no further input is read")
+    (let [s2 (m/step s1)
+          s3 (m/step s2)]
+      (is (= 2 (count @(:accepted out))))
+      (is (= 2 (count @(:accepted log))))
+      (is (= 2 (get-in s3 [:consumer :ctx :t])))
+      (is (= {:errors [], :forwarded 2} (second (m/drain-errors s3)))))))
+
+
+(deftest expansion-error-advances-the-cursor
+  (let [cx (seeded transformers)
+        out (scripted-writer [])
+        log (scripted-writer [])
+        {:keys [program session]} (session cx (:writer out) (:writer log))
+        _ (stream/append! program (batch [(c '(twice 1 2))]))
+        _ (stream/append! program (batch [(c '(twice 3))]))
+        s (m/step session)
+        [s' summary] (m/drain-errors s)]
+    (is (= [:arity] (map :kind (:errors summary))))
+    (is (= 1 (:forwarded summary)))
+    (is (= 1 (count @(:accepted out))))
+    (is (= 2 (count @(:accepted log))) "the failure's log still flushes")
+    (is (= {:errors [], :forwarded 0} (second (m/drain-errors s'))) "drain resets")))
+
+
+(deftest forwarder-defects-do-not-silently-advance-input
+  (testing "a defect in load carries the cursor before the batch"
+    (let [defect (fn [_] (throw (ex-info "runner defect" {})))
+          cx (seeded transformers {:eval defect})
+          {:keys [program session]} (session cx (:writer (scripted-writer [])) nil)
+          _ (stream/append! program (batch [(c '(twice 1))]))
+          data (throws-data #(m/step session))]
+      (is (= (get-in session [:observer :cursor])
+             (get-in data [:session :observer :cursor])))
+      (is (= 0 (get-in data [:session :consumer :ctx :t])))))
+  (testing "a closed destination throws with both slots preserved"
+    (let [cx (seeded transformers)
+          out (scripted-writer [:dao.stream/closed])
+          log (scripted-writer [])
+          {:keys [program session]} (session cx (:writer out) (:writer log))
+          _ (stream/append! program (batch [(c '(twice 1))]))
+          data (throws-data #(m/step session))
+          carried (:session data)]
+      (is (= :dao.stream/closed (:dao.stream/outcome data)))
+      (is (some? (get-in carried [:consumer :out-staged])))
+      (is (some? (get-in carried [:consumer :log-staged])))
+      (is (not= (get-in session [:observer :cursor])
+                (get-in carried [:observer :cursor]))
+          "the accepted batch is not re-read")
+      (let [s (m/step carried)]
+        (is (= 1 (count @(:accepted out))))
+        (is (= 1 (count @(:accepted log))))
+        (is (= 1 (get-in s [:consumer :ctx :t])) "recovery expands nothing again"))))
+  (testing "a log failure after a published program carries the cleared slot"
+    (let [cx (seeded transformers)
+          out (scripted-writer [])
+          log (scripted-writer [:dao.stream/transport-error])
+          {:keys [program session]} (session cx (:writer out) (:writer log))
+          _ (stream/append! program (batch [(c '(twice 1))]))
+          carried (:session (throws-data #(m/step session)))]
+      (is (nil? (get-in carried [:consumer :out-staged])))
+      (is (some? (get-in carried [:consumer :log-staged])))
+      (m/step carried)
+      (is (= 1 (count @(:accepted out))) "the program is not republished"))))
+
+
+;; =============================================================================
+;; Prelude and invoke
+;; =============================================================================
+
+(deftest prelude-and-invoke
+  (let [cx (ctx)
+        lam (fn [form] (m/ast->packet (c form)))
+        v (m/ast->packet (c 'x))]
+    (is (= :variable (m/invoke (lam '(fn [t] (yin/tag t))) [v] cx))
+        "invoke returns the body's value, unvalidated")
+    (is (same-tree? (m/ast->packet (c ''x))
+                    (m/invoke (lam '(fn [t] (yin/literal (yin/name-of t)))) [v] cx)))
+    (is (same-tree? (m/ast->packet (call 'f {:type :variable, :name 'x}))
+                    (m/invoke (lam '(fn [app] (yin/slot app 2)))
+                              [(m/ast->packet (c '((f x) 1)))] cx))
+        "yin/slot at a node position returns the child packet")
+    (is (= 'x (m/invoke (lam '(fn [t] (yin/slot t 2))) [v] cx)))
+    (is (= :arity (:kind (throws-data #(m/invoke (lam '(fn [a] a)) [] cx)))))
+    (is (= :body-error (:kind (throws-data #(m/invoke (lam '(fn [t] (yin/slot t 1))) [v] cx))))
+        "positions 0 and 1 are invalid")
+    (is (same-tree? (m/ast->packet (c '(fn [a b] (+ a b))))
+                    (m/invoke (lam '(fn [p b] (yin/make-lambda p b)))
+                              [(m/ast->packet (c '[a b])) (m/ast->packet (c '(+ a b)))]
+                              cx)))))
+
+
+;; =============================================================================
+;; Occurrences and the evaluator boundary
+;; =============================================================================
+
+(deftest shared-definition-rows-remain-distinct-occurrences
+  (let [a '(fn [x] (yin/literal :a))
+        r (m/expand-batch (batch [(c (list 'do
+                                           (list 'def 'm a)
+                                           (list 'discard (list 'def 'm a))
+                                           '(m 0)))])
+                          (seeded transformers))]
+    (is (= :ok (:status r)))
+    (is (same-tree? (expected (c '(do 'm nil :a))) (:tree r))
+        "one shared row at two paths is two occurrences with two stand-ins")
+    (is (= (lambda-root a) (macro-root (:store (:ctx r)) 'm))
+        "the kept occurrence installs; the discarded one only leaves")))
+
+
+(deftest expanded-output-runs-on-an-evaluator-that-knows-no-macros
+  (let [program {:type :application,
+                 :operator {:type :lambda, :params '[_], :body (c '(inc1 41))},
+                 :operands [(call 'defn {:type :variable, :name 'inc1}
+                                  (c '[x]) (c '(+ x 1)))]}
+        tree (m/expand (batch [program]) (seeded))
+        vm (vm/run (ast-walker/vm-load-rows (tu/create-vm) (m/packet->row-set tree)))]
+    (is (not (contains? (tags tree) :yin.macro/defined)))
+    (is (= 42 (vm/value vm)))))
+

@@ -57,6 +57,7 @@ admissible tuple dimension).
 - `docs/design/dao.jing.md` — the storage boundary: the content-addressed store of opaque payloads. Today this space consumes published covered-index sources from it; explicitly requested positional indexed snapshots are the future extension
 - `docs/design/dao.space.query.md` — the query library's design record: index realization, the `read-datoms` contract, and the decisions
 - `docs/design/dao.space.index.md` — the transactor-side indexing library: every agent indexes its own datoms; the covered-index realization both sides share
+- `docs/design/dao.space.transactor.md` — the agent-side transactor value: atomic transaction records, transaction time, the local-log wiring requirement, and where durability lives
 - `docs/design/dao.stream.md` — the append-only log primitive tuples and descriptors are written through
 - `docs/design/datom.md` — tuples and datoms, content-addressed identity, the gauge/base framing
 - `docs/datomic.md` — the Datomic architecture the Transactor/Storage/Query split maps to
@@ -178,7 +179,8 @@ semantic composition*).
 ;; count-distinct, sum, min, max, avg) with :with, predicate/function
 ;; clauses via a caller-supplied {:fns {sym fn}} option, and recursive
 ;; rules bound to % via :in (Datomic syntax; multiple bodies = OR,
-;; terminates on cyclic data). q returns a closed bounded result DaoStream.
+;; terminates on cyclic data). q returns a bounded result value; nothing is
+;; opened or closed on the caller's behalf.
 ;; query/collect materializes conventional Datalog shapes.
 (query/collect
   (query/q '[:find ?id ?task
@@ -386,9 +388,22 @@ indexes and saves them to storage; here that duty is decentralized with the rest
 Transactor. Indexing has two stages, mirroring Datomic's memory-index → disk-index pipeline
 but without a central transactor process:
 
-1. **Append** — the agent's writes land in its own local `dao.stream` as atomic transaction
-   records (see `dao.space.transactor`). The local stream is the durable record; no
-   storage handle is touched.
+1. **Append** — the agent's writes land in its own local `dao.stream`
+   memory-log as atomic transaction records (see
+   [`dao.space.transactor`](dao.space.transactor.md)). The local stream is
+   authoritative for the logical stream's process lifetime — the watermark and
+   the published indexes are derived from it — but it is not durable: a
+   restarted process sees a new, empty logical stream with a new identity.
+   **The durable record is what publication puts in `dao.jing`**, and
+   un-published writes are not durable — which was equally true before the
+   v2 migration, when local streams were in-memory ring buffers. The
+   pipeline mirrors Datomic's memory-index → disk-index, and a memory index
+   is not durable either. A durable *stream* transport is not the fix: it
+   would put a second durable record beside the content store, which is
+   exactly the `dao.stream`/`dao.jing` unification
+   [`dao.space.query.md`](dao.space.query.md)'s *Decisions* ruled out ("the
+   source stays a convention layered over the dumb content store … unifying
+   them would undo that"). No storage handle is touched at append.
 2. **Publish** — when the agent runs
    [`dao.space.index/publish-index!`](dao.space.index.md), the local stream is snapshotted,
    the four covered indexes are built as immutable, content-addressed `dao.data.btree`
@@ -407,32 +422,76 @@ agent-transactor loop*.
 
 ### Fault Tolerance (Crash-Only Semantics)
 
-Because the write path uses persistent append-only `dao.stream` files, the space inherits
-crash-only semantics natively:
+The write path is crash-only because it is built from atomic appends and
+immutable publications — not because anything local is durable. Two failure
+scopes behave differently, and the difference is the point:
 
-- **Data safety:** Datoms flushed before a crash are safe; append-only files have no
-  partial-update corruption window.
-- **Reader behavior:** A reader tailing a crashed writer's stream simply reaches the end and
-  yields (`ds/next` returns `:blocked`); it waits for new data rather than failing.
-- **Write recovery:** A restarted writer reopens its file in append mode; the next `ds/append!`
-  lands safely after the last flushed datom.
-- **Read recovery:** A reader resumes from a checkpointed cursor, so an incremental index
-  rebuilds without reprocessing or skipping. A checkpoint persists the whole cursor map
-  (`(:cursor result)`, not just a bare `:position` offset when the transport's cursors carry
-  more); a cursor that has fallen behind a retention boundary returns `:daostream/gap`, and
-  resynchronization is the caller's decision. Because `publish-index!` never rewrites the
-  local stream — it appends to a separate intake stream — publishing cannot reorder what a
-  local-stream cursor walks.
+- **Atomicity, in both scopes:** every write is one atomic transaction
+  record through one local append (`dao.space.transactor`), and every
+  publication is an immutable, content-addressed manifest appended after
+  its node blobs. A failure can leave a prefix, never a torn transaction or
+  a partial manifest.
+- **A writer task stops; the process lives.** Its handles remain owned and
+  readable: a reader reaching the stopped writer's local-stream tail is
+  told `:dao.stream/blocked` and waits for new data rather than failing —
+  the same for a DaoJing observer over an intake stream. Retrying an
+  interrupted publication is idempotent while the memory-log is still
+  available: content addressing deduplicates a re-emitted prefix, and the
+  manifest is appended last.
+- **The process fails.** The local stream is a process-lifetime
+  `dao.stream` memory-log and the intake streams are in-memory handles,
+  so un-published local contents — and intake payloads a DaoJing observer
+  has not yet materialized — may be lost; nothing tails a dead handle.
+  Recovery has only what DaoJing has fully materialized: a restarted
+  process sees a new, empty local logical stream with a new identity, and
+  the agent continues from the manifest addresses it (or its
+  configuration) names. Durability begins at publication, never before
+  (see *The Write Path* above, and `dao.space.transactor.md`, *Where
+  durability lives*).
+
+The causality-carrying checkpoint named in `dao.space.transactor.md`'s
+*Open items* is not relief for the second scope: it is a performance
+optimisation that would reduce the O(history) causality replay `create!`
+pays on open, and it adds no durability — un-published history would
+remain un-recoverable, checkpoint or not.
 
 ## Coordination: Stigmergy
 
 Agents coordinate by leaving datoms in `dao.jing` for others to query, decoupled in time and
-identity. Because streams are append-only there is no destructive `take`: to "claim" work an
+identity.
+
+**An interpreter taps a stream without being aware of its source.** This is the property that
+makes the coordination stigmergic rather than merely asynchronous, and it is the test to apply
+when a design looks decoupled but is not. If an interpreter must be *handed* a particular
+producer's stream, then something knows both sides and wired them together; the coupling has
+moved from a function call to a reference, and has not been removed. The ant is not handed a
+pheromone trail. It encounters the medium and finds what is there.
+
+Two consequences follow, and both are invariants:
+
+- **Nothing registers.** An interested interpreter holds a cursor and matches what it reads;
+  it does not declare interest and wait to be called. Registration is a subscription registry,
+  which is a callback table under a different name, and it reintroduces exactly the coupling
+  the medium exists to remove.
+- **A new interpreter starts reading without anything being rewired.** No producer is
+  modified, no wiring step is added, and no existing reader is disturbed. If adding a reader
+  requires touching a writer, the medium is not doing its job.
+
+Because interpreters both read the medium and deposit back into it, refinement accretes in
+one place rather than travelling along wires. A host boundary deposits syntax; an interpreter
+reads it and deposits the semantic fact it derived; a further interpreter reads that. This is
+the blackboard working as designed -- successive levels of abstraction over one medium, with
+no participant aware of any other.
+
+`dao.space` is that medium. A separate system event bus would be a second stigmergic medium
+beside the one this document describes; see
+[ADR 0003](adr/0003-dao-space-is-the-event-medium.md). Because streams are append-only there is no destructive `take`: to "claim" work an
 agent *appends a new datom* asserting the claim, and "current state" is a read-side query over
 the accreted datoms. This is the tuple space working as designed — coordination with no
 broker, no message-format negotiation, and no leader election.
 
-The worker loop below reads with `query/q` and writes with `ds/append!` — two different
+The worker loop below reads with `query/q` and writes with
+`transactor/append!` — two different
 concurrency models. `append!` is a local append to the agent's own single-writer stream (one
 atomic transaction record); it is never a CAS over a shared surface. Visibility to other
 workers requires publication: `publish!` enqueues the indexes, a DaoJing observer
@@ -446,13 +505,19 @@ implemented: the explicit `current` view masks assertions retracted for the
 same `[e a v]` via `current-state-seq` (see `dao.space.query.md`,
 *Current-state resolution*); `q`
 implements `not`/`not-join` (stratified, over the current-state-resolved index), so the
-`(not [_ :work/claims ?w])` clause executes as written; `{:dao.stream/type :transactor :local-stream s
-:intake-pool [...]}` is a registered `dao.stream` type (`dao.space.transactor`) whose
-`ds/append!` deposits one atomic transaction record into the wrapper's own local stream —
-calls through one wrapper serialize timestamp allocation and append, while each stream remains
+`(not [_ :work/claims ?w])` clause executes as written; the write path is a
+plain value created by `transactor/create!` over a spec
+(`dao.space.transactor`, [`dao.space.transactor.md`](dao.space.transactor.md)) whose
+`append!` deposits one atomic transaction record into the value's own local
+stream — calls through one value serialize timestamp allocation and append,
+while each stream remains
 a single-writer log with no shared write surface; and `publish!` delegates to
 `dao.space.index/publish-index!`, which snapshots the local stream and enqueues the covered
-indexes through the intake pool. `open!` writes no registration record. The caller
+indexes through the intake pool. The local stream must be created by
+`dao.stream.memory-log/create!` — its declared complete retention is why
+publication's snapshot reads from the origin; the reader/writer surface
+checks `create!` performs do not establish that retention. `create!` writes
+no registration record. The caller
 constructs explicit published index DaoStream descriptors and passes each as its own
 database input. The query states any union or cross-source join; no implicit
 merge can collide stream-local entity ids:
@@ -460,7 +525,9 @@ merge can collide stream-local entity ids:
 ```clojure
 (require '[dao.jing :as jing]
          '[dao.jing.file :as file]
-         '[dao.stream :as ds]
+         '[dao.stream :as stream]
+         '[dao.stream.memory-log :as memory-log]
+         '[dao.stream.ringbuffer :as ringbuffer]
          '[dao.space.index :as index]
          '[dao.space.query :as query]
          '[dao.space.transactor :as transactor])
@@ -470,23 +537,30 @@ merge can collide stream-local entity ids:
 (def store-coordinate {:dao.jing/type :dao.jing/file
                        :path "target/stigmergy-content.log"})
 (def store (file/create-content-file (:path store-coordinate)))
-(def intake (ds/open! {:dao.stream/type :ringbuffer}))
-(def observer (jing/observer-state [intake]))
+(def intake (:dao.stream/handle
+             (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
+                                  :dao.stream.ringbuffer/capacity 65536})))
+(def observer (jing/observer-state
+                [{:stream intake
+                  :cursor (:dao.stream/cursor
+                           (stream/cursor intake :dao.stream/oldest))}]))
 
 (defn pump! []
   (loop [obs observer]
     (let [{:keys [state signal]} (jing/observe-step! store obs)]
-      (when (= :ok signal) (recur state)))))
+      (when (= :dao.stream/ok signal) (recur state)))))
 
 (defn agent-log [agent-id]
-  (ds/open! {:dao.stream/type :transactor
-             :local-stream (ds/open! {:dao.stream/type :ringbuffer})
-             :intake-pool [intake]
-             :name agent-id}))
+  (transactor/create!
+    {:local-stream (:dao.stream/handle
+                     (memory-log/create!
+                       {:dao.stream/type :dao.stream/memory-log}))
+     :intake-pool [intake]
+     :name agent-id}))
 
 (defn producer []
   (let [log (agent-log "producer")]
-    (ds/append! log {:db/id (random-id) :work/posted true :work/task "process payment"})
+    (transactor/append! log {:db/id (random-id) :work/posted true :work/task "process payment"})
     (let [{:keys [manifest-address]} (transactor/publish! log)]  ; enqueue the indexes
       (pump!)                                                    ; materialize them
       (index/published-index store-coordinate manifest-address)))) ; read coordinate
@@ -503,8 +577,8 @@ merge can collide stream-local entity ids:
                                      (not [_ :work/claims ?w])]
                      (query/current source)))]
         (when-let [[?w task] (first work)]
-          (ds/append! log {:db/id (random-id) :work/claims ?w :work/by worker-id})
-          (ds/append! log {:db/id (random-id) :work/result (process task)})
+          (transactor/append! log {:db/id (random-id) :work/claims ?w :work/by worker-id})
+          (transactor/append! log {:db/id (random-id) :work/result (process task)})
           (recur))))))
 ```
 

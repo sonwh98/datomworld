@@ -1,3 +1,5 @@
+> **Status (2026-09-17):** v1 design. Implementation deleted under `dao.stream.v1-retirement.implementation-plan.md`.
+
 # dao.stream.apply Design: Stream-Native Apply Protocol
 
 ## Overview
@@ -362,7 +364,7 @@ Caller and callee can also communicate over remote streams:
   :url "ws://localhost:8000/out"}}
 ```
 
-The request and response values are unchanged. Only stream realization changes.
+The request and response values are unchanged. Only the stream transport changes.
 
 ---
 

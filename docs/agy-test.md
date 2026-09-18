@@ -56,9 +56,10 @@ While high-level macro integration, basic stream transports, and query contracts
 
 ---
 
-### 5. `yin.vm.wasm` Boundary & OOM Fuzzing — Priority: MEDIUM
-* **Current Status**: `test/yin/vm/wasm_test.cljc` tests valid WASM execution, but memory bounds and call stack limits are un-fuzzed.
-* **Recommended Action**: Add boundary tests for out-of-bounds memory access, indirect table calls, and stack depth limits to ensure the interpreter fails fast without crashing parent processes.
+### 5. ~~`yin.vm.wasm` Boundary & OOM Fuzzing~~ — Obsolete
+`yin.vm.wasm` and `test/yin/vm/wasm_test.cljc` were deleted 2026-09-08
+(`b8a6fce`), before this item was ever actionable; `yin.vm-consumers.implementation-plan.md`
+(2026-09-10) records it. There is no WASM backend to fuzz.
 
 ---
 
@@ -101,7 +102,7 @@ While high-level macro integration, basic stream transports, and query contracts
 | **2** | `yin.vm.runtime-adapter` & `stream-driver` | **Zero Coverage** | Add unit tests for VM execution drivers and stream adapters. | **HIGH** |
 | **3** | `dao.space.transact` | Thin Coverage | Split the single 3-`testing`-block `deftest` into independent `deftest`s; expand beyond happy paths (refs, uniqueness, schema). | **HIGH** |
 | **4** | `dao.space.transactor` | Documented Gap | Add cross-stream collision contract tests & multi-publish reorder tests (spanning `dao.space.index` and `dao.space.transactor`). | **HIGH** |
-| **5** | `yin.vm.wasm` | Boundary Gaps | Fuzz interpreter with OOM and stack depth limits to ensure host safety. | **MEDIUM** |
+| **5** | ~~`yin.vm.wasm`~~ | Obsolete | Deleted 2026-09-08 (`b8a6fce`); no backend to fuzz. | — |
 | **6** | `dao.postgraphics` | Visual Gaps | Implement image/framebuffer pixel snapshot tests for 2D/3D render paths. | **MEDIUM** |
 | **7** | `dao.jing.dht` & `dao.stream.ws` | Targeted Scenarios | Add DHT partition reconciliation tests & WS ping/pong keepalive tests. | **MEDIUM** |
 | **8** | `cljd/dao/postgraphics/flutter/*` | Per-File Gap (not zero) | Add per-file Dart tests for canvas/gpu/texture, matching CLJS structure. | **LOW** |

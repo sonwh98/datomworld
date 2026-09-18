@@ -1,293 +1,391 @@
 (ns dao.stream
-  "DaoStream: bidirectional channel with cursors.
+  "DaoStream v2: passive substrate for IO in datom.world.
 
-  Three orthogonal protocol boundaries:
+   Seven operations:
+     Five handle operations (protocols implemented per declared surface):
+       descriptor (universal reachability and identity projection)
+       cursor     (reader surface)
+       next       (reader surface)
+       append!    (writer surface)
+       close!     (closable surface)
+     Two transport entry functions (per-transport, host-composed):
+       create!    (creates a new logical stream from a creation specification)
+       attach!    (attaches to an existing stream via portable descriptor)
 
-  IDaoStreamReader (canonical read model):
-    Non-destructive, cursor-based reading. Multiple cursors advance independently.
-    (next [stream cursor]) → {:ok val :cursor cursor'} | :blocked | :end | :daostream/gap
-
-  IDaoStreamWriter (canonical write model):
-    Append-only writes.
-    (append! [stream val]) → {:result :ok, :woke [...]} | {:result :full} (throws if closed)
-
-  IDaoStreamBound (lifecycle):
-    (close! [stream]) → {:woke [...]}
-    (closed? [stream]) → boolean
-
-  IDaoStreamWaitable (optional — transport-local reader and writer waking):
-    (register-reader-waiter! [stream position entry])
-    (register-writer-waiter! [stream entry])
-
-  Descriptor (serializable):
-    {:dao.stream/type :ringbuffer
-     :capacity nil-or-int
-     :eviction-policy nil-or-:reject-or-:evict-oldest}
-
-  Cursor (plain map, constructed inline by caller):
-    {:position n}"
-  (:refer-clojure :exclude [next comparator]))
+   Result Convention:
+     Every operation returns an open outcome map keyed by :dao.stream/outcome.
+     All qualified keywords live under :dao.stream/…
+     Each operation has an exhaustive, closed outcome set."
+  (:refer-clojure :exclude [next]))
 
 
 ;; =============================================================================
-;; Stream Protocols (Orthogonal Boundaries)
+;; The Seven Operations and Standard Keywords
 ;; =============================================================================
+
+(def operations
+  "The seven DaoStream v2 operations."
+  #{:create! :attach! :descriptor :cursor :next :append! :close!})
+
+
+(def surfaces
+  "The public operational surfaces a handle may declare."
+  #{:reader :writer :closable})
+
+
+;; Anchors
+(def anchor-oldest
+  "Earliest retained position on the stream."
+  :dao.stream/oldest)
+
+
+(def anchor-newest
+  "Positioned after the newest appended value (observes next arrival)."
+  :dao.stream/newest)
+
+
+(def standard-anchors
+  "Contract-defined anchor keywords."
+  #{anchor-oldest anchor-newest})
+
+
+;; Closed outcome sets per operation (contract exhaustive tables)
+(def outcomes-create
+  #{:dao.stream/ok
+    :dao.stream/invalid-spec
+    :dao.stream/not-found
+    :dao.stream/transport-error})
+
+
+(def outcomes-attach
+  #{:dao.stream/ok
+    :dao.stream/invalid-descriptor
+    :dao.stream/not-found
+    :dao.stream/transport-error})
+
+
+(def outcomes-descriptor
+  #{:dao.stream/ok})
+
+
+(def outcomes-cursor
+  #{:dao.stream/ok
+    :dao.stream/invalid-anchor
+    :dao.stream/closed
+    :dao.stream/transport-error})
+
+
+(def outcomes-next
+  #{:dao.stream/ok
+    :dao.stream/blocked
+    :dao.stream/end
+    :dao.stream/gap
+    :dao.stream/cursor-mismatch
+    :dao.stream/invalid-cursor
+    :dao.stream/transport-error})
+
+
+(def outcomes-append
+  #{:dao.stream/ok
+    :dao.stream/full
+    :dao.stream/invalid-value
+    :dao.stream/closed
+    :dao.stream/transport-error})
+
+
+(def outcomes-close
+  #{:dao.stream/ok})
+
+
+(def operation-outcomes
+  "Map of operation keyword to its closed outcome set."
+  {:create! outcomes-create
+   :attach! outcomes-attach
+   :descriptor outcomes-descriptor
+   :cursor outcomes-cursor
+   :next outcomes-next
+   :append! outcomes-append
+   :close! outcomes-close})
+
+
+(def outcome-required-keys
+  "Map from [operation outcome] to required keys in the result map."
+  {[:create! :dao.stream/ok] #{:dao.stream/handle}
+   [:attach! :dao.stream/ok] #{:dao.stream/handle}
+   [:descriptor :dao.stream/ok] #{:dao.stream/descriptor :dao.stream/identity}
+   [:cursor :dao.stream/ok] #{:dao.stream/cursor}
+   [:next :dao.stream/ok] #{:dao.stream/value :dao.stream/cursor}
+   [:next :dao.stream/gap] #{:dao.stream/cursor}})
+
+
+;; =============================================================================
+;; Canonical Operation Resolution Helper
+;; =============================================================================
+
+(defn canonical-op
+  "Normalizes op to canonical keyword (:create!, :attach!, :descriptor,
+   :cursor, :next, :append!, :close!). Supports aliases without '!'."
+  [op]
+  (case op
+    (:create :create!) :create!
+    (:attach :attach!) :attach!
+    (:descriptor) :descriptor
+    (:cursor) :cursor
+    (:next) :next
+    (:append :append!) :append!
+    (:close :close!) :close!
+    nil))
+
+
+;; =============================================================================
+;; Handle Protocols (Five Handle Operations)
+;; =============================================================================
+
+(defprotocol IDaoStreamDescriptor
+  "Universal reachability and identity projection. Belongs to no surface:
+   implemented by every handle regardless of declared reader/writer/closable surfaces."
+
+  (descriptor
+    [handle]
+    "Returns descriptor outcome map:
+     {:dao.stream/outcome :dao.stream/ok
+      :dao.stream/descriptor <portable-descriptor>
+      :dao.stream/identity <logical-stream-identity>}"))
+
 
 (defprotocol IDaoStreamReader
-  "Non-destructive, cursor-based reading. Multiple cursors on the same stream
-   advance independently without consuming values."
+  "Reader surface: positioned, non-destructive observation via immutable cursors."
+
+  (cursor
+    [handle anchor]
+    "Mint an immutable cursor from anchor (:dao.stream/oldest, :dao.stream/newest,
+     or transport-specific anchor).
+     Returns outcome map with :dao.stream/cursor on :dao.stream/ok.")
 
   (next
-    [this cursor]
-    "Returns {:ok val :cursor cursor'} if value exists at cursor position.
-     Returns :blocked if stream is open and position is at end.
-     Returns :end if stream is closed and position is at or past end.
-     Returns :daostream/gap if cursor position has been evicted by transport."))
+    [handle cursor]
+    "Read the value at cursor position. Total and non-blocking.
+     Returns read outcome map."))
 
 
 (defprotocol IDaoStreamWriter
-  "Append-only writes. No destructive consumption."
+  "Writer surface: append values to the sequence this handle's writer surface is on."
 
   (append!
-    [this val]
-    "Appends val. Returns :ok if successful, :full if transport is capacity-bounded
-     and full. Throws ex-info if stream is closed."))
+    [handle val]
+    "Append val to the sequence. Total and non-blocking.
+     Returns write outcome map."))
 
 
-(defprotocol IDaoStreamBound
-  "Lifecycle: closing streams and checking closed status."
+(defprotocol IDaoStreamClosable
+  "Closable surface: close what this handle is on (logical stream or attachment).
+   Idempotent."
 
   (close!
-    [this]
-    "Marks stream closed. Does not erase existing data. Returns {:woke [...]}
-     with any reader-waiters that were resolved.")
-
-  (closed?
-    [this]
-    "Returns boolean. True if stream has been closed."))
-
-
-(defprotocol IDaoStreamWaitable
-  "Optional protocol: transport-local waiter registration.
-   Enables readers and writers to register at the transport instead of the VM scheduler."
-
-  (register-reader-waiter!
-    [this position entry]
-    "Register a reader waiter for a specific cursor position.
-     Called when ds/next returns :blocked to avoid polling.")
-
-  (register-writer-waiter!
-    [this entry]
-    "Register a writer waiter. Called when ds/append! returns :full to avoid polling.
-     The entry contains the datom to write; drain-one! will write it and wake the waiter."))
-
-
-(defprotocol IDaoStreamDrainable
-  "Optional protocol for destructive consumption."
-
-  (-drain-one!
-    [this]
-    "Destructively consume one value from stream.
-     Returns {:ok val, :woke [...]} if a value exists (including any woken writers),
-     :empty if stream is open and no values available, or :end if stream is closed and drained."))
-
-
-(defmulti open!
-  "Realize a descriptor into an operational IStream transport."
-  (fn [descriptor] (:dao.stream/type descriptor)))
-
-
-#?(:clj
-   (defmacro defopen
-     "Register an `open!` implementation for descriptors of `{:dao.stream/type dispatch-val}`.
-
-      Reads like `defmethod`:
-
-        (defopen :http [descriptor] ...body...)
-
-      On clj/cljs this expands to `(defmethod open! dispatch-val ...)`.
-      On ClojureDart, where `defmethod` cannot extend a multimethod defined in
-      another namespace (the generated type name is munged from the multifn
-      symbol and fails to resolve), it expands to the equivalent :type-only
-      deftype + `contribute*` registration."
-     [dispatch-val argv & body]
-     ;; This body is selected at macro-load time: the ClojureDart host
-     ;; pass reads with :cljd active, every other host reads :default.
-     ;; The when-not guard is load-bearing, not dead code: during a
-     ;; ClojureDart host-eval pass the compiler evaluates macro bodies
-     ;; that are not compile-time constants (e.g. defopen forms whose
-     ;; bodies close over runtime values, as test fixtures do) and
-     ;; rejects them with "^{:const :required} but expression is not
-     ;; const". Returning nil under *host-eval* skips emission for that
-     ;; pass only; the real Dart compilation pass re-expands and emits.
-     #?(:cljd (when-not (some-> (resolve 'cljd.compiler/*host-eval*)
-                                deref)
-                (let [s (name dispatch-val)
-                      ;; PascalCase each hyphen-separated segment so
-                      ;; dispatch keywords like :file-input-stream yield
-                      ;; a valid Dart id.
-                      cap (fn [w]
-                            (str (.toUpperCase (subs w 0 1)) (subs w 1)))
-                      tname (symbol (str (apply str (map cap (.split s "-")))
-                                         "OpenMethod"))
-                      ;; contribute* needs a fully-qualified contributing
-                      ;; type; the compiling namespace is exposed on &env
-                      ;; by ClojureDart.
-                      qname (symbol (name (get-in &env [:nses :current-ns]))
-                                    (name tname))]
-                  `(do (deftype ~tname
-                         []
-                         :type-only
-                         true
-
-                         cljd.core/IFn
-
-                         (~'-invoke
-                           [_# tm#]
-                           (assoc! tm# ~dispatch-val (fn ~argv ~@body))))
-                       (~'contribute* :multi-method open! ~qname ~qname))))
-        :default `(~'defmethod open! ~dispatch-val ~argv ~@body))))
+    [handle]
+    "Closes what this handle is on. Irrevocable.
+     Returns outcome map {:dao.stream/outcome :dao.stream/ok}."))
 
 
 ;; =============================================================================
-;; Utilities (Non-Protocol)
+;; Surface Inspection & Gating
 ;; =============================================================================
+
+(defn reader?
+  "True if handle implements the reader surface (IDaoStreamReader)."
+  [handle]
+  (satisfies? IDaoStreamReader handle))
+
+
+(defn writer?
+  "True if handle implements the writer surface (IDaoStreamWriter)."
+  [handle]
+  (satisfies? IDaoStreamWriter handle))
+
+
+(defn closable?
+  "True if handle implements the closable surface (IDaoStreamClosable)."
+  [handle]
+  (satisfies? IDaoStreamClosable handle))
+
 
 (defn descriptor?
-  "Returns true if x is a DaoStream descriptor map."
+  "True if handle implements IDaoStreamDescriptor."
+  [handle]
+  (satisfies? IDaoStreamDescriptor handle))
+
+
+(defn declared-surfaces
+  "Returns set of public surfaces implemented by handle:
+   subset of #{:reader :writer :closable}."
+  [handle]
+  (cond-> #{}
+    (reader? handle) (conj :reader)
+    (writer? handle) (conj :writer)
+    (closable? handle) (conj :closable)))
+
+
+;; =============================================================================
+;; Result Convention & Envelope Validation
+;; =============================================================================
+
+(defn qualified-keyword?*
+  "True if x is a qualified keyword. Portable across CLJ, CLJS, CLJD."
   [x]
-  (and (map? x) (contains? x :dao.stream/type) (keyword? (:dao.stream/type x))))
+  (boolean (and (keyword? x) (namespace x))))
 
 
-(defn realization?
-  "Returns true if x is a realized DaoStream transport (satisfies IDaoStreamReader)."
+(defn outcome-map?
+  "True if x is an open outcome map with a qualified keyword under :dao.stream/outcome."
   [x]
-  (satisfies? IDaoStreamReader x))
+  (and (map? x)
+       (qualified-keyword?* (:dao.stream/outcome x))))
 
 
-(defn descriptor
-  "Returns the descriptor map of a stream realization x, or x itself if x is a descriptor."
-  [x]
-  (cond (descriptor? x) x
-        (realization? x) (:dao.stream/descriptor (meta x))
-        :else nil))
+(defn validate-outcome
+  "Validates an operation outcome against contract requirements.
+   Returns nil if valid, or a failure map describing the defect if invalid."
+  [op result]
+  (if-let [canon-op (canonical-op op)]
+    (cond
+      (not (outcome-map? result))
+      {:valid? false :error :invalid-outcome-map :operation canon-op :result result}
+
+      :else
+      (let [outcome (:dao.stream/outcome result)
+            allowed (get operation-outcomes canon-op)]
+        (cond
+          (not (contains? allowed outcome))
+          {:valid? false
+           :error :unauthorized-outcome
+           :operation canon-op
+           :outcome outcome
+           :allowed allowed}
+
+          :else
+          (let [req-keys (get outcome-required-keys [canon-op outcome] #{})
+                missing (into #{} (remove #(contains? result %) req-keys))]
+            (if (seq missing)
+              {:valid? false
+               :error :missing-required-keys
+               :operation canon-op
+               :outcome outcome
+               :missing missing}
+              nil)))))
+    {:valid? false :error :unknown-operation :operation op}))
 
 
-(defn exact-bound?
-  "True when bound is an explicit finite coordinate rather than a lifecycle
-   flag. The concrete shape belongs to the stream interpreter."
-  [bound]
-  (and (some? bound)
-       (not (boolean? bound))
-       (not= :open bound)
-       (not= :closed bound)))
+(defn valid-outcome?
+  "True if result is a valid outcome map for op according to the contract."
+  [op result]
+  (nil? (validate-outcome op result)))
 
 
-(defn bound
-  "Returns the bound of descriptor or stream realization x."
-  [x]
-  (when-let [d (descriptor x)] (:dao.stream/bound d)))
+(defn valid-envelope?
+  "Generic envelope validation: envelope must be a map with a qualified keyword
+   under :dao.stream/type. Everything else is transport-owned."
+  [envelope]
+  (and (map? envelope)
+       (qualified-keyword?* (:dao.stream/type envelope))))
 
 
-(defn comparator
-  "Returns the comparator of descriptor or stream realization x."
-  [x]
-  (when-let [d (descriptor x)] (or (:dao.stream/comparator d) (:comparator d))))
+(defn valid-creation-spec?
+  "True if spec is a generically valid creation specification envelope:
+   must be a map with a qualified keyword under :dao.stream/type."
+  [spec]
+  (valid-envelope? spec))
 
 
-(defn drain-one!
-  "Destructively consume one value from stream.
-   Returns {:ok val, :woke [...]} if a value exists (including any woken writers),
-   :empty if stream is open and no values available, or :end if stream is closed and drained.
-
-   NOT part of the canonical model. Use (next stream cursor) with cursor-based
-   reading for reliable, non-destructive traversal. drain-one! exists for
-   consumers that need destructive consumption (dao.runtime's take, the
-   yin.vm engine, writer-waiter wakeup).
-
-   When a writer-waiter is woken, its datom is atomically written to the stream
-   and included in the :woke return value."
-  [stream]
-  (if (satisfies? IDaoStreamDrainable stream)
-    (-drain-one! stream)
-    (throw (ex-info "drain-one! not supported for this stream transport"
-                    {:stream stream}))))
+(defn valid-descriptor?
+  "True if descriptor is a generically valid portable descriptor envelope:
+   must be a valid envelope (:dao.stream/type present and qualified)
+   and carry :dao.stream/identity."
+  [descriptor]
+  (and (valid-envelope? descriptor)
+       (contains? descriptor :dao.stream/identity)))
 
 
-(defn ->seq
-  "Convert a stream into a lazy Clojure sequence of values using cursor-based
-   reading via the IDaoStreamReader protocol. A cursor walks the stream until
-   (next stream cursor) hits :blocked, :end, or a gap, at which point the lazy
-   sequence terminates.
-
-   The returned sequence is a snapshot at call time. For open streams, the
-   sequence does not grow as new values are appended; create a new sequence
-   or use cursors directly to observe new appends.
-
-   The `ctx` argument is ignored but retained for compatibility with other
-   stream helpers."
-  [_ stream]
-  (when stream
-    (letfn [(walk
-              [cursor]
-              (lazy-seq (let [result (next stream cursor)]
-                          (cond (map? result) (cons (:ok result)
-                                                    (walk (:cursor result)))
-                                (#{:blocked :end :daostream/gap} result) nil
-                                :else nil))))]
-      (walk {:position 0}))))
+(defn descriptor-identity-consistent?
+  "True if a descriptor operation result is {:dao.stream/outcome :dao.stream/ok ...}
+   where both :dao.stream/descriptor and :dao.stream/identity are present,
+   descriptor is a valid descriptor envelope, and the sibling :dao.stream/identity
+   projection structurally equals the identity inside the descriptor envelope."
+  [result]
+  (and (map? result)
+       (= :dao.stream/ok (:dao.stream/outcome result))
+       (contains? result :dao.stream/descriptor)
+       (contains? result :dao.stream/identity)
+       (let [sibling-id (:dao.stream/identity result)
+             desc (:dao.stream/descriptor result)]
+         (and (some? sibling-id)
+              (valid-descriptor? desc)
+              (= sibling-id (:dao.stream/identity desc))))))
 
 
-(defn strict-vec
-  "Traverses a finite stream snapshot from position 0 using cursor-based reading.
-   Returns a vector of all values until `:end`.
-   Throws ex-info if `:blocked`, `:daostream/gap`, or any unexpected signal is encountered."
-  [stream]
-  (loop [cursor {:position 0}
-         acc []]
-    (let [result (next stream cursor)]
-      (cond
-        (map? result)
-        (if (and (contains? result :ok) (contains? result :cursor))
-          (recur (:cursor result) (conj acc (:ok result)))
-          (throw (ex-info
-                   "Malformed stream read result: missing :ok or :cursor"
-                   {:stream stream, :result result})))
-        (= result :end) acc
-        (= result :blocked)
-        (throw (ex-info
-                 "Unexpected :blocked signal during finite snapshot traversal"
-                 {:stream stream, :cursor cursor}))
-        (= result :daostream/gap)
-        (throw
-          (ex-info
-            "Unexpected :daostream/gap signal during finite snapshot traversal"
-            {:stream stream, :cursor cursor}))
-        :else (throw
-                (ex-info
-                  "Malformed stream signal during finite snapshot traversal"
-                  {:stream stream, :signal result}))))))
+;; =============================================================================
+;; Open Result Map Constructors
+;; =============================================================================
+
+(defn ok-result
+  "Convenience constructor for an open :dao.stream/ok outcome map."
+  ([]
+   {:dao.stream/outcome :dao.stream/ok})
+  ([extra-map]
+   (assoc extra-map :dao.stream/outcome :dao.stream/ok)))
 
 
-(defn take!!
-  "Block until one value is available at the stream head, then return it.
+(defn outcome-result
+  "Convenience constructor for an open outcome map."
+  ([outcome]
+   {:dao.stream/outcome outcome})
+  ([outcome extra-map]
+   (assoc extra-map :dao.stream/outcome outcome)))
 
-   Cursor-based and non-destructive: reads position 0 via (next stream ...),
-   polling every 10ms while the stream is open but empty (:blocked). Returns the
-   value on success, nil when the stream closes without a value (:end), and throws
-   on :daostream/gap (the position was evicted before it could be read).
 
-   JVM only — blocks the calling thread. Intended for CLI / REPL / test code; in
-   the async runtime, consume streams via dao.runtime instead."
-  [stream]
-  #?(:clj (loop [cursor {:position 0}]
-            (let [result (next stream cursor)]
-              (cond (map? result) (:ok result)
-                    (= :end result) nil
-                    (= :daostream/gap result)
-                    (throw (ex-info
-                             "take!! cursor gap: position evicted before read"
-                             {:stream stream, :cursor cursor}))
-                    :else (do (Thread/sleep 10) (recur cursor)))))
-     :default (throw (ex-info "dao.stream/take!! is only available on the JVM"
-                              {:stream stream}))))
+;; =============================================================================
+;; Transport Entry Functions & Host Dispatch
+;; =============================================================================
+;;
+;; Two transport entry functions: create! and attach!
+;; These take no handle because none exists yet. These are per-transport functions,
+;; host-composed, taking whatever composition state the transport needs.
+;;
+;; Putting create! or attach! on a protocol is how the retired registry grows back;
+;; DaoStream v2 ships no dispatch machinery (no multimethod, no registry,
+;; no load-time side effect).
+;;
+;; Dynamic dispatch on :dao.stream/type is performed by the host using an ordinary
+;; host-owned lookup table:
+;;
+;;   {:dao.stream/ringbuffer {:dao.stream/create ringbuffer/create!
+;;                            :dao.stream/attach ringbuffer/attach!}
+;;    :dao.stream/ws         {:dao.stream/attach ws/attach!}}
+;;
+;; The helper functions below provide transparent, purely functional host dispatch.
+
+(defn host-dispatch-create!
+  "Host dispatch helper: looks up :dao.stream/create in dispatch-table
+   for (:dao.stream/type creation-spec).
+   Returns :dao.stream/invalid-spec if spec is not a valid envelope.
+   Returns :dao.stream/not-found if transport or :dao.stream/create is absent.
+   Otherwise invokes the transport's create function."
+  [dispatch-table creation-spec]
+  (if-not (valid-creation-spec? creation-spec)
+    {:dao.stream/outcome :dao.stream/invalid-spec}
+    (if-let [create-fn (get-in dispatch-table [(:dao.stream/type creation-spec) :dao.stream/create])]
+      (create-fn creation-spec)
+      {:dao.stream/outcome :dao.stream/not-found})))
+
+
+(defn host-dispatch-attach!
+  "Host dispatch helper: looks up :dao.stream/attach in dispatch-table
+   for (:dao.stream/type descriptor).
+   Returns :dao.stream/invalid-descriptor if descriptor is not a valid descriptor envelope.
+   Returns :dao.stream/not-found if transport or :dao.stream/attach is absent.
+   Otherwise invokes the transport's attach function."
+  [dispatch-table descriptor]
+  (if-not (valid-descriptor? descriptor)
+    {:dao.stream/outcome :dao.stream/invalid-descriptor}
+    (if-let [attach-fn (get-in dispatch-table [(:dao.stream/type descriptor) :dao.stream/attach])]
+      (attach-fn descriptor)
+      {:dao.stream/outcome :dao.stream/not-found})))

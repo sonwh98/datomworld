@@ -107,9 +107,11 @@
   (case type
     :number {:py-type :literal,
              :value (if (str/includes? val ".")
-                      #?(:clj (Double/parseDouble val)
+                      #?(:cljd (double/parse val)
+                         :clj (Double/parseDouble val)
                          :cljs (js/parseFloat val))
-                      #?(:clj (Long/parseLong val)
+                      #?(:cljd (int/parse val)
+                         :clj (Long/parseLong val)
                          :cljs (js/parseInt val)))}
     :string {:py-type :literal, :value val}
     :keyword (case val

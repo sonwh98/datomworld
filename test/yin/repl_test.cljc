@@ -1,642 +1,879 @@
 (ns yin.repl-test
-  (:require #?(:cljs [cljs.test :refer-macros [async]])
-            #?(:clj [clojure.edn :as edn]
-               :cljs [cljs.reader :as edn]
-               :cljd [clojure.edn :as edn])
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [dao.stream.apply :as dao-apply]
-            [dao.stream.ws]
-            [dao.stream.rpc.client :as rpc-client]
-            [dao.stream.rpc.ws :as rpc-ws]
-            [yin.repl :as repl]))
+            #?@(:cljd []
+                :clj [[clojure.java.io :as io]
+                      [yin.repl.host :as host]]
+                :cljs [[yin.repl.connect :as connect]])
+            [dao.stream.apply :as apply]
+            [dao.stream.transit :as transit]
+            [dao.stream.ws :as ws]
+            [yin.repl :as repl]
+            [yin.repl.driver :as driver]
+            [yin.repl.host.common :as host-common]
+            [yin.repl.serve :as serve]))
 
 
-(defn- fact?
-  [datoms attr value]
-  (boolean (some #(and (= attr (nth % 1)) (= value (nth % 2))) datoms)))
+(defn- host-adapter
+  "An injected host listener: `:bind!` and `:unbind!` are ordinary functions
+   that deposit lifecycle data.  Nothing here binds a port."
+  []
+  {:bind! (fn [config]
+            ((:deposit! config) :bind-succeeded
+                                {:host (:bind-host config) :port (:bind-port config)})
+            {:listener :injected})
+   :unbind! (fn [_resources deposit!]
+              (deposit! :stopped {:reason :requested})
+              nil)})
 
 
-#?(:cljs (defmacro async-deftest
-           [name & body]
-           `(deftest ~name
-              (async ~'done
-                     (-> (identity nil)
-                         ~@(map (fn [form] `(.then (fn [] ~form))) body)
-                         (.then (fn [] (~'done)))
-                         (.catch (fn [e#] (is nil e#) (~'done))))))))
+(deftest arguments-behave-as-they-do-in-v1-except-telemetry
+  (let [opts (repl/parse-args ["--port" "8080" "--host" "0.0.0.0" "--headless"])]
+    (is (= 8080 (:port opts)))
+    (is (= "0.0.0.0" (:host opts)))
+    (is (true? (:headless? opts)))
+    (is (empty? (:rejected opts))))
+  (testing "telemetry is rejected rather than ignored"
+    (let [opts (repl/parse-args ["--telemetry-stream" "daostream:ws://x" "--telemetry"])]
+      (is (= ["--telemetry-stream" "--telemetry"] (:rejected opts)))
+      (is (str/includes? (first (repl/banner opts))
+                         "yin.vm.telemetry.implementation-plan.md"))
+      (is (not (str/includes? (first (repl/banner opts)) "yin.repl"))))))
 
 
-(deftest eval-input-dispatch-test
-  #?(:clj
-     (do
-       (testing "Clojure source evaluation persists VM state across inputs"
-         (let [[state-1 result-1] @(repl/eval-input (repl/create-state)
-                                                    "(+ 20 22)")
-               [state-2 result-2] @(repl/eval-input state-1 "(def x 10)")
-               [_state-3 result-3] @(repl/eval-input state-2 "x")]
-           (is (= "42" result-1))
-           (is (= "10" result-2))
-           (is (= "10" result-3))))
-       (testing "AST maps are evaluated directly"
-         (let [[_state result] @(repl/eval-input (repl/create-state)
-                                                 "{:type :literal :value 7}")]
-           (is (= "7" result))))
-       (testing
-         "Undefined symbols report an error instead of evaluating to nil"
-         (let [[state-1 missing-result] @(repl/eval-input (repl/create-state)
-                                                          "missing-symbol")
-               [_state-2 nil-result] @(repl/eval-input state-1 "nil")]
-           (is (str/includes?
-                 missing-result
-                 "Unable to resolve symbol: missing-symbol in this context"))
-           (is (= "nil" nil-result))))
-       (testing "Raw datom streams are executed directly on datom VMs"
-         (let
-           [[_state result]
-            @(repl/eval-input
-               (repl/create-state)
-               "[[-1 :yin/type :literal 0 1]
-                                                    [-1 :yin/value 99 0 1]]")]
-           (is (= "99" result)))))
-     :cljs
-     (async
-       done
-       (->
-         (repl/eval-input (repl/create-state) "(+ 20 22)")
-         (.then (fn [[state-1 result-1]]
-                  (is (= "42" result-1))
-                  (repl/eval-input state-1 "(def x 10)")))
-         (.then (fn [[state-2 result-2]]
-                  (is (= "10" result-2))
-                  (repl/eval-input state-2 "x")))
-         (.then (fn [[_state-3 result-3]]
-                  (is (= "10" result-3))
-                  (repl/eval-input (repl/create-state)
-                                   "{:type :literal :value 7}")))
-         (.then (fn [[_state result]]
-                  (is (= "7" result))
-                  (repl/eval-input (repl/create-state) "missing-symbol")))
-         (.then
-           (fn [[state-1 missing-result]]
-             (is
-               (str/includes?
-                 missing-result
-                 "Unable to resolve symbol: missing-symbol in this context"))
-             (repl/eval-input state-1 "nil")))
-         (.then
-           (fn [[_state-2 nil-result]]
-             (is (= "nil" nil-result))
-             (repl/eval-input
-               (repl/create-state)
-               "[[-1 :yin/type :literal 0 1]
-                                             [-1 :yin/value 99 0 1]]")))
-         (.then (fn [[_state result]] (is (= "99" result)) (done)))))))
+(deftest booting-yields-one-shell-one-input-medium-and-one-cursor
+  (let [state (repl/boot (repl/parse-args []))]
+    (is (some? (:input state)))
+    (is (some? (:input-cursor state)))
+    (is (host-common/adapter? (:host state)))
+    (is (true? (:running? state)))
+    (is (empty? (repl/banner (repl/parse-args []))))
+    (testing "the composition is drivable without any host loop"
+      (driver/submit-line! (:input state) "(+ 40 2)")
+      (let [[entries _] (driver/take-outbox (driver/repl-step state 0))]
+        (is (= ["42"] (mapv :yin.repl.driver/text entries)))))))
 
 
-(deftest command-dispatch-test
-  #?(:clj
-     (do
-       (testing "vm and lang commands change subsequent evaluation semantics"
-         (let [[state-1 vm-msg] @(repl/eval-input (repl/create-state)
-                                                  "(vm :register)")
-               [_state-2 vm-result] @(repl/eval-input state-1 "(+ 1 2)")
-               [state-3 lang-msg] @(repl/eval-input state-1 "(lang :python)")
-               [_state-4 py-result] @(repl/eval-input state-3 "1 + 2")
-               [state-5 php-msg] @(repl/eval-input state-3 "(lang :php)")
-               [_state-6 php-result] @(repl/eval-input state-5 "1 + 2;")]
-           (is (str/includes? vm-msg "RegisterVM"))
-           (is (= "3" vm-result))
-           (is (str/includes? lang-msg "Python"))
-           (is (= "3" py-result))
-           (is (str/includes? php-msg "PHP"))
-           (is (= "3" php-result))))
-       (testing "compile prints AST and datoms without executing"
-         (let [[_state output] @(repl/eval-input (repl/create-state)
-                                                 "(compile (+ 1 2))")]
-           (is (str/includes? output "AST:"))
-           (is (str/includes? output "Datoms:"))
-           (is (str/includes? output ":type :application"))))
-       (testing "collection values are pretty-printed"
-         (let
-           [[_state result]
-            @(repl/eval-input
-               (repl/create-state)
-               "{:type :literal
-                                    :value {:alpha-long-keyword 1
-                                            :beta-long-keyword 2
-                                            :gamma-long-keyword 3
-                                            :delta-long-keyword 4
-                                            :epsilon-long-keyword 5}}")]
-           (is (str/includes? result "\n"))
-           (is (str/includes? result ":beta-long-keyword"))))
-       (testing "quit marks the shell as no longer running"
-         (let [[state result] @(repl/eval-input (repl/create-state) "(quit)")]
-           (is (false? (:running? state)))
-           (is (str/includes? result "Bye")))))
-     :cljs
-     (async
-       done
-       (->
-         (repl/eval-input (repl/create-state) "(vm :register)")
-         (.then (fn [[state-1 vm-msg]]
-                  (is (str/includes? vm-msg "RegisterVM"))
-                  (repl/eval-input state-1 "(+ 1 2)")))
-         (.then (fn [[state-2 vm-result]]
-                  (is (= "3" vm-result))
-                  (repl/eval-input state-2 "(lang :python)")))
-         (.then (fn [[state-3 lang-msg]]
-                  (is (str/includes? lang-msg "Python"))
-                  (repl/eval-input state-3 "1 + 2")))
-         (.then (fn [[state-4 py-result]]
-                  (is (= "3" py-result))
-                  (repl/eval-input state-4 "(lang :php)")))
-         (.then (fn [[state-5 php-msg]]
-                  (is (str/includes? php-msg "PHP"))
-                  (repl/eval-input state-5 "1 + 2;")))
-         (.then (fn [[_state-6 php-result]]
-                  (is (= "3" php-result))
-                  (repl/eval-input (repl/create-state) "(compile (+ 1 2))")))
-         (.then
-           (fn [[_state output]]
-             (is (str/includes? output "AST:"))
-             (is (str/includes? output "Datoms:"))
-             (is (str/includes? output ":type :application"))
-             (repl/eval-input
-               (repl/create-state)
-               "{:type :literal
-                             :value {:alpha-long-keyword 1
-                                     :beta-long-keyword 2
-                                     :gamma-long-keyword 3
-                                     :delta-long-keyword 4
-                                     :epsilon-long-keyword 5}}")))
-         (.then (fn [[_state result]]
-                  (is (str/includes? result "\n"))
-                  (is (str/includes? result ":beta-long-keyword"))
-                  (repl/eval-input (repl/create-state) "(quit)")))
-         (.then (fn [[state result]]
-                  (is (false? (:running? state)))
-                  (is (str/includes? result "Bye"))
-                  (done)))))))
+(deftest an-uncomposed-port-reports-the-missing-host
+  (let [opts (repl/parse-args ["--port" "8080"])
+        server (serve/serve! {:bind-port 8080 :host nil})]
+    (is (some? (:lifecycle server)) "serve! returns immediately with its medium")
+    (is (= :failed (:status server)))
+    (testing "and the ticker prints why, without a banner guessing at it"
+      (let [[_ server' lines] (repl/step-all (repl/boot opts) server 0)]
+        (is (str/includes? (str/join " " lines) "no host WebSocket package"))
+        (is (= :failed (:status server')))))
+    (is (nil? (repl/boot-server (repl/parse-args []))))))
 
 
-(deftest telemetry-command-test
-  #?(:clj (testing
-            "telemetry wires a stream into the active VM and records snapshots"
-            (let [sink (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
-                  [state-1 _msg] @(repl/eval-input (repl/create-state)
-                                                   "(telemetry)")
-                  state-1 (assoc state-1
-                                 :telemetry-mode {:type :stream, :stream sink})
-                  telemetry-stream (:telemetry-stream state-1)
-                  [state-2 result] @(repl/eval-input state-1 "(+ 1 2)")
-                  datoms (vec (ds/->seq nil sink))]
-              (is (= "3" result))
-              (is (= telemetry-stream (:telemetry-stream state-2)))
-              (is (fact? datoms :vm/phase :step))
-              (is (fact? datoms :vm/phase :halt))))
-     :cljs (async done
-                  (let [sink (ds/open! {:dao.stream/type :ringbuffer,
-                                        :capacity nil})]
-                    (-> (repl/eval-input (repl/create-state) "(telemetry)")
-                        (.then (fn [[state-1 _msg]]
-                                 (let [state-1 (assoc state-1
-                                                      :telemetry-mode {:type :stream,
-                                                                       :stream
-                                                                       sink})]
-                                   (repl/eval-input state-1 "(+ 1 2)"))))
-                        (.then (fn [[_state-2 result]]
-                                 (let [datoms (vec (ds/->seq nil sink))]
-                                   (is (= "3" result))
-                                   (is (fact? datoms :vm/phase :step))
-                                   (is (fact? datoms :vm/phase :halt))
-                                   (done)))))))))
+(deftest the-explicit-stop-trigger-is-a-line-producer
+  (let [state (repl/boot (repl/parse-args ["--headless"]))]
+    (repl/request-stop! state)
+    (is (true? (:running? state)) "appending stops nothing by itself")
+    (is (false? (:running? (driver/repl-step state 0)))
+        "the one step owner performs the shutdown, as it does for a typed quit")))
 
 
-(deftest print-primitives-test
-  #?(:clj
-     (testing "print, println, and prn emit through REPL output"
-       (let
-         [[state-1 print-result] @(repl/eval-input (repl/create-state)
-                                                   "(print \"hello\")")
-          [state-2 println-result] @(repl/eval-input state-1
-                                                     "(println \"world\")")
-          [_state-3 prn-result]
-          @(repl/eval-input
-             state-2
-             "(prn {:alpha-long-keyword 1
-                                             :beta-long-keyword 2
-                                             :gamma-long-keyword 3})")]
-         (is (= "hellonil" print-result))
-         (is (= "world\nnil" println-result))
-         (is (str/includes? prn-result ":beta-long-keyword"))
-         (is (str/ends-with? prn-result "\nnil"))))
-     :cljs
-     (async
-       done
-       (->
-         (repl/eval-input (repl/create-state) "(print \"hello\")")
-         (.then (fn [[state-1 print-result]]
-                  (is (= "hellonil" print-result))
-                  (repl/eval-input state-1 "(println \"world\")")))
-         (.then
-           (fn [[state-2 println-result]]
-             (is (= "world\nnil" println-result))
-             (repl/eval-input
-               state-2
-               "(prn {:alpha-long-keyword 1
-                                  :beta-long-keyword 2
-                                  :gamma-long-keyword 3})")))
-         (.then (fn [[_state-3 prn-result]]
-                  (is (str/includes? prn-result ":beta-long-keyword"))
-                  (is (str/ends-with? prn-result "\nnil"))
-                  (done)))))))
+(deftest a-quit-shell-stops-the-endpoint-before-the-host-exits
+  (let [server (serve/serve! {:bind-port 8080 :host (host-adapter)})
+        server (serve/step server 1)]
+    (is (= :running (:status server)))
+    (let [[server _lines stopped?] (repl/stop-tick (serve/stop! server) 2)]
+      (is (= :stopping (:status server)))
+      (is (false? stopped?)
+          "stop! initiates; only the host close completion is the stopped fact")
+      (let [[server' lines stopped?'] (repl/stop-tick server 3)]
+        (is (true? stopped?'))
+        (is (= :stopped (:status server')))
+        (is (str/includes? (str/join " " lines) "Endpoint stopped"))))))
 
 
-(deftest repl-state-command-test
-  #?(:clj
-     (testing
-       "repl-state returns serializable shell state with stream and port exposure"
-       (let [[state-1 _msg] @(repl/eval-input (repl/create-state)
-                                              "(telemetry)")
-             state-1 (-> state-1
-                         (assoc-in [:exposed-ports :repl]
-                                   {:transport :websocket,
-                                    :port 7777,
-                                    :server {:dummy :server-handle}}))
-             [state-2 result] @(repl/eval-input state-1 "(repl-state)")
-             summary (edn/read-string result)]
-         (is (= state-1 state-2))
-         (is (= :clojure (:lang summary)))
-         (is (= :semantic (get-in summary [:vm :type])))
-         (is (= {:position 0} (get-in summary [:telemetry :cursor])))
-         (is (true? (get-in summary [:telemetry :enabled?])))
-         (is (= :stderr (get-in summary [:telemetry :mode])))
-         (is (true? (get-in summary [:streams :telemetry :present?])))
-         (is (= :open (get-in summary [:streams :telemetry :status])))
-         (is (= [{:name :repl, :transport :websocket, :port 7777}]
-                (:ports summary)))))
-     :cljs
-     (async
-       done
-       (-> (repl/eval-input (repl/create-state) "(telemetry)")
-           (.then (fn [[state-1 _msg]]
-                    (let [state-1 (-> state-1
-                                      (assoc-in [:exposed-ports :repl]
-                                                {:transport :websocket,
-                                                 :port 7777,
-                                                 :server
-                                                 {:dummy :server-handle}}))]
-                      (repl/eval-input state-1 "(repl-state)"))))
-           (.then
-             (fn [[_state-2 result]]
-               (let [summary (edn/read-string result)]
-                 (is (= :clojure (:lang summary)))
-                 (is (= :semantic (get-in summary [:vm :type])))
-                 (is (= {:position 0} (get-in summary [:telemetry :cursor])))
-                 (is (true? (get-in summary [:telemetry :enabled?])))
-                 (is (= :stderr (get-in summary [:telemetry :mode])))
-                 (is (true? (get-in summary [:streams :telemetry :present?])))
-                 (is (= :open (get-in summary [:streams :telemetry :status])))
-                 (is (= [{:name :repl, :transport :websocket, :port 7777}]
-                        (:ports summary)))
-                 (done))))))))
+(deftest an-endpoint-that-never-bound-is-not-waited-on
+  (let [server (serve/serve! {:bind-port 8080 :host nil})
+        [server' lines stopped?] (repl/stop-tick (serve/stop! server) 1)]
+    (is (true? stopped?)
+        "no host close completion can arrive for a listener that never bound")
+    (is (= :failed (:status server'))
+        "and the endpoint still says what happened to it, rather than :stopped")
+    (is (str/includes? (str/join " " lines) "no host WebSocket package"))))
 
 
-(deftest request-handling-test
-  (testing "op/eval handler evaluates input and updates state"
-    (let [state-atom (atom (repl/create-state))
-          eval-handler (get (repl/make-handlers state-atom) :op/eval)]
-      (is (= "42" (eval-handler "(+ 9 33)")))
-      (is (= :semantic (:vm-type @state-atom)))))
-  (testing "op/eval handler persists shell state across requests"
-    (let [state-atom (atom (repl/create-state))
-          eval-handler (get (repl/make-handlers state-atom) :op/eval)]
-      (is (= "7" (eval-handler "(def x 7)")))
-      (is (= "7" (eval-handler "x"))))))
+#?(:cljd nil
+   :clj
+   (deftest a-typed-quit-exits-without-waiting-for-end-of-input
+     (let [state (repl/boot {})
+           exits (atom 0)]
+       (driver/submit-line! (:input state) "(quit)")
+       (repl/poll-loop! state nil false (fn [] (swap! exits inc)))
+       (is (= 1 @exits)
+           "the step owner exits; the reader is still parked in read-line"))))
 
 
-(deftest op-eval-forwards-to-servers-own-remote-endpoint-test
-  #?(:clj
-     (testing
-       "a server with its own outbound remote-endpoint forwards incoming op/eval requests upstream instead of always evaluating locally"
-       (with-redefs [dao.stream.rpc.client/call! (constantly "FORWARDED")]
-         (let [state-atom (atom (assoc (repl/create-state)
-                                       :remote-endpoint {:stream ::stream,
-                                                         :response-cursor-atom
-                                                         (atom {:position 0}),
-                                                         :request-id-atom (atom 0),
-                                                         :closed-atom (atom
-                                                                        false)}))
-               eval-handler (get (repl/make-handlers state-atom) :op/eval)]
-           (is
-             (= "FORWARDED" (eval-handler "(+ 1 2)"))
-             "op/eval should proxy-chain through the server's own remote-endpoint, not evaluate (+ 1 2) locally"))))
-     :default (is true)))
+(deftest an-ephemeral-bind-is-refused-with-its-reason
+  (let [server (serve/serve! {:bind-port 0 :host (host-adapter)})
+        [_ server' lines] (repl/step-all (repl/boot {}) server 0)]
+    (is (= :failed (:status server')))
+    (is (str/includes? (str/join " " lines) "ephemeral-port-unsupported"))))
 
 
-(deftest remote-eval-input-contract-test
-  #?(:clj (testing "remote eval keeps the same derefable contract as local eval"
-            (with-redefs [dao.stream.rpc.client/call! (constantly "3")]
-              (let [state (assoc (repl/create-state)
-                                 :remote-endpoint {:stream ::stream,
-                                                   :response-cursor-atom
-                                                   (atom {:position 0}),
-                                                   :request-id-atom (atom 0),
-                                                   :closed-atom (atom false)})
-                    result (repl/eval-input state "(+ 1 2)")]
-                (is (instance? clojure.lang.IDeref result))
-                (is (= [state "3"] @result)))))
-     :default (is true)))
+;; =============================================================================
+;; One shared shell — `--port` serves the shell the local prompt evaluates
+;; against, as v1's atom did.  The composition is the real one: `repl/boot`
+;; beside `serve!`, both advanced only by `step-all`, with a captured socket
+;; standing in for the remote client.
+;; =============================================================================
+
+(defn- socket
+  "A captured socket: every frame the endpoint sends."
+  []
+  (let [sent (atom [])]
+    {:sent sent
+     :socket {:send! (fn [text] (swap! sent conj text) nil)}}))
 
 
-(deftest repl-state-stays-local-while-remote-connected-test
-  #?(:clj
-     (testing
-       "repl-state reports the local shell even when a remote endpoint is attached"
-       (with-redefs [yin.repl/eval-remote-input (fn [state _input-str]
-                                                  (let [p (promise)]
-                                                    (deliver p
-                                                             [state "REMOTE"])
-                                                    p))]
-         (let [state (assoc (repl/create-state)
-                            :remote-endpoint {:stream ::request,
-                                              :response-cursor-atom
-                                              (atom {:position 0}),
-                                              :request-id-atom (atom 0),
-                                              :closed-atom (atom false)})
-               result @(repl/eval-input state "(repl-state)")
-               [_state summary-str] result]
-           (is (not= "REMOTE" summary-str))
-           (is (= {:connected? true,
-                   :request-id 0,
-                   :response-cursor {:position 0},
-                   :streams {:request {:present? true, :status :unknown},
-                             :response {:present? true, :status :unknown}}}
-                  (-> summary-str
-                      edn/read-string
-                      :remote))))))
-     :default (is true)))
+(defn- reply-values
+  "The `:ws/value` frames a captured socket received, decoded."
+  [s]
+  (->> @(:sent s)
+       (mapv transit/decode)
+       (filter #(= :ws/value (:ws/frame %)))
+       (mapv :ws/value)))
 
 
-(deftest reconnect-closes-previous-remote-endpoint-test
-  #?(:clj
-     (testing
-       "connecting again closes the previous remote request and response streams"
-       (let [closed-clients (atom [])
-             client-1 {:stream ::stream-1,
-                       :response-cursor-atom (atom {:position 0}),
-                       :request-id-atom (atom 0),
-                       :closed-atom (atom false)}
-             client-2 {:stream ::stream-2,
-                       :response-cursor-atom (atom {:position 0}),
-                       :request-id-atom (atom 0),
-                       :closed-atom (atom false)}]
-         (with-redefs [dao.stream.rpc.ws/connect! (fn [url & _]
-                                                    (case url
-                                                      "ws://one" client-1
-                                                      "ws://two" client-2))
-                       dao.stream.rpc.client/close!
-                       (fn [client] (swap! closed-clients conj client))]
-           (let [[state-1 _] @(repl/eval-input (repl/create-state)
-                                               "(connect \"ws://one\")")
-                 [state-2 _] @(repl/eval-input state-1
-                                               "(connect \"ws://two\")")]
-             (is (= client-2 (:remote-endpoint state-2)))
-             (is (= [client-1] @closed-clients))))))
-     :default (is true)))
+(defn- remote-request!
+  "Deliver one `:op/eval` request through a connected socket handle."
+  [handle id source]
+  (ws/receive! handle (transit/encode
+                        {:ws/frame :ws/value
+                         :ws/value (apply/request id :op/eval [source])})))
 
 
-(deftest connect-waits-for-transport-readiness-test
-  #?(:clj (testing
-            "connect waits until the remote websocket link reaches :connected"
-            (let [client {:stream ::stream}]
-              (with-redefs [dao.stream.rpc.ws/connect! (fn [_url & _] client)]
-                (let [[state result] @(repl/eval-input
-                                        (repl/create-state)
-                                        "(connect \"ws://remote\")")]
-                  (is (= "Connected to ws://remote" result))
-                  (is (= client (:remote-endpoint state)))))))
-     :default (is true)))
+(deftest the-served-endpoint-shares-the-local-shells-shell
+  (let [server (serve/serve! {:bind-port 8080 :host (host-adapter)})
+        state (repl/boot {:adapter (host-adapter)})
+        [_ server _] (repl/step-all state server 0)
+        s (socket)
+        accepted (ws/accept-connection! (:ws-endpoint server)
+                                        (:path server)
+                                        (:socket s)
+                                        2)
+        ;; Adoption is observed on the step after the upgrade, as the serve
+        ;; composition's own tests drive it.
+        [_ server _] (repl/step-all state server 3)
+        [state server _] (repl/step-all state server 4)]
+    (is (some? (:ws/handle accepted)))
+    (is (contains? (:sessions server) (:ws/attachment accepted)))
+    (driver/submit-line! (:input state) "(defn twice [x] (* 2 x))")
+    (let [[state server lines] (repl/step-all state server 5)]
+      (is (str/includes? (str/join " " lines) ":closure")
+          "the local prompt defined the function against its own shell")
+      (testing "a definition typed at the local prompt answers a remote request"
+        (remote-request! (:ws/handle accepted) 0 "(twice 21)")
+        (let [[state server _] (repl/step-all state server 6)
+              response (last (reply-values s))]
+          (is (= 0 (apply/response-id response)))
+          (is (= "42" (apply/response-ok response))
+              "the endpoint must evaluate against the shell the local prompt shares, not a private one")
+          (testing "a remote definition answers the local prompt on a later tick"
+            (remote-request! (:ws/handle accepted) 1 "(def answer 7)")
+            (let [[state server _] (repl/step-all state server 7)]
+              (is (= "7" (apply/response-ok (last (reply-values s)))))
+              (driver/submit-line! (:input state) "answer")
+              (let [[_state _server lines] (repl/step-all state server 8)]
+                (is (some #(= "7" %) lines)
+                    "the local prompt must see what a remote client defined")))))))))
 
 
-(deftest failed-reconnect-preserves-prior-connection-test
-  #?(:cljs
-     (async
-       done
-       (let [good-client {:stream ::good}]
-         (with-redefs [dao.stream.rpc.ws/connect!
-                       (fn
-                         ([url]
-                          (case url
-                            "ws://good" (js/Promise.resolve good-client)
-                            "ws://bad" (js/Promise.reject (js/Error.
-                                                            "boom"))))
-                         ([url _opts]
-                          (case url
-                            "ws://good" (js/Promise.resolve good-client)
-                            "ws://bad" (js/Promise.reject (js/Error.
-                                                            "boom")))))]
-           (->
-             (repl/eval-input (repl/create-state) "(connect \"ws://good\")")
-             (.then (fn [[state-1 _msg]]
-                      (repl/eval-input state-1 "(connect \"ws://bad\")")))
-             (.then
-               (fn [[state-2 _msg]]
-                 (is
-                   (= good-client (:remote-endpoint state-2))
-                   "a failed reconnect attempt should leave the prior working connection intact, not tear it down before the new connection is confirmed")
-                 (done)))))))
-     :default (is true)))
+;; =============================================================================
+;; Phase R5 — the slice, end to end, across two operating-system processes
+;;
+;; This namespace is process A: the headless server, composed through the real
+;; `serve!` and stepped by one ticker thread exactly as `-main --headless`
+;; steps it.  Process B is `yin.repl.slice-peer`, spawned as a real child
+;; JVM: a whole REPL client that shares nothing with A but bytes on a socket
+;; and bytes on a pipe.  Nothing B knows about A arrives except as data — the
+;; URL an operator would type.
+;;
+;; Facts 1-3 share one process A through the `:once` fixture, because fact 3
+;; is precisely that the served stream survives a connection's death: a
+;; per-test server would make survival unfalsifiable.  Fact 4 stops its
+;; endpoint, so it composes — and stops — its own.
+;; =============================================================================
+
+#?(:cljd nil
+   :clj
+   (do
+     ;; Deadlines.  A peer is a whole JVM, so its first breath is slow while
+     ;; every later exchange is a pipe round trip.
+     (def ^:private peer-ready-ms 60000)
+     (def ^:private reply-ms 15000)
+     (def ^:private event-ms 15000)
 
 
-(deftest op-eval-handler-with-async-local-command-test
-  #?(:cljs
-     (async
-       done
-       (testing
-         "op/eval handler should not corrupt state when the evaluated command resolves asynchronously on this platform"
-         (let [state-atom (atom (repl/create-state))
-               client {:stream ::stream}
-               eval-handler (get (repl/make-handlers state-atom) :op/eval)]
-           (with-redefs [dao.stream.rpc.ws/connect!
-                         (fn
-                           ([_url] (js/Promise.resolve client))
-                           ([_url _opts] (js/Promise.resolve client)))]
-             (->
-               (eval-handler "(connect \"ws://remote\")")
-               (.then
-                 (fn [_]
-                   (is
-                     (= client (:remote-endpoint @state-atom))
-                     "a remote op/eval request for a command that resolves asynchronously (like connect on :cljs/:cljd) should still correctly attach the client, not destructure the pending Promise as [state result]")
-                   (done)))
-               (.catch
-                 (fn [e]
-                   (is
-                     false
-                     (str
-                       "op/eval handler threw while evaluating an async local command: "
-                       (.-message e)))
-                   (done))))))))
-     :default (is true)))
+     ;; =========================================================================
+     ;; Process A: one headless v2 REPL endpoint
+     ;; =========================================================================
+
+     (defn- free-port!
+       "One currently-free TCP port.  `serve!` fixes its descriptor at
+        composition, so an ephemeral bind cannot serve; the race between this
+        close and the fixture's bind is accepted and a collision fails the
+        fixture loudly with the endpoint's own bind-failed notice."
+       []
+       (let [socket (java.net.ServerSocket. 0)]
+         (try (.getLocalPort socket)
+              (finally (.close socket)))))
 
 
-(deftest connection-status-text-test
-  (testing "server status reflects whether any REPL clients are connected"
-    (is (= "listening" (repl/connection-status-text 0)))
-    (is (= "listening" (repl/connection-status-text -1)))
-    (is (= "client connected" (repl/connection-status-text 1)))
-    (is (= "client connected" (repl/connection-status-text 2)))))
+     (def ^:private process-a (atom nil))
 
 
-(deftest telemetry-reroute-closes-previous-sink-test
-  #?(:clj
-     (testing
-       "routing telemetry to a new sink closes the previous stream sink"
-       (let [closed-streams (atom [])
-             telemetry-stream ::telemetry
-             old-sink ::old-sink
-             new-sink ::new-sink]
-         (with-redefs [yin.repl/open-telemetry-sink (fn [_url] new-sink)
-                       dao.stream/close! (fn [stream]
-                                           (swap! closed-streams conj stream)
-                                           {:woke []})]
-           (let [state (assoc (repl/create-state {:telemetry-stream
-                                                  telemetry-stream})
-                              :telemetry-mode
-                              {:type :stream, :stream old-sink, :url "ws://old"})
-                 [state' _] @(repl/eval-input state
-                                              "(telemetry \"ws://new\")")]
-             (is (= {:type :stream, :stream new-sink, :url "ws://new"}
-                    (:telemetry-mode state')))
-             (is (= [old-sink] @closed-streams))))))
-     :default (is true)))
+     (defn- start-attempt!
+       "One bind attempt.  Answers the process map, or ::bind-failed after
+        shutting its own ticker down so a retry leaks no thread."
+       []
+       (let [port (free-port!)
+             endpoint (atom (serve/serve! {:bind-port port :host (host/websocket)}))
+             paused (atom false)
+             running (atom true)
+             notices (atom [])
+             ticker (doto (Thread.
+                            (fn []
+                              (while @running
+                                ;; `paused` is the test's stall of the one
+                                ;; server driver: host socket threads keep
+                                ;; depositing, so a request can sit accepted
+                                ;; but unanswered while the driver holds.
+                                (when-not @paused
+                                  ;; One atomic read-step-write.  A `reset!`
+                                  ;; of a value derived from an earlier
+                                  ;; `@endpoint` silently loses whatever a
+                                  ;; test wrote in between — a `stop!` from
+                                  ;; the test thread would vanish and the
+                                  ;; endpoint would stay :running.  `swap!`
+                                  ;; re-runs on contention, so the step is
+                                  ;; always applied to the value that wins.
+                                  (let [drained (volatile! nil)]
+                                    (swap! endpoint
+                                           (fn [ep]
+                                             (let [stepped (serve/step
+                                                             ep
+                                                             (System/currentTimeMillis))
+                                                   [entries next]
+                                                   (serve/take-outbox stepped)]
+                                               (vreset! drained entries)
+                                               next)))
+                                    (swap! notices
+                                           into
+                                           (keep serve/text-key @drained))))
+                                (Thread/sleep 5)))
+                            "yin-repl-slice-server")
+                      (.setDaemon true)
+                      (.start))
+             deadline (+ (System/currentTimeMillis) 10000)
+             abandon! (fn []
+                        (reset! running false)
+                        (.join ^Thread ticker 2000))]
+         (loop []
+           (let [status (:status @endpoint)]
+             (cond
+               (= :running status)
+               {:port port
+                :url (str "daostream:ws://127.0.0.1:" port "/repl")
+                :endpoint endpoint
+                :paused paused
+                :running running
+                :ticker ticker
+                :notices notices}
+
+               ;; A lost free-port! race, not a defect under test: the probe
+               ;; socket is closed before serve! binds, so another process can
+               ;; take the port in between.  Abandon this attempt and let the
+               ;; caller retry on a fresh one.
+               (= :failed status) (do (abandon!) ::bind-failed)
+
+               (< deadline (System/currentTimeMillis))
+               (do (abandon!)
+                   (throw (ex-info "the R5 endpoint never reported :running"
+                                   {:status status, :notices @notices})))
+
+               :else (do (Thread/sleep 20) (recur)))))))
 
 
-(deftest last-value-test
-  #?(:clj (testing "*1, *2, *3 hold the last three evaluated values"
-            (let [[state-1 result-1] @(repl/eval-input (repl/create-state) "10")
-                  [state-2 result-2] @(repl/eval-input state-1 "20")
-                  [state-3 result-3] @(repl/eval-input state-2 "30")
-                  [_state-4 result-4] @(repl/eval-input state-3 "(+ *1 *2 *3)")]
-              (is (= "10" result-1))
-              (is (= "20" result-2))
-              (is (= "30" result-3))
-              (is (= "60" result-4))
-              ;; If *1 is a function (from a previous eval), it should be
-              ;; callable
-              (let [[state-5 _result-5] @(repl/eval-input (repl/create-state)
-                                                          "(fn [x] (* x x))")
-                    [_state-6 result-6] @(repl/eval-input state-5 "(*1 5)")]
-                (is (= "25" result-6)))))
-     :cljs
-     (async
-       done
-       (->
-         (repl/eval-input (repl/create-state) "10")
-         (.then (fn [[state-1 result-1]]
-                  (is (= "10" result-1))
-                  (repl/eval-input state-1 "20")))
-         (.then (fn [[state-2 result-2]]
-                  (is (= "20" result-2))
-                  (repl/eval-input state-2 "30")))
-         (.then (fn [[state-3 result-3]]
-                  (is (= "30" result-3))
-                  (repl/eval-input state-3 "(+ *1 *2 *3)")))
-         (.then (fn [[_state-4 result-4]]
-                  (is (= "60" result-4))
-                  (repl/eval-input (repl/create-state) "(fn [x] (* x x))")))
-         (.then (fn [[state-5 _result-5]] (repl/eval-input state-5 "(*1 5)")))
-         (.then (fn [[_state-6 result-6]] (is (= "25" result-6)) (done)))))))
+     (defn- start-process-a!
+       "Bind an endpoint, retrying a lost port race with a fresh port.  The
+        collision used to fail the fixture loudly, which made every test in
+        this namespace intermittently red for a reason that has nothing to do
+        with what they assert."
+       []
+       (loop [attempts 5]
+         (let [a (start-attempt!)]
+           (cond
+             (not= ::bind-failed a) a
+             (pos? attempts) (do (Thread/sleep 25) (recur (dec attempts)))
+             :else (throw (ex-info "no free port survived five bind attempts"
+                                   {}))))))
 
 
-(deftest symbol-quoting-test
-  #?(:clj (testing "Symbols in REPL output are quoted for copy-paste safety"
-            (let [[_state-1 result-1] @(repl/eval-input (repl/create-state)
-                                                        "(quote foo)")
-                  [_state-2 result-2] @(repl/eval-input (repl/create-state)
-                                                        "[1 (quote bar) :baz]")
-                  [_state-3 result-3] @(repl/eval-input (repl/create-state)
-                                                        "{(quote a) 1 :b 2}")]
-              (is (= "'foo" result-1))
-              (is (= "[1 'bar :baz]" result-2))
-              (is (= "{'a 1, :b 2}" result-3))))
-     :cljs (async done
-                  (-> (repl/eval-input (repl/create-state) "(quote foo)")
-                      (.then (fn [[_state-1 result-1]]
-                               (is (= "'foo" result-1))
-                               (repl/eval-input (repl/create-state)
-                                                "[1 (quote bar) :baz]")))
-                      (.then (fn [[_state-2 result-2]]
-                               (is (= "[1 'bar :baz]" result-2))
-                               (repl/eval-input (repl/create-state)
-                                                "{(quote a) 1 :b 2}")))
-                      (.then (fn [[_state-3 result-3]]
-                               (is (= "{'a 1, :b 2}" result-3))
-                               (done)))))))
+     (defn- stop-process-a!
+       "Stop the ticker, then drive the endpoint to :stopped so its listening
+        socket is released before the next fixture binds a port.  The old
+        loop gave up silently after 200 steps and left the port bound, which
+        a later `free-port!` could then hand out; it now reports what it was
+        still waiting on.  Always writes the final endpoint back, so a caller
+        that inspects it after the stop sees the stopped value."
+       [a]
+       (reset! (:running a) false)
+       (.join ^Thread (:ticker a) 2000)
+       (let [deadline (+ (System/currentTimeMillis) 5000)
+             final (loop [endpoint (serve/stop! @(:endpoint a))]
+                     (let [endpoint' (serve/step endpoint
+                                                 (System/currentTimeMillis))]
+                       (cond
+                         (serve/stopped? endpoint') endpoint'
+                         (< deadline (System/currentTimeMillis))
+                         (throw (ex-info
+                                  "the endpoint never reached :stopped; its port may still be bound"
+                                  {:status (:status endpoint')
+                                   :port (:port a)
+                                   :notices @(:notices a)}))
+                         :else (do (Thread/sleep 5) (recur endpoint')))))]
+         (reset! (:endpoint a) final)
+         final))
 
 
-(deftest concurrent-clients-test
-  #?(:clj
-     (testing
-       "serve! handles multiple concurrent websocket clients independently"
-       (let [port 7781
-             server-state (atom (repl/create-state))
-             server (repl/serve! server-state port {:sleep-ms 10})
-             ;; wait for server to start
-             _ (Thread/sleep 200)
-             ;; Client A
-             client-a-stream (ds/open! {:dao.stream/type :websocket,
-                                        :mode :connect,
-                                        :url (str "ws://localhost:" port)})
-             client-a-req-id (atom 100)
-             ;; Client B
-             client-b-stream (ds/open! {:dao.stream/type :websocket,
-                                        :mode :connect,
-                                        :url (str "ws://localhost:" port)})
-             client-b-req-id (atom 200)
-             ;; Helper to send request and await response
-             send-req
-             (fn [stream req-id-atom expr]
-               (let [req-id (swap! req-id-atom inc)
-                     req (dao-apply/request req-id :op/eval [expr])]
-                 (dao-apply/put-request! stream req)
-                 (loop [attempts 100
-                        cursor {:position 0}]
-                   (if (zero? attempts)
-                     (throw (ex-info "Timeout waiting for response"
-                                     {:req req}))
-                     (let [res (dao-apply/next-response stream cursor)]
-                       (cond (map? res)
-                             (let [response (:ok res)]
-                               (if (= req-id
-                                      (dao-apply/response-id response))
-                                 (:ok (dao-apply/response-value response))
-                                 (recur (dec attempts) (:cursor res))))
-                             (= :blocked res) (do (Thread/sleep 50)
-                                                  (recur (dec attempts)
-                                                         cursor))
-                             (= :daostream/gap res) (recur (dec attempts)
-                                                           {:position 0})
-                             :else (recur (dec attempts) cursor)))))))]
+     (clojure.test/use-fixtures :once
+       (fn [run]
+         (reset! process-a (start-process-a!))
+         (try (run)
+              (finally
+                (stop-process-a! @process-a)
+                (reset! process-a nil)))))
+
+
+     ;; =========================================================================
+     ;; Process B: a real child process, spoken to only over pipes
+     ;; =========================================================================
+
+     (defn- pump!
+       [reader on-line]
+       (doto (Thread.
+               (fn []
+                 (try
+                   (loop []
+                     (when-let [line (.readLine ^java.io.BufferedReader reader)]
+                       (on-line line)
+                       (recur)))
+                   (catch Exception _ nil))))
+         (.setDaemon true)
+         (.start)))
+
+
+     (defn- default-peer-command
+       "Process B as a JVM on this process's own classpath, as the stream slice
+        does: the same tree A runs, one JVM boot instead of a dependency
+        resolution."
+       []
+       ["java" "-cp" (System/getProperty "java.class.path")
+        "clojure.main" "-m" "yin.repl.slice-peer"])
+
+
+     (def ^:private dart-peer-exe "build/yin-repl-peer")
+
+
+     (defn- start-peer!
+       "Spawn process B from `command`.  The command is a JVM by default; the
+        cross-host pair substitutes the compiled Dart peer, which speaks the
+        identical pipe protocol."
+       ([]
+        (start-peer! (default-peer-command)))
+       ([command]
+        (let [process (.start (ProcessBuilder. ^java.util.List command))
+              replies (atom [])
+              errors (atom [])
+              peer {:process process
+                    :in (io/writer (.getOutputStream process))
+                    :replies replies
+                    :errors errors
+                    :seen (atom [])
+                    :consumed (atom 0)}]
+          ;; Loading B's namespaces prints to B's stdout before the peer
+          ;; protocol starts, so a line that is not a Transit reply is noise
+          ;; rather than a protocol failure.
+          (pump! (io/reader (.getInputStream process))
+                 (fn [line]
+                   (let [reply (try (transit/decode line) (catch Exception _ nil))]
+                     (if (:reply reply)
+                       (swap! replies conj reply)
+                       (swap! errors conj line)))))
+          ;; stderr must be drained too: an unread pipe fills and would block
+          ;; the child mid-report.
+          (pump! (io/reader (.getErrorStream process))
+                 (fn [line] (swap! errors conj line)))
+          peer)))
+
+
+     (defn- stop-peer!
+       [peer]
+       (try (.destroy ^Process (:process peer)) (catch Exception _ nil)))
+
+
+     (defn- take-reply!
+       "Consume the first reply of `kind`, or nil at the deadline."
+       [peer kind timeout-ms]
+       (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+         (loop []
+           (let [index (first (keep-indexed (fn [i r] (when (= kind (:reply r)) i))
+                                            @(:replies peer)))]
+             (cond
+               index (let [reply (nth @(:replies peer) index)]
+                       (swap! (:replies peer)
+                              (fn [rs]
+                                (vec (concat (subvec rs 0 index)
+                                             (subvec rs (inc index))))))
+                       reply)
+               (< deadline (System/currentTimeMillis)) nil
+               :else (do (Thread/sleep 5) (recur)))))))
+
+
+     (defn- ask!
+       [peer command kind timeout-ms]
+       (let [writer ^java.io.Writer (:in peer)]
+         (.write writer (str (transit/encode command) "\n"))
+         (.flush writer))
+       (take-reply! peer kind timeout-ms))
+
+
+     (defn- poll-events!
+       "Ask B for whatever its driver has published since the last ask, and
+        remember it."
+       [peer]
+       (when-let [reply (ask! peer {:cmd :events} :events reply-ms)]
+         (swap! (:seen peer) into (:events reply)))
+       @(:seen peer))
+
+
+     (defn- fresh-events!
+       "The events a waiting helper has not yet observed.  Awaiting consumes:
+        a response seen by one `await-event` is never returned to the next."
+       [peer]
+       (let [all (poll-events! peer)
+             n @(:consumed peer)]
+         (when (> (count all) n)
+           (reset! (:consumed peer) (count all))
+           (subvec all n))))
+
+
+     (defn- seen
+       [peer pred]
+       (some pred @(:seen peer)))
+
+
+     (defn- text-starts-with
+       [prefix]
+       (fn [event] (str/starts-with? (str (:text event)) prefix)))
+
+
+     (defn- text-contains
+       [needle]
+       (fn [event] (str/includes? (str (:text event)) needle)))
+
+
+     (defn- text-is
+       "Exact equality, for assertions a substring cannot make: a served port
+        can contain any digits, so `42` matching the URL of `…:42913/repl` is
+        a false cross-talk result, not an answer."
+       [expected]
+       (fn [event] (= expected (:text event))))
+
+
+     (defn- await-event
+       "The first not-yet-consumed event satisfying `pred`, or nil at the
+        deadline.  Returns the event itself, never the predicate's value."
+       [peer pred timeout-ms]
+       (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+         (loop []
+           (or (first (filter pred (fresh-events! peer)))
+               (when-not (< deadline (System/currentTimeMillis))
+                 (Thread/sleep 20)
+                 (recur))))))
+
+
+     (defn- await-outstanding
+       "Probe until the peer's driver holds a request it has sent and not had
+        answered.  This is what makes fact 2 and fact 3's drop deterministic:
+        the kill happens while the request is provably outstanding, not a sleep
+        after the submit."
+       [peer timeout-ms]
+       (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+         (loop []
+           (or (when-let [probe-reply (ask! peer {:cmd :probe} :probe reply-ms)]
+                 (when (:outstanding probe-reply) probe-reply))
+               (when-not (< deadline (System/currentTimeMillis))
+                 (Thread/sleep 20)
+                 (recur))))))
+
+
+     (defn- await-server-notice
+       "Poll process A's own publication outbox until one notice contains
+        `needle`, or nil at the deadline."
+       [a needle timeout-ms]
+       (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+         (loop []
+           (or (some #(str/includes? % needle) @(:notices a))
+               (when-not (< deadline (System/currentTimeMillis))
+                 (Thread/sleep 20)
+                 (recur))))))
+
+
+     (defn- attach-peer!
+       "Spawn B, wait for its bootstrap, and have it `(connect …)` exactly the
+        way an operator does: as a typed line, not an API call."
+       ([a]
+        (attach-peer! a (default-peer-command)))
+       ([a command]
+        (let [peer (start-peer! command)
+              ready (take-reply! peer :ready peer-ready-ms)]
+          (is (some? ready)
+              (str "process B never reported its bootstrap; its other output was "
+                   (pr-str (take 5 @(:errors peer)))))
+          (ask! peer {:cmd :line :line (str "(connect \"" (:url a) "\")")}
+                :line reply-ms)
+          (let [established (await-event peer
+                                         #(= :yin.repl.connect/connected (:event %))
+                                         event-ms)]
+            (is (some? established)
+                (str "the peer never observed /established; its events were "
+                     (pr-str @(:seen peer)))))
+          peer)))
+
+
+     (defn- remote-value
+       "Evaluate one source line on the peer's remote shell, returning the
+        response the driver published."
+       [peer line]
+       (ask! peer {:cmd :line :line line} :line reply-ms)
+       (when-let [response (await-event peer
+                                        #(= :yin.repl.driver/response (:event %))
+                                        event-ms)]
+         (:text response)))
+
+
+     (defn- drop-with-outstanding-request!
+       "Stall A's driver, let the peer send one request it can never have
+        answered, and disconnect while it is outstanding.  Returns nil; the
+        client-side loss report is what the caller awaits."
+       [a peer]
+       (reset! (:paused a) true)
+       (ask! peer {:cmd :line :line "(+ 40 2)"} :line reply-ms)
+       (is (some? (await-outstanding peer event-ms))
+           "the request never became outstanding, so the drop would prove nothing")
+       (ask! peer {:cmd :line :line "(disconnect)"} :line reply-ms))
+
+
+     ;; =========================================================================
+     ;; The four facts
+     ;; =========================================================================
+
+     (deftest evaluation-round-trips-and-two-clients-get-their-own-answers
+       ;; Fact 1.
+       (let [a @process-a
+             peer-1 (attach-peer! a)
+             peer-2 (attach-peer! a)]
          (try
-           ;; Both clients connect successfully
-           (Thread/sleep 300)
-           ;; Client A sends a request
-           (let [res-a (send-req client-a-stream client-a-req-id "(+ 1 1)")]
-             (is (= "2" res-a)))
-           ;; Client B sends a request
-           (let [res-b (send-req client-b-stream client-b-req-id "(+ 3 3)")]
-             (is (= "6" res-b)))
-           ;; Close client A
-           (ds/close! client-a-stream)
-           (Thread/sleep 200)
-           ;; Client B should still work perfectly
-           (let [res-b2
-                 (send-req client-b-stream client-b-req-id "(+ 10 10)")]
-             (is (= "20" res-b2)))
-           (finally (ds/close! client-a-stream)
-                    (ds/close! client-b-stream)
-                    ((:stop! server))))))))
+           (is (= "42" (remote-value peer-1 "(+ 40 2)")))
+           (is (= "23" (remote-value peer-2 "(+ 20 3)")))
+           (testing "each client's publication carries only its own answers"
+             (poll-events! peer-1)
+             (poll-events! peer-2)
+             (is (nil? (seen peer-1 (text-is "23"))))
+             (is (nil? (seen peer-2 (text-is "42")))))
+           (finally
+             (stop-peer! peer-1)
+             (stop-peer! peer-2)))))
+
+
+     (deftest killing-the-connection-is-observable-and-requests-are-lost
+       ;; Fact 2.
+       (let [a @process-a
+             peer (attach-peer! a)]
+         (try
+           (is (= "3" (remote-value peer "(+ 1 2)")))
+           (drop-with-outstanding-request! a peer)
+           (testing "the outstanding request is reported lost, not timed out"
+             (let [lost (await-event peer
+                                     (text-starts-with ";; remote request")
+                                     event-ms)]
+               (is (some? lost)
+                   (str "no loss report arrived; events were "
+                        (pr-str @(:seen peer))))))
+           (testing "the client side observes the death"
+             (let [probe-reply (ask! peer {:cmd :probe} :probe reply-ms)]
+               (is (= :detached (get-in probe-reply [:connection :status])))
+               (is (= :dao.stream/closed (:handle-outcome probe-reply))
+                   "the attachment handle answers closed")
+               (is (nil? (:outstanding probe-reply))
+                   "a reported-lost request is no longer outstanding")))
+           ;; The server driver was stalled, so its notice can only arrive now.
+           (reset! (:paused a) false)
+           (testing "the server boundary deposits the departure"
+             (is (some? (await-server-notice a "left" event-ms))))
+           (finally
+             (reset! (:paused a) false)
+             (stop-peer! peer)))))
+
+
+     (deftest reattaching-resumes-the-served-stream-and-the-deposit-medium
+       ;; Fact 3.
+       (let [a @process-a
+             peer (attach-peer! a)]
+         (try
+           (is (= "10" (remote-value peer "(def x 10)")))
+           (let [before (ask! peer {:cmd :probe} :probe reply-ms)
+                 first-attachment (get-in before [:connection :attachment])]
+             (is (some? first-attachment))
+             (drop-with-outstanding-request! a peer)
+             (is (some? (await-event peer (text-contains "lost") event-ms))
+                 "the drop never reported its outstanding request")
+             (reset! (:paused a) false)
+             (is (some? (await-server-notice a "left" event-ms)))
+             (testing "the same descriptor reattaches to the same served stream"
+               (ask! peer {:cmd :line :line (str "(connect \"" (:url a) "\")")}
+                     :line reply-ms)
+               (is (some? (await-event peer
+                                       #(= :yin.repl.connect/connected (:event %))
+                                       event-ms))
+                   "the reattachment never established")
+               (let [after (ask! peer {:cmd :probe} :probe reply-ms)]
+                 (is (true? (:traffic-retained? after))
+                     "the deposit medium did not survive the socket's death")
+                 (is (not= first-attachment
+                           (get-in after [:connection :attachment]))
+                     "a new attachment id should name the new boundary"))
+               (is (= "10" (remote-value peer "x"))
+                   "the shared shell the served stream owns did not survive")))
+           (finally
+             (reset! (:paused a) false)
+             (stop-peer! peer)))))
+
+
+     (deftest stopping-the-endpoint-ends-the-served-stream-not-closes-it
+       ;; Fact 4.  This fact stops its endpoint, so it composes its own.
+       (let [a (start-process-a!)]
+         (try
+           (let [peer (attach-peer! a)]
+             (try
+               (is (= "7" (remote-value peer "(+ 3 4)")))
+               (swap! (:endpoint a) serve/stop!)
+               (is (some? (await-server-notice a "Endpoint stopped" event-ms))
+                   "the endpoint never completed its stop")
+               (is (= :stopped (:status @(:endpoint a))))
+               (testing "the client deposits :ws/ended, not :ws/closed"
+                 (is (some? (await-event peer
+                                         #(= :yin.repl.connect/ended (:event %))
+                                         event-ms))
+                     (str "no ended event arrived; events were "
+                          (pr-str @(:seen peer))))
+                 (is (nil? (seen peer
+                                 #(= :yin.repl.connect/detached (:event %))))
+                     "a detached event would mean the socket closed without the
+                      served stream ending")
+                 (let [probe-reply (ask! peer {:cmd :probe} :probe reply-ms)]
+                   (is (= :ended (get-in probe-reply [:connection :status])))))
+               (finally
+                 (stop-peer! peer))))
+           (finally
+             (stop-process-a! a)))))
+
+
+     ;; =========================================================================
+     ;; The cross-host pairs
+     ;;
+     ;; "The descriptor crossed a codec and the wire is the same wire; if that
+     ;; fails, the contract was implemented three times rather than once."
+     ;; The Dart peer is one program in two roles (`build/yin-repl-peer`,
+     ;; from `bb build:yin-repl-peer`): the client role here, the server
+     ;; role for the Node parent in this namespace's cljs half.  A lane run
+     ;; without the exe skips loudly rather than failing or passing silently.
+     ;; =========================================================================
+
+     (deftest a-dart-client-attaches-to-this-jvm-server
+       ;; Cross-host pair 1: cljd client against a JVM server.
+       (if-not (.exists (io/file dart-peer-exe))
+         (println ";; SKIPPED a-dart-client-attaches-to-this-jvm-server:"
+                  dart-peer-exe "is absent — run bb build:yin-repl-peer (or bb test) first")
+         (let [a @process-a
+               peer (attach-peer! a [dart-peer-exe])]
+           (try
+             (is (= "42" (remote-value peer "(+ 40 2)"))
+                 "the wire round trip must not depend on the client's host")
+             (drop-with-outstanding-request! a peer)
+             (testing "the loss report crosses the wire too"
+               (is (some? (await-event peer
+                                       (text-starts-with ";; remote request")
+                                       event-ms))))
+             (let [probe-reply (ask! peer {:cmd :probe} :probe reply-ms)]
+               (is (= :detached (get-in probe-reply [:connection :status])))
+               (is (= :dao.stream/closed (:handle-outcome probe-reply))
+                   "the Dart attachment handle answers closed"))
+             (reset! (:paused a) false)
+             (is (some? (await-server-notice a "left" event-ms))
+                 "the JVM boundary deposited the Dart client's departure")
+             (finally
+               (reset! (:paused a) false)
+               (stop-peer! peer))))))))
+
+
+;; =============================================================================
+;; Cross-host pair 2: this Node process is the client; the server is the Dart
+;; peer's `--serve` role.  The client composition is the real one — `repl/boot`
+;; with one interval step owner, exactly as the Node host runs it — and the
+;; server is a real Dart process sharing nothing but bytes on a socket.
+;; =============================================================================
+
+#?(:cljs
+   (do
+     (def ^:private cross-bind-ms 30000)
+     (def ^:private cross-event-ms 20000)
+
+     (def ^:private dart-peer-exe "build/yin-repl-peer")
+
+
+     (defn- poll-until
+       "Resolve with the first truthy value `pred` returns, or reject at the
+        deadline.  Polling is the only honest wait here: no operation blocks,
+        and nothing notifies."
+       [pred timeout-ms message]
+       (js/Promise.
+         (fn [resolve reject]
+           (let [deadline (+ (js/Date.now) timeout-ms)]
+             (letfn [(tick
+                       []
+                       (let [value (try (pred) (catch :default _ nil))]
+                         (cond
+                           value (resolve value)
+                           (< deadline (js/Date.now)) (reject (js/Error. message))
+                           :else (js/setTimeout tick 20))))]
+               (tick))))))
+
+
+     (defn- line-reader
+       [readable on-line]
+       (let [pending (atom "")]
+         (.setEncoding ^js readable "utf8")
+         (.on ^js readable "data"
+              (fn [chunk]
+                (let [parts (str/split (str @pending chunk) #"\n" -1)]
+                  (reset! pending (last parts))
+                  (doseq [line (butlast parts)
+                          :when (not (str/blank? line))]
+                    (on-line line)))))))
+
+
+     (defn- free-port!
+       "One currently-free TCP port, handed to `on-port` once the probe socket
+        is closed.  `serve!` fixes its descriptor at composition, so an
+        ephemeral bind cannot serve."
+       [on-port]
+       (let [net (js/require "net")
+             server (.createServer net)]
+         (.listen server 0 "127.0.0.1"
+                  (fn []
+                    (let [port (.-port (.address server))]
+                      (.close server (fn [] (on-port port))))))))
+
+
+     (defn- boot-client!
+       "The Node client composition: one shell, one input medium, one interval
+        step owner that collects what the driver publishes.  Nothing here
+        differs from the real Node host except where the text goes."
+       []
+       (let [box (atom (repl/boot {}))
+             out (atom [])
+             timer (js/setInterval
+                     (fn []
+                       (let [stepped (driver/repl-step @box (js/Date.now))
+                             [entries next] (driver/take-outbox stepped)]
+                         (reset! box next)
+                         (doseq [entry entries]
+                           (swap! out conj {:event (get entry driver/event-key)
+                                            :text (get entry driver/text-key)}))))
+                     5)]
+         {:box box
+          :out out
+          :stop! (fn [] (js/clearInterval timer))}))
+
+
+     (defn- published
+       "Substring over published texts, for notices whose shape is fixed."
+       [client needle]
+       (some (fn [entry] (str/includes? (str (:text entry)) needle)) @(:out client)))
+
+
+     (defn- published-exactly
+       "Exact text equality, for answers a substring cannot tell apart from a
+        served port's digits."
+       [client expected]
+       (some (fn [entry] (= expected (:text entry))) @(:out client)))
+
+
+     (deftest a-node-client-attaches-to-a-dart-server
+       (cljs.test/async done
+                        (if-not (.existsSync (js/require "fs") dart-peer-exe)
+                          (do (println ";; SKIPPED a-node-client-attaches-to-a-dart-server:"
+                                       dart-peer-exe
+                                       "is absent — run bb build:yin-repl-peer (or bb test) first")
+                              (done))
+                          (free-port!
+                            (fn [port]
+                              (let [child-process (js/require "child_process")
+                                    server (.spawn child-process dart-peer-exe
+                                                   #js ["--serve" "127.0.0.1" (str port)]
+                                                   #js {:stdio #js ["pipe" "pipe" "pipe"]})
+                                    server-lines (atom [])
+                                    server-errors (atom [])
+                                    client (boot-client!)
+                                    finish! (fn []
+                                              ((:stop! client))
+                                              (.kill ^js server)
+                                              (done))]
+                                (line-reader (.-stdout server) #(swap! server-lines conj %))
+                                (line-reader (.-stderr server) #(swap! server-errors conj %))
+                                (-> (poll-until #(some (fn [line] (str/includes? line "Serving"))
+                                                       @server-lines)
+                                                cross-bind-ms
+                                                (str "the Dart server never bound; its output was "
+                                                     (pr-str @server-errors)))
+                                    (.then (fn [_]
+                                             (driver/submit-line!
+                                               (:input @(:box client))
+                                               (str "(connect \"daostream:ws://127.0.0.1:" port "/repl\")"))
+                                             (poll-until #(published client "Connected to")
+                                                         cross-event-ms
+                                                         "the Node client never observed /established")))
+                                    (.then (fn [_]
+                                             (driver/submit-line! (:input @(:box client)) "(+ 40 2)")
+                                             (poll-until #(published-exactly client "42")
+                                                         cross-event-ms
+                                                         "the cross-host evaluation never arrived")))
+                                    (.then (fn [_]
+                                             (is (published-exactly client "42")
+                                                 "the wire round trip must not depend on either host")
+                                             (.write ^js (.-stdin server)
+                                                     (str (transit/encode {:cmd :stop}) "\n"))
+                                             (poll-until (fn []
+                                                           (= :ended (:status (connect/summary
+                                                                                (:connection @(:box client))))))
+                                                         cross-event-ms
+                                                         "the client never observed the served stream ending")))
+                                    (.then (fn [_]
+                                             (is (= :ended
+                                                    (:status (connect/summary (:connection @(:box client)))))
+                                                 ":ws/ended, not :ws/closed, is what stop! deposits")
+                                             (is (nil? (published client "Disconnected from"))
+                                                 "a detach would mean the socket closed without the stream ending")))
+                                    (.then (fn [_] nil)
+                                           (fn [error]
+                                             (is false (str "cross-host slice failure: "
+                                                            (pr-str error)))))
+                                    (.then (fn [_] (finish!))))))))))))

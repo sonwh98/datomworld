@@ -1,12 +1,35 @@
 {:tasks
  {test:clj {:doc "Run JVM tests (via clj)"
             :task (shell "clojure -M:test")}
-  
+
   test:cljs {:doc "Run Node tests (via shadow-cljs with :cljs alias)"
-             :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile test")}
-  
+             :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile slice-peer test")}
+
+  build:slice-peer
+  {:doc "Compile the DaoStream v2 Phase 5 peer as a Dart exe"
+   ;; Process B of the Phase 5 slice is a whole program rather than a test
+   ;; namespace, and this project's cljd.core carries the Flutter extensions,
+   ;; so only an ahead-of-time build is a peer the plain Dart VM can start.
+   ;; It is compiled alone and first: the test build rewrites the same
+   ;; cljd-out tree, so a peer built after it would import a tree it does
+   ;; not match.
+   :task (do (shell "mkdir -p build")
+             (shell "clojure -M:cljd compile dao.stream.slice-peer")
+             (shell "dart compile exe lib/cljd-out/dao/stream/slice-peer.dart -o build/slice-peer"))}
+
+  build:yin-repl-peer
+  {:doc "Compile the yin.repl R5 cross-host peer (client role and --serve server role) as a Dart exe"
+   ;; Same ahead-of-time constraint as build:slice-peer.  The R5 cross-host
+   ;; tests spawn this one exe from the JVM and Node lanes, so `bb test`
+   ;; builds it first; a bare `bb test:clj` or `bb test:cljs` without it
+   ;; skips those tests with a printed notice rather than failing.
+   :task (do (shell "mkdir -p build")
+             (shell "clojure -M:cljd compile yin.repl.slice-peer")
+             (shell "dart compile exe lib/cljd-out/yin/repl/slice-peer.dart -o build/yin-repl-peer"))}
+
   test:cljd {:doc "Run Dart tests (via clojure -M:cljd)"
+             :depends [build:slice-peer build:yin-repl-peer]
              :task (shell "clojure -M:cljd test")}
-  
-  test {:doc "Run all tests"
-        :depends [test:clj test:cljs test:cljd]}}}
+
+  test {:doc "Run all tests (cross-host R5 pairs need the Dart peer, so build it first)"
+        :depends [build:yin-repl-peer test:clj test:cljs test:cljd]}}}

@@ -2,10 +2,10 @@
 
 ## Summary
 
-`dao.gui.event` is a portable event interpreter built on `dao.stream`. In the
-browser implementation, those channels are bounded `dao.stream.ring-buffer`
-streams. This is a direct application of Datom.world's first axiom,
-"everything is a stream": host observations, presented geometry, input
+`dao.gui.event` is a portable event interpreter built on DaoStream v2. In the
+demo implementations, those channels are bounded `dao.stream.ringbuffer`
+streams (evict-oldest). This is a direct application of Datom.world's first
+axiom, "everything is a stream": host observations, presented geometry, input
 profiles, timers, subscriptions, control messages, recognized events, and
 diagnostics are all values carried by streams.
 
@@ -22,8 +22,8 @@ This makes `dao.gui.event` more than a gesture helper or callback registry. It
 is a stream-to-stream interpreter: low-level observations enter as data,
 recognizer machines and arbitration interpret them, and semantic interaction
 values leave as data. Runtime sequence numbers, timestamps, generations, and
-coordinate spaces preserve causality while the DaoStream ring-buffer provides
-the bounded transport, retention, eviction, and backpressure boundary.
+coordinate spaces preserve causality while the DaoStream ring buffer provides
+the bounded transport, retention, and eviction boundary.
 
 The terminal is responsible for observing host-native input. It does not define
 portable gesture semantics. Android, iOS, Flutter, and mobile web all expose
@@ -162,22 +162,50 @@ The public driver is:
 (advance binding)
 ;; =>
 {:binding next-binding
- :status :advanced}   ; or :parked, :blocked, :end, :input-gap, :closed
+ :status :advanced}   ; or :parked, :blocked, :end, :input-gap,
+                      ; :transport-error, :closed
 ```
 
 Before reading input, `advance` retries pending output in order. If the queue is
-fully flushed, it reads at most one runtime input. On `{:ok value :cursor c'}`
-it consumes that value exactly once, retains `c'` even if output subsequently
-parks, steps the reducer, queues the resulting ordered outputs, and attempts to
-flush them. It never reads a second input during the same call. An embedding
-runtime drives progress by calling `advance` repeatedly.
+fully flushed, it reads at most one runtime input through a DaoStream `next`
+outcome map. On `:dao.stream/ok` it consumes the observed value exactly once,
+retains the successor cursor even if output subsequently parks, steps the
+reducer, queues the resulting ordered outputs, and attempts to flush them. It
+never reads a second input during the same call. An embedding runtime drives
+progress by calling `advance` repeatedly.
+
+The binding's read cursor is minted by the input stream, never fabricated:
+`bind` accepts a caller-supplied `:cursor`, and otherwise the first `advance`
+mints `:dao.stream/oldest` — origin observation from that mint is a timing
+discipline, not a guarantee `bind` itself makes; see below. `recover-input-gap`
+takes the
+recovery cursor an `:input-gap` result carried, or any cursor the host minted
+on the input stream; a caller never constructs cursor internals itself.
+
+The origin-cursor guarantee is a timing discipline, not a property of `bind`
+itself: it holds only when the caller either supplies a cursor minted before
+production begins, or calls the first `advance` before production begins. A
+binding whose first `advance` happens after values have already been produced
+and evicted mints `:dao.stream/oldest` at the earliest *retained* position and
+silently observes the surviving suffix, with no gap reported — a fresh oldest
+cursor is a valid cursor onto that suffix, and nothing is wrong with it.
+Detecting complete history is the composition's cursor-minting discipline
+(see `dao.stream.md`, *Cursors* and *Complete history*), not something a
+binding created after the fact can supply.
 
 `:advanced` means one input was consumed and all outputs currently pending from
 it were appended. `:parked` means the head pending output could not be appended.
-`:blocked` means the input stream returned `:blocked`. `:end` means it returned
-`:end` before teardown. `:input-gap` means it returned
-`:daostream/gap`. `:closed` means teardown output has been completely flushed
-and all runtime-owned output streams have been closed.
+`:blocked` means the input stream returned `:dao.stream/blocked`. `:end` means
+it returned `:dao.stream/end` before teardown. `:input-gap` means it returned
+`:dao.stream/gap`; that result also carries `:recovery-cursor`, the cursor the
+gap outcome carried, while the binding's own cursor does not advance.
+`:transport-error` means it returned `cursor-mismatch`, `invalid-cursor`, or
+`transport-error` — a binding that retried a dead cursor forever would spin, so
+the terminal read outcomes surface as their own status, and the status is
+retained: later `advance` calls return `:transport-error` without reading
+again, until `recover-input-gap` re-establishes the input lane. `:closed` means teardown
+output has been completely flushed and all runtime-owned output streams have
+been closed.
 
 An input-stream `:end` is not implicit teardown. The binding retains its state
 and leaves its outputs open, although a closed input stream cannot subsequently
@@ -1898,24 +1926,34 @@ Pointer lifecycle packets must not disappear silently.
 - recognized semantic dispatch values are never conflated, evicted, or
   rewritten into latest-wins state
 
-A conforming canonical runtime-input DaoStream uses reject/backpressure rather
-than `:evict-oldest`. An upstream multiplexer or gap-aware adapter that can
-identify lost packet facts represents them as the canonical
-`:dao.terminal/input-loss` runtime input described below.
+A conforming canonical runtime-input DaoStream **either refuses an append**
+(`:dao.stream/full`) **— and the binding parks and retries**, because a
+dispatch lane over a real outbound path may refuse transiently — **or evicts
+and reports the loss as `:dao.stream/gap`** to a cursor that spans the
+eviction, which is what an in-process ring buffer must do: bounded retention
+that never refused would otherwise be silently lossy, and a reject-mode buffer
+with no destructive take would be full forever. The recovery path for the
+second case is the binding's `:input-gap` result plus `recover-input-gap` with
+the canonical `:dao.terminal/input-loss` runtime input described below —
+exactly what the artifact demo does in production.
 
-The bare `:daostream/gap` result contains insufficient causal information to
-construct that envelope. On receiving it, `advance` returns `:input-gap`
-without advancing the cursor or synthesizing a diagnostic. Recovery requires
-the owning multiplexer to establish a new cursor and supply an explicit
-input-loss value, or to perform explicit teardown. A bare gap is therefore a
-transport-boundary failure, not a replay input.
+The bare `:dao.stream/gap` outcome contains insufficient causal information to
+construct that envelope. On receiving it, `advance` returns `:input-gap` with
+the recovery cursor the outcome carried, without advancing the binding's own
+cursor or synthesizing a diagnostic. Recovery requires the owning multiplexer
+(or host) to supply an explicit input-loss value and a cursor — the recovery
+cursor the result carried, or one the host minted on the input stream — or to
+perform explicit teardown. A bare gap is therefore a transport-boundary
+failure, not a replay input.
 
 Every runtime-owned output stream is lossless from the binding's perspective.
-If any `append!` returns `{:result :full}`, the binding retains that value as
+If any `append!` returns `:dao.stream/full`, the binding retains that value as
 the head pending output, retains every later output in order, and reads no
 further input until pending output can be flushed. Outputs successfully
 appended before the full result are removed from the pending queue and are
-never appended again.
+never appended again. An output whose `append!` returns `closed`,
+`invalid-value`, or `transport-error` is gone: the binding drops that pending
+value with one host-side diagnostic rather than parking on it or retrying.
 
 Only a full dispatch stream produces
 `:dao.gui.event/dispatch-backpressure`. On entry to such a parked interval, the

@@ -10,9 +10,12 @@
 ;; Each texture value owns its generated mip pyramid via an Expando so the
 ;; decoded {:rgba :width :height :levels} bundle is GC-eligible with the
 ;; texture and is computed only once, not per frame.  Unlike the old
-;; rasterizer's ui/Image source, a PgTexture already carries host-visible
-;; rgba bytes synchronously (see flutter.gpu/create-rgba-texture!), so no
-;; async ui/Image.toByteData round-trip is needed here.
+;; rasterizer's ui/Image source, a built PgTexture record's .rgba field is
+;; already host-visible bytes, accessed synchronously once you have one
+;; (flutter.gpu/create-rgba-texture! itself is a Future — it awaits GPU
+;; init before the record exists — but the record's own fields need no
+;; further async round-trip), so no async ui/Image.toByteData round-trip
+;; is needed here.
 (defonce ^:private texture-levels
   (core/Expando. "dao.postgraphics/texture-levels"))
 

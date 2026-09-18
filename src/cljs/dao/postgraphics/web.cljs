@@ -68,8 +68,11 @@
 
 
 (defn- bind-frame-stream!
+  "Binds the terminal to frame-stream (a DaoStream v2 handle) and returns the
+   host map. The binding is held in :binding* and advanced only by `tick!`;
+   binding starts no timer."
   [canvas frame-stream
-   {:keys [viewport-size resolve-resource backend], :as opts}]
+   {:keys [viewport-size resolve-resource backend signal-stream], :as opts}]
   (let [{:keys [submit! supports-render-targets? supports-image?]}
         (or backend (choose-backend))
         host {:canvas canvas, :device-options (:device-options opts)}
@@ -79,27 +82,45 @@
                        :viewport-size viewport-size,
                        :resolve-resource resolve-resource,
                        :host host}
-        binding (terminal/bind-stream!
+        binding (terminal/bind
                   frame-stream
                   (merge
                     opts
-                    {:validate-frame! #(lower/validate-frame! % lowering-opts),
+                    {:signal-handle signal-stream,
+                     :validate-frame! #(lower/validate-frame! % lowering-opts),
                      :present-frame!
                      (fn [frame]
                        (let [lowered (lower/lower-frame frame lowering-opts)]
                          (submit! canvas lowered)))}))]
-    (merge host binding {:submit! submit!})))
+    (merge host
+           {:binding* (atom binding),
+            :generation-id (:generation-id binding),
+            :submit! submit!})))
+
+
+(defn- tick!
+  "Steps the host's binding until it is blocked (or the step bound is hit)
+   and returns the last step status. The widget's interval is the only
+   caller outside tests."
+  [{:keys [binding*]}]
+  (let [{:keys [binding status]} (terminal/step-until-blocked @binding*)]
+    (reset! binding* binding)
+    status))
+
+
+(def ^:private frame-interval-ms 16)
 
 
 (defn postgraphics-widget
-  "Browser canvas widget that renders frames from frame-stream, dispatching to
-   WebGPU or the Canvas2D software backend at mount time.  Unlike the old
-   web.gpu widget it always mounts a canvas — there is no \"unsupported\"
-   placeholder, because the software path renders everywhere.
+  "Browser canvas widget that renders frames from frame-stream (a DaoStream
+   v2 handle), dispatching to WebGPU or the Canvas2D software backend at
+   mount time.  Unlike the old web.gpu widget it always mounts a canvas —
+   there is no \"unsupported\" placeholder, because the software path
+   renders everywhere.
 
   Options:
   - :on-error      callback receiving the exception when a frame is rejected
-  - :signal-stream dao.stream for canonical terminal signals
+  - :signal-stream DaoStream v2 writer for canonical terminal signals
   - :canvas-attrs  Hiccup attrs merged onto the internal canvas
   - :viewport-size function returning [width height]
   - :resolve-resource function resolving image/texture resources
@@ -108,16 +129,22 @@
   [frame-stream & {:keys [canvas-attrs canvas-ref], :as opts}]
   ;; Form-2 component: the constructor closes over per-instance state
   ;; (handle, set-ref!) created once; the render fn reuses the captured
-  ;; opts.  The :ref callback binds on mount (canvas non-nil) and tears
-  ;; down on unmount (nil).
+  ;; opts.  The :ref callback binds and starts the frame interval on mount
+  ;; (canvas non-nil) and cancels it on unmount (nil).  The interval is the
+  ;; only caller of `step`: the stream wakes nothing.
   (let [handle (atom nil)
         set-ref!
         (fn [canvas]
           (if canvas
-            (do (reset! handle (bind-frame-stream! canvas frame-stream opts))
-                (when canvas-ref (canvas-ref canvas)))
+            (let [h (bind-frame-stream! canvas frame-stream opts)]
+              (reset! handle
+                      (assoc h
+                             :interval-id
+                             (js/setInterval #(tick! h) frame-interval-ms)))
+              (when canvas-ref (canvas-ref canvas)))
             (do (when-let [h @handle]
-                  (when-let [close! (:close! h)] (close!)))
+                  (js/clearInterval (:interval-id h))
+                  (swap! (:binding* h) terminal/close))
                 (when canvas-ref (canvas-ref nil))
                 (reset! handle nil))))]
     (fn [] [:canvas (assoc canvas-attrs :ref set-ref!)])))

@@ -1,54 +1,67 @@
 (ns dao.await
-  "Async-style syntax for sequential stream programs that run on the existing
-   Yin VM and Dao runtime stack.
+  "Async-style syntax for sequential stream programs that run entirely on
+   yin.vm and dao.stream.
 
-   See docs/design/dao.await.md for the full design.
+   See docs/design/dao.await.md for the full design. This is v1's surface,
+   ported; what changed is everything underneath it:
 
-   V1 surface:
+   - The module registry is a value. v1 registered 'await and 'dao.await
+     into a global at go* time; here `registry` builds the same bindings as
+     an ordinary yin.vm.module registry value that `run` supplies to the
+     VM. Nothing registers itself at load time.
+   - Resumption is polling. v1's `resume` spliced the :woke vector a v1
+     append returned into the ready queue. No v2 transport is waitable and
+     v2 appends wake nothing, so `resume` simply re-runs the VM: the
+     scheduler polls each parked entry against its transport and continues
+     the continuations the poll resolves.
+   - Cursors are opaque and outcomes are closed sets, so a blocked read
+     answers `blocked`, a full write answers `full`, and a read parked on a
+     stream that closes resumes to `end` (nil) from its own next poll.
+
+   V2 surface (as v1):
      (await/go body...)
      (await/go {:env {'sym val ...}} body...)
      (await/cursor stream)
      (await/<! cursor)
      (await/>! stream value)
 
-   await/cursor / <! / >! are registered as Yin module functions that return
-   stream effect descriptors. Calls inside a go body are compiled by
-   yang.clojure as ordinary applications; the Yin VM resolves them via the
-   module registry at runtime and the engine dispatches the resulting
-   :stream/cursor, :stream/next, :stream/put effects.
+   await/cursor / <! / >! are module bindings that return stream effect
+   descriptors. Calls inside a go body are compiled by yang.clojure as
+   ordinary applications; the VM resolves them through the registry value
+   at runtime and the engine dispatches the resulting :stream/cursor,
+   :stream/next, :stream/put effects.
 
    await/go is a thin syntax+macro layer. It does not introduce a new
    interpreter, scheduler, or continuation model."
   (:require [dao.stream :as ds]
             [yang.clojure :as yang]
-            [yin.module :as module]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.engine :as engine]))
+            [yin.vm.module :as module]))
 
 
 ;; =============================================================================
 ;; Stream effect descriptors: cursor, <!, >!
 ;; =============================================================================
 ;;
-;; Each function returns an effect descriptor consumed by the Yin engine.
-;; They are also registered as Yin module functions so calls inside a go
-;; body resolve through the module system at runtime.
+;; Each function returns an effect descriptor consumed by the yin.vm
+;; engine. They are also registered as module bindings so calls inside a go
+;; body resolve through the registry value at runtime.
 ;;
-;; Registered under 'await (matches the doc's recommended :as await alias) and
-;; 'dao.await for fully-qualified callers.
+;; Registered under 'await (matches the doc's recommended :as await alias)
+;; and 'dao.await for fully-qualified callers.
 
 (defn cursor
   "Stream cursor effect descriptor. Inside (await/go ...) this produces a
-   :stream/cursor effect handled by the Yin engine."
+   :stream/cursor effect handled by the yin.vm engine."
   [stream-ref]
   {:effect :stream/cursor, :stream stream-ref})
 
 
 (defn <!
   "Stream-read effect descriptor. Inside (await/go ...) this produces a
-   :stream/next effect; the engine returns the next value at the cursor or
-   parks the continuation if the stream is empty and open."
+   :stream/next effect; the engine returns the value at the cursor or parks
+   the continuation when the transport answers blocked."
   [cursor-ref]
   {:effect :stream/next, :cursor cursor-ref})
 
@@ -56,7 +69,7 @@
 (defn >!
   "Stream-write effect descriptor. Inside (await/go ...) this produces a
    :stream/put effect; the engine appends val to the stream, parking the
-   continuation if the stream is bounded and full."
+   continuation when the transport answers full."
   [stream-ref val]
   {:effect :stream/put, :stream stream-ref, :val val})
 
@@ -64,9 +77,16 @@
 (def ^:private await-bindings {'cursor cursor, '<! <!, '>! >!})
 
 
-(def ^:private init-module!
-  (delay (module/register-module! 'await await-bindings)
-         (module/register-module! 'dao.await await-bindings)))
+(defn registry
+  "A module registry value carrying the await bindings under 'await and
+   'dao.await, on top of base (default: yin.vm.module's built-in
+   effect handlers). Compositions that want await names resolvable inside a
+   larger registry hand their registry here."
+  ([] (registry nil))
+  ([base]
+   (-> (or base (module/default-registry))
+       (module/register-module 'await await-bindings)
+       (module/register-module 'dao.await await-bindings))))
 
 
 ;; =============================================================================
@@ -94,9 +114,9 @@
   "Build a process descriptor from quoted body forms and an optional env map.
 
    forms : seq of unevaluated Clojure forms (as data).
-   env   : map of symbol → runtime value. Values that are dao.stream instances
-           are materialized into the VM store at run time; other values are
-           passed through to the VM environment unchanged.
+   env   : map of symbol → runtime value. Values that are dao.stream
+           handles are materialized into the VM store at run time; other
+           values are passed through to the VM environment unchanged.
 
    Returns:
      {:type   :dao.await/process
@@ -106,7 +126,6 @@
       :forms  <original forms>}"
   ([forms] (go* forms {}))
   ([forms env]
-   @init-module!
    (let [{:keys [ast datoms]} (get-compiled forms)]
      {:type :dao.await/process,
       :ast ast,
@@ -143,16 +162,17 @@
 ;; =============================================================================
 
 (defn- host-stream?
-  "True when v is a dao.stream transport instance (reader or writer)."
+  "True when v is a dao.stream handle (declares a reader or writer
+   surface)."
   [v]
-  (or (satisfies? ds/IDaoStreamReader v) (satisfies? ds/IDaoStreamWriter v)))
+  (or (ds/reader? v) (ds/writer? v)))
 
 
 (defn- prepare-env
-  "Walk the user env. For each value that is a host stream instance, allocate
-   a fresh store key, replace the env value with a :stream-ref pointing at
-   that key, and record the stream in :store-updates so the caller can splice
-   it into the VM store. Non-stream values pass through unchanged."
+  "Walk the user env. For each value that is a v2 handle, allocate a fresh
+   store key, replace the env value with a :stream-ref pointing at that key,
+   and record the handle in :store-updates so the caller can splice it into
+   the VM store. Non-handle values pass through unchanged."
   [env]
   (reduce-kv (fn [acc sym v]
                (if (host-stream? v)
@@ -175,8 +195,13 @@
 
 
 (defn run
-  "Drive a process on a fresh Yin VM (using ast-walker) until it returns a
-   value or blocks.
+  "Drive a process on a fresh yin.vm ast-walker VM until it returns a
+   value or parks on a stream effect.
+
+   opts are host-composition options passed to yin.vm.ast-walker/create-vm
+   (:make-stream, :primitives, :call-in/:call-out, :bridge). :env always
+   comes from the process, and :modules is the caller's registry with the
+   await bindings layered on top, so await names always resolve.
 
    Returns a result map:
      {:type :dao.await/result
@@ -185,31 +210,29 @@
       :blocked? <bool>
       :proc <original process descriptor>}
 
-   To resume a blocked result after the host has put data on a waitable
-   stream, call (await/resume result {:woke woke}) with the :woke vector
-   returned by ds/append!."
+   A blocked process is resumed with (await/resume result) once the host has
+   appended to (or closed) the stream a parked entry is waiting on."
   ([proc] (run proc {}))
-  ([proc _opts]
+  ([proc opts]
    (let [{:keys [env store-updates]} (prepare-env (:env proc))
-         vm (-> (ast-walker/create-vm {:env env})
+         vm (-> (ast-walker/create-vm
+                  (assoc opts
+                         :modules (registry (:modules opts))
+                         :env env))
                 (update :store merge store-updates))
          after (vm/eval vm (:ast proc))]
      (result-map proc after))))
 
 
 (defn resume
-  "Resume a blocked process. The optional :woke argument is the vector of
-   woken entries returned by ds/append! on a waitable stream that the program
-   was parked on. Those entries are spliced into the VM's ready-queue so the
-   engine can wake the parked task on the next run pass."
-  ([blocked] (resume blocked nil))
-  ([blocked {:keys [woke]}]
-   (let [vm (:vm blocked)
-         vm' (if (seq woke)
-               (update vm
-                       :ready-queue
-                       (fnil into [])
-                       (engine/make-woken-run-queue-entries vm woke))
-               vm)
-         after (vm/eval vm' nil)]
-     (result-map (:proc blocked) after))))
+  "Resume a blocked process by polling the wait set.
+
+   There is no wake list to hand over (v1's :woke came from dao.stream
+   waiters, which no v2 transport has): resumption belongs to
+   dao.runtime's polling wait set, so resume just re-runs the VM. Its
+   scheduler polls each parked entry against its transport — next for a
+   parked read, append! for a parked writer — and continues the continuation
+   of every entry the poll resolves. Entries the poll does not resolve stay
+   parked, so the result may still be blocked."
+  [blocked]
+  (result-map (:proc blocked) (vm/eval (:vm blocked) nil)))

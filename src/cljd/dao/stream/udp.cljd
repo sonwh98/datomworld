@@ -1,9 +1,0 @@
-(ns dao.stream.udp
-  "UDP transport is not supported on ClojureDart."
-  (:require [dao.stream :as ds]))
-
-
-(ds/defopen :udp
-            [descriptor]
-            (throw (ex-info "UDP transport is not supported on CLJD"
-                            {:descriptor descriptor})))

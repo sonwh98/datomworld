@@ -1,6 +1,8 @@
 {:deps {org.clojure/core.async {:mvn/version "1.8.741"}
+        org.clojure/tools.reader {:mvn/version "1.5.0"}
         ring/ring {:mvn/version "1.14.1"}
         com.cognitect/transit-clj {:mvn/version "1.0.333"}
+        org.replikativ/boring {:mvn/version "0.1.30"}
         com.datomic/peer {:mvn/version "1.0.7364"}
         org.postgresql/postgresql {:mvn/version "42.7.3"}
         org.clojure/data.json {:mvn/version "2.5.0"}
@@ -14,20 +16,6 @@
  :paths ["src/clj" "src/cljc" "src/cljs" "src/cljd"]
  :aliases {:clean {:extra-paths ["src/dev"]
                    :exec-fn clean/clean}
-           :bench {:extra-paths ["test"]
-                   :main-opts ["-m" "yin.vm.bytecode-bench"]}
-           :profile {:extra-paths ["test"]
-                     :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-bytecode-bench.jfr,settings=profile,dumponexit=true"]
-                     :main-opts ["-m" "yin.vm.bytecode-bench"]}
-           :profile-fast {:extra-paths ["test"]
-                          :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-bytecode-bench-fast.jfr,settings=profile,dumponexit=true"]
-                          :main-opts ["-m" "yin.vm.bytecode-bench" "--fast-only" "--register-only"]}
-           :profile-cesk-space {:extra-paths ["test"]
-                                :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-cesk-space.jfr,settings=profile,dumponexit=true"]
-                                :main-opts ["-m" "yin.vm.bytecode-bench" "--cesk-space-only"]}
-           :profile-ast-walker {:extra-paths ["test"]
-                                :jvm-opts ["-XX:StartFlightRecording=filename=/tmp/datomworld-ast-walker.jfr,settings=profile,dumponexit=true"]
-                                :main-opts ["-m" "yin.vm.bytecode-bench" "--ast-walker-only"]}
            :profile-btree {:extra-paths ["src/dev"]
                            :extra-deps {persistent-sorted-set/persistent-sorted-set
                                         {:mvn/version "0.3.0"}}
@@ -76,7 +64,6 @@
                  :exec-fn tasks/fix-all}
            :kondo {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.01.19"}}
                    :main-opts ["-m" "clj-kondo.main"]}
-           :telemetry-server {:main-opts ["-m" "yin.vm.telemetry-server.jvm"]}
            :dbg {:extra-paths ["test"]
                  :main-opts ["-m" "debug-cljd"]
                  :cljd/opts {:kind :flutter :main datomworld.demo.main}}
@@ -96,8 +83,7 @@
                          :output-to  "build/yin-repl/yin_repl.dart"}}
            :dep-graph {:extra-paths ["src/dev"]
                        :extra-deps {org.clojure/tools.namespace {:mvn/version "1.5.0"}}
-                       :main-opts ["-m" "dep-graph"]}
-           :atzu {:main-opts ["-m" "agent.tzu"]}}}
+                       :main-opts ["-m" "dep-graph"]}}}
 
 
 ;; clj -X:fmt

@@ -1,6 +1,20 @@
 # Yin VM - Universal AST Documentation
 
-This document incrementally describes the Universal AST (Abstract Syntax Tree) used by the Yin Virtual Machine. The AST is a language-agnostic, map-based structure that represents all executable code as immutable data.
+This document incrementally describes the Universal AST (Abstract Syntax Tree)
+used by the Yin Virtual Machine. The AST is a language-agnostic, map-based
+structure that represents all executable code as immutable data.
+
+> **Status (2026-09-17):** rewritten against the live v2 evaluator,
+> `src/cljc/yin/vm/ast_walker.cljc`. The v1 evaluator this document
+> originally described (`yin.vm`/`walker`) was deleted by
+> `yin.vm.v1-retirement.implementation-plan.md`; every implementation
+> snippet below is quoted from the current v2 code, and every place where
+> v2's behavior differs from v1's is called out explicitly rather than
+> silently updated. `docs/design/yin.vm.code-as-tuples.md` proposes a
+> flat-row tuple grammar as a *second* representation of this same tree;
+> that design is not implemented in the walker yet (it has its own
+> implementation plan), so this document still describes the walker's
+> only live input: the map AST below.
 
 ## Design Principles
 
@@ -17,6 +31,25 @@ Every AST node is a map with at minimum:
 {:type <node-type>  ; Required: identifies the kind of expression
  ...}               ; Additional fields specific to the node type
 ```
+
+## Running examples against the live VM
+
+Every "Evaluation" example below uses the v2 walker's real public surface,
+exactly as its own tests do (`test/yin/vm/ast_walker_test.cljc`):
+
+```clojure
+(require '[yin.vm :as vm]
+         '[yin.vm.test-utils :refer [create-vm]])
+
+(let [result (vm/eval (create-vm) {:type :literal, :value 42})]
+  (vm/value result)   ;; => 42
+  (vm/halted? result)) ;; => true
+```
+
+`create-vm` (from `yin.vm.test-utils`) wraps
+`yin.vm.ast-walker/create-vm` with the default primitive table; `vm/eval`,
+`vm/value`, `vm/halted?`, and `vm/environment` are the `yin.vm/IVM` and
+`IVMState` protocol methods every v2 evaluator implements.
 
 ---
 
@@ -51,9 +84,8 @@ Literals are self-evaluating values - they evaluate to themselves.
 
 **Evaluation:**
 ```clojure
-(def ast {:type :literal :value 42})
-(walker/run (walker/make-state {}) ast)
-;; => {:value 42, :control nil, ...}
+(vm/value (vm/eval (create-vm) {:type :literal :value 42}))
+;; => 42
 ```
 
 #### String Literal
@@ -61,13 +93,6 @@ Literals are self-evaluating values - they evaluate to themselves.
 ;; Represents: "hello world"
 {:type :literal
  :value "hello world"}
-```
-
-**Evaluation:**
-```clojure
-(def ast {:type :literal :value "hello world"})
-(walker/run (walker/make-state {}) ast)
-;; => {:value "hello world", :control nil, ...}
 ```
 
 #### Boolean Literal
@@ -111,11 +136,9 @@ When the Yin VM encounters a literal node:
 3. **Set control to nil** - Evaluation is complete
 4. **Store value in state** - Result is placed in the `:value` field of the state
 
-**Implementation (from vm.cljc):**
+**Implementation (from `ast_walker.cljc`):**
 ```clojure
-:literal
-(let [{:keys [value]} node]
-  (assoc state :value value :control nil))
+:literal (cesk-return state nil env k (:value node))
 ```
 
 ### Key Characteristics
@@ -126,51 +149,12 @@ When the Yin VM encounters a literal node:
 - ✅ **Type-agnostic** - Can hold any Clojure value
 - ✅ **Immutable** - The value never changes
 
-### Test Examples
-
-From [test/yin/vm_basic_test.clj](../../../../../test/yin/vm_basic_test.clj):
-
-```clojure
-(deftest test-literal-evaluation
-  (testing "Literal values evaluate to themselves"
-    ;; Integer literal
-    (let [ast {:type :literal :value 42}
-          result (walker/run (walker/make-state {}) ast)]
-      (is (= 42 (:value result))))
-
-    ;; String literal
-    (let [ast {:type :literal :value "hello"}
-          result (walker/run (walker/make-state {}) ast)]
-      (is (= "hello" (:value result))))))
-```
-
 ### Usage in Larger Expressions
 
 Literals are the building blocks of more complex expressions. They're commonly used as:
 - **Function arguments**: `(+ 10 20)` - both `10` and `20` are literals
 - **Return values**: `(lambda () 42)` - returns the literal `42`
 - **Comparison operands**: `(= x 5)` - `5` is a literal
-
-### Interactive Examples
-
-Try these in a REPL:
-
-```clojure
-;; Load the VM
-(require '[yin.vm :as vm])
-
-;; Helper function
-(defn eval-literal [value]
-  (walker/run {:control nil :environment {} :store {} :continuation nil :value nil}
-          {:type :literal :value value}))
-
-;; Evaluate different literals
-(:value (eval-literal 42))           ;; => 42
-(:value (eval-literal "test"))       ;; => "test"
-(:value (eval-literal true))         ;; => true
-(:value (eval-literal [1 2 3]))      ;; => [1 2 3]
-(:value (eval-literal {:a 1 :b 2}))  ;; => {:a 1, :b 2}
-```
 
 ### Notes
 
@@ -194,7 +178,8 @@ Try these in a REPL:
 
 ## Part 2: Variables
 
-Variables represent named references to values in the lexical environment, primitive operations, or the global store.
+Variables represent named references to values in the lexical environment, the
+global store, primitive operations, or the module registry.
 
 ### Variable Node
 
@@ -230,27 +215,51 @@ Variables represent named references to values in the lexical environment, primi
 
 ### Evaluation Semantics
 
-When the Yin VM encounters a variable node:
+When the Yin VM encounters a variable node, `engine/resolve-var` looks for the
+name in this exact order — the first hit wins:
 
-1. **Resolve the name** - The VM looks for the name in the following order:
-   - **Lexical Environment**: The current scope (e.g., function parameters, let bindings)
-   - **Primitives**: Built-in functions defined in the VM (e.g., `+`, `-`, `assoc`)
-   - **Store**: The global heap/store (if applicable)
-2. **Return the value** - If found, the value is placed in the `:value` field of the state.
-3. **Handle missing variables** - If the name cannot be resolved, an error is typically thrown.
+1. **Lexical Environment** (`env`) — the current scope (function parameters,
+   let bindings).
+2. **Store** (`store`) — the global heap, in v2 checked *before* primitives.
+3. **Primitives** — built-in functions supplied to `create-vm`.
+4. **Module registry** — only reached for a namespaced name (e.g. `stream/put!`);
+   resolved by `yin.vm.module/resolve-module` against the registry value the
+   composition supplied, never a global.
 
-**Implementation (from ast_walker.cljc):**
+If none resolve, the lookup throws `ex-info` naming the unresolved symbol.
+
+**Implementation (from `engine.cljc`):**
+```clojure
+(defn resolve-var
+  [env store primitives registry name]
+  (if-let [pair (find env name)]
+    (val pair)
+    (if-let [pair (find store name)]
+      (val pair)
+      (if-let [pair (find primitives name)]
+        (val pair)
+        (if-let [resolved (when (namespace name)
+                            (module/resolve-module
+                              registry
+                              (symbol (str (namespace name) "." (clojure.core/name name)))))]
+          resolved
+          (fail (str "Unable to resolve symbol: " name " in this context")
+                {:symbol name}))))))
+```
+
+Called from the walker as:
 ```clojure
 :variable
-(let [value (engine/resolve-var env store primitives (:name node))]
+(let [value (engine/resolve-var env store primitives modules (:name node))]
   (cesk-return state nil env k value))
 ```
 
 ### Key Characteristics
 
-- 🔍 **Lookup-based** - Requires searching an environment or store
+- 🔍 **Lookup-based** - Requires searching an environment, store, primitive table, or module registry
 - 📦 **Context-dependent** - The same variable can evaluate to different values in different scopes
 - 🛠️ **Primitive Access** - Primitives are treated as variables with special pre-bound values
+- 🧩 **Module-backed** - A namespaced name that misses env/store/primitives resolves through a composition-supplied registry value, not a global
 
 ### Usage Examples
 
@@ -258,6 +267,7 @@ Variables are used whenever you need to reference a value that isn't a literal:
 - **Function parameters**: Referencing arguments passed to a lambda
 - **Mathematical operations**: Referencing `+`, `-`, etc.
 - **Global state**: Accessing shared values in the store
+- **Module functions**: Referencing an effect handler through a namespaced name
 
 ---
 
@@ -269,15 +279,13 @@ Lambdas are the primary mechanism for defining functions. When evaluated, a lamb
 
 **Type:** `:lambda`
 
-**Purpose:** To define an anonymous function or a macro.
+**Purpose:** To define an anonymous function.
 
 **Structure:**
 ```clojure
 {:type :lambda
  :params [<symbol> ...]  ; Vector of parameter names
  :body <ast-node>        ; The expression to evaluate when called
- :macro? <boolean>       ; Optional: true if this is a macro
- :phase-policy <keyword> ; Optional: :compile, :runtime, or :both
  }
 ```
 
@@ -285,8 +293,13 @@ Lambdas are the primary mechanism for defining functions. When evaluated, a lamb
 - `:type` - Always `:lambda`
 - `:params` - A vector of symbols representing the arguments the function accepts.
 - `:body` - An AST node representing the function's implementation.
-- `:macro?` - (Optional) If `true`, the function is treated as a macro.
-- `:phase-policy` - (Optional) Specifies when the macro should run.
+
+> A `:lambda` node may still carry `:macro?`/`:phase-policy` as data — the
+> walker's `:lambda` arm reads and ignores both. Macro expansion is not a
+> runtime concern of any v2 evaluator (see Part 9); a lambda arriving here
+> with `:macro? true` is not a macro the walker will treat specially, it is
+> an already-expanded ordinary closure whose source happened to be a macro
+> definition.
 
 ### Examples
 
@@ -313,12 +326,15 @@ When the Yin VM encounters a lambda node, it doesn't execute the body. Instead, 
 1. **Capture Environment** - The VM takes the current lexical environment (`env`).
 2. **Create Closure Value** - It returns a map containing the params, body, and the captured environment.
 
-**Implementation (from ast_walker.cljc):**
+**Implementation (from `ast_walker.cljc`):**
 ```clojure
-:lambda 
-(let [{:keys [params body]} node]
-  (cesk-return state nil env k 
-               {:type :closure, :params params, :body body, :env env}))
+:lambda (let [{:keys [params body]} node]
+          (cesk-return
+            state
+            nil
+            env
+            k
+            {:type :closure, :params params, :body body, :env env}))
 ```
 
 ### Closure Structure (Runtime Value)
@@ -337,7 +353,6 @@ The resulting closure is a runtime value:
 - 📦 **Encapsulation** - Lambdas bundle code with state (the environment).
 - 🔗 **Lexical Scoping** - Closures "remember" the variables available when they were defined.
 - 🏗️ **Deferred Execution** - The body is only evaluated when the closure is applied (see Part 4).
-- 🪄 **Macro Capability** - Lambdas can be marked as macros for source-to-source transformation.
 
 ---
 
@@ -364,7 +379,7 @@ Function application (or "calling" a function) is how code is executed. It invol
 - `:type` - Always `:application`
 - `:operator` - An AST node that, when evaluated, must yield a function (primitive or closure).
 - `:operands` - A vector of AST nodes to be evaluated as arguments.
-- `:tail?` - (Optional) If `true`, indicates this call is in tail position, allowing the VM to perform tail-call optimization (TCO).
+- `:tail?` - (Optional) read by the lowering profile that flattens this tree into an instruction vector (`yin.vm.code-as-tuples.md` §5.2.1); the walker's own `:application` arm does not branch on it — a CESK machine's continuation stack already reuses the frame for a tail call.
 
 ### Examples
 
@@ -390,35 +405,61 @@ Function application (or "calling" a function) is how code is executed. It invol
 The evaluation of an application node follows several steps:
 
 1. **Evaluate Operator** - The VM first evaluates the `:operator` node to get a function value.
-2. **Evaluate Operands** - The VM then evaluates each node in `:operands` to get a list of argument values.
+2. **Evaluate Operands** - The VM then evaluates each node in `:operands` in order to get a list of argument values.
 3. **Apply Function**:
-   - **If Primitive**: The VM calls the host-language function (e.g., Clojure's `+`) with the evaluated arguments.
-   - **If Closure**: The VM extends the closure's captured environment by binding the `:params` to the argument values, then evaluates the closure's `:body` in this new environment.
+   - **If Primitive**: The VM calls the host-language function with the evaluated arguments.
+   - **If Closure**: The VM extends the closure's captured environment by binding `:params` to the argument values, then evaluates the closure's `:body` in this new environment.
 
-**Implementation (from ast_walker.cljc):**
+**Implementation (from `ast_walker.cljc`):**
+
 ```clojure
 ;; Start evaluating operator
-:application (cesk-return state (:operator node) env 
-                          {:frame node, :next k, :env env, :type :eval-operator}
-                          (:value state))
+:application (cesk-return
+              state
+              (:operator node)
+              env
+              {:frame node, :next k, :env env, :type :eval-operator}
+              (:value state))
 
-;; Apply logic
-(defn- apply-function [state fn-value evaluated-operands k env]
-  (cond
-    (fn? fn-value) ;; Primitive
-    (handle-primitive-result state (apply fn-value evaluated-operands) k env)
-    
-    (= :closure (:type fn-value)) ;; User-defined
-    (let [{:keys [params body], closure-env :env} fn-value
-          extended-env (merge closure-env (zipmap params evaluated-operands))]
-      (cesk-return state body extended-env k (:value state)))))
+;; Once operator and every operand are evaluated:
+(defn- apply-function
+  [state fn-value evaluated-operands k env]
+  (cond (fn? fn-value)
+        (handle-primitive-result state
+                                 (apply fn-value evaluated-operands)
+                                 k
+                                 env)
+        (= :closure (:type fn-value))
+        (let [{:keys [params body], closure-env :env} fn-value
+              extended-env (merge closure-env
+                                  (engine/bind-params params evaluated-operands))]
+          (cesk-return state body extended-env k (:value state)))
+        :else (throw (ex-info "Cannot apply non-function" {:fn fn-value}))))
 ```
+
+**Under-arity calls do not silently drop parameters.** `engine/bind-params`
+binds each positional operand to its parameter name and **nil-fills** any
+parameter left over when there are fewer operands than params — it does not
+use `zipmap`, which would silently omit the unbound parameter names from the
+extended environment entirely. This is `yin.vm.code-as-tuples.md` §7.7.2's
+named-parameter binding rule, landed in v2:
+
+```clojure
+;; engine.cljc
+(defn bind-params
+  [params args]
+  (into {} (map vector params (concat args (repeat nil)))))
+```
+
+An extra argument beyond the params list length is simply dropped, since
+`map`/`into` stop at the shorter sequence — `params`.
 
 ### Key Characteristics
 
 - 🔄 **Iterative Evaluation** - Multiple nodes are evaluated before the final application occurs.
 - 🧵 **Continuations** - The VM uses continuations (`:eval-operator`, `:eval-operand`) to track progress through the application steps.
-- 🚀 **Tail-Call Optimization** - When `:tail?` is true, the VM can reuse the current stack frame or continuation, enabling deep recursion.
+- 🚀 **Tail-Call Reuse** - A CESK machine's continuation is already reused across a tail call; `:tail?` is metadata a lowering profile reads, not a runtime branch.
+- 🪄 **Nil-fill, never zipmap** - An under-arity call binds every declared parameter name, missing ones to `nil`, rather than silently omitting them.
 
 ---
 
@@ -467,10 +508,12 @@ The evaluation of an `if` node happens in two phases:
    - If truthy, the VM begins evaluating the `:consequent` node.
    - If falsy, the VM begins evaluating the `:alternate` node.
 
-**Implementation (from ast_walker.cljc):**
+**Implementation (from `ast_walker.cljc`):**
 ```clojure
 ;; Start evaluating test
-:if (cesk-return state (:test node) env 
+:if (cesk-return state
+                 (:test node)
+                 env
                  {:frame node, :next k, :env env, :type :eval-test}
                  (:value state))
 
@@ -478,8 +521,9 @@ The evaluation of an `if` node happens in two phases:
 :eval-test
 (let [frame (:frame k)
       test-value (:value state)
+      saved-env (or (:env k) env)
       branch (if test-value (:consequent frame) (:alternate frame))]
-  (cesk-return state branch env (:next k) test-value))
+  (cesk-return state branch saved-env (:next k) test-value))
 ```
 
 ### Key Characteristics
@@ -506,7 +550,14 @@ Store operations are VM-level primitives that interact directly with the global 
  :prefix <string>}  ; Optional: prefix for the generated ID
 ```
 
-**Evaluation:** Increments an internal counter and returns a unique symbol starting with the prefix.
+**Evaluation:** Increments an internal counter and returns a unique string starting with the prefix (default `"id"`).
+
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:vm/gensym (let [prefix (or (:prefix node) "id")
+                 [id s'] (engine/gensym state prefix)]
+             (assoc s' :value id :control nil :halted? (nil? k)))
+```
 
 ### 2. Read from Store (Store-Get)
 
@@ -521,6 +572,11 @@ Store operations are VM-level primitives that interact directly with the global 
 ```
 
 **Evaluation:** Returns the value associated with `:key` in the VM's store.
+
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:vm/store-get (cesk-return state nil env k (get store (:key node)))
+```
 
 ### 3. Write to Store (Store-Put)
 
@@ -538,6 +594,18 @@ Store operations are VM-level primitives that interact directly with the global 
 
 **Evaluation:** Updates the store such that `:key` maps to `:val`, and returns `:val`.
 
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:vm/store-put (let [key (:key node)
+                    value (:val node)
+                    new-store (assoc store key value)]
+                (assoc state
+                       :store new-store
+                       :value value
+                       :control nil
+                       :halted? (and (not (:blocked? state)) (nil? k))))
+```
+
 ### 4. Update Store (Store-Update)
 
 **Type:** `:vm/store-update`
@@ -554,6 +622,21 @@ Store operations are VM-level primitives that interact directly with the global 
 ```
 
 **Evaluation:** Retrieves current value at `:key`, applies `:fn` to it (plus any `:args`), and stores the result back at `:key`.
+
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:vm/store-update (let [key (:key node)
+                       f (:fn node)
+                       args (:args node)
+                       current (get store key)
+                       new-value (apply f current args)
+                       new-store (assoc store key new-value)]
+                   (assoc state
+                          :store new-store
+                          :value new-value
+                          :control nil
+                          :halted? (and (not (:blocked? state)) (nil? k))))
+```
 
 ### Key Characteristics
 
@@ -578,7 +661,13 @@ Continuations represent "the rest of the computation." Yin VM provides first-cla
 {:type :vm/current-continuation}
 ```
 
-**Evaluation:** Returns a `:reified-continuation` object containing the current stack/continuation and lexical environment.
+**Evaluation:** Returns a `:reified-continuation` value carrying the current continuation and lexical environment.
+
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:vm/current-continuation
+(cesk-return state nil env k {:type :reified-continuation, :k k, :env env})
+```
 
 ### 2. Suspend Execution (Park)
 
@@ -591,7 +680,13 @@ Continuations represent "the rest of the computation." Yin VM provides first-cla
 {:type :vm/park}
 ```
 
-**Evaluation:** Moves the current continuation to the `:parked` map in the store and halts the VM (setting `:control` and `:k` to `nil`). Returns a reference to the parked continuation.
+**Evaluation:** Moves the current continuation into the VM's `:parked` map via `engine/park-continuation` and halts (`:control`/`:k` both `nil`). Returns a reference to the parked continuation.
+
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:vm/park (-> (engine/park-continuation state {:k k, :env env})
+             (assoc :control nil :k nil))
+```
 
 ### 3. Resume Execution (Resume)
 
@@ -609,8 +704,28 @@ Continuations represent "the rest of the computation." Yin VM provides first-cla
 
 **Evaluation:**
 1. Evaluates the `:val` node.
-2. Retrieves the parked continuation by its `:parked-id`.
+2. Retrieves the parked continuation by its `:parked-id` via `engine/resume-continuation`.
 3. Restores the VM state to that continuation, providing the result of `:val` as the next value.
+
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:vm/resume (cesk-return state
+                        (:val node)
+                        env
+                        {:type :eval-resume-val, :parked-id (:parked-id node), :next k, :env env}
+                        (:value state))
+
+;; once :val is evaluated:
+:eval-resume-val
+(let [resume-val (:value state)
+      parked-id (:parked-id k)]
+  (engine/resume-continuation
+    state
+    parked-id
+    resume-val
+    (fn [new-state parked rv]
+      (cesk-return new-state nil (:env parked) (:k parked) rv))))
+```
 
 ### Key Characteristics
 
@@ -622,7 +737,12 @@ Continuations represent "the rest of the computation." Yin VM provides first-cla
 
 ## Part 8: Stream Operations
 
-Stream operations model all IO as data streams. These nodes interact with `dao.stream` implementations and can cause the VM to block until data is available.
+Stream operations model all IO as data over `dao.stream`. Every stream op
+here goes through `engine/handle-effect`, which either completes immediately
+or parks the calling continuation in the VM's wait set until the transport's
+outcome is ready — there is no ambient waiter registration, and no operation
+polls; the scheduler drains the wait set on its own pass (see
+`docs/design/dao.stream.md`).
 
 ### 1. Create Stream (Stream-Make)
 
@@ -634,6 +754,15 @@ Stream operations model all IO as data streams. These nodes interact with `dao.s
 ```clojure
 {:type :stream/make
  :buffer <long>}  ; Optional: capacity of the stream buffer
+```
+
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:stream/make (let [capacity (or (:buffer node) vm/default-stream-capacity)
+                   effect {:effect :stream/make, :capacity capacity}
+                   {:keys [state value]} (engine/handle-effect state effect
+                                          {:restore-fn ast-walker-restore})]
+               (cesk-return state nil env k value))
 ```
 
 ### 2. Emit to Stream (Stream-Put)
@@ -650,13 +779,47 @@ Stream operations model all IO as data streams. These nodes interact with `dao.s
  }
 ```
 
-**Evaluation:** Evaluates target and value, then performs a `put!`. May block if the stream is full.
+**Evaluation:** Evaluates `:target`, then `:val`, then appends. A transport
+that answers `full` parks the continuation in the wait set rather than
+blocking a host thread; the append is retried when the transport signals
+room.
+
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:stream/put (cesk-return state (:target node) env
+                         {:frame node, :next k, :env env, :type :eval-stream-put-target}
+                         (:value state))
+
+;; target evaluated, now evaluate val:
+:eval-stream-put-target
+(let [frame (:frame k)
+      stream-ref (:value state)
+      val-node (:val frame)]
+  (cesk-return state val-node env
+              (assoc k :type :eval-stream-put-val :stream-ref stream-ref)
+              stream-ref))
+
+;; val evaluated, now append:
+:eval-stream-put-val
+(let [val (:value state)
+      stream-ref (:stream-ref k)
+      effect {:effect :stream/put, :stream stream-ref, :val val}
+      {:keys [state value blocked?]}
+      (engine/handle-effect state effect
+        {:restore-fn ast-walker-restore,
+         :park-entry-fns {:stream/put (fn [_s _e r]
+                                        {:k (:next k), :env env, :reason :put,
+                                         :stream-id (:stream-id r), :datom val})}})]
+  (if blocked?
+    (assoc state :control nil :k nil :halted? false)
+    (cesk-return state nil env (:next k) value)))
+```
 
 ### 3. Create Cursor (Stream-Cursor)
 
 **Type:** `:stream/cursor`
 
-**Purpose:** To create a reading position (cursor) on a stream.
+**Purpose:** To mint a reading position (opaque cursor) on a stream.
 
 **Structure:**
 ```clojure
@@ -665,11 +828,25 @@ Stream operations model all IO as data streams. These nodes interact with `dao.s
  }
 ```
 
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:stream/cursor (cesk-return state (:source node) env
+                            {:frame node, :next k, :env env, :type :eval-stream-cursor-source}
+                            (:value state))
+
+:eval-stream-cursor-source
+(let [stream-ref (:value state)
+      effect {:effect :stream/cursor, :stream stream-ref}
+      {:keys [state value]} (engine/handle-effect state effect
+                             {:restore-fn ast-walker-restore})]
+  (cesk-return state nil env (:next k) value))
+```
+
 ### 4. Read Next (Stream-Next)
 
 **Type:** `:stream/next`
 
-**Purpose:** To read the next value from a stream cursor.
+**Purpose:** To read the next value at a stream cursor.
 
 **Structure:**
 ```clojure
@@ -678,7 +855,30 @@ Stream operations model all IO as data streams. These nodes interact with `dao.s
  }
 ```
 
-**Evaluation:** Blocks the current execution until a new value is available on the stream, then returns that value.
+**Evaluation:** Parks the calling continuation in the wait set until a value
+is available on the stream at that cursor, then returns that value. The
+cursor is opaque — it is never a fabricated position — and advances only as
+the transport's own outcome carries it forward.
+
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:stream/next (cesk-return state (:source node) env
+                          {:frame node, :next k, :env env, :type :eval-stream-next-cursor}
+                          (:value state))
+
+:eval-stream-next-cursor
+(let [cursor-ref (:value state)
+      effect {:effect :stream/next, :cursor cursor-ref}
+      {:keys [state value blocked?]}
+      (engine/handle-effect state effect
+        {:restore-fn ast-walker-restore,
+         :park-entry-fns {:stream/next (fn [_s _e r]
+                                         {:k (:next k), :env env, :reason :next,
+                                          :cursor-ref (:cursor-ref r), :stream-id (:stream-id r)})}})]
+  (if blocked?
+    (assoc state :control nil :k nil :halted? false)
+    (cesk-return state nil env (:next k) value)))
+```
 
 ### 5. Close Stream (Stream-Close)
 
@@ -693,60 +893,64 @@ Stream operations model all IO as data streams. These nodes interact with `dao.s
  }
 ```
 
+> **Status (2026-09-17): not implemented in `yin.vm.ast-walker` yet.**
+> The walker's `case` has no `:stream/close` arm — evaluating this node
+> throws `"Unknown AST node type"`. `docs/design/yin.vm.code-as-tuples.md`
+> §3.2 specifies the frame this arm needs (shaped like
+> `:eval-stream-cursor-source` above, raising `{:effect :stream/close
+> :stream ref}` through `engine/handle-effect`), and its own
+> implementation plan schedules it as unit U1 — an afternoon of work, no
+> decision pending. Do not write code against this node type until that
+> unit lands; it will throw today.
+
 ### Key Characteristics
 
 - 🌊 **Async by Design** - Stream operations naturally handle asynchronous data flow.
-- 🧱 **Blocking** - `:stream/put` and `:stream/next` can suspend the VM's current continuation.
+- 🧱 **Parking, not blocking** - `:stream/put` and `:stream/next` park the calling continuation in the VM's wait set; no host thread blocks and nothing registers a waiter with the transport.
 - 🔗 **Decoupling** - Producers and consumers communicate through streams, not direct calls.
+- ⚠️ **`:stream/close` is speculative** - documented in the vocabulary, absent from the evaluator, until U1 of the tuples plan lands.
 
 ---
 
 ## Part 9: Macro Expansion
 
-Macro expansion is a compile-time (or evaluation-time) transformation where a macro function is called with **unevaluated** AST nodes to produce a new AST node.
+> **Status (2026-09-17): this is not a runtime node type in any v2
+> evaluator, and never will be.** `yin.vm.ast-walker`'s own docstring
+> states the rule directly: "evaluators know nothing about macros
+> (decision 1 of `yin.vm.macro.md`)... Expansion is a process on the
+> syntax side of a medium boundary, so programs arrive here already
+> expanded." The walker's `case` has no `:yin/macro-expand` arm; nothing
+> in `ast_walker.cljc` reads `:macro?` except to ignore it on a `:lambda`
+> node (Part 3). This section describes *where* expansion happens, not a
+> node the VM steps through.
 
-### Macro-Expand Node
-
-**Type:** `:yin/macro-expand`
-
-**Purpose:** To trigger the expansion of a macro.
-
-**Structure:**
-```clojure
-{:type :yin/macro-expand
- :operator <ast-node>    ; The macro lambda/closure
- :operands [<ast-node> ...] ; Unevaluated AST nodes as arguments
- }
-```
-
-**Fields:**
-- `:type` - Always `:yin/macro-expand`
-- `:operator` - A lambda or closure that has `:macro? true`.
-- `:operands` - A vector of AST nodes that are passed to the macro function without being evaluated first.
-
-### Evaluation Semantics
-
-1. **Invoke Macro** - The VM calls the macro function, passing the raw operand AST nodes as arguments.
-2. **Obtain Expansion** - The macro returns a new AST node.
-3. **Continue** - The VM then evaluates the resulting "expanded" AST node in place of the original macro-expand node.
+Macro expansion is a compile-time (or load-time) stream transformation, completely external to the evaluator, that consumes unexpanded AST and produces the canonical tuples the walker receives. `docs/design/yin.vm.macro.md` specifies the expander itself, and `src/cljc/yin/vm/macro.cljc` contains the implementation. No macro node or macro-expand tag ever reaches the tuple grammar.
+deliverable, not a shipped namespace (`yin.vm.code-as-tuples.md` §10 item 4).
+When it is built, it will run upstream of the walker, on a syntax medium the
+walker never observes, and hand the walker only fully-expanded `:lambda`/
+`:application`/... nodes like every other tree in this document.
 
 ### Key Characteristics
 
-- 🏗️ **Structural Transformation** - Macros manipulate code structure, not just values.
-- 📂 **Unevaluated Arguments** - Unlike `:application`, the operands are treated as data, not as expressions to be computed.
-- ⚡ **Phase Control** - Expansion typically happens during a compilation phase before final execution.
+- 🏗️ **Structural Transformation** - Macros manipulate code structure, not just values, before any evaluator sees the result.
+- 🚧 **Not built** - the expander itself is unimplemented; this section is a placeholder for where its output lands, not a description of running code.
+- 📖 **Specified elsewhere** - `yin.vm.macro.md` (the expander contract) and `yin.vm.code-as-tuples.md` §8.4-8.5 (the batch/provenance shape a future expander's events carry).
 
 ---
 
 ## Part 10: Special Application (dao.stream.apply)
 
-The `dao.stream.apply/call` node represents a high-level asynchronous call that communicates over streams. It's used for cross-language FFI or distributed service calls.
+The `:dao.stream.apply/call` node represents a cross-process FFI call: it
+sends a request over an outbound stream to a host-side bridge and parks the
+calling continuation until a correlated response arrives, rather than
+calling a Clojure function directly in-process.
 
 ### Stream-Apply Call Node
 
 **Type:** `:dao.stream.apply/call`
 
-**Purpose:** To perform an asynchronous, stream-based function call.
+**Purpose:** To perform an asynchronous, stream-based function call across
+the FFI bridge.
 
 **Structure:**
 ```clojure
@@ -758,16 +962,53 @@ The `dao.stream.apply/call` node represents a high-level asynchronous call that 
 
 ### Evaluation Semantics
 
-1. **Evaluate Operands** - The VM evaluates all `:operands` to get argument values.
-2. **Park Continuation** - The VM creates a callback continuation and parks itself.
-3. **Emit Request** - A request containing the `:op` and argument values is sent to the `:yin/call-in` stream.
-4. **Await Response** - The VM stays blocked until a response appears on the `:yin/call-out` stream, at which point the parked continuation is resumed with the result.
+1. **Evaluate Operands** - The VM evaluates every node in `:operands`, left to right, exactly as `:application` does.
+2. **Park and Request** - `park-and-call` parks the continuation (`engine/park-continuation`) *before* touching the transport — deliberately, so an error raised later cannot strand a continuation with a consumed id — then encodes and appends a request naming `:op` and the evaluated arguments to the bridge's inbound (`call-in`) stream.
+3. **Retry-safe on `full`** - A `full` outcome on the append leaves the identical request in the wait set to retry; the call only starts waiting on a response once the append itself succeeds. `closed`, `invalid-value`, and `transport-error` fail the call at this point instead.
+4. **Await Response** - The continuation stays parked until a correlated reply lands on the bridge's outbound (`call-out`) stream (`:dao.stream.apply/eval-call`), at which point `ffi/call-result` extracts the return value and the continuation resumes with it.
+
+**Implementation (from `ast_walker.cljc`):**
+```clojure
+:dao.stream.apply/call
+(let [operands (or (:operands node) [])
+      op (:op node)]
+  (if (empty? operands)
+    (park-and-call state op [] k env)
+    (cesk-return state (first operands) env
+                {:frame {:op op, :operands operands, :evaluated []},
+                 :next k, :env env, :type :dao.stream.apply/eval-operand}
+                (:value state))))
+
+(defn- park-and-call
+  [state op args k env]
+  (let [{:keys [call-in]} (ffi/require-call-pair! (:store state) op)
+        response-cont {:type :dao.stream.apply/eval-call, :next k, :env env}
+        parked (engine/park-continuation state {:k response-cont, :env env})
+        parked-id (get-in parked [:value :id])
+        request (apply2/request parked-id op (vec args))
+        result (apply2/put-request! call-in request)]
+    (case (:dao.stream/outcome result)
+      :dao.stream/ok
+      (-> parked
+          (update :wait-set (fnil conj [])
+                  (ffi/call-response-wait-entry parked-id k env))
+          (assoc :control nil :k nil :value :yin/blocked :blocked? true :halted? false))
+      :dao.stream/full
+      (-> parked
+          (update :wait-set (fnil conj [])
+                  {:k {:type :dao.stream.apply/request-sent, :parked-id parked-id,
+                       :next k, :env env, :op op}
+                   :env env, :reason :put, :stream-id vm/call-in-stream-key, :datom request})
+          (assoc :control nil :k nil :value :yin/blocked :blocked? true :halted? false))
+      (throw (ex-info "FFI request could not be appended"
+                      {:op op, :outcome (:dao.stream/outcome result)})))))
+```
 
 ### Key Characteristics
 
-- 🌐 **Inter-Process/Language** - Designed for calling code outside the current VM instance.
-- 📡 **Message-Based** - Operates by sending and receiving discrete messages over streams.
-- 🧱 **Explicit Blocking** - The calling process is suspended until the external system responds.
+- 🌐 **Inter-Process/Language** - Designed for calling code outside the current VM instance, through an explicit host-supplied FFI bridge (`create-vm`'s `:bridge` option).
+- 📡 **Message-Based, Retry-Safe** - Operates by sending and receiving discrete requests/responses over streams; a `full` append is retried by the wait set, never silently dropped.
+- 🧱 **Parking, not blocking** - The calling continuation parks like any other stream operation; nothing invokes a callback from inside the transport, and no host thread blocks.
 
 ---
 
@@ -775,8 +1016,15 @@ The `dao.stream.apply/call` node represents a high-level asynchronous call that 
 
 In addition to the fields described above, any AST node may contain:
 
-- `:eid` - A unique entity ID (used when the AST is stored as datoms in DaoDB).
-- `:tail?` - A boolean indicating the node is in a tail-call position.
+- `:eid` - An entity id, present when the AST arrives as a batch of `:yin/*`
+  datoms and is converted by `vm/datoms->ast` — the walker's only live
+  loading path today (`vm-load-program`). `docs/design/yin.vm.code-as-tuples.md`
+  proposes a second, content-addressed row representation of this same tree
+  that does not use `:eid`; that representation is not consumed by any
+  evaluator yet (its own implementation plan schedules the row loader as a
+  separate unit).
+- `:tail?` - A boolean a lowering profile reads when flattening a tree to an
+  instruction vector (Part 4); the walker's own evaluation does not branch on it.
 - `:metadata` - A map containing source locations, documentation, or other non-executable data.
 
 ---

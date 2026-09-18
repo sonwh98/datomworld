@@ -1,5 +1,11 @@
 # Cross-Language Macro Execution Strategy
 
+Status: **not implemented, and its `yin.vm.macro/expand-all` target is
+deleted** (`yin.vm-consumers.implementation-plan.md`, 2026-09-10). `yin.vm`
+ships a macro-free corpus by construction — the whole premise of Phase 4
+below no longer has an expander to run. Kept as a historical record of the
+strategy, not a live design.
+
 ## Background & Motivation
 In the datom.world architecture, the Yin VM executes a language-agnostic Universal AST. `yang.clojure` provides `defmacro`, leveraging Clojure's homoiconicity to trivially write functions that transform ASTs at compile time. Non-homoiconic languages like Python (`yang.python`) lack native macro-writing facilities. However, because all languages compile down to the same Universal AST substrate, a Python program should be able to seamlessly invoke macros defined in Clojure (e.g., calling `defn` as if it were a regular function).
 

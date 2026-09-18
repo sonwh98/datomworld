@@ -29,10 +29,11 @@ handling should reuse that namespace rather than being re-invented per host.
 
 Every conforming terminal MUST:
 
-- expose a constructor / binding function that takes an abstract `dao.stream`
-  cursor of complete `dao.postgraphics` frame programs and starts one terminal
-  VM listening on that stream
-- consume complete frame programs from that bound `dao.stream`
+- expose a constructor / binding function that takes a `dao.stream` reader
+  handle of complete `dao.postgraphics` frame programs and returns one
+  terminal binding holding a cursor minted on that handle
+- consume complete frame programs from that handle, one `next` per step, when
+  the host steps the binding
 - validate each submitted frame before presentation
 - maintain enough frame accounting to preserve the "accepted vs rejected vs
   skipped" semantics defined by `dao.postgraphics.md`; terminals that
@@ -63,9 +64,10 @@ conveniences. They do not replace the required stream-bound constructor.
 
 A terminal processes each submitted frame through the same abstract phases:
 
-1. construct one terminal binding from a `dao.stream` cursor of complete frame
+1. construct one terminal binding from a `dao.stream` handle of complete frame
    programs
-2. accept each stream submission into a terminal-local ingress sequence
+2. on each host step, read at most one submission and accept it into a
+   terminal-local ingress sequence
 3. allocate fresh frame-local VM state
 4. validate the frame program against the base spec and any active versioned
    addenda
@@ -76,9 +78,70 @@ A terminal processes each submitted frame through the same abstract phases:
    from the presented frame
 
 The constructor / binding function owns exactly one VM instance, one
-`generation-id` namespace, and one reader on the supplied stream. A new
+`generation-id` namespace, and one cursor on the supplied stream. A new
 constructor call creates a new binding unless a host doc explicitly defines
 stateful reuse behind the same constructor surface.
+
+### Binding and step
+
+The shared realization (`terminal.cljc`) is a binding **value**, not a
+listener, over the DaoStream v2 contract:
+
+- `(put-frame! frame-handle frame)` is `append!`. It returns the append outcome
+  map and wakes nothing.
+- `(bind frame-handle opts)` appends the VM Reset Signal to the optional
+  `:signal-handle` and returns `{:frame-handle :cursor :generation-id
+  :submission-id :presented-frame-id :closed? ...}` with the cursor minted at
+  `:dao.stream/newest`: the terminal presents what arrives after it binds. No
+  callback or waiter is registered anywhere. A producer whose first frame must
+  be seen emits it after the binding exists — hosts expose a hook for this
+  (see *Cadence*).
+- `(step binding)` performs one `next` and returns `{:binding :status}`:
+  - `ok` — validate and present; `:presented`, or `:rejected` after appending
+    a Frame Rejection Signal and calling `:on-error`
+  - `blocked` — `:blocked`, binding unchanged
+  - `gap` — append a Frame Skipped Signal and adopt the recovery cursor the
+    outcome carries (never a fabricated position); `:gap`
+  - `end` — append a `:dao.terminal/transport-error` Protocol Error Signal and
+    close; `:end`
+  - any other outcome (`transport-error`, `cursor-mismatch`,
+    `invalid-cursor`) — the same signal, and close; `:error`
+
+  The transport-error signal is
+  `{:message/kind :dao.terminal/protocol-error :error/kind
+  :dao.terminal/transport-error :dao.stream/outcome <next outcome> :frame-id
+  <last presented-frame-id or nil>}`, as specified in `dao.postgraphics.md`.
+  - a closed binding answers `:closed` without reading
+- `(step-until-blocked binding max-steps)` steps while frames are observed, up
+  to a bound, and returns the last step result.
+- `(close binding)` marks the binding closed; there is nothing to unregister.
+
+`:submission-id` counts observed submissions (presented, rejected, or skipped)
+in this binding; it is the terminal-local ingress sequence, not a stream
+position. `:presented-frame-id` is `nil` until the first presentation, then
+`0, 1, ...` per presented frame; rejections and skips do not advance it. The
+signal handle's `append!` outcome is not inspected: a full or
+closed signal lane drops the signal.
+
+### Cadence
+
+DaoStream schedules nothing, so the host that drives the terminal owns its
+cadence. Each host widget owns exactly one ticker at the frame interval (16 ms)
+that is the only caller of `step-until-blocked`, and cancels it on dispose or
+unmount: `Timer.periodic` in `dao.postgraphics.flutter`, `setInterval` in
+`dao.postgraphics.web`. This is the same one-step-owner shape as
+`yin.repl.flutter`'s timer over `embed/step`. A frame is presented at most
+one tick after it is put. A producer never steps the consumer: hiding the
+ticker inside `put-frame!` would reintroduce callback inversion under another
+name.
+
+Because the cursor is minted at `:dao.stream/newest`, a frame put before the
+widget binds is never presented — on first mount and again on every remount,
+which binds afresh. A producer that renders an initial or static frame emits it
+from the host's post-bind hook rather than from a parent's build: `:on-bind` on
+the Flutter widget (called once, right after `bind`, from the widget's state
+initialization) and `:canvas-ref` on the web widget (called after binding on
+mount).
 
 If validation or interpretation fails before presentation, the terminal emits a
 Frame Rejection Signal and does not advance presented-frame identity where that
@@ -157,7 +220,7 @@ implementation must effectively provide these abstract operations.
 Input:
 
 - host surface / host options as needed
-- one abstract `dao.stream` cursor of complete `dao.postgraphics` frame
+- one `dao.stream` reader handle of complete `dao.postgraphics` frame
   programs
 
 Output:
@@ -168,8 +231,9 @@ Responsibility:
 
 - allocate one VM instance
 - allocate a fresh `generation-id`
-- attach one reader to the supplied stream
-- begin consuming submitted frame programs in stream order
+- mint one cursor on the supplied handle at `:dao.stream/newest`
+- consume submitted frame programs in stream order, one per step, as the host
+  steps the binding (see *Cadence*)
 - emit a VM Reset Signal when the host exposes canonical signals
 
 Hosts MAY expose extra direct-call helpers for tests, local composition, or

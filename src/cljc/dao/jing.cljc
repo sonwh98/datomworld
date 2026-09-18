@@ -8,15 +8,17 @@
    after the backend reports durability. get reads only :segment/sha256-...
    content addresses; arbitrary keys and mutable roots are outside DaoJing.
 
-   The observer (observer-state / observe-step!) polls an explicit intake
-   pool of dao.stream values and materializes every payload. Pool membership
-   is supplied by the caller; cursors, statuses, and the scheduling index
-   are ordinary immutable data. There are no atoms, globals, registration,
-   or discovery, and the source stream never enters an address or a stored
-   value."
+   The observer (observer-state / observe-step! / adopt-cursor) coordinates
+   an explicit intake pool of dao.stream reader handles and materializes
+   every payload through dao.stream.observe/step. Pool membership and
+   every member's initial cursor are supplied by the caller; statuses and
+   the scheduling index are ordinary immutable data. There are no atoms,
+   globals, registration, or discovery, and the source stream never enters
+   an address or a stored value."
   (:refer-clojure :exclude [get])
   (:require [clojure.string :as str]
-            [dao.stream :as ds]
+            [dao.stream :as stream]
+            [dao.stream.observe :as observe]
             #?@(:cljs [[goog.crypt :as crypt] goog.crypt.Sha256])
             #?@(:cljd [["dart:convert" :as convert]])))
 
@@ -40,33 +42,116 @@
 ;; Content addressing (docs/design/dao.jing.md, Canonical encoding)
 ;; =============================================================================
 
+(defn- canonical-print
+  "Print an order-normalized value following Clojure's printing conventions
+   byte for byte — space-separated sequential elements, `, `-separated map
+   entries, metadata as a ^m prefix — instead of delegating to the host
+   printer, which drops collection metadata in at least one case (a sorted
+   set prints through its metadata-less seq on Dart). Scalars still print
+   through pr-str."
+  [n]
+  (let [prefixed (fn [body]
+                   (if (meta n)
+                     (str "^" (canonical-print (meta n)) " " body)
+                     body))]
+    (cond (map? n)
+          (prefixed
+            (str "{"
+                 (str/join ", " (map (fn [[k v]]
+                                       (str (canonical-print k) " "
+                                            (canonical-print v)))
+                                     n))
+                 "}"))
+          (set? n)
+          (prefixed
+            (str "#{" (str/join " " (map canonical-print n)) "}"))
+          (vector? n)
+          (prefixed
+            (str "[" (str/join " " (map canonical-print n)) "]"))
+          (sequential? n)
+          (prefixed
+            (str "(" (str/join " " (map canonical-print n)) ")"))
+          :else (pr-str n))))
+
+
 (defn- order-normalize
-  "Normalize a value so equal values print identically: maps sort by printed
-   key, sets sort by printed element, sequences recurse.
+  "Normalize a value so equal values print identically: maps and sets sort by
+   canonically-printed key/element, sequences recurse, and collection metadata is
+   normalized and reattached so it survives into the address. Reader position
+   metadata (:line/:column and friends) is not content and is dropped; every
+   other metadata difference changes the address.
+
+   A normalized set stays a (sorted) set and therefore prints with #{}
+   braces: the set-ness marker comes from the printer, never from a tag like
+   '(set ...) placed inside the ordinary value domain where a real list of
+   that shape could collide with it.
+
+   Records are not a supported payload: the hosts cannot even agree on how
+   to print one (tagged literal on the JVM and JS, plain map on Dart), so a
+   record and its equal plain map would collide somewhere. order-normalize
+   throws on records — anywhere in the value — rather than silently
+   addressing them as maps.
 
    Transitional: this exists only to make the print-based content hash
    deterministic and order-insensitive until the pinned, cross-platform
    canonical byte encoding lands (docs/design/dao.jing.md, Canonical
    encoding). It is NOT that canonical encoding."
   [v]
-  (cond (map? v) (->> v
-                      (map (fn [[k x]]
-                             [(order-normalize k)
-                              (order-normalize x)]))
-                      ;; a pr-str-keyed sorted map prints its keys in a
-                      ;; fixed order on every platform (array-map is not
-                      ;; in ClojureDart)
-                      (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))))
-        (set? v) (list 'set (sort-by pr-str (map order-normalize v)))
-        (sequential? v) (mapv order-normalize v)
-        :else v))
+  (let [attach-meta (fn [normalized]
+                      (let [;; reader position is not content: the hosts'
+                            ;; readers stamp source coordinates onto list
+                            ;; literals, which would make an address depend
+                            ;; on where a payload was written. Everything
+                            ;; else in the metadata is address-significant.
+                            m (dissoc (meta v)
+                                      :line :column :end-line :end-column)]
+                        ;; empty metadata is dropped: = ignores metadata
+                        ;; entirely, and the hosts disagree on whether ^{}
+                        ;; prints (the JVM skips it, Dart prints it)
+                        (if (seq m)
+                          (with-meta normalized (order-normalize m))
+                          normalized)))]
+    (cond (record? v)
+          (throw (ex-info "dao.jing does not address records: hosts print them differently, so their addresses would collide across hosts"
+                          {:payload v}))
+          (map? v) (attach-meta
+                     (->> v
+                          (map (fn [[k x]]
+                                 [(order-normalize k)
+                                  (order-normalize x)]))
+                          ;; a canonically-printed-keyed sorted map prints
+                          ;; its keys in a fixed order on every platform
+                          ;; (array-map is not in ClojureDart)
+                          (into (sorted-map-by
+                                  #(compare (canonical-print %1)
+                                            (canonical-print %2))))))
+          (set? v) (attach-meta
+                     ;; a sorted set prints its elements in one fixed order
+                     ;; on every platform and keeps its #{} braces, so it can
+                     ;; never print like the list or vector of the same
+                     ;; elements
+                     (into (sorted-set-by
+                             #(compare (canonical-print %1)
+                                       (canonical-print %2)))
+                           (map order-normalize v)))
+          (vector? v) (attach-meta (mapv order-normalize v))
+          ;; lists and seqs are one canonical value: = calls them equal and
+          ;; both print (e1 e2 ...), so both normalize to a list. The
+          ;; with-meta nil is load-bearing: ClojureDart's list returns a list
+          ;; carrying cljd.core's own reader metadata (:line, :tag
+          ;; PersistentList, ...), which would otherwise print into the address
+          (sequential? v) (attach-meta
+                            (with-meta (apply list (map order-normalize v))
+                              nil))
+          :else v)))
 
 
 (defn- order-normalized-print
-  "Transitional encoder: pr-str over the order-normalized form. NOT the final
+  "Transitional encoder: canonical-print over the order-normalized form,
+   which prints collection metadata instead of dropping it. NOT the final
    canonical byte encoding; see order-normalize."
   [v]
-  (pr-str (order-normalize v)))
+  (canonical-print (order-normalize v)))
 
 
 #?(:cljd (do
@@ -184,15 +269,35 @@
 
 
 (defn sha256
-  "SHA-256 hex digest of string s."
+  "SHA-256 hex digest of the UTF-8 bytes of string s. Every host digests
+   the same bytes: handing goog.crypt.Sha256 the string itself hashes
+   char codes, which diverges from the JVM and Dart on any non-ASCII
+   payload and mints host-specific addresses."
   [s]
   #?(:clj (let [digest (java.security.MessageDigest/getInstance "SHA-256")
                 bytes (.digest digest (.getBytes s "UTF-8"))]
             (apply str (map (partial format "%02x") bytes)))
      :cljs (let [hasher (new goog.crypt.Sha256)]
-             (.update hasher s)
+             (.update hasher (crypt/stringToUtf8ByteArray s))
              (crypt/byteArrayToHex (.digest hasher)))
      :cljd (let [padded (pad-message (utf8-bytes s))
+                 chunks (partition 64 padded)
+                 final-h (reduce process-chunk initial-h chunks)]
+             (bytes->hex final-h))))
+
+
+(defn sha256-bytes
+  "SHA-256 hex digest of host bytes bs (byte[] on the JVM, Uint8Array on
+   ClojureScript, Uint8List on Dart). `(sha256-bytes (canonical-bytes v))`
+   is `(content-hash v)` — the two are one digest over one byte stream."
+  [bs]
+  #?(:clj (let [digest (java.security.MessageDigest/getInstance "SHA-256")
+                bytes (.digest digest ^bytes bs)]
+            (apply str (map (partial format "%02x") bytes)))
+     :cljs (let [hasher (new goog.crypt.Sha256)]
+             (.update hasher bs)
+             (crypt/byteArrayToHex (.digest hasher)))
+     :cljd (let [padded (pad-message bs)
                  chunks (partition 64 padded)
                  final-h (reduce process-chunk initial-h chunks)]
              (bytes->hex final-h))))
@@ -210,6 +315,22 @@
    change together."
   [v]
   (sha256 (order-normalized-print v)))
+
+
+(defn canonical-bytes
+  "Host UTF-8 bytes (byte[] / Uint8Array / Uint8List) of the
+   order-normalized print of v — the exact bytes `content-hash` digests, so
+   `(sha256-bytes (canonical-bytes v))` is `(content-hash v)`. This is the
+   byte form Jing content travels in across a `dao.stream` boundary: the
+   Jing boundary adapter (`dao.jing.stream`) wraps these per codec profile,
+   so a payload crosses any transport as its addressed bytes and no
+   transport's value domain ever re-encodes — or silently normalizes — the
+   content itself."
+  [v]
+  (let [text (order-normalized-print v)]
+    #?(:clj (.getBytes ^String text "UTF-8")
+       :cljs (js/Uint8Array.from (crypt/stringToUtf8ByteArray text))
+       :cljd (utf8-bytes text))))
 
 
 (defn segment-key
@@ -261,9 +382,11 @@
    backend reports success.
 
    On :present the stored value is read back through :get-content-fn and
-   verified. Equal content is idempotent and returns the same address.
-   Unequal content at the same address is an integrity failure and throws
-   loudly. Nothing is ever overwritten."
+   verified to hash to the address — with metadata, which is part of the
+   address, not just with =, which ignores it. Equal content is idempotent
+   and returns the same address. Content that does not hash to its own
+   address is an integrity failure and throws loudly. Nothing is ever
+   overwritten."
   [handle payload]
   (let [put (:put-content-fn handle)
         get-fn (:get-content-fn handle)]
@@ -285,11 +408,14 @@
               (ex-info
                 "backend reported :present but the content address is absent"
                 {:address address, :payload payload}))
-            (= stored payload) address
+            ;; the read-back must hash to the address it sits at: = alone
+            ;; would pass a metadata-only mismatch, which the address
+            ;; already distinguishes
+            (= (content-hash stored) (segment-hash address)) address
             :else
             (throw
               (ex-info
-                "content collision: unequal values at the same content address"
+                "content collision: the stored value does not hash to its content address"
                 {:address address, :stored stored, :payload payload}))))
         (throw (ex-info
                  "invalid backend put result"
@@ -329,94 +455,135 @@
 ;; =============================================================================
 
 (defn observer-state
-  "Construct the immutable observer state for an explicit intake pool.
+  "Construct the observer state for an explicit intake pool.
 
+   members is a sequence of {:stream <dao.stream reader handle> :cursor
+   <opaque>} entries. The composition mints each cursor itself, from an
+   anchor of its choosing, and hands it in; DaoJing never fabricates one.
    Returns plain data, no atoms or registration:
 
-     {:members [{:stream <ref>, :cursor {:position 0}, :status :pending} ...]
+     {:members [{:stream s, :cursor c, :status :pending} ...]
       :next 0}
 
-   :members has one entry per pool stream; each entry holds only the stream
-   reference, its operational cursor (initialized to position 0), and its
-   explicit status. :next is the fair round-robin index of the member the
-   next observe-step! polls first. Member status is one of :pending (never
-   polled), :ok, :blocked, :end, or :daostream/gap.
-
-   Pool membership is supplied here; DaoJing performs no registration or
-   discovery. The source stream is operational state only and never becomes
-   part of any address or stored payload."
-  [streams]
-  {:members (mapv (fn [s] {:stream s, :cursor {:position 0}, :status :pending})
-                  streams),
+   A member without a :cursor, or whose :stream lacks the reader surface,
+   is a composition defect and throws here, before any operation. :next is
+   the fair round-robin index observe-step! polls first; :pending is the
+   never-polled status. Because the state is plain data,
+   (observer-state (:members state)) rebuilds one from its members."
+  [members]
+  {:members (mapv (fn [member]
+                    (when-not (map? member)
+                      (throw (ex-info
+                               "dao.jing pool members are {:stream s :cursor c} maps"
+                               {:member member})))
+                    (when-not (contains? member :cursor)
+                      (throw (ex-info
+                               "dao.jing pool member requires a cursor minted by its stream"
+                               {:member member})))
+                    (when-not (stream/reader? (:stream member))
+                      (throw (ex-info
+                               "dao.jing pool member requires a dao.stream reader"
+                               {:member member})))
+                    {:stream (:stream member),
+                     :cursor (:cursor member),
+                     :status :pending})
+                  members),
    :next 0})
 
 
+(defn adopt-cursor
+  "Set member index's cursor to one the stream handed out. Beside a
+   successful observation this is the only way a member's cursor changes:
+   the pool performs no cursor arithmetic, inspects no cursor shape, and
+   mints nothing. Recovering a gap is the caller's decision, made on the
+   recovery cursor a gap report carries; nothing here resynchronizes
+   anything on its own."
+  [state index cursor]
+  (assoc-in state [:members index :cursor] cursor))
+
+
 (defn observe-step!
-  "Poll the intake pool round-robin and process at most one payload.
+  "Walk the intake pool once from (:next state) and process at most one
+   payload, through dao.stream.observe/step with materialize! as the
+   effect. Returns {:state next-state :signal s ...} where the signal is
+   drawn from the same seven outcomes dao.stream declares for next:
 
-   Starts polling at the member selected by (:next state) and walks the pool
-   once, so every active member is checked within the call. Returns:
+     {:signal :dao.stream/ok, :address a}
+       a payload was materialized; the member advanced to the successor
+       cursor its stream returned, and yields its turn;
+     {:signal :dao.stream/blocked}
+       the pool is empty, or every non-ended member answered blocked;
+     {:signal :dao.stream/end}
+       every member has ended;
+     {:signal :dao.stream/gap, :member i, :cursor recovery}
+       member i's position was evicted;
+     {:signal k, :member i, :result read}
+       k is :dao.stream/cursor-mismatch, :dao.stream/invalid-cursor, or
+       :dao.stream/transport-error.
 
-     {:state next-state, :signal :ok, :address address}
-       a payload was materialized and that member's cursor advanced;
-     {:state next-state, :signal :blocked}
-       the pool is empty, or no member had anything to read;
-     {:state next-state, :signal :end}
-       every member has explicitly ended;
-     {:state next-state, :signal :daostream/gap, :member i}
-       member i's cursor is behind the retention boundary. The gap is
-       returned immediately, its cursor is left unchanged, and it is never
-       auto-resynchronized: resync is the caller's decision.
+   gap and defect reports leave the member's cursor unchanged and move
+   :next past the member, so the same condition is reported again on that
+   member's next turn; nothing is auto-resynchronized. A defect carries the
+   raw read under :result exactly as the step classified it — a transport
+   that answered outside the contract is reported with its answer retained,
+   never folded into a meaning nobody chose. Blocked and ended members
+   never prevent later members from being checked, and a member that
+   yielded a payload loses its turn, so a continuously ready member cannot
+   starve another.
 
-   On {:ok payload :cursor next-cursor} the payload is materialized before
-   the member cursor advances; if materialization throws, the exception
-   propagates and the caller-owned state is untouched. Blocked and ended
-   members never prevent later members from being checked, and a member
-   that produced a payload yields its turn, so a continuously ready member
-   cannot starve another."
+   The effect is materialize!, which answers ok or throws: :failed is
+   unreachable, and a throwing effect propagates before any cursor moves,
+   so the caller's state is untouched and the same payload is reprocessed
+   from the same cursor once the backend succeeds."
   [handle state]
-  (let [{:keys [members next]} state
-        n (count members)]
+  (let [n (count (:members state))]
     (if (zero? n)
-      {:state state, :signal :blocked}
-      (loop [i next
-             scanned 0
-             state' state]
-        (if (>= scanned n)
-          (let [all-ended? (every? #(= :end (:status %)) (:members state'))]
-            {:state state', :signal (if all-ended? :end :blocked)})
-          (let [member (nth members i)]
-            (if (= :end (:status member))
-              (recur (mod (inc i) n) (inc scanned) state')
-              (let [res (ds/next (:stream member) (:cursor member))]
-                (cond
-                  (map? res)
-                  (if (and (contains? res :ok) (contains? res :cursor))
-                    (let [address (materialize! handle (:ok res))]
-                      {:state (-> state'
-                                  (assoc-in [:members i :cursor]
-                                            (:cursor res))
-                                  (assoc-in [:members i :status] :ok)
-                                  (assoc :next (mod (inc i) n))),
-                       :signal :ok,
-                       :address address})
-                    (throw
-                      (ex-info
-                        "unexpected stream result: a successful read must carry both :ok and :cursor"
-                        {:result res, :member i})))
-                  (= res :blocked)
-                  (recur (mod (inc i) n)
-                         (inc scanned)
-                         (assoc-in state' [:members i :status] :blocked))
-                  (= res :end) (recur
-                                 (mod (inc i) n)
-                                 (inc scanned)
-                                 (assoc-in state' [:members i :status] :end))
-                  (= res :daostream/gap)
-                  {:state (-> state'
-                              (assoc-in [:members i :status] :daostream/gap)
-                              (assoc :next (mod (inc i) n))),
-                   :signal :daostream/gap,
-                   :member i}
-                  :else (throw (ex-info "unexpected stream signal"
-                                        {:signal res, :member i})))))))))))
+      {:state state, :signal :dao.stream/blocked}
+      (let [effect (fn [payload]
+                     {:dao.stream/outcome :dao.stream/ok
+                      :address (materialize! handle payload)})]
+        (loop [i (:next state)
+               scanned 0
+               state' state]
+          (if (>= scanned n)
+            {:state state'
+             :signal (if (every? #(= :dao.stream/end (:status %))
+                                 (:members state'))
+                       :dao.stream/end
+                       :dao.stream/blocked)}
+            (let [member (nth (:members state') i)
+                  r (observe/step (:stream member) (:cursor member) effect)]
+              (case (:status r)
+                :advance
+                {:state (-> state'
+                            (assoc-in [:members i :cursor] (:cursor r))
+                            (assoc-in [:members i :status] :dao.stream/ok)
+                            (assoc :next (mod (inc i) n)))
+                 :signal :dao.stream/ok
+                 :address (get-in r [:effect :address])}
+                :retry
+                (recur (mod (inc i) n)
+                       (inc scanned)
+                       (assoc-in state' [:members i :status] :dao.stream/blocked))
+                :ended
+                (recur (mod (inc i) n)
+                       (inc scanned)
+                       (assoc-in state' [:members i :status] :dao.stream/end))
+                :gap
+                {:state (-> state'
+                            (assoc-in [:members i :status] :dao.stream/gap)
+                            (assoc :next (mod (inc i) n)))
+                 :signal :dao.stream/gap
+                 :member i
+                 :cursor (:recovery r)}
+                :defect
+                {:state (-> state'
+                            (assoc-in [:members i :status] (:outcome r))
+                            (assoc :next (mod (inc i) n)))
+                 :signal (:outcome r)
+                 :member i
+                 :result (:read r)}
+                :failed
+                (throw (ex-info
+                         "unreachable: the DaoJing effect answers ok or throws"
+                         {:result r, :member i}))))))))))

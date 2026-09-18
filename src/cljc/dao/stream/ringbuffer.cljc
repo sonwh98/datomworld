@@ -1,464 +1,199 @@
 (ns dao.stream.ringbuffer
-  "Reference implementation of DaoStream using a memory-backed ring buffer.
-   
-   state-atom holds: {:buffer {} :head 0 :tail 0 :closed false :reader-waiters {} :writer-waiters []}
-     :buffer          — map of absolute-index -> value
-     :head            — absolute index of next take! position (oldest available)
-     :tail            — absolute index of next put! position
-     :closed          — boolean
-     :reader-waiters  — map of position -> wait-set-entry; woken when put! appends at that position
-     :writer-waiters  — vector of wait-set-entries; first one woken when drain-one! frees space"
-  (:require [dao.stream :as ds]
-            [yin.module :as module])
-  #?(:cljs (:require-macros [dao.stream])))
-
-
-(declare init-module!)
-
-(def ^:private put-result-key ::put-result)
-(def ^:private closed-put-result ::closed)
-(def ^:private take-result-key ::take-result)
-(def ^:private default-eviction-policy :reject)
-(def ^:private supported-eviction-policies #{:reject :evict-oldest})
-
-
-(defn- initial-state
-  ([] (initial-state 0))
-  ([position]
-   {:buffer {},
-    :head position,
-    :tail position,
-    :closed false,
-    :reader-waiters {},
-    :writer-waiters []}))
-
-
-(defn- count-state
-  [state]
-  (- (:tail state) (:head state)))
-
-
-(defn- normalize-eviction-policy
-  [eviction-policy]
-  (let [policy (or eviction-policy default-eviction-policy)]
-    (when-not (contains? supported-eviction-policies policy)
-      (throw (ex-info "Unsupported ringbuffer eviction policy"
-                      {:eviction-policy eviction-policy,
-                       :supported-policies supported-eviction-policies})))
-    policy))
-
-
-(defn- append-state
-  [state val]
-  (let [tail (:tail state)
-        woken-entry (get (:reader-waiters state) tail)
-        next-state (-> state
-                       (assoc-in [:buffer tail] val)
-                       (update :tail inc))]
-    (if woken-entry
-      (-> next-state
-          (update :reader-waiters dissoc tail)
-          (assoc put-result-key {:ok :ok, :woken-entry woken-entry}))
-      (assoc next-state put-result-key {:ok :ok}))))
-
-
-(defn- evict-oldest-state
-  [state]
-  (let [head (:head state)
-        tail (:tail state)]
-    (if (< head tail)
-      (-> state
-          (update :buffer dissoc head)
-          (update :head inc))
-      state)))
-
-
-(defn- put-state
-  [state capacity eviction-policy val]
-  (let [head (:head state)
-        tail (:tail state)
-        available (- tail head)]
-    (cond (:closed state) (assoc state put-result-key closed-put-result)
-          (and capacity (>= available capacity))
-          (case eviction-policy
-            :evict-oldest (if (pos? capacity)
-                            (recur (evict-oldest-state state)
-                                   capacity
-                                   eviction-policy
-                                   val)
-                            (assoc state put-result-key :full))
-            :reject (assoc state put-result-key :full))
-          :else (append-state state val))))
-
-
-(defn- put-outcome
-  [state val]
-  (let [put-result (get state put-result-key)]
-    (when (= put-result closed-put-result)
-      (throw (ex-info "Cannot put to closed stream" {})))
-    (let [{:keys [woken-entry]} put-result]
-      (if (= :full put-result)
-        {:result :full}
-        {:result :ok,
-         :woke
-         (if woken-entry
-           [{:entry woken-entry, :value val, :position (dec (:tail state))}]
-           [])}))))
-
-
-(defn- next-outcome
-  [state cursor]
-  (let [pos (:position cursor)
-        head (:head state)
-        tail (:tail state)]
-    (cond (< pos head) :daostream/gap
-          (< pos tail) {:ok (get-in state [:buffer pos]),
-                        :cursor (update cursor :position inc)}
-          (:closed state) :end
-          :else :blocked)))
-
-
-(defn- close-state
-  [state]
-  (assoc state
-         :closed true
-         :reader-waiters {}
-         :writer-waiters []))
-
-
-(defn- close-outcome
-  [state]
-  (let [reader-woken (mapv (fn [[_pos entry]] {:entry entry, :value nil})
-                           (:reader-waiters state))
-        writer-woken (mapv (fn [entry] {:entry entry, :value nil})
-                           (:writer-waiters state))]
-    {:woke (into reader-woken writer-woken)}))
-
-
-(defn- closed-state?
-  [state]
-  (:closed state))
-
-
-(defn- register-reader-waiter-state
-  [state position entry]
-  (assoc-in state [:reader-waiters position] entry))
-
-
-(defn- register-writer-waiter-state
-  [state entry]
-  (update state :writer-waiters conj entry))
-
-
-(defn- drain-one-state
-  [state]
-  (let [head (:head state)
-        tail (:tail state)]
-    (if (< head tail)
-      (let [val (get-in state [:buffer head])
-            state' (-> state
-                       (update :buffer dissoc head)
-                       (update :head inc))
-            writer-waiters (:writer-waiters state')]
-        (if (seq writer-waiters)
-          (let [writer-entry (first writer-waiters)
-                datom (:datom writer-entry)
-                tail' (:tail state')
-                reader-entry (get (:reader-waiters state') tail')]
-            (-> state'
-                (assoc-in [:buffer tail'] datom)
-                (update :tail inc)
-                (update :writer-waiters (comp vec rest))
-                (cond-> reader-entry (update :reader-waiters dissoc tail'))
-                (assoc take-result-key
-                       {:ok val,
-                        :woke (cond-> [{:entry writer-entry, :value datom}]
-                                reader-entry (conj {:entry reader-entry,
-                                                    :value datom,
-                                                    :position tail'}))})))
-          (assoc state' take-result-key {:ok val, :woke []})))
-      (if (:closed state)
-        (assoc state take-result-key :end)
-        (assoc state take-result-key :empty)))))
-
-
-(defn- drain-one-outcome
-  [state]
-  (get state take-result-key))
-
-
-#?(:cljd
-   (deftype RingBufferStream
-     [meta-map capacity eviction-policy state-atom]
-
-     cljd.core/IMeta
-
-     (-meta [_] meta-map)
-
-
-     cljd.core/IWithMeta
-
-     (-with-meta
-       [_ m]
-       (RingBufferStream. m capacity eviction-policy state-atom))
-
-
-     cljd.core/ICounted
-
-     (-count [_] (count-state @state-atom))
-
-
-     ds/IDaoStreamWriter
-
-     (append!
-       [_this val]
-       (let [result
-             (swap! state-atom put-state capacity eviction-policy val)]
-         (put-outcome result val)))
-
-
-     ds/IDaoStreamReader
-
-     (next [_this cursor] (next-outcome @state-atom cursor))
-
-
-     ds/IDaoStreamBound
-
-     (close!
-       [_this]
-       (let [result @state-atom]
-         (swap! state-atom close-state)
-         (close-outcome result)))
-
-
-     (closed? [_this] (closed-state? @state-atom))
-
-
-     ds/IDaoStreamWaitable
-
-     (register-reader-waiter!
-       [_this position entry]
-       (swap! state-atom register-reader-waiter-state position entry))
-
-
-     (register-writer-waiter!
-       [_this entry]
-       (swap! state-atom register-writer-waiter-state entry))
-
-
-     ds/IDaoStreamDrainable
-
-     (-drain-one!
-       [_this]
-       (let [result (swap! state-atom drain-one-state)]
-         (drain-one-outcome result))))
-   :clj (deftype RingBufferStream
-          [meta-map capacity eviction-policy state-atom]
-
-          clojure.lang.IMeta
-
-          (meta [_] meta-map)
-
-
-          clojure.lang.IObj
-
-          (withMeta
-            [_ m]
-            (RingBufferStream. m capacity eviction-policy state-atom))
-
-
-          clojure.lang.Counted
-
-          (count [_] (count-state @state-atom))
-
-
-          ds/IDaoStreamWriter
-
-          (append!
-            [_this val]
-            (let [result
-                  (swap! state-atom put-state capacity eviction-policy val)]
-              (put-outcome result val)))
-
-
-          ds/IDaoStreamReader
-
-          (next [_this cursor] (next-outcome @state-atom cursor))
-
-
-          ds/IDaoStreamBound
-
-          (close!
-            [_this]
-            (let [result @state-atom]
-              (swap! state-atom close-state)
-              (close-outcome result)))
-
-
-          (closed? [_this] (closed-state? @state-atom))
-
-
-          ds/IDaoStreamWaitable
-
-          (register-reader-waiter!
-            [_this position entry]
-            (swap! state-atom register-reader-waiter-state position entry))
-
-
-          (register-writer-waiter!
-            [_this entry]
-            (swap! state-atom register-writer-waiter-state entry))
-
-
-          ds/IDaoStreamDrainable
-
-          (-drain-one!
-            [_this]
-            (let [result (swap! state-atom drain-one-state)]
-              (drain-one-outcome result))))
-   :default
-   (deftype RingBufferStream
-     [meta-map capacity eviction-policy state-atom]
-
-     IMeta
-
-     (-meta [_] meta-map)
-
-
-     IWithMeta
-
-     (-with-meta
-       [_ m]
-       (RingBufferStream. m capacity eviction-policy state-atom))
-
-
-     ICounted
-
-     (-count [_] (count-state @state-atom))
-
-
-     ds/IDaoStreamWriter
-
-     (append!
-       [_this val]
-       (let [result
-             (swap! state-atom put-state capacity eviction-policy val)]
-         (put-outcome result val)))
-
-
-     ds/IDaoStreamReader
-
-     (next [_this cursor] (next-outcome @state-atom cursor))
-
-
-     ds/IDaoStreamBound
-
-     (close!
-       [_this]
-       (let [result @state-atom]
-         (swap! state-atom close-state)
-         (close-outcome result)))
-
-
-     (closed? [_this] (closed-state? @state-atom))
-
-
-     ds/IDaoStreamWaitable
-
-     (register-reader-waiter!
-       [_this position entry]
-       (swap! state-atom register-reader-waiter-state position entry))
-
-
-     (register-writer-waiter!
-       [_this entry]
-       (swap! state-atom register-writer-waiter-state entry))
-
-
-     ds/IDaoStreamDrainable
-
-     (-drain-one!
-       [_this]
-       (let [result (swap! state-atom drain-one-state)]
-         (drain-one-outcome result)))))
-
-
-(defn- make-ring-buffer-stream*
-  ([capacity eviction-policy position]
-   (make-ring-buffer-stream* nil capacity eviction-policy position))
-  ([meta-map capacity eviction-policy position]
-   @init-module!
-   (->RingBufferStream meta-map
-                       capacity
-                       (normalize-eviction-policy eviction-policy)
-                       (atom (initial-state position)))))
-
-
-(defn make-ring-buffer-stream
-  ([capacity] (make-ring-buffer-stream capacity 0))
-  ([capacity position] (make-ring-buffer-stream* capacity nil position)))
-
-
-(defn tail-position
-  "Returns the absolute position at which the next value will be appended.
-   A cursor that has observed an eviction can resume at this position when
-   the consumer intentionally discards the values still retained by the
-   buffer and waits for new input."
-  [stream]
-  #?(:clj (:tail @(.-state-atom ^RingBufferStream stream))
-     :cljs (:tail @(.-state-atom ^RingBufferStream stream))
-     :cljd (:tail @(.-state-atom ^RingBufferStream stream))
-     :default (:tail @(.-state-atom stream))))
-
-
-(ds/defopen :ringbuffer
-            [descriptor]
-            (let [{:keys [capacity eviction-policy]} descriptor]
-              (make-ring-buffer-stream* {:dao.stream/descriptor descriptor}
-                                        capacity
-                                        eviction-policy
-                                        0)))
-
-
-;; ============================================================
-;; Yin VM Module API (returns effect descriptors)
-;; ============================================================
-
-(defn make
-  ([] (make nil))
-  ([cap] {:effect :stream/make, :capacity cap}))
-
-
-(defn put!
-  [s v]
-  {:effect :stream/put, :stream s, :val v})
-
-
-(defn cursor
-  [s]
-  {:effect :stream/cursor, :stream s})
-
-
-(defn next!
-  [c]
-  {:effect :stream/next, :cursor c})
-
-
-(defn take!
-  [s]
-  {:effect :stream/take, :stream s})
-
-
-(defn close!
-  [s]
-  {:effect :stream/close, :stream s})
-
-
-(def ^:private init-module!
-  (delay (module/register-module! 'stream
-                                  {'make make,
-                                   'put! put!,
-                                   'cursor cursor,
-                                   'next! next!,
-                                   'take! take!,
-                                   'close! close!})))
+  "Fixed-capacity, evict-oldest DaoStream v2 reference transport."
+  (:require [dao.stream :as stream]))
+
+
+(def transport-type :dao.stream/ringbuffer)
+(def capacity-key :dao.stream.ringbuffer/capacity)
+
+
+(defn- result
+  [outcome]
+  {:dao.stream/outcome outcome})
+
+
+(defn- valid-spec?
+  [spec]
+  (and (map? spec)
+       (= transport-type (:dao.stream/type spec))
+       (integer? (get spec capacity-key))
+       (pos? (get spec capacity-key))))
+
+
+(defn- fresh-state
+  [capacity]
+  ;; The logical identity is carried in descriptors and cursors.  It therefore
+  ;; belongs to DaoStream's portable data domain, unlike a host UUID object.
+  (atom {:identity (str (random-uuid))
+         :capacity capacity
+         :first 0
+         :tail 0
+         :values {}
+         :closed? false
+         :attachments {}}))
+
+
+(declare attach!)
+
+
+(deftype RingHandle
+  [state attachment-id owner?]
+
+  stream/IDaoStreamDescriptor
+
+  (descriptor
+    [_]
+    (let [s @state]
+      {:dao.stream/outcome :dao.stream/ok
+       :dao.stream/descriptor {:dao.stream/type transport-type
+                               :dao.stream/identity (:identity s)}
+       :dao.stream/identity (:identity s)}))
+
+
+  stream/IDaoStreamReader
+
+  (cursor
+    [_ anchor]
+    (let [s @state]
+      (if (and (not owner?) (not (get-in s [:attachments attachment-id :open?])))
+        (result :dao.stream/closed)
+        (case anchor
+          :dao.stream/oldest (assoc (result :dao.stream/ok)
+                                    :dao.stream/cursor
+                                    {:dao.stream.ringbuffer/identity (:identity s)
+                                     :dao.stream.ringbuffer/position (:first s)})
+          :dao.stream/newest (assoc (result :dao.stream/ok)
+                                    :dao.stream/cursor
+                                    {:dao.stream.ringbuffer/identity (:identity s)
+                                     :dao.stream.ringbuffer/position (:tail s)})
+          (result :dao.stream/invalid-anchor)))))
+
+
+  (next
+    [_ cursor-value]
+    (let [s @state]
+      (cond
+        (not (map? cursor-value)) (result :dao.stream/invalid-cursor)
+        (not (contains? cursor-value :dao.stream.ringbuffer/identity))
+        (result :dao.stream/invalid-cursor)
+        (not= (:identity s) (:dao.stream.ringbuffer/identity cursor-value))
+        (result :dao.stream/cursor-mismatch)
+        (not (integer? (:dao.stream.ringbuffer/position cursor-value)))
+        (result :dao.stream/invalid-cursor)
+        :else
+        (let [pos (:dao.stream.ringbuffer/position cursor-value)
+              frozen (when-not owner? (get-in s [:attachments attachment-id :tail]))
+              visible-tail (if (some? frozen) frozen (:tail s))]
+          (cond
+            (< pos (:first s))
+            (assoc (result :dao.stream/gap)
+                   :dao.stream/cursor
+                   {:dao.stream.ringbuffer/identity (:identity s)
+                    ;; The contract's recovery position is the earliest retained
+                    ;; position, which equals the tail when nothing is retained.
+                    ;; It must never be an evicted position: a frozen attachment
+                    ;; whose visible history is fully evicted would otherwise be
+                    ;; handed its own tail back and re-gap forever.  Recovering
+                    ;; past that tail is correct; the next read answers `end`.
+                    :dao.stream.ringbuffer/position (:first s)})
+            (< pos visible-tail)
+            ;; `:first`, `:tail`, and `:values` are updated as one state value;
+            ;; positions in this interval are always retained by the transport.
+            {:dao.stream/outcome :dao.stream/ok
+             :dao.stream/value (get (:values s) pos)
+             :dao.stream/cursor {:dao.stream.ringbuffer/identity (:identity s)
+                                 :dao.stream.ringbuffer/position (inc pos)}}
+            (or (:closed? s) (some? frozen)) (result :dao.stream/end)
+            :else (result :dao.stream/blocked))))))
+
+
+  stream/IDaoStreamWriter
+
+  (append!
+    [_ value]
+    ;; Check attachment liveness *inside* the one state transition.  A deref
+    ;; before swap! permits an append that began before an attachment close to
+    ;; land after it; this form gives append!/close! a single linearization point.
+    (let [out (volatile! nil)]
+      (swap! state
+             (fn [s]
+               (if (or (:closed? s)
+                       (and (not owner?)
+                            (not (get-in s [:attachments attachment-id :open?]))))
+                 (do (vreset! out (result :dao.stream/closed)) s)
+                 (let [p (:tail s) n (inc p)
+                       first' (max (:first s) (- n (:capacity s)))]
+                   (vreset! out (result :dao.stream/ok))
+                   (-> s (assoc :tail n :first first')
+                       (assoc :values
+                              (assoc (if (> first' (:first s))
+                                       (dissoc (:values s) (:first s))
+                                       (:values s)) p value)))))))
+      @out))
+
+
+  stream/IDaoStreamClosable
+
+  (close!
+    [_]
+    (swap! state
+           (fn [s]
+             (if owner?
+               (assoc s :closed? true)
+               ;; Preserve the first frozen tail.  Later idempotent closes must
+               ;; not make post-close values visible through this attachment.
+               (if (get-in s [:attachments attachment-id :open?])
+                 (assoc-in s [:attachments attachment-id]
+                           {:open? false :tail (:tail s)})
+                 s))))
+    (result :dao.stream/ok)))
+
+
+(defn create!
+  "Create a ring buffer from a creation specification."
+  [spec]
+  (if-not (valid-spec? spec)
+    (result :dao.stream/invalid-spec)
+    (let [state (fresh-state (get spec capacity-key))]
+      {:dao.stream/outcome :dao.stream/ok
+       :dao.stream/handle (RingHandle. state nil true)
+       :dao.stream/identity (:identity @state)})))
+
+
+(defn- resolve-state
+  [resolver identity]
+  (let [x (if (fn? resolver) (resolver identity) (get resolver identity))]
+    (cond (instance? RingHandle x) (.-state ^RingHandle x)
+          #?(:cljd false
+             :clj (instance? clojure.lang.IAtom x)
+             :cljs (instance? cljs.core/Atom x)) x
+          :else nil)))
+
+
+(defn attach!
+  "Attach using a host-owned resolver (identity -> handle/state)."
+  [resolver descriptor]
+  (if-not (and (map? descriptor)
+               (= transport-type (:dao.stream/type descriptor))
+               (contains? descriptor :dao.stream/identity))
+    (result :dao.stream/invalid-descriptor)
+    (if-let [state (resolve-state resolver (:dao.stream/identity descriptor))]
+      ;; A resolver is host composition, not a trusted decoder.  Confirm that
+      ;; its result actually denotes the descriptor's identity before minting a
+      ;; handle; otherwise a mis-keyed directory silently attaches elsewhere.
+      (if (= (:dao.stream/identity descriptor) (:identity @state))
+        (let [id (str (random-uuid))]
+          (swap! state assoc-in [:attachments id] {:open? true})
+          {:dao.stream/outcome :dao.stream/ok
+           :dao.stream/handle (RingHandle. state id false)
+           :dao.stream/attachment id})
+        (result :dao.stream/not-found))
+      (result :dao.stream/not-found))))
+
+
+(defn make-attacher
+  "Return a unary attach! closure over host-owned resolver state.
+   This small directory is composition/test infrastructure, never a registry
+   owned by DaoStream or this namespace."
+  [resolver]
+  (fn [descriptor] (attach! resolver descriptor)))

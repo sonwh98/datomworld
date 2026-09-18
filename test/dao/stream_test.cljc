@@ -1,571 +1,578 @@
 (ns dao.stream-test
   (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [dao.stream.link :as link]
-            [dao.stream.relation :as relation]
-            [dao.stream.ringbuffer]))
+            [dao.stream :as v2]
+            [dao.stream.conformance :as conf]))
 
 
 ;; =============================================================================
-;; Test helper
+;; Mock Handles for Surface Gating & Protocol Tests
 ;; =============================================================================
 
-(defn- make-stream
-  ([] (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}))
-  ([capacity] (ds/open! {:dao.stream/type :ringbuffer, :capacity capacity})))
+(defrecord MockReaderOnly
+  [stream-id data-atom]
+
+  v2/IDaoStreamDescriptor
+
+  (descriptor
+    [_]
+    {:dao.stream/outcome :dao.stream/ok
+     :dao.stream/descriptor {:dao.stream/type :mock/stream
+                             :dao.stream/identity stream-id
+                             :mock/endpoint "ep-reader"}
+     :dao.stream/identity stream-id})
 
 
-(defn- ringbuffer-state-atom
-  [stream]
-  #?(:clj (.-state-atom ^dao.stream.ringbuffer.RingBufferStream stream)
-     :cljs (.-state-atom ^dao.stream.ringbuffer/RingBufferStream stream)
-     :cljd (.-state-atom ^dao.stream.ringbuffer/RingBufferStream stream)))
+  v2/IDaoStreamReader
+
+  (cursor
+    [_ anchor]
+    (case anchor
+      :dao.stream/oldest {:dao.stream/outcome :dao.stream/ok
+                          :dao.stream/cursor {:stream-identity stream-id :position 0}}
+      :dao.stream/newest {:dao.stream/outcome :dao.stream/ok
+                          :dao.stream/cursor {:stream-identity stream-id :position (count @data-atom)}}
+      {:dao.stream/outcome :dao.stream/invalid-anchor}))
 
 
-;; =============================================================================
-;; RingBufferStream Tests
-;; =============================================================================
-
-(defn- ringbuffer-descriptor
-  ([] (ringbuffer-descriptor nil))
-  ([capacity] (ringbuffer-descriptor capacity nil))
-  ([capacity eviction-policy]
-   {:dao.stream/type :ringbuffer,
-    :mode :create,
-    :capacity capacity,
-    :eviction-policy eviction-policy}))
+  (next
+    [_ cursor]
+    (let [pos (:position cursor)]
+      (if (< pos (count @data-atom))
+        {:dao.stream/outcome :dao.stream/ok
+         :dao.stream/value (nth @data-atom pos)
+         :dao.stream/cursor {:stream-identity stream-id :position (inc pos)}}
+        {:dao.stream/outcome :dao.stream/blocked}))))
 
 
-(deftest ringbuffer-descriptor-open-contract-test
-  (testing "ringbuffer descriptors are realizable via ds/open!"
-    (let [stream (ds/open! (ringbuffer-descriptor 1))]
-      (is (= :ok (:result (ds/append! stream :value))))
-      (is (= :value (:ok (ds/drain-one! stream))))))
-  (testing "higher-level link state creation can realize its remote ringbuffer"
-    (let [local (ds/open! (ringbuffer-descriptor))
-          state (link/make-link-state local)
-          remote (:remote-stream state)]
-      (is (some? remote))
-      (is (= :ok (:result (ds/append! remote :payload))))
-      (is (= :payload (:ok (ds/drain-one! remote))))))
-  (testing "nested transport descriptors are rejected"
-    (is (thrown? #?(:clj Exception
-                    :cljs js/Error
-                    :cljd Object)
-          (ds/open! {:transport {:dao.stream/type :ringbuffer,
-                                 :capacity 1}})))))
+(defrecord MockWriterOnly
+  [stream-id data-atom]
+
+  v2/IDaoStreamDescriptor
+
+  (descriptor
+    [_]
+    {:dao.stream/outcome :dao.stream/ok
+     :dao.stream/descriptor {:dao.stream/type :mock/stream
+                             :dao.stream/identity stream-id
+                             :mock/endpoint "ep-writer"}
+     :dao.stream/identity stream-id})
 
 
-(deftest ringbuffer-constructor-position-contract-test
-  (testing "ringbuffer constructor can reopen at an absolute position"
-    (let [stream (dao.stream.ringbuffer/make-ring-buffer-stream nil 3)]
-      (is (= :daostream/gap (ds/next stream {:position 2})))
-      (is (= :blocked (ds/next stream {:position 3})))
-      (is (= :ok (:result (ds/append! stream :value))))
-      (is (= {:ok :value, :cursor {:position 4}}
-             (ds/next stream {:position 3}))))))
+  v2/IDaoStreamWriter
+
+  (append!
+    [_ val]
+    (swap! data-atom conj val)
+    {:dao.stream/outcome :dao.stream/ok}))
 
 
-(deftest put-take-test
-  (testing "put! / take! round trip with length tracking"
-    (let [s (make-stream)]
-      (is (= :ok (:result (ds/append! s :a))))
-      (is (= :ok (:result (ds/append! s :b))))
-      (is (= 2 (count s)))
-      (is (= :a (:ok (ds/drain-one! s))))
-      (is (= 1 (count s)))
-      (is (= :b (:ok (ds/drain-one! s))))
-      (is (= 0 (count s))))))
+(defrecord MockClosableOnly
+  [stream-id closed-atom]
+
+  v2/IDaoStreamDescriptor
+
+  (descriptor
+    [_]
+    {:dao.stream/outcome :dao.stream/ok
+     :dao.stream/descriptor {:dao.stream/type :mock/stream
+                             :dao.stream/identity stream-id}
+     :dao.stream/identity stream-id})
 
 
-(deftest cursor-next-test
-  (testing "next is non-destructive, cursor position advances"
-    (let [s (make-stream)
-          _ (ds/append! s :a)
-          _ (ds/append! s :b)
-          r1 (ds/next s {:position 0})]
-      (is (= :a (:ok r1)))
-      (is (= {:position 1} (:cursor r1)))
-      (is (= 2 (count s)) "next does not consume")
-      (let [r2 (ds/next s (:cursor r1))]
-        (is (= :b (:ok r2)))
-        (is (= {:position 2} (:cursor r2))))))
-  (testing "next at end of open stream returns :blocked"
-    (let [s (make-stream)] (is (= :blocked (ds/next s {:position 0})))))
-  (testing "next at end of closed stream returns :end"
-    (let [s (make-stream)]
-      (ds/close! s)
-      (is (= :end (ds/next s {:position 0})))))
-  (testing "next on closed stream with data returns data then :end"
-    (let [s (make-stream)]
-      (ds/append! s :x)
-      (ds/close! s)
-      (let [r1 (ds/next s {:position 0})]
-        (is (= :x (:ok r1)))
-        (is (= :end (ds/next s (:cursor r1))))))))
+  v2/IDaoStreamClosable
+
+  (close!
+    [_]
+    (reset! closed-atom true)
+    {:dao.stream/outcome :dao.stream/ok}))
 
 
-(deftest close-test
-  (testing "closed? false before, true after close!"
-    (let [s (make-stream)]
-      (is (false? (ds/closed? s)))
-      (ds/close! s)
-      (is (true? (ds/closed? s)))))
-  (testing "put! throws on closed stream"
-    (let [s (make-stream)]
-      (ds/close! s)
-      (is (thrown? #?(:clj Exception
-                      :cljs js/Error
-                      :cljd Object)
-            (ds/append! s 42)))))
-  (testing "take! returns :end on closed empty stream"
-    (let [s (make-stream)]
-      (ds/close! s)
-      (is (= :end (ds/drain-one! s))))))
+(defrecord MockFullHandle
+  [stream-id data-atom closed-atom]
+
+  v2/IDaoStreamDescriptor
+
+  (descriptor
+    [_]
+    {:dao.stream/outcome :dao.stream/ok
+     :dao.stream/descriptor {:dao.stream/type :mock/stream
+                             :dao.stream/identity stream-id
+                             :mock/endpoint "ep-full"}
+     :dao.stream/identity stream-id})
 
 
-(deftest gap-test
-  (testing "cursor behind head returns :daostream/gap after take!"
-    (let [s (make-stream)]
-      (ds/append! s :a)
-      (ds/append! s :b)
-      (ds/drain-one! s)
-      (is (= :daostream/gap (ds/next s {:position 0}))
-          "Cursor at pos 0 with head at 1 should return gap")
-      (let [r (ds/next s {:position 1})] (is (= :b (:ok r)))))))
+  v2/IDaoStreamReader
+
+  (cursor
+    [_ anchor]
+    (case anchor
+      :dao.stream/oldest {:dao.stream/outcome :dao.stream/ok
+                          :dao.stream/cursor {:stream-identity stream-id :position 0}}
+      :dao.stream/newest {:dao.stream/outcome :dao.stream/ok
+                          :dao.stream/cursor {:stream-identity stream-id :position (count @data-atom)}}
+      {:dao.stream/outcome :dao.stream/invalid-anchor}))
 
 
-(deftest independent-cursors-test
-  (testing "Two cursors advance independently"
-    (let [s (make-stream)]
-      (ds/append! s :a)
-      (ds/append! s :b)
-      (ds/append! s :c)
-      (let [c1 {:position 0}
-            c2 {:position 0}
-            r1a (ds/next s c1)
-            r1b (ds/next s (:cursor r1a))
-            r2a (ds/next s c2)]
-        (is (= :a (:ok r1a)))
-        (is (= :b (:ok r1b)))
-        (is (= :a (:ok r2a)))
-        (is (= 2 (:position (:cursor r1b))))
-        (is (= 1 (:position (:cursor r2a))))))))
+  (next
+    [_ cursor]
+    (let [pos (:position cursor)]
+      (cond
+        (< pos (count @data-atom))
+        {:dao.stream/outcome :dao.stream/ok
+         :dao.stream/value (nth @data-atom pos)
+         :dao.stream/cursor {:stream-identity stream-id :position (inc pos)}}
+
+        @closed-atom
+        {:dao.stream/outcome :dao.stream/end}
+
+        :else
+        {:dao.stream/outcome :dao.stream/blocked})))
 
 
-(deftest ->seq-test
-  (testing
-    "->seq produces a lazy seq of available values without mutating the stream"
-    (let [s (make-stream)
-          _ (ds/append! s :alpha)
-          _ (ds/append! s :beta)
-          values (vec (ds/->seq nil s))]
-      (is (= [:alpha :beta] values))
-      (is (= 2 (count s)) "Calling next via ->seq must not consume values"))))
+  v2/IDaoStreamWriter
+
+  (append!
+    [_ val]
+    (if @closed-atom
+      {:dao.stream/outcome :dao.stream/closed}
+      (do
+        (swap! data-atom conj val)
+        {:dao.stream/outcome :dao.stream/ok})))
 
 
-(deftest capacity-test
-  (testing "put! returns :full at capacity, :ok after take! frees space"
-    (let [s (make-stream 2)]
-      (is (= :ok (:result (ds/append! s :a))))
-      (is (= :ok (:result (ds/append! s :b))))
-      (is (= :full (:result (ds/append! s :c))))
-      (ds/drain-one! s)
-      (is (= :ok (:result (ds/append! s :c)))))))
+  v2/IDaoStreamClosable
 
-
-(deftest eviction-policy-evict-oldest-test
-  (testing ":evict-oldest keeps accepting writes and advances head"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer,
-                       :capacity 2,
-                       :eviction-policy :evict-oldest})]
-      (is (= :ok (:result (ds/append! s :a))))
-      (is (= :ok (:result (ds/append! s :b))))
-      (is (= :ok (:result (ds/append! s :c))))
-      (is (= 2 (count s)))
-      (is (= :daostream/gap (ds/next s {:position 0})))
-      (is (= :b (:ok (ds/next s {:position 1}))))
-      (is (= :c (:ok (ds/next s {:position 2}))))
-      (is (= :b (:ok (ds/drain-one! s))))
-      (is (= :c (:ok (ds/drain-one! s)))))))
-
-
-(deftest evict-oldest-tail-position-test
-  (let [s (ds/open! {:dao.stream/type :ringbuffer,
-                     :capacity 2,
-                     :eviction-policy :evict-oldest})]
-    (is (= 0 (dao.stream.ringbuffer/tail-position s)))
-    (ds/append! s :a)
-    (ds/append! s :b)
-    (ds/append! s :c)
-    (is (= 3 (dao.stream.ringbuffer/tail-position s)))
-    (is (= :c (:ok (ds/next s {:position 2}))))))
-
-
-(deftest invalid-eviction-policy-test
-  (testing "open! rejects unsupported eviction policies"
-    (is (thrown? #?(:clj Exception
-                    :cljs js/Error
-                    :cljd Object)
-          (ds/open! {:dao.stream/type :ringbuffer,
-                     :capacity 2,
-                     :eviction-policy :bogus})))))
-
-
-(deftest take-sentinels-test
-  (testing ":empty on empty open stream"
-    (let [s (make-stream)] (is (= :empty (ds/drain-one! s)))))
-  (testing ":end on closed empty stream"
-    (let [s (make-stream)]
-      (ds/close! s)
-      (is (= :end (ds/drain-one! s))))))
+  (close!
+    [_]
+    (reset! closed-atom true)
+    {:dao.stream/outcome :dao.stream/ok}))
 
 
 ;; =============================================================================
-;; Channel Mobility Tests (streams as values sent through streams)
+;; Tests
 ;; =============================================================================
 
-(deftest stream-channel-mobility-test
-  (testing "A stream sent through another stream arrives intact"
-    (let [s1 (make-stream)
-          s2 (make-stream)
-          _ (ds/append! s2 :payload)
-          _ (ds/append! s1 s2)
-          r1 (ds/next s1 {:position 0})
-          recovered-s2 (:ok r1)]
-      (is (some? recovered-s2) "Recovered value should be a stream")
-      (is (= 1 (count recovered-s2)) "Recovered stream should have 1 value")
-      (let [r2 (ds/next recovered-s2 {:position 0})]
-        (is (= :payload (:ok r2))
-            "Reading from recovered stream yields the original value")))))
+(deftest result-shapes-and-open-maps-test
+  (testing "result maps require :dao.stream/outcome qualified keyword"
+    (is (true? (v2/outcome-map? {:dao.stream/outcome :dao.stream/ok})))
+    (is (true? (v2/outcome-map? {:dao.stream/outcome :dao.stream/blocked})))
+    (is (false? (v2/outcome-map? {:outcome :dao.stream/ok})))
+    (is (false? (v2/outcome-map? {:dao.stream/outcome "ok"})))
+    (is (false? (v2/outcome-map? {:dao.stream/outcome :ok})))
+    (is (false? (v2/outcome-map? "not a map"))))
+
+  (testing "result maps are open maps: extra keys are preserved and tolerated"
+    (let [open-res {:dao.stream/outcome :dao.stream/ok
+                    :dao.stream/handle :dummy-handle
+                    :dao.stream/extra-info 123
+                    :app/metric 42.0}]
+      (is (true? (v2/valid-outcome? :create! open-res)))
+      (is (= 42.0 (:app/metric open-res)))
+      (is (= 123 (:dao.stream/extra-info open-res)))))
+
+  (testing "required keys per operation outcome are strictly enforced"
+    ;; create! requires :dao.stream/handle on :dao.stream/ok
+    (is (true? (v2/valid-outcome? :create! {:dao.stream/outcome :dao.stream/ok
+                                            :dao.stream/handle :h})))
+    (is (false? (v2/valid-outcome? :create! {:dao.stream/outcome :dao.stream/ok})))
+
+    ;; attach! requires :dao.stream/handle on :dao.stream/ok
+    (is (true? (v2/valid-outcome? :attach! {:dao.stream/outcome :dao.stream/ok
+                                            :dao.stream/handle :h})))
+    (is (false? (v2/valid-outcome? :attach! {:dao.stream/outcome :dao.stream/ok})))
+
+    ;; descriptor requires :dao.stream/descriptor and :dao.stream/identity on :dao.stream/ok
+    (is (true? (v2/valid-outcome? :descriptor {:dao.stream/outcome :dao.stream/ok
+                                               :dao.stream/descriptor {:dao.stream/type :test/stream
+                                                                       :dao.stream/identity "id-1"}
+                                               :dao.stream/identity "id-1"})))
+    (is (false? (v2/valid-outcome? :descriptor {:dao.stream/outcome :dao.stream/ok
+                                                :dao.stream/descriptor {}})))
+
+    ;; cursor requires :dao.stream/cursor on :dao.stream/ok
+    (is (true? (v2/valid-outcome? :cursor {:dao.stream/outcome :dao.stream/ok
+                                           :dao.stream/cursor {:pos 0}})))
+    (is (false? (v2/valid-outcome? :cursor {:dao.stream/outcome :dao.stream/ok})))
+
+    ;; next requires :dao.stream/value and :dao.stream/cursor on :dao.stream/ok
+    (is (true? (v2/valid-outcome? :next {:dao.stream/outcome :dao.stream/ok
+                                         :dao.stream/value :v
+                                         :dao.stream/cursor {:pos 1}})))
+    (is (false? (v2/valid-outcome? :next {:dao.stream/outcome :dao.stream/ok
+                                          :dao.stream/value :v})))
+    (is (false? (v2/valid-outcome? :next {:dao.stream/outcome :dao.stream/ok
+                                          :dao.stream/cursor {:pos 1}})))
+
+    ;; next requires :dao.stream/cursor on :dao.stream/gap
+    (is (true? (v2/valid-outcome? :next {:dao.stream/outcome :dao.stream/gap
+                                         :dao.stream/cursor {:pos 5}})))
+    (is (false? (v2/valid-outcome? :next {:dao.stream/outcome :dao.stream/gap})))
+
+    ;; Outcomes without required keys (blocked, end, closed, full, etc.)
+    (is (true? (v2/valid-outcome? :next {:dao.stream/outcome :dao.stream/blocked})))
+    (is (true? (v2/valid-outcome? :next {:dao.stream/outcome :dao.stream/end})))
+    (is (true? (v2/valid-outcome? :append! {:dao.stream/outcome :dao.stream/ok})))
+    (is (true? (v2/valid-outcome? :append! {:dao.stream/outcome :dao.stream/full})))
+    (is (true? (v2/valid-outcome? :append! {:dao.stream/outcome :dao.stream/closed})))
+    (is (true? (v2/valid-outcome? :close! {:dao.stream/outcome :dao.stream/ok}))))
+
+  (testing "result constructors"
+    (is (= {:dao.stream/outcome :dao.stream/ok} (v2/ok-result)))
+    (is (= {:dao.stream/outcome :dao.stream/ok :val 1} (v2/ok-result {:val 1})))
+    (is (= {:dao.stream/outcome :dao.stream/blocked} (v2/outcome-result :dao.stream/blocked)))
+    (is (= {:dao.stream/outcome :dao.stream/full :retry false}
+           (v2/outcome-result :dao.stream/full {:retry false})))))
 
 
-(deftest stream-descriptor-through-stream-test
-  (testing "A descriptor map sent through a stream arrives intact"
-    (let [s1 (make-stream)
-          descriptor {:capacity 5, :closed false}
-          _ (ds/append! s1 descriptor)
-          r1 (ds/next s1 {:position 0})]
-      (is (= descriptor (:ok r1))
-          "Descriptor passes through a stream unchanged"))))
+(deftest exhaustive-operation-outcome-declarations-test
+  (testing "contract operation outcome sets match design specification exactly"
+    (is (= #{:dao.stream/ok
+             :dao.stream/invalid-spec
+             :dao.stream/not-found
+             :dao.stream/transport-error}
+           (get v2/operation-outcomes :create!)))
+
+    (is (= #{:dao.stream/ok
+             :dao.stream/invalid-descriptor
+             :dao.stream/not-found
+             :dao.stream/transport-error}
+           (get v2/operation-outcomes :attach!)))
+
+    (is (= #{:dao.stream/ok}
+           (get v2/operation-outcomes :descriptor)))
+
+    (is (= #{:dao.stream/ok
+             :dao.stream/invalid-anchor
+             :dao.stream/closed
+             :dao.stream/transport-error}
+           (get v2/operation-outcomes :cursor)))
+
+    (is (= #{:dao.stream/ok
+             :dao.stream/blocked
+             :dao.stream/end
+             :dao.stream/gap
+             :dao.stream/cursor-mismatch
+             :dao.stream/invalid-cursor
+             :dao.stream/transport-error}
+           (get v2/operation-outcomes :next)))
+
+    (is (= #{:dao.stream/ok
+             :dao.stream/full
+             :dao.stream/invalid-value
+             :dao.stream/closed
+             :dao.stream/transport-error}
+           (get v2/operation-outcomes :append!)))
+
+    (is (= #{:dao.stream/ok}
+           (get v2/operation-outcomes :close!))))
+
+  (testing "unauthorized outcomes are rejected by validator"
+    (is (false? (v2/valid-outcome? :close! {:dao.stream/outcome :dao.stream/closed})))
+    (is (false? (v2/valid-outcome? :descriptor {:dao.stream/outcome :dao.stream/not-found})))
+    (is (false? (v2/valid-outcome? :append! {:dao.stream/outcome :dao.stream/blocked})))
+    (is (false? (v2/valid-outcome? :next {:dao.stream/outcome :dao.stream/full})))))
 
 
-;; =============================================================================
-;; Edge Case Tests
-;; =============================================================================
+(deftest descriptor-identity-equality-test
+  (testing "descriptor result requires both descriptor and identity, and sibling matches envelope"
+    (let [stream-id "logical-id-42"
+          desc {:dao.stream/type :mock/ringbuffer
+                :dao.stream/identity stream-id
+                :mock/port 9000}
+          valid-res {:dao.stream/outcome :dao.stream/ok
+                     :dao.stream/descriptor desc
+                     :dao.stream/identity stream-id}
+          mismatched-res {:dao.stream/outcome :dao.stream/ok
+                          :dao.stream/descriptor desc
+                          :dao.stream/identity "different-id"}]
+      (is (true? (v2/descriptor-identity-consistent? valid-res)))
+      (is (false? (v2/descriptor-identity-consistent? mismatched-res)))
+      (is (false? (v2/descriptor-identity-consistent? {:dao.stream/outcome :dao.stream/ok
+                                                       :dao.stream/identity stream-id})))
+      (is (false? (v2/descriptor-identity-consistent? {:dao.stream/outcome :dao.stream/ok
+                                                       :dao.stream/descriptor desc})))))
 
-(deftest nil-value-round-trip-test
-  (testing "nil is a valid value for put!/take!"
-    (let [s (make-stream)]
-      (is (= :ok (:result (ds/append! s nil))))
-      (is (= nil (:ok (ds/drain-one! s))))))
-  (testing "nil is a valid value for put!/next"
-    (let [s (make-stream)]
-      (ds/append! s nil)
-      (let [r (ds/next s {:position 0})]
-        (is (= {:ok nil, :cursor {:position 1}} r))))))
-
-
-(deftest close-idempotent-test
-  (testing "close! called twice does not throw and closed? stays true"
-    (let [s (make-stream)]
-      (ds/close! s)
-      (ds/close! s)
-      (is (true? (ds/closed? s))))))
-
-
-(deftest take-on-closed-stream-with-data-test
-  (testing
-    "take! drains remaining data from a closed stream before returning :end"
-    (let [s (make-stream)]
-      (ds/append! s :x)
-      (ds/append! s :y)
-      (ds/close! s)
-      (is (= :x (:ok (ds/drain-one! s))))
-      (is (= :y (:ok (ds/drain-one! s))))
-      (is (= :end (ds/drain-one! s))))))
+  (testing "distinct descriptors for distinct endpoints of the same stream carry equal identity"
+    (let [shared-id "stream-xyz"
+          desc-ep1 {:dao.stream/type :ws/stream
+                    :dao.stream/identity shared-id
+                    :ws/host "endpoint-1.datom.world"}
+          desc-ep2 {:dao.stream/type :ws/stream
+                    :dao.stream/identity shared-id
+                    :ws/host "endpoint-2.datom.world"}]
+      (is (not= desc-ep1 desc-ep2) "descriptors differ in reachability")
+      (is (= (:dao.stream/identity desc-ep1) (:dao.stream/identity desc-ep2))
+          "identity projection is strictly equal across endpoints"))))
 
 
-(deftest memory-reclamation-test
-  (testing "take! removes consumed entries from the buffer map"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
-      (ds/append! s :a)
-      (ds/append! s :b)
-      (ds/drain-one! s)
-      (let [state @(ringbuffer-state-atom s)]
-        (is (not (contains? (:buffer state) 0))
-            "Entry at index 0 should be removed after take!")
-        (is (contains? (:buffer state) 1)
-            "Entry at index 1 should still be present")))))
+(deftest generic-envelope-validation-test
+  (testing "generic envelope validation requires map with qualified keyword :dao.stream/type"
+    (is (true? (v2/valid-envelope? {:dao.stream/type :ringbuffer/in-memory})))
+    (is (true? (v2/valid-envelope? {:dao.stream/type :dao.stream/ringbuffer
+                                    :ringbuffer/capacity 1024})))
+    (is (false? (v2/valid-envelope? {:dao.stream/type :unqualified})))
+    (is (false? (v2/valid-envelope? {:dao.stream/type "string-type"})))
+    (is (false? (v2/valid-envelope? {:type :ringbuffer/in-memory})))
+    (is (false? (v2/valid-envelope? nil)))
+    (is (false? (v2/valid-envelope? [:dao.stream/type :ringbuffer/in-memory]))))
+
+  (testing "creation specification validation"
+    (is (true? (v2/valid-creation-spec? {:dao.stream/type :stream/ref, :ref/bound 10})))
+    (is (false? (v2/valid-creation-spec? {:unqualified :kw}))))
+
+  (testing "portable descriptor validation requires :dao.stream/identity"
+    (is (true? (v2/valid-descriptor? {:dao.stream/type :ws/stream
+                                      :dao.stream/identity "stream-123"})))
+    (is (false? (v2/valid-descriptor? {:dao.stream/type :ws/stream}))
+        "missing identity is not a valid descriptor")
+    (is (false? (v2/valid-descriptor? {:dao.stream/identity "stream-123"}))
+        "missing :dao.stream/type is not a valid descriptor")))
 
 
-(deftest zero-capacity-test
-  (testing "capacity=0 rejects every put!"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 0})]
-      (is (= :full (:result (ds/append! s :a))))))
-  (testing "capacity=0 with :evict-oldest still rejects every put!"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer,
-                       :capacity 0,
-                       :eviction-policy :evict-oldest})]
-      (is (= :full (:result (ds/append! s :a)))))))
+(deftest surface-gating-test
+  (let [stream-id "gating-stream"
+        data-atom (atom [])
+        closed-atom (atom false)
+        reader-handle (->MockReaderOnly stream-id data-atom)
+        writer-handle (->MockWriterOnly stream-id data-atom)
+        closable-handle (->MockClosableOnly stream-id closed-atom)
+        full-handle (->MockFullHandle stream-id data-atom closed-atom)]
+
+    (testing "surface predicate inspection"
+      (is (true? (v2/reader? reader-handle)))
+      (is (false? (v2/writer? reader-handle)))
+      (is (false? (v2/closable? reader-handle)))
+      (is (true? (v2/descriptor? reader-handle)))
+      (is (= #{:reader} (v2/declared-surfaces reader-handle)))
+
+      (is (false? (v2/reader? writer-handle)))
+      (is (true? (v2/writer? writer-handle)))
+      (is (false? (v2/closable? writer-handle)))
+      (is (true? (v2/descriptor? writer-handle)))
+      (is (= #{:writer} (v2/declared-surfaces writer-handle)))
+
+      (is (false? (v2/reader? closable-handle)))
+      (is (false? (v2/writer? closable-handle)))
+      (is (true? (v2/closable? closable-handle)))
+      (is (true? (v2/descriptor? closable-handle)))
+      (is (= #{:closable} (v2/declared-surfaces closable-handle)))
+
+      (is (true? (v2/reader? full-handle)))
+      (is (true? (v2/writer? full-handle)))
+      (is (true? (v2/closable? full-handle)))
+      (is (true? (v2/descriptor? full-handle)))
+      (is (= #{:reader :writer :closable} (v2/declared-surfaces full-handle))))
+
+    (testing "descriptor is universal: callable on all handles regardless of surface"
+      (is (= :dao.stream/ok (:dao.stream/outcome (v2/descriptor reader-handle))))
+      (is (= :dao.stream/ok (:dao.stream/outcome (v2/descriptor writer-handle))))
+      (is (= :dao.stream/ok (:dao.stream/outcome (v2/descriptor closable-handle))))
+      (is (= :dao.stream/ok (:dao.stream/outcome (v2/descriptor full-handle)))))
+
+    (testing "invoking undeclared surface operations fails at protocol dispatch"
+      ;; Calling writer operation on reader-only handle throws protocol exception
+      (is (thrown? #?(:clj IllegalArgumentException :cljs js/Error :cljd Object)
+            (v2/append! reader-handle :val)))
+
+      ;; Calling reader operation on writer-only handle throws protocol exception
+      (is (thrown? #?(:clj IllegalArgumentException :cljs js/Error :cljd Object)
+            (v2/next writer-handle {:position 0})))
+      (is (thrown? #?(:clj IllegalArgumentException :cljs js/Error :cljd Object)
+            (v2/cursor writer-handle :dao.stream/oldest)))
+
+      ;; Calling closable operation on reader-only handle throws protocol exception
+      (is (thrown? #?(:clj IllegalArgumentException :cljs js/Error :cljd Object)
+            (v2/close! reader-handle))))))
 
 
-(deftest capacity-one-boundary-test
-  (testing "capacity=1: full after one put!, freed after take!"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})]
-      (is (= :ok (:result (ds/append! s :a))))
-      (is (= :full (:result (ds/append! s :b))))
-      (is (= :a (:ok (ds/drain-one! s))))
-      (is (= :ok (:result (ds/append! s :b))))
-      (is (= :b (:ok (ds/drain-one! s)))))))
+(deftest host-dispatch-composition-test
+  (testing "host dispatch is an ordinary host-composed map without ambient globals or registries"
+    (let [created-handle :handle-created
+          attached-handle :handle-attached
+          dispatch-table {:test/ringbuffer
+                          {:dao.stream/create (fn [spec]
+                                                {:dao.stream/outcome :dao.stream/ok
+                                                 :dao.stream/handle created-handle
+                                                 :test/spec spec})
+                           :dao.stream/attach (fn [desc]
+                                                {:dao.stream/outcome :dao.stream/ok
+                                                 :dao.stream/handle attached-handle
+                                                 :test/desc desc})}
+                          :test/writer-only
+                          {:dao.stream/attach (fn [_desc]
+                                                {:dao.stream/outcome :dao.stream/ok
+                                                 :dao.stream/handle :writer-handle})}}]
+
+      ;; Successful dispatch
+      (let [res (v2/host-dispatch-create! dispatch-table {:dao.stream/type :test/ringbuffer
+                                                          :ringbuffer/capacity 10})]
+        (is (= :dao.stream/ok (:dao.stream/outcome res)))
+        (is (= created-handle (:dao.stream/handle res))))
+
+      (let [res (v2/host-dispatch-attach! dispatch-table {:dao.stream/type :test/ringbuffer
+                                                          :dao.stream/identity "stream-1"})]
+        (is (= :dao.stream/ok (:dao.stream/outcome res)))
+        (is (= attached-handle (:dao.stream/handle res))))
+
+      ;; Unknown transport returns :dao.stream/not-found
+      (is (= {:dao.stream/outcome :dao.stream/not-found}
+             (v2/host-dispatch-create! dispatch-table {:dao.stream/type :unknown/transport})))
+      (is (= {:dao.stream/outcome :dao.stream/not-found}
+             (v2/host-dispatch-attach! dispatch-table {:dao.stream/type :unknown/transport
+                                                       :dao.stream/identity "id"})))
+
+      ;; Missing create! on transport (e.g. writer-only attach transport) returns :dao.stream/not-found
+      (is (= {:dao.stream/outcome :dao.stream/not-found}
+             (v2/host-dispatch-create! dispatch-table {:dao.stream/type :test/writer-only})))
+
+      ;; Malformed spec/descriptor returns :dao.stream/invalid-spec / :dao.stream/invalid-descriptor
+      (is (= {:dao.stream/outcome :dao.stream/invalid-spec}
+             (v2/host-dispatch-create! dispatch-table {:unqualified :kw})))
+      (is (= {:dao.stream/outcome :dao.stream/invalid-descriptor}
+             (v2/host-dispatch-attach! dispatch-table {:dao.stream/type :test/ringbuffer}))))))
 
 
-(deftest put-take-cycle-index-continuity-test
-  (testing
-    "absolute indices advance monotonically across multiple put!/take! cycles"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
-      (ds/append! s :a)
-      (ds/drain-one! s)
-      (ds/append! s :b)
-      (let [state @(ringbuffer-state-atom s)]
-        (is (= 1 (:head state)) "head should be 1 after one take!")
-        (is (= 2 (:tail state)) "tail should be 2 after two puts!"))
-      (is (= :b (:ok (ds/drain-one! s)))))))
+(deftest conformance-manifest-validation-test
+  (testing "valid manifest satisfies manifest validation"
+    (let [valid-manifest
+          {:dao.stream/type :test/transport
+           :surfaces #{:reader :writer :closable}
+           :operations
+           {:create! {:produces #{:dao.stream/ok :dao.stream/invalid-spec}
+                      :exclusions {:dao.stream/not-found "host dispatch handles absence"
+                                   :dao.stream/transport-error "in-memory only"}}
+            :attach! {:produces #{:dao.stream/ok :dao.stream/invalid-descriptor :dao.stream/not-found}
+                      :exclusions {:dao.stream/transport-error "in-memory lookup has no failure"}}
+            :descriptor {:produces #{:dao.stream/ok}
+                         :exclusions {}}
+            :cursor {:produces #{:dao.stream/ok :dao.stream/invalid-anchor :dao.stream/closed}
+                     :exclusions {:dao.stream/transport-error "in-memory read only"}}
+            :next {:produces #{:dao.stream/ok :dao.stream/blocked :dao.stream/end
+                               :dao.stream/gap :dao.stream/cursor-mismatch :dao.stream/invalid-cursor}
+                   :exclusions {:dao.stream/transport-error "in-memory read only"}}
+            :append! {:produces #{:dao.stream/ok :dao.stream/closed}
+                      :exclusions {:dao.stream/full "evicts oldest instead of refusing"
+                                   :dao.stream/invalid-value "carries all host values"
+                                   :dao.stream/transport-error "in-memory state has no failure"}}
+            :close! {:produces #{:dao.stream/ok}
+                     :exclusions {}}}}]
+      (is (true? (:valid? (conf/validate-manifest valid-manifest))))))
+
+  (testing "invalid manifest is rejected with detailed error records"
+    ;; Missing descriptor declaration
+    (let [m {:dao.stream/type :test/transport
+             :surfaces #{:writer}
+             :operations {:append! {:produces #{:dao.stream/ok :dao.stream/closed}
+                                    :exclusions {:dao.stream/full "reason"
+                                                 :dao.stream/invalid-value "reason"
+                                                 :dao.stream/transport-error "reason"}}}}]
+      (is (false? (:valid? (conf/validate-manifest m)))))
+
+    ;; Missing exclusion reason
+    (let [m {:dao.stream/type :test/transport
+             :surfaces #{}
+             :operations {:descriptor {:produces #{:dao.stream/ok} :exclusions {}}
+                          :create! {:produces #{:dao.stream/ok}
+                                    :exclusions {:dao.stream/invalid-spec "" ; Empty reason
+                                                 :dao.stream/not-found "r"
+                                                 :dao.stream/transport-error "r"}}}}]
+      (is (false? (:valid? (conf/validate-manifest m)))))
+
+    ;; Incomplete outcome partition
+    (let [m {:dao.stream/type :test/transport
+             :surfaces #{}
+             :operations {:descriptor {:produces #{:dao.stream/ok} :exclusions {}}
+                          :create! {:produces #{:dao.stream/ok}
+                                    ;; missing :dao.stream/transport-error
+                                    :exclusions {:dao.stream/invalid-spec "r"
+                                                 :dao.stream/not-found "r"}}}}]
+      (is (false? (:valid? (conf/validate-manifest m)))))))
 
 
-(deftest next-beyond-tail-test
-  (testing "next with position beyond tail returns :blocked on open stream"
-    (let [s (make-stream)]
-      (ds/append! s :a)
-      (is (= :blocked (ds/next s {:position 99})))))
-  (testing "next with position beyond tail returns :end on closed stream"
-    (let [s (make-stream)]
-      (ds/append! s :a)
-      (ds/close! s)
-      (is (= :end (ds/next s {:position 99}))))))
+(deftest conformance-harness-full-run-test
+  (testing "conformance harness runs and passes all licensed law blocks on mock transport"
+    (let [stream-id "conformance-stream"
+          data (atom [:a :b])
+          closed (atom false)
+          handle (->MockFullHandle stream-id data closed)
+          manifest
+          {:dao.stream/type :mock/stream
+           :surfaces #{:reader :writer :closable}
+           :handle-factory (fn [] handle)
+           :operations
+           {:descriptor {:produces #{:dao.stream/ok} :exclusions {}}
+            :cursor {:produces #{:dao.stream/ok :dao.stream/invalid-anchor}
+                     :exclusions {:dao.stream/closed "not modeled in mock"
+                                  :dao.stream/transport-error "in-memory only"}}
+            :next {:produces #{:dao.stream/ok :dao.stream/blocked :dao.stream/end}
+                   :exclusions {:dao.stream/gap "unbounded mock does not evict"
+                                :dao.stream/cursor-mismatch "single stream mock"
+                                :dao.stream/invalid-cursor "mock assumes valid cursors"
+                                :dao.stream/transport-error "in-memory only"}}
+            :append! {:produces #{:dao.stream/ok :dao.stream/closed}
+                      :exclusions {:dao.stream/full "unbounded mock"
+                                   :dao.stream/invalid-value "accepts all values"
+                                   :dao.stream/transport-error "in-memory only"}}
+            :close! {:produces #{:dao.stream/ok} :exclusions {}}}
+           :fixtures
+           {:descriptor
+            {:dao.stream/ok (fn [] (v2/descriptor handle))}
+            :cursor
+            {:dao.stream/ok (fn [] (v2/cursor handle :dao.stream/oldest))
+             :dao.stream/invalid-anchor (fn [] (v2/cursor handle :invalid-anchor))}
+            :next
+            {:dao.stream/ok (fn [] (v2/next handle {:stream-identity stream-id :position 0}))
+             :dao.stream/blocked (fn [] (v2/next handle {:stream-identity stream-id :position 10}))
+             :dao.stream/end (fn [] {:dao.stream/outcome :dao.stream/end})}
+            :append!
+            {:dao.stream/ok (fn [] (v2/append! handle :new-val))
+             :dao.stream/closed (fn [] {:dao.stream/outcome :dao.stream/closed})}
+            :close!
+            {:dao.stream/ok (fn [] (v2/close! handle))}}}
+          res (conf/run-conformance-suite manifest handle)]
+      (is (true? (:passed? res)) (str "Conformance failed with: " (:failures res))))))
 
 
-(deftest seq-stops-at-gap-test
-  (testing
-    "->seq starting at 0 returns empty when head > 0 (cursor behind head)"
-    (let [s (make-stream)]
-      (ds/append! s :a)
-      (ds/append! s :b)
-      (ds/drain-one! s)
-      ;; head is now 1; ->seq starts cursor at 0 which is a gap
-      (is (= [] (vec (ds/->seq nil s)))))))
+(deftest concurrency-oracle-linearizability-test
+  (testing "linearizable history passes offline linearizability checking"
+    (let [history [{:id 0 :op :append! :args [:val-1]
+                    :result {:dao.stream/outcome :dao.stream/ok}
+                    :start 1 :end 3}
+                   {:id 1 :op :append! :args [:val-2]
+                    :result {:dao.stream/outcome :dao.stream/ok}
+                    :start 2 :end 4}
+                   {:id 2 :op :next :args [{:stream-identity "stream-1" :position 0}]
+                    :result {:dao.stream/outcome :dao.stream/ok
+                             :dao.stream/value :val-1
+                             :dao.stream/cursor {:stream-identity "stream-1" :position 1}}
+                    :start 5 :end 7}]
+          initial-model (conf/make-abstract-stream-model "stream-1")
+          res (conf/check-linearizability history initial-model conf/abstract-stream-step)]
+      (is (true? (:linearizable? res)))
+      (is (= 3 (count (:linearization res))))))
 
+  (testing "non-linearizable history (violating happens-before read-after-write) is rejected"
+    ;; Here op0 is next observing :val-1, but op0 finished before op1 (which appends :val-1) was even invoked!
+    (let [illegal-history [{:id 0 :op :next :args [{:stream-identity "stream-1" :position 0}]
+                            :result {:dao.stream/outcome :dao.stream/ok
+                                     :dao.stream/value :val-1
+                                     :dao.stream/cursor {:stream-identity "stream-1" :position 1}}
+                            :start 1 :end 2}
+                           {:id 1 :op :append! :args [:val-1]
+                            :result {:dao.stream/outcome :dao.stream/ok}
+                            :start 3 :end 4}]
+          initial-model (conf/make-abstract-stream-model "stream-1")
+          res (conf/check-linearizability illegal-history initial-model conf/abstract-stream-step)]
+      (is (false? (:linearizable? res)) "read observing future append cannot linearize")))
 
-(deftest open-descriptor-nil-capacity-is-unbounded-test
-  (testing "open! with nil :capacity is unbounded"
-    (let [s (ds/open!
-              {:dao.stream/type :ringbuffer, :mode :create, :capacity nil})]
-      (dotimes [i 1000] (ds/append! s i))
-      (is (= 1000 (count s))))))
-
-
-;; =============================================================================
-;; Writer Parking Tests (transport-local waking)
-;; =============================================================================
-
-(deftest writer-waiter-woken-by-drain-test
-  (testing "drain-one! wakes a registered writer-waiter and writes its datom"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})]
-      ;; Fill the stream
-      (is (= :ok (:result (ds/append! s :value1))))
-      ;; Try to put another but it's full
-      (is (= :full (:result (ds/append! s :value2))))
-      ;; Register a writer-waiter with a datom
-      (ds/register-writer-waiter!
-        s
-        {:reason :put, :datom :value2, :k {:type :test}})
-      ;; Drain frees space
-      (let [drain-result (ds/drain-one! s)]
-        ;; Consumed value should be value1
-        (is (= :value1 (:ok drain-result)))
-        ;; Writer should be woken with its datom
-        (is (= 1 (count (:woke drain-result))))
-        (let [woken-entry (first (:woke drain-result))]
-          (is (= :value2 (:value woken-entry)))
-          (is (= {:type :test} (:k (:entry woken-entry))))))
-      ;; Verify value2 is now in the stream
-      (is (= :value2 (:ok (ds/drain-one! s)))))))
-
-
-(deftest drain-one-no-writer-waiters-test
-  (testing "drain-one! returns empty :woke when no writers are registered"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
-      (ds/append! s :x)
-      (let [result (ds/drain-one! s)]
-        (is (= :x (:ok result)))
-        (is (= [] (:woke result)))))))
-
-
-(deftest close-wakes-writer-waiters-test
-  (testing "close! wakes both reader-waiters and writer-waiters with :value nil"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
-      ;; Register a reader-waiter
-      (ds/register-reader-waiter! s
-                                  0
-                                  {:reason :next,
-                                   :cursor-ref {:type :cursor-ref, :id :c1}})
-      ;; Register a writer-waiter
-      (ds/register-writer-waiter!
-        s
-        {:reason :put, :datom :val, :k {:type :write}})
-      ;; Close the stream
-      (let [close-result (ds/close! s)]
-        ;; Should have 2 woken entries (1 reader, 1 writer)
-        (is (= 2 (count (:woke close-result))))
-        ;; All should have :value nil
-        (doseq [entry (:woke close-result)] (is (= nil (:value entry))))))))
-
-
-(deftest close-does-not-append-writer-datom-test
-  (testing
-    "close! resolves parked writers without letting drain-one! append them later"
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 1})]
-      (is (= :ok (:result (ds/append! s :value1))))
-      (ds/register-writer-waiter!
-        s
-        {:reason :put, :datom :value2, :k {:type :write}})
-      (let [close-result (ds/close! s)
-            woken (first (:woke close-result))]
-        (is (= 1 (count (:woke close-result))))
-        (is (nil? (:value woken))))
-      (let [drain-result (ds/drain-one! s)]
-        (is (= :value1 (:ok drain-result)))
-        (is (= [] (:woke drain-result))
-            "drain-one! should not wake or append a writer after close!"))
-      (is
-        (= :end (ds/next s {:position 1}))
-        "no writer datom should appear after the original closed-stream value")
-      (is (= :end (ds/drain-one! s))
-          "closed stream should be drained after its original value"))))
-
-
-(deftest clojure-core-count-test
-  (testing "RingBufferStream supports clojure.core/count"
-    (let [s (make-stream)]
-      (is (= 0 (count s)) "Empty stream has count 0")
-      (ds/append! s :a)
-      (is (= 1 (count s)) "Stream with 1 item has count 1")
-      (ds/append! s :b)
-      (is (= 2 (count s)) "Stream with 2 items has count 2")
-      (ds/drain-one! s)
-      (is (= 1 (count s)) "After draining 1, count is 1")
-      (ds/drain-one! s)
-      (is (= 0 (count s)) "After draining all, count is 0"))))
-
-
-(deftest blocking-take-test
-  #?(:clj
-     (do
-       (testing "take!! returns a value already at the stream head"
-         (let [s (make-stream)]
-           (ds/append! s :present)
-           (is (= :present (ds/take!! s)))))
-       (testing "take!! returns nil when the stream closes without a value"
-         (let [s (make-stream)]
-           (ds/close! s)
-           (is (nil? (ds/take!! s)))))
-       (testing "take!! blocks until a value is delivered from another thread"
-         (let [s (make-stream)
-               writer (future (Thread/sleep 50) (ds/append! s :delayed))]
-           (is (= :delayed (ds/take!! s)))
-           @writer))
-       (testing "take!! throws when the head position has been evicted (gap)"
-         (let [s (ds/open! {:dao.stream/type :ringbuffer,
-                            :capacity 1,
-                            :eviction-policy :evict-oldest})]
-           (ds/append! s :a)
-           (ds/append! s :b)
-           (is (thrown? Exception (ds/take!! s))))))))
-
-
-(deftest open-dispatch-type-contract-test
-  (testing
-    "ds/open! dispatches only :dao.stream/type, rejecting :type compatibility"
-    (is (thrown? #?(:clj Exception
-                    :cljs js/Error
-                    :cljd Object)
-          (ds/open! {:type :ringbuffer, :capacity nil})))
-    (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
-      (is (some? s))
-      (is (ds/realization? s)))))
-
-
-(deftest descriptor-realization-predicates-test
-  (testing "explicit predicates and functions for descriptor vs realization"
-    (let [desc {:dao.stream/type :ringbuffer, :capacity 10}
-          stream (ds/open! desc)]
-      (is (true? (ds/descriptor? desc)))
-      (is (false? (ds/descriptor? {:type :ringbuffer})))
-      (is (false? (ds/descriptor? "not a map")))
-      (is (false? (ds/realization? desc)))
-      (is (true? (ds/realization? stream)))
-      (is (= desc (ds/descriptor stream)))
-      (is (= desc (ds/descriptor desc))))))
-
-
-(deftest relation-descriptor-contract-test
-  (testing "read-only closed exact-bound inline relation descriptor"
-    (let [tuples [[1 "a"] [2 "b"] [3 "c"]]
-          bound (relation/relation-bound tuples)
-          desc {:dao.stream/type :dao.stream/relation,
-                :tuples tuples,
-                :dao.stream/bound bound}
-          stream (ds/open! desc)]
-      (is (ds/realization? stream))
-      (is (ds/closed? stream))
-      (is (= {:woke []} (ds/close! stream)))
-      (is (false? (satisfies? ds/IDaoStreamWriter stream)))
-      (is (= desc (ds/descriptor stream)))
-      (is (= bound (ds/bound stream)))
-      (is (= {:dao.stream/descriptor desc} (meta stream)))
-      (is (= {:ok [1 "a"], :cursor {:position 1}}
-             (ds/next stream {:position 0})))
-      (is (= {:ok [2 "b"], :cursor {:position 2}}
-             (ds/next stream {:position 1})))
-      (is (= {:ok [3 "c"], :cursor {:position 3}}
-             (ds/next stream {:position 2})))
-      (is (= :end (ds/next stream {:position 3})))
-      (is (= tuples (ds/strict-vec stream)))))
-  (testing "supports arbitrary mixed-dimensional :tuples"
-    (let [tuples [[] [1] ["a" "b"] [1 2 3 4]]
-          desc (relation/relation-descriptor tuples)
-          stream (ds/open! desc)]
-      (is (= tuples (ds/strict-vec stream)))))
-  (testing "rejects missing :dao.stream/bound"
-    (is (thrown? #?(:clj Exception
-                    :cljs js/Error
-                    :cljd Object)
-          (ds/open! {:dao.stream/type :dao.stream/relation,
-                     :tuples [[1 2]]}))))
-  (testing "rejects bound mismatch"
-    (is (thrown? #?(:clj Exception
-                    :cljs js/Error
-                    :cljd Object)
-          (ds/open! {:dao.stream/type :dao.stream/relation,
-                     :tuples [[1 2]],
-                     :dao.stream/bound (relation/relation-bound
-                                         [[9 9]])})))))
-
-
-(deftest strict-vec-utility-contract-test
-  (testing "strict-vec throws on :blocked signal"
-    (let [open-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})]
-      (is (thrown? #?(:clj Exception
-                      :cljs js/Error
-                      :cljd Object)
-            (ds/strict-vec open-stream)))))
-  (testing "strict-vec throws on :daostream/gap signal"
-    (let [ring (ds/open! {:dao.stream/type :ringbuffer,
-                          :capacity 1,
-                          :eviction-policy :evict-oldest})]
-      (ds/append! ring :v1)
-      (ds/append! ring :v2)
-      (is (thrown? #?(:clj Exception
-                      :cljs js/Error
-                      :cljd Object)
-            (ds/strict-vec ring))))))
+  (testing "non-linearizable history (append after close completed) is rejected"
+    ;; op0 close! completed at t=2. op1 append! started at t=3 and returned :ok, which is illegal
+    (let [illegal-history [{:id 0 :op :close! :args []
+                            :result {:dao.stream/outcome :dao.stream/ok}
+                            :start 1 :end 2}
+                           {:id 1 :op :append! :args [:val]
+                            :result {:dao.stream/outcome :dao.stream/ok}
+                            :start 3 :end 4}]
+          initial-model (conf/make-abstract-stream-model "stream-1")
+          res (conf/check-linearizability illegal-history initial-model conf/abstract-stream-step)]
+      (is (false? (:linearizable? res)) "append returning :ok after close cannot linearize"))))

@@ -9,8 +9,7 @@
             [datomworld.demo.voxel :as voxel-demo]
             [datomworld.demo.yin-repl :as yin-repl-demo]
             [reagent.core :as r]
-            [reagent.dom :as rdom]
-            [yin.vm.telemetry-viewer :as tv]))
+            [reagent.dom :as rdom]))
 
 
 (def demo-options
@@ -26,33 +25,27 @@
     :label "Glowing Artifact",
     :icon "✦",
     :desc "Cross-platform postgraphics artifact scene."}
-   {:id :pipeline,
-    :label "Pipeline Compilation",
-    :icon "⚙",
-    :desc "Visualize the Yin compilation pipeline from Source to Bytecode."}
    {:id :voxel,
     :label "Voxel",
     :icon "▣",
     :desc
     "First-person voxel chunk: WASD/arrows to fly through the same postgraphics frame program rendered on both Flutter GPU and browser canvas."}
+   {:id :pipeline,
+    :label "Pipeline",
+    :icon "⚙",
+    :desc "The Yin compilation pipeline on Yin VM and DaoStream: Source -> AST -> canonical datoms -> ast-walker execution."}
    {:id :continuation,
-    :label "Continuation Example",
+    :label "Continuation",
     :icon "⤱",
-    :desc
-    "Step through a single continuation executed by two different VM backends: Register and Stack."}
-   {:id :yin-repl,
-    :label "Yin REPL",
-    :icon "λ",
-    :desc "Browser CodeMirror client for a remote Yin REPL over WebSockets."}
+    :desc "Two Yin VM evaluators share one continuation across a DaoStream medium."}
    {:id :plotter,
     :label "Equation Plotter",
     :icon "📈",
-    :desc
-    "Math equation plotter demonstrating FFI from Yin.VM to functions implemented in ClojureScript"}
-   #_{:id :telemetry,
-      :label "VM Telemetry Viewer",
-      :icon "📡",
-      :desc "Live telemetry and REPL for running VMs."}])
+    :desc "Equation plotter on Yin VM: the dao.stream.apply bridge dispatches through explicit v2 FFI state."}
+   {:id :yin-repl,
+    :label "Yin REPL",
+    :icon "λ",
+    :desc "Browser CodeMirror client for a remote Yin REPL over WebSockets."}])
 
 
 (defn- hash->demo
@@ -62,7 +55,6 @@
     "#pipeline" :pipeline
     "#plotter" :plotter
     "#continuation" :continuation
-    "#telemetry" :telemetry
     "#solar-system" :solar-system
     "#earth-moon" :earth-moon
     "#artifact" :artifact
@@ -77,7 +69,6 @@
     :pipeline "#pipeline"
     :plotter "#plotter"
     :continuation "#continuation"
-    :telemetry "#telemetry"
     :solar-system "#solar-system"
     :earth-moon "#earth-moon"
     :artifact "#artifact"
@@ -209,7 +200,6 @@
        :pipeline [pipeline/main-view]
        :plotter [plotter-demo/main-view]
        :continuation [cont-demo/main-view]
-       :telemetry [tv/main-panel]
        :solar-system [solar-demo/main-view]
        :earth-moon [earth-moon-demo/main-view]
        :artifact [artifact-demo/main-view]
@@ -249,19 +239,7 @@
                   :border-radius "999px",
                   :padding "8px 12px",
                   :cursor "pointer",
-                  :font-size "13px"}} "🏠 Back to Demos"]
-        (when (= selected-demo :pipeline)
-          [:<>
-           [:button
-            {:on-click #(pipeline/show-explainer-video!),
-             :style {:background "#1f6feb",
-                     :color "#f1f5ff",
-                     :border "1px solid #2d3b55",
-                     :border-radius "999px",
-                     :padding "8px 12px",
-                     :cursor "pointer",
-                     :font-size "13px"}} "Explainer Video"]
-           [pipeline/layout-controls pipeline/app-state]])])]))
+                  :font-size "13px"}} "🏠 Back to Demos"]])]))
 
 
 (defn mount-root!

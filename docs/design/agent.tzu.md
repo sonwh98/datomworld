@@ -1,4 +1,11 @@
+> **Status (2026-09-17):** v1 design. Implementation deleted under `dao.stream.v1-retirement.implementation-plan.md`.
+
 # Agent Tzu: ingest text → build a persisted knowledge graph
+
+> **Status (2026-09-17):** `agent.tzu` and `agent.tools` were deleted by
+> `dao.stream.v1-retirement.implementation-plan.md` (D2, owner decision) — no
+> consumer remained. The Yin-native agent replacement is owed to
+> `agent.harness.md`'s plan.
 
 ## Context
 

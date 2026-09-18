@@ -1,0 +1,12 @@
+(ns yin.repl.host
+  "ClojureDart composition of the Yin REPL v2 host seam.
+
+   Shadows the `.cljc` namespace, so it carries only `websocket`; the portable
+   contract is `yin.repl.host.common`."
+  (:require [dao.stream.ws.dart :as dart]))
+
+
+(defn websocket
+  "Return this build's real dart:io WebSocket adapter."
+  []
+  (dart/websocket))

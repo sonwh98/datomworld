@@ -1,20 +1,32 @@
 (ns yin.demo
-  "Two Register VMs cooperatively compute sum(0..100) by passing
+  "Two Yin VMs (v2, DaoStream v2) cooperatively compute sum(0..100) by passing
    continuations through a stream.
 
    Each VM adds one number to the running sum, parks its continuation,
    serializes the full execution state as a datom to a shared stream,
    and the other VM picks it up and resumes.
 
-   The continuation carries everything: registers, instruction pointer,
-   call stack, environment, bytecode, constant pool. When it migrates
-   through the stream, the receiving VM resumes exactly where the
-   sender left off.
+   The continuation carries everything: reified continuation frames,
+   lexical environment, store. When it migrates through the stream, the
+   receiving VM resumes exactly where the sender left off.
+
+   What the v2 port changes relative to `yin.demo`:
+
+   - The evaluator is `yin.vm.ast-walker`. `yin.vm` is the ast-walker
+     slice; `register` and `stack` are not ported.
+   - The shared stream is a real `dao.stream` medium, not a bare vector:
+     the host supplies `:make-stream` and the composition appends and reads
+     through the writer and reader surfaces it created.
+   - Continuations still travel as values, so the medium carries them as
+     whole-batch appends and the receiver reads with a minted cursor. No
+     position arithmetic: every advance is the successor the transport
+     returned.
 
    Run: clj -M -m yin.demo"
-  (:require
-    [yin.vm :as vm]
-    [yin.vm.register :as reg]))
+  (:require [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ringbuffer]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]))
 
 
 ;; =============================================================================
@@ -34,7 +46,7 @@
 ;;
 ;; After computing new-acc = acc + n, the VM parks.
 ;; The parked continuation captures: n, new-acc, the recursive call to step,
-;; and the entire call stack. When resumed (with any value), it calls
+;; and the whole reified continuation. When resumed (with any value), it calls
 ;; (step (+ n 1) new-acc) and the cycle repeats.
 ;;
 ;; The final iteration (n > 100) returns acc directly without parking.
@@ -85,21 +97,52 @@
 
 
 ;; =============================================================================
-;; Stream: a plain vector used as an append-only log
+;; The shared medium: one DaoStream v2 ring buffer
 ;; =============================================================================
-;; No VM-level stream needed. The stream is Clojure data: a vector of datoms.
-;; Each datom is [e a v t m] carrying a serialized continuation.
+;; Continuations move as whole-batch appends; each reader advances by the
+;; exact successor `next` returns. Nothing here fabricates a position.
 
-(defn stream-put
-  "Append a continuation datom to the stream."
-  [stream continuation tx]
-  (conj stream [tx :continuation/state continuation tx 0]))
+(def stream-capacity 1024)
 
 
-(defn stream-read
-  "Read the continuation value from the latest datom."
-  [stream]
-  (let [[_e _a v _t _m] (peek stream)] v))
+(defn make-stream
+  "The `:make-stream` the composition hands each VM: one v2 ring buffer per
+   call. A nil capacity is the VM's default, not an unbounded stream."
+  [capacity]
+  (ringbuffer/create!
+    {:dao.stream/type ringbuffer/transport-type,
+     ringbuffer/capacity-key (or capacity vm/default-stream-capacity)}))
+
+
+(defn new-stream
+  "Create one ring buffer handle or throw."
+  []
+  (let [result (make-stream stream-capacity)]
+    (if (= :dao.stream/ok (:dao.stream/outcome result))
+      (:dao.stream/handle result)
+      (throw (ex-info "Demo stream creation failed" {:result result})))))
+
+
+(defn put-continuation!
+  "Append one continuation as a single-element batch. Returns the result so
+   the caller can see the outcome."
+  [writer continuation]
+  (stream/append! writer [continuation]))
+
+
+(defn read-continuation!
+  "Read one continuation at the reader's cursor, advancing to the exact
+   successor. `next` returns a whole batch, so the single element is the
+   continuation this medium carries; anything else is a lost read and is
+   reported rather than returned."
+  [reader cursor]
+  (let [result (stream/next reader cursor)
+        outcome (:dao.stream/outcome result)
+        batch (:dao.stream/value result)]
+    (if (and (= :dao.stream/ok outcome) (= 1 (count batch)))
+      {:value (nth batch 0), :cursor (:dao.stream/cursor result)}
+      (throw (ex-info "Continuation read failed"
+                      {:outcome outcome, :batch-size (count batch)})))))
 
 
 ;; =============================================================================
@@ -117,10 +160,8 @@
   "Inject a parked continuation into a VM's parked map and resume it.
    Returns the VM after resuming (runs until next park or halt)."
   [vm parked-id parked-cont]
-  (let [;; Inject the continuation and its store into the receiving VM
-        vm-with-cont (assoc vm
-                            :parked (assoc (:parked vm) parked-id parked-cont)
-                            :store (:store vm))
+  (let [;; Inject the continuation into the receiving VM
+        vm-with-cont (assoc vm :parked (assoc (:parked vm) parked-id parked-cont))
         ;; Build a resume AST: (resume parked-id nil)
         resume-ast {:type :vm/resume,
                     :parked-id parked-id,
@@ -134,17 +175,24 @@
 
 (defn run-demo
   []
-  (println "=== Cooperative Sum: Two Register VMs, One Computation ===")
+  (println "=== Cooperative Sum: Two Yin VMs (v2), One Computation ===")
   (println)
   (println "Computing sum(0..100) = 5050")
   (println
     "Each VM adds one number, then passes its continuation to the other.")
-  (println "Continuations travel as datoms through a shared stream.")
+  (println "Continuations travel as batches through a DaoStream v2 medium.")
   (println)
-  ;; Create two VMs and define 'step on both
-  (let [vm-a (-> (reg/create-vm {:env vm/primitives})
+  ;; One shared medium. The composition is its only writer and, across the
+  ;; two VMs taking turns, its only reader.
+  (let [medium (new-stream)
+        writer medium
+        reader-cursor* (atom (vm/mint-oldest medium :continuation-reader))
+        ;; Create two VMs and define 'step on both
+        vm-a (-> (ast-walker/create-vm {:env {}, :primitives vm/primitives,
+                                        :make-stream make-stream})
                  (vm/eval define-step-ast))
-        vm-b (-> (reg/create-vm {:env vm/primitives})
+        vm-b (-> (ast-walker/create-vm {:env {}, :primitives vm/primitives,
+                                        :make-stream make-stream})
                  (vm/eval define-step-ast))]
     (println "VM-A and VM-B initialized. 'step' function defined on both.")
     (println)
@@ -154,7 +202,7 @@
            other-vm vm-b
            current-name "VM-A"
            other-name "VM-B"
-           stream []
+           cursor @reader-cursor*
            step-count 0]
       (cond
         ;; Computation complete: VM halted without parking
@@ -164,18 +212,21 @@
                              current-name
                              (vm/value current-vm)))
             (println (format "Total continuation transfers: %d" step-count))
-            (println (format "Stream length: %d datoms" (count stream)))
+            (reset! reader-cursor* cursor)
             (vm/value current-vm))
-        ;; VM parked: extract continuation, serialize to stream, hand to
-        ;; other VM
+        ;; VM parked: extract continuation, append it to the medium, hand to
+        ;; the other VM
         (vm/halted? current-vm)
         (let [[parked-id parked-cont] (extract-continuation current-vm)
               ;; The continuation's env tells us where we are in the
               ;; computation
               n (get (:env parked-cont) 'n)
               new-acc (get (:env parked-cont) 'new-acc)
-              ;; Serialize continuation to stream as a datom
-              stream' (stream-put stream parked-cont step-count)]
+              ;; Serialize the continuation onto the medium as one batch
+              put-result (put-continuation! writer parked-cont)
+              outcome (:dao.stream/outcome put-result)]
+          (when-not (= :dao.stream/ok outcome)
+            (throw (ex-info "Continuation append failed" {:outcome outcome})))
           (when (< step-count 5)
             (println
               (format
@@ -195,10 +246,11 @@
                 n
                 new-acc
                 other-name)))
-          ;; Other VM reads continuation from stream and resumes
-          (let [cont-from-stream (stream-read stream')
-                ;; Transfer store (contains 'step function) along with
-                ;; continuation
+          ;; Other VM reads the continuation from the medium and resumes it
+          (let [{cont-from-stream :value, cursor' :cursor}
+                (read-continuation! medium cursor)
+                ;; Transfer the store (holds the 'step closure) along with
+                ;; the continuation
                 other-vm' (assoc other-vm :store (:store current-vm))
                 resumed-vm
                 (inject-continuation other-vm' parked-id cont-from-stream)]
@@ -209,7 +261,7 @@
                    (assoc current-vm :parked {})
                    other-name
                    current-name
-                   stream'
+                   cursor'
                    (inc step-count))))
         ;; Blocked (shouldn't happen in this demo)
         :else (do (println (format "  [%s] blocked unexpectedly" current-name))

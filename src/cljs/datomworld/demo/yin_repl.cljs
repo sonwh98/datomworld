@@ -1,89 +1,158 @@
 (ns datomworld.demo.yin-repl
+  "The browser Yin REPL demo, ported to the DaoStream v2 wire (D3/U4 of
+   `yin.vm.v1-retirement.implementation-plan.md`).
+
+   The v1 demo (`datomworld.demo.yin-repl`) polled explicit `:op/eval`
+   request/response datoms itself.  This one composes the browser WebSocket
+   adapter directly (`dao.stream.ws.browser`) as `:host` rather than
+   calling `(yin.repl.host/websocket)`, because that call would hand the
+   REPL the wrong adapter here: `yin.repl.host`'s cljs shadow always
+   answers with Node's `ws` composition, whichever build requires it, since
+   the shadow selects per build rather than per platform.
+
+   That said, requiring `yin.repl.driver` below still pulls in
+   `yin.repl.host` transitively (`driver.cljc` requires it unconditionally
+   for its own default), so this browser bundle carries the whole Node `ws`
+   require chain regardless -- `browser-adapter` only decides which map this
+   demo *hands to* `driver/create-state`, not what gets bundled.  The bundle
+   stays working only because npm `ws`'s own `package.json` remaps to a
+   `browser.js` stub that throws if actually called, and nothing on this path
+   calls it.  A future host adapter without an equally polite browser stub
+   would break this bundle at runtime with no compile-time signal from
+   anything in this codebase.
+
+   Drives `yin.repl.driver` exactly as `yin.repl.cljc`'s Node host
+   does: one `setInterval` owns the driver state, calls `repl-step` once per
+   tick, and drains `take-outbox` into a transcript.  A line producer --
+   Eval, Connect, Disconnect -- only appends to the driver's input medium and
+   returns."
   (:require ["@codemirror/state" :refer [EditorState]]
             ["@codemirror/theme-one-dark" :refer [oneDark]]
             ["@codemirror/view" :refer [EditorView keymap]]
             ["@nextjournal/lang-clojure" :refer [clojure]]
             ["codemirror" :refer [basicSetup]]
             [clojure.string :as str]
-            [dao.stream :as ds]
-            [dao.stream.apply :as dao-apply]
-            [dao.stream.ws :as ws]
+            [dao.stream.ws.browser :as browser]
             [datomworld.demo.responsive :as responsive]
-            [reagent.core :as r]))
+            [reagent.core :as r]
+            [yin.repl.driver :as driver]))
 
 
 (def default-source "(help)")
 
 
+;; The Node host (`yin.repl.cljc`) ticks at `yin.repl/tick-millis`.
+;; That namespace is not required here -- it requires `yin.repl.host`,
+;; whose cljs shadow is Node's `ws` composition -- so the cadence is mirrored
+;; as a local constant instead.
+(def tick-millis 25)
+
+
+(def browser-adapter
+  "The v2 REPL client boundary's `:host`, composed directly from the browser
+   WebSocket adapter rather than from `(yin.repl.host/websocket)` -- that
+   call would answer with Node's `ws` adapter here too, since the shadow
+   selects per build, not per platform.  This choice picks the right adapter
+   to *use*; it does not keep Node's `ws` require chain out of this bundle,
+   which `yin.repl.driver` already pulls in transitively regardless (see
+   the namespace docstring)."
+  {:connect! browser/connect!})
+
+
 (defn location->repl-url
-  [{:keys [protocol hostname]} port]
-  (str (if (= protocol "https:") "wss" "ws")
-       "://" (or hostname "localhost")
-       ":" port))
+  [{:keys [hostname]} port]
+  ;; `yin.repl.connect/parse-url` has no settled `wss://` descriptor form
+  ;; in this slice, so the URL is always `ws://` regardless of the page's own
+  ;; protocol.
+  (str "daostream:ws://" (or hostname "localhost") ":" port))
 
 
 (defn current-location
   []
-  (let [location (some-> js/globalThis
-                         .-window
-                         .-location)]
-    {:protocol (or (some-> location
-                           .-protocol)
-                   "http:"),
-     :hostname (or (some-> location
-                           .-hostname)
-                   "localhost")}))
+  (let [location (some-> js/globalThis .-window .-location)]
+    {:hostname (or (some-> location .-hostname) "localhost")}))
 
 
 (defn initial-state
   []
-  {:active-request nil,
-   :editor-source default-source,
-   :error-msg nil,
-   :history [],
-   :request-seq 0,
-   :response-cursor {:position 0},
-   :status :disconnected,
-   :stream nil,
+  {:driver (driver/create-state {:host browser-adapter})
+   :editor-source default-source
+   :history []
    :url (location->repl-url (current-location) 8080)})
 
 
-(defn queue-request
-  [state input]
-  (let [request-id (str "browser/request/" (:request-seq state))]
-    [(-> state
-         (assoc :active-request request-id)
-         (update :request-seq inc)
-         (update :history
-                 conj
-                 {:id request-id, :input input, :output nil, :status :pending}))
-     request-id]))
-
-
-(defn update-history-entry
-  [history request-id attrs]
-  (mapv (fn [entry] (if (= request-id (:id entry)) (merge entry attrs) entry))
-        history))
-
-
-(defn resolve-request
-  [state request-id status output]
-  (-> state
-      (assoc :active-request nil)
-      (update :history
-              update-history-entry
-              request-id
-              {:output output, :status status})))
-
-
-(defn fail-active-request
-  [state output]
-  (if-let [request-id (:active-request state)]
-    (resolve-request state request-id :error output)
-    state))
-
-
 (defonce app-state (r/atom (initial-state)))
+
+
+(defonce ticker (atom nil))
+
+
+(defn- entry->row
+  [entry]
+  {:id (str (random-uuid))
+   :kind (get entry driver/event-key)
+   :text (get entry driver/text-key)})
+
+
+(defn- tick!
+  []
+  (swap! app-state
+         (fn [state]
+           (let [stepped (driver/repl-step (:driver state) (js/Date.now))
+                 [entries driver'] (driver/take-outbox stepped)]
+             (-> state
+                 (assoc :driver driver')
+                 (update :history into (map entry->row entries)))))))
+
+
+(defn start-ticker!
+  []
+  (when-not @ticker
+    (reset! ticker (js/setInterval tick! tick-millis))))
+
+
+(defn stop-ticker!
+  []
+  (when-let [id @ticker]
+    (js/clearInterval id)
+    (reset! ticker nil)))
+
+
+;; The one non-overlapping ticker that owns the driver state, started once
+;; when this namespace loads rather than on component mount: the driver
+;; composition (and any live remote connection) survives the operator
+;; switching to another demo card and back, exactly as `defonce app-state`
+;; does.
+(defonce ticker-started? (start-ticker!))
+
+
+(defn- submit!
+  [line]
+  (driver/submit-line! (:input (:driver @app-state)) line))
+
+
+(defn eval!
+  []
+  (let [line (str/trim (:editor-source @app-state))]
+    (when (seq line)
+      (submit! line))))
+
+
+(defn connect!
+  []
+  (let [url (str/trim (:url @app-state))]
+    (when (seq url)
+      (submit! (str "(connect " (pr-str url) ")")))))
+
+
+(defn disconnect!
+  []
+  (submit! "(disconnect)"))
+
+
+(defn clear-history!
+  []
+  (swap! app-state assoc :history []))
 
 
 (defn codemirror-editor
@@ -151,141 +220,13 @@
                          style)}])})))
 
 
-(defn- with-current-stream
-  [stream f]
-  (swap! app-state (fn [state]
-                     (if (= stream (:stream state)) (f state) state))))
-
-
-(defn disconnect!
-  []
-  (when-let [stream (:stream @app-state)] (ds/close! stream))
-  (swap! app-state (fn [state]
-                     (-> state
-                         (assoc :active-request nil
-                                :error-msg nil
-                                :status :disconnected
-                                :stream nil)
-                         (fail-active-request "Connection closed")))))
-
-
-(declare poll-response!)
-
-
-(defn connect!
-  []
-  (let [url (str/trim (:url @app-state))]
-    (when (seq url)
-      (when-let [stream (:stream @app-state)] (ds/close! stream))
-      (let [stream (ws/connect! url
-                                {:on-open (fn [current-stream _event]
-                                            (with-current-stream
-                                              current-stream
-                                              (fn [state]
-                                                (assoc state
-                                                       :error-msg nil
-                                                       :status :connected)))),
-                                 :on-close (fn [current-stream _event]
-                                             (with-current-stream
-                                               current-stream
-                                               (fn [state]
-                                                 (-> state
-                                                     (assoc :status
-                                                            :disconnected
-                                                            :stream nil)
-                                                     (fail-active-request
-                                                       "Connection closed"))))),
-                                 :on-error (fn [current-stream _event]
-                                             (with-current-stream
-                                               current-stream
-                                               (fn [state]
-                                                 (assoc state
-                                                        :error-msg "WebSocket error"
-                                                        :status :error))))})]
-        (swap! app-state assoc
-               :error-msg nil
-               :status :connecting
-               :stream stream)))))
-
-
-(defn poll-response!
-  [request-id cursor attempts]
-  (let [{:keys [status stream]} @app-state]
-    (when (and stream (not= status :disconnected))
-      (cond (> attempts 500) (swap! app-state
-                                    #(-> %
-                                         (resolve-request
-                                           request-id
-                                           :error
-                                           "Timed out waiting for remote Yin REPL")
-                                         (assoc :status :error
-                                                :error-msg
-                                                "Timed out waiting for response")))
-            :else
-            (let [result (dao-apply/next-response stream cursor)]
-              (cond
-                (map? result)
-                (let [response (:ok result)
-                      next-cursor (:cursor result)]
-                  (if (= request-id (dao-apply/response-id response))
-                    (swap! app-state #(-> %
-                                          (assoc :response-cursor
-                                                 next-cursor)
-                                          (resolve-request
-                                            request-id
-                                            :ok
-                                            (str (dao-apply/response-value
-                                                   response)))))
-                    (poll-response! request-id next-cursor (inc attempts))))
-                (= result :blocked)
-                (js/setTimeout
-                  #(poll-response! request-id cursor (inc attempts))
-                  20)
-                (= result :daostream/gap)
-                (js/setTimeout
-                  #(poll-response! request-id {:position 0} (inc attempts))
-                  0)
-                :else (swap! app-state
-                             #(-> %
-                                  (resolve-request request-id
-                                                   :error
-                                                   "Remote stream closed")
-                                  (assoc :status :error
-                                         :error-msg (str
-                                                      "Remote stream ended with "
-                                                      result))))))))))
-
-
-(defn eval!
-  []
-  (let [{:keys [active-request editor-source status stream]} @app-state
-        input (str/trim editor-source)]
-    (cond
-      (str/blank? input) nil
-      active-request nil
-      (not= status :connected)
-      (swap! app-state assoc :error-msg "Connect to a remote Yin REPL first")
-      (nil? stream)
-      (swap! app-state assoc :error-msg "Connect to a remote Yin REPL first")
-      :else
-      (let [[state request-id] (queue-request @app-state editor-source)]
-        (reset! app-state state)
-        (dao-apply/put-request! stream request-id :op/eval [editor-source])
-        (poll-response! request-id (:response-cursor state) 0)))))
-
-
-(defn clear-history!
-  []
-  (swap! app-state assoc :history []))
-
-
 (defn status-chip
   [status]
   [:span
    {:style {:background (case status
-                          :connected "#12381f"
+                          :established "#12381f"
                           :connecting "#3f2f11"
-                          :error "#4a1d1d"
+                          (:transport-error :not-found :ended) "#4a1d1d"
                           "#151b33"),
             :border "1px solid rgba(255,255,255,0.08)",
             :border-radius "999px",
@@ -294,61 +235,29 @@
             :font-weight "600",
             :letter-spacing "0.04em",
             :padding "6px 10px",
-            :text-transform "uppercase"}} (name status)])
+            :text-transform "uppercase"}} (name (or status :disconnected))])
 
 
-(defn history-entry
-  [{:keys [id input output status]}]
-  [:div
+(defn transcript-row
+  [{:keys [id kind text]}]
+  [:pre
    {:key id,
-    :style {:background "#0e1428",
-            :border "1px solid #2d3b55",
-            :border-radius "12px",
-            :padding "14px",
-            :display "flex",
-            :flex-direction "column",
-            :gap "10px"}}
-   [:div
-    {:style {:display "flex",
-             :justify-content "space-between",
-             :align-items "center"}}
-    [:span
-     {:style {:color "#8b9ab8",
-              :font-size "12px",
-              :font-weight "600",
-              :letter-spacing "0.04em",
-              :text-transform "uppercase"}} "Input"] [status-chip status]]
-   [:pre
-    {:style {:margin 0,
-             :white-space "pre-wrap",
-             :font-family "monospace",
-             :font-size "13px",
-             :color "#f8fbff"}} input]
-   [:div {:style {:height "1px", :background "#24304b"}}]
-   [:span
-    {:style {:color "#8b9ab8",
-             :font-size "12px",
-             :font-weight "600",
-             :letter-spacing "0.04em",
-             :text-transform "uppercase"}} "Output"]
-   [:pre
-    {:style {:margin 0,
-             :min-height "1.5em",
-             :white-space "pre-wrap",
-             :font-family "monospace",
-             :font-size "13px",
-             :color (case status
-                      :error "#ff9b9b"
-                      "#dce7ff")}}
-    (case status
-      :pending "Waiting for response..."
-      (or output ""))]])
+    :style {:margin 0,
+            :white-space "pre-wrap",
+            :font-family "monospace",
+            :font-size "13px",
+            :color (case kind
+                     :yin.repl.driver/result "#f8fbff"
+                     :yin.repl.driver/response "#f8fbff"
+                     :yin.repl.driver/diagnostic "#ff9b9b"
+                     "#8b9ab8")}}
+   text])
 
 
 (defn main-view
   []
-  (let [{:keys [active-request editor-source error-msg history status url]}
-        @app-state]
+  (let [{:keys [editor-source history url driver]} @app-state
+        status (get-in driver [:connection :status])]
     [:div
      {:style {:background
               "radial-gradient(circle at top, #122047 0%, #060817 58%)",
@@ -375,7 +284,7 @@
                   :font-weight "700",
                   :letter-spacing "0.12em",
                   :text-transform "uppercase",
-                  :margin-bottom "10px"}} "Browser Yin REPL"]
+                  :margin-bottom "10px"}} "Browser Yin REPL (v2)"]
         [:h1
          {:style {:margin "0 0 10px",
                   :font-size "clamp(2rem, 4vw, 3.5rem)",
@@ -386,9 +295,9 @@
                   :color "#b7c7e6",
                   :font-size "16px",
                   :line-height "1.6"}}
-         "This browser demo opens a websocket client to a remote "
-         [:code "yin.repl"] " server and sends explicit " [:code ":op/eval"]
-         " request datoms. The browser owns the editor, the remote runtime owns evaluation."]]
+         "This browser demo opens a DaoStream v2 WebSocket client to a remote "
+         [:code "yin.repl"] " server. " [:code "(connect \"daostream:ws://...\")"]
+         " attaches, " [:code "(disconnect)"] " detaches, and every other line is Yin source."]]
        [:div
         {:style {:background "rgba(8,12,25,0.82)",
                  :border "1px solid #2d3b55",
@@ -414,7 +323,7 @@
          "clj -M:clj-yin-repl --port 8080 --headless"]
         [:div {:style {:font-size "13px", :color "#b7c7e6", :line-height "1.5"}}
          "Use " [:code "Ctrl-Enter"] " or " [:code "Cmd-Enter"]
-         " to send the current editor buffer to the remote REPL."]]]
+         " to send the current editor buffer as one Yin REPL line."]]]
       [:div
        {:style {:display "grid",
                 :grid-template-columns (responsive/auto-fit-grid 360),
@@ -441,7 +350,7 @@
           [:input
            {:value url,
             :on-change #(swap! app-state assoc :url (.. % -target -value)),
-            :placeholder "ws://localhost:8080",
+            :placeholder "daostream:ws://localhost:8080",
             :style {:flex "1",
                     :min-width "0",
                     :background "#0b1120",
@@ -450,7 +359,7 @@
                     :color "#f8fbff",
                     :font-size "14px",
                     :padding "12px 14px"}}]
-          (if (= status :connected)
+          (if (= status :established)
             [:button
              {:on-click disconnect!,
               :style {:background "#1b243f",
@@ -467,13 +376,6 @@
                       :color "#f8fbff",
                       :cursor "pointer",
                       :padding "12px 16px"}} "Connect"])] [status-chip status]]
-        (when error-msg
-          [:div
-           {:style {:background "rgba(117, 24, 24, 0.45)",
-                    :border "1px solid #7a2f2f",
-                    :border-radius "12px",
-                    :color "#ffd4d4",
-                    :padding "12px 14px"}} error-msg])
         [:div
          {:style {:display "flex",
                   :justify-content "space-between",
@@ -491,18 +393,12 @@
            "Send any Yin REPL form or command to the remote runtime."]]
          [:button
           {:on-click eval!,
-           :disabled (or active-request (not= status :connected)),
-           :style {:background (if (or active-request (not= status :connected))
-                                 "#24304b"
-                                 "#2ea043"),
+           :style {:background "#2ea043",
                    :border "1px solid rgba(255,255,255,0.08)",
                    :border-radius "12px",
                    :color "#f8fbff",
-                   :cursor (if (or active-request (not= status :connected))
-                             "not-allowed"
-                             "pointer"),
-                   :padding "12px 18px"}}
-          (if active-request "Waiting..." "Eval")]]
+                   :cursor "pointer",
+                   :padding "12px 18px"}} "Eval"]]
         [:div
          {:style {:flex "1", :min-height (responsive/fluid-height 300 48 620)}}
          [codemirror-editor
@@ -533,7 +429,7 @@
                     :text-transform "uppercase",
                     :color "#8b9ab8"}} "Transcript"]
           [:div {:style {:color "#b7c7e6", :font-size "14px"}}
-           "Request and response datoms rendered as a REPL history."]]
+           "Lines published by the v2 REPL driver, in order."]]
          [:button
           {:on-click clear-history!,
            :style {:background "#1b243f",
@@ -545,14 +441,14 @@
         [:div
          {:style {:display "flex",
                   :flex-direction "column",
-                  :gap "12px",
+                  :gap "6px",
                   :overflow "auto",
                   :flex "1"}}
          (if (seq history)
-           (for [entry history] ^{:key (:id entry)} [history-entry entry])
+           (for [row history] ^{:key (:id row)} [transcript-row row])
            [:div
             {:style {:border "1px dashed #31415f",
                      :border-radius "12px",
                      :padding "18px",
                      :color "#8b9ab8"}}
-            "No requests yet. Connect to a remote Yin REPL and evaluate the editor buffer."])]]]]]))
+            "No output yet. Connect to a remote Yin REPL and evaluate the editor buffer."])]]]]]))

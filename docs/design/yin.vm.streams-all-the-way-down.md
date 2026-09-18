@@ -10,12 +10,34 @@ that bounds its memory cost (store the irreducible, derive the rest). Cost
 claims cite the measured figures in `docs/cesk-space-optimization.md`;
 proposed machinery names the existing seam it would land in.
 
+**`yin.vm.space`, `register`, `stack` and their `clj -M:bench` harness are
+deleted** (`yin.vm-consumers.implementation-plan.md`, 2026-09-10); every
+reference to them below is historical, including the register-baseline
+fusion prototype in §5.3.
+
+**Written against dao.stream v1; read with the v2 contract in mind**
+(annotated 2026-09-03, after the `dao.stream.md` redesign; v1 was deleted 2026-09-17). The core theses
+survive v2 — cursor-as-program-counter (opaque cursors make it stronger),
+boundaries as declared and sized data, the no-waiter conclusion (v2 deletes
+the waiter machinery outright), and §6's storage invariant, which is
+transport-agnostic. The mechanics that changed: cursors are opaque values
+minted by the stream, not `{:position n}` maps; the v2 reference ring-buffer
+realization is bounded evict-oldest, so internal rings in the current migration
+slice become bounded evict-oldest, whose `append!` also never
+blocks but reports loss as `gap`; `open!` and its registry are gone
+(`create!`/`attach!` plus a host-owned dispatch map); the read protocol's
+shapes are outcome maps under `:dao.stream/…` (§5's
+`{:ok v :cursor c'} | :blocked | :end | :daostream/gap` line is v1
+vocabulary, `strict-vec` included); and §2's audit rows describe v1 code.
+A substantive v2-grounded revision is owed only when these tiers are
+pursued.
+
 **Related documents:**
 
 - `docs/design/yin.vm-in-dao.space.md` — the CESK-in-tuple-space premise this
   note extends; its *Ephemeral State Projection* section is the ancestor of
   §6 below
-- `docs/design/jit-design.md` — the advisory trace/patch JIT; the fusion tier
+- `docs/design/yin.vm.jit.md` — the advisory trace/patch JIT; the fusion tier
   in §5 is the compiler-side complement to it
 - `docs/cesk-space-optimization.md` — measured costs of depositing machine
   state as datoms
@@ -186,7 +208,7 @@ vector.
 Fusing is valid only when the buffer's decoupling is unused:
 
 1. **Exclusivity.** Exactly one consumer cursor, in-order, read once; the
-   realization never escapes — not stored, not passed as an operand, not
+   handle never escapes — not stored, not passed as an operand, not
    captured by a lambda body, not closed into a parkable continuation.
 2. **Effect ordering.** Fusion introduces demand-driven execution: the
    producer runs when the consumer needs a value. The producer's appends must
@@ -221,12 +243,12 @@ after:   :move         (value flows in a register)
 ```
 
 No store entries for the stream or cursor ids are ever created. The datoms are
-the contract; the fused artifact and the ring are two realizations of the same
+the contract; the fused artifact and the ring are two implementations of the same
 descriptor — interpretation over abstraction, again.
 
-### 5.3 Relation to `jit-design.md`
+### 5.3 Relation to `yin.vm.jit.md`
 
-`jit-design.md` defines an advisory JIT: a trace surface (`run-traced`,
+`yin.vm.jit.md` defines an advisory JIT: a trace surface (`run-traced`,
 `step-traced`) emits `:yin.trace/*` datoms; the JIT proposes patch datoms; the
 VM applies them at explicit safe points, with guards and deopt datoms. That is
 *observation proposing rewrites*. The fusion tier here is *proof performing
@@ -335,7 +357,7 @@ Each capability is a *reader* of the medium, not a mechanism bolted on:
   continuations are logs.
 - **Observation and meta-circularity.** A debugger is a cursor behind the
   head; an invariant checker is a query against a lagging cursor; a second VM
-  can shadow-execute the same input prefix. The JIT of `jit-design.md` — and
+  can shadow-execute the same input prefix. The JIT of `yin.vm.jit.md` — and
   the fusion profiler of §5.3 — are exactly such observers. The VM can query
   its own state with `dao.space.query` and self-modify by appending to the
   program stream, which the versioned compile already tolerates.

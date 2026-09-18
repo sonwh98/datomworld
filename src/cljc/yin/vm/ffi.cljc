@@ -1,56 +1,118 @@
 (ns yin.vm.ffi
-  "Explicit host-side dao.stream.apply bridge state for Yin VMs.
+  "Explicit host-side `dao.stream.apply` bridge state for Yin VMs.
 
    The bridge is data carried by the VM itself:
-     {:handlers {:op/name (fn [& args] ...)}
-      :cursor   {:position 0}}
 
-   Construct VMs with {:bridge handlers} and use ordinary vm/run or vm/eval.
-   This namespace provides the normalization and stepping logic those VM
-   implementations delegate to."
-  (:require [dao.stream :as ds]
-            [dao.stream.apply :as dao.stream.apply]
+     {:handlers {:op/name (fn [& args] ...)}
+      :cursor   <opaque cursor on the call-in stream>}
+
+   Three things the port had to settle:
+
+   - **Minting moved.** v1's `normalize` fabricated `{:position 0}` from a
+     bare handler map and never saw a handle. An opaque cursor has nothing to
+     mint against there, so `attach` mints it, where the store is visible.
+     `attach` runs on a built VM, so with no call pair it errors exactly as
+     construction does.
+   - **The step is once-only.** A computed response and the successor cursor
+     it belongs to are retained until the append succeeds, so a handler runs
+     at most once per request and a `full` response stream never drops one.
+   - **A gap at the bridge cursor is fatal.** The FFI pair is sized for the
+     outstanding calls plus one, so a gap there means a request or a response
+     was evicted; the parked call it belonged to would wait forever. Reporting
+     it beats hanging.
+
+   Waiters are gone: `park-and-call` places its continuation in the polling
+   wait set and the ordinary scheduler wakes it when the response lands."
+  (:require [dao.data :as data]
+            [dao.stream :as stream]
+            [dao.stream.apply :as apply2]
             [yin.vm :as vm]
-            [yin.vm.engine :as engine]
             [yin.vm.telemetry :as telemetry]))
 
 
+(defn call-pair
+  "Return {:call-in h :call-out h} from a VM store, or nil when the VM was
+   built without a pair."
+  [store]
+  (let [in (get store vm/call-in-stream-key)
+        out (get store vm/call-out-stream-key)]
+    (when (and in out) {:call-in in, :call-out out})))
+
+
+(defn require-call-pair!
+  "Fail when the VM holds no FFI pair. Callers must run this before parking:
+   an error raised after `park-continuation` strands a continuation in
+   `:parked` and consumes an id counter."
+  [store what]
+  (or (call-pair store)
+      (throw (ex-info "This VM was constructed without an FFI call pair, so it cannot make a dao.stream.apply call"
+                      {:what what}))))
+
+
+(defn call-response-wait-entry
+  "The polling wait entry for a sent call awaiting its correlated response."
+  [call-id next-k env]
+  {:k {:type :dao.stream.apply/eval-call,
+       :next next-k,
+       :env env,
+       :call-id call-id},
+   :env env,
+   :cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key},
+   :reason :next,
+   :stream-id vm/call-out-stream-key})
+
+
+(defn call-result
+  "Unwrap a response envelope for the continuation that made the call.
+
+   v1 read `:dao.stream.apply/value` off a response that could only succeed.
+   A v2 response carries exactly one of `ok` or `error`, and correlation is
+   checked here rather than assumed from stream order."
+  [response call-id]
+  (when-not (apply2/response? response)
+    (throw (ex-info "FFI response envelope is malformed" {:response response})))
+  (when (and call-id (not= call-id (apply2/response-id response)))
+    (throw (ex-info "FFI response does not correlate with this parked call"
+                    {:call-id call-id,
+                     :response-id (apply2/response-id response)})))
+  (if-let [err (apply2/response-error response)]
+    (throw (ex-info (str "FFI call failed: "
+                         (:dao.stream.apply/message err))
+                    {:call-id call-id, :error err}))
+    (apply2/response-ok response)))
+
+
 (defn normalize
-  "Normalize bridge input to explicit bridge state.
+  "Normalize bridge input to explicit bridge state, without minting.
 
-   Accepted forms:
-   - nil
-   - handler map {:op/name fn}
-   - explicit bridge map {:handlers {...} :cursor {:position n}}"
+   Accepted forms: nil, a handler map, or an explicit
+   {:handlers ... :cursor ...} map."
   [bridge]
-  (cond
-    (nil? bridge) nil
-    (and (map? bridge) (contains? bridge :handlers))
-    (-> bridge
-        (update :handlers #(or % {}))
-        (update :cursor #(or % {:position 0})))
-    (map? bridge) {:handlers bridge, :cursor {:position 0}}
-    :else
-    (throw
-      (ex-info
-        "Bridge must be nil, a handler map, or {:handlers ... :cursor ...}"
-        {:bridge bridge}))))
-
-
-(defn bridge-from-opts
-  "Read bridge configuration from create-vm opts.
-
-   :bridge is the canonical key."
-  [opts]
-  (normalize (:bridge opts)))
+  (cond (nil? bridge) nil
+        (and (map? bridge) (contains? bridge :handlers))
+        (update bridge :handlers #(or % {}))
+        (map? bridge) {:handlers bridge}
+        :else (throw (ex-info
+                       "Bridge must be nil, a handler map, or {:handlers ... :cursor ...}"
+                       {:bridge bridge}))))
 
 
 (defn attach
-  "Attach explicit bridge state to a VM value."
+  "Attach explicit bridge state to a built VM, minting the bridge cursor on
+   the call-in stream when the bridge does not carry one."
   [vm bridge]
   (if-let [bridge* (normalize bridge)]
-    (assoc vm :bridge bridge*)
+    (let [{:keys [call-in]} (require-call-pair! (:store vm) :bridge)
+          cursor (or (:cursor bridge*) (vm/mint-oldest call-in :bridge))]
+      (assoc vm :bridge (assoc bridge* :cursor cursor)))
     vm))
+
+
+(defn bridge-from-opts
+  "Read bridge configuration from create-vm opts. `:bridge` is the canonical
+   key. Minting happens in `attach`, which runs after the pair exists."
+  [opts]
+  (normalize (:bridge opts)))
 
 
 (defn installed?
@@ -59,96 +121,125 @@
   (boolean (seq (get-in vm [:bridge :handlers]))))
 
 
-(defn- dispatch-call
-  [handlers call-op call-args]
-  (let [handler (get handlers call-op)]
-    (when-not handler
-      (throw (ex-info "No bridge handler for dao.stream.apply op"
-                      {:op call-op, :available (vec (keys handlers))})))
-    (apply handler (or call-args []))))
+(defn- retain
+  [vm response successor request-id]
+  (update vm
+          :bridge
+          assoc
+          :pending-response response
+          :pending-successor successor
+          :pending-request-id request-id))
 
 
-(defn- synthesize-resume-entry
-  [vm call-id response]
-  (let [parked (get-in vm [:parked call-id])
-        cursor-data (get-in vm [:store vm/call-out-cursor-key])]
-    (when-not parked
-      (throw (ex-info "Cannot synthesize dao.stream.apply resume entry"
-                      {:call-id call-id,
-                       :parked-ids (vec (keys (:parked vm)))})))
-    (assoc parked
-           :type :dao.stream.apply/resumer
-           :value response
-           :store-updates {vm/call-out-cursor-key
-                           (update cursor-data :position inc)})))
+(defn- clear-pending
+  [vm]
+  (update vm
+          :bridge
+          (fn [b]
+            (dissoc b :pending-response :pending-successor :pending-request-id))))
+
+
+(defn- deliver-response
+  "Append one computed response, total over the five append outcomes.
+
+   `ok` advances the bridge cursor to the retained successor exactly once.
+   `full` retains both response and successor without advancing, so the
+   handler is not re-run. The three terminal outcomes advance once, report the
+   response undeliverable, and terminate the bridge."
+  [vm response successor request-id]
+  (let [call-out (get (:store vm) vm/call-out-stream-key)
+        result (apply2/put-response! call-out response)
+        o (:dao.stream/outcome result)]
+    (case o
+      :dao.stream/ok {:handled? true,
+                      :vm (-> vm
+                              (clear-pending)
+                              (assoc-in [:bridge :cursor] successor)),
+                      :request-id request-id}
+      :dao.stream/full {:handled? false,
+                        :retained? true,
+                        :vm (retain vm response successor request-id)}
+      ;; Includes :dao.stream.apply/invalid-response, which put-response!
+      ;; reports rather than appending.
+      {:handled? false,
+       :terminal o,
+       :undeliverable response,
+       :vm (-> vm
+               (clear-pending)
+               (assoc-in [:bridge :cursor] successor)
+               (assoc-in [:bridge :terminal] o))})))
 
 
 (defn bridge-step
-  "Handle one pending dao.stream.apply request from the VM's call-in stream.
+  "Handle one pending `dao.stream.apply` request from the VM's call-in
+   stream.
 
-   Returns:
-   - {:handled? true  :vm vm' ...} when a request was dispatched and resume work
-     was enqueued
-   - {:handled? false :vm vm  :stream-result <ds/next result>} when the VM is
-     blocked for some non-bridge reason"
+   Returns {:handled? true :vm vm' :request-id id} when a response was
+   appended, or {:handled? false :vm vm ...} otherwise. A `:terminal` key
+   names the outcome that ended the bridge."
   [vm]
-  (let [handlers (get-in vm [:bridge :handlers])
-        cursor (or (get-in vm [:bridge :cursor]) {:position 0})
-        store-data (vm/store vm)
-        call-in (get store-data vm/call-in-stream-key)
-        next-result (ds/next call-in cursor)
-        ok (:ok next-result)
-        cursor' (:cursor next-result)]
-    (if ok
-      (let [{request-id :dao.stream.apply/id,
-             request-op :dao.stream.apply/op,
-             request-args :dao.stream.apply/args}
-            ok
-            result (dispatch-call handlers request-op request-args)
-            call-out (get store-data vm/call-out-stream-key)
-            response (dao.stream.apply/response request-id result)
-            put-result (ds/append! call-out response)
-            woke (:woke put-result)
-            entries (if (seq woke)
-                      (engine/make-woken-run-queue-entries vm woke)
-                      [(synthesize-resume-entry vm request-id response)])
-            vm' (-> vm
-                    (assoc-in [:bridge :cursor] cursor')
-                    (update :ready-queue (fnil into []) entries)
-                    (telemetry/emit-snapshot
-                      :bridge
-                      {:bridge-op request-op,
-                       :arg-shape (mapv telemetry/type-tag request-args)}))]
-        {:handled? true,
-         :vm vm',
-         :request ok,
-         :wake-count (count woke),
-         :entry-count (count entries)})
-      {:handled? false, :vm vm, :stream-result next-result})))
+  (let [bridge (:bridge vm)
+        handlers (:handlers bridge)
+        cursor (:cursor bridge)]
+    (cond
+      (:terminal bridge) {:handled? false, :vm vm, :terminal (:terminal bridge)}
+      (:pending-response bridge)
+      (deliver-response vm
+                        (:pending-response bridge)
+                        (:pending-successor bridge)
+                        (:pending-request-id bridge))
+      :else
+      (let [call-in (get (:store vm) vm/call-in-stream-key)
+            _ (when (nil? call-in)
+                (throw (ex-info "This VM has no call-in stream to bridge"
+                                {:bridge? (some? bridge)})))
+            result (stream/next call-in cursor)
+            o (:dao.stream/outcome result)]
+        (case o
+          :dao.stream/ok
+          (let [request (:dao.stream/value result)
+                successor (:dao.stream/cursor result)
+                response (apply2/dispatch-request handlers request)]
+            (if (nil? response)
+              ;; A malformed request without a usable id is a local diagnostic
+              ;; and advances once; no handler ever saw it.
+              {:handled? false,
+               :diagnostic :dao.stream.apply/malformed-request,
+               :vm (assoc-in vm [:bridge :cursor] successor)}
+              (deliver-response
+                (telemetry/emit-snapshot
+                  vm
+                  :bridge
+                  {:bridge-op (apply2/request-op request),
+                   :arg-shape (mapv data/tag
+                                    (or (apply2/request-args request) []))})
+                response
+                successor
+                (apply2/request-id request))))
+          :dao.stream/blocked {:handled? false, :vm vm, :outcome o}
+          :dao.stream/gap
+          (throw (ex-info "Gap at the FFI bridge cursor: a request was evicted and the call that made it can never be answered"
+                          {:vm-model (:vm-model vm)}))
+          ;; :end, :cursor-mismatch, :invalid-cursor, :transport-error
+          {:handled? false,
+           :terminal o,
+           :vm (assoc-in vm [:bridge :terminal] o)})))))
 
 
 (defn maybe-run
   "Run a VM with bridge dispatch if explicit bridge handlers are installed.
 
-   run-fn must be the VM-specific raw runner that advances the VM until halt or
-   block without recursively calling vm/run again."
+   run-fn must be the VM-specific raw runner that advances the VM until halt
+   or block without recursively calling vm/run again."
   [vm run-fn]
   (if-not (installed? vm)
     (run-fn vm)
     (loop [v (run-fn vm)]
       (if (:blocked? v)
-        (let [{:keys [handled? vm]} (bridge-step v)]
-          (if handled? (recur (run-fn vm)) v))
+        (let [{:keys [handled? diagnostic vm]} (bridge-step v)]
+          (cond handled? (recur (run-fn vm))
+                ;; A malformed request consumed as a diagnostic advanced the
+                ;; cursor, so there may be a real request behind it.
+                diagnostic (recur vm)
+                :else vm))
         v))))
-
-
-(defn run-with-bridge
-  "Compatibility helper: attach handlers to a VM and return the final value.
-
-   New code should prefer constructing the VM with {:bridge handlers} and then
-   using ordinary vm/run or vm/eval."
-  [vm handlers]
-  (-> vm
-      (attach handlers)
-      (vm/run)
-      (vm/value)))

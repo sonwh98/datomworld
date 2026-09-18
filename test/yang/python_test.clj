@@ -1,30 +1,20 @@
 (ns yang.python-test
   (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
             [yang.clojure :as clj]
             [yang.python :as py]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
-
-
-(defn- queue-vm
-  [vm-state datoms]
-  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
-        queued-vm (assoc vm-state
-                         :in-stream in-stream
-                         :in-cursor {:position 0})]
-    (ds/append! in-stream (vec datoms))
-    queued-vm))
+            [yin.vm.test-utils :as tu]))
 
 
 (defn compile-and-run
   ([ast] (compile-and-run ast {} {}))
   ([ast env] (compile-and-run ast env {}))
   ([ast env vm-opts]
-   (let [vm (ast-walker/create-vm (merge {:env env} vm-opts))
-         vm-loaded (queue-vm vm (vm/ast->datoms ast))]
-     (vm/value (vm/run vm-loaded)))))
+   (-> (tu/make-observer-session (tu/create-vm (merge {:env env} vm-opts)))
+       (tu/queue-ast! ast)
+       tu/run-session
+       :consumer
+       vm/value)))
 
 
 (deftest test-tokenize
@@ -224,6 +214,11 @@
       ;; Python: (1 if x < 5 else 2) if True else 3
       (is (= 1
              (compile-and-run (py/compile "(1 if x < 5 else 2) if True else 3")
-                              (merge vm/primitives {'x 3})))))
+                              (merge (into {} (map (fn [[name entry]]
+                                                     [name
+                                                      (vm/primitive-function
+                                                        entry)]))
+                                           vm/primitives)
+                                     {'x 3})))))
     (testing "Multiple operations"
       (is (= 65 (compile-and-run (py/compile "10 + 20 * 3 - 5")))))))

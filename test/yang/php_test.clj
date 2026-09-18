@@ -1,29 +1,19 @@
 (ns yang.php-test
   (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
             [yang.clojure :as clj]
             [yang.php :as php]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
-
-
-(defn- queue-vm
-  [vm-state datoms]
-  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
-        queued-vm (assoc vm-state
-                         :in-stream in-stream
-                         :in-cursor {:position 0})]
-    (ds/append! in-stream (vec datoms))
-    queued-vm))
+            [yin.vm.test-utils :as tu]))
 
 
 (defn compile-and-run
   ([ast] (compile-and-run ast {}))
   ([ast env]
-   (-> (queue-vm (ast-walker/create-vm {:env env}) (vm/ast->datoms ast))
-       (vm/run)
-       (vm/value))))
+   (-> (tu/make-observer-session (tu/create-vm {:env env}))
+       (tu/queue-ast! ast)
+       tu/run-session
+       :consumer
+       vm/value)))
 
 
 (deftest test-tokenize

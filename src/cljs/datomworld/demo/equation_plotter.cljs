@@ -1,4 +1,23 @@
 (ns datomworld.demo.equation-plotter
+  "Equation plotter on Yin VM v2.
+
+   The v1 demo compiled Yin source to register VM bytecode and queued the
+   canonical datoms on the VM's own `:in-stream`. v2 has no register
+   assembler, and the VM owns no program medium, so:
+
+   - The evaluator is `yin.vm.ast-walker`, constructed with a
+     composition-supplied `:make-stream` over the DaoStream v2 ring buffer.
+     There is no default transport, so a VM built without it cannot create
+     streams.
+   - The program is evaluated directly from its AST by `vm/eval`; no datoms
+     are queued and no position cursor is fabricated.
+   - The `dao.stream.apply` bridge is explicit bridge state: `:bridge` maps
+     `:plot/point` to a host function, the VM mints its own bridge cursor on
+     the FFI pair it built at construction, and `vm/run` dispatches through
+     `yin.vm.ffi`. Correlation is checked and a gap at the bridge cursor
+     is fatal rather than resumable.
+   - The assembly panel shows the canonical datoms instead: datoms are the
+     v2 program representation, and there is no bytecode to list."
   (:require ["@codemirror/state" :refer [EditorState]]
             ["@codemirror/theme-one-dark" :refer [oneDark]]
             ["@codemirror/view" :refer [EditorView]]
@@ -6,13 +25,12 @@
             ["codemirror" :refer [basicSetup]]
             [cljs.reader :as reader]
             [clojure.string :as str]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
+            [dao.stream.ringbuffer :as ringbuffer]
             [datomworld.demo.responsive :as responsive]
             [reagent.core :as r]
             [yang.clojure :as yang]
             [yin.vm :as vm]
-            [yin.vm.register :as register]))
+            [yin.vm.ast-walker :as ast-walker]))
 
 
 (declare app-state plot-state)
@@ -219,10 +237,7 @@
 
 (defonce app-state
   (r/atom {:source default-source,
-           :asm nil,
-           :bytecode nil,
-           :pool nil,
-           :reg-count nil,
+           :datoms nil,
            :ast nil,
            :program nil,
            :running? false,
@@ -231,7 +246,7 @@
 
 
 ;; =============================================================================
-;; Compile: source -> register VM bytecode
+;; Compile: source -> canonical v2 datoms
 ;; =============================================================================
 
 (defn- ast->program
@@ -239,72 +254,59 @@
   {:datoms (vec (vm/ast->datoms ast))})
 
 
-(defn- queue-vm
-  [vm-state datoms]
-  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
-        queued-vm (assoc vm-state
-                         :in-stream in-stream
-                         :in-cursor {:position 0})]
-    (ds/append! in-stream (vec datoms))
-    queued-vm))
+(defn- make-stream
+  "The `:make-stream` this composition hands the VM: one DaoStream v2 ring
+   buffer per call. A nil capacity is the VM's default, not an unbounded
+   stream; v2 has no unbounded mode."
+  [capacity]
+  (ringbuffer/create!
+    {:dao.stream/type ringbuffer/transport-type,
+     ringbuffer/capacity-key (or capacity vm/default-stream-capacity)}))
 
 
 (defn compile!
-  "Compile the source editor contents to register VM bytecode."
+  "Compile the source editor contents to the canonical v2 datom program."
   []
   (try (let [source (:source @app-state)
              forms (reader/read-string (str "[" source "]"))
              ast (yang/compile-program forms)
-             {:keys [datoms], :as program} (ast->program ast)
-             {:keys [asm reg-count]} (register/ast-datoms->asm datoms)
-             result (register/assemble asm)]
+             {:keys [datoms], :as program} (ast->program ast)]
          (swap! app-state assoc
                 :ast ast
                 :program program
-                :asm asm
-                :bytecode (:bytecode result)
-                :pool (:pool result)
-                :reg-count reg-count
+                :datoms datoms
                 :running? false
                 :result nil
                 :error nil))
        (catch :default e
          (swap! app-state assoc
                 :error (str "Compile error: " (.-message e))
-                :asm nil
-                :bytecode nil
-                :pool nil
-                :reg-count nil
+                :datoms nil
                 :ast nil
                 :program nil
                 :running? false
                 :result nil))))
 
 
-;; =============================================================================
-;; Execute: run bytecode in register VM with dao.stream.apply bridge ->
-;; plot-point
-;; =============================================================================
-
 (defn execute!
-  "Run the compiled program in the register VM.
-   dao.stream.apply :plot/point calls are dispatched to the ClojureScript plot-point function."
+  "Run the compiled program in the v2 ast-walker.
+   dao.stream.apply :plot/point calls are dispatched through the VM's explicit
+   bridge to the ClojureScript plot-point handler."
   []
-  (try (let [{:keys [program]} @app-state]
-         (when-not program
+  (try (let [{:keys [ast]} @app-state]
+         (when-not ast
            (throw (ex-info "Nothing compiled. Click Compile first." {})))
          (clear-plot!)
-         (let [{:keys [datoms]} program
-               points* (volatile! [])
+         (let [points* (volatile! [])
                call-count* (volatile! 0)
                bridge-handlers {:plot/point (make-plot-handler points*
                                                                call-count*)}
-               vm-loaded (queue-vm (register/create-vm
-                                     {:primitives (merge vm/primitives
-                                                         math-primitives),
-                                      :bridge bridge-handlers})
-                                   datoms)
-               result-vm (vm/run vm-loaded)]
+               result-vm (vm/eval (ast-walker/create-vm
+                                    {:primitives (merge vm/primitives
+                                                        math-primitives),
+                                     :make-stream make-stream,
+                                     :bridge bridge-handlers})
+                                  ast)]
            (flush-plot-batch! points* call-count*)
            (swap! app-state assoc
                   :running? false
@@ -411,7 +413,7 @@
        [:p
         {:style
          {:color "#8b949e", :margin 0, :font-size "14px", :line-height "1.6"}}
-        "Yin source code compiled to register VM bytecode. "
+        "Yin source code compiled to canonical datoms and run on Yin VM v2. "
         "dao.stream.apply :plot/point bridges to a ClojureScript function that renders SVG."]]
       [:section
        {:style {:background "#0d1117",
@@ -438,7 +440,7 @@
                          {:background "#1f6feb"}
                          {:background "#333", :cursor "not-allowed"}))}
         (if running? "Running..." "Execute")]]
-      (when asm
+      (when-let [datoms (:datoms @app-state)]
         [:section
          {:style {:background "#0d1117",
                   :border "1px solid #30363d",
@@ -446,7 +448,7 @@
                   :padding "16px"}}
          [:div
           {:style {:color "#8b949e", :font-size "12px", :margin-bottom "8px"}}
-          (str (count asm) " register instructions")]
+          (str (count datoms) " canonical datoms")]
          [:pre
           {:style {:background "#090d14",
                    :border "1px solid #30363d",
@@ -458,8 +460,8 @@
                    :overflow-y "auto",
                    :margin "0"}}
           (str/join "\n"
-                    (map-indexed (fn [i instr] (str i ": " (pr-str instr)))
-                                 asm))]])
+                    (map-indexed (fn [i datom] (str i ": " (pr-str datom)))
+                                 datoms))]])
       [:section
        {:style {:background "#0d1117",
                 :border "1px solid #30363d",

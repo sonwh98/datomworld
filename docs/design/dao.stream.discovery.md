@@ -1,3 +1,5 @@
+> **Status (2026-09-17):** v1 design. Implementation deleted under `dao.stream.v1-retirement.implementation-plan.md`.
+
 # Stream Discovery: Decentralized Naming, Attention, and Ranking
 
 **Status: proposal.** This document records a design conversation (2026-07) about how

@@ -4,15 +4,13 @@
    specific timer, time source, keyboard mapping, and widget tree;
    everything else lives here so the two frontends stay in sync."
   (:require [dao.postgraphics.terminal :as terminal]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
+            [dao.stream.ringbuffer :as rb]
             [datomworld.demo.voxel-scene :as scene]))
 
 
 (defonce frame-stream
-  (ds/open! {:dao.stream/type :ringbuffer,
-             :capacity 4,
-             :eviction-policy :evict-oldest}))
+  (:dao.stream/handle (rb/create! {:dao.stream/type rb/transport-type,
+                                   rb/capacity-key 4})))
 
 
 (defonce ^:private player* (atom scene/default-player))

@@ -3,16 +3,16 @@
    (docs/design/dao.jing.md, target architecture).
 
    Covers the plain-data handle API (materialize!/get/close!), the explicit
-   intake-pool observer (observer-state/observe-step!), and the
-   content-addressing discipline. The transitional CAS/root/evaluator/
+   intake-pool observer (observer-state/observe-step!/adopt-cursor), and
+   the content-addressing discipline. The transitional CAS/root/evaluator/
    file/mem compatibility contracts are gone: this namespace requires only
-   dao.jing plus the ringbuffer stream transport."
+   dao.jing plus the dao.stream ringbuffer transport."
   (:require [clojure.test :refer [deftest is testing]]
             #?(:clj [clojure.edn])
             [clojure.string :as str]
             [dao.jing :as jing]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]))
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ringbuffer]))
 
 
 (defn mem-handle
@@ -32,21 +32,59 @@
       :close-fn (fn [] (swap! store assoc ::closed true))})))
 
 
+(defn ring-buffer
+  "A dao.stream ringbuffer creation spec."
+  [capacity]
+  {:dao.stream/type :dao.stream/ringbuffer
+   :dao.stream.ringbuffer/capacity capacity})
+
+
 (defn open-stream
-  "Open a ringbuffer transport pre-loaded with vals."
+  "A dao.stream ringbuffer reader handle pre-loaded with vals."
   [& vals]
-  (let [s (ds/open! {:dao.stream/type :ringbuffer, :capacity 8})]
-    (doseq [v vals] (ds/append! s v))
-    s))
+  (let [{:dao.stream/keys [handle]} (ringbuffer/create! (ring-buffer 8))]
+    (doseq [v vals] (stream/append! handle v))
+    handle))
 
 
-(defrecord MalformedResultStream
+(defn- oldest-cursor
+  "The :dao.stream/oldest cursor of a reader, minted the way a composition
+   mints it before entering the stream in a pool."
+  [s]
+  (:dao.stream/cursor (stream/cursor s :dao.stream/oldest)))
+
+
+(defn pool
+  "Observer state over reader handles, each entered at its oldest cursor."
+  [& streams]
+  (jing/observer-state (mapv (fn [s] {:stream s, :cursor (oldest-cursor s)})
+                             streams)))
+
+
+(defrecord ScriptedResultStream
   [result]
-  ;; Test double: a reader whose every ds/next answer is the configured
-  ;; result, used to feed malformed maps into observe-step!.
-  ds/IDaoStreamReader
+  ;; Test double: a dao.stream reader whose every stream/next answer is
+  ;; the configured result, used to feed scripted outcomes into the pool.
+  stream/IDaoStreamReader
 
-  (next [_this _cursor] result))
+  (cursor
+    [_ _anchor]
+    {:dao.stream/outcome :dao.stream/ok, :dao.stream/cursor ::at})
+
+
+  (next [_ _cursor] result))
+
+
+(defn- scripted-answer
+  "A contract-valid stream/next answer for outcome."
+  [outcome]
+  (case outcome
+    :dao.stream/ok {:dao.stream/outcome :dao.stream/ok,
+                    :dao.stream/value :payload,
+                    :dao.stream/cursor ::successor}
+    :dao.stream/gap {:dao.stream/outcome :dao.stream/gap,
+                     :dao.stream/cursor ::recovery}
+    {:dao.stream/outcome outcome}))
 
 
 ;; ---------------------------------------------------------------------------
@@ -145,6 +183,114 @@
   (testing "content-hash drives the segment key"
     (is (= (jing/segment-hash (jing/segment-key {:a 1}))
            (jing/content-hash {:a 1})))))
+
+
+(deftest content-hash-distinguishes-vector-list-and-seq
+  ;; [1 2], '(1 2), and (seq [1 2]) are three representations of two values:
+  ;; the vector is distinct, the list and the seq are = and share an address
+  (is (not= (jing/content-hash [1 2]) (jing/content-hash '(1 2))))
+  (is (not= (jing/content-hash [1 2]) (jing/content-hash (seq [1 2]))))
+  (is (= (jing/content-hash '(1 2)) (jing/content-hash (seq [1 2])))))
+
+
+(deftest content-hash-of-a-list-is-host-independent
+  ;; ClojureDart's list mints its result carrying cljd.core's own reader
+  ;; metadata (:tag PersistentList among it); normalizing a list must not
+  ;; let that fabricated metadata into the address
+  (testing "a list minted by list addresses as a list literal and a seq"
+    (is (= (jing/content-hash '(2 3))
+           (jing/content-hash (with-meta (apply list [2 3]) nil))
+           (jing/content-hash (seq [2 3])))))
+  (testing "pinned: a list inside a vector beside a set, on every host"
+    (is (= "e5bab3450d860af30befedbf9a650a761af5b35663e00cc1a126d15cf9199cb5"
+           (jing/content-hash '[1 (2 3) #{4}])
+           (jing/content-hash [1 (seq [2 3]) #{4}])))))
+
+
+(deftest content-hash-keeps-the-set-tag-outside-the-value-domain
+  (testing
+    "a set is encoded inside its own #{} braces, which only a set can
+            print: never as a 'set-prefixed list living in the ordinary
+            value domain where real data of that shape could collide with it"
+    (is (not= (jing/content-hash #{1 2})
+              (jing/content-hash (list 'set (list 1 2))))
+        "the exact shape the old encoder emitted: (set (1 2))")
+    (is (not= (jing/content-hash #{1 2})
+              (jing/content-hash (list 'set [1 2])))
+        "and its vector-tailed variant")
+    (is (not= (jing/content-hash #{}) (jing/content-hash (list 'set)))
+        "the empty set against the empty tagged list")
+    (is (not= (jing/content-hash #{1 2}) (jing/content-hash [1 2]))
+        "a set and the vector of its elements")
+    (is (not= (jing/content-hash #{1 2}) (jing/content-hash '(1 2)))
+        "a set and the list of its elements"))
+  (testing "equal sets of any construction order still agree"
+    (is (= (jing/content-hash #{1 2}) (jing/content-hash #{2 1})))
+    (is (= (jing/content-hash #{1 2 3}) (jing/content-hash #{3 1 2})))))
+
+
+(deftest content-hash-distinguishes-metadata
+  (testing
+    "collection metadata is part of the address on every collection
+            branch that can carry it"
+    (is (not= (jing/content-hash (with-meta [1 2] {:a 1}))
+              (jing/content-hash (with-meta [1 2] {:a 2})))
+        "vector: differing metadata")
+    (is (not= (jing/content-hash (with-meta [1 2] {:a 1}))
+              (jing/content-hash [1 2]))
+        "vector: metadata against none")
+    (is (not= (jing/content-hash (with-meta '(1 2) {:a 1}))
+              (jing/content-hash '(1 2)))
+        "list")
+    (is (not= (jing/content-hash (with-meta (map inc [1 2]) {:a 1}))
+              (jing/content-hash (map inc [1 2])))
+        "seq")
+    (is (not= (jing/content-hash (with-meta {:a 1} {:m 1}))
+              (jing/content-hash {:a 1}))
+        "map")
+    (is (not= (jing/content-hash (with-meta #{1} {:m 1}))
+              (jing/content-hash #{1}))
+        "set"))
+  (testing "structurally equal values with equal metadata still agree"
+    (is (= (jing/content-hash (with-meta {:a 1, :b 2} {:x 1}))
+           (jing/content-hash (with-meta {:b 2, :a 1} {:x 1})))
+        "map order and metadata order are both normalized")
+    (is (= (jing/content-hash (with-meta [1 2] {:x 1, :y 2}))
+           (jing/content-hash (with-meta [1 2] {:y 2, :x 1})))))
+  (testing "reader position metadata is not content"
+    (is (= (jing/content-hash (with-meta [1 2] {:line 7, :column 11}))
+           (jing/content-hash [1 2]))
+        "a :line/:column-tagged value addresses as its bare value")))
+
+
+(defrecord RecordProbe
+  [a b])
+
+
+(deftest records-are-rejected-not-addressed-as-maps
+  (testing
+    "records are not a supported payload: a record is a distinct typed
+            value from its equal plain map, and the hosts cannot even agree
+            how to print one (a tagged literal on the JVM and JS, a plain map
+            on Dart), so the encoder rejects them loudly instead of seating
+            them at the map's address"
+    (let [r (map->RecordProbe {:a 1, :b 2})]
+      (is (not= r {:a 1, :b 2})
+          "precondition: a record is a distinct value from its equal plain
+            map, so the encoder must not seat them at one address")
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/content-hash r)))
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/materialize! (mem-handle) r)))
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/content-hash {:nested r}))
+          "a record anywhere in the value is rejected, not only at the root"))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -251,6 +397,28 @@
           "the existing value is untouched"))))
 
 
+(deftest present-read-back-is-verified-by-hash-not-by-equals
+  (testing
+    "a stored value that is = to the payload but does not hash to the
+            address it sits at is a collision: = ignores metadata, and
+            metadata is part of the address"
+    (let [payload (with-meta [1 2] {:a 1})
+          address (jing/segment-key payload)
+          h (mem-handle {address [1 2]})]
+      (is (= [1 2] (get @(:store h) address))
+          "precondition: the stored value is = to the payload")
+      (is (= payload (get @(:store h) address))
+          "precondition: = cannot tell the two apart")
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/materialize! h payload)))))
+  (testing "equal content, metadata included, remains idempotent"
+    (let [payload (with-meta {:a 1} {:m 1})
+          h (mem-handle {(jing/segment-key payload) payload})]
+      (is (= (jing/segment-key payload) (jing/materialize! h payload))))))
+
+
 (deftest present-without-readable-content-is-an-integrity-failure
   (testing
     "a backend that reports :present but cannot read the value back
@@ -316,38 +484,64 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; Observer: observer-state / observe-step!
+;; Observer: observer-state / observe-step! / adopt-cursor
 ;; ---------------------------------------------------------------------------
 
 (deftest observer-state-is-plain-data
   (testing
-    "observer-state returns immutable data with one operational member
-            per pool stream, a fresh cursor, an explicit status, and the next
-            fair scheduling index"
+    "observer-state returns immutable data with one member per pool entry,
+            the cursor the composition handed in, an explicit status, and the
+            next fair scheduling index"
     (let [a (open-stream)
           b (open-stream)
-          st (jing/observer-state [a b])]
+          st (jing/observer-state [{:stream a, :cursor (oldest-cursor a)}
+                                   {:stream b, :cursor (oldest-cursor b)}])]
       (is (= [a b] (mapv :stream (:members st))))
-      (is (every? #(= {:position 0} (:cursor %)) (:members st)))
+      (is (= [(oldest-cursor a) (oldest-cursor b)]
+             (mapv :cursor (:members st))))
       (is (every? #(= :pending (:status %)) (:members st)))
-      (is (= 0 (:next st))))))
+      (is (= 0 (:next st)))))
+  (testing "members round-trip through observer-state"
+    (let [a (open-stream)
+          st (jing/observer-state [{:stream a, :cursor (oldest-cursor a)}])]
+      (is (= st (jing/observer-state (:members st)))
+          "the state is plain data: it rebuilds from its members"))))
+
+
+(deftest observer-state-rejects-defective-members
+  (testing
+    "a member without a cursor, or whose stream lacks the reader surface,
+            is a composition defect: observer-state throws before any
+            operation"
+    (let [s (open-stream)]
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/observer-state [{:stream s}]))
+          "a member without :cursor is rejected")
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/observer-state [{:stream 42, :cursor (oldest-cursor s)}]))
+          "a non-reader stream is rejected"))))
 
 
 (deftest observer-empty-pool-is-blocked
   (let [h (mem-handle)
         state (jing/observer-state [])]
-    (is (= {:state state, :signal :blocked} (jing/observe-step! h state)))))
+    (is (= {:state state, :signal :dao.stream/blocked}
+           (jing/observe-step! h state)))))
 
 
 (deftest observer-all-blocked
   (let [h (mem-handle)
         a (open-stream)
         b (open-stream)
-        state (jing/observer-state [a b])
-        r (jing/observe-step! h state)]
-    (is (= :blocked (:signal r)))
-    (is (every? #(= :blocked (:status %)) (:members (:state r))))
-    (is (every? #(= {:position 0} (:cursor %)) (:members (:state r))))))
+        r (jing/observe-step! h (pool a b))]
+    (is (= :dao.stream/blocked (:signal r)))
+    (is (every? #(= :dao.stream/blocked (:status %)) (:members (:state r))))
+    (is (= [(oldest-cursor a) (oldest-cursor b)]
+           (mapv :cursor (:members (:state r)))))))
 
 
 (deftest observer-automatic-hashing-and-retrieval
@@ -357,10 +551,14 @@
     (let [h (mem-handle)
           payload {:hello "world"}
           s (open-stream payload)
-          r (jing/observe-step! h (jing/observer-state [s]))]
-      (is (= :ok (:signal r)))
+          r (jing/observe-step! h (pool s))]
+      (is (= :dao.stream/ok (:signal r)))
       (is (= (jing/segment-key payload) (:address r)))
-      (is (= payload (jing/get h (:address r) ::missing))))))
+      (is (= payload (jing/get h (:address r) ::missing)))
+      (is (= (:dao.stream/cursor
+               (stream/next s (oldest-cursor s)))
+             (get-in (:state r) [:members 0 :cursor]))
+          "the member advanced to the successor cursor the stream returned"))))
 
 
 (deftest observer-equal-payloads-from-two-streams-converge
@@ -373,12 +571,11 @@
           address (jing/segment-key payload)
           a (open-stream payload payload)
           b (open-stream payload)
-          state (jing/observer-state [a b])
-          r1 (jing/observe-step! h state)
+          r1 (jing/observe-step! h (pool a b))
           r2 (jing/observe-step! h (:state r1))
           r3 (jing/observe-step! h (:state r2))]
       (doseq [r [r1 r2 r3]]
-        (is (= :ok (:signal r)))
+        (is (= :dao.stream/ok (:signal r)))
         (is (= address (:address r))
             "both streams converge on the same content address"))
       (is
@@ -391,49 +588,48 @@
   (let [h (mem-handle)
         a (open-stream)
         b (open-stream {:payload 1})
-        r (jing/observe-step! h (jing/observer-state [a b]))]
-    (is (= :ok (:signal r)))
+        r (jing/observe-step! h (pool a b))]
+    (is (= :dao.stream/ok (:signal r)))
     (is (= {:payload 1} (jing/get h (:address r) ::missing)))
-    (is (= :blocked (get-in (:state r) [:members 0 :status]))
+    (is (= :dao.stream/blocked (get-in (:state r) [:members 0 :status]))
         "the blocked member is checked and marked, but does not block the scan")
-    (is (= :ok (get-in (:state r) [:members 1 :status])))))
+    (is (= :dao.stream/ok (get-in (:state r) [:members 1 :status])))))
 
 
 (deftest observer-ended-before-ready-does-not-starve-active-members
   (let [h (mem-handle)
         a (open-stream)
-        _ (ds/close! a)
+        _ (stream/close! a)
         b (open-stream {:payload 1})
-        r (jing/observe-step! h (jing/observer-state [a b]))]
-    (is (= :ok (:signal r)))
+        r (jing/observe-step! h (pool a b))]
+    (is (= :dao.stream/ok (:signal r)))
     (is (= {:payload 1} (jing/get h (:address r) ::missing)))
-    (is (= :end (get-in (:state r) [:members 0 :status]))
-        "the closed member is explicitly :end and skipped")
-    (is (= :ok (get-in (:state r) [:members 1 :status])))))
+    (is (= :dao.stream/end (get-in (:state r) [:members 0 :status]))
+        "the closed member is explicitly :dao.stream/end and skipped")
+    (is (= :dao.stream/ok (get-in (:state r) [:members 1 :status])))))
 
 
 (deftest observer-all-ended
   (let [h (mem-handle)
         a (open-stream)
         b (open-stream)]
-    (ds/close! a)
-    (ds/close! b)
-    (let [r (jing/observe-step! h (jing/observer-state [a b]))]
-      (is (= :end (:signal r)))
-      (is (every? #(= :end (:status %)) (:members (:state r)))))))
+    (stream/close! a)
+    (stream/close! b)
+    (let [r (jing/observe-step! h (pool a b))]
+      (is (= :dao.stream/end (:signal r)))
+      (is (every? #(= :dao.stream/end (:status %)) (:members (:state r)))))))
 
 
 (deftest observer-drains-then-reports-end
-  (testing "a closed stream still yields its buffered payloads, then :end"
+  (testing "a closed stream still yields its buffered payloads, then end"
     (let [h (mem-handle)
           s (open-stream {:last 1})
-          _ (ds/close! s)
-          state (jing/observer-state [s])
-          r1 (jing/observe-step! h state)
+          _ (stream/close! s)
+          r1 (jing/observe-step! h (pool s))
           r2 (jing/observe-step! h (:state r1))]
-      (is (= :ok (:signal r1)))
+      (is (= :dao.stream/ok (:signal r1)))
       (is (= {:last 1} (jing/get h (:address r1) ::missing)))
-      (is (= :end (:signal r2))))))
+      (is (= :dao.stream/end (:signal r2))))))
 
 
 (deftest observer-fair-round-robin-and-independent-cursors
@@ -443,16 +639,17 @@
     (let [h (mem-handle)
           a (open-stream {:who :a, :n 1} {:who :a, :n 2})
           b (open-stream {:who :b, :n 1})
-          state (jing/observer-state [a b])
-          r1 (jing/observe-step! h state)
+          r1 (jing/observe-step! h (pool a b))
           r2 (jing/observe-step! h (:state r1))
           r3 (jing/observe-step! h (:state r2))]
       (is (= {:who :a, :n 1} (jing/get h (:address r1) ::missing)))
       (is (= {:who :b, :n 1} (jing/get h (:address r2) ::missing))
           "A is continuously ready, yet B gets its turn before A's second item")
       (is (= {:who :a, :n 2} (jing/get h (:address r3) ::missing)))
-      (is (= {:position 2} (get-in (:state r3) [:members 0 :cursor])))
-      (is (= {:position 1} (get-in (:state r3) [:members 1 :cursor]))))))
+      (is (= 2 (get-in (:state r3)
+                       [:members 0 :cursor :dao.stream.ringbuffer/position])))
+      (is (= 1 (get-in (:state r3)
+                       [:members 1 :cursor :dao.stream.ringbuffer/position]))))))
 
 
 (deftest observer-independent-cursors-interleave
@@ -460,9 +657,8 @@
     (let [h (mem-handle)
           a (open-stream :a1 :a2)
           b (open-stream :b1 :b2)
-          state (jing/observer-state [a b])
           [addrs final-state]
-          (loop [st state
+          (loop [st (pool a b)
                  acc []
                  i 0]
             (if (= i 4)
@@ -473,62 +669,123 @@
               (jing/segment-key :a2) (jing/segment-key :b2)]
              addrs)
           "round-robin alternates A B A B, cursors advancing independently")
-      (is (= :blocked (:signal (jing/observe-step! h final-state)))
+      (is (= :dao.stream/blocked (:signal (jing/observe-step! h final-state)))
           "the pool is drained after four payloads"))))
 
 
-(deftest observer-gap-is-reported-and-never-auto-resynced
+(deftest observer-gap-is-reported-with-recovery-and-never-auto-resynced
   (testing
-    "a cursor behind the retention boundary reports :daostream/gap
-            immediately, leaves its cursor unchanged, is never resynced, and
-            does not starve the rest of the pool"
+    "a cursor behind the retention boundary reports :dao.stream/gap with
+            the step's recovery cursor, leaves the member cursor unchanged,
+            never resyncs on its own, does not starve the rest of the pool,
+            and is reported again on the member's next turn"
     (let [h (mem-handle)
-          a (ds/open! {:dao.stream/type :ringbuffer,
-                       :capacity 2,
-                       :eviction-policy :evict-oldest})
-          _ (ds/append! a {:evicted 1})
-          _ (ds/append! a {:evicted 2})
-          _ (ds/append! a {:live 3})
+          {:dao.stream/keys [handle]}
+          (ringbuffer/create! (ring-buffer 2))
+          cursor-a (:dao.stream/cursor
+                     (stream/cursor handle :dao.stream/oldest))
+          _ (doseq [v [{:evicted 1} {:retained 2} {:live 3}]]
+              (stream/append! handle v))
           b (open-stream {:payload :ready})
-          state (jing/observer-state [a b])
+          state (jing/observer-state [{:stream handle, :cursor cursor-a}
+                                      {:stream b, :cursor (oldest-cursor b)}])
           r1 (jing/observe-step! h state)]
-      (is (= :daostream/gap (:signal r1)))
+      (is (= :dao.stream/gap (:signal r1)))
       (is (= 0 (:member r1)))
-      (is (= {:position 0} (get-in (:state r1) [:members 0 :cursor]))
-          "the gap leaves the cursor unchanged")
-      (is (= :daostream/gap (get-in (:state r1) [:members 0 :status])))
+      (is (= 1 (get-in r1 [:cursor :dao.stream.ringbuffer/position]))
+          "the report carries the step's recovery cursor: the earliest
+            retained position")
+      (is (= cursor-a (get-in (:state r1) [:members 0 :cursor]))
+          "the gap leaves the member cursor unchanged")
+      (is (= :dao.stream/gap (get-in (:state r1) [:members 0 :status])))
       (let [r2 (jing/observe-step! h (:state r1))]
-        (is (= :ok (:signal r2)))
+        (is (= :dao.stream/ok (:signal r2))
+            "the other member still progresses")
         (is (= {:payload :ready} (jing/get h (:address r2) ::missing)))
         (let [r3 (jing/observe-step! h (:state r2))]
-          (is (= :daostream/gap (:signal r3)))
-          (is (= {:position 0} (get-in (:state r3) [:members 0 :cursor]))
-              "the gap persists: the cursor is never auto-resynchronized"))))))
+          (is (= :dao.stream/gap (:signal r3))
+              "the gap is reported again on the member's next turn")
+          (is (= cursor-a (get-in (:state r3) [:members 0 :cursor]))
+              "the cursor is never auto-resynchronized")
+          (testing
+            "adopt-cursor is the caller's resync: the member resumes at the
+                    recovery cursor and drains through to the live value"
+            (let [r4 (jing/observe-step!
+                       h (jing/adopt-cursor (:state r3) 0 (:cursor r3)))
+                  r5 (jing/observe-step! h (:state r4))
+                  r6 (jing/observe-step! h (:state r5))]
+              (is (= :dao.stream/ok (:signal r4)))
+              (is (= (jing/segment-key {:retained 2}) (:address r4))
+                  "the first post-adopt read is the earliest retained value")
+              (is (= (jing/segment-key {:live 3}) (:address r5)))
+              (is (= {:live 3} (jing/get h (:address r5) ::missing)))
+              (is (= :dao.stream/blocked (:signal r6))
+                  "the adopted member drains and rejoins the quiet pool"))))))))
 
 
-(deftest observer-rejects-malformed-stream-maps
+(deftest observer-defects-are-reported-as-data-with-the-raw-read
   (testing
-    "a map from ds/next is a successful read only when it explicitly
-            carries both :ok and :cursor; malformed maps throw instead of
-            content-addressing nil or installing a nil cursor"
-    (let [h (mem-handle)]
-      (doseq [bad [{} {:ok nil} {:ok :payload} {:cursor {:position 1}}]]
-        (let [s (->MalformedResultStream bad)]
-          (is (thrown? #?(:clj Exception
-                          :cljs js/Error
-                          :cljd Object)
-                (jing/observe-step! h (jing/observer-state [s])))
-              (str "must reject " (pr-str bad)))))))
+    "the three declared read defects are reported immediately with :member
+            and the raw read under :result, leave the member cursor
+            unchanged, and are reported again on the next turn"
+    (doseq [outcome [:dao.stream/cursor-mismatch
+                     :dao.stream/invalid-cursor
+                     :dao.stream/transport-error]]
+      (let [h (mem-handle)
+            s (->ScriptedResultStream (scripted-answer outcome))
+            state (jing/observer-state [{:stream s, :cursor ::at}])
+            r (jing/observe-step! h state)]
+        (is (= outcome (:signal r)) (str outcome " is the signal"))
+        (is (= 0 (:member r)))
+        (is (= (scripted-answer outcome) (:result r))
+            "the report carries the raw read exactly as it came")
+        (is (= ::at (get-in (:state r) [:members 0 :cursor]))
+            "the cursor is unchanged")
+        (is (= outcome (get-in (:state r) [:members 0 :status])))
+        (is (= outcome
+               (:signal (jing/observe-step! h (:state r))))
+            "the defect is reported again on the member's next turn"))))
   (testing
-    "a well-formed {:ok ... :cursor ...} read through the same double
-            still materializes"
-    (let [h (mem-handle)
-          s (->MalformedResultStream {:ok :payload, :cursor {:position 1}})
-          r (jing/observe-step! h (jing/observer-state [s]))]
-      (is (= :ok (:signal r)))
-      (is (= (jing/segment-key :payload) (:address r)))
-      (is (= :payload (jing/get h (:address r) ::missing)))
-      (is (= {:position 1} (get-in (:state r) [:members 0 :cursor]))))))
+    "an answer outside the declared set is reported, not folded: it rides
+            under :result through the step's transport-error classification"
+    (doseq [answer [{:dao.stream/outcome :wholly-unexpected, :noise 1}
+                    :not-a-map]]
+      (let [h (mem-handle)
+            s (->ScriptedResultStream answer)
+            r (jing/observe-step!
+                h (jing/observer-state [{:stream s, :cursor ::at}]))]
+        (is (= :dao.stream/transport-error (:signal r))
+            (str "unrecognized answer " (pr-str answer)))
+        (is (= answer (get-in r [:result :dao.stream/answer]))
+            "the raw answer is retained, exactly as it came")
+        (is (= ::at (get-in (:state r) [:members 0 :cursor]))
+            "no cursor moves on an answer nobody interpreted")))))
+
+
+(deftest pool-signals-are-declared-total-over-outcomes-next
+  (testing
+    "every outcome dao.stream declares for next reports as exactly one
+            pool signal; the table fails if the contract grows"
+    (let [expected {:dao.stream/ok :dao.stream/ok,
+                    :dao.stream/blocked :dao.stream/blocked,
+                    :dao.stream/end :dao.stream/end,
+                    :dao.stream/gap :dao.stream/gap,
+                    :dao.stream/cursor-mismatch :dao.stream/cursor-mismatch,
+                    :dao.stream/invalid-cursor :dao.stream/invalid-cursor,
+                    :dao.stream/transport-error :dao.stream/transport-error}]
+      (is (= stream/outcomes-next (set (keys expected)))
+          "the table covers the declared set exactly, and fails if it grows")
+      (doseq [[outcome signal] expected]
+        (let [h (mem-handle)
+              s (->ScriptedResultStream (scripted-answer outcome))
+              r (jing/observe-step!
+                  h (jing/observer-state [{:stream s, :cursor ::at}]))]
+          (is (= signal (:signal r))
+              (str outcome " must report as " signal))
+          (if (= :dao.stream/ok outcome)
+            (is (= (jing/segment-key :payload) (:address r)))
+            (is (not (contains? r :address))
+                (str "no address is minted on " outcome))))))))
 
 
 (deftest observer-cursor-advances-only-after-successful-materialization
@@ -544,17 +801,19 @@
                                        :inserted)),
                    :get-content-fn (fn [_ _] nil)}
           s (open-stream {:a 1} :poison {:a 2})
-          state (jing/observer-state [s])
-          r1 (jing/observe-step! good state)]
-      (is (= :ok (:signal r1)))
-      (is (= {:position 1} (get-in (:state r1) [:members 0 :cursor])))
+          r1 (jing/observe-step! good (pool s))]
+      (is (= :dao.stream/ok (:signal r1)))
+      (is (= 1 (get-in (:state r1)
+                       [:members 0 :cursor :dao.stream.ringbuffer/position])))
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
             (jing/observe-step! failing (:state r1))))
-      (is (= {:position 1} (get-in (:state r1) [:members 0 :cursor]))
+      (is (= 1 (get-in (:state r1)
+                       [:members 0 :cursor :dao.stream.ringbuffer/position]))
           "the caller's state must not advance past the failed payload")
       (let [r2 (jing/observe-step! good (:state r1))]
-        (is (= :ok (:signal r2)))
+        (is (= :dao.stream/ok (:signal r2)))
         (is (= (jing/segment-key :poison) (:address r2)))
-        (is (= {:position 2} (get-in (:state r2) [:members 0 :cursor])))))))
+        (is (= 2 (get-in (:state r2)
+                         [:members 0 :cursor :dao.stream.ringbuffer/position])))))))

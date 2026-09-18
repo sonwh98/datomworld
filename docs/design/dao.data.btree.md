@@ -1215,11 +1215,25 @@ clj -M:cljd test                                                     (Dart; requ
   weaker structure (eager `sorted-set-by` + linear `drop-while`, no
   durability at all), so the no-regression intent holds by construction;
   the cljs leg vs psset.cljs remains an open measurement (§7).
-- Deferred, blocked on backend surface: `hydrate-async` and
   `store-tree-async` — `dao.jing` has no async jing handle variant yet, so
   there is nothing real to await; wrapping the sync paths in
   Promise/Future would be API theater. They land with the first async
   backend (dao.jing.remote / IndexedDB), same signatures as §5.4.
+- Landed 2026-09-18 over `dao.jing.remote.async/async-content` (the
+  stepped client's async backend): `(hydrate-async s)` and
+  `(store-tree-async s storage)` return a Promise (cljs) / Completer
+  Future (cljd) / CompletableFuture (JVM); a callback arity
+  `(… on-ok on-err)` is the portable core the tests drive. A
+  `hydration-storage` whose source is an async handle is the async
+  backend's storage: reads stay cache-only; `hydrate!` and the sync
+  `store-tree` throw against it; `store-tree-async` stores into the cache,
+  queues each new segment as unacknowledged on the storage, pushes every
+  queued segment through `request-materialize` (so `:present` answers are
+  verify-read), and resolves the root only when all have acknowledged. A
+  failed segment stays queued, so a retry — even on the already-addressed
+  set, whose `store-tree` is a no-op — re-pushes it before resolving.
+  `hydrate-async` is full-graph (path-precise remains §7) and fetches only
+  addresses the cache lacks. Tests: `test/dao/data/btree_async_test.cljc`.
 
 ### Dependency picture after Phase 4
 

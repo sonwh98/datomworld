@@ -1,39 +1,73 @@
 (ns yang.clojure-test
   (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
-            [dao.stream.ringbuffer]
             [yang.clojure :as yang]
+            [yang.io :as yang-io]
             [yin.vm :as vm]
-            [yin.vm.ast-walker :as ast-walker]))
+            [yin.vm.encoder :as encoder]
+            [yin.vm.module :as module]
+            [yin.vm.test-utils :as tu]))
 
 
-(defn- queue-vm
-  [vm-state datoms]
-  (let [in-stream (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
-        queued-vm (assoc vm-state
-                         :in-stream in-stream
-                         :in-cursor {:position 0})]
-    (ds/append! in-stream (vec datoms))
-    queued-vm))
+;; v1 registered the stream module globally at load time; the v2 composition
+;; registers it in the registry it hands the VM.
+(def ^:private base-vm-opts
+  {:modules (module/register-stream-module (module/default-registry))})
 
 
 (defn compile-and-run
   ([form] (compile-and-run form {} {}))
   ([form env] (compile-and-run form env {}))
   ([form env vm-opts]
-   (let [vm (ast-walker/create-vm (merge {:env env} vm-opts))
-         vm-loaded (queue-vm vm (vm/ast->datoms (yang/compile form)))]
-     (vm/value (vm/run vm-loaded)))))
+   (-> (tu/make-observer-session
+         (tu/create-vm (merge base-vm-opts {:env env} vm-opts)))
+       (tu/queue-ast! (yang/compile form))
+       tu/run-session
+       :consumer
+       vm/value)))
+
+
+(deftest reader-metadata-becomes-occurrence-side-tables
+  (let [form (with-meta '(+ 1 2)
+               {:file "sample.clj" :line 9 :column 3 :note :source-form})
+        ast (yang/compile form)
+        projected (encoder/project
+                    (encoder/source-envelope :program "batch-1" [ast]))
+        tree (first (:yin/batch projected))
+        origin [:source :program "batch-1" 0]]
+    (is (= {:file "sample.clj" :line 9 :column 3 :note :source-form}
+           (meta ast)))
+    (is (some #{[origin (:root tree) [] "sample.clj" 9 3]}
+              (:yin/source-positions projected)))
+    (is (some #{[origin (:root tree) [] :note :source-form]}
+              (:yin/frontend-metadata projected)))))
+
+
+(deftest indexing-reader-injects-nested-source-positions
+  (let [ast (first (yang-io/compile-string "(+ x\n   (* x 2))"))]
+    (is (= {:file "<string>" :line 1 :column 1
+            :end-line 2 :end-column 12}
+           (select-keys (meta ast)
+                        [:file :line :column :end-line :end-column])))
+    (is (= {:file "<string>" :line 2 :column 4
+            :end-line 2 :end-column 11}
+           (select-keys (meta (second (:operands ast)))
+                        [:file :line :column :end-line :end-column])))
+    (is (= {:file "<string>" :line 2 :column 5
+            :end-line 2 :end-column 6}
+           (select-keys (meta (:operator (second (:operands ast))))
+                        [:file :line :column :end-line :end-column])))))
 
 
 (defn compile-program-and-run
   ([forms] (compile-program-and-run forms {} {}))
   ([forms env] (compile-program-and-run forms env {}))
   ([forms env vm-opts]
-   (let [vm (ast-walker/create-vm (merge {:env env} vm-opts))
-         vm-loaded (queue-vm vm (vm/ast->datoms (yang/compile-program forms)))]
-     (vm/value (vm/run vm-loaded)))))
+   (-> (tu/make-observer-session
+         (tu/create-vm (merge base-vm-opts {:env env} vm-opts)))
+       (tu/queue-ast! (yang/compile-program forms))
+       tu/run-session
+       :consumer
+       vm/value)))
 
 
 (deftest test-compile-literals
@@ -311,3 +345,15 @@
                                       (def use-f (fn [x] (f x)))
                                       (def f (fn [x] (* x (* x x))))
                                       (use-f 2)))))))
+
+
+(deftest test-nested-defn-ast-walker
+  (testing "compile-program handles nested defn on the AST walker path"
+    (is (= 42
+           (compile-program-and-run
+             '((def make-adder
+                 (fn [n]
+                   (defn adder
+                     [x]
+                     (+ x n)) adder))
+               ((make-adder 2) 40)))))))

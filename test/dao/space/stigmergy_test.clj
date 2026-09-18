@@ -1,8 +1,9 @@
 (ns dao.space.stigmergy-test
   "Agents collaborating by stigmergy over dao.space: every write is one
   atomic transaction through transactor/transact! on the agent's own
-  :transactor wrapper, every read is query/q or query/match over explicit
-  bounded covered-index DaoStream descriptors. There is no coordinator and no
+  transactor value over a memory-log local stream, every read is query/q or
+  query/match over bounded covered-index coordinates opened with
+  query/open-published!. There is no coordinator and no
   stigmergy API — the conventions (self-stamped provenance, wall-clock
   leases, the [t agent] winner rule) are expressed by the datoms agents
   build and the query forms below (docs/dao.space.stigmergy.md).
@@ -10,7 +11,7 @@
   Publication is explicit: each agent publishes its local stream into one
   shared DaoJing intake pool, and a DaoJing observer over that pool
   materializes the covered indexes into a server-side dao.jing.file content
-  store served over dao.stream.rpc. Publication enqueue alone is not
+  store served by dao.jing.remote/serve-content!. Publication enqueue alone is not
   visibility — the observer is. Readers query the published manifest
   addresses through the server file handle or a remote
   dao.jing.remote/connect-content! client, and the two must agree
@@ -18,7 +19,7 @@
   wall-clock).
 
   The space persists after the run for inspection at target/stigmergy-space.db;
-  readers reach it through explicit bounded DaoStream descriptors."
+  readers reach it through explicit bounded published-index coordinates."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [dao.datom :as datom]
@@ -28,9 +29,9 @@
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.transactor :as transactor]
-            [dao.stream :as ds]
-            [dao.stream.ringbuffer]
-            [dao.stream.rpc.ws :as rpc-ws])
+            [dao.stream :as stream]
+            [dao.stream.memory-log :as memory-log]
+            [dao.stream.ringbuffer :as ringbuffer])
   (:import (java.io File)))
 
 
@@ -59,16 +60,21 @@
     (.mkdirs (.getParentFile fl))
     (when (.exists fl) (.delete fl)))
   (let [store (file/create-content-file space-path)
-        intake (ds/open! {:dao.stream/type :ringbuffer}) ; unbounded:
-        ;; position 0 never
-        ;; evicts
-        srv (rpc-ws/start! (remote/default-handlers store)
-                           (+ 10000 (rand-int 50000)))]
+        ;; capacity chosen so position 0 never evicts during a run: the
+        ;; simulation enqueues at most a few hundred payloads per agent
+        intake (:dao.stream/handle
+                 (ringbuffer/create!
+                   {:dao.stream/type :dao.stream/ringbuffer
+                    :dao.stream.ringbuffer/capacity 65536}))
+        srv (remote/serve-content! (remote/default-handlers store)
+                                   (+ 10000 (rand-int 50000)))]
     (try (binding [*store* store
                    *url* (str "ws://127.0.0.1:" (:port srv))
                    *shared-intake* intake]
            (f))
-         (finally ((:stop! srv)) (ds/close! intake) (jing/close! store)))))
+         (finally ((:stop! srv))
+                  (stream/close! intake)
+                  (jing/close! store)))))
 
 
 (use-fixtures :once space-fixture)
@@ -83,23 +89,34 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Agent-side write convention (test code, not API): one atomic transaction
-;; per entity through the agent's own :transactor wrapper — the wrapper owns
+;; per entity through the agent's own transactor value — the transactor owns
 ;; datom t. Fresh stream-local integer entity id, :dao/agent self-stamp, and
 ;; wall-clock
 ;; :claim/expires = now + lease-ms on claims are ordinary attributes.
 ;; ---------------------------------------------------------------------------
 
+(defn- local-values
+  "Every value currently on a v2 local stream, read from its oldest cursor."
+  [s]
+  (loop [cursor (:dao.stream/cursor (stream/cursor s :dao.stream/oldest))
+         acc []]
+    (let [r (stream/next s cursor)]
+      (if (= :dao.stream/ok (:dao.stream/outcome r))
+        (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))
+        acc))))
+
+
 (defn- open-agent
-  "One logical agent as plain data: its own local ringbuffer stream plus a
-   single-writer :transactor wrapper publishing into the shared intake pool."
+  "One logical agent as plain data: its own local memory-log stream plus a
+   single-writer transactor value publishing into the shared intake pool."
   [id]
-  (let [local (ds/open! {:dao.stream/type :ringbuffer})]
+  (let [local (:dao.stream/handle
+                (memory-log/create! {:dao.stream/type :dao.stream/memory-log}))]
     {:id id,
      :local local,
-     :log (ds/open! {:dao.stream/type :transactor,
-                     :local-stream local,
-                     :intake-pool [*shared-intake*],
-                     :name (str id)})}))
+     :log (transactor/create! {:local-stream local,
+                               :intake-pool [*shared-intake*],
+                               :name (str id)})}))
 
 
 (defn- put-entity!
@@ -108,7 +125,7 @@
    for lease arithmetic, because the transactor owns datom t."
   ([agent entity] (put-entity! agent entity {}))
   ([agent entity {:keys [lease-ms], :or {lease-ms 300000}}]
-   (let [e (+ datom/first-user-id (count (ds/->seq nil (:local agent))))
+   (let [e (+ datom/first-user-id (count (local-values (:local agent))))
          wall-t (System/currentTimeMillis)
          entity (cond-> (assoc entity
                                :db/id e
@@ -120,7 +137,7 @@
 
 
 (defn- publish-and-materialize!
-  "Explicitly publish every agent's :transactor into the shared intake pool,
+  "Explicitly publish every agent's transactor into the shared intake pool,
    then run the DaoJing observer over that pool into the server-side file
    content store until quiescent. Publication enqueue alone is not
    visibility; observer materialization is. Returns the manifest addresses,
@@ -129,14 +146,17 @@
   [agents]
   (let [addresses (mapv (comp :manifest-address transactor/publish! :log)
                         agents)]
-    (loop [st (jing/observer-state [*shared-intake*])]
+    (loop [st (jing/observer-state
+                [{:stream *shared-intake*
+                  :cursor (:dao.stream/cursor
+                            (stream/cursor *shared-intake* :dao.stream/oldest))}])]
       (let [r (jing/observe-step! *store* st)]
         (case (:signal r)
-          :ok (recur (:state r))
-          :blocked addresses
-          :end addresses
-          :daostream/gap (throw (ex-info "test observer hit a gap"
-                                         {:result r})))))))
+          :dao.stream/ok (recur (:state r))
+          :dao.stream/blocked addresses
+          :dao.stream/end addresses
+          (throw (ex-info "test observer hit a gap or defect"
+                          {:result r})))))))
 
 
 (defn- published-source-pool
@@ -163,9 +183,9 @@
       (mapcat (fn [source]
                 (mapcat (fn [[e a v t _m]]
                           (cond-> [[e a v]] (= a :claim/by) (conj [e a v t])))
-                        (let [stream (ds/open! source)]
-                          (try (query/current-state-seq (ds/strict-vec stream))
-                               (finally (ds/close! stream)))))))
+                        (let [opened (query/open-published! source)]
+                          (try (query/current-state-seq (query/rows opened))
+                               (finally (query/close-published! opened)))))))
       (published-source-pool content-store (publish-and-materialize! agents)))))
 
 
@@ -359,29 +379,35 @@
         {before :e} (put-entity! agent {:marker/id "pre-index"})
         addr-a (first (publish-and-materialize! [agent]))]
     (testing "a published manifest is an immutable snapshot of its stream"
-      (is (= #{[before "pre-index"]}
-             (qv '[:find ?e ?id :where [?e :marker/id ?id]]
-                 (query/current (index/published-index {:dao.jing/type
-                                                        :dao.jing/file,
-                                                        :path space-path}
-                                                       addr-a))))))
+      (let [opened (query/open-published!
+                     (index/published-index {:dao.jing/type :dao.jing/file,
+                                             :path space-path}
+                                            addr-a))]
+        (try (is (= #{[before "pre-index"]}
+                    (qv '[:find ?e ?id :where [?e :marker/id ?id]]
+                        (query/current opened))))
+             (finally (query/close-published! opened)))))
     (let [{after :e} (put-entity! agent {:marker/id "post-index"})
           addr-b (first (publish-and-materialize! [agent]))]
       (testing "a fresh manifest after more appends folds old and new data"
         (is (not= addr-a addr-b))
-        (is (= #{[before "pre-index"] [after "post-index"]}
-               (qv '[:find ?e ?id :where [?e :marker/id ?id]]
-                   (query/current (index/published-index {:dao.jing/type
-                                                          :dao.jing/file,
-                                                          :path space-path}
-                                                         addr-b))))))
+        (let [opened (query/open-published!
+                       (index/published-index {:dao.jing/type :dao.jing/file,
+                                               :path space-path}
+                                              addr-b))]
+          (try (is (= #{[before "pre-index"] [after "post-index"]}
+                      (qv '[:find ?e ?id :where [?e :marker/id ?id]]
+                          (query/current opened))))
+               (finally (query/close-published! opened)))))
       (testing "the earlier snapshot is untouched"
-        (is (= #{[before "pre-index"]}
-               (qv '[:find ?e ?id :where [?e :marker/id ?id]]
-                   (query/current (index/published-index {:dao.jing/type
-                                                          :dao.jing/file,
-                                                          :path space-path}
-                                                         addr-a)))))))))
+        (let [opened (query/open-published!
+                       (index/published-index {:dao.jing/type :dao.jing/file,
+                                               :path space-path}
+                                              addr-a))]
+          (try (is (= #{[before "pre-index"]}
+                      (qv '[:find ?e ?id :where [?e :marker/id ?id]]
+                          (query/current opened))))
+               (finally (query/close-published! opened))))))))
 
 
 (deftest transport-transparency
@@ -395,19 +421,22 @@
                     server-side file content handle and the remote content
                     client — the rpc is invisible, and the datoms are durable
                     in the file store"
-            (is (= (qv '[:find ?e ?a ?v :where [?e ?a ?v]]
-                       (query/current (index/published-index {:dao.jing/type
-                                                              :dao.jing/file,
-                                                              :path space-path}
-                                                             address)))
-                   (qv '[:find ?e ?a ?v :where [?e ?a ?v]]
-                       (query/current (index/published-index
-                                        {:dao.jing/type :dao.jing/remote,
-                                         :url *url*}
-                                        address)))))
-            (is (contains? (qv '[:find ?id :where [_ :probe/id ?id]]
-                               (query/current
-                                 (index/published-index
-                                   {:dao.jing/type :dao.jing/remote, :url *url*}
-                                   address)))
-                           ["wire"]))))))))
+            (let [file-opened (query/open-published!
+                                (index/published-index
+                                  {:dao.jing/type :dao.jing/file,
+                                   :path space-path}
+                                  address))
+                  remote-opened (query/open-published!
+                                  (index/published-index
+                                    {:dao.jing/type :dao.jing/remote,
+                                     :url *url*}
+                                    address))]
+              (try (is (= (qv '[:find ?e ?a ?v :where [?e ?a ?v]]
+                              (query/current file-opened))
+                          (qv '[:find ?e ?a ?v :where [?e ?a ?v]]
+                              (query/current remote-opened))))
+                   (is (contains? (qv '[:find ?id :where [_ :probe/id ?id]]
+                                      (query/current remote-opened))
+                                  ["wire"]))
+                   (finally (query/close-published! file-opened)
+                            (query/close-published! remote-opened))))))))))

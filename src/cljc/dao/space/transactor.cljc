@@ -1,47 +1,56 @@
 (ns dao.space.transactor
-  "The `:transactor` stream: a single-writer wrapper over an explicit local
-   `dao.stream` plus an explicit DaoJing intake pool (docs/design/dao.jing.md,
-   Publication from an agent).
+  "The agent-side transactor: a plain value with explicit named operations
+   over an explicit local dao.stream handle plus an explicit intake pool
+   of dao.stream writers (docs/design/dao.jing.md, Publication from an
+   agent; docs/design/dao.space.transactor.md).
 
-   Descriptor:
+   A transactor is not a stream in v2 — it is an interpreter over one
+   (dao.stream.md, Composition): append!/transact! allocate transaction time
+   and write transaction records through the local stream's writer surface,
+   and reads go through the caller's own local handle, which the transactor
+   never owns.
 
-     {:dao.stream/type :transactor
-      :local-stream s   ; must satisfy IDaoStreamReader and IDaoStreamWriter;
+   Spec (create!):
+
+     {:local-stream s   ; must satisfy stream/reader? and stream/writer?;
                         ; supplied, never created, registered, or closed
-      :intake-pool [p]  ; non-empty; every member satisfies IDaoStreamWriter;
+      :intake-pool [p]  ; non-empty; every member satisfies stream/writer?;
                         ; supplied, never created, registered, or closed
       :name n}          ; optional, diagnostic only
+
+   create! validates surfaces, never retention: stream/reader? and
+   stream/writer? do not establish the complete retention the history scan
+   requires. The host composition supplies a handle created by
+   dao.stream.memory-log/create!; supplying an evicting transport is a
+   host-assembly defect (detectable, deliberately not checked — T18,
+   docs/design/dao.space.transactor.md).
 
    The transactor owns transaction time. Every append! or transact! writes
    exactly ONE atomic transaction record to the local stream
 
      {:dao.space/transaction {:t <nonnegative-integer> :datoms [...]}}
 
-   through exactly one ds/append!, so no reader can ever observe a torn
-   transaction. t is allocated from a per-wrapper watermark: on open the
-   retained history is scanned from cursor zero (index/snapshot-datoms) and
-   the next t is derived as 0 for an empty history or 1 + the maximum
-   integer datom t otherwise. A retention gap or malformed history throws.
-   The scan is the causality boundary; a caller-supplied next-t is never
-   accepted.
+   through exactly one local append, so no reader can ever observe a torn
+   transaction. t is allocated from a per-value watermark: on create! the
+   retained history is read from its origin (index/snapshot-datoms) and the
+   next t is derived as 0 for an empty history or 1 + the maximum integer
+   datom t otherwise. A malformed history throws. The scan is the causality
+   boundary; a caller-supplied next-t is never accepted.
 
-   Single-writer: calls through one wrapper are serialized around timestamp
-   allocation and append. The watermark is per-wrapper state, so two wrappers over
-   the same local stream each derive the same next-t and silently write
-   colliding records. That is invalid and cannot be silently coordinated
-   without shared mutable state. Use one wrapper per local stream.
-
-   publish! builds the covered indexes over the local stream and enqueues
-   them into the intake pool (dao.space.index/publish-index!). Publication
-   is explicit and acknowledges enqueuing only, never observer
+   Operational outcomes are data; argument defects keep throwing. The
+   watermark advances if and only if the local append answered
+   :dao.stream/ok, so retrying the identical call re-attempts the identical
+   t. publish! builds the covered indexes over the local stream and
+   enqueues them into the intake pool (dao.space.index/publish-index!).
+   Publication is explicit and acknowledges enqueuing only, never observer
    materialization.
 
-   Closing a wrapper is per handle: it rejects further appends/transacts but
-   neither closes nor erases the local stream."
+   Closing is per value: it rejects further appends/transacts with
+   {:dao.stream/outcome :dao.stream/closed} but neither closes nor erases
+   the local stream or the intake pool."
   (:require [dao.datom :as datom]
             [dao.space.index :as index]
-            [dao.stream :as ds])
-  #?(:cljs (:require-macros [dao.stream])))
+            [dao.stream :as stream]))
 
 
 (defn- entity->datoms
@@ -105,26 +114,11 @@
      :default (f)))
 
 
-(defn- append-packet!
-  "Append one atomic transaction record to the local stream. The watermark
-   advances only after the underlying ds/append! answers {:result :ok}; on
-   any other result or on a thrown error the wrapper keeps the same t and
-   the call can be retried. Returns {:result :ok, :t t, :datoms datoms}."
-  [local-stream next-t t datoms context]
-  (let [record {:dao.space/transaction {:t t, :datoms datoms}}
-        result (ds/append! local-stream record)]
-    (when-not (and (map? result) (= :ok (:result result)))
-      (throw (ex-info (str context " stream append failed: " (pr-str result))
-                      {:result result, :t t, :datoms datoms})))
-    (swap! next-t inc)
-    {:result :ok, :t t, :datoms datoms}))
-
-
 (defn- derive-next-t
   "Derive the next transaction time from a flattened retained history: 0 for
    an empty history, else 1 + the maximum datom t. A datom t that is not a
    non-negative integer is a malformed history and throws — this scan is the
-   causality boundary of the wrapper."
+   causality boundary of the value."
   [datoms]
   (if (empty? datoms)
     0
@@ -137,75 +131,141 @@
       (inc (reduce max ts)))))
 
 
-(deftype DaoStreamLog
-  [local-stream intake-pool stream-name next-t state]
-
-  ds/IDaoStreamWriter
-
-  (append!
-    [_this val]
-    (with-write-lock
-      next-t
-      (fn []
-        (when (:closed @state)
-          (throw (ex-info "Cannot append to closed stream"
-                          {:name stream-name})))
-        (let [t @next-t
-              datoms (val->datoms val t)]
-          (when (empty? datoms)
-            (throw (ex-info "append! produced no datoms" {:val val})))
-          (append-packet! local-stream next-t t datoms "append!")))))
-
-
-  ds/IDaoStreamReader
-
-  (next [_this cursor] (ds/next local-stream cursor))
-
-
-  ds/IDaoStreamBound
-
-  (close!
-    [_this]
-    (with-write-lock next-t
-      (fn [] (swap! state assoc :closed true) {:woke []})))
+(defn- append-packet!
+  "Append one atomic transaction record to the local stream. The answer is
+   validated with the contract's own validator before it is interpreted:
+   :dao.stream/ok advances the watermark and returns the v2 receipt; any
+   other conforming outcome is returned as data with the watermark
+   unchanged, so the same t is still pending and retrying the identical
+   call re-attempts it; a non-outcome answer is folded to
+   :dao.stream/transport-error with the raw answer retained under
+   :dao.stream/answer."
+  [local-stream next-t t datoms]
+  (let [record {:dao.space/transaction {:t t, :datoms datoms}}
+        answer (stream/append! local-stream record)]
+    (if-not (stream/valid-outcome? :append! answer)
+      {:dao.stream/outcome :dao.stream/transport-error
+       :dao.stream/answer answer}
+      (do (when (= :dao.stream/ok (:dao.stream/outcome answer))
+            (swap! next-t inc))
+          (if (= :dao.stream/ok (:dao.stream/outcome answer))
+            {:dao.stream/outcome :dao.stream/ok
+             :dao.space/t t
+             :dao.space/datoms datoms}
+            answer)))))
 
 
-  (closed? [_this] (:closed @state)))
+(defn create!
+  "Create a transactor value from a spec — the value, or a throw: the
+   failure modes are a malformed spec and a malformed retained history,
+   both of which a caller can only abort on.
 
-
-(ds/defopen
-  :transactor
-  [descriptor]
-  (let [{:keys [local-stream intake-pool name]} descriptor
-        stream-name (or name "transactor")]
-    (when (contains? descriptor :next-t)
+   Validates surfaces, never retention (D2/T18): stream/reader? and
+   stream/writer? check the dao.stream reader and writer surfaces, and
+   neither establishes the complete-retention transport the history scan
+   requires. The host composition supplies a handle created by
+   dao.stream.memory-log/create!; supplying an evicting transport is a
+   host-assembly defect — detectable, deliberately not checked, because a
+   type check would couple dao.space to memory-log by name and reject a
+   future correct complete-retention transport."
+  [spec]
+  (when-not (map? spec)
+    (throw
+      (ex-info
+        "transactor spec must be a map"
+        {:spec spec})))
+  (let [{:keys [local-stream intake-pool name]} spec]
+    (when (contains? spec :next-t)
       (throw
         (ex-info
-          ":transactor derives transaction time from retained history; :next-t is not accepted"
-          {:descriptor descriptor})))
-    (when-not (and (satisfies? ds/IDaoStreamReader local-stream)
-                   (satisfies? ds/IDaoStreamWriter local-stream))
+          "the transactor derives transaction time from retained history; :next-t is not accepted"
+          {:spec spec})))
+    (when-not (and (stream/reader? local-stream)
+                   (stream/writer? local-stream))
       (throw
         (ex-info
-          ":transactor descriptor requires a :local-stream satisfying IDaoStreamReader and IDaoStreamWriter"
-          {:descriptor descriptor})))
+          "transactor spec requires a :local-stream satisfying the dao.stream reader and writer surfaces"
+          {:spec spec})))
     (when-not (and (coll? intake-pool) (seq intake-pool))
       (throw
         (ex-info
-          ":transactor descriptor requires a non-empty :intake-pool of streams satisfying IDaoStreamWriter"
-          {:descriptor descriptor})))
+          "transactor spec requires a non-empty :intake-pool of streams satisfying the dao.stream writer surface"
+          {:spec spec})))
     (doseq [intake intake-pool]
-      (when-not (satisfies? ds/IDaoStreamWriter intake)
+      (when-not (stream/writer? intake)
         (throw
           (ex-info
-            ":transactor :intake-pool members must satisfy IDaoStreamWriter"
+            "transactor :intake-pool members must satisfy IDaoStreamWriter"
             {:intake-pool intake-pool}))))
-    (let [next-t (derive-next-t (index/snapshot-datoms local-stream))]
-      (->DaoStreamLog local-stream
-                      intake-pool
-                      stream-name
-                      (atom next-t)
-                      (atom {:closed false})))))
+    (let [t (derive-next-t (index/snapshot-datoms local-stream))]
+      {:dao.space/transactor true
+       :local-stream local-stream
+       :intake-pool intake-pool
+       :name (or name "transactor")
+       :next-t (atom t)
+       :state (atom {:closed false})})))
+
+
+(defn append!
+  "Append one entity map or datom vector as a single atomic transaction.
+   Answers the v2 receipt on ok — {:dao.stream/outcome :dao.stream/ok
+   :dao.space/t t :dao.space/datoms datoms} — the local append's conforming
+   outcome as data otherwise (watermark unchanged, same t still pending),
+   and {:dao.stream/outcome :dao.stream/closed} on a closed transactor.
+   A malformed value still throws: it is a defect in the caller's own
+   argument, detected before any stream is touched."
+  [log val]
+  (let [{:keys [local-stream next-t state]} log]
+    (with-write-lock
+      next-t
+      (fn []
+        (if (:closed @state)
+          {:dao.stream/outcome :dao.stream/closed}
+          (let [t @next-t
+                datoms (val->datoms val t)]
+            (when (empty? datoms)
+              (throw (ex-info "append! produced no datoms" {:val val})))
+            (append-packet! local-stream next-t t datoms)))))))
+
+
+(defn transact!
+  "Commits a non-empty collection of entity maps or datom vectors as a
+  single atomic transaction: every datom shares one allocated t and lands
+  in one transaction record through exactly one local append, so no partial
+  prefix is possible. Answers the v2 receipt on ok, the local append's
+  conforming outcome as data otherwise, and
+  {:dao.stream/outcome :dao.stream/closed} on a closed transactor. Throws
+  when the collection is empty, any item is invalid, or the expansion
+  yields no datoms."
+  [log tx-data]
+  (when (empty? tx-data)
+    (throw (ex-info "transact! requires at least one transaction item"
+                    {:tx-data tx-data})))
+  (let [{:keys [local-stream next-t state]} log]
+    (with-write-lock
+      next-t
+      (fn []
+        (if (:closed @state)
+          {:dao.stream/outcome :dao.stream/closed}
+          (let [t @next-t
+                datoms (into [] (mapcat #(val->datoms % t)) tx-data)]
+            (when (empty? datoms)
+              (throw (ex-info "transact! produced no datoms" {:tx-data tx-data})))
+            (append-packet! local-stream next-t t datoms)))))))
+
+
+(defn close!
+  "Close this transactor value: further append!/transact! answer
+   {:dao.stream/outcome :dao.stream/closed} rather than throwing. Per
+   value — neither the local stream nor the intake pool is closed or
+   erased. Idempotent; linearizes after an in-flight append."
+  [log]
+  (let [{:keys [next-t state]} log]
+    (with-write-lock
+      next-t
+      (fn []
+        (swap! state assoc :closed true)
+        {:dao.stream/outcome :dao.stream/ok}))))
 
 
 (defn publish!
@@ -216,29 +276,5 @@
    explicit and acknowledges enqueuing only, never observer
    materialization."
   ([log] (publish! log nil))
-  ([^DaoStreamLog log opts]
-   (index/publish-index! (.-local-stream log) (.-intake-pool log) opts)))
-
-
-(defn transact!
-  "Commits a non-empty collection of entity maps or datom vectors as a
-  single atomic transaction: every datom shares one allocated t and lands
-   in one transaction record through exactly one ds/append!, so no partial
-   prefix is possible. Throws when the stream is closed, the collection is
-   empty, any item is invalid, or the expansion yields no datoms."
-  [^DaoStreamLog log tx-data]
-  (when (empty? tx-data)
-    (throw (ex-info "transact! requires at least one transaction item"
-                    {:tx-data tx-data})))
-  (let [next-t (.-next-t log)]
-    (with-write-lock
-      next-t
-      (fn []
-        (when (ds/closed? log)
-          (throw (ex-info "Cannot transact! to closed stream"
-                          {:name (.-stream-name log)})))
-        (let [t @next-t
-              datoms (into [] (mapcat #(val->datoms % t)) tx-data)]
-          (when (empty? datoms)
-            (throw (ex-info "transact! produced no datoms" {:tx-data tx-data})))
-          (append-packet! (.-local-stream log) next-t t datoms "transact!"))))))
+  ([log opts]
+   (index/publish-index! (:local-stream log) (:intake-pool log) opts)))

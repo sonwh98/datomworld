@@ -1,0 +1,306 @@
+(ns dao.stream.cbor.cljd
+  "The Dart half of the `dao.stream.cbor` codec, over the pub.dev `cbor`
+   package (pinned 6.5.1) — no hand-rolled binary parser.
+
+   The wrapper, not the dependency, owns the closed portable domain and its
+   byte-level agreement with Boring on the JVM and ClojureScript:
+
+   * tag 39 identifiers (`:ns/name` text, colon-prefixed for keywords),
+   * tag 258 sets and the `clojure/with-meta` tag 27 frame for metadata,
+   * the stream's own `dao.stream/list` tag 27 frame (payload
+     `[metadata elements]`) keeping lists distinct from vectors,
+   * definite-length containers, bytewise-sorted map keys and set elements,
+     shortest lossless floats — Boring's `:canonical` rules.
+
+   Decoding additionally re-encodes and byte-compares: the package
+   materializes maps through Dart `Map`s (last write wins), so duplicate map
+   keys on the wire are detected here rather than silently collapsed."
+  (:require ["package:cbor/cbor.dart" :as cbor]
+            [clojure.string :as str])
+  (:import ["dart:core" Type]
+           ["dart:typed_data" Uint8List]))
+
+
+(def safe-integer-limit 9007199254740991)
+
+
+(defn- no-tags?
+  [v]
+  (zero? (count (.-tags v))))
+
+
+(defn- only-tag?
+  "True when v carries exactly one tag and it is `t`."
+  [v t]
+  (and (= 1 (count (.-tags v))) (= t (nth (.-tags v) 0))))
+
+
+(defn- bytes-compare
+  "Bytewise order, a proper prefix sorting first — Boring's canonical rule."
+  [a b]
+  (let [n (min (count a) (count b))]
+    (loop [i 0]
+      (if (= i n)
+        (- (count a) (count b))
+        (let [d (- (nth a i) (nth b i))]
+          (if (zero? d) (recur (inc i)) d))))))
+
+
+(defn- bytes=
+  [a b]
+  (and (= (count a) (count b)) (zero? (bytes-compare a b))))
+
+
+(defn- in-canonical-order
+  "Reorder encoded items by each item's own encoded bytes: set elements
+   directly, map entries by their encoded key."
+  [items item->cbor]
+  (->> items
+       (mapv (fn [item] [(cbor/cborEncode (item->cbor item)) item]))
+       (sort (fn [a b] (bytes-compare (first a) (first b))))
+       (mapv second)))
+
+
+(defn strip-constructor-meta
+  "Drop ClojureDart's own compiler metadata: the call-site map whose `:tag`
+   value is a Dart `Type` (every `(list ...)` call result carries one).
+   That metadata is compiler emission, never user data — a user's own
+   `with-meta` replaces it wholesale — and treating it as data would both
+   reject fresh Dart lists from the portable domain and diverge from the
+   frozen Boring bytes.  The `:tag` Type is the marker, and only it: the
+   tag-less `{:line ... :column ... :end-line ... :end-column ...}` map is
+   this codebase's reader-position metadata, carried on every host, and
+   crosses the wire like any other user data."
+  [m]
+  (if (and (map? m) (dart/is? (:tag m) Type))
+    nil
+    m))
+
+
+(defn byte-payload?
+  "True for the host byte payload the codec writes as a CBOR byte string
+   (major type 2): Uint8List here, Boring's byte[]/Uint8Array elsewhere."
+  [x]
+  (dart/is? x Uint8List))
+
+
+;; ---------------------------------------------------------------------------
+;; Encoding: portable value -> CborValue tree -> canonical bytes
+;; ---------------------------------------------------------------------------
+
+
+(defn- identifier-text
+  "The tag 39 text for one identifier: Boring's colon-prefix + slash-joined
+   form.  The domain gate has already rejected identifiers this form cannot
+   round-trip."
+  [x]
+  (let [body (if-some [ns (namespace x)]
+               (str ns "/" (name x))
+               (name x))]
+    (if (keyword? x) (str ":" body) body)))
+
+
+(declare to-cbor)
+
+
+(defn- definite-list
+  [items]
+  (cbor/CborList. items .type cbor/CborLengthType.definite))
+
+
+(defn- named-frame
+  "One tag 27 frame: [name payload]."
+  [name payload]
+  (cbor/CborList.
+    [(cbor/CborString. name) payload]
+    .tags [27]
+    .type cbor/CborLengthType.definite))
+
+
+(defn- to-cbor-set
+  [x]
+  (cbor/CborList. (in-canonical-order (mapv to-cbor x) identity)
+                  .tags [258]
+                  .type cbor/CborLengthType.definite))
+
+
+(defn- to-cbor-map
+  [x]
+  (let [entries (in-canonical-order
+                  (mapv (fn [entry]
+                          [(to-cbor (key entry)) (to-cbor (val entry))])
+                        x)
+                  first)]
+    ;; fromIterables, not fromEntries + MapEntry interop: ClojureDart's
+    ;; MapEntry constructor satisfies no MapEntry<CborValue,CborValue>
+    ;; generic bound, and dart:core's Map.fromIterables re-pairs the two
+    ;; already-sorted sequences without one.
+    (cbor/CborMap.fromIterables
+      (mapv first entries)
+      (mapv second entries)
+      .type cbor/CborLengthType.definite)))
+
+
+(defn to-cbor
+  "Build the CborValue tree for one portable value."
+  [x]
+  (cond
+    (nil? x) (cbor/CborNull.)
+    (true? x) (cbor/CborBool. true)
+    (false? x) (cbor/CborBool. false)
+    (int? x) (cbor/CborSmallInt. x)
+    (double? x) (cbor/CborFloat. x)
+    (string? x) (cbor/CborString. x)
+    ;; before the identifier branch and as a plain value: a host byte
+    ;; payload is a CBOR byte string (major 2), never a tagged carrier —
+    ;; Boring writes its byte-string type the same way, so the bytes agree
+    (dart/is? x Uint8List) (cbor/CborBytes. x)
+    (or (keyword? x) (symbol? x))
+    ;; `when`, not `and`: if-some binds false as a value, and a keyword's
+    ;; (symbol? x) guard must reduce to nil, never a false "metadata" map.
+    (if-some [m (when (symbol? x)
+                  (some-> (meta x) strip-constructor-meta))]
+      (named-frame
+        "clojure/with-meta"
+        (definite-list [(to-cbor m) (cbor/CborString. (identifier-text x) .tags [39])]))
+      (cbor/CborString. (identifier-text x) .tags [39]))
+    (list? x) (named-frame
+                "dao.stream/list"
+                (definite-list [(to-cbor (some-> (meta x) strip-constructor-meta))
+                                (definite-list (mapv to-cbor x))]))
+    (vector? x) (if-some [m (some-> (meta x) strip-constructor-meta)]
+                  (named-frame
+                    "clojure/with-meta"
+                    (definite-list [(to-cbor m) (definite-list (mapv to-cbor x))]))
+                  (definite-list (mapv to-cbor x)))
+    (set? x) (if-some [m (some-> (meta x) strip-constructor-meta)]
+               (named-frame
+                 "clojure/with-meta"
+                 (definite-list [(to-cbor m) (to-cbor-set x)]))
+               (to-cbor-set x))
+    (map? x) (if-some [m (some-> (meta x) strip-constructor-meta)]
+               (named-frame
+                 "clojure/with-meta"
+                 (definite-list [(to-cbor m) (to-cbor-map x)]))
+               (to-cbor-map x))
+    :else (throw (ex-info "value is outside the dao.stream.cbor portable domain"
+                          {:value x}))))
+
+
+(defn encode
+  "Encode one portable value as canonical CBOR bytes."
+  [value]
+  (Uint8List.fromList (cbor/cborEncode (to-cbor value))))
+
+
+;; ---------------------------------------------------------------------------
+;; Decoding: bytes -> CborValue tree -> portable value
+;; ---------------------------------------------------------------------------
+
+
+(defn- out-of-profile
+  [detail]
+  (throw (ex-info "cbor value outside the stream profile" detail)))
+
+
+(defn- from-tag39
+  "Rebuild an identifier from its tag 39 text, splitting the namespace at the
+   first slash exactly as Boring's reader does."
+  [s]
+  (let [body (if (str/starts-with? s ":") (subs s 1) s)
+        slash (str/index-of body "/")]
+    (if slash
+      ((if (str/starts-with? s ":") keyword symbol)
+       (subs body 0 slash) (subs body (inc slash)))
+      ((if (str/starts-with? s ":") keyword symbol) body))))
+
+
+(declare from-cbor)
+
+
+(defn- from-named-frame
+  "Decode one tag 27 frame: the stream's two names only."
+  [name payload]
+  (let [name (str name)]
+    (when-not (or (= name "dao.stream/list") (= name "clojure/with-meta"))
+      (out-of-profile {:frame name}))
+    (when-not (= 2 (count payload))
+      (out-of-profile {:frame name}))
+    (if (= name "dao.stream/list")
+      (let [metadata (nth payload 0)
+            elements (nth payload 1)]
+        (when-not (dart/is? elements cbor/CborList)
+          (out-of-profile {:frame name}))
+        ;; with-meta nil clears ClojureDart's constructor metadata, so a
+        ;; metadata-free decoded list matches every other host's.
+        (with-meta (apply list (mapv from-cbor elements))
+          (from-cbor metadata)))
+      (with-meta (from-cbor (nth payload 1)) (from-cbor (nth payload 0))))))
+
+
+(defn from-cbor
+  "Convert one CborValue into the portable domain, rejecting everything the
+   profile does not define."
+  [v]
+  (cond
+    (dart/is? v cbor/CborNull)
+    (if (no-tags? v) nil (out-of-profile {:value v}))
+
+    (dart/is? v cbor/CborBool)
+    (if (no-tags? v) (.-value v) (out-of-profile {:value v}))
+
+    (dart/is? v cbor/CborSmallInt)
+    (if (no-tags? v)
+      (let [n (.-value v)]
+        (if (<= (- safe-integer-limit) n safe-integer-limit)
+          n
+          (out-of-profile {:int n})))
+      (out-of-profile {:value v}))
+
+    (dart/is? v cbor/CborFloat)
+    (if (no-tags? v) (.-value v) (out-of-profile {:value v}))
+
+    (dart/is? v cbor/CborString)
+    (cond
+      (no-tags? v) (str v)
+      (only-tag? v 39) (from-tag39 (str v))
+      :else (out-of-profile {:value v}))
+
+    ;; A byte string decodes to its bytes — major 2 carries no other
+    ;; meaning in this profile.  The tags guard rejects CborBigInt, which
+    ;; extends CborBytes but rides tags 2/3; that value has no producer
+    ;; here and is out of profile.
+    (dart/is? v cbor/CborBytes)
+    (if (no-tags? v)
+      (Uint8List.fromList (.-bytes v))
+      (out-of-profile {:value v}))
+
+    (dart/is? v cbor/CborList)
+    (cond
+      (no-tags? v) (mapv from-cbor v)
+      (only-tag? v 258) (into #{} (map from-cbor) v)
+      (only-tag? v 27) (from-named-frame (nth v 0) (nth v 1))
+      :else (out-of-profile {:value v}))
+
+    (dart/is? v cbor/CborMap)
+    (if (no-tags? v)
+      (into {}
+            (map (fn [entry] [(from-cbor (key entry)) (from-cbor (val entry))]))
+            v)
+      (out-of-profile {:value v}))
+
+    :else (out-of-profile {:value v})))
+
+
+(defn decode
+  "Decode exactly one canonical CBOR item into the portable domain.
+
+   The trailing byte-compare is the duplicate-map-key guard: the package
+   collapses duplicate keys while materializing Dart Maps, and this is the
+   only point where the collapse is observable."
+  [bytes]
+  (let [tree (cbor/cborDecode bytes)
+        value (from-cbor tree)]
+    (when-not (bytes= bytes (encode value))
+      (out-of-profile {:reason :non-canonical-or-duplicate}))
+    value))

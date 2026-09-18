@@ -214,11 +214,13 @@ This stage consumes the bounded, resolved stream of Universal AST datoms. It doe
 ## 4. CROSS-LANGUAGE MACROS (DYNAMIC PRIMITIVES)
 
 > **Status: design proposal. `yang/cond-expand` and `define-primitive`
-> do not exist.** The existing macro system (`yin.vm.macro`) operates on
-> the datom stream with `:yin/macro-expand` nodes and is language-agnostic
-> (see `docs/cross-language-macro.md`). This section describes how
-> host-specific code injection would layer on top of that system once
-> the Yang preprocessor (section 3) is implemented.
+> do not exist.** The macro system this section built on (`yin.vm.macro`) is
+> deleted (`yin.vm-consumers.implementation-plan.md`, 2026-09-10);
+> `yin.vm` ships a macro-free corpus by construction. `docs/cross-language-macro.md`
+> is now historical. This section describes how host-specific code injection
+> would have layered on top of that system once the Yang preprocessor
+> (section 3) is implemented; it needs a new foundation before it is
+> actionable again.
 
 Extensibility is achieved by allowing the host language to leak through the abstraction purely at compile time. 
 

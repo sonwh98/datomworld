@@ -1,0 +1,47 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"generate_session_title"}
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+All verification complete. Here is the implementation report:
+
+---
+
+# dao.jing.remote v2 — Implementation Report
+
+**Branch:** `jing-remote-impl` (from `dao.stream-redesign-v2@5561e9ab`) · **Left uncommitted per instructions** · 2026-09-18
+
+## 1. The assigned plan is already implemented — verified, not assumed
+
+The prompt asked me to implement `docs/design/dao.jing.remote.implementation-plan.md` Phase 1+. **Every phase of that plan landed on 2026-09-10** and is green on this tree today:
+
+- Phase 0 (JVM send seam) `3228d0e3`; Phase 1 (portable core) `f57bfffa`; Phase 2 (the swap) `3102152a`; D8 (DHT off v1 transit) `dedaf155`.
+- Verified now: `dao.jing.remote-test` **34 tests / 237 assertions / 0 failures**; `dao.space.stigmergy-test` **5/22/0** (the end-to-end proof); §5.5 residue greps **0** in all three files; `reset! (:rpc` confined to `settle!` (N11); all §5.4 doc obligations present (ws.md *Deferred* carries the establishment-cancel gap; consumer list; serve-content! prose).
+
+So I did not rebuild it. The prompt's second instruction — *"build the new async/v2 stream networking layers for B-Tree hydration"* — names the one genuinely unbuilt item in the jing.remote story: the **stepped client**, recorded in `dao.jing.md` *Async hydration* as the async DaoJing backend that `dao.data.btree.md` §5.4's `hydrate-async`/`store-tree-async` wait on, with its full design sketch (API + 17-row lifecycle table) recoverable from the deleted plan at `c3b606f^`. **That is what I built.**
+
+## 2. Built: `dao.jing.remote.step` (uncommitted)
+
+`src/cljc/dao/jing/remote/step.cljc` (+ `test/dao/jing/remote/step_test.cljc`, 17 deftests) — the non-blocking remote handle: `client-state`, `request-put`, `request-get`, `request-materialize`, `step`, `abandon`, all plain data over one `dao.stream.rpc` state, portable to all three hosts, no reader conditionals.
+
+- **State**: `{:rpc r :materializations {put-id record} :routes {live-id put-id}}`; records hold `phase/address/put-id/get-id` — **never a payload** (N11's discipline by construction; pinned by test).
+- **`step` follows the sketch's fixed order**: (1) retry unsent, outcome under `:attempt`; (2) `poll!` budget; (3) terminal ⇒ abandon unsent with the terminal reason; (4) issue `:verify-unissued` reads **in put-id order until full** (terminal ones complete `:lost` synthesized); (5) drain both outboxes once, route by `:routes`.
+- **Verify hop**: `:present` publishes nothing until a read-back hashes to the address — HEAD's `materialize!` rule (`content-hash` vs `segment-hash`), then `:result :present`; mismatches are `/integrity-failure`, absent read-backs `/present-but-absent`, non-conforming values `/malformed-response`. **Deviation from the sketch, deliberately taken:** the sketch's table compares fetched content with the payload via `=`; that text predates metadata-significant addressing, and `=` ignores metadata — HEAD's hash rule is strictly stronger and is what a local `materialize!` does. Recorded in the ns docstring.
+- Total completion decode; one completion per materialization carrying the **put id**; `:busy` while unsent (the sketch's plain keyword); C1 segment-address gates throw before the wire; `abandon` retires only the retained envelope.
+- **JVM wire test** proves the whole composition over a real `serve-content!` endpoint using `await-established-step` (no blocking connect): materialize `:inserted`, get round-trip, re-materialize verifies and answers `:present`.
+
+## 3. Pre-existing defect fixed (outside my file set — flagging for review)
+
+`test/dao/stream/ws/node_test.cljs` (U10a, `4cdd924e`) had **two stacked paren defects** in `transit-and-cbor-clients-round-trip-through-one-listener`: `response` used past its `let`'s close, and the callback closing early so `after` received 12 args (masked — the compiler surfaced only the first). This broke the **entire Node compile lane at HEAD** (verified failing with my files removed). Fixed with three paren relocations; the build is now **0 warnings**. The orchestrator's U16 "Node validated" claim could not have compiled this file — worth a look at how that validation ran.
+
+## 4. Verification
+
+| Lane | Status |
+|---|---|
+| JVM full suite | **1412 tests / 167,595 assertions / 0 failures** (includes my 17) |
+| Node | **compile green** (incl. `step_test`); **runtime blocked in this worktree** — no `node_modules`, `npm install` permission-gated for this delegate; needs `npm install` then `bb test:cljs` |
+| Dart | `clojure -M:cljd test` permission-gated for this session (recurring delegate limitation); code is portable-only, no host branches |
+| kondo | gated; code follows the gated-defns-together rule vacuously (no conditionals) |
+
+## 5. Still owed (unchanged, by design)
+
+The B-tree consumer side — async backend over this client, `hydrate-async`, `store-tree-async` — remains `dao.data.btree.md` §5.4's, per the open item. `dao.jing.md`'s *Async hydration* entry now carries a status note recording the client as built and naming what remains (house U10 precedent).
+
+**Nothing is committed.** Files: `src/cljc/dao/jing/remote/step.cljc`, `test/dao/jing/remote/step_test.cljc` (new); `docs/design/dao.jing.md`, `test/dao/stream/ws/node_test.cljs` (modified).

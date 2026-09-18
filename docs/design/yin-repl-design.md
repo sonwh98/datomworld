@@ -1,5 +1,9 @@
 # Yin REPL Design
 
+> **Status (2026-09-16):** this describes v1 `yin.repl`, deleted by
+> `yin.vm.v1-retirement.implementation-plan.md` U6. The live REPL is
+> `yin.repl`; see `yin.repl.implementation-plan.md`.
+
 ## Overview
 
 The **Yin REPL** is an interactive command-line shell for the Yin VM ecosystem. It operates at the **datom level**, treating everything as data. Users can:
@@ -7,7 +11,7 @@ The **Yin REPL** is an interactive command-line shell for the Yin VM ecosystem. 
 1. Submit raw datom streams `[[e a v t m] ...]` directly to a VM for execution
 2. Submit AST maps `{:type :application ...}` directly
 3. Write source code (Clojure/Python/PHP) which is compiled to datoms via the Yang compiler
-4. Execute shell commands as ordinary function calls: `(vm :register)`, `(telemetry)`, `(quit)`
+4. Execute shell commands as ordinary function calls: `(vm :ast-walker)`, `(telemetry)`, `(quit)`
 
 The Yang compiler is a **tool within the shell**, not the shell itself. Users choose the input modality based on their need.
 
@@ -57,7 +61,7 @@ The **portable core** (`src/cljc/yin/repl.cljc`) contains all shell logic:
 The shell maintains a state atom:
 
 ```clojure
-{:vm-type         :semantic              ; VM backend (semantic | register | stack | ast-walker)
+{:vm-type         :ast-walker            ; VM backend (ast-walker is the only one; yin.vm-consumers.implementation-plan.md deleted the rest)
  :lang            :clojure               ; Input language (clojure | python | php)
  :vm              <vm-instance>          ; Current VM instance (store persists across evals)
  :telemetry-stream nil | <dao.stream>    ; Stream for VM telemetry datoms
@@ -73,7 +77,7 @@ Each eval preserves `:vm` state (its `:store` accumulates `yin/def` bindings), c
 When the user enters input, the shell parses it as EDN and dispatches:
 
 1. **Shell commands** — function calls with head `vm`, `lang`, `compile`, `reset`, `connect`, `disconnect`, `telemetry`, `help`, `quit`
-   - Example: `(vm :register)` → switches to RegisterVM
+   - Example: `(vm :ast-walker)` → resets to a fresh ASTWalkerVM
    - Example: `(telemetry)` → toggles telemetry to stderr
    - Example: `(quit)` → exits
 
@@ -118,7 +122,7 @@ Dispatch shell commands:
 
 | Command | Effect |
 |---------|--------|
-| `(vm :register)` | Switch to RegisterVM (creates fresh, warns about lost store) |
+| `(vm :ast-walker)` | Reset to a fresh ASTWalkerVM (warns about lost store) |
 | `(lang :python)` | Switch input language to Python (no VM change) |
 | `(compile expr)` | Compile expression to AST + datoms; print them; do NOT execute |
 | `(reset)` | Create fresh VM of same type |
@@ -147,13 +151,16 @@ Expose the shell as a WebSocket server. Accept remote clients and dispatch `:op/
 
 ## Shell Commands
 
-### `(vm :register | :semantic | :stack | :ast-walker)`
+### `(vm :ast-walker)`
 
-Switch to a different VM backend. Warns that `:store` state is lost and creates a fresh VM.
+`:ast-walker` is the only supported VM backend; the others
+(`:semantic`, `:register`, `:stack`, `:space`) were deleted under
+`yin.vm-consumers.implementation-plan.md`. Warns that `:store` state is
+lost and creates a fresh VM.
 
 ```clojure
-yin> (vm :register)
-Switched to RegisterVM (store cleared)
+yin> (vm :ast-walker)
+Switched to ASTWalkerVM (store cleared)
 yin> (def x 10)
 nil
 yin> x
@@ -205,7 +212,7 @@ nil
 yin> x
 42
 yin> (reset)
-SemanticVM reset
+ASTWalkerVM reset
 yin> x
 ; Unbound variable: x
 ```
@@ -246,7 +253,7 @@ yin> (+ 1 2)
 3
 ; Stderr receives datom snapshots from the eval
 [root-id :vm/type :vm/snapshot 0 0]
-[root-id :vm/model :semantic 0 0]
+[root-id :vm/model :ast-walker 0 0]
 [root-id :vm/phase :step 0 0]
 ...
 
@@ -354,8 +361,8 @@ When telemetry is enabled, the VM emits `[e a v t m]` datom snapshots to a `dao.
 
 ```clojure
 [root-id :vm/type       :vm/snapshot 0 0]
-[root-id :vm/vm-id      :semantic-vm-1 0 0]
-[root-id :vm/model      :semantic 0 0]
+[root-id :vm/vm-id      :ast-walker-vm-1 0 0]
+[root-id :vm/model      :ast-walker 0 0]
 [root-id :vm/step       123 0 0]
 [root-id :vm/phase      :step 0 0]
 [root-id :vm/blocked?   false 0 0]

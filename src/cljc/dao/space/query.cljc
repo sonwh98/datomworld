@@ -1,145 +1,28 @@
 (ns dao.space.query
-  "The reader-side DaoStream consumer (docs/design/dao.space.query.md).
+  "The reader-side index consumer (docs/design/dao.space.query.md).
 
-   `q` takes only bounded DaoStreams as database inputs: either an
-   exact-bound serializable descriptor (`:dao.stream/type` +
-   `:dao.stream/bound`) or an already-opened, closed, fully-retained
-   realization. Structural dispatch checks realization first, then
-   descriptor; raw vectors and maps are rejected. `q` returns a local,
-   closed, distinct-result DaoStream realization and `collect` materializes
-   it into the relation/scalar/tuple/collection/return-map shapes.
+   An embeddable Peer over finite relations of tuples: positional `match`,
+   Datalog `q` and `pull` above them, with `current` and `history` as the
+   two explicit interpreters of canonical d5 datoms. The library is pure and
+   stateless: it owns no durable state, never writes, and enforces no
+   schema. It never opens and never closes an input — every database input
+   is a value the caller constructed:
 
-   `current` and `history` are the explicit d5 interpreters: pure semantic
-   view values interpreted by q/match/pull for descriptor input, and read-only
-   closed derived borrowed realizations for realization input. They alone interpret
-   canonical d5; raw transaction streams flatten envelopes, covered-index
-   inputs already expose d5 rows. Same-`[e a v t]` rows with conflicting `m`
-   are rejected.
+   - a relation value (`relation`, `entity-map-relation`, `fact-relation`);
+   - a datom view over a value (`current`, `history`);
+   - an opened published index (`open-published!`, released by the caller
+     through `close-published!`).
 
-   Source scope is interpreter context, never a tuple slot. The library
-   owns no durable or global state; its only stateful act is owning the
-   streams it opens for one query execution."
+   Raw vectors and raw maps are not database inputs and throw. A live
+   dao.stream handle becomes an input only through `snapshot`, the one
+   place this namespace touches v2. Source scope is interpreter context,
+   never a tuple slot."
   (:require [dao.datom :as datom]
+            [dao.jing :as jing]
+            [dao.jing.coordinate :as jing-coordinate]
             [dao.space.index :as index]
-            [dao.stream :as ds]
-            [dao.stream.relation :as dsr])
-  #?(:cljs (:require-macros [dao.stream])))
-
-
-;; =============================================================================
-;; Bounded read-only realizations (local runtime state, never serialized)
-;; =============================================================================
-
-(defn- bounded-next
-  "Cursor-based read over an in-memory vector of retained values. A closed
-   bounded stream returns :end at or past its tail, never :blocked."
-  [rows cursor]
-  (let [pos (:position cursor)]
-    (if (< pos (count rows))
-      {:ok (nth rows pos), :cursor {:position (inc pos)}}
-      :end)))
-
-
-(defrecord ViewStream
-  [rows fact?]
-  ;; A read-only, closed, bounded derived realization: `current`/`history`
-  ;; over an already-opened borrowed source. `fact?` advertises whether the
-  ;; retained rows are current d3 facts (so pull/get-else/missing? can
-  ;; index them). It borrows its source (never closes it) and is always
-  ;; closed.
-  ds/IDaoStreamReader
-
-  (next [_ cursor] (bounded-next rows cursor))
-
-
-  ds/IDaoStreamBound
-
-  (close! [_] {:woke []})
-
-
-  (closed? [_] true))
-
-
-(defrecord QueryResultStream
-  [rows spec return-map-key return-map-keys]
-  ;; The result of `q`: a local bounded distinct-result realization. It
-  ;; carries the find spec so `collect` can materialize the correct shape.
-  ds/IDaoStreamReader
-
-  (next [_ cursor] (bounded-next rows cursor))
-
-
-  ds/IDaoStreamBound
-
-  (close! [_] {:woke []})
-
-
-  (closed? [_] true))
-
-
-(defn- make-query-result-stream
-  [rows spec return-map-key return-map-keys]
-  (->QueryResultStream (vec rows) spec return-map-key return-map-keys))
-
-
-(defn- quiet-close!
-  [stream]
-  (try (ds/close! stream)
-       (catch #?(:clj Throwable
-                 :cljs :default
-                 :cljd Object)
-              _
-         nil)))
-
-
-(defn ^:no-doc close-owned!
-  [owned]
-  (doseq [s owned] (quiet-close! s)))
-
-
-;; =============================================================================
-;; Structural input dispatch
-;; =============================================================================
-
-(defn- realization?
-  [x]
-  (satisfies? ds/IDaoStreamReader x))
-
-
-(defn- validate-borrowed!
-  "An already-opened realization is borrowed. It must satisfy IDaoStreamBound
-   and already be closed so its retained prefix is a finite snapshot."
-  [x]
-  (when-not (satisfies? ds/IDaoStreamBound x)
-    (throw (ex-info "borrowed query input must satisfy IDaoStreamBound"
-                    {:input x})))
-  (when-not (ds/closed? x)
-    (throw (ex-info
-             "borrowed query input must be closed (a finite retained snapshot)"
-             {:input x})))
-  x)
-
-
-(defn- validate-descriptor!
-  "A query db descriptor is a map carrying :dao.stream/type and an exact
-   :dao.stream/bound. Raw vectors, raw maps, and create-only/unbounded
-   descriptors are rejected."
-  [x]
-  (when-not (map? x)
-    (throw
-      (ex-info
-        "query db input must be an exact-bound descriptor or an opened realization; raw vectors and maps are rejected"
-        {:input x})))
-  (when-not (keyword? (:dao.stream/type x))
-    (throw (ex-info
-             "query db descriptor must carry a :dao.stream/type discriminator"
-             {:input x})))
-  (let [b (:dao.stream/bound x)]
-    (when-not (ds/exact-bound? b)
-      (throw (ex-info
-               "query db descriptor must carry an exact :dao.stream/bound"
-               {:input x}))))
-  x)
+            [dao.stream :as stream]
+            [dao.stream.observe :as observe]))
 
 
 ;; =============================================================================
@@ -147,11 +30,10 @@
 ;; =============================================================================
 
 (defn- flatten-datoms
-  "Flatten one source's stream elements into canonical d5 rows. An element is
+  "Flatten one source's row elements into canonical d5 rows. An element is
    either a canonical d5 vector `[e a v t m]` or an atomic transaction record
    `{:dao.space/transaction {:t n :datoms [...]}}`; the record is flattened
-   into its datoms. A covered-index realization already contains d5 rows, so
-   it does not flatten a second time."
+   into its datoms."
   [elements]
   (into
     []
@@ -254,69 +136,194 @@
 
 
 ;; =============================================================================
-;; Descriptor constructors and the current/history view transformers
+;; Query values: relation, view, opened published index (Decision 2)
 ;; =============================================================================
 
+(defn value?
+  "True for the query values q/match/pull take as database inputs: a
+   relation value, a datom view, or an opened published index. Raw vectors
+   and raw maps answer false."
+  [x]
+  (and (map? x)
+       (or (contains? x :dao.space.query/relation)
+           (contains? x :dao.space.query/view)
+           (contains? x :dao.space.query/published))))
+
+
 (defn relation
-  "An in-memory bounded relation descriptor. Its retained contents are an
-   arbitrary, mixed-dimensional tuple relation; arity never selects an
+  "An in-memory relation value. Its retained contents are an arbitrary,
+   mixed-dimensional tuple collection; arity never selects an
    interpretation. This is the replacement for the direct raw-vector input."
   [tuples]
-  (dsr/relation-descriptor tuples))
+  {:dao.space.query/relation (vec tuples)})
 
 
 (defn entity-map-relation
-  "An entity-map relation descriptor: a bounded relation of entity maps,
-   projected explicitly to [e a v] facts on the read side."
+  "An entity-map relation value: a bounded relation of entity maps,
+   projected explicitly to [e a v] facts on the read side. The read side is
+   pure and never mints an entity id, so every map must carry :db/id."
   [maps]
   ;; Normalize at the explicit constructor boundary. The resulting value is
-  ;; the same generic relation descriptor q consumes; no second transport
-  ;; type or opening path is needed merely because the input syntax was
-  ;; maps.
+  ;; the same generic relation value q consumes; no second transport type
+  ;; or opening path is needed merely because the input syntax was maps.
   (relation (entity-maps->d3 maps)))
 
 
+(defn fact-relation
+  "The explicit current-fact relation: d3 rows that are already
+   current-state facts, so the fact index is built for them without a d5
+   pass. dao.space.schema builds these directly."
+  [tuples]
+  (assoc (relation tuples) :fact? true))
+
+
+(defn- snapshot-value?
+  [x]
+  (and (map? x) (contains? x :relation) (contains? x :status)))
+
+
+(defn- db-source
+  "Normalize a current/history source. Query values and snapshots pass
+   through (a snapshot contributes its relation); everything else — raw
+   maps and vectors included — throws."
+  [source]
+  (cond
+    (value? source) source
+    (snapshot-value? source) (:relation source)
+    :else
+    (throw (ex-info "query db input must be a relation value, a datom view, or an opened published index; raw vectors and maps are rejected"
+                    {:input source}))))
+
+
+(defn- view-value
+  [kind source as-of]
+  (cond-> {:dao.space.query/view kind, :source source}
+    (some? as-of) (assoc :as-of as-of)))
+
+
 (defn current
-  "The explicit current d5 interpreter. Given a descriptor, returns a pure
-   semantic view `{:dao.stream/type :dao.space/current :source d ...}`
-   interpreted by q/match/pull;
-   given an already-opened realization, returns a read-only, closed, derived
-   borrowed realization of current d3 facts. Resolves the greatest t per
-   [e a v], removes retractions, and rejects conflicting [e a v t] rows with
-   differing m. An optional as-of bounds visible datoms to t <= as-of."
+  "The explicit current d5 interpreter: a view value over source. Resolves
+   the greatest t per [e a v], removes retractions, and rejects conflicting
+   [e a v t] rows with differing m. An optional as-of bounds visible datoms
+   to t <= as-of."
   ([source] (current source nil))
   ([source as-of]
-   (if (realization? source)
-     (do (validate-borrowed! source)
-         (->ViewStream (d5->current-facts (ds/strict-vec source) as-of) true))
-     (let [d (validate-descriptor! source)]
-       (cond-> {:dao.stream/type :dao.space/current,
-                :source d,
-                :dao.stream/bound (:dao.stream/bound d)}
-         (some? as-of) (assoc :as-of as-of))))))
+   (view-value :current (db-source source) as-of)))
 
 
 (defn history
-  "The explicit history d5 interpreter. Given a descriptor, returns a pure
-   semantic view `{:dao.stream/type :dao.space/history :source d ...}`
-   interpreted by q/match/pull;
-   given an already-opened realization, returns a read-only, closed, derived
-   borrowed realization exposing the exact logical d5 rows. An optional as-of
-   bounds visible datoms to t <= as-of."
+  "The explicit history d5 interpreter: a view value over source exposing
+   the exact logical d5 rows. An optional as-of bounds visible datoms to
+   t <= as-of."
   ([source] (history source nil))
   ([source as-of]
-   (if (realization? source)
-     (do (validate-borrowed! source)
-         (->ViewStream (d5->history-rows (ds/strict-vec source) as-of) false))
-     (let [d (validate-descriptor! source)]
-       (cond-> {:dao.stream/type :dao.space/history,
-                :source d,
-                :dao.stream/bound (:dao.stream/bound d)}
-         (some? as-of) (assoc :as-of as-of))))))
+   (view-value :history (db-source source) as-of)))
 
 
 ;; =============================================================================
-;; Realize a db-value: descriptor -> {::relation ::fact-index ::owned}
+;; Published indexes: open-published! / close-published! (Decision 1)
+;; =============================================================================
+
+(defn open-published!
+  "Open a published covered-index coordinate — the serializable map
+   `index/published-index` builds — as a query value the caller owns: the
+   content-store handle it opens is closed by `close-published!`, never by
+   a query. Nothing is fetched beyond the manifest; the row vector stays
+   deferred behind :rows and the covered sets behind restored B-trees, so a
+   `current` view with no as-of can answer selective clauses without a
+   full drain."
+  [coordinate]
+  (when-not (and (map? coordinate)
+                 (= :dao.space.index/published (:dao.stream/type coordinate)))
+    (throw (ex-info "open-published! takes a published-index coordinate"
+                    {:coordinate coordinate})))
+  (let [{:keys [content-store manifest-address]} coordinate
+        expected (index/published-index content-store manifest-address)]
+    (when-not (= expected coordinate)
+      (throw (ex-info "invalid published-index coordinate"
+                      {:coordinate coordinate, :expected expected})))
+    (let [store (jing-coordinate/open! content-store)]
+      (try
+        (let [manifest (index/read-manifest store manifest-address)]
+          {:dao.space.query/published coordinate
+           :indexes (index/restored-indexes store manifest)
+           :rows (delay (index/read-datoms store manifest-address))
+           :store store
+           :close-guard (atom false)})
+        (catch #?(:cljd Object
+                  :clj Throwable
+                  :cljs :default)
+               error
+          (jing/close! store)
+          (throw error))))))
+
+
+(defn close-published!
+  "Close the content-store handle an opened published index owns. A second
+   close is a no-op here, before the backend is even asked."
+  [opened]
+  (when-let [guard (:close-guard opened)]
+    (when (compare-and-set! guard false true)
+      (jing/close! (:store opened))))
+  nil)
+
+
+;; =============================================================================
+;; snapshot: the one dao.stream interpreter (Decision 3)
+;; =============================================================================
+
+(defn snapshot
+  "Turn a dao.stream reader handle into a relation value:
+
+     {:relation <relation value>
+      :status   :ended | :blocked | :gap | :defect
+      :cursor   c            ; the cursor reached; :gap keeps the last retained
+      :recovery c'}          ; :gap only
+      :read     raw}         ; :defect only
+
+   Mints at :dao.stream/oldest and loops observe/step with a total effect
+   (conj onto the accumulator, answering ok) until the step stops. Every
+   stopping outcome is data: :blocked is an open stream caught up (a
+   snapshot at call time), :gap carries the values read before the hole and
+   the recovery cursor, :defect the raw answer. The caller decides whether a
+   partial snapshot is a usable relation. The handle is never closed, and a
+   cursor never advances past a value the accumulator did not retain (the
+   step's effect-before-commit)."
+  [handle]
+  (let [mint (stream/cursor handle :dao.stream/oldest)]
+    (if-not (= :dao.stream/ok (:dao.stream/outcome mint))
+      {:relation (relation [])
+       :status :defect
+       :cursor nil
+       :read mint}
+      (loop [cursor (:dao.stream/cursor mint), values []]
+        (let [acc (volatile! values)
+              step (observe/step handle cursor
+                                 (fn [value]
+                                   (vswap! acc conj value)
+                                   {:dao.stream/outcome :dao.stream/ok}))]
+          (case (:status step)
+            :advance (recur (:cursor step) @acc)
+            :retry {:relation (relation @acc)
+                    :status :blocked
+                    :cursor cursor}
+            :ended {:relation (relation @acc)
+                    :status :ended
+                    :cursor cursor}
+            :gap {:relation (relation @acc)
+                  :status :gap
+                  :cursor cursor
+                  :recovery (:recovery step)}
+            ;; :defect, and :failed (impossible for this total effect,
+            ;; classified the same way if a composition ever produces it)
+            {:relation (relation @acc)
+             :status :defect
+             :cursor cursor
+             :read (:read step)}))))))
+
+
+;; =============================================================================
+;; Realize a db-value: value tag -> {::relation ::fact-index ::indexes}
 ;; =============================================================================
 
 (defn- relation->fact-index
@@ -325,13 +332,6 @@
                               [(nth tuple 0) (nth tuple 1)
                                (nth tuple 2) 0 datom/default-op])
                             relation)))
-
-
-(defn- fact-view-realization?
-  "A realization is a current fact view when it advertises the marker; only
-   the current/entity-map derived realizations do."
-  [r]
-  (and (map? r) (true? (:fact? r))))
 
 
 (defn- force-relation
@@ -346,71 +346,57 @@
 (declare realize-db-value!)
 
 
-(defn- realize-datom-view!
-  "Interpret a current/history view inside the query layer. The nested source
-   is the DaoStream descriptor/realization; any transport opened while
-   realizing it is returned to the outer query for closure."
+(defn- realize-datom-view
+  "Interpret a current/history view inside the query layer. The nested
+   source is another query value; a current view with no as-of over an
+   opened published index routes through the restored covered sets, every
+   other combination resolves the source's rows."
   [d]
-  (let [{::keys [relation indexes owned]} (realize-db-value! (:source d))]
-    (try
-      (let [type (:dao.stream/type d)
-            as-of (:as-of d)]
-        (if (and (= :dao.space/current type) (nil? as-of) indexes)
-          {::relation (delay (d5->current-facts (force-relation relation) nil)),
-           ::fact-index indexes,
-           ::owned owned}
-          (let [forced-rel (force-relation relation)
-                rows (case type
-                       :dao.space/current (d5->current-facts forced-rel as-of)
-                       :dao.space/history (d5->history-rows forced-rel as-of))]
-            {::relation rows,
-             ::fact-index (when (= :dao.space/current type)
-                            (relation->fact-index rows)),
-             ::owned owned})))
-      (catch #?(:clj Throwable
-                :cljs :default
-                :cljd Object)
-             error
-        (close-owned! owned)
-        (throw error)))))
+  (let [kind (:dao.space.query/view d)
+        as-of (:as-of d)
+        {src-relation ::relation, src-indexes ::indexes}
+        (realize-db-value! (:source d))]
+    (if (and (= :current kind) (nil? as-of) src-indexes)
+      {::relation (delay (d5->current-facts (force-relation src-relation) nil)),
+       ::fact-index src-indexes}
+      (let [forced-rel (force-relation src-relation)
+            rows (case kind
+                   :current (d5->current-facts forced-rel as-of)
+                   :history (d5->history-rows forced-rel as-of))]
+        {::relation rows,
+         ::fact-index (when (= :current kind)
+                        (relation->fact-index rows))}))))
 
 
 (defn ^:no-doc realize-db-value!
-  "Turn one db-value (descriptor or borrowed realization) into an immutable
-   tuple relation plus, for current fact views, an in-memory fact index. Owned
-   streams (opened descriptors) are returned in ::owned for the caller to
-   close; borrowed realizations are drained but never owned."
+  "Turn one db-value into an immutable tuple relation plus, for current
+   fact views, an in-memory fact index. Opens nothing, closes nothing."
   [db-value]
-  (if (realization? db-value)
-    (do (validate-borrowed! db-value)
-        (let [relation (ds/strict-vec db-value)
-              fact? (fact-view-realization? db-value)]
-          {::relation relation,
-           ::fact-index (when fact? (relation->fact-index relation)),
-           ::owned []}))
-    (let [d (validate-descriptor! db-value)]
-      (if (#{:dao.space/current :dao.space/history} (:dao.stream/type d))
-        (realize-datom-view! d)
-        (let [r (ds/open! d)]
-          (try (when-not (realization? r)
-                 (throw (ex-info "open! did not produce a reader realization"
-                                 {:descriptor d})))
-               (if-let [indexes (index/covered-indexes r)]
-                 {::relation (delay (ds/strict-vec r)),
-                  ::indexes indexes,
-                  ::fact-index nil,
-                  ::owned [r]}
-                 (let [relation (ds/strict-vec r)
-                       fact? (fact-view-realization? r)]
-                   {::relation relation,
-                    ::fact-index (when fact? (relation->fact-index relation)),
-                    ::owned [r]}))
-               (catch #?(:clj Throwable
-                         :cljs :default
-                         :cljd Object)
-                      error
-                 (quiet-close! r)
-                 (throw error))))))))
+  (when-not (map? db-value)
+    (throw
+      (ex-info
+        "query db input must be a relation value, a datom view, or an opened published index; raw vectors and maps are rejected"
+        {:input db-value})))
+  (cond
+    (contains? db-value :dao.space.query/relation)
+    (let [tuples (:dao.space.query/relation db-value)]
+      {::relation tuples,
+       ::fact-index (when (:fact? db-value) (relation->fact-index tuples))})
+
+    (contains? db-value :dao.space.query/published)
+    (let [indexes (index/covered-indexes db-value)]
+      {::relation (:rows db-value),
+       ::indexes indexes,
+       ::fact-index nil})
+
+    (contains? db-value :dao.space.query/view)
+    (realize-datom-view db-value)
+
+    :else
+    (throw
+      (ex-info
+        "query db input must be a relation value, a datom view, or an opened published index; raw vectors and maps are rejected"
+        {:input db-value}))))
 
 
 ;; =============================================================================
@@ -506,17 +492,40 @@
             candidates)))
 
 
+(defn rows
+  "The resolved row vector of a view or relation value — what a caller
+   that used to drain a view reaches for now. Forcing a view over an opened
+   published index drains it (L2); a relation value returns its tuples."
+  [x]
+  (cond
+    (contains? x :dao.space.query/relation)
+    (vec (:dao.space.query/relation x))
+
+    (contains? x :dao.space.query/view)
+    (let [kind (:dao.space.query/view x)
+          as-of (:as-of x)
+          src-rows (rows (:source x))]
+      (case kind
+        :current (d5->current-facts src-rows as-of)
+        :history (d5->history-rows src-rows as-of)))
+
+    (contains? x :dao.space.query/published)
+    (force (:rows x))
+
+    :else
+    (throw (ex-info "rows takes a relation value, a datom view, or an opened published index"
+                    {:input x}))))
+
+
 (defn match
   "Exact-arity positional matching over a logical source. An explicit final
-   `& _` ignores a tail. Accepts a bounded stream or descriptor, opens and
-   materializes it, and returns the matched logical tuples, closing owned
-   sources without leaking."
+   `& _` ignores a tail. Accepts a query value (relation value, datom view,
+   opened published index) and returns the matched logical tuples."
   [source pattern]
-  (let [{::keys [relation owned]} (realize-db-value! source)]
-    (try (let [parsed (parse-tuple-pattern pattern)
-               rel (force-relation relation)]
-           (vec (filter #(slots-match? parsed %) rel)))
-         (finally (close-owned! owned)))))
+  (let [{::keys [relation]} (realize-db-value! source)
+        parsed (parse-tuple-pattern pattern)
+        rel (force-relation relation)]
+    (vec (filter #(slots-match? parsed %) rel))))
 
 
 ;; =============================================================================
@@ -706,35 +715,32 @@
 (defn pull
   "Declarative entity projection: walk the index from eid and return a map
    shaped by pattern. {:db/id eid} if no datoms exist at eid. Accepts a
-   bounded stream or descriptor (a current fact view), opens and materializes
-   it, and closes owned sources without leaking.
+   current fact view over a query value.
 
    Example:
      (pull (current source) 123 [:name :age {:friend [:name]}])"
   [source eid pattern]
-  (let [{::keys [fact-index owned]} (realize-db-value! source)]
-    (try (when-not fact-index
-           (throw (ex-info "pull requires a current fact-shaped source view"
-                           {:source source})))
-         (pull-idx fact-index eid pattern)
-         (finally (close-owned! owned)))))
+  (let [{::keys [fact-index]} (realize-db-value! source)]
+    (when-not fact-index
+      (throw (ex-info "pull requires a current fact-shaped source view"
+                      {:source source})))
+    (pull-idx fact-index eid pattern)))
 
 
 (defn pull-many
   "Pull multiple entities with one shared fact index."
   [source eids pattern]
-  (let [{::keys [fact-index owned]} (realize-db-value! source)]
-    (try (when-not fact-index
-           (throw (ex-info
-                    "pull-many requires a current fact-shaped source view"
-                    {:source source})))
-         (let [parsed (parse-pattern pattern)]
-           (mapv (fn [eid]
-                   (if (seq (datoms fact-index eid '_ '_))
-                     (pull-full-impl fact-index eid parsed)
-                     {:db/id eid}))
-                 eids))
-         (finally (close-owned! owned)))))
+  (let [{::keys [fact-index]} (realize-db-value! source)]
+    (when-not fact-index
+      (throw (ex-info
+               "pull-many requires a current fact-shaped source view"
+               {:source source})))
+    (let [parsed (parse-pattern pattern)]
+      (mapv (fn [eid]
+              (if (seq (datoms fact-index eid '_ '_))
+                (pull-full-impl fact-index eid parsed)
+                {:db/id eid}))
+            eids))))
 
 
 ;; =============================================================================
@@ -848,38 +854,6 @@
 (defn- cross-join-bindings
   [rows1 rows2]
   (for [b1 rows1 b2 rows2] (merge-bindings b1 b2)))
-
-
-(defn- open-db-inputs!
-  "Open every :db-classified :in input. Returns {:dbs {db-sym {::relation ::
-   fact-index}} :owned [streams]}, accumulating owned realizations across the
-   whole query so `q` closes them eagerly when evaluation finishes or fails.
-   Exception-safe: if a later db input fails to realize, the owned inputs
-   already opened are closed before the error propagates."
-  [in-patterns bind-inputs]
-  (letfn
-    [(step
-       [pairs dbs owned]
-       (if (seq pairs)
-         (let [[pat val] (first pairs)]
-           (if (= :db (classify-in-pattern pat))
-             (try (let [{relation ::relation,
-                         fact-index ::fact-index,
-                         opened ::owned}
-                        (realize-db-value! val)]
-                    (step (rest pairs)
-                          (assoc dbs
-                                 pat {::relation relation, ::fact-index fact-index})
-                          (into owned opened)))
-                  (catch #?(:clj Throwable
-                            :cljs :default
-                            :cljd Object)
-                         error
-                    (close-owned! owned)
-                    (throw error)))
-             (step (rest pairs) dbs owned)))
-         {:dbs dbs, :owned owned}))]
-    (step (map vector in-patterns bind-inputs) {} [])))
 
 
 (defn- build-init-bindings
@@ -1426,11 +1400,12 @@
 
 
 (defn q
-  "Datalog: (q query & inputs) where $ binds to the first input. Each database
-   input is a bounded DaoStream (an exact-bound descriptor or an opened,
-   closed realization); scalar/tuple/coll/relation :in bindings are plain data.
-   Returns a local bounded distinct-result DaoStream realization; `collect`
-   materializes it into the find shapes."
+  "Datalog: (q query & inputs) where $ binds to the first input. Each
+   database input is a query value (a relation value, a datom view over one,
+   or an opened published index); scalar/tuple/coll/relation :in bindings
+   are plain data. Returns a local result value carrying the find spec;
+   `collect` materializes it into the find shapes. Opens nothing, closes
+   nothing: the caller owns every handle."
   [query & inputs]
   (let [{:keys [find in with where keys syms strs]} (normalize-query query)
         in-patterns (or in '[$])
@@ -1448,48 +1423,55 @@
             (throw (ex-info "query input arity must match :in"
                             {:expected (count in-patterns),
                              :actual (count bind-inputs)})))
-        {:keys [dbs owned]} (open-db-inputs! in-patterns bind-inputs)]
-    (try (let [init-bindings (build-init-bindings in-patterns bind-inputs dbs)
-               fns (if (false? (:builtins opts))
-                     (or (:fns opts) {})
-                     (merge builtins (:fns opts)))
-               ctx {:fns fns}
-               result (eval-where where init-bindings ctx)
-               parsed (parse-find find)
-               [rm-key rm-keys] (cond keys [:keys keys]
-                                      syms [:syms syms]
-                                      strs [:strs strs]
-                                      :else [nil nil])
-               parsed (cond-> parsed
-                        rm-key (assoc :return-map-key
-                                      rm-key :return-map-keys
-                                      rm-keys))
-               _ (when rm-key
-                   (check-return-map-arity (:find-vars parsed)
-                                           (:spec parsed)
-                                           rm-key
-                                           rm-keys))
-               relation (relation-result (:find-vars parsed) with result)]
-           (make-query-result-stream relation (:spec parsed) rm-key rm-keys))
-         (finally (close-owned! owned)))))
+        dbs (reduce
+              (fn [dbs [pat val]]
+                (if (= :db (classify-in-pattern pat))
+                  (let [{relation ::relation, fact-index ::fact-index}
+                        (realize-db-value! val)]
+                    (assoc dbs pat {::relation relation, ::fact-index fact-index}))
+                  dbs))
+              {}
+              (map vector in-patterns bind-inputs))
+        init-bindings (build-init-bindings in-patterns bind-inputs dbs)
+        fns (if (false? (:builtins opts))
+              (or (:fns opts) {})
+              (merge builtins (:fns opts)))
+        ctx {:fns fns}
+        result (eval-where where init-bindings ctx)
+        parsed (parse-find find)
+        [rm-key rm-keys] (cond keys [:keys keys]
+                               syms [:syms syms]
+                               strs [:strs strs]
+                               :else [nil nil])
+        parsed (cond-> parsed
+                 rm-key (assoc :return-map-key
+                               rm-key :return-map-keys
+                               rm-keys))
+        _ (when rm-key
+            (check-return-map-arity (:find-vars parsed)
+                                    (:spec parsed)
+                                    rm-key
+                                    rm-keys))
+        relation (relation-result (:find-vars parsed) with result)]
+    {:dao.space.query/result relation
+     :spec (:spec parsed)
+     :return-map-key rm-key
+     :return-map-keys rm-keys}))
 
 
 (defn collect
-  "Materialize a q result stream into plain Clojure data: relation (set of
-   tuples), scalar, tuple, collection, or return-map. Drains the result to
-   :end and closes it in a finally, so owned resources cannot leak."
+  "Materialize a q result value into plain Clojure data: relation (set of
+   tuples), scalar, tuple, collection, or return-map."
   [result]
-  (when-not (realization? result)
-    (throw (ex-info "collect requires a query result stream" {:result result})))
-  (try (let [rows (into #{} (ds/strict-vec result))
-             spec (:spec result)
-             spec-result (apply-spec spec rows)]
-         (if-let [rm-key (:return-map-key result)]
-           (apply-return-map {:return-map-key rm-key,
-                              :return-map-keys (:return-map-keys result)}
-                             spec-result)
-           spec-result))
-       (finally (quiet-close! result))))
+  (when-not (and (map? result) (contains? result :dao.space.query/result))
+    (throw (ex-info "collect requires a query result value" {:result result})))
+  (let [rows (:dao.space.query/result result)
+        spec-result (apply-spec (:spec result) rows)]
+    (if-let [rm-key (:return-map-key result)]
+      (apply-return-map {:return-map-key rm-key,
+                         :return-map-keys (:return-map-keys result)}
+                        spec-result)
+      spec-result)))
 
 
 ;; =============================================================================

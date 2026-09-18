@@ -91,12 +91,22 @@
       :get-content-fn g
       :close-fn c}
 
-   :state is the store's explicit private state; :content maps content
-   addresses to the exact opaque payload stored at them and never carries a
-   source stream or provenance stamp."
+   :state is the store's private state, shared by the three effects; its
+   shape is implementation, observable only through the effects and entries.
+   The content it holds maps content addresses to the exact opaque payload
+   stored at them and never carries a source stream or provenance stamp."
   []
   (let [state (atom {:closed? false, :content {}})]
     {:state state,
      :put-content-fn (put-content-fn state),
      :get-content-fn (get-content-fn state),
      :close-fn (close-fn state)}))
+
+
+(defn entries
+  "The stored address->payload entries of one content store — this
+   backend's test-facing content view. What the private state atom holds
+   beyond that is implementation; what the store holds is observable here
+   and through dao.jing/get."
+  [handle]
+  (:content @(:state handle)))

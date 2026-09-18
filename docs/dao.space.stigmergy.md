@@ -2,11 +2,11 @@
 
 Status: design discussion (2026-07-10); a coordinator-mediated prototype ran live the same
 day, then was **superseded (2026-07-12) by the streams-native model**: there is no
-coordinator. Stigmergy is writing datoms to the agent's own `dao.stream` via `ds/append!` and
+coordinator. Stigmergy is writing datoms to the agent's own local stream via
+`dao.space.transactor`'s `append!`/`transact!` (one atomic transaction record per call) and
 reading dao.space with `q`/`match` — nothing else. The living contract is
 `test/dao/space/stigmergy_test.clj`: agents coordinate over a network-accessible
-`dao.jing.file` content handle (served with `dao.jing.remote/default-handlers` as
-`:jing/put-content` and `:jing/get-content` RPC operations), and the finished space persists at
+`dao.jing.file` content handle served by `dao.jing.remote/serve-content!`, and the finished space persists at
 `target/stigmergy-space.db` for inspection with `dao.space.query`.
 Describes how `dao.space` serves as a coordination medium for autonomous agents — LLM agents
 specifically — and enumerates what exists today versus what is still needed. Nothing here
@@ -35,10 +35,13 @@ fit for LLM agents — it addresses their three structural weaknesses directly:
   decouples in identity: a reader finds work by matching *content* (`[?w :work/posted true]`),
   never by addressing a producer. Adding a tenth agent to a nine-agent system changes
   nothing about the nine.
-- **Agents fail mid-action.** Append-only single-writer logs make every action a durable,
-  attributable fact with no partial-update window. A crashed agent's log simply stops; a
-  reader tailing it blocks rather than erroring (crash-only semantics, `dao.space.md`,
-  *Fault Tolerance*).
+- **Agents fail mid-action.** Append-only single-writer logs make every action an
+  attributable, atomic fact with no partial-update window — and the durable record is
+  what publication puts in `dao.jing`, not the process-lifetime local log: un-published
+  writes are not durable, and never were. An agent that stops while its process lives
+  leaves its log readable — a reader at the tail blocks rather than erroring — and
+  publication retries are idempotent; a failed process's data survives only as
+  published (crash-only semantics, `dao.space.md`, *Fault Tolerance*).
 
 The alternative most multi-agent frameworks choose — a message bus or an orchestrator that
 routes agent-to-agent messages — re-introduces exactly the coupling the tuple space removes:
@@ -121,13 +124,16 @@ embedded library: the Peer stays in-process on the JVM; agents reach it over the
 
 ### 2. The implemented agent write path
 
-Each agent opens one `:transactor` stream wrapper over its own single-writer
-local stream and an explicit DaoJing intake pool. `ds/append!` / `transact!`
-append one atomic transaction record and allocate stream-local `t` values;
-`publish!` snapshots that retained history and enqueues covered-index payloads
-through one selected intake stream. The wrapper creates no registry, owns
-neither supplied stream, and cannot coordinate two writers over the same local
-stream. One wrapper per local stream is therefore a hard invariant.
+Each agent creates one transactor value (`dao.space.transactor/create!`) over
+its own single-writer local stream — a `dao.stream.memory-log`, whose
+declared complete retention is what the watermark scan and publication
+snapshot read from the origin — and an explicit DaoJing intake pool.
+`transactor/append!` / `transact!` append one atomic transaction record and
+allocate stream-local `t` values; `publish!` snapshots that retained history
+and enqueues covered-index payloads through one selected intake stream. The
+value creates no registry, owns neither supplied stream, and cannot
+coordinate two writers over the same local stream. One transactor per local
+stream is therefore a hard invariant.
 
 ### 3. A discoverable vocabulary (the schema is the prompt)
 
@@ -237,11 +243,12 @@ deposit API, no new namespaces:
    `dao.jing.remote/default-handlers`. A remote reader uses
    `dao.jing.remote/connect-content!`; both handles expose the same plain-data content
    effects.
-2. **Writes**: each agent owns a local `dao.stream` and opens one `:transactor` with that
-   stream plus an explicit DaoJing intake pool. It commits entity maps or datom vectors
-   through `ds/append!`/`transact!`, using integer stream-local entity ids; the wrapper
-   assigns transaction `t`. `publish!` appends covered-index blobs and a manifest to one
-   selected intake stream.
+2. **Writes**: each agent owns a local `dao.stream` memory-log and creates one
+   transactor value with that stream plus an explicit DaoJing intake pool
+   (`dao.space.transactor/create!`). It commits entity maps or datom vectors
+   through `transactor/append!`/`transact!`, using integer stream-local entity ids; the
+   transactor assigns transaction `t`. `publish!` appends covered-index blobs and a
+   manifest to one selected intake stream.
 3. **Materialization and reads**: a DaoJing observer consumes the supplied intake pool and
    materializes its opaque payloads into `dao.jing`. Readers query exactly the
    inputs they care about: immutable DaoStream descriptor db-values that may

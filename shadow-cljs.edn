@@ -19,29 +19,14 @@
                  :output-to "target/node-tests.js"
                  :autorun true}
 
-          :bench {:target :node-script
-                  :main dao.stream-bench/-main
-                  :output-to "target/bench.js"}
+          :vm-bench {:target :node-script
+                     :main bench.yin-vm-bench/-main
+                     :output-to "target/vm-bench.js"}
+
+          :slice-peer {:target :node-script
+                       :main dao.stream.slice-peer/-main
+                       :output-to "target/slice-peer.js"}
 
           :yin-repl {:target :node-script
-                     :main yin.repl/-main
-                     :output-to "target/yin-repl.js"}
-
-          :ws-client-demo {:target :node-script
-                           :main datomworld.ws-client-demo/-main
-                           :output-to "target/ws-client-demo.js"}
-
-          :telemetry-server
-          {:target     :node-script
-           :main       yin.vm.telemetry-server.node/-main
-           :output-to  "target/telemetry-server.js"}
-
-          :telemetry-viewer
-          {:target   :browser
-           :devtools {:use-document-protocol true}
-           :output-dir "public/js/telemetry-viewer"
-           :asset-path "/js/telemetry-viewer"
-           :closure-defines
-           {yin.vm.telemetry-viewer/REPL_PORT 8090
-            yin.vm.telemetry-viewer/TEL_PORT  8091}
-           :modules  {:main {:init-fn yin.vm.telemetry-viewer/init}}}}}
+                        :main yin.repl/-main
+                        :output-to "target/yin-repl.js"}}}

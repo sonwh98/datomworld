@@ -1,5 +1,21 @@
 # VM Telemetry Viewer UI Design
 
+> **Status (2026-09-18):** the emit path this viewer would consume is now
+> real — `yin.vm.telemetry` publishes full `:vm/*` snapshots on an explicit
+> `dao.stream` sink (built by
+> [`yin.vm.telemetry.implementation-plan.md`](./yin.vm.telemetry.implementation-plan.md)).
+> The viewer itself remains unbuilt: the v1 telemetry servers, the v1 emit
+> path, and the v1 viewer file were all deleted
+> (`yin.vm.v1-retirement.implementation-plan.md` D2;
+> `dao.stream.v1-retirement.implementation-plan.md` U1), and nothing here has
+> been rebuilt. If it is rebuilt, it consumes the `:vm.summary/*` projection
+> that plan's D1 names (`:vm.summary/type` with `:fn` rendered as
+> `:vm.summary/host-fn` and opaque hosts as `:vm.summary/opaque`,
+> `:vm.summary/value`, `:vm.summary/count`, `:vm.summary/item` many-refs, and
+> `:vm.summary/entry` entities carrying `:vm.summary/key` and
+> `:vm.summary/value-ref`) — the sketch below predates that vocabulary and is
+> historical.
+
 ## Overview
 
 A Reagent browser app that connects to a running `yin.repl` server via WebSockets to display:

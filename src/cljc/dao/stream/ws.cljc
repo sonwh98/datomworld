@@ -1,507 +1,604 @@
 (ns dao.stream.ws
-  "WebSocket-backed stream using three orthogonal protocols.
+  "The DaoStream v2 WebSocket protocol boundary.
 
-   Three entry points:
-     CLJ listen!    — start an http-kit WebSocket server, return WebSocketStream
-     CLJS listen!   — start a 'ws' Node.js WebSocket server, return WebSocketStream
-     CLJD listen!   — start a 'dart:io' WebSocket server, return WebSocketStream
-     CLJ/CLJS connect! — connect to a WebSocket server
+   This namespace deliberately knows no WebSocket library.  A host adapter owns
+   its raw socket and supplies the small synchronous `:connect!`, `:send!`, and
+   `:close!` functions below.  The public DaoStream surface is consequently
+   callback-free, non-waiting, and portable; socket callbacks enter only through
+   the adapter map returned to the host while it constructs a connection.
 
-   Both sides get back a WebSocketStream satisfying:
-     IDaoStreamWriter — put! sends a datom to the remote peer
-     IDaoStreamReader — next reads non-destructively from remote-stream at cursor
-     IDaoStreamBound  — close! and closed? manage lifecycle
-
-   Utilities (non-protocol):
-     drain-one!      — destructive read from remote-stream (consumers needing take semantics)
-     await-connected — poll a stream's connection-status until :connected or timeout"
-  (:require #?(:cljd ["dart:async" :as async])
-            #?(:cljd ["dart:core" :as core])
-            #?(:cljd ["dart:io" :as io])
-            [dao.stream :as ds]
-            [dao.stream.link :as link]
-            [dao.stream.ringbuffer :as ringbuffer]
+   The wire codec is a composition choice carried as an explicit codec profile
+   (see `codec-profile?`): the `dao.stream.transit-json` text subprotocol and
+   the additive `dao.stream.cbor` binary subprotocol run the same state
+   machine, envelopes, and lifecycle.  Selection is explicit on both ends — a
+   client offers exactly its selected subprotocol, an endpoint serves exactly
+   the profiles it was composed with — so no silent downgrade exists."
+  (:require [dao.stream :as stream]
             [dao.stream.transit :as transit]
-            #?(:clj [org.httpkit.server :as http-server])))
+            [clojure.string :as str]))
 
 
-;; =============================================================================
-;; WebSocketStream record
-;; =============================================================================
-
-(defn- do-put!
-  "Apply val to link-state-atom's local side and send it over the wire if
-   connected. Not safe to run concurrently on the same link-state-atom -- callers
-   on platforms with real thread parallelism (:clj) must serialize calls (see
-   WebSocketStream's put!, which locks on link-state-atom for :clj; :cljs/:cljd
-   have no true concurrent threads calling into one stream, so no lock is
-   needed there)."
-  [link-state-atom send-fn-atom val]
-  (let [state @link-state-atom
-        [state' msg] (link/local-put state val)]
-    (if-let [send-fn @send-fn-atom]
-      (do (reset! link-state-atom (assoc state'
-                                         :local-sent-pos (:local-pos state')))
-          (send-fn (transit/encode msg)))
-      (reset! link-state-atom state'))
-    {:result :ok, :woke []}))
+(def transport-type :dao.stream/ws)
+(def subprotocol "dao.stream.transit-json")
+(def ended-close-code 4000)
+(def protocol-close-code 4002)
+(def disclaim-close-code 4004)
 
 
-(defrecord WebSocketStream
-  [link-state-atom send-fn-atom]
+(defn codec-profile?
+  "True for one codec profile: the WebSocket subprotocol name it negotiates,
+   the frame kind its payloads ride (:text or :binary), the portable-value
+   predicate for its domain, and its encoder and decoder over host payloads
+   (strings for text profiles, host bytes for binary profiles)."
+  [x]
+  (and (map? x)
+       (string? (:ws/subprotocol x))
+       (contains? #{:text :binary} (:ws/frame-kind x))
+       (fn? (:ws/portable-value? x))
+       (fn? (:ws/encode x))
+       (fn? (:ws/decode x))))
 
-  ds/IDaoStreamWriter
+
+(defn checked-codec
+  "Validate one composition-supplied codec profile, defaulting to Transit."
+  [x]
+  (let [codec (or x transit/profile)]
+    (when-not (codec-profile? codec)
+      (throw (ex-info "invalid DaoStream WebSocket codec profile" {:codec x})))
+    codec))
+
+
+(defn- outcome
+  [x]
+  {:dao.stream/outcome x})
+
+
+(defn canonical-path?
+  "True for the already-canonical request-target form carried on a descriptor.
+   URI parsing and bind policy belong to the host adapter; this gate prevents a
+   query, fragment, relative path, or unresolved dot segment from reaching the
+   exact served-path lookup."
+  [path]
+  (and (string? path)
+       (not (empty? path))
+       (str/starts-with? path "/")
+       (not (str/includes? path "?"))
+       (not (str/includes? path "#"))
+       (not (some #{"." ".."} (str/split path #"/")))))
+
+
+(defn descriptor?
+  "The settled WebSocket descriptor gate.  It names a served stream, not a
+   particular connection, and contains only portable reachability data.
+   The one-argument form keeps the Transit domain as the public default; a
+   composition selecting a codec profile gates the same descriptor against
+   that profile's domain."
+  ([x] (descriptor? x transit/profile))
+  ([x codec]
+   (and (map? x)
+        (= transport-type (:dao.stream/type x))
+        (string? (:dao.stream/identity x))
+        (string? (:ws/host x))
+        (integer? (:ws/port x))
+        (pos? (:ws/port x))
+        (canonical-path? (:ws/path x))
+        ((:ws/portable-value? codec) x))))
+
+
+(defn admission?
+  "Assembly-time declaration required for every transport deposit medium."
+  [x]
+  (and (map? x)
+       (= :evict-oldest (:retention x))
+       (integer? (:capacity x))
+       (pos? (:capacity x))
+       (contains? #{:host-values :portable-values} (:value-domain x))))
+
+
+(defn- writer-target?
+  [x]
+  (and (map? x)
+       (stream/writer? (:dao.stream/handle x))
+       (contains? (:dao.stream/surface x) :writer)))
+
+
+(defn- checked-target
+  [target declaration]
+  (when-not (and (writer-target? target) (admission? declaration))
+    (throw (ex-info "invalid DaoStream WebSocket deposit composition"
+                    {:target target :admission declaration})))
+  target)
+
+
+(defn- attachment-id
+  []
+  (str (random-uuid)))
+
+
+(defn- invoke-close!
+  [socket code reason]
+  (when-let [f (:close! socket)]
+    (try
+      (f code reason)
+      (catch #?(:cljd Object :clj Throwable :cljs :default) _
+        ;; The connection has already transitioned locally.  The caller adds a
+        ;; diagnostic where it still has a functioning composed medium.
+        :failed))))
+
+
+(defn- send-result
+  [socket payload]
+  ;; The payload is whatever the attachment's codec produced — a string for
+  ;; text profiles, host bytes for binary profiles.  The transport never
+  ;; inspects it; the host `:send!` seam owns the typed frame.
+  (try
+    (let [x ((:send! socket) payload)]
+      (cond
+        (or (nil? x) (= true x) (= :ok x)) (outcome :dao.stream/ok)
+        (= false x) (outcome :dao.stream/full)
+        (and (map? x) (:dao.stream/outcome x)) x
+        :else (outcome :dao.stream/transport-error)))
+    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+      (outcome :dao.stream/transport-error))))
+
+
+(declare receive! closed! opened! disclaimed!)
+
+
+(defn- deposit!
+  [state event]
+  (let [target (:deposit @state)
+        result (stream/append! (:dao.stream/handle target) event)]
+    ;; A host promised this medium admits all boundary events.  A failed
+    ;; deposit is therefore terminal, rather than a reason to retain a hidden
+    ;; inbox or silently discard the event.
+    (when-not (= :dao.stream/ok (:dao.stream/outcome result))
+      (let [socket (:socket @state)]
+        (swap! state assoc :phase :closed)
+        (invoke-close! socket 1000 "dao.stream/deposit-failed")))
+    result))
+
+
+(defn- emit!
+  "Deposit one boundary event.  The four-argument form carries a payload and
+   always keys it, because nil is an ordinary portable value: a consumer must be
+   able to tell `value nil` from `no value` with `contains?`."
+  ([state attachment event]
+   (deposit! state {:ws/attachment attachment :ws/event event}))
+  ([state attachment event value]
+   (deposit! state {:ws/attachment attachment :ws/event event :ws/value value})))
+
+
+(defn- emit-reason!
+  [state attachment event reason]
+  (deposit! state {:ws/attachment attachment :ws/event event :ws/reason reason}))
+
+
+(defn- terminal!
+  [state attachment event]
+  (let [emit? (volatile! false)]
+    (swap! state
+           (fn [s]
+             (if (:terminal? s)
+               s
+               (do (vreset! emit? true)
+                   (assoc s :terminal? true :phase :closed)))))
+    (when @emit? (emit! state attachment event))))
+
+
+(deftype WsHandle
+  [state descriptor attachment codec]
+
+  stream/IDaoStreamDescriptor
+
+  (descriptor
+    [_]
+    {:dao.stream/outcome :dao.stream/ok
+     :dao.stream/descriptor descriptor
+     :dao.stream/identity (:dao.stream/identity descriptor)})
+
+
+  stream/IDaoStreamWriter
 
   (append!
-    [_ val]
-    ;; :clj's send-fn synchronously blocks on the in-flight send
-    ;; (java.net.http's WebSocket throws if a second sendText is issued
-    ;; before the first completes), so concurrent put! calls on one
-    ;; stream must be serialized; :cljs/:cljd have no real concurrent
-    ;; threads sharing one stream.
-    #?(:clj (locking link-state-atom
-              (do-put! link-state-atom send-fn-atom val))
-       :cljs (do-put! link-state-atom send-fn-atom val)
-       :cljd (do-put! link-state-atom send-fn-atom val)))
+    [_ value]
+    (let [{:keys [phase socket]} @state]
+      (cond
+        (= :closed phase) (outcome :dao.stream/closed)
+        (not= :open phase) (outcome :dao.stream/full)
+        (not ((:ws/portable-value? codec) value)) (outcome :dao.stream/invalid-value)
+        :else (try
+                (send-result socket ((:ws/encode codec) {:ws/frame :ws/value
+                                                         :ws/value value}))
+                (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                  (outcome :dao.stream/invalid-value))))))
 
 
-  ds/IDaoStreamReader
-
-  (next [_ c] (ds/next (:remote-stream @link-state-atom) c))
-
-
-  ds/IDaoStreamBound
+  stream/IDaoStreamClosable
 
   (close!
     [_]
-    (when-let [send-fn @send-fn-atom]
-      (send-fn (transit/encode (link/close-msg))))
-    (let [state (:remote-stream @link-state-atom)] (ds/close! state))
-    (swap! link-state-atom assoc :status :closed)
-    (when-let [close-fn (:socket-close-fn @link-state-atom)] (close-fn))
-    {:woke []})
+    (let [socket (volatile! nil)]
+      (swap! state
+             (fn [s]
+               (if (= :closed (:phase s))
+                 s
+                 (do (vreset! socket (:socket s)) (assoc s :phase :closed)))))
+      (when (= :failed (invoke-close! @socket 1000 "dao.stream/detached"))
+        (emit-reason! state attachment :ws/error :ws/close-failure))
+      (outcome :dao.stream/ok))))
 
 
-  (closed? [_] (= :closed (:status @link-state-atom))))
+(defn close-ended!
+  "Transport-specific close for a serving composition whose source ended.
+
+   Generic `stream/close!` is a reattachable detachment.  This helper sends the
+   WebSocket ended signal (4000 / `dao.stream/ended`) so the peer can deposit
+   `:ws/ended`.  The host close callback still owns exactly-once terminal event
+   delivery, just as it does for generic close."
+  [handle]
+  (let [state (.-state ^WsHandle handle)
+        attachment (.-attachment ^WsHandle handle)
+        socket (volatile! nil)]
+    (swap! state
+           (fn [s]
+             (if (= :closed (:phase s))
+               s
+               (do (vreset! socket (:socket s)) (assoc s :phase :closed)))))
+    (when (= :failed (invoke-close! @socket ended-close-code "dao.stream/ended"))
+      (emit-reason! state attachment :ws/error :ws/close-failure))
+    (outcome :dao.stream/ok)))
 
 
-;; =============================================================================
-;; Shared internal helpers
-;; =============================================================================
-
-(defn make-ws-stream
-  [local]
-  (->WebSocketStream (atom (assoc (link/make-link-state local)
-                                  :local-sent-pos 0))
-                     (atom nil)))
+(defn- new-handle
+  [descriptor attachment target phase socket codec]
+  (let [state (atom {:phase phase :socket socket :deposit target
+                     :resolution? false :terminal? false})]
+    [(WsHandle. state descriptor attachment codec) state]))
 
 
-(defn- stream->vec-from
-  [stream from-pos]
-  (loop [c {:position from-pos}
-         acc []]
-    (let [r (ds/next stream c)]
-      (if (map? r) (recur (:cursor r) (conj acc (:ok r))) acc))))
+(defn- protocol-failure!
+  [state attachment]
+  (emit-reason! state attachment :ws/error :ws/decode-failure)
+  (swap! state assoc :phase :closed)
+  (invoke-close! (:socket @state) protocol-close-code "dao.stream/protocol-error"))
 
 
-(defn- unsent-local-put-msg
-  [state]
-  (let [from-pos (or (:local-sent-pos state) 0)
-        to-pos (:local-pos state)
-        datoms (when (< from-pos to-pos)
-                 (stream->vec-from (:local-stream state) from-pos))]
-    (when (seq datoms) (link/put-msg datoms from-pos))))
+(defn opened!
+  "Adapter entry: the peer's accept control was received (client), or the
+   endpoint accepted a matching handoff acknowledgement (server)."
+  [handle]
+  (let [state (.-state ^WsHandle handle)
+        attachment (.-attachment ^WsHandle handle)
+        emit? (volatile! false)]
+    (swap! state (fn [s]
+                   (if (and (= :connecting (:phase s)) (not (:resolution? s)))
+                     (do (vreset! emit? true) (assoc s :phase :open :resolution? true))
+                     s)))
+    (when @emit? (emit! state attachment :ws/opened))))
 
 
-(defn on-open!
-  [ws-stream send-fn]
-  (swap! (:link-state-atom ws-stream)
-         (fn [state]
-           (let [remote-stream (:remote-stream state)]
-             (cond-> (assoc state :status :connecting)
-               (ds/closed? remote-stream)
-               (assoc :remote-stream
-                      (ringbuffer/make-ring-buffer-stream nil (:remote-pos state)))))))
-  (reset! (:send-fn-atom ws-stream) send-fn)
-  (let [state @(:link-state-atom ws-stream)]
-    (send-fn (transit/encode (link/connect-msg state)))
-    (when-let [msg (unsent-local-put-msg state)]
-      (send-fn (transit/encode msg))
-      (swap! (:link-state-atom ws-stream) assoc
-             :local-sent-pos
-             (:local-pos state)))))
+(defn disclaimed!
+  "Adapter entry for the authoritative first `:ws/disclaim` control frame."
+  [handle]
+  (let [state (.-state ^WsHandle handle)
+        attachment (.-attachment ^WsHandle handle)
+        emit? (volatile! false)]
+    (swap! state (fn [s]
+                   (if (and (= :connecting (:phase s)) (not (:resolution? s)))
+                     (do (vreset! emit? true) (assoc s :resolution? true :phase :closed))
+                     s)))
+    (when @emit?
+      (emit! state attachment :ws/not-found)
+      (invoke-close! (:socket @state) disclaim-close-code "dao.stream/not-found"))))
 
 
-(defn on-message!
-  [ws-stream raw]
-  (let [msg (transit/decode raw)
-        state @(:link-state-atom ws-stream)
-        [state' resp] (link/dispatch state msg)]
-    (reset! (:link-state-atom ws-stream) state')
-    (when resp
-      (when-let [send-fn @(:send-fn-atom ws-stream)]
-        (send-fn (transit/encode resp))))))
+(defn- deliver!
+  "Decode one inbound frame payload with the handle's codec and dispatch its
+   envelope.  Wire validation only; application values are never judged."
+  [handle payload]
+  (let [state (.-state ^WsHandle handle)
+        attachment (.-attachment ^WsHandle handle)
+        codec (.-codec ^WsHandle handle)]
+    (try
+      (let [frame ((:ws/decode codec) payload)]
+        (cond
+          (and (= :ws/accept (:ws/frame frame)) (= :connecting (:phase @state)))
+          (opened! handle)
+
+          (and (= :ws/disclaim (:ws/frame frame)) (= :connecting (:phase @state)))
+          (disclaimed! handle)
+
+          (and (= :ws/value (:ws/frame frame))
+               (contains? frame :ws/value)
+               (= :open (:phase @state))
+               ((:ws/portable-value? codec) (:ws/value frame)))
+          (emit! state attachment :ws/payload (:ws/value frame))
+
+          :else (protocol-failure! state attachment)))
+      (catch #?(:cljd Object :clj Throwable :cljs :default) _
+        (protocol-failure! state attachment)))))
 
 
-(defn on-close!
-  [ws-stream]
-  (let [remote (:remote-stream @(:link-state-atom ws-stream))]
-    (when-not (ds/closed? remote) (ds/close! remote)))
-  (reset! (:send-fn-atom ws-stream) nil)
-  (swap! (:link-state-atom ws-stream) assoc :status :closed))
+(defn receive!
+  "Adapter entry for one text WebSocket message.  A text frame on a binary
+   profile is a protocol failure — the transport reads the frame's declared
+   kind, never its content."
+  [handle text]
+  (if (= :text (:ws/frame-kind (.-codec ^WsHandle handle)))
+    (deliver! handle text)
+    (protocol-failure! (.-state ^WsHandle handle)
+                       (.-attachment ^WsHandle handle))))
 
 
-(defn connection-status
-  "Return the current link status for a WebSocketStream, or nil for other streams."
-  [stream]
-  (when (instance? WebSocketStream stream)
-    (:status @(:link-state-atom stream))))
+(defn receive-binary!
+  "Adapter entry for one binary WebSocket message (a host byte payload):
+   byte[] on the JVM, Uint8Array on ClojureScript, Uint8List on Dart.  A
+   binary frame on a text profile is a protocol failure."
+  [handle bytes]
+  (if (= :binary (:ws/frame-kind (.-codec ^WsHandle handle)))
+    (deliver! handle bytes)
+    (protocol-failure! (.-state ^WsHandle handle)
+                       (.-attachment ^WsHandle handle))))
 
 
-;; =============================================================================
-;; CLJ: listen! (http-kit)
-;; =============================================================================
-
-#?(:clj
-   (defn listen!
-     "Start a WebSocket server on port. Returns a server handle map.
-      Accepts multiple connections, exposing them via :on-connect."
-     ([port] (listen! port nil))
-     ([port opts]
-      (let [conns (atom #{})
-            stop!
-            (http-server/run-server
-              (fn [req]
-                (http-server/as-channel
-                  req
-                  (let [local (ds/open! {:dao.stream/type :ringbuffer,
-                                         :capacity (:capacity opts),
-                                         :eviction-policy (:eviction-policy
-                                                            opts)})
-                        stream (make-ws-stream local)]
-                    {:on-open
-                     (fn [ch]
-                       (swap! (:link-state-atom stream) assoc
-                              :socket-close-fn
-                              (fn [] (http-server/close ch)))
-                       (on-open! stream
-                                 (fn [msg] (http-server/send! ch msg)))
-                       (swap! conns conj stream)
-                       (when-let [oc (:on-connect opts)] (oc stream))),
-                     :on-receive (fn [_ch raw] (on-message! stream raw)),
-                     :on-close (fn [_ch _status]
-                                 (on-close! stream)
-                                 (swap! conns disj stream)
-                                 (when-let [od (:on-disconnect opts)]
-                                   (od stream)))})))
-              {:port port, :ip (or (:host opts) "127.0.0.1")})]
-        {:stop-fn stop!, :conns conns}))))
+(defn closed!
+  "Adapter entry for host close completion.  The terminal event is guarded so
+   close/error races cannot duplicate it."
+  [handle code _reason]
+  (let [state (.-state ^WsHandle handle)
+        attachment (.-attachment ^WsHandle handle)]
+    (when-not (:resolution? @state)
+      (swap! state assoc :resolution? true)
+      (emit! state attachment :ws/transport-error))
+    (terminal! state attachment (if (= ended-close-code code) :ws/ended :ws/closed))))
 
 
-;; =============================================================================
-;; CLJ: connect! (Java 11 built-in WebSocket client)
-;; =============================================================================
-
-#?(:clj (defn connect!
-          "Connect to a WebSocket server at url. Returns WebSocketStream."
-          ([url] (connect! url nil))
-          ([url opts]
-           (let [local (ds/open! {:dao.stream/type :ringbuffer,
-                                  :capacity (:capacity opts),
-                                  :eviction-policy (:eviction-policy opts)})
-                 stream (make-ws-stream local)
-                 client (java.net.http.HttpClient/newHttpClient)
-                 ws-ref (atom nil)
-                 ;; Java's WebSocket client delivers a text message in
-                 ;; PARTS
-                 ;; (onText's last? flag): once cumulative traffic crosses
-                 ;; the client's internal buffer boundary, a message
-                 ;; arrives split. Parts accumulate here until last? marks
-                 ;; the message complete. Listener callbacks for one
-                 ;; connection are never invoked concurrently, so a plain
-                 ;; StringBuilder is safe.
-                 text-buf (StringBuilder.)
-                 listener
-                 (reify
-                   java.net.http.WebSocket$Listener
-                   (onOpen
-                     [_ ws]
-                     (reset! ws-ref ws)
-                     (swap! (:link-state-atom stream) assoc
-                            :socket-close-fn
-                            (fn []
-                              (.sendClose ws
-                                          java.net.http.WebSocket/NORMAL_CLOSURE
-                                          "close")))
-                     ;; Java's WebSocket client sends text frames
-                     ;; asynchronously. Block each send until it is
-                     ;; accepted so the initial sync-request and the
-                     ;; first
-                     ;; REPL request cannot race.
-                     (on-open!
-                       stream
-                       (fn [msg] (.join (.sendText ws msg true)) nil))
-                     (.request ws 1))
-
-                   (onText
-                     [_ ws data last?]
-                     (.append text-buf data)
-                     (when last?
-                       (let [msg (.toString text-buf)]
-                         (.setLength text-buf 0)
-                         (on-message! stream msg)))
-                     (.request ws 1)
-                     (java.util.concurrent.CompletableFuture/completedFuture
-                       nil))
-
-                   (onClose
-                     [_ _ws _code _reason]
-                     (on-close! stream)
-                     (java.util.concurrent.CompletableFuture/completedFuture
-                       nil))
-
-                   (onError [_ _ws _err] (on-close! stream)))]
-             (.thenAccept (.buildAsync (.. client newWebSocketBuilder)
-                                       (java.net.URI/create url)
-                                       listener)
-                          (fn [_ws] nil))
-             stream))))
+(defn adapter
+  "The only callback-shaped value, for a host socket adapter while wiring its
+   private listener.  It is not a DaoStream API and never reaches consumers.
+   `:message!` receives text frames and `:binary!` binary frames — the two
+   typed facts a host reports without inspecting content — and `:ws/codec`
+   is the connection's profile, so a host `:connect!` seam can negotiate the
+   selected subprotocol without any second channel."
+  [handle]
+  {:opened! #(opened! handle)
+   :disclaimed! #(disclaimed! handle)
+   :message! #(receive! handle %)
+   :binary! #(receive-binary! handle %)
+   :closed! #(closed! handle %1 %2)
+   :ws/codec (.-codec ^WsHandle handle)
+   :error! #(emit-reason! (.-state ^WsHandle handle) (.-attachment ^WsHandle handle)
+                          :ws/error :ws/socket-error)})
 
 
-;; =============================================================================
-;; CLJS: connect! (browser WebSocket)
-;; =============================================================================
+(defn make-attacher
+  "Construct the host-composed unary `attach!` entry point.
 
-#?(:cljs (defn connect!
-           "Connect to a WebSocket server at url. Returns WebSocketStream."
-           ([url] (connect! url nil))
-           ([url opts]
-            (let [local (ds/open! {:dao.stream/type :ringbuffer,
-                                   :capacity (:capacity opts)})
-                  stream (make-ws-stream local)
-                  ws (js/WebSocket. url)]
-              (set! (.-onopen ws)
-                    #(do (swap! (:link-state-atom stream) assoc
-                                :socket-close-fn
-                                (fn [] (.close ws)))
-                         (on-open! stream (fn [msg] (.send ws msg)))
-                         (when-let [callback (:on-open opts)]
-                           (callback stream %))))
-              (set! (.-onmessage ws)
-                    #(do (on-message! stream (.-data %))
-                         (when-let [callback (:on-message opts)]
-                           (callback stream %))))
-              (set! (.-onerror ws)
-                    #(when-let [callback (:on-error opts)] (callback stream %)))
-              (set! (.-onclose ws)
-                    #(do (on-close! stream)
-                         (when-let [callback (:on-close opts)]
-                           (callback stream %))))
-              stream))))
+   `:connect!` receives the descriptor and the private adapter map, starts
+   connection establishment, and synchronously returns a raw-socket adapter
+   containing `:send!` and `:close!`.  It must not wait for the peer.
 
-
-;; =============================================================================
-;; Descriptor-based open! integration
-;; =============================================================================
-
-#?(:clj (defmethod ds/open! :websocket
-          [descriptor]
-          (let [{:keys [mode url port capacity eviction-policy], :as opts}
-                descriptor]
-            (case mode
-              :listen (listen! port opts)
-              :connect (connect! url
-                                 {:capacity capacity,
-                                  :eviction-policy eviction-policy})
-              (throw (ex-info
-                       "websocket transport mode must be :listen or :connect"
-                       {:descriptor descriptor, :mode mode}))))))
+   `:codec` selects the wire profile explicitly (default: Transit).  The
+   offer is exactly the selected subprotocol, so a peer that does not speak
+   it fails the handshake rather than being downgraded."
+  [{:keys [traffic admission connect! codec] :as config}]
+  (let [target (checked-target traffic admission)
+        codec (checked-codec codec)]
+    (when-not (fn? connect!)
+      (throw (ex-info "WebSocket host composition requires :connect!" {:config config})))
+    (fn attach!
+      [descriptor]
+      (if-not (descriptor? descriptor codec)
+        (outcome :dao.stream/invalid-descriptor)
+        (let [id (attachment-id)
+              [handle state] (new-handle descriptor id target :connecting nil codec)]
+          (try
+            (let [socket (connect! descriptor (adapter handle))]
+              (if (and (map? socket) (fn? (:send! socket)) (fn? (:close! socket)))
+                (do (swap! state assoc :socket socket)
+                    {:dao.stream/outcome :dao.stream/ok
+                     :dao.stream/handle handle
+                     :dao.stream/attachment id})
+                (outcome :dao.stream/transport-error)))
+            (catch #?(:cljd Object :clj Throwable :cljs :default) _
+              (outcome :dao.stream/transport-error))))))))
 
 
-#?(:cljs
-   (defn listen!
-     "Start a WebSocket server on port (Node.js only). Returns a server handle map.
-      Accepts multiple connections, exposing them via :on-connect."
-     ([port] (listen! port nil))
-     ([port opts]
-      (let [WebSocket (js/require "ws")
-            wss (new (.-Server WebSocket)
-                     #js {:port port, :host (or (:host opts) "127.0.0.1")})
-            conns (atom #{})]
-        (.on ^js wss
-             "connection"
-             (fn [ws]
-               (let [local (ds/open! {:dao.stream/type :ringbuffer,
-                                      :capacity (:capacity opts),
-                                      :eviction-policy (:eviction-policy
-                                                         opts)})
-                     stream (make-ws-stream local)]
-                 (swap! (:link-state-atom stream) assoc
-                        :socket-close-fn
-                        (fn [] (.close ^js ws)))
-                 (on-open! stream (fn [msg] (.send ^js ws msg)))
-                 (swap! conns conj stream)
-                 (when-let [oc (:on-connect opts)] (oc stream))
-                 (.on ^js ws "message" (fn [raw] (on-message! stream raw)))
-                 (.on ^js ws
-                      "close"
-                      (fn []
-                        (on-close! stream)
-                        (swap! conns disj stream)
-                        (when-let [od (:on-disconnect opts)] (od stream)))))))
-        {:stop-fn #(.close ^js wss), :conns conns}))))
+;; Server acceptance is intentionally an endpoint composition object, not a
+;; global transport directory.  Its slots are supplied and owned by the host.
+(defn make-endpoint
+  [{:keys [served control control-admission slots codecs] :as config}]
+  (let [control-target (checked-target control control-admission)
+        codecs (or codecs [transit/profile])]
+    (when-not (and (map? served) (seq slots))
+      (throw (ex-info "WebSocket endpoint needs served paths and handoff slots" {:config config})))
+    (when-not (and (seq codecs) (every? codec-profile? codecs))
+      (throw (ex-info "WebSocket endpoint needs at least one codec profile" {:codecs codecs})))
+    (when-not (apply distinct? (map :ws/subprotocol codecs))
+      (throw (ex-info "WebSocket endpoint codec subprotocols must be distinct" {:codecs codecs})))
+    (when-not (= :portable-values (:value-domain control-admission))
+      (throw (ex-info "endpoint control medium must carry portable values" {:admission control-admission})))
+    (doseq [[path descriptor] served]
+      ;; A served descriptor crosses under every profile the endpoint speaks,
+      ;; or the profile that cannot carry it must not be offered.
+      (when-not (and (= path (:ws/path descriptor))
+                     (every? #(descriptor? descriptor %) codecs))
+        (throw (ex-info "invalid served descriptor" {:path path :descriptor descriptor}))))
+    (doseq [slot slots]
+      (checked-target (:offer slot) (:offer-admission slot))
+      (checked-target (:ack slot) (:ack-admission slot))
+      (when-not (and (= 1 (get-in slot [:offer-admission :capacity]))
+                     (= :host-values (get-in slot [:offer-admission :value-domain]))
+                     (= 1 (get-in slot [:ack-admission :capacity]))
+                     (= :host-values (get-in slot [:ack-admission :value-domain]))
+                     (some? (:ack-cursor slot)))
+        (throw (ex-info "invalid capacity-one WebSocket handoff slot" {:slot slot}))))
+    {:config config
+     :codecs codecs
+     :codec-index (zipmap (map :ws/subprotocol codecs) codecs)
+     :state (atom {:control control-target
+                   :slots (mapv (fn [slot]
+                                  (assoc slot :status :free)) slots)
+                   :connections {}})}))
 
 
-#?(:cljs (defmethod ds/open! :websocket
-           [descriptor]
-           (let [{:keys [mode url port capacity eviction-policy], :as opts}
-                 descriptor]
-             (case mode
-               :listen (listen! port opts)
-               :connect (connect! url
-                                  {:capacity capacity,
-                                   :eviction-policy eviction-policy})
-               (throw (ex-info
-                        "websocket transport mode must be :listen or :connect"
-                        {:descriptor descriptor, :mode mode}))))))
+(defn endpoint-state
+  [endpoint]
+  @(:state endpoint))
 
 
-#?(:cljd
-   (defn listen!
-     "Start a WebSocket server on port. Returns a server handle map.
-      Accepts multiple connections, exposing them via :on-connect."
-     ([port] (listen! port nil))
-     ([port opts]
-      (let [conns (atom #{})
-            server-ref (atom nil)]
-        (->
-          (io/HttpServer.bind (or (:host opts) "127.0.0.1") port)
-          (.then
-            (fn [server]
-              (let [server ^io/HttpServer server]
-                (reset! server-ref server)
-                (.listen
-                  server
-                  (fn [request]
-                    (let [request ^io/HttpRequest request]
-                      (when (io/WebSocketTransformer.isUpgradeRequest request)
-                        (-> (io/WebSocketTransformer.upgrade request)
-                            (.then
-                              (fn [ws]
-                                (let [ws ^io/WebSocket ws
-                                      local (ds/open!
-                                              {:dao.stream/type :ringbuffer,
-                                               :capacity (:capacity opts)})
-                                      stream (make-ws-stream local)]
-                                  (on-open! stream (fn [msg] (.add ws msg)))
-                                  (swap! conns conj stream)
-                                  (when-let [oc (:on-connect opts)]
-                                    (oc stream))
-                                  (.listen ws
-                                           (fn [raw] (on-message! stream raw))
-                                           :onDone
-                                           (fn []
-                                             (on-close! stream)
-                                             (swap! conns disj stream)
-                                             (when-let [od (:on-disconnect
-                                                             opts)]
-                                               (od stream))))))))))))))))
-        {:stop-fn #(when-let [srv @server-ref] (.close ^io/HttpServer srv)),
-         :conns conns}))))
+(defn- endpoint-target
+  [endpoint]
+  (:control (endpoint-state endpoint)))
 
 
-;; =============================================================================
-;; CLJD: connect! (dart:io WebSocket client)
-;; =============================================================================
-
-#?(:cljd (defn connect!
-           "Connect to a WebSocket server at url. Returns WebSocketStream."
-           ([url] (connect! url nil))
-           ([url opts]
-            (let [local (ds/open! {:dao.stream/type :ringbuffer,
-                                   :capacity (:capacity opts)})
-                  stream (make-ws-stream local)]
-              (-> (io/WebSocket.connect url)
-                  (.then (fn [ws]
-                           (let [ws ^io/WebSocket ws]
-                             (on-open! stream (fn [msg] (.add ws msg)))
-                             (.listen ws
-                                      (fn [raw] (on-message! stream raw))
-                                      :onDone
-                                      (fn [] (on-close! stream)))))))
-              stream))))
+(defn- release-slot!
+  "Return one handoff slot to the bounded free pool and forget the connection it
+   held.  Releasing drops the retained handle: a released slot's acknowledgement
+   is stale by construction, so nothing may resolve through it afterwards."
+  [endpoint index attachment]
+  (swap! (:state endpoint)
+         (fn [s]
+           (-> s
+               (update-in [:slots index] dissoc
+                          :attachment :handle :handle-state :codec :opened-at)
+               (assoc-in [:slots index :status] :free)
+               (update :connections dissoc attachment)))))
 
 
-#?(:cljd (defmethod ds/open! :websocket
-           [descriptor]
-           (let [{:keys [mode url port capacity], :as opts} descriptor]
-             (case mode
-               :listen (listen! port opts)
-               :connect (connect! url {:capacity capacity})
-               (throw (ex-info
-                        "websocket transport mode must be :listen or :connect"
-                        {:descriptor descriptor, :mode mode}))))))
+(defn accept-connection!
+  "Bounded upgrade callback entry.  A bad path or exhausted slots is closed
+   immediately; a valid path deposits precisely one host-local offer and waits
+   for `endpoint-step` to consume a matching acknowledgement.
+
+   The socket seam may carry `:ws/subprotocol`, the subprotocol the host
+   negotiated for this upgrade.  An endpoint serves every profile it was
+   composed with, concurrently and through the same served paths; a named
+   subprotocol it does not speak is a refused handshake, never a downgrade,
+   and an absent name is the Transit default for sockets that negotiated
+   nothing (direct composition and tests)."
+  ([endpoint path socket] (accept-connection! endpoint path socket nil))
+  ([endpoint path socket now]
+   (let [{:keys [served]} (:config endpoint)
+         offered (:ws/subprotocol socket)
+         codec (if (nil? offered)
+                 transit/profile
+                 (get (:codec-index endpoint) offered))
+         descriptor (get served path)]
+     (cond
+       (nil? codec)
+       (do (invoke-close! socket protocol-close-code "dao.stream/subprotocol-unsupported")
+           {:ws/status :ws/unsupported-subprotocol})
+
+       (nil? descriptor)
+       (do (send-result socket ((:ws/encode codec) {:ws/frame :ws/disclaim}))
+           (invoke-close! socket disclaim-close-code "dao.stream/not-found")
+           {:ws/status :ws/disclaimed})
+
+       :else
+       (let [state (:state endpoint)
+             chosen (volatile! nil)]
+         ;; Claim before depositing.  The offer append may synchronously invoke
+         ;; host code, so leaving the slot `:free` until after it returns would
+         ;; permit a second upgrade callback to overwrite the sole offer.
+         (swap! state (fn [s]
+                        (if-let [[index slot] (first (keep-indexed (fn [i x]
+                                                                     (when (= :free (:status x)) [i x]))
+                                                                   (:slots s)))]
+                          (do (vreset! chosen [index slot])
+                              (assoc-in s [:slots index :status] :reserving))
+                          s)))
+         (if-not @chosen
+           (do (invoke-close! socket 1013 "dao.stream/acceptance-full")
+               {:ws/status :ws/full})
+           (let [[index slot] @chosen
+                 id (attachment-id)
+                 [handle hstate] (new-handle descriptor id (endpoint-target endpoint) :pending socket codec)
+                 offer {:ws/attachment id :ws/event :ws/accepted
+                        :ws/handle {:dao.stream/handle handle
+                                    :dao.stream/surface #{:writer :closable}}}
+                 result (stream/append! (:dao.stream/handle (:offer slot)) offer)]
+             (if (= :dao.stream/ok (:dao.stream/outcome result))
+               (do (swap! state (fn [s]
+                                  (-> s
+                                      (assoc-in [:slots index :status] :pending)
+                                      (assoc-in [:slots index :attachment] id)
+                                      (assoc-in [:slots index :handle] handle)
+                                      (assoc-in [:slots index :handle-state] hstate)
+                                      (assoc-in [:slots index :codec] codec)
+                                      (assoc-in [:slots index :opened-at] now)
+                                      (assoc-in [:connections id] handle))))
+                   {:ws/status :ws/pending :ws/attachment id :ws/handle handle})
+               (do (swap! hstate assoc :phase :closed)
+                   (invoke-close! socket 1011 "dao.stream/offer-failed")
+                   (release-slot! endpoint index id)
+                   {:ws/status :ws/offer-failed})))))))))
 
 
-;; =============================================================================
-;; await-connected
-;; =============================================================================
-
-(def ^:private poll-interval-ms 10)
-
-
-(defn- max-attempts
-  [timeout-ms]
-  (max 1 (quot timeout-ms poll-interval-ms)))
+(defn- valid-ack?
+  [ack attachment]
+  (and (map? ack)
+       (= attachment (:ws/attachment ack))
+       (= :ws/accept (:ws/command ack))
+       (writer-target? (:ws/deposit ack))
+       (admission? (:ws/admission ack))))
 
 
-(defn await-connected
-  "Poll a WebSocketStream's connection-status until :connected, :closed,
-   or timeout. Returns the stream itself on :clj (blocking), a js/Promise
-   on :cljs, or a dart:async Future on :cljd that resolves to the stream.
-   Rejects/throws on connection failure or timeout.
+(defn- accept-slot!
+  [endpoint index slot ack]
+  (let [hstate (:handle-state slot)
+        socket (:socket @hstate)
+        codec (:codec slot)
+        target (:ws/deposit ack)]
+    (swap! hstate assoc :deposit target :phase :open :resolution? true)
+    (let [sent (send-result socket ((:ws/encode codec) {:ws/frame :ws/accept}))]
+      (when-not (= :dao.stream/ok (:dao.stream/outcome sent))
+        (swap! hstate assoc :phase :closed)
+        (invoke-close! socket 1011 "dao.stream/accept-failed")
+        (terminal! hstate (:attachment slot) :ws/closed))
+      ;; Either way the endpoint is done with this connection: the composition
+      ;; owns an accepted session, and a failed acceptance is already torn down.
+      (release-slot! endpoint index (:attachment slot)))))
 
-   error-context is an optional map merged into ex-info data on failure,
-   e.g. {:url url} so callers can preserve connection context in errors."
-  ([stream timeout-ms] (await-connected stream timeout-ms nil))
-  ([stream timeout-ms error-context]
-   (let [attempts-max (max-attempts timeout-ms)
-         #?@(:cljs [p-resolve (atom nil)
-                    p-reject (atom nil)
-                    p (js/Promise. (fn [resolve reject]
-                                     (reset! p-resolve resolve)
-                                     (reset! p-reject reject)))]
-             :cljd [completer (async/Completer.)])]
-     (letfn
-       [(succeed
-          []
-          #?(:clj stream
-             :cljs (@p-resolve stream)
-             :cljd (do (.complete ^async/Completer completer stream) nil)))
-        (fail
-          [ex]
-          #?(:clj (throw ex)
-             :cljs (@p-reject ex)
-             :cljd (do (.completeError ^async/Completer completer ex) nil)))
-        (poll
-          [attempts]
-          (let [status (connection-status stream)]
-            (cond (= :connected status) (succeed)
-                  (= :closed status) (fail (ex-info "Connection failed"
-                                                    (merge {} error-context)))
-                  (> attempts attempts-max)
-                  (fail (ex-info "Connection timeout"
-                                 (merge {:timeout-ms timeout-ms}
-                                        error-context)))
-                  :else #?(:clj (do (Thread/sleep poll-interval-ms)
-                                    (recur (inc attempts)))
-                           :cljs (js/setTimeout #(poll (inc attempts))
-                                                poll-interval-ms)
-                           :cljd (do (.then (async/Future.delayed
-                                              (core/Duration .milliseconds
-                                                             poll-interval-ms))
-                                            (fn [_] (poll (inc attempts))))
-                                     nil)))))]
-       #?(:clj (poll 0)
-          :cljs (do (poll 0) p)
-          :cljd (do (poll 0) (.-future ^async/Completer completer)))))))
+
+(defn endpoint-step
+  "Poll each configured acknowledgement slot once, without waiting or
+   self-scheduling.  Returns the endpoint after retaining its next cursors."
+  [endpoint now]
+  ;; A pending connection can be lost before any acknowledgement: the peer
+  ;; closes, the wire protocol fails, or its own handle is closed.  Each of
+  ;; those paths closes the handle's state and deposits its terminal event;
+  ;; this is where the endpoint observes that and returns the slot, so bounded
+  ;; admission is a live bound rather than a monotonically shrinking one.
+  (doseq [[index slot] (map-indexed vector (:slots (endpoint-state endpoint)))
+          :when (and (= :pending (:status slot))
+                     (= :closed (:phase @(:handle-state slot))))]
+    (release-slot! endpoint index (:attachment slot)))
+  (doseq [[index slot] (map-indexed vector (:slots (endpoint-state endpoint)))
+          :when (= :pending (:status slot))]
+    (let [next (stream/next (:dao.stream/handle (:ack slot)) (:ack-cursor slot))]
+      (when (= :dao.stream/ok (:dao.stream/outcome next))
+        (swap! (:state endpoint) assoc-in [:slots index :ack-cursor] (:dao.stream/cursor next))
+        (let [ack (:dao.stream/value next)]
+          (cond
+            (not= (:attachment slot) (:ws/attachment ack)) nil
+            (valid-ack? ack (:attachment slot)) (accept-slot! endpoint index slot ack)
+            :else (let [hstate (:handle-state slot)]
+                    (swap! hstate assoc :phase :closed)
+                    (invoke-close! (:socket @hstate) protocol-close-code "dao.stream/invalid-ack")
+                    (terminal! hstate (:attachment slot) :ws/closed)
+                    (release-slot! endpoint index (:attachment slot))))))))
+  ;; Expiry is deliberately clock-domain explicit.  An endpoint composition
+  ;; may set `:opened-at` when it accepts an offer; this transport does not
+  ;; invent wall-clock time or a scheduler.
+  (when-let [expiry (:expiry-ms (:config endpoint))]
+    (doseq [[index slot] (map-indexed vector (:slots (endpoint-state endpoint)))
+            :when (and (= :pending (:status slot)) (:opened-at slot)
+                       (<= (+ (:opened-at slot) expiry) now))]
+      (let [hstate (:handle-state slot)]
+        (swap! hstate assoc :phase :closed)
+        (invoke-close! (:socket @hstate) 1000 "dao.stream/acceptance-expired")
+        (terminal! hstate (:attachment slot) :ws/closed)
+        (release-slot! endpoint index (:attachment slot)))))
+  endpoint)

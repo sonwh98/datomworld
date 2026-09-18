@@ -1,639 +1,487 @@
 (ns yin.vm.engine-test
   (:require [clojure.test :refer [deftest is testing]]
-            [dao.datom :as datom]
-            [dao.stream :as ds]
-            [dao.stream.apply :as dao.stream.apply]
-            [dao.stream.ringbuffer :as stream]
-            [dao.test-utils :as tu]
+            [dao.stream :as stream]
             [yin.vm :as vm]
-            [yin.vm.engine :as engine]))
+            [yin.vm.engine :as engine]
+            [yin.vm.module :as module]
+            [yin.vm.test-utils :as tu]))
 
 
-(deftest run-loop-resumes-when-blocked-with-preexisting-run-queue-test
-  (testing "Blocked VM still resumes from an already non-empty run-queue"
-    (let [resume-calls (atom 0)
-          state {:blocked? true,
-                 :halted? false,
-                 :ready-queue [{:value 42}],
-                 :wait-set []}
-          result (engine/run-loop state
-                                  (fn [_] false)
-                                  (fn [v] v)
-                                  (fn [v]
-                                    (swap! resume-calls inc)
-                                    (when-let [entry (first (:ready-queue v))]
-                                      (assoc v
-                                             :value (:value entry)
-                                             :ready-queue (vec (rest (:ready-queue
-                                                                       v)))
-                                             :blocked? false
-                                             :halted? true)))
-                                  nil)]
-      (is (= 1 @resume-calls))
-      (is (= 42 (:value result)))
-      (is (false? (:blocked? result)))
-      (is (true? (:halted? result)))
-      (is (empty? (:ready-queue result))))))
+(defn- throws?
+  "True when thunk throws. `thrown?` needs a literal class name, which differs
+   per host; a thunk keeps the corpus host-neutral."
+  [thunk]
+  (try (thunk) false
+       (catch #?(:clj Exception :cljs js/Error :cljd Object) _ true)))
 
 
-(deftest run-loop-noop-when-blocked-and-no-runnable-work-test
-  (testing
-    "Blocked VM remains blocked if scheduler cannot wake and run-queue is empty"
-    (let [state {:blocked? true, :halted? false, :ready-queue [], :wait-set []}
-          result
-          (engine/run-loop state (fn [_] false) (fn [v] v) (fn [_] nil) nil)]
-      (is (true? (:blocked? result)))
-      (is (false? (:halted? result)))
-      (is (empty? (:ready-queue result))))))
-
-
-(deftest restore-initial-env-test
-  (testing "Halted computations restore the caller env"
-    (let [initial-env {'outer 1}
-          result {:halted? true, :ready-queue [], :env {'inner 2}}]
-      (is (= initial-env
-             (:env (engine/restore-initial-env initial-env result))))))
-  (testing "Blocked and queued computations keep the active env for resumption"
-    (let [initial-env {'outer 1}
-          blocked-result
-          {:blocked? true, :halted? false, :ready-queue [], :env {'inner 2}}
-          queued-result {:halted? true,
-                         :ready-queue [{:continuation {:id :k}}],
-                         :env {'inner 2}}]
-      (is (= {'inner 2}
-             (:env (engine/restore-initial-env initial-env blocked-result))))
-      (is (= {'inner 2}
-             (:env (engine/restore-initial-env initial-env queued-result)))))))
-
-
-(defn- make-stream
-  []
-  (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}))
-
-
-(deftest handle-effect-emits-telemetry-snapshot-test
-  (testing "handle-effect emits :effect snapshots when telemetry is enabled"
-    (let [telemetry-stream (make-stream)
-          state {:blocked? false,
-                 :halted? false,
-                 :parked {},
-                 :ready-queue [],
-                 :wait-set [],
-                 :store {},
-                 :telemetry {:stream telemetry-stream, :vm-id :engine/effect},
-                 :telemetry-step 0,
-                 :telemetry-t 0,
-                 :vm-model :engine/test}
-          result (engine/handle-effect
-                   state
-                   {:effect :vm/store-put, :key :answer, :val 42}
-                   {})
-          datoms (tu/stream-values telemetry-stream)]
-      (is (= 42 (get-in result [:state :store :answer])))
-      (is (tu/fact? datoms :vm/phase :effect))
-      (is (tu/fact? datoms :vm/effect-type :vm/store-put))
-      (is (tu/fact? datoms :vm/value 42)))))
-
-
-(deftest park-and-resume-emit-telemetry-snapshots-test
-  (testing
-    "park-continuation and resume-continuation emit phase-tagged telemetry"
-    (let [telemetry-stream (make-stream)
-          state {:blocked? false,
-                 :halted? false,
-                 :parked {},
-                 :ready-queue [],
-                 :wait-set [],
-                 :store {},
-                 :telemetry {:stream telemetry-stream, :vm-id :engine/park},
-                 :telemetry-step 0,
-                 :telemetry-t 0,
-                 :vm-model :engine/test}
-          parked-state (engine/park-continuation state {:continuation {:id :k}})
-          parked-id (-> parked-state
-                        :value
-                        :id)
-          resumed-state (engine/resume-continuation parked-state
-                                                    parked-id
-                                                    :resumed
-                                                    (fn [base _parked
-                                                         resume-val]
-                                                      (assoc base
-                                                             :value resume-val
-                                                             :halted? true
-                                                             :blocked? false)))
-          datoms (tu/stream-values telemetry-stream)]
-      (is (= :resumed (:value resumed-state)))
-      (is (tu/fact? datoms :vm/phase :park))
-      (is (tu/fact? datoms :vm/phase :resume))
-      (is (tu/fact? datoms :vm/parked-id parked-id)))))
-
-
-(deftest run-loop-emits-terminal-telemetry-test
-  (testing "run-loop emits :blocked? terminal snapshots"
-    (let [telemetry-stream (make-stream)
-          state {:blocked? true,
-                 :halted? false,
-                 :parked {},
-                 :ready-queue [],
-                 :wait-set [],
-                 :store {},
-                 :telemetry {:stream telemetry-stream, :vm-id :engine/blocked},
-                 :telemetry-step 0,
-                 :telemetry-t 0,
-                 :vm-model :engine/test}
-          _ (engine/run-loop state (fn [_] false) identity (fn [_] nil) nil)
-          datoms (tu/stream-values telemetry-stream)]
-      (is (tu/fact? datoms :vm/phase :blocked))))
-  (testing "run-loop emits :halt terminal snapshots"
-    (let [telemetry-stream (make-stream)
-          state {:blocked? false,
-                 :halted? true,
-                 :parked {},
-                 :ready-queue [],
-                 :wait-set [],
-                 :store {},
-                 :telemetry {:stream telemetry-stream, :vm-id :engine/halt},
-                 :telemetry-step 0,
-                 :telemetry-t 0,
-                 :vm-model :engine/test}
-          _ (engine/run-loop state (fn [_] false) identity (fn [_] nil) nil)
-          datoms (tu/stream-values telemetry-stream)]
-      (is (tu/fact? datoms :vm/phase :halt)))))
+(defn- state
+  ([] (state {}))
+  ([opts] (vm/empty-state (merge {:make-stream tu/make-stream} opts))))
 
 
 ;; =============================================================================
-;; Fallback Scheduler Tests (Non-waitable streams)
+;; The host supplies streams
 ;; =============================================================================
 
-
-#?(:cljd (deftest check-wait-set-fallback-test
-           (testing
-             "CLJD skips non-waitable stream fallback scheduler test doubles"
-             (is true)))
-   :default
-   (deftest check-wait-set-fallback-test
-     (testing
-       "check-wait-set still polls non-waitable streams in the scheduler"
-       (let [stream (tu/make-non-waitable-stream)
-             state {:store {:s1 stream, :c1 {:stream-id :s1, :position 0}},
-                    :id-counter 0}
-             ;; 1. Park reader (not waitable, so it goes to wait-set)
-             reader-entry {:reason :next,
-                           :cursor-ref {:type :cursor-ref, :id :c1}}
-             state (assoc state :wait-set [reader-entry])
-             ;; 2. check-wait-set should NOT wake it (stream empty)
-             state-still-blocked (#'yin.vm.engine/check-wait-set state)
-             _ (is (= 1 (count (:wait-set state-still-blocked))))
-             ;; 3. Put data manually
-             _ (ds/append! stream 42)
-             ;; 4. check-wait-set should now wake it
-             state-runnable (#'yin.vm.engine/check-wait-set
-                             state-still-blocked)]
-         (is (empty? (:wait-set state-runnable)))
-         (is (= 1 (count (:ready-queue state-runnable))))
-         (is (= 42 (:value (first (:ready-queue state-runnable)))))))))
-
-
-#?(:cljd (deftest check-wait-set-put-fallback-test
-           (testing
-             "CLJD skips non-waitable stream fallback scheduler test doubles"
-             (is true)))
-   :default (deftest check-wait-set-put-fallback-test
-              (testing "check-wait-set still polls :put on non-waitable streams"
-                (let [stream (tu/make-non-waitable-stream)
-                      state {:store {:s1 stream}, :id-counter 0}
-                      ;; Park writer
-                      writer-entry {:reason :put, :stream-id :s1, :datom :val}
-                      state (assoc state :wait-set [writer-entry])
-                      ;; In this simple mock put! always succeeds, so first
-                      ;; poll should wake it
-                      state-runnable (#'yin.vm.engine/check-wait-set state)]
-                  (is (empty? (:wait-set state-runnable)))
-                  (is (= 1 (count (:ready-queue state-runnable))))
-                  (is (= :val (get-in @(:state-atom stream) [:buffer 0]))
-                      "Datom should be written")))))
-
-
-#?(:cljd (deftest check-wait-set-resumes-closed-put-fallback-test
-           (testing
-             "CLJD skips non-waitable stream fallback scheduler test doubles"
-             (is true)))
-   :default
-   (deftest check-wait-set-resumes-closed-put-fallback-test
-     (testing
-       "check-wait-set resumes closed non-waitable :put waiters with nil"
-       (let [stream (tu/make-non-waitable-stream)
-             state {:store {:s1 stream}, :id-counter 0}
-             writer-entry {:reason :put, :stream-id :s1, :datom :val}
-             state (assoc state :wait-set [writer-entry])
-             _ (ds/close! stream)
-             checked (#'yin.vm.engine/check-wait-set state)]
-         (is (empty? (:wait-set checked)))
-         (is (= 1 (count (:ready-queue checked))))
-         (is (nil? (:value (first (:ready-queue checked)))))
-         (is (true? (ds/closed? stream)))
-         (is (empty? (:buffer @(:state-atom stream))))
-         (is (= 0 (:tail @(:state-atom stream))))))))
-
-
-(defrecord NonWaitableRingBufferStream
-  [state-atom]
-
-  ds/IDaoStreamReader
-
-  (next
-    [_this cursor]
-    (let [s @state-atom
-          head (:head s)
-          pos (:position cursor)]
-      (cond (>= pos (:tail s)) :blocked
-            (< pos head) :daostream/gap
-            :else {:ok (get-in s [:buffer pos]),
-                   :cursor {:position (inc pos)}})))
-
-
-  ds/IDaoStreamWriter
-
-  (append!
-    [_this val]
-    (let [s @state-atom
-          capacity 1] ; fixed capacity for test
-      (if (>= (- (:tail s) (:head s)) capacity)
-        {:result :full}
-        (do (swap! state-atom (fn [s]
-                                (-> s
-                                    (assoc-in [:buffer (:tail s)] val)
-                                    (update :tail inc))))
-            {:result :ok}))))
-
-
-  ds/IDaoStreamBound
-
-  (close! [_this] (swap! state-atom assoc :closed true) {:woke []})
-
-
-  (closed? [_this] (:closed @state-atom)))
-
-
-(defrecord WaitableRetryStream
-  [state-atom]
-
-  ds/IDaoStreamReader
-
-  (next
-    [_this cursor]
-    (let [call-count (:next-calls (swap! state-atom update :next-calls inc))
-          pos (:position cursor)]
-      (if (= 1 call-count)
-        :blocked
-        {:ok (get-in @state-atom [:buffer pos]),
-         :cursor {:position (inc pos)}})))
-
-
-  ds/IDaoStreamWaitable
-
-  (register-reader-waiter!
-    [_this position entry]
-    (swap! state-atom update :reader-waiters conj [position entry]))
-
-
-  (register-writer-waiter!
-    [_this entry]
-    (swap! state-atom update :writer-waiters conj entry))
-
-
-  ds/IDaoStreamBound
-
-  (close! [_this] (swap! state-atom assoc :closed true) {:woke []})
-
-
-  (closed? [_this] (:closed @state-atom)))
-
-
-(defn- ringbuffer-state-atom
-  [stream]
-  #?(:clj (.-state-atom ^dao.stream.ringbuffer.RingBufferStream stream)
-     :cljs (.-state-atom ^dao.stream.ringbuffer/RingBufferStream stream)
-     :cljd (.-state-atom ^dao.stream.ringbuffer/RingBufferStream stream)))
-
-
-(deftest waitable-stream-next-retry-preserves-cursor-advance-test
-  (testing
-    "waitable stream/next should advance the VM cursor when the runtime retry succeeds immediately"
-    (let [state-atom (atom {:buffer {0 :payload},
-                            :next-calls 0,
-                            :reader-waiters [],
-                            :writer-waiters [],
-                            :closed false})
-          stream (->WaitableRetryStream state-atom)
-          state {:store {:s1 stream, :c1 {:stream-id :s1, :position 0}},
-                 :id-counter 0}
-          result (engine/handle-effect
-                   state
-                   {:effect :stream/next, :cursor {:type :cursor-ref, :id :c1}}
-                   {:park-entry-fns {:stream/next (fn [_s _e r]
-                                                    {:reason :next,
-                                                     :cursor-ref (:cursor-ref
-                                                                   r),
-                                                     :stream-id (:stream-id r),
-                                                     :k {:id :reader}})},
-                    :restore-fn (fn [base _entry value]
-                                  (assoc base
-                                         :value value
-                                         :blocked? false
-                                         :halted? false))})]
-      (is (= :payload (:value result)))
-      (is (false? (:blocked? result)))
-      (is (= {:stream-id :s1, :position 1} (get-in result [:state :store :c1])))
-      (is (= 2 (:next-calls @state-atom)))
-      (is (empty? (:reader-waiters @state-atom))))))
-
-
-#?(:cljd (deftest check-wait-set-put-fallback-after-capacity-freed-test
-           (testing
-             "CLJD skips non-waitable stream fallback scheduler test doubles"
-             (is true)))
-   :default
-   (deftest check-wait-set-put-fallback-after-capacity-freed-test
-     (testing
-       "check-wait-set still polls :put on non-waitable streams after capacity is freed"
-       (let [state-atom (atom
-                          {:buffer {0 :a}, :tail 1, :head 0, :closed false})
-             stream (->NonWaitableRingBufferStream state-atom)
-             state {:store {:s1 stream}, :id-counter 0}
-             ;; 1. Park writer on :put because it's full (capacity 1)
-             writer-entry {:reason :put, :stream-id :s1, :datom :b}
-             state (assoc state :wait-set [writer-entry])
-             ;; 2. check-wait-set should NOT wake it
-             state-blocked (#'yin.vm.engine/check-wait-set state)
-             _ (is (= 1 (count (:wait-set state-blocked))))
-             ;; 3. Manually drain (advance head)
-             _ (swap! state-atom (fn [s]
-                                   (-> s
-                                       (update :buffer dissoc 0)
-                                       (update :head inc))))
-             ;; 4. check-wait-set should now wake it via polling
-             state-runnable (#'yin.vm.engine/check-wait-set state-blocked)]
-         (is (empty? (:wait-set state-runnable)))
-         (is (= 1 (count (:ready-queue state-runnable))))
-         (is (= :b (get-in @state-atom [:buffer 1]))
-             "Writer should have written :b")))))
-
-
-(deftest close-enqueues-flattened-transport-writer-entry-test
-  (testing
-    "stream close should enqueue the parked writer entry itself, not a nested {:entry ...} wrapper"
-    (let [state {:store {}, :id-counter 0, :ready-queue []}
-          [id s'] (engine/gensym state "stream")
-          [stream-ref state] (engine/handle-make s' {:capacity 1} id)
-          state (:state (engine/handle-put state {:stream stream-ref, :val 1}))
-          put-effect {:effect :stream/put, :stream stream-ref, :val 2}
-          put-result (engine/handle-effect state
-                                           put-effect
-                                           {:park-entry-fns
-                                            {:stream/put
-                                             (fn [_s _e r]
-                                               {:reason :put,
-                                                :stream-id (:stream-id r),
-                                                :datom 2,
-                                                :k {:id :writer-1}})}})
-          blocked-state (:state put-result)
-          close-result (engine/handle-effect blocked-state
-                                             {:effect :stream/close,
-                                              :stream stream-ref}
-                                             {})
-          run-entry (first (get-in close-result [:state :ready-queue]))]
-      (is (:blocked? put-result))
-      (is (= 1 (count (get-in close-result [:state :ready-queue]))))
-      (is
-        (= {:id :writer-1} (:k run-entry))
-        "Queued writer should keep its original continuation fields at top level")
-      (is (false? (contains? run-entry :entry))
-          "Run-queue entry should be flattened before resumption")
-      (is (nil? (:value run-entry))))))
-
-
-(deftest take-enqueues-reader-cursor-advance-when-waking-reader-and-writer-test
-  (testing
-    "stream take should preserve cursor advance metadata when it wakes a parked reader and writer together"
-    (let [state {:store {}, :id-counter 0, :ready-queue []}
-          [stream-id s'] (engine/gensym state "stream")
-          [stream-ref state] (engine/handle-make s' {:capacity 1} stream-id)
-          state (:state (engine/handle-put state {:stream stream-ref, :val :a}))
-          [cursor-id s''] (engine/gensym state "cursor")
-          [cursor-ref state]
-          (engine/handle-cursor s'' {:stream stream-ref} cursor-id)
-          state (:state (engine/handle-next state {:cursor cursor-ref}))
-          next-result (engine/handle-effect
-                        state
-                        {:effect :stream/next, :cursor cursor-ref}
-                        {:park-entry-fns {:stream/next
-                                          (fn [_s _e r]
-                                            {:reason :next,
-                                             :cursor-ref (:cursor-ref r),
-                                             :stream-id (:stream-id r),
-                                             :k {:id :reader}})}})
-          put-result (engine/handle-effect
-                       (:state next-result)
-                       {:effect :stream/put, :stream stream-ref, :val :b}
-                       {:park-entry-fns {:stream/put (fn [_s _e r]
-                                                       {:reason :put,
-                                                        :stream-id (:stream-id
-                                                                     r),
-                                                        :datom :b,
-                                                        :k {:id :writer}})}})
-          stream-after-next (get-in next-result [:state :store stream-id])
-          stream-after-put (get-in put-result [:state :store stream-id])
-          reader-waiter-count-after-next
-          (count (:reader-waiters @(ringbuffer-state-atom stream-after-next)))
-          writer-waiter-count-after-put
-          (count (:writer-waiters @(ringbuffer-state-atom stream-after-put)))
-          take-result (engine/handle-effect (:state put-result)
-                                            {:effect :stream/take,
-                                             :stream stream-ref}
-                                            {})
-          run-queue (get-in take-result [:state :ready-queue])
-          reader-entry (some #(when (= {:id :reader} (:k %)) %) run-queue)
-          writer-entry (some #(when (= {:id :writer} (:k %)) %) run-queue)]
-      (is (:blocked? next-result))
-      (is (:blocked? put-result))
-      (is (empty? (or (get-in next-result [:state :wait-set]) [])))
-      (is (empty? (or (get-in put-result [:state :wait-set]) [])))
-      (is (= 1 reader-waiter-count-after-next))
-      (is (= 1 writer-waiter-count-after-put))
-      (is (= :a (:value take-result)))
-      (is (= 2 (count run-queue)))
-      (is (= :b (:value writer-entry)))
-      (is (= :b (:value reader-entry)))
-      (is
-        (= {cursor-id {:stream-id stream-id, :position 2}}
-           (:store-updates reader-entry))
-        "Reader wake from take! must advance the parked cursor past the appended datom"))))
-
-
-(deftest daocall-dispatch-and-wake-test
-  (testing "dao.stream.apply response wakes caller and advances cursor"
-    (let [call-out (ds/open! {:dao.stream/type :ringbuffer, :capacity nil})
-          state {:store {vm/call-out-stream-key call-out,
-                         vm/call-out-cursor-key
-                         {:stream-id vm/call-out-stream-key, :position 0}},
-                 :parked {:parked-0 {:id :parked-0,
-                                     :type :parked-continuation,
-                                     :k {:id :cont-0},
-                                     :env {}}},
-                 :ready-queue [],
-                 :wait-set [],
-                 :blocked? true,
-                 :halted? false}
-          ;; 1. Register reader-waiter on call-out (happens during
-          ;; dao-call)
-          waiter-entry {:cursor-ref {:type :cursor-ref,
-                                     :id vm/call-out-cursor-key},
-                        :reason :next,
-                        :stream-id vm/call-out-stream-key,
-                        :k {:id :cont-0}}
-          _ (ds/register-reader-waiter! call-out 0 waiter-entry)
-          ;; 2. Bridge puts response to call-out
-          response (dao.stream.apply/response :parked-0 42)
-          put-result (ds/append! call-out response)
-          woke (:woke put-result)
-          _ (is (= 1 (count woke)))
-          ;; 3. Use engine to process woken entries
-          entries (engine/make-woken-run-queue-entries state woke)
-          next-state (update state :ready-queue into entries)
-          run-entry (first (:ready-queue next-state))]
-      (is (= 1 (count (:ready-queue next-state))))
-      (is (= response (:value run-entry)))
-      (is (= {vm/call-out-cursor-key {:stream-id vm/call-out-stream-key,
-                                      :position 1}}
-             (:store-updates run-entry))))))
+(deftest stream-make-uses-the-supplied-constructor-test
+  (testing "handle-make calls :make-stream and stores the handle"
+    (let [[ref s'] (engine/handle-make (state) {:capacity 4} :stream-0)]
+      (is (= {:type :stream-ref, :id :stream-0} ref))
+      (is (stream/writer? (get (:store s') :stream-0)))))
+  (testing "A nil capacity takes the VM default, so both paths agree"
+    (let [seen (atom nil)
+          make (fn [c] (reset! seen c) (tu/make-stream c))
+          [_ _] (engine/handle-make (state {:make-stream make})
+                                    {:capacity nil}
+                                    :stream-0)]
+      (is (= vm/default-stream-capacity @seen))))
+  (testing "Without :make-stream the effect is unsupported and says so"
+    (let [bare (vm/empty-state {})]
+      (is (nil? (:make-stream bare)))
+      (is (throws? (fn [] (engine/handle-make bare {:capacity 4} :stream-0)))))))
 
 
 ;; =============================================================================
-;; Program Cache Machinery Tests
+;; Cursors are opaque
 ;; =============================================================================
 
-(deftest build-program-index-test
-  (testing "Groups datoms by entity EID"
-    (let [datoms [[1 :yin/type :foo] [2 :yin/type :bar] [1 :yin/name "one"]]]
-      (is (= {1 [[1 :yin/type :foo] [1 :yin/name "one"]],
-              2 [[2 :yin/type :bar]]}
-             (engine/build-program-index datoms))))))
+(deftest cursor-entries-carry-an-opaque-cursor-test
+  (testing "handle-cursor mints against the stream rather than fabricating"
+    (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+          [ref s1] (engine/handle-cursor s0
+                                         {:stream {:type :stream-ref,
+                                                   :id :stream-0}}
+                                         :cursor-0)
+          entry (get (:store s1) :cursor-0)]
+      (is (= {:type :cursor-ref, :id :cursor-0} ref))
+      (is (= :stream-0 (:stream-id entry)))
+      (is (contains? entry :cursor))
+      (is (not (contains? entry :position))
+          "There is no position and no seek")))
+  (testing "A non-ok mint outcome fails the handler rather than being ignored"
+    (let [refusing (reify
+                     stream/IDaoStreamReader
+                     (cursor
+                       [_ _]
+                       {:dao.stream/outcome
+                        :dao.stream/transport-error})
+
+                     (next
+                       [_ _]
+                       {:dao.stream/outcome
+                        :dao.stream/transport-error}))
+          s0 (assoc-in (state) [:store :stream-0] refusing)]
+      (is (throws? (fn []
+                     (engine/handle-cursor s0
+                                           {:stream {:type :stream-ref,
+                                                     :id :stream-0}}
+                                           :cursor-0)))))))
 
 
-(deftest executable-program-datom?-test
-  (testing "Identifies yin-namespaced datoms that are not derived metadata"
-    (let [derived-eid (:db/derived datom/reserved)]
-      (is (true? (engine/executable-program-datom? [1 :yin/opcode :halt 0 0])))
-      (is (false? (engine/executable-program-datom? [1 :not-yin/opcode :halt 0
-                                                     0])))
-      (is (false? (engine/executable-program-datom? [1 :yin/opcode :halt 0
-                                                     derived-eid]))))))
+(deftest next-advances-to-the-returned-successor-test
+  (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+        [_ s1] (engine/handle-cursor s0
+                                     {:stream {:type :stream-ref,
+                                               :id :stream-0}}
+                                     :cursor-0)
+        cursor-ref {:type :cursor-ref, :id :cursor-0}
+        handle (get (:store s1) :stream-0)]
+    (testing "An empty open stream parks the reader"
+      (let [r (engine/handle-next s1 {:cursor cursor-ref})]
+        (is (true? (:park r)))
+        (is (= :stream-0 (:stream-id r)))))
+    (stream/append! handle :a)
+    (testing "A value advances the stored cursor to the exact successor"
+      (let [before (get-in s1 [:store :cursor-0 :cursor])
+            r (engine/handle-next s1 {:cursor cursor-ref})
+            after (get-in r [:state :store :cursor-0 :cursor])]
+        (is (= :a (:value r)))
+        (is (not= before after))))
+    (testing "A closed and drained stream ends with nil, as v1 did"
+      (let [r (engine/handle-next s1 {:cursor cursor-ref})
+            s2 (:state r)]
+        (stream/close! handle)
+        (is (nil? (:value (engine/handle-next s2 {:cursor cursor-ref}))))))))
 
 
-(deftest frame-versions-test
-  (testing "Collects versions from a deep :next chain (stack-safety)"
-    (let [chain (reduce (fn [acc i] {:compiled-version i, :next acc})
-                        {:compiled-version 0}
-                        (range 1 1000))]
-      (is (= (set (range 1000)) (engine/frame-versions chain))))))
+(deftest gap-is-a-value-the-program-sees-test
+  (testing "Eviction surfaces as :dao.stream/gap at the reader's cursor"
+    (let [[_ s0] (engine/handle-make (state) {:capacity 2} :stream-0)
+          [_ s1] (engine/handle-cursor s0
+                                       {:stream {:type :stream-ref,
+                                                 :id :stream-0}}
+                                       :cursor-0)
+          handle (get (:store s1) :stream-0)
+          cursor-ref {:type :cursor-ref, :id :cursor-0}]
+      (dotimes [n 5] (stream/append! handle n))
+      (let [r (engine/handle-next s1 {:cursor cursor-ref})]
+        (is (= :dao.stream/gap (:value r)))
+        (is (not= (get-in s1 [:store :cursor-0 :cursor])
+                  (get-in r [:state :store :cursor-0 :cursor]))
+            "A gap advances to the recovery cursor")))))
 
 
-(deftest collect-frame-versions-test
-  (testing "Nil-safe version collection"
-    (is (= #{} (engine/collect-frame-versions nil)))
-    (is (= #{1 2}
-           (engine/collect-frame-versions [{:compiled-version 1}
-                                           {:compiled-version 2}])))))
+;; =============================================================================
+;; Append outcomes
+;; =============================================================================
+
+(deftest put-is-total-over-append-outcomes-test
+  (let [[_ s0] (engine/handle-make (state) {:capacity 2} :stream-0)
+        effect {:effect :stream/put,
+                :stream {:type :stream-ref, :id :stream-0},
+                :val 1}]
+    (testing "ok returns the appended value"
+      (is (= 1 (:value (engine/handle-put s0 effect)))))
+    (testing "closed is an error naming its outcome, as v1's throw was"
+      (stream/close! (get (:store s0) :stream-0))
+      (is (throws? (fn [] (engine/handle-put s0 effect)))))
+    (testing "An unknown stream reference is an error"
+      (is (throws? (fn []
+                     (engine/handle-put s0
+                                        (assoc effect
+                                               :stream {:type :stream-ref,
+                                                        :id :nope}))))))))
 
 
-(deftest pinned-compiled-versions-test
-  (testing "Unions all active and queued versions"
-    (let [vm {:active-compiled-version 1,
-              :k {:compiled-version 2},
-              :parked {:p1 {:compiled-version 3}},
-              :ready-queue [{:compiled-version 4}],
-              :wait-set [{:compiled-version 5}]}]
-      (is (= #{1 2 3 4 5} (engine/pinned-compiled-versions vm))))))
+;; =============================================================================
+;; :stream/take does not exist
+;; =============================================================================
+
+(deftest take-is-removed-test
+  (testing "A :stream/take effect reaches no branch and no registered handler"
+    (is (throws? (fn []
+                   (engine/handle-effect (state {:modules (module/default-registry)})
+                                         {:effect :stream/take,
+                                          :stream {:type :stream-ref,
+                                                   :id :stream-0}}
+                                         {}))))))
 
 
-(deftest trim-compiled-cache-test
-  (testing "Keeps newest-N and pinned versions"
-    (let [limit engine/default-compiled-cache-limit
-          ;; Create a cache with limit + 5 versions, version 0 is oldest
-          cache
-          (into {} (map (fn [i] [i (str "artifact-" i)]) (range (+ limit 5))))
-          vm {:compiled-by-version cache,
-              ;; Pin the oldest version
-              :active-compiled-version 0}
-          trimmed (engine/trim-compiled-cache vm)]
-      (is (contains? (:compiled-by-version trimmed) 0)
-          "Oldest pinned version should be kept")
-      (is (= (inc limit) (count (:compiled-by-version trimmed)))
-          "Should keep limit + 1 (pinned)"))))
+;; =============================================================================
+;; Nil-fill parameter binding (§7.7.2)
+;; =============================================================================
+
+(deftest bind-params-nil-fills-missing-args-test
+  (testing "Every param becomes a key; a param with no arg maps to nil"
+    (is (= {'x 1, 'y nil} (engine/bind-params '[x y] [1])))
+    (is (= {'x nil, 'y nil} (engine/bind-params '[x y] []))))
+  (testing "Extra args beyond params are dropped"
+    (is (= {'x 1} (engine/bind-params '[x] [1 2 3]))))
+  (testing "Exact-arity calls are unaffected"
+    (is (= {'x 1, 'y 2} (engine/bind-params '[x y] [1 2])))))
 
 
-(deftest cache-compiled-artifact-test
-  (testing "Stores artifact, clears dirty flag, and trims"
-    (let [vm {:compile-dirty? true, :compiled-by-version {}}
-          artifact {:code :ops}
-          result (engine/cache-compiled-artifact vm 1 artifact {})]
-      (is (= artifact (get-in result [:compiled-by-version 1])))
-      (is (false? (:compile-dirty? result)))
-      (is (= {} (:datom-index result))))))
+;; =============================================================================
+;; The module registry is a value
+;; =============================================================================
+
+(deftest resolve-var-reads-a-supplied-registry-test
+  (let [registry (module/register-module (module/empty-registry)
+                                         'my.lib
+                                         {'answer 42})]
+    (testing "Resolution order is env, store, primitives, registry"
+      (is (= 1 (engine/resolve-var {'x 1} {'x 2} {'x 3} registry 'x)))
+      (is (= 2 (engine/resolve-var {} {'x 2} {'x 3} registry 'x)))
+      (is (= 3 (engine/resolve-var {} {} {'x 3} registry 'x)))
+      (is (= 42 (engine/resolve-var {} {} {} registry 'my.lib/answer))))
+    (testing "An unresolvable symbol names itself"
+      (is (throws? (fn [] (engine/resolve-var {} {} {} registry 'nope)))))
+    (testing "Nothing resolves from a registry that was not supplied"
+      (is (throws? (fn [] (engine/resolve-var {} {} {} nil 'my.lib/answer)))))))
 
 
-(deftest ensure-compiled-version-test
-  (let [compile-fn (fn [root _datoms _idx] {:stub-artifact true, :root root})
-        vm {:program-root-eid :root,
-            :datoms [[:root :yin/opcode :halt]],
-            :program-version 1}]
-    (testing "Compiles and caches when missing"
-      (let [[vm' artifact] (engine/ensure-compiled-version vm 1 compile-fn)]
-        (is (= {:stub-artifact true, :root :root} artifact))
-        (is (= artifact (get-in vm' [:compiled-by-version 1])))))
-    (testing "Throws when program is not loaded"
-      (is (thrown? #?(:clj Exception
-                      :cljs js/Error
-                      :cljd Object)
-            (engine/ensure-compiled-version {} 1 compile-fn))))))
+(deftest effect-dispatch-reads-the-registry-value-test
+  (testing "A handler registered in the value is dispatched"
+    (let [registry (module/register-effect-handler
+                     (module/empty-registry)
+                     :test/ping
+                     (fn [s _e _o] {:state s, :value :pong, :blocked? false}))
+          r (engine/handle-effect (state {:modules registry})
+                                  {:effect :test/ping}
+                                  {})]
+      (is (= :pong (:value r)))))
+  (testing "An unknown effect is an error"
+    (is (throws? (fn []
+                   (engine/handle-effect (state {:modules
+                                                 (module/empty-registry)})
+                                         {:effect :test/nope}
+                                         {}))))))
 
 
-(deftest maybe-recompile-at-boundary-test
-  (let [compile-fn (fn [_root _datoms _idx] {:stub-artifact true})
-        vm {:program-root-eid :root,
-            :datoms [[:root :yin/opcode :halt]],
-            :program-version 1,
-            :compile-dirty? true}]
-    (testing "Recompiles when dirty"
-      (let [[vm' artifact] (engine/maybe-recompile-at-boundary vm compile-fn)]
-        (is (some? artifact))
-        (is (false? (:compile-dirty? vm')))))
-    (testing "No-op when not dirty"
-      (let [clean-vm (assoc vm :compile-dirty? false)
-            [vm' artifact] (engine/maybe-recompile-at-boundary clean-vm
-                                                               compile-fn)]
-        (is (nil? artifact))
-        (is (identical? clean-vm vm'))))))
+;; =============================================================================
+;; Readiness gating for observer coordination
+;; =============================================================================
+
+(deftest ready-for-ingress-gates-program-input-test
+  (let [idle {:halted? true, :blocked? false, :ready-queue [], :wait-set []}]
+    (testing "An idle VM is ready for the next batch"
+      (is (engine/ready-for-ingress? idle)))
+    (testing "Not ready while blocked, scheduled, waiting, or mid-continuation"
+      (is (not (engine/ready-for-ingress? (assoc idle :blocked? true))))
+      (is (not (engine/ready-for-ingress? (assoc idle :ready-queue [:x]))))
+      (is (not (engine/ready-for-ingress? (assoc idle :wait-set [:x]))))
+      (is (not (engine/ready-for-ingress? (assoc idle :k {:type :frame})))))
+    (testing "Loaded work holds the VM until it halts or clears its control"
+      (is (not (engine/ready-for-ingress?
+                 (assoc idle :halted? false :control {:type :literal}))))
+      (is (engine/ready-for-ingress?
+            (assoc idle :halted? false :control nil))))
+    (testing "Empty bytecode does not hold a VM that has cleared its control"
+      (is (engine/ready-for-ingress? (assoc idle :bytecode []
+                                            :halted? false
+                                            :control :some-control)))
+      (is (not (engine/ready-for-ingress? (assoc idle :bytecode [:op]
+                                                 :halted? false
+                                                 :control :some-control)))))))
 
 
-(deftest append-program-datoms-test
-  (testing "Increments version and sets dirty flag on executable datoms"
-    (let [vm {:program-root-eid :root, :program-version 1, :datoms []}
-          new-datoms [[:root :yin/opcode :halt]]
-          result (engine/append-program-datoms vm new-datoms)]
-      (is (= 2 (:program-version result)))
-      (is (true? (:compile-dirty? result)))
-      (is (= new-datoms (:datoms result)))))
-  (testing "Supports updating root eid"
-    (let [vm {:program-root-eid :old-root, :program-version 1, :datoms []}
-          result (engine/append-program-datoms vm [] :new-root)]
-      (is (= 2 (:program-version result)))
-      (is (= :new-root (:program-root-eid result)))
-      (is (true? (:compile-dirty? result)))))
-  (testing "Throws without root"
-    (is (thrown? #?(:clj Exception
-                    :cljs js/Error
-                    :cljd Object)
-          (engine/append-program-datoms {} [[:foo :bar :baz]])))))
+;; =============================================================================
+;; The polling wait set is the mechanism
+;; =============================================================================
+
+(deftest wait-set-is-resolved-from-the-store-test
+  (testing "A parked reader is woken by polling, and its cursor advances"
+    (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+          [_ s1] (engine/handle-cursor s0
+                                       {:stream {:type :stream-ref,
+                                                 :id :stream-0}}
+                                       :cursor-0)
+          handle (get (:store s1) :stream-0)
+          before (get-in s1 [:store :cursor-0 :cursor])
+          parked (assoc s1
+                        :blocked? true
+                        :wait-set [{:reason :next,
+                                    :cursor-ref {:type :cursor-ref,
+                                                 :id :cursor-0}}])]
+      (is (= 1 (count (:wait-set (engine/check-wait-set parked))))
+          "Nothing to read: it stays parked")
+      (stream/append! handle :v)
+      (let [woken (engine/check-wait-set parked)
+            entry (first (:ready-queue woken))]
+        (is (empty? (:wait-set woken)))
+        (is (= :v (:value entry)))
+        (is (= {:cursor-0 {:stream-id :stream-0,
+                           :cursor (:cursor entry)}}
+               (:store-updates entry)))
+        (is (not= before (:cursor entry)))))))
+
+
+(defn- cursor-waiter
+  "A parked reader on :cursor-0, distinguishable by its continuation."
+  [k]
+  {:reason :next,
+   :cursor-ref {:type :cursor-ref, :id :cursor-0},
+   :k k,
+   :env {}})
+
+
+(deftest waiters-sharing-a-cursor-read-distinct-values-test
+  (testing "Each waiter polls from its predecessor's successor"
+    (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+          [_ s1] (engine/handle-cursor s0
+                                       {:stream {:type :stream-ref,
+                                                 :id :stream-0}}
+                                       :cursor-0)
+          handle (get (:store s1) :stream-0)]
+      (stream/append! handle :a)
+      (stream/append! handle :b)
+      (let [parked (assoc s1
+                          :blocked? true
+                          :wait-set [(cursor-waiter :k1) (cursor-waiter :k2)])
+            woken (engine/check-wait-set parked)
+            tasks (:ready-queue woken)]
+        (is (empty? (:wait-set woken)))
+        (is (= [:a :b] (mapv :value tasks))
+            "Not both waiters reading the value at the shared pre-poll cursor")
+        (is (not= (:cursor (first tasks)) (:cursor (second tasks)))
+            "The second waiter holds its own successor")
+        (is (= (:cursor (second tasks))
+               (get-in (:store-updates (second tasks)) [:cursor-0 :cursor])))))))
+
+
+(deftest retained-waiter-re-resolves-its-cursor-test
+  (testing "A waiter that stayed parked polls from the cursor another waiter
+            advanced, not from the value that waiter consumed"
+    (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+          [_ s1] (engine/handle-cursor s0
+                                       {:stream {:type :stream-ref,
+                                                 :id :stream-0}}
+                                       :cursor-0)
+          handle (get (:store s1) :stream-0)
+          parked (assoc s1
+                        :blocked? true
+                        :wait-set [(cursor-waiter :k1) (cursor-waiter :k2)])
+          r1 (engine/check-wait-set parked)]
+      (is (= 2 (count (:wait-set r1))) "Nothing to read: both stay parked")
+      (stream/append! handle :a)
+      (let [r2 (engine/check-wait-set r1)]
+        (is (= [:a] (mapv :value (:ready-queue r2)))
+            "The first waiter takes the value; the second does not re-read it")
+        (is (= 1 (count (:wait-set r2)))
+            "The second waiter stays parked at the advanced cursor")
+        (stream/append! handle :b)
+        (let [r3 (engine/check-wait-set r2)]
+          ;; r2's :a is still queued because no driver resumed it between
+          ;; rounds; the new round adds :b for the retained waiter, not a
+          ;; second copy of a value it never consumed.
+          (is (= [:a :b] (mapv :value (:ready-queue r3))))
+          (is (empty? (:wait-set r3))))))))
+
+
+;; =============================================================================
+;; Construction is all-or-nothing
+;; =============================================================================
+
+(defn- tracked-handle
+  "A minimal handle that records its own close under `tag`. Minting answers
+   :transport-error when `mint-ok?` is false; everything else succeeds."
+  [closed tag mint-ok?]
+  (reify
+    stream/IDaoStreamReader
+    (cursor
+      [_ _]
+      (if mint-ok?
+        {:dao.stream/outcome :dao.stream/ok, :dao.stream/cursor [::cursor tag]}
+        {:dao.stream/outcome :dao.stream/transport-error}))
+
+    (next [_ _] {:dao.stream/outcome :dao.stream/blocked})
+
+
+    stream/IDaoStreamWriter
+
+    (append! [_ _] {:dao.stream/outcome :dao.stream/ok})
+
+
+    stream/IDaoStreamClosable
+
+    (close!
+      [_]
+      (swap! closed conj tag)
+      {:dao.stream/outcome :dao.stream/ok})))
+
+
+(deftest failing-pair-construction-closes-what-it-created-test
+  (testing "A second create failure closes the first created stream"
+    (let [closed (atom [])
+          calls (atom 0)
+          make (fn [_capacity]
+                 (if (= 1 (swap! calls inc))
+                   {:dao.stream/outcome :dao.stream/ok,
+                    :dao.stream/handle (tracked-handle closed ::created-in true)}
+                   {:dao.stream/outcome :dao.stream/transport-error}))]
+      (is (throws? (fn [] (vm/empty-state {:make-stream make}))))
+      (is (= [::created-in] @closed)
+          "The unreachable call-in does not survive the construction error"))))
+
+
+(deftest failing-mint-closes-created-streams-only-test
+  (testing "A mint failure after both streams exist closes both"
+    (let [closed (atom [])
+          calls (atom 0)
+          make (fn [_capacity]
+                 (let [n (swap! calls inc)]
+                   {:dao.stream/outcome :dao.stream/ok,
+                    :dao.stream/handle (tracked-handle closed
+                                                       (keyword "test"
+                                                                (str "created-"
+                                                                     n))
+                                                       (= n 1))}))]
+      (is (throws? (fn [] (vm/empty-state {:make-stream make}))))
+      (is (= [:test/created-1 :test/created-2] @closed))))
+  (testing "A stream the composition supplied is never closed by this failure"
+    (let [closed (atom [])
+          make (fn [_capacity]
+                 {:dao.stream/outcome :dao.stream/ok,
+                  :dao.stream/handle (tracked-handle closed ::created-out
+                                                     false)})]
+      (is (throws? (fn []
+                     (vm/empty-state {:make-stream make,
+                                      :call-in (tracked-handle closed
+                                                               ::supplied-in
+                                                               true)}))))
+      (is (= [::created-out] @closed)
+          "The supplied call-in belongs to the composition, not the VM"))))
+
+
+;; =============================================================================
+;; Telemetry boundaries (vm-telemetry-design.md)
+;; =============================================================================
+
+(defn- phase-seq
+  "Every emitted snapshot's phase, in order: `:vm/phase` is written once per
+   snapshot, on its root, so the attribute itself is the timeline."
+  [sink]
+  (mapv #(nth % 2)
+        (filter (fn [[_e a _v]] (= :vm/phase a)) (tu/drain sink))))
+
+
+(defn- fact?
+  "True when the sink holds at least one datom `[e a v …]`."
+  [sink a v]
+  (some (fn [[_e attr value]] (and (= a attr) (= v value)))
+        (tu/drain sink)))
+
+
+(deftest handle-effect-emits-an-effect-snapshot-test
+  (let [sink (tu/new-memory-log)
+        r (engine/handle-effect (state {:telemetry {:stream sink}})
+                                {:effect :vm/store-put, :key :probe, :val 42}
+                                {})]
+    (testing "A handled effect emits exactly one :effect snapshot"
+      (is (= 42 (:value r)))
+      (is (= [:effect] (phase-seq sink)))
+      (is (fact? sink :vm/type :vm/snapshot) "the root is a :vm/snapshot")
+      (is (fact? sink :vm/effect-type :vm/store-put)
+          "the effect type rides along as one extra root fact"))))
+
+
+(deftest park-and-resume-emit-their-phases-test
+  (let [sink (tu/new-memory-log)
+        parked (engine/park-continuation (state {:telemetry {:stream sink}})
+                                         {:k {:type :probe-frame}, :env {}})
+        resumed (engine/resume-continuation parked
+                                            :parked-0
+                                            :resumed
+                                            (fn [base _parked v]
+                                              (assoc base :value v)))]
+    (testing "Park then resume is one :park snapshot and one :resume snapshot"
+      (is (:halted? parked))
+      (is (= :resumed (:value resumed)))
+      (is (= [:park :resume] (phase-seq sink)))
+      (is (fact? sink :vm/parked-id :parked-0)
+          "the parked identity names the continuation it belongs to")
+      (is (some (fn [[_e _a v]] (= :parked-0 v)) (tu/drain sink))
+          "the identity is also a continuation-summary key, so an analyzer
+           looking up parked continuations finds it"))))
+
+
+(deftest run-loop-exits-emit-one-terminal-snapshot-test
+  (let [resume-fn (fn [v] (engine/resume-from-run-queue v (fn [base _entry] base)))]
+    (testing "A blocked exit emits :blocked exactly once"
+      (let [sink (tu/new-memory-log)
+            [_ s0] (engine/handle-make (state {:telemetry {:stream sink}})
+                                       {:capacity 4}
+                                       :stream-0)
+            [_ s1] (engine/handle-cursor s0
+                                         {:stream {:type :stream-ref,
+                                                   :id :stream-0}}
+                                         :cursor-0)
+            parked (assoc s1
+                          :blocked? true
+                          :wait-set [(cursor-waiter :k1)])
+            out (engine/run-loop parked
+                                 engine/active-continuation?
+                                 identity
+                                 resume-fn)]
+        (is (:blocked? out) "nothing to read: the wait set keeps it parked")
+        (is (= [:blocked] (phase-seq sink)))))
+    (testing "A halted exit emits :halt exactly once"
+      (let [sink (tu/new-memory-log)
+            halted (assoc (state {:telemetry {:stream sink}}) :halted? true)
+            out (engine/run-loop halted
+                                 engine/active-continuation?
+                                 identity
+                                 resume-fn)]
+        (is (:halted? out))
+        (is (= [:halt] (phase-seq sink)))))))

@@ -1,123 +1,43 @@
 (ns yin.vm.semantic
-  (:require [dao.datom :as datom]
-            [dao.space.query :as query]
-            [dao.space.transact :as transact]
-            [dao.stream :as ds]
-            [dao.stream.apply :as dao.stream.apply]
-            [yin.module :as module]
+  "Linear CESK interpreter for executable datoms on DaoStream v2
+   (`docs/design/yin.vm.semantic.md`).
+
+   Code arrives as one `:yin.code/*` segment batch per program value. The
+   loader (`load-image`, `vm-load-program`) checks §2.6 well-formedness,
+   decodes the batch into an image — one vector indexed by pc of
+   `[opcode & operands]` with every ref resolved to a pc integer — and
+   stores it under `:code {segment-id image}`. Mnemonics in the datoms stay
+   semantic and integers in the image stay mechanical (§2.4): the loader maps
+   `:const` onto `:literal` and a `:call` carrying `:yin.code/tail?` onto
+   `:tailcall`, and the dispatch below switches on the integers.
+
+   The hot loop keeps the five registers — segment, pc, accumulator, operand
+   stack, continuation — in `loop` locals and touches the record only at
+   effect points and exits (§4.3). K is a vector of frames, innermost last:
+   `{:type :return :segment :pc :env :stack-base}` for calls, and the wait
+   entries the engine polls carry the same `{segment pc env stack k}` shape
+   (§3.5). Park writes that map into `:parked`; resume reads it back. Nothing
+   in either is a host object except values the program itself put in `env`
+   or on the stack. A wait or ready entry is those registers plus `:reason`
+   and resource ids — never a resolved stream handle and never a resume
+   closure: `engine/check-wait-set` resolves handles from the store on every
+   poll and the scheduler restores a woken entry explicitly, so the wait set
+   of a blocked machine survives an EDN round-trip. A segment id is stable:
+   loading different code under an id that continuations already name is a
+   load error; an identical reload is accepted.
+
+   `step` is this loop with a fuel of one instruction, so single-stepping and
+   full runs execute one transition code path. AST evaluation is not here:
+   lowering (`yin.vm.linearize`, Phase 2) is composition-supplied at the
+   observer boundary, so `eval` resumes loaded work and refuses an AST."
+  (:require [dao.jing :as jing]
+            [dao.stream.apply :as apply2]
             [yin.vm :as vm]
+            [yin.vm.code :as code]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
-            [yin.vm.macro :as macro]
+            [yin.vm.module :as module]
             [yin.vm.telemetry :as telemetry]))
-
-
-(declare semantic-vm-restore bind-variadic-params)
-
-
-;; =============================================================================
-;; Semantic VM
-;; =============================================================================
-;;
-;; Executes Yin datoms by traversing the entity graph.
-;; Standard record layout for CESK model.
-;; Optimized with array-backed node indexing and a mutable hot-loop.
-;; =============================================================================
-
-
-(def ^:private cardinality-many-attrs
-  "Attributes materialized as repeated datoms in DaoDB."
-  #{:yin/operands})
-
-
-;; --- Optimized Node Representation ---
-
-(def ^:private ATTR_TYPE 0)
-(def ^:private ATTR_VALUE 1)
-(def ^:private ATTR_NAME 2)
-(def ^:private ATTR_PARAMS 3)
-(def ^:private ATTR_BODY 4)
-(def ^:private ATTR_TEST 5)
-(def ^:private ATTR_CONSEQUENT 6)
-(def ^:private ATTR_ALTERNATE 7)
-(def ^:private ATTR_OPERATOR 8)
-(def ^:private ATTR_OPERANDS 9)
-(def ^:private ATTR_TARGET 10)
-(def ^:private ATTR_VAL_NODE 11)
-(def ^:private ATTR_KEY 12)
-(def ^:private ATTR_PREFIX 13)
-(def ^:private ATTR_BUFFER 14)
-(def ^:private ATTR_PARKED_ID 15)
-(def ^:private ATTR_TAIL 16)
-(def ^:private ATTR_SOURCE 17)
-(def ^:private ATTR_OP 18)
-(def ^:private ATTR_COUNT 19)
-
-
-;; --- Hot-loop continuation frame tags (primitive integers) ---
-
-
-
-(def ^:private attr->idx
-  {:yin/type ATTR_TYPE,
-   :yin/value ATTR_VALUE,
-   :yin/name ATTR_NAME,
-   :yin/params ATTR_PARAMS,
-   :yin/body ATTR_BODY,
-   :yin/test ATTR_TEST,
-   :yin/consequent ATTR_CONSEQUENT,
-   :yin/alternate ATTR_ALTERNATE,
-   :yin/operator ATTR_OPERATOR,
-   :yin/operands ATTR_OPERANDS,
-   :yin/target ATTR_TARGET,
-   :yin/val-node ATTR_VAL_NODE,
-   :yin/key ATTR_KEY,
-   :yin/prefix ATTR_PREFIX,
-   :yin/buffer ATTR_BUFFER,
-   :yin/parked-id ATTR_PARKED_ID,
-   :yin/tail? ATTR_TAIL,
-   :yin/source ATTR_SOURCE,
-   :yin/op ATTR_OP})
-
-
-(defn- make-semantic-object-array
-  [n]
-  #?(:clj (object-array (int n))
-     :cljs (let [arr (js/Array. n)]
-             (loop [i 0]
-               (if (< i n) (do (aset arr i nil) (recur (inc i))) arr)))
-     :cljd (object-array (int n))))
-
-
-(defn- semantic-object-array-get
-  [arr idx]
-  #?(:clj (aget ^objects arr (int idx))
-     :cljs (aget arr idx)
-     :cljd (aget arr (int idx))))
-
-
-(defn- semantic-object-array-set!
-  [arr idx val]
-  #?(:clj (aset ^objects arr (int idx) val)
-     :cljs (aset arr idx val)
-     :cljd (aset arr (int idx) val)))
-
-
-(defn- datom-node-attrs
-  "Get node attributes directly from indexed datoms.
-   Returns an Object array for O(1) attribute access."
-  [index node-id]
-  (let [datoms (get index node-id)
-        arr (make-semantic-object-array ATTR_COUNT)]
-    (doseq [[_e a v _t _m] datoms]
-      (when-let [idx (get attr->idx a)]
-        (if (contains? cardinality-many-attrs a)
-          (let [existing (semantic-object-array-get arr idx)]
-            (if (vector? v)
-              (semantic-object-array-set! arr idx (into (or existing []) v))
-              (semantic-object-array-set! arr idx (conj (or existing []) v))))
-          (semantic-object-array-set! arr idx v))))
-    arr))
 
 
 ;; =============================================================================
@@ -125,1014 +45,805 @@
 ;; =============================================================================
 
 (defrecord SemanticVM
-  [blocked?   ; true if blocked
-   bridge     ; explicit host-side FFI bridge state
-   in-stream  ; ingress DaoStream carrying canonical datom programs
-   in-cursor  ; ingress cursor position
-   control    ; current control state {:type :node/:value, ...}
-   datoms     ; AST datoms
-   db         ; DaoDB AST store
-   env        ; lexical environment
-   halted?    ; true if execution completed
-   id-counter ; unique ID counter
-   datom-index ; Entity index {eid node-attr-array}
-   node-id-counter ; unique negative ID counter for AST nodes
-   parked     ; parked continuations
-   primitives ; primitive operations
-   ready-queue ; vector of runnable continuations
-   k         ; linked-list of continuation frames
-   store     ; heap memory
-   value     ; final result value
-   wait-set  ; vector of parked continuations waiting on streams
-   index-arr ; array-backed node index for hot loop
-   index-base-id ; base id for index-arr offset calculation
-   macro-registry ; {macro-lambda-eid -> (fn [ctx] {:datoms [...] :root-eid
-   ;; eid})}
-   telemetry ; optional telemetry config
+  [blocked?       ; boolean, true if blocked
+   bridge         ; explicit host-side FFI bridge state
+   halted?        ; boolean, true when active continuation has completed
+   k              ; continuation, a vector of frames (innermost last) or nil
+   program        ; segment id of the last loaded batch
+   control        ; {:segment id :pc n} or nil
+   env            ; persistent lexical scope map
+   stack          ; operand stack, a vector (part of control, §4.1)
+   id-counter     ; integer counter for unique IDs
+   parked         ; parked continuations map
+   primitives     ; primitive operations map
+   primitive-profiles ; portable primitive profile projection
+   primitive-canonical-names ; declared aliases for identity reverse lookup
+   modules        ; module registry value
+   make-stream    ; host-supplied stream constructor, or nil
+   call-capacity  ; declared capacity of the FFI pair
+   ready-queue    ; vector of runnable continuations
+   store          ; heap memory map
+   value          ; last computed value
+   wait-set       ; vector of continuations waiting on a transport
+   telemetry      ; telemetry config map ({:stream … :vm-id …}) or nil
    telemetry-step ; telemetry snapshot counter
-   telemetry-t ; telemetry transaction counter
-   vm-model    ; telemetry model keyword
-   ])
+   telemetry-t    ; telemetry transaction counter
+   telemetry-eid  ; telemetry entity-id seed, floored at datom/first-user-id
+   vm-model       ; telemetry model keyword
+   vm-id          ; telemetry instance id, minted by telemetry/install
+   code           ; {segment-id image}; built once per segment, never written
+   code-aliases]) ; {address segment-id}; additive, one address one id (UCF §7.3.4)
 
 
-(declare semantic-expand-macro-call)
+(declare semantic-restore scheduler-round)
 
 
 ;; =============================================================================
-;; VM: Execute AST Datoms
+;; Register materialization
 ;; =============================================================================
 
+(defn- put-registers
+  "Write the five registers back into the record. This is the linear machine's
+   cesk-return: the one seam where the running configuration becomes an
+   observable value, and therefore where per-step trace emission (§3.6) will
+   land when telemetry is designed. A nil segment means the machine has no
+   control left, which is the halted state.
+
+   An empty continuation is stored as nil rather than [] so that
+   `engine/ready-for-ingress?`, which asks `(nil? (:k vm))`, sees a machine
+   between evaluations."
+  [vm seg pc val St E K]
+  (assoc vm
+         :control (when seg {:segment seg, :pc pc})
+         :value val
+         :stack (or St [])
+         :env E
+         :k (if (seq K) K nil)
+         :halted? (and (not (:blocked? vm)) (nil? seg))))
 
 
-(defn- park-and-call
-  "Park the current semantic continuation stack and emit a DaoCall request."
-  [vm op args k env]
-  (let [;; 1. Park the continuation with a response-processing frame
-        response-k {:type :dao.stream.apply/call, :next k}
-        parked (engine/park-continuation vm {:k response-k, :env env})
-        parked-id (get-in parked [:value :id])
-        ;; 2. Get response stream from store
-        call-out (get-in parked [:store vm/call-out-stream-key])
-        cursor-data (get-in parked [:store vm/call-out-cursor-key])
-        cursor-pos (:position cursor-data)
-        ;; 3. Register as reader-waiter on response stream
-        waiter-entry {:cursor-ref {:type :cursor-ref,
-                                   :id vm/call-out-cursor-key},
-                      :reason :next,
-                      :stream-id vm/call-out-stream-key,
-                      :k response-k,
-                      :env env}
-        _ (when (satisfies? ds/IDaoStreamWaitable call-out)
-            (ds/register-reader-waiter! call-out cursor-pos waiter-entry))
-        ;; 4. Get request stream from store
-        call-in (get-in parked [:store vm/call-in-stream-key])
-        ;; 5. Build and emit request
-        request (dao.stream.apply/request parked-id op args)
-        _ (ds/append! call-in request)]
-    ;; 6. Return blocked state
-    (assoc (telemetry/emit-snapshot parked :bridge {:bridge-op op})
-           :control nil
-           :value :yin/blocked
-           :blocked? true
-           :halted? false)))
+(defn- response-wait-entry
+  "The polling wait entry for a sent call awaiting its correlated response:
+   the machine registers {segment pc env stack k} plus the call-out reader
+   fields, in the shape `ffi/call-response-wait-entry` gives the walker."
+  [seg pc env stack k call-id]
+  {:segment seg, :pc pc, :env env, :stack stack, :k k,
+   :call-id call-id,
+   :reason :next,
+   :cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key},
+   :stream-id vm/call-out-stream-key})
 
 
-(defn- handle-return-value
-  [vm]
-  (let [{:keys [control k]} vm
-        val (:val control)]
-    (if (nil? k)
-      (assoc vm
-             :halted? true
-             :value val)
-      (let [frame k
-            new-k (:next k)]
-        (case (:type frame)
-          :if (let [{consequent :consequent,
-                     alternate :alternate,
-                     env-restore :env}
-                    frame]
-                (assoc vm
-                       :control {:type :node, :id (if val consequent alternate)}
-                       :env env-restore
-                       :k new-k))
-          :app-op
-          (let [{operands :operands, env-call :env, tail? :tail?} frame
-                fn-val val]
-            (if (empty? operands)
-              ;; 0-arity call
-              (if (fn? fn-val)
-                (let [result (fn-val)]
-                  (if (module/effect? result)
-                    (let [{:keys [state value]} (engine/handle-effect
-                                                  vm
-                                                  result
-                                                  {:restore-fn
-                                                   semantic-vm-restore})]
-                      (assoc state
-                             :control {:type :value, :val value}
-                             :env env-call
-                             :k new-k))
-                    (assoc vm
-                           :control {:type :value, :val result}
-                           :env env-call
-                           :k new-k)))
-                (if (= :closure (:type fn-val))
-                  (let [{params :params, body-node :body-node, env-clo :env}
-                        fn-val
-                        new-env (merge env-clo
-                                       (bind-variadic-params params []))]
-                    (if tail?
-                      ;; TCO: skip restore-env
-                      (assoc vm
-                             :control {:type :node, :id body-node}
-                             :env new-env
-                             :k new-k)
-                      (assoc vm
-                             :control {:type :node, :id body-node}
-                             :env new-env ; Switch to closure env
-                             :k {:type :restore-env, :env env-call, :next new-k})))
-                  (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
-              ;; Prepare to eval args
-              (let [first-arg (first operands)]
-                (assoc vm
-                       :control {:type :node, :id first-arg}
-                       :env env-call
-                       :k {:type :app-args,
-                           :fn fn-val,
-                           :evaluated [],
-                           :operands operands,
-                           :next-idx 1,
-                           :env env-call,
-                           :tail? tail?,
-                           :next new-k}))))
-          :app-args
-          (let [{fn-val :fn,
-                 evaluated :evaluated,
-                 operands :operands,
-                 next-idx :next-idx,
-                 env-call :env,
-                 tail? :tail?}
-                frame
-                new-evaluated (conj evaluated val)]
-            (if (= next-idx (count operands))
-              ;; All args evaluated, apply
-              (if (fn? fn-val)
-                (let [result (apply fn-val new-evaluated)]
-                  (if (module/effect? result)
-                    (let [{:keys [state value blocked?]}
-                          (engine/handle-effect
-                            vm
-                            result
-                            {:restore-fn semantic-vm-restore,
-                             :park-entry-fns
-                             {:stream/put (fn [_s e r]
-                                            {:k new-k,
-                                             :env env-call,
-                                             :reason :put,
-                                             :stream-id (:stream-id r),
-                                             :datom (:val e)}),
-                              :stream/next (fn [_s _e r]
-                                             {:k new-k,
-                                              :env env-call,
-                                              :reason :next,
-                                              :cursor-ref (:cursor-ref r),
-                                              :stream-id (:stream-id
-                                                           r)})}})]
-                      (if blocked?
-                        (assoc state :control nil)
-                        (assoc state
-                               :control {:type :value, :val value}
-                               :env env-call
-                               :k new-k)))
-                    (assoc vm
-                           :control {:type :value, :val result}
-                           :env env-call
-                           :k new-k)))
-                (if (= :closure (:type fn-val))
-                  (let [{params :params, body-node :body-node, env-clo :env}
-                        fn-val
-                        new-env (merge env-clo
-                                       (bind-variadic-params params
-                                                             new-evaluated))]
-                    (if tail?
-                      ;; TCO: skip restore-env
-                      (assoc vm
-                             :control {:type :node, :id body-node}
-                             :env new-env
-                             :k new-k)
-                      (assoc vm
-                             :control {:type :node, :id body-node}
-                             :env new-env ; Closure env + args
-                             :k {:type :restore-env, :env env-call, :next new-k})))
-                  (throw (ex-info "Cannot apply non-function" {:fn fn-val}))))
-              ;; More args to eval
-              (let [next-arg (nth operands next-idx)]
-                (assoc vm
-                       :control {:type :node, :id next-arg}
-                       :env env-call
-                       :k (assoc frame
-                                 :evaluated new-evaluated
-                                 :next-idx (inc next-idx))))))
-          :dao.stream.apply/args-eval
-          (let [{op :op,
-                 evaluated :evaluated,
-                 operands :operands,
-                 next-idx :next-idx,
-                 env-call :env}
-                frame
-                new-evaluated (conj evaluated val)]
-            (if (= next-idx (count operands))
-              (park-and-call vm op new-evaluated new-k env-call)
-              (let [next-arg (nth operands next-idx)]
-                (assoc vm
-                       :control {:type :node, :id next-arg}
-                       :env env-call
-                       :k (assoc frame
-                                 :evaluated new-evaluated
-                                 :next-idx (inc next-idx))))))
-          :dao.stream.apply/call (let [result-value (:dao.stream.apply/value
-                                                      val)]
-                                   (assoc vm
-                                          :control {:type :value, :val result-value}
-                                          :k new-k))
-          :restore-env (assoc vm
-                              :control control ; Pass value up
-                              :env (:env frame) ; Restore caller env
-                              :k new-k)
-          ;; Stream continuation frames
-          :stream-put-target (let [stream-ref val
-                                   val-node (:val-node frame)]
-                               (assoc vm
-                                      :control {:type :node, :id val-node}
-                                      :k {:type :stream-put-val,
-                                          :stream-ref stream-ref,
-                                          :env (:env frame),
-                                          :next new-k}))
-          :stream-put-val
-          (let [put-val val
-                stream-ref (:stream-ref frame)
-                effect {:effect :stream/put, :stream stream-ref, :val put-val}
-                {:keys [state value blocked?]}
-                (engine/handle-effect vm
-                                      effect
-                                      {:park-entry-fns
-                                       {:stream/put
-                                        (fn [_s _e r]
-                                          {:k new-k,
-                                           :env (:env frame),
-                                           :reason :put,
-                                           :stream-id (:stream-id r),
-                                           :datom put-val})}})]
-            (if blocked?
-              (assoc state :control nil)
-              (assoc state
-                     :control {:type :value, :val value}
-                     :env (:env frame)
-                     :k new-k)))
-          :stream-cursor-source
-          (let [stream-ref val
-                effect {:effect :stream/cursor, :stream stream-ref}
-                {:keys [state value]} (engine/handle-effect
-                                        vm
-                                        effect
-                                        {:restore-fn semantic-vm-restore})]
-            (assoc state
-                   :control {:type :value, :val value}
-                   :env (:env frame)
-                   :k new-k))
-          :stream-next-cursor
-          (let [cursor-ref val
-                effect {:effect :stream/next, :cursor cursor-ref}
-                {:keys [state value blocked?]}
-                (engine/handle-effect
-                  vm
-                  effect
-                  {:park-entry-fns {:stream/next
-                                    (fn [_s _e r]
-                                      {:k new-k,
-                                       :env (:env frame),
-                                       :reason :next,
-                                       :cursor-ref (:cursor-ref r),
-                                       :stream-id (:stream-id r)})}})]
-            (if blocked?
-              (assoc state :control nil)
-              (assoc state
-                     :control {:type :value, :val value}
-                     :env (:env frame)
-                     :k new-k)))
-          :stream-close-source
-          (let [stream-ref val
-                effect {:effect :stream/close, :stream stream-ref}
-                {:keys [state value]} (engine/handle-effect
-                                        vm
-                                        effect
-                                        {:restore-fn semantic-vm-restore})]
-            (assoc state
-                   :control {:type :value, :val value}
-                   :env (:env frame)
-                   :k new-k))
-          :resume-val (let [resume-val val
-                            parked-id (:parked-id frame)]
-                        (engine/resume-continuation vm
-                                                    parked-id
-                                                    resume-val
-                                                    (fn [new-state parked rv]
-                                                      (assoc new-state
-                                                             :k (:k parked)
-                                                             :env (:env parked)
-                                                             :control {:type :value,
-                                                                       :val rv}))))
-          ;; Default
-          (throw (ex-info "Unknown frame type" {:frame frame})))))))
+(defn semantic-restore
+  "Restore a wait-set or ready-queue entry into machine registers.
+
+   Two entry shapes carry more than registers:
+
+   - A `:request-sent` entry is a writer whose retained FFI request has now
+     been appended. The call starts waiting for its correlated response,
+     exactly as an immediately-sent one does, so the entry is replaced by its
+     response reader and the machine stays blocked.
+   - A `:call-id` entry is a response reader. The woken value is a response
+     envelope, so `ffi/call-result` unwraps it, checks correlation, and the
+     parked call leaves `:parked` rather than accumulating."
+  ([base entry] (semantic-restore base entry (:value entry)))
+  ([base entry val]
+   (if (:request-sent entry)
+     (assoc base
+            :wait-set (conj (vec (or (:wait-set base) []))
+                            (response-wait-entry (:segment entry)
+                                                 (:pc entry)
+                                                 (:env entry)
+                                                 (:stack entry)
+                                                 (:k entry)
+                                                 (:call-id entry)))
+            :control nil
+            :k nil
+            :value :yin/blocked
+            :blocked? true
+            :halted? false)
+     (let [call-id (:call-id entry)
+           base (if call-id (update base :parked dissoc call-id) base)
+           val (if call-id (ffi/call-result val call-id) val)]
+       (put-registers base
+                      (:segment entry)
+                      (:pc entry)
+                      val
+                      (:stack entry)
+                      (:env entry)
+                      (:k entry))))))
 
 
-(defn handle-node-eval
-  [vm]
-  (let [{:keys [control env k datoms index store primitives]} vm
-        node-id (:id control)
-        #?(:clj ^objects node-arr
-           :default node-arr)
-        (get index node-id)]
-    (if (nil? node-arr)
-      (throw (ex-info "Unknown node id in semantic slow path"
-                      {:node-id node-id}))
-      (let [node-type (aget node-arr ATTR_TYPE)]
-        (case node-type
-          :literal (assoc vm
-                          :control {:type :value, :val (aget node-arr ATTR_VALUE)})
-          :variable (let [name (aget node-arr ATTR_NAME)
-                          val (engine/resolve-var env store primitives name)]
-                      (assoc vm :control {:type :value, :val val}))
-          :lambda (assoc vm
-                         :control {:type :value,
-                                   :val {:type :closure,
-                                         :params (aget node-arr ATTR_PARAMS),
-                                         :body-node (aget node-arr ATTR_BODY),
-                                         :datoms datoms,
-                                         :env env}})
-          :if (assoc vm
-                     :control {:type :node, :id (aget node-arr ATTR_TEST)}
-                     :k {:type :if,
-                         :consequent (aget node-arr ATTR_CONSEQUENT),
-                         :alternate (aget node-arr ATTR_ALTERNATE),
-                         :env env,
-                         :next k})
-          :application (assoc vm
-                              :control {:type :node,
-                                        :id (aget node-arr ATTR_OPERATOR)}
-                              :k {:type :app-op,
-                                  :operands (aget node-arr ATTR_OPERANDS),
-                                  :env env,
-                                  :tail? (aget node-arr ATTR_TAIL),
-                                  :next k})
-          :dao.stream.apply/call
-          (let [operands (or (aget node-arr ATTR_OPERANDS) [])
-                op (aget node-arr ATTR_OP)]
-            (if (empty? operands)
-              (park-and-call vm op [] k env)
-              (assoc vm
-                     :control {:type :node, :id (first operands)}
-                     :k {:type :dao.stream.apply/args-eval,
-                         :op op,
-                         :evaluated [],
-                         :operands operands,
-                         :next-idx 1,
-                         :env env,
-                         :next k})))
-          ;; VM primitives
-          :vm/gensym (let [prefix (or (aget node-arr ATTR_PREFIX) "id")
-                           [id s'] (engine/gensym vm prefix)]
-                       (assoc s' :control {:type :value, :val id}))
-          :vm/store-get (let [key (aget node-arr ATTR_KEY)
-                              val (get store key)]
-                          (assoc vm :control {:type :value, :val val}))
-          :vm/store-put (let [key (aget node-arr ATTR_KEY)
-                              val (aget node-arr ATTR_VALUE)]
-                          (assoc vm
-                                 :control {:type :value, :val val}
-                                 :store (assoc store key val)))
-          ;; Stream operations
-          :stream/make (let [capacity (aget node-arr ATTR_BUFFER)
-                             effect {:effect :stream/make, :capacity capacity}
-                             {:keys [state value]} (engine/handle-effect
-                                                     vm
-                                                     effect
-                                                     {:restore-fn
-                                                      semantic-vm-restore})]
-                         (assoc state :control {:type :value, :val value}))
-          :stream/put (let [target-node (aget node-arr ATTR_TARGET)]
-                        (assoc vm
-                               :control {:type :node, :id target-node}
-                               :k {:type :stream-put-target,
-                                   :val-node (aget node-arr ATTR_VAL_NODE),
-                                   :env env,
-                                   :next k}))
-          :stream/cursor
-          (let [source-node (aget node-arr ATTR_SOURCE)]
-            (assoc vm
-                   :control {:type :node, :id source-node}
-                   :k {:type :stream-cursor-source, :env env, :next k}))
-          :stream/next (let [source-node (aget node-arr ATTR_SOURCE)]
-                         (assoc vm
-                                :control {:type :node, :id source-node}
-                                :k {:type :stream-next-cursor, :env env, :next k}))
-          :stream/close (let [source-node (aget node-arr ATTR_SOURCE)]
-                          (assoc vm
-                                 :control {:type :node, :id source-node}
-                                 :k {:type :stream-close-source, :env env, :next k}))
-          ;; Continuation primitives
-          :vm/park (-> (engine/park-continuation vm {:k k, :env env})
-                       (assoc :control nil))
-          :vm/resume
-          (let [parked-id (aget node-arr ATTR_PARKED_ID)
-                val-node (aget node-arr ATTR_VAL_NODE)]
-            (assoc vm
-                   :control {:type :node, :id val-node}
-                   :k
-                   {:type :resume-val, :parked-id parked-id, :env env, :next k}))
-          :vm/current-continuation
-          (assoc vm
-                 :control {:type :value,
-                           :val {:type :reified-continuation, :k k, :env env}})
-          ;; Runtime macro expansion: expand :yin/macro-expand node inline
-          :yin/macro-expand
-          (semantic-expand-macro-call vm node-id node-arr env k)
-          (throw (ex-info "Unknown node type"
-                          {:node-type (aget node-arr ATTR_TYPE)})))))))
+(defn- call-park-entries
+  "Wait-entry builders for an instruction whose effect may block. The
+   continuation of an effect is the machine state after the instruction:
+   {segment, pc+1, env, stack, k} plus the transport fields the engine
+   fills in (§3.5). `St` is the operand stack with the instruction's operands
+   already popped."
+  [seg pc E St K]
+  {:stream/put (fn [_state _effect result]
+                 {:segment seg, :pc (inc pc), :env E, :stack St, :k K,
+                  :reason :put,
+                  :stream-id (:stream-id result)})
+   :stream/next (fn [_state _effect result]
+                  {:segment seg, :pc (inc pc), :env E, :stack St, :k K,
+                   :reason :next,
+                   :cursor-ref (:cursor-ref result),
+                   :stream-id (:stream-id result)})})
 
 
-(defn- build-semantic-node-index-array
-  [index cardinality]
-  (if (empty? index)
-    [0 (make-semantic-object-array 0)]
-    (let [[min-id max-id]
-          (reduce-kv (fn [[mn mx] eid _]
-                       (if (nil? mn) [eid eid] [(min mn eid) (max mx eid)]))
-                     [nil nil]
-                     index)
-          range-size (inc (- max-id min-id))]
-      ;; Only use array-backed indexing if density is reasonable
-      ;; (range is less than 4x cardinality)
-      (if (<= range-size (* 4 cardinality))
-        (let [arr (make-semantic-object-array range-size)]
-          (doseq [[eid node-arr] index]
-            (semantic-object-array-set! arr (- eid min-id) node-arr))
-          [min-id arr])
-        [0 (make-semantic-object-array 0)]))))
+(defn- run-effect
+  "Materialize the registers, dispatch one effect through the engine, and
+   normalize the answer for the loop: `{:continue [state value]}` to go on at
+   pc+1 with `value` in the accumulator, or `{:stop vm}` when the effect
+   parked and the machine is blocked.
+
+   No `:restore-fn` crosses this boundary. A parked entry is pure data and
+   the scheduler below resumes it explicitly, so nothing live is attached to
+   the wait set (§1.1)."
+  [vm seg pc val St E K effect park-entry-fns]
+  (let [{:keys [state value blocked?]}
+        (engine/handle-effect (put-registers vm seg pc val St E K)
+                              effect
+                              (when park-entry-fns
+                                {:park-entry-fns park-entry-fns}))]
+    (if blocked?
+      {:stop (assoc state :control nil :k nil)}
+      {:continue [state value]})))
 
 
-(defn create-ast-db
-  []
-  (let [op datom/default-op
-        attrs (keys vm/schema)
-        attr->eid (zipmap attrs (range 100 (+ 100 (count attrs))))]
-    (vec (mapcat (fn [[attr props]]
-                   (let [eid (attr->eid attr)]
-                     (cond-> [[eid :db/ident attr 0 op]]
-                       (:db/valueType props) (conj [eid :db/valueType
-                                                    (:db/valueType props) 0 op])
-                       (:db/cardinality props) (conj [eid :db/cardinality
-                                                      (:db/cardinality props) 0
-                                                      op]))))
-                 vm/schema))))
+(defn- apply-call
+  "The §4.2 call transition, with the arguments already isolated from the
+   operand stack. Returns `{:goto [seg pc val St E K vm image]}` to continue,
+   `{:stop vm}` when the call blocked, or throws for a non-function.
+
+   A tail call grows neither K nor St: the frame the caller would have pushed
+   is the frame its own caller gave it. A primitive that yields an effect
+   parks with the continuation after the call site."
+  [code seg pc val St E K vm tail? f args]
+  (cond
+    (= :closure (:type f))
+    (let [E' (merge (:env f) (engine/bind-params (:params f) args))
+          frame {:type :return, :segment seg, :pc (inc pc), :env E,
+                 :stack-base (count St)}
+          seg' (:segment f)]
+      {:goto [seg' (:entry f) val St E' (if tail? K (conj K frame))
+              vm (get code seg')]})
+    (fn? f)
+    (let [result (apply f args)]
+      (if (module/effect? result)
+        (let [{:keys [state value blocked?]}
+              (engine/handle-effect
+                (put-registers vm seg pc val St E K)
+                result
+                {:park-entry-fns (call-park-entries seg pc E St K)})]
+          (if blocked?
+            {:stop (assoc state :control nil :k nil)}
+            {:goto [seg (inc pc) value St E K state (get code seg)]}))
+        {:goto [seg (inc pc) result St E K vm (get code seg)]}))
+    :else (throw (ex-info "Cannot apply non-function" {:fn f}))))
 
 
-(defn- ast-datoms->tx-data
-  "Project canonical AST 5-tuples into DaoDB tx-data, preserving nil facts and m."
-  [datoms]
-  (mapcat (fn [[e a v _t m]]
-            (cond (and (contains? cardinality-many-attrs a) (vector? v))
-                  (map (fn [ref] [:db/add e a ref m]) v)
-                  :else [[:db/add e a v m]]))
-          datoms))
+;; =============================================================================
+;; The hot loop
+;; =============================================================================
 
+(defn- vm-hot
+  "Run loaded work with the registers in loop locals.
 
-(defn- dao-datom->tuple
-  [d]
-  (if (map? d) [(+ (:e d)) (:a d) (:v d) (:t d) (:m d)] d))
-
-
-(defn- semantic-index-datoms
-  [datoms]
-  (filter (fn [[_e a _v _t _m]] (contains? attr->idx a)) datoms))
-
-
-(defn- ast-dao-datom?
-  [d]
-  (let [a (if (map? d) (:a d) (nth d 1))] (= "yin" (namespace a))))
-
-
-(defn- build-semantic-index-from-datoms
-  [datoms]
-  (let [datom-index (group-by first (semantic-index-datoms datoms))]
-    (into {}
-          (map (fn [[eid _datoms]] [eid (datom-node-attrs datom-index eid)]))
-          datom-index)))
-
-
-(defn- materialize-ast-datoms
-  [dao-db]
-  ;; Validity is order-independent, but cardinality-many AST attributes are
-  ;; ordered syntax. current-state-seq returns EAVT order, which would sort
-  ;; repeated :yin/operands by value and silently reverse non-commutative
-  ;; calls. Select its winners, then retain their original log positions.
-  (let [current (set (query/current-state-seq dao-db))]
-    (->> dao-db
-         (map dao-datom->tuple)
-         (filter current)
-         (filter ast-dao-datom?)
-         (distinct)
-         (vec))))
-
-
-(defn- refresh-semantic-index-from-db
-  [vm dao-db]
-  (let [datoms (materialize-ast-datoms dao-db)
-        node-map-index (build-semantic-index-from-datoms datoms)
-        cardinality (count node-map-index)
-        [index-base-id index-arr]
-        (build-semantic-node-index-array node-map-index cardinality)]
-    (assoc vm
-           :db dao-db
-           :datoms datoms
-           :index node-map-index
-           :index-arr index-arr
-           :index-base-id index-base-id)))
-
-
-(defn- add-tempid-index-aliases
-  [vm tempids]
-  (if (seq tempids)
-    (update vm
-            :index
-            (fn [index]
-              (reduce-kv (fn [idx tempid eid]
-                           (if-let [node-arr (get idx eid)]
-                             (assoc idx tempid node-arr)
-                             idx))
-                         index
-                         tempids)))
-    vm))
-
-
-(defn- remap-macro-registry
-  [registry tempids]
-  (if (seq tempids)
-    (into {}
-          (map (fn [[eid macro-fn]] [(get tempids eid eid) macro-fn]))
-          registry)
-    registry))
-
-
-(defn- transact-ast-datoms
-  [dao-db datoms]
-  (if (seq datoms)
-    (let [datoms (vec datoms)
-          tx-data (ast-datoms->tx-data datoms)
-          {:keys [tempids], tx-result :datoms}
-          (transact/prepare-tx {:base-datoms dao-db, :tx-data tx-data})
-          new-db (into dao-db tx-result)]
-      {:db new-db,
-       :db-after new-db,
-       :db-before dao-db,
-       :tx-data datoms,
-       :tempids tempids})
-    {:db dao-db,
-     :db-after dao-db,
-     :db-before dao-db,
-     :tx-data [],
-     :tempids {}}))
-
-
-(defn- semantic-step
-  "Execute one step of the semantic VM.
-   Operates directly on SemanticVM record (assoc preserves record type)."
-  [^SemanticVM vm]
-  (let [{:keys [control]} vm]
-    (if (= :value (:type control))
-      ;; Handle return value from previous step
-      (handle-return-value vm)
-      ;; Handle node evaluation
-      (handle-node-eval vm))))
+   `fuel`, when non-nil, is a number of instructions to execute before
+   materializing: `step` supplies 1 and `run` supplies nil. The loop exits by
+   returning a record when the machine halts, parks, blocks on an effect, or
+   runs out of fuel; every non-exit transition is one `case` arm and one
+   operation on locals (§4.3). A machine with no control and no continuation
+   is between evaluations, so one scheduler round is run instead."
+  [vm fuel]
+  (if (and (nil? (:control vm)) (nil? (:k vm)))
+    (scheduler-round vm)
+    (let [code (:code vm)
+          {:keys [segment pc]} (:control vm)]
+      (loop [seg segment
+             pc pc
+             val (:value vm)
+             St (or (:stack vm) [])
+             E (:env vm)
+             K (or (:k vm) [])
+             vm vm
+             image (get code segment)
+             fuel fuel]
+        (if (and fuel (zero? fuel))
+          (put-registers vm seg pc val St E K)
+          (let [inst (nth (:code image) pc)
+                op (nth inst 0)]
+            (case op
+              ;; :const — val ← literal (opcode 1, :literal)
+              1 (recur seg (inc pc) (nth inst 1) St E K vm image
+                       (and fuel (dec fuel)))
+              ;; :var — val ← resolve(E, S, prims, modules, name) (2, :load-var)
+              2 (recur seg (inc pc)
+                       (engine/resolve-var E (:store vm) (:primitives vm)
+                                           (:modules vm) (nth inst 1))
+                       St E K vm image (and fuel (dec fuel)))
+              ;; :closure — val ← clo(params, entry, seg, E) (4, :lambda)
+              4 (recur seg (inc pc)
+                       {:type :closure,
+                        :params (nth inst 1),
+                        :entry (nth inst 2),
+                        :segment seg,
+                        :env E}
+                       St E K vm image (and fuel (dec fuel)))
+              ;; :push — St ← St ⧺ [val] (22, :push)
+              22 (recur seg (inc pc) val (conj St val) E K vm image
+                        (and fuel (dec fuel)))
+              ;; :jump — pc ← target (8, :jump)
+              8 (recur seg (nth inst 1) val St E K vm image
+                       (and fuel (dec fuel)))
+              ;; :branch-false — pc ← val ? pc+1 : target (7, :branch)
+              7 (recur seg (if val (inc pc) (nth inst 1)) val St E K vm image
+                       (and fuel (dec fuel)))
+              ;; :halt — halt with val as the result (23, :halt)
+              23 (put-registers vm nil nil val [] E nil)
+              ;; :return — pop a frame, or halt on an empty K (6, :return)
+              6 (if-let [frame (peek K)]
+                  (recur (:segment frame) (:pc frame) val
+                         (subvec St 0 (:stack-base frame))
+                         (:env frame) (pop K)
+                         vm (get (:code vm) (:segment frame))
+                         (and fuel (dec fuel)))
+                  (put-registers vm nil nil val [] E nil))
+              ;; :gensym — val ← fresh id; counter advances (9, :gensym)
+              9 (let [[id vm'] (engine/gensym vm (nth inst 1))]
+                  (recur seg (inc pc) id St E K vm' image
+                         (and fuel (dec fuel))))
+              ;; :store-get — val ← S[key] (10, :store-get)
+              10 (recur seg (inc pc) (get (:store vm) (nth inst 1))
+                        St E K vm image (and fuel (dec fuel)))
+              ;; :store-put — S[key] ← v; val ← v (11, :store-put)
+              11 (let [vm' (assoc vm :store (assoc (:store vm)
+                                                   (nth inst 1)
+                                                   (nth inst 2)))]
+                   (recur seg (inc pc) (nth inst 2) St E K vm' image
+                          (and fuel (dec fuel))))
+              ;; :current-continuation — val ← {seg, pc+1, E, St, K} (19)
+              19 (recur seg (inc pc)
+                        {:type :reified-continuation,
+                         :segment seg,
+                         :pc (inc pc),
+                         :env E,
+                         :stack St,
+                         :k K}
+                        St E K vm image (and fuel (dec fuel)))
+              ;; :park — write {segment pc+1 env stack k} and halt (17)
+              17 (-> (put-registers vm seg pc val St E K)
+                     (engine/park-continuation {:segment seg,
+                                                :pc (inc pc),
+                                                :env E,
+                                                :stack St,
+                                                :k K})
+                     (assoc :control nil :k nil))
+              ;; :resume — restore the parked configuration with val (18)
+              18 (let [vm' (engine/resume-continuation
+                             (put-registers vm seg pc val St E K)
+                             (nth inst 1)
+                             val
+                             (fn [base parked resume-val]
+                               (put-registers base
+                                              (:segment parked)
+                                              (:pc parked)
+                                              resume-val
+                                              (:stack parked)
+                                              (:env parked)
+                                              (:k parked))))
+                       control (:control vm')]
+                   (recur (:segment control) (:pc control) val
+                          (or (:stack vm') []) (:env vm') (or (:k vm') [])
+                          vm' (get (:code vm') (:segment control))
+                          (and fuel (dec fuel))))
+              ;; :call — apply f to argc popped arguments (5, :call)
+              5 (let [argc (nth inst 1)
+                      total (count St)
+                      f-pos (- total argc 1)
+                      r (apply-call code seg pc val
+                                    (subvec St 0 f-pos) E K vm
+                                    false (nth St f-pos)
+                                    (subvec St (inc f-pos) total))]
+                  (if-let [[seg' pc' val' St' E' K' vm' image'] (:goto r)]
+                    (recur seg' pc' val' St' E' K' vm' image'
+                           (and fuel (dec fuel)))
+                    (:stop r)))
+              ;; :call with :yin.code/tail? — same, frame-free (20, :tailcall)
+              20 (let [argc (nth inst 1)
+                       total (count St)
+                       f-pos (- total argc 1)
+                       r (apply-call code seg pc val
+                                     (subvec St 0 f-pos) E K vm
+                                     true (nth St f-pos)
+                                     (subvec St (inc f-pos) total))]
+                   (if-let [[seg' pc' val' St' E' K' vm' image'] (:goto r)]
+                     (recur seg' pc' val' St' E' K' vm' image'
+                            (and fuel (dec fuel)))
+                     (:stop r)))
+              ;; :stream-make — effect :stream/make (12)
+              12 (let [r (run-effect vm seg pc val St E K
+                                     {:effect :stream/make,
+                                      :capacity (or (nth inst 1)
+                                                    vm/default-stream-capacity)}
+                                     nil)]
+                   (if-let [[vm' val'] (:continue r)]
+                     (recur seg (inc pc) val' St E K vm' image
+                            (and fuel (dec fuel)))
+                     (:stop r)))
+              ;; :stream-put — target popped from St, value in val (13)
+              13 (let [St' (pop St)
+                       r (run-effect vm seg pc val St' E K
+                                     {:effect :stream/put,
+                                      :stream (peek St),
+                                      :val val}
+                                     (call-park-entries seg pc E St' K))]
+                   (if-let [[vm' val'] (:continue r)]
+                     (recur seg (inc pc) val' St' E K vm' image
+                            (and fuel (dec fuel)))
+                     (:stop r)))
+              ;; :stream-cursor — source ref in val (14)
+              14 (let [r (run-effect vm seg pc val St E K
+                                     {:effect :stream/cursor, :stream val}
+                                     nil)]
+                   (if-let [[vm' val'] (:continue r)]
+                     (recur seg (inc pc) val' St E K vm' image
+                            (and fuel (dec fuel)))
+                     (:stop r)))
+              ;; :stream-next — cursor ref in val (15)
+              15 (let [r (run-effect vm seg pc val St E K
+                                     {:effect :stream/next, :cursor val}
+                                     (call-park-entries seg pc E St K))]
+                   (if-let [[vm' val'] (:continue r)]
+                     (recur seg (inc pc) val' St E K vm' image
+                            (and fuel (dec fuel)))
+                     (:stop r)))
+              ;; :stream-close — source ref in val (16)
+              16 (let [r (run-effect vm seg pc val St E K
+                                     {:effect :stream/close, :stream val}
+                                     nil)]
+                   (if-let [[vm' val'] (:continue r)]
+                     (recur seg (inc pc) val' St E K vm' image
+                            (and fuel (dec fuel)))
+                     (:stop r)))
+              ;; :ffi-call — park-and-call over the FFI pair (21)
+              21 (let [ffi-op (nth inst 1)
+                       argc (nth inst 2)
+                       total (count St)
+                       args (subvec St (- total argc))
+                       St' (subvec St 0 (- total argc))
+                       ;; The pair is checked before parking: an error raised
+                       ;; after park-continuation would strand a continuation
+                       ;; in :parked and consume an id counter.
+                       {:keys [call-in]}
+                       (ffi/require-call-pair! (:store vm) ffi-op)
+                       vm' (put-registers vm seg pc val St' E K)
+                       parked (engine/park-continuation
+                                vm'
+                                {:segment seg, :pc (inc pc),
+                                 :env E, :stack St', :k K})
+                       call-id (get-in parked [:value :id])
+                       request (apply2/request call-id ffi-op args)
+                       result (apply2/put-request! call-in request)]
+                   (case (:dao.stream/outcome result)
+                     :dao.stream/ok
+                     (-> parked
+                         (update :wait-set (fnil conj [])
+                                 (response-wait-entry seg (inc pc) E St' K
+                                                      call-id))
+                         (assoc :control nil
+                                :k nil
+                                :value :yin/blocked
+                                :blocked? true
+                                :halted? false))
+                     :dao.stream/full
+                     (-> parked
+                         (update :wait-set (fnil conj [])
+                                 {:segment seg, :pc (inc pc),
+                                  :env E, :stack St', :k K,
+                                  :request-sent true,
+                                  :call-id call-id,
+                                  :op ffi-op,
+                                  :reason :put,
+                                  :stream-id vm/call-in-stream-key,
+                                  :datom request})
+                         (assoc :control nil
+                                :k nil
+                                :value :yin/blocked
+                                :blocked? true
+                                :halted? false))
+                     (throw (ex-info "FFI request could not be appended"
+                                     {:op ffi-op,
+                                      :outcome (or (:dao.stream/outcome result)
+                                                   (:dao.stream.apply/outcome
+                                                     result))}))))
+              ;; No decoded image holds another opcode (:move stays unused)
+              (throw (ex-info "Unknown opcode in segment"
+                              {:op op, :segment seg, :pc pc})))))))))
 
 
 ;; =============================================================================
 ;; Scheduler
 ;; =============================================================================
 
-(defn- semantic-vm-restore
-  ([base entry] (semantic-vm-restore base entry (:value entry)))
-  ([base entry val]
-   (assoc base
-          :k (:k entry)
-          :env (:env entry)
-          :control {:type :value, :val val})))
+(defn- scheduler-round
+  "One round between continuations: poll the wait set, then run whatever
+   woke. Entries here carry no :resume, so `engine/resume-from-run-queue`
+   with this machine's restore function is what resumes them."
+  [vm]
+  (let [v' (engine/check-wait-set vm)]
+    (or (engine/resume-from-run-queue v' semantic-restore) v')))
 
 
 (defn- resume-from-run-queue
-  "Pop first entry from run-queue and resume it as the active computation.
-   Returns updated state or nil if queue is empty."
+  "Pop first entry from the ready-queue, merge store-updates, and restore
+   machine registers."
   [state]
-  (engine/resume-from-run-queue state semantic-vm-restore))
+  (engine/resume-from-run-queue state semantic-restore))
+
+
+(defn- semantic-run-scheduler
+  "The raw runner: already-loaded work only, through the shared scheduler
+   loop. `ffi/maybe-run` wraps this for bridge dispatch, and `vm/run` stops
+   here — no program stream is polled.
+
+   Woken entries stay pure data and are resumed explicitly through `resume-from-run-queue`, which dispatches the
+   terminal-outcome check and the machine's restore itself."
+  [vm]
+  (engine/run-loop vm
+                   engine/active-continuation?
+                   (fn [v] (vm-hot v nil))
+                   resume-from-run-queue))
+
+
+;; =============================================================================
+;; Loading
+;; =============================================================================
+
+(def ^:private mnemonic-aliases
+  "The §2.4 mnemonic → `vm/opcode-table` key mapping. Everything not here
+   decodes under its own name."
+  {:const :literal,
+   :var :load-var,
+   :closure :lambda,
+   :branch-false :branch,
+   :current-continuation :current-cont,
+   :ffi-call :dao.stream.apply/call})
+
+
+(defn- index-batch
+  "Entity ids in order of first appearance, and each entity's attribute map.
+   A repeated single-valued attribute keeps its last value, as
+   `yin.vm.code` reads one."
+  [datoms]
+  (reduce (fn [[order attrs] [e a v]]
+            [(if (contains? attrs e) order (conj order e))
+             (assoc-in attrs [e a] v)])
+          [[] {}]
+          datoms))
+
+
+(defn load-image
+  "Decode one `:yin.code/*` batch into an executable image.
+
+   Returns `{:segment id, :length n, :code instructions}` where `instructions`
+   is a vector indexed by pc of decoded `[opcode & operands]` vectors with
+   every `:yin.code/target` and `:yin.code/body` ref resolved to a pc integer
+   of the same segment, plus `:address` when the segment entity carries
+   `:yin.code/hash` (§2.2) — a claim checked here: the canonical vector the
+   batch reconstructs to must hash to it (UCF §7.3.4's content-integrity
+   check, its `:yin.k/hash-mismatch` outcome), so a false claim never
+   reaches the alias column. Throws a load error naming the entity and rule
+   when the batch is not well formed (§2.6); the loader is total over the
+   outcomes of its inputs and does not guess."
+  [datoms]
+  (let [defect (code/well-formed? datoms)]
+    (when defect
+      (throw (ex-info (str "Cannot load segment: " (name (:rule defect))
+                           " (entity " (:entity defect) ")")
+                      {:defect defect})))
+    (let [[order attrs] (index-batch datoms)
+          segments (filterv #(= :segment (get-in attrs [% :yin.code/type]))
+                            order)
+          seg (first segments)
+          structural [:yin.code/segment :yin.code/pc :yin.code/op]
+          instructions (filterv (fn [e]
+                                  (and (not= seg e)
+                                       (some #(contains? (get attrs e) %)
+                                             structural)))
+                                order)
+          ;; Rule 3 sorts by pc, so an instruction's position is its pc.
+          pc-of (zipmap instructions (range))
+          resolve-ref (fn [e ref]
+                        (or (get pc-of ref)
+                            (throw (ex-info
+                                     "Ref resolves to no instruction of this segment"
+                                     {:entity e, :ref ref}))))
+          decode (fn [e]
+                   (let [ia (get attrs e)
+                         mnem (:yin.code/op ia)
+                         opcode (or (get vm/opcode-table
+                                         (get mnemonic-aliases mnem mnem))
+                                    (throw (ex-info "Mnemonic has no opcode"
+                                                    {:op mnem, :entity e})))]
+                     (case mnem
+                       :const [opcode (:yin.code/value ia)]
+                       :var [opcode (:yin.code/name ia)]
+                       :closure [opcode (:yin.code/params ia)
+                                 (resolve-ref e (:yin.code/body ia))]
+                       :call (if (:yin.code/tail? ia)
+                               [(:tailcall vm/opcode-table) (:yin.code/argc ia)]
+                               [opcode (:yin.code/argc ia)])
+                       :return [opcode]
+                       :jump [opcode (resolve-ref e (:yin.code/target ia))]
+                       :branch-false [opcode
+                                      (resolve-ref e (:yin.code/target ia))]
+                       :halt [opcode]
+                       :gensym [opcode (or (:yin.code/prefix ia) "id")]
+                       :store-get [opcode (:yin.code/key ia)]
+                       :store-put [opcode (:yin.code/key ia)
+                                   (:yin.code/value ia)]
+                       :stream-make [opcode (or (:yin.code/buffer ia)
+                                                vm/default-stream-capacity)]
+                       :stream-put [opcode]
+                       :stream-cursor [opcode]
+                       :stream-next [opcode]
+                       :stream-close [opcode]
+                       :park [opcode]
+                       :resume [opcode (:yin.code/parked-id ia)]
+                       :current-continuation [opcode]
+                       :ffi-call [opcode (:yin.code/ffi-op ia)
+                                  (or (:yin.code/argc ia) 0)]
+                       :push [opcode]
+                       (throw (ex-info "Unknown mnemonic"
+                                       {:op mnem, :entity e})))))
+          canonical (fn [e]
+                      (let [ia (get attrs e)
+                            mnem (:yin.code/op ia)]
+                        (into [mnem]
+                              (map (fn [[a kind]]
+                                     (if (= :pc kind)
+                                       (resolve-ref e (get ia a))
+                                       (get ia a)))
+                                   (get code/vector-operand-table mnem)))))
+          claimed (get-in attrs [seg :yin.code/hash])
+          ;; A claimed address is earned, never trusted: the batch must
+          ;; reconstruct to the canonical vector that hashes to it.
+          ;; UCF §7.3.4 checks an address whenever one is claimed, so a
+          ;; false claim fails the load here and never reaches the alias
+          ;; column.
+          actual (when claimed
+                   (jing/segment-key (mapv canonical instructions)))]
+      (if (and claimed (not= claimed actual))
+        (throw (ex-info (str "Cannot load segment: hash-mismatch (entity "
+                             seg ")")
+                        {:defect {:rule :hash-mismatch, :entity seg},
+                         :claimed claimed, :actual actual}))
+        (cond-> {:segment seg,
+                 :length (get-in attrs [seg :yin.code/length]),
+                 :code (mapv decode instructions)}
+          ;; A batch carrying no hash — every `lower` output — records no
+          ;; alias.
+          claimed (assoc :address claimed))))))
+
+
+(defn- store-image
+  "Register one decoded image under its segment id, returning the code map.
+
+   Segment identity is stable: continuations, frames, and closures name
+   segments by id, so an id must never come to mean different code. An
+   identical reload — a batch re-sent, a batch run twice — decodes to the
+   same image and is accepted. A different image under a live id is a
+   conflict, and loading it fails rather than silently redirecting every
+   continuation that names the id."
+  [code image]
+  (let [seg (:segment image)]
+    (if-let [existing (find code seg)]
+      (if (= (val existing) image)
+        code
+        (throw (ex-info "Cannot load segment: the id already holds different code"
+                        {:segment seg})))
+      (assoc code seg image))))
+
+
+(defn- store-alias
+  "Record one loaded image's address in the `address → local-id` alias
+   column (UCF §7.3.4). The column is checked: an address may never land
+   under a second live local id. An image claiming no address — every batch
+   the datom lane's `lower` produces — leaves the column unchanged."
+  [aliases image]
+  (if-let [address (:address image)]
+    (if-let [prior (find aliases address)]
+      (if (= (val prior) (:segment image))
+        aliases
+        (throw (ex-info "Cannot load segment: the address is already aliased to another id"
+                        {:address address, :aliased-to (val prior)})))
+      (assoc aliases address (:segment image)))
+    aliases))
+
+
+(defn vm-load-program
+  "Load one `:yin.code/*` batch: validate it, decode it, store the image under
+   `:code {segment-id image}`, record the segment's claimed address — verified
+   against the batch's own content by `load-image` — in the alias column when
+   it carries one, and set control to `{:segment id :pc 0}`.
+
+   This is the loader a composition hands to `dao.stream.observer/
+   run-on-stream` beside `engine/ready-for-ingress?` and the VM's runner; a
+   composition whose program stream carries `:yin/*` AST datoms composes the
+   Phase 2 linearizer in front of it. Parked continuations survive a load, so
+   one segment can resume another's. A segment id already holding different
+   code is a load error; loading the same image again is accepted."
+  [vm datoms]
+  (let [image (load-image datoms)]
+    (assoc vm
+           :program (:segment image)
+           :code (store-image (:code vm) image)
+           :code-aliases (store-alias (:code-aliases vm) image)
+           :control {:segment (:segment image), :pc 0}
+           :stack []
+           :k nil
+           :halted? false
+           :blocked? false
+           :value nil)))
+
+
+(defn- decode-tuple
+  "One canonical tuple onto the image, reading `(nth tuple i)` for every
+   operand: mnemonics onto `vm/opcode-table` and `[:call argc tail?]`
+   folded to `:tailcall` by the loader's rule — the fold UCF §7.3.2 leaves
+   to the decoder. The vector is saturated and its refs are resolved pcs,
+   so nothing defaults and nothing resolves here."
+  [t]
+  (if (= :call (nth t 0))
+    (if (nth t 2)
+      [(:tailcall vm/opcode-table) (nth t 1)]
+      [(:call vm/opcode-table) (nth t 1)])
+    (let [mnem (nth t 0)
+          opcode (or (get vm/opcode-table (get mnemonic-aliases mnem mnem))
+                     (throw (ex-info "Mnemonic has no opcode" {:op mnem})))]
+      (into [opcode] (rest t)))))
+
+
+(defn load-vector
+  "Load one canonical instruction vector (UCF §7.3.2) by the direct path
+   (§7.1): validate it against §7.5 — a defect throws naming the pc — then
+   decode the positional operands into the same image `load-image` builds
+   from the projected batch, and register it under `:code` with the
+   vector's address `(jing/segment-key v)` in the alias column.
+
+   A vector claims no local id, so one is minted below the loaded floor
+   (`vm/loaded-code-floor`), as `ast-loader` mints for lowered AST batches;
+   an address already aliased reloads under its id, which `store-image`
+   accepts as the identical image. Options:
+     :id claim this local segment id instead of minting one. The §3.1 rule
+          applies: an id already holding a different image is a load error,
+          an identical reload is accepted. Ignored when the address is
+          already aliased."
+  ([vm v] (load-vector vm v {}))
+  ([vm v opts]
+   (when-let [defect (code/well-formed-vector? v)]
+     (throw (ex-info (str "Cannot load vector: " (name (:rule defect))
+                          " (pc " (:pc defect) ")")
+                     {:defect defect})))
+   (let [address (jing/segment-key v)
+         aliases (:code-aliases vm)
+         seg (or (get aliases address)
+                 (:id opts)
+                 (dec (vm/loaded-code-floor (:code vm))))
+         image {:segment seg,
+                :length (count v),
+                :code (mapv decode-tuple v),
+                :address address}]
+     (assoc vm
+            :program seg
+            :code (store-image (:code vm) image)
+            :code-aliases (store-alias aliases image)
+            :control {:segment seg, :pc 0}
+            :stack []
+            :k nil
+            :halted? false
+            :blocked? false
+            :value nil))))
 
 
 ;; =============================================================================
 ;; SemanticVM Protocol Implementation
 ;; =============================================================================
 
-(defn- semantic-vm-step
-  "Execute one step of SemanticVM. Returns updated VM."
-  [^SemanticVM vm]
-  (semantic-step vm))
-
-
-(defn- semantic-vm-halted?
-  "Returns true if VM has halted."
-  [^SemanticVM vm]
-  (engine/halted-with-empty-queue? vm))
-
-
-(defn- semantic-vm-blocked?
-  "Returns true if VM is blocked."
-  [^SemanticVM vm]
-  (engine/vm-blocked? vm))
-
-
-(defn- semantic-vm-value
-  "Returns the current value."
-  [^SemanticVM vm]
-  (engine/vm-value vm))
-
-
-(defn- semantic-vm-reset
-  "Reset SemanticVM execution state to initial baseline, preserving loaded program."
-  [^SemanticVM vm]
-  (let [root-id (when (seq (:datoms vm))
-                  (:root-id (vm/index-datoms (:datoms vm))))]
-    (assoc vm
-           :control (when root-id {:type :node, :id root-id})
-           :k nil
-           :halted? (nil? root-id)
-           :value nil
-           :blocked? false)))
-
-
-(defn- semantic-vm-load-program
-  "Load one datom transaction into the VM."
-  [^SemanticVM vm datoms]
-  (let [d (vec datoms)
-        root-tempid (:root-id (vm/index-datoms d))
-        ast-db (or (:db vm) (create-ast-db))
-        {:keys [db-after tempids]} (transact-ast-datoms ast-db d)
-        root-id (get tempids root-tempid root-tempid)
-        vm (-> vm
-               (assoc :macro-registry (remap-macro-registry (:macro-registry vm)
-                                                            tempids))
-               (refresh-semantic-index-from-db db-after)
-               (add-tempid-index-aliases tempids))]
-    (assoc vm
-           :control {:type :node, :id root-id}
-           :k nil
-           :halted? false
-           :value nil
-           :blocked? false)))
-
-
-(defn- semantic-append-datoms*
-  [^SemanticVM vm new-datoms]
-  (let [ast-db (or (:db vm) (create-ast-db))
-        {:keys [db-after], :as tx-result} (transact-ast-datoms ast-db
-                                                               new-datoms)]
-    (assoc tx-result
-           :vm (-> (refresh-semantic-index-from-db vm db-after)
-                   (add-tempid-index-aliases (:tempids tx-result))))))
-
-
-(defn semantic-append-datoms
-  "Append new datoms to the semantic VM's index without resetting execution state.
-   For new EIDs, creates a fresh node entry.
-   For existing EIDs, patches individual attributes (preserves existing attrs).
-   Used by the macro expander to inject expansion output at runtime."
-  [^SemanticVM vm new-datoms]
-  (:vm (semantic-append-datoms* vm new-datoms)))
-
-
-(declare invoke-macro-lambda)
-
-
-(defn- semantic-expand-macro-call
-  "Expand a :yin/macro-expand node at runtime.
-   Returns updated VM with expansion appended to datom index and control
-   pointing to the expansion root."
-  [^SemanticVM vm node-id node-arr env k]
-  (let [macro-registry (:macro-registry vm)
-        op-eid (aget node-arr ATTR_OPERATOR)
-        arg-eids (or (aget node-arr ATTR_OPERANDS) [])
-        ;; Resolve variable-operator references to their macro lambda EID.
-        ;; Yang emits :yin/macro-expand with a :variable operator node when
-        ;; the macro EID is not statically known (user-defined macros).
-        by-entity (group-by first (:datoms vm))
-        get-attr (fn [eid attr]
-                   (some (fn [[_ a v]] (when (= a attr) v))
-                         (rseq (vec (get by-entity eid)))))
-        macro-lambda-eid
-        (if (= :variable (get-attr op-eid :yin/type))
-          (let [vname (get-attr op-eid :yin/name)]
-            (or (get macro/default-name-registry vname)
-                (macro/find-macro-lambda-by-name vname (:datoms vm) get-attr)
-                op-eid))
-          op-eid)
-        macro-fn (get macro-registry macro-lambda-eid)
-        eid-counter (macro/make-eid-counter! (:datoms vm))
-        event-eid (swap! eid-counter dec)
-        fresh-eid-fn (fn [] (swap! eid-counter dec))
-        ctx {:get-attr get-attr,
-             :by-entity by-entity,
-             :arg-eids arg-eids,
-             :fresh-eid fresh-eid-fn,
-             :phase :runtime}
-        result (if macro-fn
-                 (macro-fn ctx)
-                 (if (get-attr macro-lambda-eid :yin/macro?)
-                   (invoke-macro-lambda macro-lambda-eid ctx (:datoms vm))
-                   (throw (ex-info "No macro registered and lambda not found"
-                                   {:macro-lambda-eid macro-lambda-eid,
-                                    :call-eid node-id,
-                                    :registered-keys (keys macro-registry)}))))
-        exp-datoms (:datoms result)
-        exp-root (:root-eid result)
-        evt-datoms (macro/expansion-event-datoms event-eid
-                                                 node-id
-                                                 macro-lambda-eid
-                                                 exp-root
-                                                 :runtime)
-        marked-exp (macro/mark-with-provenance exp-datoms event-eid)
-        all-new (vec (concat evt-datoms marked-exp))
-        {:keys [tempids], updated-vm :vm} (semantic-append-datoms* vm all-new)
-        exp-root (get tempids exp-root exp-root)]
-    (assoc updated-vm
-           :control {:type :node, :id exp-root}
-           :env env
-           :k k)))
-
-
-(defn- semantic-vm-eval
-  "Evaluate an AST. Owns the step loop with scheduler.
-   When ast is non-nil, converts to datoms and loads. When nil, resumes."
-  [^SemanticVM vm ast]
-  (let [initial-env (:env vm)
-        res (if ast
-              (let [datoms (vm/ast->datoms ast
-                                           {:id-start (:node-id-counter vm)})
-                    min-id (apply min (map first datoms))
-                    next-node-id (dec min-id)]
-                (-> (assoc vm :node-id-counter next-node-id)
-                    (semantic-vm-load-program datoms)
-                    (vm/run)))
-              (vm/run vm))]
-    (engine/restore-initial-env initial-env res)))
-
-
-(defn- semantic-vm-run-on-stream
+(defn- vm-reset
+  "Reset execution state, preserving loaded code."
   [vm]
-  (engine/run-on-stream
-    vm
-    (:in-stream vm)
-    semantic-vm-load-program
-    (if (telemetry/enabled? vm)
-      (fn [state] (telemetry/emit-snapshot (semantic-vm-step state) :step))
-      semantic-vm-step)
-    resume-from-run-queue
-    semantic-vm-restore))
+  (assoc vm
+         :control (when-let [seg (:program vm)] {:segment seg, :pc 0})
+         :k nil
+         :stack []
+         :value nil
+         :halted? (nil? (:program vm))
+         :blocked? false))
+
+
+(defn- vm-eval
+  "Resume loaded work. An AST is refused: lowering belongs to
+   `yin.vm.linearize` (Phase 2) and is composed in at the observer
+   boundary, so this evaluator never learns which form travels."
+  [vm ast]
+  (when ast
+    (throw (ex-info
+             "The semantic VM executes :yin.code/* segments: lower :yin/* ASTs with yin.vm.linearize (Phase 2) or call vm-load-program with a code batch"
+             {:ast ast})))
+  (let [initial-env (:env vm)
+        res (vm/run vm)]
+    (engine/restore-initial-env initial-env res)))
 
 
 (extend-type SemanticVM
   vm/IVM
   (step [vm]
-    (telemetry/emit-snapshot (engine/step-on-stream vm
-                                                    (:in-stream vm)
-                                                    semantic-vm-load-program
-                                                    semantic-vm-step)
-                             :step))
-  (run [vm] (ffi/maybe-run vm semantic-vm-run-on-stream))
-  (eval [vm ast] (semantic-vm-eval vm ast))
-  (reset [vm] (semantic-vm-reset vm))
-  (halted? [vm] (semantic-vm-halted? vm))
-  (blocked? [vm] (semantic-vm-blocked? vm))
-  (value [vm] (semantic-vm-value vm))
+    (telemetry/emit-snapshot
+      (if (engine/ready-for-ingress? vm) vm (vm-hot vm 1))
+      :step))
+  (run [vm] (ffi/maybe-run vm semantic-run-scheduler))
+  (eval [vm ast] (vm-eval vm ast))
+  (reset [vm] (vm-reset vm))
+  (halted? [vm] (engine/halted-with-empty-queue? vm))
+  (blocked? [vm] (engine/vm-blocked? vm))
+  (value [vm] (engine/vm-value vm))
   vm/IVMState
   (control [vm] (:control vm))
   (environment [vm] (:env vm))
   (store [vm] (:store vm))
-  (continuation [vm]
-    (when-let [k-head (:k vm)]
-      (loop [k k-head
-             acc []]
-        (if (nil? k) acc (recur (:next k) (conj acc k)))))))
+  (continuation [vm] (:k vm)))
 
 
 (defn create-vm
-  "Create a new SemanticVM with optional opts map.
-   Accepts {:env map, :primitives map, :macro-registry map, :bridge handlers, :telemetry config}."
+  "Create a new SemanticVM.
+
+   Options:
+     :env           initial lexical environment
+     :primitives    primitive operations map
+     :primitive-profiles published primitive profile registry
+     :primitive-canonical-names name -> canonical name for intentional aliases
+     :modules       module registry value (see `yin.vm.module`)
+     :make-stream   (fn [capacity] -> create outcome); no default
+     :call-in       explicit inbound request handle
+     :call-out      explicit outbound response handle
+     :call-capacity capacity for a constructed FFI pair
+     :bridge        host FFI handlers
+
+   As for the walker: there is no `:in-stream` (program observation belongs
+   to `dao.stream.observer`), and construction is all-or-nothing — the FFI
+   pair and its call-out cursor are stream operations whose failure fails
+   here."
   ([] (create-vm {}))
   ([opts]
+   (when (contains? opts :in-stream)
+     (throw (ex-info
+              "Program observation moved to dao.stream.observer: a VM no longer accepts :in-stream"
+              {:in-stream (:in-stream opts)})))
    (let [env (or (:env opts) {})
-         base (vm/empty-state {:primitives (:primitives opts),
-                               :telemetry (:telemetry opts),
-                               :vm-model :semantic})
-         bridge-state (ffi/bridge-from-opts opts)
-         in-stream (:in-stream opts)]
-     (-> (map->SemanticVM
-           (merge base
-                  {:bridge bridge-state,
-                   :in-stream in-stream,
-                   :in-cursor {:position 0},
-                   :control nil,
-                   :env env,
-                   :k nil,
-                   :datoms [],
-                   :db (create-ast-db),
-                   :datom-index {},
-                   :index-arr (make-semantic-object-array 0),
-                   :index-base-id 0,
-                   :halted? true,
-                   :value nil,
-                   :blocked? false,
-                   :primitives (or (:primitives opts) (:primitives base)),
-                   :node-id-counter (- datom/first-user-id),
-                   :macro-registry (or (:macro-registry opts) {})}))
+         base (vm/empty-state
+                (assoc (select-keys opts
+                                    [:primitives :primitive-profiles
+                                     :primitive-canonical-names :modules
+                                     :make-stream :call-in :call-out
+                                     :call-capacity])
+                       :telemetry (:telemetry opts)
+                       :vm-model :semantic))]
+     (-> (map->SemanticVM (merge base
+                                 {:bridge nil,
+                                  :program nil,
+                                  :control nil,
+                                  :env env,
+                                  :stack [],
+                                  :k nil,
+                                  :value nil,
+                                  :code {},
+                                  :code-aliases {},
+                                  :halted? true,
+                                  :blocked? false}))
          (telemetry/install :semantic)
+         (ffi/attach (:bridge opts))
          (telemetry/emit-snapshot :init)))))
-
-
-(defn- bind-variadic-params
-  "Bind params vector to arg-eids, handling & rest syntax.
-   Returns env map. For [a b & rest] with [e1 e2 e3 e4],
-   produces {a e1, b e2, rest [e3 e4]}."
-  [params arg-eids]
-  (loop [ps (seq params)
-         args (seq arg-eids)
-         env {}]
-    (cond (nil? ps) env
-          (= '& (first ps)) (assoc env (second ps) (vec args))
-          :else
-          (recur (next ps) (next args) (assoc env (first ps) (first args))))))
-
-
-(defn invoke-macro-lambda
-  "Execute a macro lambda body in a fresh SemanticVM seeded with `datoms`.
-   params are bound to arg-eids (integer AST entity refs).
-   Supports variadic params with & rest syntax.
-   Injects yin/get-attr, yin/sequence-body, yin/make-lambda, yin/make-def
-   as primitives so macro bodies can inspect and construct AST nodes.
-   Returns {:datoms [...] :root-eid result-eid}."
-  [lambda-eid ctx datoms]
-  (let [{:keys [arg-eids get-attr fresh-eid]} ctx
-        params (get-attr lambda-eid :yin/params)
-        body-eid (get-attr lambda-eid :yin/body)
-        env (bind-variadic-params params arg-eids)
-        ;; Datoms emitted by AST-builder primitives during macro body
-        ;; execution. Extra-datoms: raw vector returned to the caller as
-        ;; {:datoms ...}. extra-index:  {eid {attr v}} map for O(1) lookup
-        ;; in local-get / mark-tail!.
-        extra-datoms (atom [])
-        extra-index (atom {})
-        emit!
-        (fn [ds]
-          (swap! extra-datoms into ds)
-          (swap! extra-index
-                 (fn [idx]
-                   (reduce (fn [acc [e a v _ _]] (assoc-in acc [e a] v)) idx ds))))
-        local-get (fn [eid attr]
-                    (or (get-attr eid attr) (get-in @extra-index [eid attr])))
-        ;; Macro-context primitives: only available inside a macro body VM.
-        macro-prims
-        {'yin/get-attr (fn [eid attr] (local-get eid attr)),
-         'yin/sequence-body (fn [body-eids]
-                              (let [bv (vec body-eids)
-                                    [root-eid new-ds]
-                                    (macro/sequence-body-eids bv fresh-eid)]
-                                (emit! new-ds)
-                                root-eid)),
-         'yin/make-lambda
-         (fn [params-eid body-eid]
-           (let [lparams (get-attr params-eid :yin/value)
-                 leid (fresh-eid)]
-             ;; Mark tail-position application nodes so TCO fires
-             ;; correctly. The body of any lambda is always in tail
-             ;; position. Recurse into :if branches and lambda
-             ;; operators (let/do desugaring). local-get checks both
-             ;; the outer VM's datoms and extra-index so that fresh
-             ;; nodes from yin/sequence-body are reachable.
-             (let [visited (volatile! #{})]
-               (letfn
-                 [(mark-tail!
-                    [eid]
-                    (when (and eid (not (contains? @visited eid)))
-                      (vswap! visited conj eid)
-                      (let [t (local-get eid :yin/type)]
-                        (cond (#{:application :yin/macro-expand} t)
-                              (do (emit! [[eid :yin/tail? true 0
-                                           datom/default-op]])
-                                  (let [op-eid (local-get eid
-                                                          :yin/operator)]
-                                    (when (= :lambda
-                                             (local-get op-eid :yin/type))
-                                      (mark-tail!
-                                        (local-get op-eid :yin/body)))))
-                              (= :if t)
-                              (do (mark-tail! (local-get eid
-                                                         :yin/consequent))
-                                  (mark-tail!
-                                    (local-get eid :yin/alternate)))))))]
-                 (mark-tail! body-eid)))
-             (emit! [[leid :yin/type :lambda 0 datom/default-op]
-                     [leid :yin/params lparams 0 datom/default-op]
-                     [leid :yin/body body-eid 0 datom/default-op]])
-             leid)),
-         'yin/make-def
-         (fn [name-eid value-eid]
-           (let [dname (or (get-attr name-eid :yin/name)
-                           (get-attr name-eid :yin/value))
-                 op-eid (fresh-eid)
-                 key-eid (fresh-eid)
-                 def-eid (fresh-eid)]
-             (emit! [[op-eid :yin/type :variable 0 datom/default-op]
-                     [op-eid :yin/name 'yin/def 0 datom/default-op]
-                     [key-eid :yin/type :literal 0 datom/default-op]
-                     [key-eid :yin/value dname 0 datom/default-op]
-                     [def-eid :yin/type :application 0 datom/default-op]
-                     [def-eid :yin/operator op-eid 0 datom/default-op]
-                     [def-eid :yin/operands [key-eid value-eid] 0
-                      datom/default-op]])
-             def-eid))}
-        vm-base (create-vm)
-        {:keys [tempids], vm-data :vm} (semantic-append-datoms* vm-base datoms)
-        body-eid (get tempids body-eid body-eid)
-        vm-ready (assoc vm-data
-                        :primitives (merge (:primitives vm-data) macro-prims)
-                        :control {:type :node, :id body-eid}
-                        :env env
-                        :halted? false
-                        :blocked? false
-                        :k nil)
-        result-vm (vm/run vm-ready)
-        raw-val (vm/value result-vm)
-        extra (vec @extra-datoms)]
-    (cond
-      ;; Ambiguous: a map with both :type and :root-eid is a macro bug.
-      (and (map? raw-val)
-           (contains? raw-val :type)
-           (contains? raw-val :root-eid))
-      (throw (ex-info
-               "Macro returned ambiguous map with both :type and :root-eid"
-               {:value raw-val}))
-      ;; Macro returned an AST map: convert to datoms using current
-      ;; counter.
-      (and (map? raw-val) (contains? raw-val :type))
-      (let [[root-id exp-datoms]
-            (vm/ast->datoms-with-root raw-val {:id-start (fresh-eid)})]
-        {:datoms (into extra exp-datoms), :root-eid root-id})
-      ;; Macro returned a pre-packaged {:datoms [...] :root-eid ...} map.
-      (and (map? raw-val) (contains? raw-val :root-eid))
-      (update raw-val :datoms #(into extra (or % [])))
-      ;; Macro returned a negative-integer EID pointing to a node it
-      ;; created.
-      (and (integer? raw-val) (neg? raw-val)) {:datoms extra, :root-eid raw-val}
-      ;; Macro returned a plain value — wrap it in a literal node.
-      :else (let [lit-eid (fresh-eid)]
-              (emit! [[lit-eid :yin/type :literal 0 datom/default-op]
-                      [lit-eid :yin/value raw-val 0 datom/default-op]])
-              {:datoms (vec @extra-datoms), :root-eid lit-eid}))))
-
-
-;; =============================================================================
-;; Query utilities
-;; =============================================================================
-
-(defn find-by-type
-  "Find all entity IDs with the given :yin/type value."
-  [dao-db t]
-  (map first
-       (query/collect (query/q '[:find ?e :in $ ?t :where [?e :yin/type ?t]]
-                               (query/current (query/relation dao-db))
-                               t))))
-
-
-(defn find-lambdas
-  "Find all lambda entities."
-  [dao-db]
-  (find-by-type dao-db :lambda))
-
-
-(defn find-applications
-  "Find all application entities."
-  [dao-db]
-  (find-by-type dao-db :application))
-
-
-(defn find-variables
-  "Find all variable entities."
-  [dao-db]
-  (find-by-type dao-db :variable))

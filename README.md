@@ -111,7 +111,7 @@ The prototype screen starts a REPL server on port `7777` and exposes helpers for
 
 Connect from a desktop REPL:
 ```bash
-mise exec -- clj -M:yin-repl
+mise exec -- clj -M:clj-yin-repl
 ```
 
 Then from the Yin REPL:
@@ -139,25 +139,8 @@ Or compile `mr-clean` UI directly:
   [:text {:value "hello" :font-size 18}]])
 ```
 
-## Agent Tzu
-
-Agent Tzu is an autonomous agent built on `dao.stream` that can interact with OpenAI-compatible LLMs to perform tasks like fact extraction (datoms), natural language reconstruction, and generating PostGraphics animations.
-
-For information on how to configure Agent Tzu with different LLM providers (OpenAI, DeepSeek, Groq, Ollama, etc.), see [src/cljc/agent/llm-configuration.md](src/cljc/agent/llm-configuration.md).
-
-### Agent Tzu REPL
-
-You can interact with Agent Tzu through a command-line REPL. First, set up your environment variables by copying the example file:
-
-```bash
-cp src/cljc/agent/env.example.sh env.sh
-# Edit env.sh to add your API key and choose your provider
-source env.sh
-clj -M -m agent.tzu
-```
-
 ## Yin REPL
 
 Launch the interactive Yin REPL to experiment with the Yin VM and manipulate datoms directly.
 
-For details on how to build, run, and connect to the Yin REPL across all platforms (JVM, Node.js, and ClojureDart), see the [Yin REPL Usage Guide](src/cljc/yin/vm/docs/yin.repl.md).
+For details on how to build, run, and connect to the Yin REPL across all platforms (JVM, Node.js, and ClojureDart), see the [Yin REPL v2 Usage Guide](src/cljc/yin/vm/docs/yin.repl.md).

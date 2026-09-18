@@ -1,122 +1,141 @@
 (ns dao.stream.apply-test
   (:require [clojure.test :refer [deftest is testing]]
-            [dao.stream :as ds]
-            [dao.stream.apply :as dao-apply]
-            [dao.stream.ringbuffer]))
+            [dao.stream :as stream]
+            [dao.stream.apply :as apply]
+            [dao.stream.ringbuffer :as ring]))
 
 
-(defn- make-stream
+(defn- handle
   []
-  (ds/open! {:dao.stream/type :ringbuffer, :capacity nil}))
+  (:dao.stream/handle
+    (ring/create! {:dao.stream/type ring/transport-type
+                   ring/capacity-key 8})))
 
 
-(deftest endpoint-construction-test
-  (testing "make-endpoint stores request and response descriptors verbatim"
-    (let [request-desc {:dao.stream/type :ringbuffer, :capacity nil}
-          response-desc {:dao.stream/type :ringbuffer, :capacity 8}
-          endpoint (dao-apply/make-endpoint request-desc response-desc)]
-      (is (= request-desc (dao-apply/endpoint-request endpoint)))
-      (is (= response-desc (dao-apply/endpoint-response endpoint))))))
+(defn- cursor
+  [h]
+  (:dao.stream/cursor (stream/cursor h :dao.stream/oldest)))
 
 
-(deftest request-and-response-shape-test
-  (testing "request helpers round-trip the mandatory fields"
-    (let [request (dao-apply/request :call-7 :op/add [10 20])]
-      (is (dao-apply/request? request))
-      (is (= :call-7 (dao-apply/request-id request)))
-      (is (= :op/add (dao-apply/request-op request)))
-      (is (= [10 20] (dao-apply/request-args request)))))
-  (testing
-    "response helpers round-trip the mandatory fields, including nil values"
-    (let [response (dao-apply/response :call-7 nil)]
-      (is (dao-apply/response? response))
-      (is (= :call-7 (dao-apply/response-id response)))
-      (is (= nil (dao-apply/response-value response)))))
-  (testing "request constructor enforces protocol shape"
-    (is (thrown? #?(:clj Exception
-                    :cljs js/Error
-                    :cljd Object)
-          (dao-apply/request :call-7 "op/add" [10 20])))
-    (is (thrown? #?(:clj Exception
-                    :cljs js/Error
-                    :cljd Object)
-          (dao-apply/request :call-7 :op/add '(10 20))))))
+(deftest envelope-shapes-are-validated
+  (testing "request maps preserve a non-nil opaque correlation id"
+    (let [request (apply/request [:client 7] :yin/eval ["(+ 1 2)"])]
+      (is (apply/request? request))
+      (is (= [:client 7] (apply/request-id request)))
+      (is (= :yin/eval (apply/request-op request)))
+      (is (= ["(+ 1 2)"] (apply/request-args request)))
+      (is (not (apply/request? {:dao.stream.apply/id nil
+                                :dao.stream.apply/op :yin/eval
+                                :dao.stream.apply/args []})))
+      (is (not (apply/request? {:dao.stream.apply/id :id
+                                :dao.stream.apply/op "yin/eval"
+                                :dao.stream.apply/args []})))
+      (is (not (apply/request? {:dao.stream.apply/id :id
+                                :dao.stream.apply/op :yin/eval
+                                :dao.stream.apply/args '()})))))
+  (testing "responses carry exactly one of success or structured error"
+    (let [ok (apply/success-response :id {:value 3})
+          error (apply/error-response :id :dao.stream.apply/unknown-operation
+                                      "No handler for operation")]
+      (is (apply/response? ok))
+      (is (= {:value 3} (apply/response-ok ok)))
+      (is (nil? (apply/response-error ok)))
+      (is (apply/response? error))
+      (is (= :dao.stream.apply/unknown-operation
+             (get-in error [:dao.stream.apply/error
+                            :dao.stream.apply/code])))
+      (is (not (apply/response?
+                 {:dao.stream.apply/id :id
+                  :dao.stream.apply/ok :one
+                  :dao.stream.apply/error {:dao.stream.apply/code :x/y
+                                              :dao.stream.apply/message "no"}}))))))
 
 
-(deftest request-and-response-stream-helpers-test
-  (testing "put-request! and next-request round-trip a request value"
-    (let [request-stream (make-stream)
-          put-result
-          (dao-apply/put-request! request-stream :call-1 :op/echo [42])
-          read-result (dao-apply/next-request request-stream {:position 0})]
-      (is (= :ok (:result put-result)))
-      (is (= (dao-apply/request :call-1 :op/echo [42]) (:ok read-result)))
-      (is (= {:position 1} (:cursor read-result)))))
-  (testing "put-response! and next-response round-trip a response value"
-    (let [response-stream (make-stream)
-          response (dao-apply/response :call-1 {:ok true})
-          _ (dao-apply/put-response! response-stream response)
-          read-result (dao-apply/next-response response-stream {:position 0})]
-      (is (= response (:ok read-result)))
-      (is (= {:position 1} (:cursor read-result)))))
-  (testing "next-request rejects non-request payloads"
-    (let [request-stream (make-stream)]
-      (ds/append! request-stream {:not "a request"})
-      (is (thrown? #?(:clj Exception
-                      :cljs js/Error
-                      :cljd Object)
-            (dao-apply/next-request request-stream {:position 0})))))
-  (testing "next-response rejects non-response payloads"
-    (let [response-stream (make-stream)]
-      (ds/append! response-stream {:not "a response"})
-      (is (thrown? #?(:clj Exception
-                      :cljs js/Error
-                      :cljd Object)
-            (dao-apply/next-response response-stream {:position 0}))))))
+(deftest endpoint-and-explicit-cursor-helpers
+  (let [request-handle (handle)
+        response-handle (handle)
+        request-descriptor (:dao.stream/descriptor
+                             (stream/descriptor request-handle))
+        response-descriptor (:dao.stream/descriptor
+                              (stream/descriptor response-handle))
+        endpoint (apply/endpoint request-descriptor response-descriptor)
+        request-cursor (cursor request-handle)
+        response-cursor (cursor response-handle)
+        request (apply/request :request-1 :yin/echo [:hello])]
+    (is (apply/endpoint? endpoint))
+    (is (= request-descriptor (apply/endpoint-request endpoint)))
+    (is (= response-descriptor (apply/endpoint-response endpoint)))
+    (is (= :dao.stream/ok
+           (:dao.stream/outcome (apply/put-request! request-handle request))))
+    (let [read-request (apply/next-request request-handle request-cursor)]
+      (is (= :dao.stream/ok (:dao.stream/outcome read-request)))
+      (is (= request (:dao.stream/value read-request)))
+      (is (= :dao.stream/ok
+             (:dao.stream/outcome
+               (apply/put-response! response-handle
+                                    (apply/success-response :request-1 :hello)))))
+      (is (= :hello
+             (apply/response-ok
+               (:dao.stream/value
+                 (apply/next-response response-handle response-cursor))))))))
 
 
-(deftest dispatch-request-test
-  (testing "dispatch-request preserves opaque id and handler result"
-    (let [request (dao-apply/request [:opaque 9] :op/add [10 20])
-          response (dao-apply/dispatch-request {:op/add +} request)]
-      (is (= [:opaque 9] (dao-apply/response-id response)))
-      (is (= 30 (dao-apply/response-value response)))))
-  (testing "missing handler is an explicit callee error"
-    (let [request (dao-apply/request :call-missing :op/missing [])]
-      (is (thrown-with-msg? #?(:clj Exception
-                               :cljs js/Error
-                               :cljd Object)
-                            #"No dao.stream.apply handler for op"
-            (dao-apply/dispatch-request {} request))))))
+(deftest dispatch-is-correlated-and-never-leaks-handler-errors
+  (let [request (apply/request :request-2 :math/add [20 22])]
+    (is (= 42 (apply/response-ok
+                (apply/dispatch-request {:math/add +} request))))
+    (is (= :dao.stream.apply/unknown-operation
+           (get-in (apply/dispatch-request {} request)
+                   [:dao.stream.apply/error :dao.stream.apply/code])))
+    (is (= :dao.stream.apply/handler-error
+           (get-in (apply/dispatch-request {:math/add (fn [& _]
+                                                        (throw (ex-info "boom" {})))}
+                                           request)
+                   [:dao.stream.apply/error :dao.stream.apply/code])))))
 
 
-(deftest serve-once-test
-  (testing
-    "serve-once! reads one request, dispatches it, and appends one response"
-    (let [request-stream (make-stream)
-          response-stream (make-stream)
-          _ (dao-apply/put-request! request-stream :call-9 :op/add [7 8])
-          served (dao-apply/serve-once! {:op/add +}
-                                        request-stream
-                                        response-stream
-                                        {:position 0})
-          response-read (dao-apply/next-response response-stream {:position 0})]
-      (is (= (dao-apply/request :call-9 :op/add [7 8]) (:request served)))
-      (is (= (dao-apply/response :call-9 15) (:response served)))
-      (is (= {:position 1} (:cursor served)))
-      (is (= :ok (get-in served [:put-result :result])))
-      (is (= (:response served) (:ok response-read)))))
-  (testing "serve-once! preserves DaoStream sentinels when nothing is readable"
-    (let [request-stream (make-stream)
-          response-stream (make-stream)]
-      (is (= :blocked
-             (dao-apply/serve-once! {:op/add +}
-                                    request-stream
-                                    response-stream
-                                    {:position 0})))
-      (ds/close! request-stream)
-      (is (= :end
-             (dao-apply/serve-once! {:op/add +}
-                                    request-stream
-                                    response-stream
-                                    {:position 0}))))))
+(deftest serve-once-retains-a-response-until-it-is-delivered
+  (let [request-handle (handle)
+        response-handle (handle)
+        request-cursor (cursor request-handle)
+        response-cursor (cursor response-handle)
+        calls (atom 0)
+        _ (apply/put-request! request-handle
+                              (apply/request :request-3 :math/add [1 2]))
+        first-step (apply/serve-once!
+                     {:math/add (fn [a b] (swap! calls inc) (+ a b))}
+                     request-handle response-handle
+                     (apply/server-state request-cursor))]
+    (is (= 1 @calls))
+    (is (= :dao.stream.apply/responded (:dao.stream.apply/outcome first-step)))
+    (is (= 3 (apply/response-ok
+               (:dao.stream/value
+                 (apply/next-response response-handle response-cursor)))))
+    (is (= :dao.stream.apply/idle
+           (:dao.stream.apply/outcome
+             (apply/serve-once! {:math/add +}
+                                request-handle response-handle
+                                (:dao.stream.apply/state first-step)))))))
+
+
+(deftest serve-once-consumes-malformed-elements-without-calling-a-handler
+  (let [request-handle (handle)
+        response-handle (handle)
+        request-cursor (cursor request-handle)
+        response-cursor (cursor response-handle)
+        calls (atom 0)
+        _ (stream/append! request-handle
+                          {:dao.stream.apply/id :request-4
+                           :dao.stream.apply/op :math/add
+                           :dao.stream.apply/args '()})
+        step (apply/serve-once! {:math/add (fn [& _] (swap! calls inc))}
+                                request-handle response-handle
+                                (apply/server-state request-cursor))]
+    (is (zero? @calls))
+    (is (= :dao.stream.apply/malformed-request
+           (get-in (:dao.stream.apply/response step)
+                   [:dao.stream.apply/error :dao.stream.apply/code])))
+    (is (= :request-4
+           (apply/response-id
+             (:dao.stream/value
+               (apply/next-response response-handle response-cursor)))))))

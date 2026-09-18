@@ -38,7 +38,7 @@ The examples below use `mise exec --` so they work even if your shell is not act
 The Flutter app runs generated Dart from `lib/cljd-out`, so compile CLJD before starting the app:
 
 ```bash
-mise exec -- clj -M:cljd compile dao.stream.ws yin.repl datomworld.demo.dao-gui datomworld.main
+mise exec -- clj -M:cljd compile yin.repl.flutter datomworld.demo.dao-gui datomworld.demo.main
 ```
 
 ## 2. Clean and run the app
@@ -47,6 +47,9 @@ mise exec -- clj -M:cljd compile dao.stream.ws yin.repl datomworld.demo.dao-gui 
 mise exec -- flutter clean
 mise exec -- flutter run
 ```
+
+`datomworld.demo.main` opens a picker; select **"dao.gui Prototype"** to
+reach `dao-gui/start!` and the REPL server it starts.
 
 The app should show the REPL demo screen with `status: listening`.
 
@@ -120,18 +123,18 @@ mise exec -- clj -M:clj-yin-repl
 Connect to the Flutter app (Android):
 
 ```clojure
-(connect "daostream:ws://localhost:7777")
+(connect "daostream:ws://localhost:7777/repl")
 ```
 
 Or iOS:
 
 ```clojure
-(connect "daostream:ws://localhost:7778")
+(connect "daostream:ws://localhost:7778/repl")
 ```
 
 After the connection succeeds:
 
-- the desktop REPL should print `Connected to ws://localhost:<port>`
+- the desktop REPL should print `Connected to daostream:ws://localhost:<port>/repl`
 - the Flutter app should change from `status: listening` to `status: client connected`
 
 ## 5. Try a few remote evaluations
@@ -175,7 +178,7 @@ If the desktop REPL says `Connected...` but evaluation times out:
    ```
 3. Recompile CLJD and fully restart the app:
    ```bash
-   mise exec -- clj -M:cljd compile dao.stream.ws yin.repl datomworld.demo.dao-gui datomworld.main
+   mise exec -- clj -M:cljd compile yin.repl.flutter datomworld.demo.dao-gui datomworld.demo.main
    mise exec -- flutter clean
    mise exec -- flutter run
    ```

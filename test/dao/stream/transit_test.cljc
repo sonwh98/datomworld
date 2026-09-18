@@ -1,142 +1,74 @@
 (ns dao.stream.transit-test
-  (:require
-    #?@(:cljd [["dart:core" StringBuffer]])
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream.apply :as dao-apply]
-    [dao.stream.transit :as transit]))
+  (:require [clojure.test :refer [deftest is testing]]
+            #?@(:cljd [[dao.jing :as jing]])
+            [dao.stream.transit :as codec]))
 
 
-(defrecord Point
-  [x y])
+(deftest portable-domain-roundtrip-test
+  (testing "plain data survives the shared codec"
+    (let [value {:dao.stream/type :dao.stream/ringbuffer
+                 :dao.stream/identity [:stream "one" 7]
+                 :ring/capacity 32
+                 :ring/tags #{:a :b}}
+          roundtrip (codec/decode (codec/encode value))]
+      (is (= value roundtrip))
+      (is (codec/portable-value? roundtrip)))))
 
 
-(defn- write-str
-  ([v] (write-str v nil))
-  ([v opts]
-   #?(:clj (let [out (java.io.ByteArrayOutputStream.)]
-             (transit/write (transit/writer out :json opts) v)
-             (.toString out "UTF-8"))
-      :cljs (transit/write (transit/writer nil :json opts) v)
-      :cljd (let [out (StringBuffer.)]
-              (transit/write (transit/writer out :json opts) v)
-              (.toString out)))))
+(deftest descriptor-identity-gate-test
+  (testing "descriptor encoding requires the contract identity key"
+    (is (not (codec/valid-descriptor?
+               {:dao.stream/type :dao.stream/ringbuffer})))
+    (let [descriptor {:dao.stream/type :dao.stream/ws
+                      :dao.stream/identity [:stream "one"]
+                      :ws/host "example.org"
+                      :ws/port 443
+                      :ws/path "/stream"}]
+      (is (= descriptor (codec/decode-descriptor
+                          (codec/encode-descriptor descriptor)))))))
 
 
-(defn- read-str
-  ([s] (read-str s nil))
-  ([s opts]
-   #?(:clj (let [in (java.io.ByteArrayInputStream. (.getBytes s "UTF-8"))]
-             (transit/read (transit/reader in :json opts)))
-      :cljs (transit/read (transit/reader nil :json opts) s)
-      :cljd (transit/read (transit/reader s :json opts) s))))
+(deftest nonportable-values-rejected-test
+  (testing "host objects and unsafe numbers never enter the wire"
+    (is (not (codec/portable-value? #?(:clj (Object.) :cljs (js-obj) :cljd (Object.)))))
+    (is (not (codec/portable-value? 9007199254740992)))
+    (is (not (codec/portable-value?
+               #?(:clj (Object.) :cljs (js-obj) :cljd (Object.)))))))
 
 
-(deftest basic-write-scalars-test
-  (testing "top-level scalars are quoted transit values"
-    (is (= "[\"~#'\",null]" (write-str nil)))
-    (is (= "[\"~#'\",true]" (write-str true)))
-    (is (= "[\"~#'\",42]" (write-str 42)))
-    (is (= "[\"~#'\",3.5]" (write-str 3.5)))
-    (is (= "[\"~#'\",\"\"]" (write-str "")))))
+(deftest portable-number-domain-test
+  (testing "only documented safe integers and finite doubles cross hosts"
+    (doseq [value [(- codec/max-safe-integer)
+                   codec/max-safe-integer
+                   -1.25
+                   0.5
+                   1.0]]
+      (is (codec/portable-value? value) (str value " is portable")))
+    (doseq [value [(inc codec/max-safe-integer)
+                   (dec (- codec/max-safe-integer))
+                   #?(:clj Double/NaN :cljs js/NaN :cljd ##NaN)
+                   #?(:clj Double/POSITIVE_INFINITY
+                      :cljs js/Infinity
+                      :cljd ##Inf)]]
+      (is (not (codec/portable-value? value)) (str value " is rejected")))
+    #?(:clj
+       (doseq [value [5N 1.5M 1/2 (float 1.25)]]
+         (is (not (codec/portable-value? value))
+             (str (class value) " is not in the cross-host numeric domain"))))))
 
 
-(deftest basic-write-escape-test
-  (testing "strings with transit prefixes are escaped"
-    (is (= "[\"~#'\",\"~~foo\"]" (write-str "~foo")))
-    (is (= "[\"~#'\",\"~^foo\"]" (write-str "^foo")))
-    (is (= "[\"~#'\",\"~`foo\"]" (write-str "`foo")))))
-
-
-(deftest basic-write-keyword-symbol-test
-  (testing "keywords and symbols use transit scalar tags"
-    (is (= "[\"~#'\",\"~:foo/bar\"]" (write-str :foo/bar)))
-    (is (= "[\"~#'\",\"~$foo/bar\"]" (write-str 'foo/bar)))))
-
-
-(deftest basic-write-collection-test
-  (testing "collections use the expected transit shapes"
-    (is (= "[1,2]" (write-str [1 2])))
-    (is (= "[\"^ \",\"~:foo\",\"bar\"]" (write-str {:foo "bar"})))
-    (is (= "[\"~#set\",[]]" (write-str #{})))
-    (is (= "[\"~#list\",[1,2]]" (write-str '(1 2))))))
-
-
-(deftest roundtrip-default-handlers-test
-  (testing "plain transit data round-trips"
-    (doseq [v [nil true false 0 42 3.5 "" :foo/bar 'foo/bar [1 2] '(1 2)
-               {:foo "bar", :baz [1 2]} #{}]]
-      (is (= v (read-str (write-str v)))
-          (str "round-trip failed for " (pr-str v))))))
-
-
-(deftest custom-handler-test
-  (testing "custom write and read handlers compose"
-    (let [p (->Point 10 20)
-          handler-key #?(:cljd (str (.-runtimeType p))
-                         :default Point)
-          encoded (write-str p
-                             {:handlers {handler-key (transit/write-handler
-                                                       (fn [_] "point")
-                                                       (fn [pt]
-                                                         [(:x pt)
-                                                          (:y pt)]))}})
-          decoded (read-str encoded
-                            {:handlers {"point" (transit/read-handler
-                                                  (fn [[x y]]
-                                                    (->Point x y)))}})]
-      (is (= "[\"~#point\",[10,20]]" encoded))
-      (is (= p decoded)))))
-
-
-(deftest cache-reference-test
-  (testing "cached key references decode correctly"
-    (is (= [{:foo 1} {:foo 2}]
-           (read-str "[[\"^ \",\"~:foo\",1],[\"^ \",\"^0\",2]]")))))
-
-
-(deftest unknown-tag-fallback-test
-  (testing "unknown tags fall back to tagged values"
-    (let [v (read-str "[\"~#mystery\",42]")]
-      (is (= (transit/tagged-value "mystery" 42) v)))))
-
-
-(deftest write-meta-test
-  (testing "metadata can be preserved through the write-meta transform"
-    (let [v (with-meta [1 2] {:origin :test})
-          encoded (write-str v {:transform transit/write-meta})
-          decoded (read-str encoded)]
-      (is (= "[\"~#with-meta\",[[1,2],[\"^ \",\"~:origin\",\"~:test\"]]]"
-             encoded))
-      (is (= [1 2] decoded))
-      (is (= {:origin :test} (meta decoded))))))
-
-
-(deftest dao-apply-response-cross-runtime-shape-test
-  (testing
-    "a JVM-encoded dao.stream.apply response with a composite id decodes intact"
-    (let
-      [encoded
-       "[\"^ \",\"~:dao.stream.apply/id\",[\"~:yin.repl/request\",\"scope\",1],\"~:dao.stream.apply/value\",\"ok\"]"
-       decoded (read-str encoded)]
-      (is (= (dao-apply/response [:yin.repl/request "scope" 1] "ok") decoded))
-      (is (dao-apply/response? decoded))
-      (is (= [:yin.repl/request "scope" 1] (dao-apply/response-id decoded)))
-      (is (= "ok" (dao-apply/response-value decoded))))))
-
-
-(deftest nested-cached-dao-apply-responses-cross-runtime-test
-  (testing
-    "cached keyword refs inside a JVM sync-response preserve nested dao.stream.apply responses"
-    (let
-      [encoded
-       "[\"^ \",\"~:type\",\"~:datom/sync-response\",\"~:datoms\",[[\"^ \",\"~:dao.stream.apply/id\",\"yin.repl/request/scope/0\",\"~:dao.stream.apply/value\",\"CLOSURE\"],[\"^ \",\"^3\",\"yin.repl/request/scope/1\",\"^4\",\"1\"]],\"~:from-pos\",0,\"~:to-pos\",2]"
-       decoded (read-str encoded)]
-      (is (= {:type :datom/sync-response,
-              :datoms [(dao-apply/response "yin.repl/request/scope/0" "CLOSURE")
-                       (dao-apply/response "yin.repl/request/scope/1" "1")],
-              :from-pos 0,
-              :to-pos 2}
-             decoded))
-      (is (= [(dao-apply/response "yin.repl/request/scope/0" "CLOSURE")
-              (dao-apply/response "yin.repl/request/scope/1" "1")]
-             (:datoms decoded))))))
+(deftest decoded-lists-carry-no-minted-metadata-test
+  ;; ClojureDart's list mints its result carrying cljd.core's own reader
+  ;; metadata; a list decoded off the wire must not, or it content-addresses
+  ;; differently from the same list built on any other host. ClojureDart
+  ;; only: the JVM and JS decoders do not read a list back as list?, so the
+  ;; portable gate refuses the decode before any list reaches dao.jing.
+  #?(:cljd
+     (testing "a decoded list is metadata-free and addresses as a clean list"
+       (let [decoded (codec/decode (codec/encode '[1 (2 3) #{4}]))]
+         (is (nil? (meta (second decoded))))
+         (is (= (jing/content-hash '(2 3))
+                (jing/content-hash (second decoded))))
+         (is (= "e5bab3450d860af30befedbf9a650a761af5b35663e00cc1a126d15cf9199cb5"
+                (jing/content-hash decoded)))))
+     :default (is true)))

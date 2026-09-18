@@ -17,13 +17,18 @@
      adapter for async-only backends. Reads answer only from the cache;
      any miss throws \"unhydrated segment\" — the cache cannot distinguish
      absent from not-yet-fetched without blocking on the backend. hydrate!
-     copies the reachable blob graph from the source into the cache.
+     copies the reachable blob graph from the source into the cache. The
+     source is either a sync content handle or an async one
+     (dao.jing.remote.async/async-content); over an async source the
+     non-blocking hydrate-async and store-tree-async are the only way in
+     and out, and the sync store path throws.
 
    dao.data.btree itself stays storage-agnostic; this namespace is the one
    place the tree meets dao.jing (Decision 1: no new storage protocol —
    everything below is materialize!/get, plus segment-key for §5.2
    verification)."
-  (:require [dao.data.btree :as bt]
+  (:require #?@(:cljd [["dart:async" :as async]])
+            [dao.data.btree :as bt]
             [dao.jing :as jing]))
 
 
@@ -83,22 +88,43 @@
 ;; ---------------------------------------------------------------------------
 ;; Hydration cache (§5.4)
 
+(defn- async-source?
+  "True for an async content handle (dao.jing.remote.async/async-content)."
+  [source]
+  (some? (:get-content-async-fn source)))
+
+
 (deftype HydrationStorage
-  [source cache settings]
+  [source cache settings outbox]
+  ;; outbox: atom {:writing? bool, :unacked [[addr blob] ...]} — used
+  ;; only over an async source. :writing? is true only inside
+  ;; store-tree-async; :unacked holds every blob stored to the cache whose
+  ;; source write has not yet acknowledged, carried across failed calls so
+  ;; a retry re-pushes them (§5.4 durability ordering).
 
   bt/IStorage
 
   (-store
     [_ node]
-    ;; writes land in the durable source AND the read cache; both are
-    ;; content-addressed, so both must answer with the same address
-    (let [blob (bt/node->blob node)
-          source-addr (jing/materialize! source blob)
-          cache-addr (jing/materialize! cache blob)]
-      (when-not (= source-addr cache-addr)
-        (throw (ex-info "hydration source and cache diverged"
-                        {:source source-addr, :cache cache-addr})))
-      source-addr))
+    (let [blob (bt/node->blob node)]
+      (if (async-source? source)
+        (do
+          ;; the sync store-tree cannot wait for acknowledgments (§5.4)
+          (when-not (:writing? @outbox)
+            (throw (ex-info "sync store-tree against an async backend" {})))
+          (let [addr (jing/materialize! cache blob)]
+            (swap! outbox update :unacked
+                    (fn [u]
+                      (if (some #(= addr (first %)) u) u (conj u [addr blob]))))
+            addr))
+        ;; writes land in the durable source AND the read cache; both are
+        ;; content-addressed, so both must answer with the same address
+        (let [source-addr (jing/materialize! source blob)
+              cache-addr (jing/materialize! cache blob)]
+          (when-not (= source-addr cache-addr)
+            (throw (ex-info "hydration source and cache diverged"
+                            {:source source-addr, :cache cache-addr})))
+          source-addr))))
 
 
   (-restore
@@ -119,8 +145,8 @@
 (defn hydration-storage
   "The §5.4 hydration-cache adapter: reads answer only from `cache` (miss
    => \"unhydrated segment\"); `hydrate!` fills the cache from `source`.
-   In production `source` is an async backend accessed only by the
-   hydration pre-pass; in tests any content handle stands in."
+   `source` is a sync content handle (hydrate!, store-tree) or an async
+   one from dao.jing.remote.async (hydrate-async, store-tree-async)."
   ([source cache] (hydration-storage source cache nil))
   ([source cache opts]
    (let [box (volatile! nil)
@@ -128,7 +154,10 @@
                              (or (:ref-type opts) (bt/default-ref-type*))
                              nil
                              box)
-         storage (HydrationStorage. source cache sett)]
+         storage (HydrationStorage. source
+                                    cache
+                                    sett
+                                    (atom {:writing? false, :unacked []}))]
      (vreset! box storage)
      storage)))
 
@@ -146,6 +175,9 @@
       (let [^HydrationStorage hs storage
             source (.-source hs)
             cache (.-cache hs)]
+        (when (async-source? source)
+          (throw (ex-info "hydrate! against an async backend; use hydrate-async"
+                          {})))
         (letfn [(pull!
                   [addr]
                   (let [blob (jing/get source addr absent)]
@@ -158,3 +190,161 @@
                     (doseq [a (:addresses blob)] (pull! a))))]
           (when-some [addr (bt/set-address s)] (pull! addr)))))
     s))
+
+
+;; ---------------------------------------------------------------------------
+;; Async variants (§5.4 rule 2 non-blocking, and durability ordering)
+
+(defn- deferred
+  "The host's one-shot async value: a Promise (cljs), a Completer-backed
+   Future (cljd), a CompletableFuture (JVM). `start` receives resolve and
+   reject fns and calls exactly one of them."
+  [start]
+  #?(:cljd (let [c (async/Completer)]
+             (start #(.complete c %) #(.completeError c %))
+             (.-future c))
+     :clj (let [f (java.util.concurrent.CompletableFuture.)]
+            (start #(.complete f %) #(.completeExceptionally f %))
+            f)
+     :cljs (js/Promise. (fn [resolve reject] (start resolve reject)))))
+
+
+(defn- attempt
+  "Run thunk `f`, answering [:ok v] or [:err e] — so a callback is never
+   called from inside the try that guards the work it reports on."
+  [f]
+  (try [:ok (f)]
+       (catch #?(:cljd Object
+                 :clj Throwable
+                 :cljs :default)
+              e
+         [:err e])))
+
+
+(defn- report
+  [[tag x] on-ok on-err]
+  (if (= :ok tag) (on-ok x) (on-err x)))
+
+
+(defn- async-hydration-storage
+  "The storage when it is a HydrationStorage over an async source, else nil."
+  [storage]
+  (when (and (instance? HydrationStorage storage)
+             (async-source? (.-source ^HydrationStorage storage)))
+    storage))
+
+
+(defn hydrate-async
+  "Full-graph hydration (§5.4 rule 2, non-blocking variant): fetch every
+   blob reachable from the set's root address out of the async source into
+   the hydration cache, then resolve to the same set. Addresses already in
+   the cache are read from it rather than fetched, so hydrating a resident
+   graph issues no requests. Over a sync source it runs hydrate!; over a
+   non-hydration storage it resolves at once.
+
+   (hydrate-async s)              => Promise / Future / CompletableFuture
+   (hydrate-async s on-ok on-err) => nil; exactly one callback is called
+
+   A source miss rejects \"missing index segment\" (the source answers
+   absence authoritatively); an `:error` or `:lost` completion rejects
+   \"hydration fetch failed\" with the completion attached."
+  ([s] (deferred (fn [resolve reject] (hydrate-async s resolve reject))))
+  ([s on-ok on-err]
+   (if-let [^HydrationStorage hs (async-hydration-storage (bt/set-storage s))]
+     (let [cache (.-cache hs)
+           get-async (:get-content-async-fn (.-source hs))
+           settled (atom false)
+           ok! #(when (compare-and-set! settled false true) (on-ok s))
+           fail! #(when (compare-and-set! settled false true) (on-err %))
+           ;; one token for the walk itself plus one per visited address
+           outstanding (atom 1)
+           seen (atom #{})
+           done! #(when (zero? (swap! outstanding dec)) (ok!))]
+       (letfn [(visit!
+                 [addr]
+                 (when-not (contains? (first (swap-vals! seen conj addr)) addr)
+                   (swap! outstanding inc)
+                   (let [blob (jing/get cache addr absent)]
+                     (if (identical? blob absent)
+                       (get-async addr #(report (attempt (fn [] (fetched! addr %)))
+                                                (fn [_] nil)
+                                                fail!))
+                       (do (doseq [a (:addresses blob)] (visit! a))
+                           (done!))))))
+               (fetched!
+                 [addr c]
+                 (cond
+                   (not (contains? c :found?))
+                   (fail! (ex-info "hydration fetch failed"
+                                   {:address addr, :completion c}))
+
+                   (not (:found? c))
+                   (fail! (ex-info "missing index segment" {:address addr}))
+
+                   :else
+                   (let [blob (:value c)
+                         addr' (jing/materialize! cache blob)]
+                     (if (= addr addr')
+                       (do (doseq [a (:addresses blob)] (visit! a))
+                           (done!))
+                       (fail! (ex-info "hydration address mismatch"
+                                       {:expected addr, :actual addr'}))))))]
+         (report (attempt (fn []
+                            (when-some [addr (bt/set-address s)] (visit! addr))
+                            (done!)))
+                 (fn [_] nil)
+                 fail!))
+       nil)
+     (report (attempt #(hydrate! s)) on-ok on-err))))
+
+
+(defn store-tree-async
+  "The write-side sibling of hydrate-async (§5.4 durability ordering):
+   store the set's dirty subgraph into the hydration cache, push every
+   unacknowledged segment to the async source, and resolve to the root
+   address only after every one of those writes has acknowledged. The
+   caller chains the root `cas!` on that resolution — never before.
+
+   A segment whose write fails stays queued on the storage and is pushed
+   again by the next store-tree-async through it, so retrying a failed
+   call — even on the now-addressed set, whose store-tree is a no-op —
+   cannot resolve over an incomplete closure. Over a sync storage it
+   resolves to store-tree's result. An empty set resolves to nil, as
+   store-tree answers.
+
+   (store-tree-async s storage)              => Promise / Future / CompletableFuture
+   (store-tree-async s storage on-ok on-err) => nil; exactly one callback is called"
+  ([s storage]
+   (deferred (fn [resolve reject] (store-tree-async s storage resolve reject))))
+  ([s storage on-ok on-err]
+   (if-let [^HydrationStorage hs (async-hydration-storage storage)]
+     (let [outbox (.-outbox hs)
+           materialize-async (:materialize-async-fn (.-source hs))
+           stored (attempt (fn []
+                             (swap! outbox assoc :writing? true)
+                             (try (bt/store-tree s storage)
+                                  (finally (swap! outbox assoc :writing? false)))))]
+       (if (= :err (first stored))
+         (report stored on-ok on-err)
+         (let [root (second stored)
+               unacked (:unacked @outbox)
+               remaining (atom (count unacked))
+               failure (atom nil)
+               settle! #(when (zero? (swap! remaining dec))
+                          (if-some [e @failure] (on-err e) (on-ok root)))]
+           (if (empty? unacked)
+             (on-ok root)
+             (doseq [[addr blob] unacked]
+               (materialize-async
+                 blob
+                 (fn [c]
+                   (if (and (:materialized? c) (:result c) (= addr (:address c)))
+                     ;; acknowledged: the one place a segment leaves the queue
+                     (swap! outbox update :unacked
+                            (fn [u] (filterv #(not= addr (first %)) u)))
+                     (compare-and-set! failure nil
+                                       (ex-info "store-tree-async: segment write failed"
+                                                {:address addr, :completion c})))
+                   (settle!)))))))
+       nil)
+     (report (attempt #(bt/store-tree s storage)) on-ok on-err))))

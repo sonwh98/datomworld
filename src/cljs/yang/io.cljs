@@ -3,11 +3,20 @@
 
   Provides functions to compile Clojure source files to Universal AST."
   (:require
-    [cljs.reader :as reader]
+    [cljs.tools.reader :as reader]
+    [cljs.tools.reader.reader-types :as reader-types]
     [yang.clojure :as yang]))
 
 
 (def fs (js/require "fs"))
+
+
+(defn- read-forms
+  [source file-name]
+  (let [r (reader-types/indexing-push-back-reader source 1 file-name)]
+    (loop [forms []]
+      (let [form (reader/read {:eof ::eof} r)]
+        (if (= form ::eof) forms (recur (conj forms form)))))))
 
 
 (defn read-source
@@ -15,7 +24,7 @@
   Returns a sequence of forms."
   [file-path]
   (try (let [content (.readFileSync fs file-path "utf8")
-             forms (reader/read-string (str "[" content "]"))]
+             forms (read-forms content file-path)]
          forms)
        (catch js/Error e
          (throw (ex-info "Failed to read source file"
@@ -34,7 +43,7 @@
   "Compile a string containing Clojure code to Universal AST.
   Returns a vector of compiled AST nodes, one for each form."
   [source-str]
-  (let [forms (reader/read-string (str "[" source-str "]"))]
+  (let [forms (read-forms source-str "<string>")]
     (mapv yang/compile forms)))
 
 

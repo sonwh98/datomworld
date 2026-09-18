@@ -9,14 +9,11 @@
    value-type predicates, the extraction function that reads schema from a
    d5 source through the public q surface, the resolve-props seam used
    by the view and wrapper, the validating write wrapper, and the
-   publisher (publish!, published, :dao.space.schema/published opener)."
+   publisher (publish!)."
   (:require [dao.datom :as datom]
-            [dao.jing :as jing]
             [dao.space.index :as index]
             [dao.space.query :as query]
-            [dao.space.transactor :as tx]
-            [dao.stream :as ds])
-  #?(:cljs (:require-macros [dao.stream])))
+            [dao.space.transactor :as tx]))
 
 
 ;; =============================================================================
@@ -226,35 +223,29 @@
 ;; =============================================================================
 
 (defn- validate-not-nested-view!
-  "Reject descriptors whose :dao.stream/type is a query-layer view or
-   another schema view — these are not open!-dispatchable d5 sources."
+  "Reject nested views — a query current/history view value (tagged
+   :dao.space.query/view) or a schema/current fact relation (tagged
+   :fact?). Neither is a d5 source value."
   [d]
-  (let [t (:dao.stream/type d)]
-    (when (or (= t :dao.space/current)
-              (= t :dao.space/history)
-              (= t :dao.space.schema/current))
+  (let [v (:dao.space.query/view d)]
+    (when (or (#{:current :history} v)
+              (:fact? d))
       (throw (ex-info
-               (str "schema/current source must be an open!-dispatchable d5 "
-                    "descriptor, not a nested view: " (pr-str t))
-               {:dao.stream/type t})))))
+               (str "schema/current source must be a d5 source value, not a "
+                    "nested view: " (pr-str (or v :fact?)))
+               {:dao.space.query/view v, :fact? (:fact? d)})))))
 
 
-#_{:clj-kondo/ignore [:unresolved-var]}
-
-
-;; kondo cannot resolve dao.stream vars defined behind :clj reader
-;; conditionals; query.cljc/transactor.cljc carry these unsuppressed.
 (defn- interpret-view
-  "Shared interpretation core for the schema/current view. Given an
-   already-opened (and closed) source realization plus as-of /
-   schema-as-of bounds, returns a closed ViewStream of d3 facts with
-   card-one collapse applied. Composition of public interpretations:
-   history view for data, history view for schema, extract-schema,
-   current-state-seq, then card-one collapse per [e a]."
+  "Shared interpretation core for the schema/current view. Given a d5
+   source value plus as-of / schema-as-of bounds, returns a fact relation
+   of d3 facts with card-one collapse applied. Composition of public
+   interpretations: history view for data, history view for schema,
+   extract-schema, current-state-seq, then card-one collapse per [e a]."
   [source as-of schema-as-of]
-  (let [data-rows   (ds/strict-vec (query/history source as-of))
-        schema-rows (ds/strict-vec (query/history source
-                                                  (or schema-as-of as-of)))
+  (let [data-rows   (query/rows (query/history source as-of))
+        schema-rows (query/rows (query/history source
+                                               (or schema-as-of as-of)))
         schema (extract-schema schema-rows)
         ;; Seed with axiom idents: the five :db/* attrs are card-one by
         ;; axiom, with or without bootstrap/ident rows present.
@@ -291,71 +282,44 @@
         all-rows (sort index/eavt-cmp
                        (into (vec collapsed) pass-through))
         d3-rows (mapv #(subvec (vec %) 0 3) all-rows)]
-    (query/->ViewStream d3-rows true)))
+    (query/fact-relation d3-rows)))
 
 
-#_{:clj-kondo/ignore [:unresolved-var]}
+(defn- snapshot-result?
+  [x]
+  (and (map? x) (contains? x :relation) (contains? x :status)))
 
 
 (defn current
-  "The schema-aware current view. Given a descriptor, returns a pure
-   semantic view value `{:dao.stream/type :dao.space.schema/current ...}`
-   interpreted by q; given an already-opened closed realization, returns
-   a read-only, closed, derived ViewStream of d3 facts with card-one
-   collapse applied. Opts map: {:as-of n :schema-as-of n}, both optional.
-   Dual-path: descriptor returns view value, realization interprets directly."
+  "The schema-aware current view: d3 facts with card-one collapse applied,
+   as a query fact-relation value q accepts directly. source is a d5
+   source value — a relation value, an opened published index, or a
+   query/snapshot result; schema opens nothing, reads nothing live, and
+   never closes a source it is handed. A snapshot whose status is :gap or
+   :defect is rejected: that is an observed read failure — a hole opened
+   while the snapshot was reading, or a transport that answered outside
+   its contract — and the read is known-incomplete. A prefix evicted
+   BEFORE the snapshot is indistinguishable from complete history:
+   query/snapshot mints a fresh :dao.stream/oldest, which on an evicting
+   transport is the earliest retained position, so completeness is the
+   caller's declaration — a transport declaring complete retention, or a
+   kept origin cursor minted before the first append and read through
+   with no gap — never schema's check. Opts map: {:as-of n :schema-as-of
+   n}, both optional."
   ([source] (current source nil))
   ([source opts]
-   (let [as-of       (when (map? opts) (:as-of opts))
-         schema-as-of (when (map? opts) (:schema-as-of opts))]
-     (if (ds/realization? source)
-       (do (when-not (satisfies? ds/IDaoStreamBound source)
-             (throw (ex-info
-                      "borrowed input must satisfy IDaoStreamBound"
-                      {:source source})))
-           (when-not (ds/closed? source)
-             (throw (ex-info
-                      "borrowed input must be closed"
-                      {:source source})))
-           (interpret-view source as-of schema-as-of))
-       (let [d (when (map? source) source)]
-         (when-not d
-           (throw (ex-info
-                    "source must be a descriptor or a closed realization"
-                    {:source source})))
-         (when-not (keyword? (:dao.stream/type d))
-           (throw (ex-info
-                    "descriptor must carry :dao.stream/type"
-                    {:source source})))
-         (validate-not-nested-view! d)
-         (cond-> {:dao.stream/type :dao.space.schema/current
-                  :source d
-                  :dao.stream/bound (:dao.stream/bound d)}
-           (some? as-of)        (assoc :as-of as-of)
-           (some? schema-as-of) (assoc :schema-as-of schema-as-of)))))))
-
-
-#_{:clj-kondo/ignore [:unresolved-symbol :unresolved-var]}
-
-
-(ds/defopen :dao.space.schema/current
-            [desc]
-            (let [src (:source desc)]
-              (when-not (map? src)
-                (throw (ex-info "schema/current descriptor must carry :source"
-                                {:descriptor desc})))
-              (let [r (ds/open! src)]
-                (try (when-not (satisfies? ds/IDaoStreamReader r)
-                       (throw (ex-info "open! did not produce a reader realization"
-                                       {:descriptor desc})))
-                     (ds/close! r)
-                     (interpret-view r (:as-of desc) (:schema-as-of desc))
-                     (catch #?(:clj Throwable
-                               :cljs :default
-                               :cljd Object)
-                            error
-                       (ds/close! r)
-                       (throw error))))))
+   (let [as-of        (when (map? opts) (:as-of opts))
+         schema-as-of (when (map? opts) (:schema-as-of opts))
+         source (if (snapshot-result? source)
+                  (do (when-not (#{:ended :blocked} (:status source))
+                        (throw (ex-info (str "schema/current rejects a snapshot that reported "
+                                             (name (:status source))
+                                             ": the read was incomplete or defective")
+                                        {:status (:status source)})))
+                      (:relation source))
+                  source)]
+     (validate-not-nested-view! source)             ; query views, :fact? relations
+     (interpret-view source as-of schema-as-of))))  ; query/history rejects the rest
 
 
 ;; =============================================================================
@@ -675,7 +639,7 @@
                              (pr-str v))
                         {:value v})))
       nil)
-      ;; Rule 2: :db/ident uniqueness
+    ;; Rule 2: :db/ident uniqueness
     (when (= a :db/ident)
       (let [existing-es (disj (get-in (:unique state) [:db/ident v] #{}) e)]
         (when (seq existing-es)
@@ -923,37 +887,31 @@
      :default (f)))
 
 
-(deftype SchemaWrapper
-  [inner local-stream strict? state]
-
-  ds/IDaoStreamBound
-
-  (close!
-    [_]
-    (with-write-lock state #(ds/close! inner)))
-
-
-  (closed?
-    [_]
-    (ds/closed? inner)))
-
-
 (defn transactor
   "Open a schema-validating wrapper over a local stream and intake pool.
-   opts: {:strict true} for strict mode (default lax). OWNS the inner
-   :transactor handle; closing the wrapper delegates inward."
+   opts: {:strict true} for strict mode (default lax). Returns a plain map
+   — {:dao.space.schema/transactor true, :inner <transactor value>,
+   :local-stream local-stream, :strict? strict?, :state (atom …)} — that
+   OWNS the inner transactor value (dao.space.transactor/create!): close!
+   closes it. The wrapper's closedness flag is its own, living in the
+   per-wrapper state atom because the inner transactor has no closed? to
+   delegate to — and the wrapper exposes no closed? predicate either:
+   transact! answers closed as data."
   ([local-stream intake-pool]
    (transactor local-stream intake-pool nil))
   ([local-stream intake-pool opts]
    (let [strict? (boolean (:strict opts))
-         inner (ds/open! {:dao.stream/type :transactor
-                          :local-stream local-stream
-                          :intake-pool intake-pool
-                          :name "schema"})
+         inner (tx/create! {:local-stream local-stream
+                            :intake-pool intake-pool
+                            :name "schema"})
          rows (index/snapshot-datoms local-stream)
          schema (extract-schema rows)]
-     (->SchemaWrapper inner local-stream strict?
-                      (atom (rows->state rows schema strict?))))))
+     {:dao.space.schema/transactor true
+      :inner inner
+      :local-stream local-stream
+      :strict? strict?
+      :state (atom (assoc (rows->state rows schema strict?)
+                          :closed false))})))
 
 
 (defn- contains-schema-row?
@@ -1040,113 +998,103 @@
 
 
 (defn transact!
-  "Translate, validate, and commit tx-data as one atomic record. Returns
-   {:result :ok :t t :datoms datoms}. One per-wrapper serialized transition
-   plans and validates the complete next state before the single append, then
-   installs that already-planned state only after append succeeds. Schema
-   changes become effective for the next transaction."
-  [^SchemaWrapper wrapper tx-data]
-  (let [lock (.-state wrapper)]
+  "Translate, validate, and commit tx-data as one atomic record. Returns the
+   inner transactor's receipt unchanged —
+   {:dao.stream/outcome :dao.stream/ok :dao.space/t t :dao.space/datoms ds}
+   on success, the inner conforming non-ok outcome map (full | closed |
+   invalid-value | transport-error) on refusal — and
+   {:dao.stream/outcome :dao.stream/closed} on a closed wrapper. Throws
+   only for defects in the caller's argument, in the inner transactor's own
+   precedence: empty tx-data throws regardless of any state, above the
+   lock; on a closed wrapper every other argument answers closed before it
+   is examined. One per-wrapper serialized transition plans and validates
+   the complete next state before the single append, then installs that
+   already-planned state only when the append answered :dao.stream/ok; a
+   failed or thrown append leaves the wrapper's schema, uniqueness, and
+   current-value state exactly as it was. Schema changes become effective
+   for the next transaction."
+  [wrapper tx-data]
+  (when (empty? tx-data)
+    (throw (ex-info "transact! requires at least one item"
+                    {:tx-data tx-data})))
+  (let [lock (:state wrapper)]
     (with-write-lock
       lock
       (fn []
-        (when (ds/closed? wrapper)
-          (throw (ex-info "cannot transact! on closed wrapper" {})))
-        (when (empty? tx-data)
-          (throw (ex-info "transact! requires at least one item"
-                          {:tx-data tx-data})))
-        (let [st @lock
-              schema (:schema st)
-              strict? (.-strict? wrapper)
-              translated
-              (loop [items (vec tx-data)
-                     datoms []
-                     state st]
-                (if (empty? items)
-                  {:datoms datoms, :state state}
-                  (let [item (first items)
-                        result (translate-record item state schema strict?)]
-                    ;; Both-mode schema structure validation is part of the
-                    ;; plan, before any append can occur.
-                    (doseq [d (:datoms result)]
-                      (validate-schema-row! (nth d 0) (nth d 1) (nth d 2)
-                                            (:state result)))
-                    (recur (rest items)
-                           (into datoms (:datoms result))
-                           (:state result)))))
-              datoms (:datoms translated)]
-          (when (empty? datoms)
-            (throw (ex-info "transact! produced no datoms"
-                            {:tx-data tx-data})))
-          (validate-record-ops! datoms)
-          (validate-axiom-datoms! datoms st)
-          (let [schema-change? (boolean (contains-schema-row? datoms))
-                next-schema (proposed-schema (.-local-stream wrapper)
-                                             schema
-                                             datoms)
-                _ (validate-unique-card-one! next-schema)
-                next-state (if schema-change?
-                             (reindex-state (:state translated)
-                                            next-schema
-                                            strict?)
-                             (-> (:state translated)
-                                 (dissoc :datoms)
-                                 (assoc :schema next-schema
-                                        :strict? strict?)))
-                result (tx/transact! (.-inner wrapper) datoms)]
-            (reset! lock next-state)
-            result))))))
+        (if (:closed @lock)
+          {:dao.stream/outcome :dao.stream/closed}
+          (let [st @lock
+                schema (:schema st)
+                strict? (:strict? wrapper)
+                translated
+                (loop [items (vec tx-data)
+                       datoms []
+                       state st]
+                  (if (empty? items)
+                    {:datoms datoms, :state state}
+                    (let [item (first items)
+                          result (translate-record item state schema strict?)]
+                      ;; Both-mode schema structure validation is part of the
+                      ;; plan, before any append can occur.
+                      (doseq [d (:datoms result)]
+                        (validate-schema-row! (nth d 0) (nth d 1) (nth d 2)
+                                              (:state result)))
+                      (recur (rest items)
+                             (into datoms (:datoms result))
+                             (:state result)))))
+                datoms (:datoms translated)]
+            (when (empty? datoms)
+              (throw (ex-info "transact! produced no datoms"
+                              {:tx-data tx-data})))
+            (validate-record-ops! datoms)
+            (validate-axiom-datoms! datoms st)
+            (let [schema-change? (boolean (contains-schema-row? datoms))
+                  next-schema (proposed-schema (:local-stream wrapper)
+                                               schema
+                                               datoms)
+                  _ (validate-unique-card-one! next-schema)
+                  next-state (if schema-change?
+                               (reindex-state (:state translated)
+                                              next-schema
+                                              strict?)
+                               (-> (:state translated)
+                                   (dissoc :datoms)
+                                   (assoc :schema next-schema
+                                          :strict? strict?)))
+                  result (tx/transact! (:inner wrapper) datoms)]
+              (if (= :dao.stream/ok (:dao.stream/outcome result))
+                (do (reset! lock next-state)
+                    result)
+                result))))))))
+
+
+(defn close!
+  "Close the wrapper: set its own closed flag and close the inner
+   transactor value it owns. Returns {:dao.stream/outcome :dao.stream/ok}.
+   Idempotent — the inner tx/close! is, and the flag is a swap! to true —
+   and per wrapper: neither the caller's local stream nor the intake pool
+   is closed or erased (transactor T7)."
+  [wrapper]
+  (let [lock (:state wrapper)]
+    (with-write-lock
+      lock
+      (fn []
+        (swap! lock assoc :closed true)
+        (tx/close! (:inner wrapper))
+        {:dao.stream/outcome :dao.stream/ok}))))
 
 
 ;; =============================================================================
-;; Publisher: publish! and published descriptor (§5)
+;; Publisher: publish! (§5)
 ;; =============================================================================
 
 (defn publish!
   "Build and enqueue covered indexes over the wrapper's local stream.
    Thin passthrough to the inner handle's dao.space.transactor/publish!.
-   Returns {:manifest-address ... :manifest ...}."
-  ([^SchemaWrapper wrapper] (publish! wrapper nil))
-  ([^SchemaWrapper wrapper opts]
-   (when (ds/closed? wrapper)
-     (throw (ex-info "cannot publish! on closed wrapper" {})))
-   (tx/publish! (.-inner wrapper) opts)))
-
-
-(defn published
-  "Construct a §5 published descriptor for one immutable covered-index
-   manifest. content-store is a serializable DaoJing coordinate (map with
-   :dao.jing/type); manifest-address is a segment content address.
-   Validates like index/published-index but carries the schema type."
-  [content-store manifest-address]
-  (when-not (and (map? content-store) (keyword? (:dao.jing/type content-store)))
-    (throw (ex-info "published requires a DaoJing store coordinate"
-                    {:content-store content-store})))
-  (when-not (jing/segment-address? manifest-address)
-    (throw (ex-info "published requires a manifest content address"
-                    {:manifest-address manifest-address})))
-  {:dao.stream/type :dao.space.schema/published
-   :dao.stream/bound {:manifest-address manifest-address}
-   :dao.stream/comparator :dao.space.index/eavt
-   :content-store content-store
-   :manifest-address manifest-address})
-
-
-#_{:clj-kondo/ignore [:unresolved-symbol :unresolved-var :private-call]}
-
-
-(ds/defopen :dao.space.schema/published
-            [descriptor]
-            (let [{:keys [content-store manifest-address]} descriptor
-                  expected (published content-store manifest-address)]
-              (when-not (= expected descriptor)
-                (throw (ex-info "invalid schema/published descriptor"
-                                {:descriptor descriptor, :expected expected})))
-              (let [r (ds/open! (index/published-index content-store manifest-address))]
-                ;; The btree is lazily loaded from the store.  Eagerly force all
-                ;; datoms now so the data is cached in memory.  When schema/current
-                ;; later calls ds/close! (which closes the jing store) and then
-                ;; interpret-view, the datoms delay is already realized and next()
-                ;; reads from the cached vector — no store access needed.
-                (ds/strict-vec r)
-                r)))
+   Returns {:manifest-address ... :manifest ...}. Publication after close
+   is permitted and reads the caller's still-open local stream: close
+   rejects further writes, and publication is a read of that stream plus
+   an enqueue into the caller-owned pool."
+  ([wrapper] (publish! wrapper nil))
+  ([wrapper opts]
+   (tx/publish! (:inner wrapper) opts)))
