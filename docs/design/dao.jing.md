@@ -507,6 +507,18 @@ encoder is transitional until the pinned canonical byte encoding lands.
   blocking driver's per-id step, and it forces a consumer change on
   B-tree hydration.
 
+  **Status 2026-09-18 (stepped client):** the client itself is built —
+  `dao.jing.remote.step` wraps one `dao.stream.rpc` client state with
+  per-materialization records and id routes, `step` advancing in the
+  recorded fixed order (retry unsent, poll, terminal-abandon, issue
+  verify reads in put-id order, drain-and-route), the `:present` verify
+  hop hashing the read-back against the address exactly as
+  `materialize!` does, one published completion per materialization
+  carrying its put id, and no payload retained or published anywhere.
+  What remains owed to `dao.data.btree.md` §5.4 is the consumer side:
+  an async backend over this client, `hydrate-async`, and
+  `store-tree-async`.
+
 ## Lineage
 
 DaoJing combines two constraints:

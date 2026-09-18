@@ -890,17 +890,17 @@
                                        (is (= [:echo "text-payload"] (response transit-client)))
                                        (is (= [:echo [:bin-payload]] (response cbor-client))
                                            (str "cbor client saw "
-                                                (pr-str (event-kinds (:traffic cbor-client))))))
-                                     (is (= {:line 5}
-                                            (meta (second (response cbor-client))))
-                                         "the CBOR session kept its metadata end to end; a
-                                            downgrade to the text wire would strip it")
+                                                (pr-str (event-kinds (:traffic cbor-client)))))
+                                       (is (= {:line 5}
+                                              (meta (second (response cbor-client))))
+                                           "the CBOR session kept its metadata end to end; a
+                                            downgrade to the text wire would strip it"))
                                      (is (= cbor/profile
-                                            (:ws/codec (ws/adapter (:handle cbor-client))))))
-                                   (stream/close! (:handle transit-client))
-                                   (stream/close! (:handle cbor-client))
-                                   (teardown! fixture [] server transit-ticker cbor-ticker)
-                                   (finish))))))))
+                                            (:ws/codec (ws/adapter (:handle cbor-client)))))
+                                     (stream/close! (:handle transit-client))
+                                     (stream/close! (:handle cbor-client))
+                                     (teardown! fixture [] server transit-ticker cbor-ticker)
+                                     (finish)))))))))
 
 
 (deftest a-cbor-client-is-refused-by-a-transit-only-endpoint
