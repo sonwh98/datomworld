@@ -184,7 +184,9 @@
         [_ compiled] (core/eval-input state "(compile \"1 + 2\")")]
     (is (= "Switched to Python" result))
     (is (str/includes? compiled "AST:"))
-    (is (str/includes? compiled "Datoms:"))))
+    (is (str/includes? compiled "Input rows:"))
+    (is (str/includes? compiled "Expanded rows:"))
+    (is (str/includes? compiled "Events:"))))
 
 
 (deftest reset-rebuilds-the-vm-and-its-attachment
@@ -324,3 +326,161 @@
   (let [output (handle 8)
         state (core/create-state {:output-stream output})]
     (is (= (oldest output) (:output-cursor state)))))
+
+
+;; =============================================================================
+;; Macro expansion between program-in and program-out (yin.vm.macro.md §10.1)
+;; =============================================================================
+
+(def ^:private unless-source
+  "(defmacro unless [c a b] (yin/if c b a))")
+
+
+(def ^:private twice-source
+  "(defmacro twice [x] (yin/application (yin/variable (quote +)) (conj [] x x)))")
+
+
+(defn- vm-state
+  [vm-type]
+  (first (core/eval-input (core/create-state) (str "(vm " vm-type ")"))))
+
+
+(defn- results
+  "Evaluate `lines` in order against one threaded state; `[state texts]`.
+   The program media are shared by every state threaded from one session,
+   so a state is never evaluated against twice."
+  [state lines]
+  (reduce (fn [[state texts] line]
+            (let [[state' text] (core/eval-input state line)]
+              [state' (conj texts text)]))
+          [state []]
+          lines))
+
+
+(deftest a-defmacro-expands-later-inputs-on-both-evaluators
+  (doseq [vm-type [:semantic :ast-walker]]
+    (testing (str vm-type)
+      (let [[state [defined & texts]]
+            (results (vm-state vm-type)
+                     [unless-source
+                      "(unless false 1 2)"
+                      "(unless true 1 2)"
+                      ;; a lambda parameter shadows the macro name
+                      "((fn [unless] (unless 7)) (fn [x] x))"])]
+        (is (str/includes? defined "unless")
+            "the definition reaches the evaluator as the literal naming it")
+        (is (= ["1" "2" "7"] texts))
+        (is (= 7 (:last-value state)))))))
+
+
+(deftest a-macro-defined-and-called-in-one-input-expands
+  (let [[state [result]] (results (core/create-state)
+                                  [(str twice-source " (twice 21)")])]
+    (is (= "42" result))
+    (is (contains? (:macros (core/repl-state state)) 'twice)
+        "the declaration persists into the next batch's store")
+    (is (= "10" (second (core/eval-input state "(twice 5)"))))))
+
+
+(deftest the-standard-forms-are-seeded-through-the-row-native-store
+  (let [state (core/create-state)]
+    (is (= ['defn] (keys (:macros (core/repl-state state))))
+        "a fresh session's store holds the standard defn")
+    (testing "an ordinary defn application is rewritten by the stored defn"
+      ;; A map AST is the frontend-neutral carrier: no frontend lowering runs,
+      ;; so only the expander's store can turn this call into a definition.
+      (let [[state' _] (core/eval-input
+                         state
+                         (str "{:type :application,"
+                              " :operator {:type :variable, :name defn},"
+                              " :operands [{:type :variable, :name sq}"
+                              "            {:type :literal, :value [x]}"
+                              "            {:type :application,"
+                              "             :operator {:type :variable, :name *},"
+                              "             :operands [{:type :variable, :name x}"
+                              "                        {:type :variable, :name x}]}]}"))]
+        (is (= "49" (second (core/eval-input state' "(sq 7)"))))))))
+
+
+(deftest repl-state-lists-macro-names-and-root-addresses
+  (let [[state _] (evaluate (core/create-state) [unless-source twice-source])
+        macros (:macros (core/repl-state state))
+        store (get-in state [:expander :ctx :store])]
+    (is (= #{'defn 'unless 'twice} (set (keys macros))))
+    (doseq [[sym address] macros]
+      (is (= (first (get store sym)) address)
+          (str sym " maps to its lambda packet's root address")))
+    (is (str/includes? (second (core/eval-input state "(repl-state)")) "unless"))))
+
+
+(deftest compile-renders-rows-expansion-and-events-without-committing
+  (let [[state _] (core/eval-input (core/create-state) unless-source)
+        attempt (get-in state [:expander :ctx :attempt])
+        [state' [compiled defined failed]]
+        (results state ["(compile (unless false 1 2))"
+                        (str "(compile " unless-source ")")
+                        "(compile (unless 1 2))"])]
+    (is (str/includes? compiled ":yin.program/batch"))
+    (is (str/includes? compiled "Expanded rows:"))
+    (is (str/includes? compiled ":yin.macro/expand")
+        "the expansion's event row is rendered")
+    (is (= attempt (get-in state' [:expander :ctx :attempt]))
+        "the preview commits no attempt")
+    (testing "a defmacro renders its declaration and harvest rows"
+      (is (str/includes? defined ":yin.macro/definition"))
+      (is (str/includes? defined ":yin.macro/harvest")))
+    (testing "a failing expansion renders the error and its event"
+      (is (str/includes? failed "Expansion error:"))
+      (is (str/includes? failed ":arity")))
+    (is (= "1" (second (core/eval-input state' "(unless false 1 2)")))
+        "compiling appended nothing to program-in")))
+
+
+(deftest reset-rebuilds-the-expander-with-only-the-standard-forms
+  (let [[state _] (core/eval-input (core/create-state) unless-source)
+        [state' [_ unbound added]] (results state ["(reset)"
+                                                   "(unless false 1 2)"
+                                                   "(+ 1 2)"])]
+    (is (= ['defn] (keys (:macros (core/repl-state state')))))
+    (is (not= (get-in state [:expander :ctx :incarnation])
+              (get-in state' [:expander :ctx :incarnation]))
+        "a rebuilt expander is a new incarnation")
+    (is (str/starts-with? unbound "Error: ")
+        "the reset session no longer expands the old macro")
+    (is (= "3" added) "an evaluator failure is consumed like any other")))
+
+
+(deftest evaluation-continues-after-an-expansion-failure
+  (doseq [vm-type [:semantic :ast-walker]]
+    (testing (str vm-type)
+      (let [[state _] (evaluate (vm-state vm-type)
+                                [unless-source
+                                 "(defmacro spin [] (yin/application (yin/variable (quote spin)) []))"
+                                 "(+ 1 1)"])
+            [state' failed] (core/eval-input state "(unless 1 2)")
+            [state'' [guarded added unless-again]]
+            (results state' ["(spin)" "(+ 1 2)" "(unless false 1 2)"])]
+        (is (str/starts-with? failed "Error: Macro expansion failed"))
+        (is (str/includes? failed ":arity"))
+        (is (= 2 (:last-value state')) "a failed expansion records no value")
+        (is (= (get-in state [:expander :ctx :store])
+               (get-in state' [:expander :ctx :store]))
+            "a failed batch leaves the store as it was")
+        (is (str/includes? guarded ":depth-guard"))
+        (is (= "3" added))
+        (is (= "1" unless-again) "the source cursor advanced past both failures")
+        (is (= 1 (:last-value state'')))))))
+
+
+(deftest a-clojure-macro-expands-calls-from-other-languages
+  (let [[state _] (evaluate (core/create-state) [unless-source twice-source
+                                                 "(defn inc2 [x] (+ x 2))"])]
+    (testing "Python"
+      (let [[state' texts] (results state ["(lang :python)"
+                                           "unless(False, 1, 2)"
+                                           "twice(21)"
+                                           "inc2(3)"])]
+        (is (= ["1" "42" "5"] (rest texts)))
+        (testing "then PHP, on the same session"
+          (let [[_ texts] (results state' ["(lang :php)" "twice(21);" "inc2(3);"])]
+            (is (= ["42" "5"] (rest texts)))))))))

@@ -3,12 +3,12 @@
 
    This namespace owns no socket, atom, promise, callback, clock, or namespace
    global.  It holds the one shell value a driver threads: the evaluator beside
-   its separately-owned program media — for the semantic VM, the program
-   medium the encoder observer watches and the row medium the VM's own
-   observer watches — the language, the value history, the v2
-   output medium with its cursor, and a per-medium ledger recording the last
-   outcome that medium answered.  Every function takes a state and returns the
-   next one.
+   its separately-owned program media — `program-in`, which the macro
+   expander observes, and `program-out`, which the evaluator's own observer
+   watches (`docs/design/yin.vm.macro.md` §10.1) — the language, the value
+   history, the v2 output medium with its cursor, and a per-medium ledger
+   recording the last outcome that medium answered.  Every function takes a
+   state and returns the next one.
 
    `yin.repl` is untouched and keeps running; this is a second implementation
    beside it."
@@ -26,6 +26,7 @@
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
+            [yin.vm.macro :as macro]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [dao.stream.observer :as observer]))
@@ -62,18 +63,17 @@
 
 
 (def program-loaders
-  "The loader the evaluator observer hands each row-medium batch, per
-   evaluator.  The ast-walker keeps one stage — its medium carries `:yin/*`
-   AST datoms and its loader is the datom-lane one.  The semantic VM runs
-   the row lane (§7.1) behind two observer stages (`yin.vm.encoder`): the
-   encoder observer over the program medium projects each observed batch —
-   the map AST the compilers emit, a datom literal through §9.1's datom→row
-   adapter — and forwards it to the row medium, and the evaluator observer
-   the composition attaches there independently hands each canonical row
-   set to `linearize/rows-loader` over `semantic/load-vector`.  Neither
-   evaluator learns which form travels."
-  {:ast-walker ast-walker/vm-load-program
-   :semantic (linearize/rows-loader semantic/load-vector)})
+  "The loader the evaluator observer hands each `program-out` value, per
+   evaluator.  Every value there is one expanded canonical tree packet
+   `[root rows]` (yin.vm.macro.md §2.4); each loader takes its row set — the
+   ast-walker through `vm-load-rows`, the semantic VM through
+   `linearize/rows-loader` over `semantic/load-vector`.  Neither evaluator
+   learns that an expander ran."
+  {:ast-walker (fn [vm packet]
+                 (ast-walker/vm-load-rows vm (macro/packet->row-set packet)))
+   :semantic (let [load-rows (linearize/rows-loader semantic/load-vector)]
+               (fn [vm packet]
+                 (load-rows vm (macro/packet->row-set packet))))})
 
 
 (def lang-labels {:clojure "Clojure" :python "Python" :php "PHP"})
@@ -310,37 +310,51 @@
      :observer (observer/attach attach! descriptor)}))
 
 
-(defn- make-session
-  "Build the evaluator, its media, their attachments and observers, and the
-   loader the evaluator observer feeds the VM, together.  Reset and VM
-   selection call this, so the whole composition is rebuilt as one and each
-   attachment capability is bound exactly once per medium lifetime.
+(defn- standard-store
+  "The expander store seeded with the standard forms, folded through the
+   same row-native batch contract as any input (yin.vm.macro.md §5.4)."
+  []
+  (macro/seed-store (macro/make-ctx {:token :yin.repl/standard-forms
+                                     :source-medium :yin.repl/standard-forms})
+                    [macro/stdlib-forms]))
 
-   The ast-walker keeps one stage: its observer loads each program batch
-   and runs it.  The semantic VM composes two (`yin.vm.encoder`): the
-   encoder observer over the program medium forwards each projected batch
-   to the row medium, and the evaluator observer — attached to the row
-   medium independently, with its own cursor — loads each row set and runs
-   it.  A non-semantic session carries no row medium."
+
+(defn- make-expander
+  "The expander consumer for one session: a fresh incarnation token, the
+   `program-in` identity as its source medium, the standard store, and the
+   `program-out` writer.  No log writer: `(compile ...)` renders events."
+  [program-identity program-out]
+  (macro/make-expander
+    (macro/make-ctx {:token (str (random-uuid))
+                     :source-medium program-identity
+                     :store (standard-store)})
+    program-out))
+
+
+(defn- make-session
+  "Build the evaluator, its media, their attachments and observers, the
+   expander, and the loader the evaluator observer feeds the VM, together.
+   Reset and VM selection call this, so the whole composition is rebuilt as
+   one and each attachment capability is bound exactly once per medium
+   lifetime.
+
+   Both evaluators sit behind the same two stages (yin.vm.macro.md §10.1):
+   the expander observes `program-in` — `:program-stream`, watched by
+   `:observer` — and appends each expanded tree packet to `program-out` —
+   `:row-stream`, watched independently by the evaluator's `:row-observer`,
+   which loads each packet and runs it."
   [vm-type output-stream extra-primitives]
   (let [vm (make-vm vm-type output-stream extra-primitives)
-        program (make-attachment ingress-capacity)]
-    (if (= :semantic vm-type)
-      (let [rows (make-attachment ingress-capacity)]
-        {:vm vm
-         :load-program (get program-loaders vm-type)
-         :program-stream (:stream program)
-         :program-identity (:identity program)
-         :observer (:observer program)
-         :row-stream (:stream rows)
-         :row-observer (:observer rows)})
-      {:vm vm
-       :load-program (get program-loaders vm-type)
-       :program-stream (:stream program)
-       :program-identity (:identity program)
-       :observer (:observer program)
-       :row-stream nil
-       :row-observer nil})))
+        program-in (make-attachment ingress-capacity)
+        program-out (make-attachment ingress-capacity)]
+    {:vm vm
+     :load-program (get program-loaders vm-type)
+     :program-stream (:stream program-in)
+     :program-identity (:identity program-in)
+     :observer (:observer program-in)
+     :expander (make-expander (:identity program-in) (:stream program-out))
+     :row-stream (:stream program-out)
+     :row-observer (:observer program-out)}))
 
 
 (defn- run-vm
@@ -358,29 +372,21 @@
   ([{:keys [lang output-cursor output-stream vm-type primitives]
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
-         output-cursor (or output-cursor (mint-cursor output-stream))
-         {:keys [program-stream program-identity observer row-stream row-observer
-                 vm load-program]}
-         (make-session vm-type output-stream primitives)]
-     {:lang lang
-      :vm-type vm-type
-      :extra-primitives primitives
-      :vm vm
-      :load-program load-program
-      :program-stream program-stream
-      :program-identity program-identity
-      :observer observer
-      :row-stream row-stream
-      :row-observer row-observer
-      :output-stream output-stream
-      :output-cursor output-cursor
-      :ledger {:output :untried}
-      :ingress-loss? false
-      :last-value nil
-      :last-value-2 nil
-      :last-value-3 nil
-      :pending-input nil
-      :running? true})))
+         output-cursor (or output-cursor (mint-cursor output-stream))]
+     (merge
+       (make-session vm-type output-stream primitives)
+       {:lang lang
+        :vm-type vm-type
+        :extra-primitives primitives
+        :output-stream output-stream
+        :output-cursor output-cursor
+        :ledger {:output :untried}
+        :ingress-loss? false
+        :last-value nil
+        :last-value-2 nil
+        :last-value-3 nil
+        :pending-input nil
+        :running? true}))))
 
 
 ;; =============================================================================
@@ -507,60 +513,84 @@
     [state' (str output-text (format-error error))]))
 
 
-(declare eval-program)
+(defn- ingress-gaps
+  [state]
+  (+ (:ingress-gaps (:observer state) 0)
+     (:ingress-gaps (:row-observer state) 0)))
 
 
-(defn- eval-ast
-  "Evaluate a compiled AST.  The ast-walker evaluates it directly; the
-   semantic VM executes only code segments, so its AST travels the program
-   medium as emitted — the map itself, not its datoms — and the session's
-   encoder observer projects it to rows and forwards them to the row medium
-   the VM's own observer watches."
-  [state ast]
-  (cond
-    (:ingress-loss? state) [state (str "Error: " ingress-loss-text)]
-    (= :semantic (:vm-type state)) (eval-program state ast)
-    :else (let [state' (inject-last-value state)]
-            (finalize-eval state state' (vm/eval (:vm state') ast)))))
+(defn- run-expander-stage
+  "Drive the expander over `program-in` and drain its summary.  It expands
+   each observed batch and appends the tree packet to `program-out`; a
+   failed expansion forwards nothing, yet its cursor advances (yin.vm.macro.md
+   decision 12).  Returns the state with the expander's progress and the
+   drained `{:errors :forwarded}` summary."
+  [state]
+  (let [{:keys [observer consumer]}
+        (macro/step {:observer (:observer state), :consumer (:expander state)})
+        [expander summary] (macro/drain-errors consumer)]
+    [(assoc state :observer observer :expander expander) summary]))
 
 
-(defn- run-program-stages
-  "Drive the observer stages one program round runs.
+(defn- run-evaluator-stage
+  "Drive the evaluator's observer over `program-out`: it loads each
+   expanded tree packet into the VM and runs it.  The two stages meet only
+   at `program-out`; neither calls the other."
+  [{:keys [load-program] :as state}]
+  (let [{:keys [observer] vm :consumer}
+        (observer/run-on-stream {:observer (:row-observer state),
+                                 :consumer (:vm state)}
+                                engine/ready-for-ingress?
+                                load-program
+                                run-vm)]
+    (assoc state :row-observer observer :vm vm)))
 
-   The ast-walker has one stage: its observer loads each observed batch
-   into the VM and runs it.  The semantic VM has two (`yin.vm.encoder`):
-   first the encoder observer over the program medium projects each
-   observed batch and forwards it to the row medium, then the evaluator
-   observer — attached to that row medium independently, with its own
-   cursor — loads each row set and runs the VM.  The stages meet only at
-   the row medium; neither calls the other."
-  [{:keys [vm-type load-program] :as state}]
-  (if (= :semantic vm-type)
-    (let [encoder-session
-          (encoder/forward-on-stream {:observer (:observer state),
-                                      :consumer (:row-stream state)})
-          {:keys [observer] vm :consumer}
-          (observer/run-on-stream {:observer (:row-observer state),
-                                   :consumer (:vm state)}
-                                  engine/ready-for-ingress?
-                                  load-program
-                                  run-vm)]
-      {:observer (:observer encoder-session), :row-observer observer, :vm vm})
-    (let [{:keys [observer] vm :consumer}
-          (observer/run-on-stream {:observer (:observer state),
-                                   :consumer (:vm state)}
-                                  engine/ready-for-ingress?
-                                  load-program
-                                  run-vm)]
-      {:observer observer, :vm vm})))
+
+(defn- format-expansion-errors
+  [errors]
+  (str/join "\n" (map #(str "Error: Macro expansion failed: " (format-value %))
+                      errors)))
+
+
+(defn- run-evaluation
+  "The evaluator half of a round whose expander forwarded a program: run
+   it, then either finalize the value or consume the failure.  `state` is
+   the round's starting state; `expanded` already carries the expander's
+   progress, which a failing evaluation keeps."
+  [state expanded]
+  (try
+    (let [gaps-before (ingress-gaps expanded)
+          evaluated (run-evaluator-stage expanded)]
+      (cond
+        (> (ingress-gaps evaluated) gaps-before)
+        [(assoc evaluated :ingress-loss? true)
+         (str "Error: " ingress-loss-text)]
+
+        (vm/halted? (:vm evaluated))
+        (finalize-eval state evaluated
+                       (engine/restore-initial-env (:env (:vm expanded))
+                                                   (:vm evaluated)))
+
+        :else
+        (throw
+          (ex-info
+            "Program stream did not form a complete, runnable Yin VM program.
+Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+            {:vm-type (:vm-type state)}))))
+    (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+      (consume-failed-round (assoc expanded :vm (:vm state)) error))))
 
 
 (defn- eval-program
-  "Evaluate one program batch by appending it through the program medium's
-   writer and then driving the session's observer stages, which load and
-   run every observed batch.  A batch is the map AST the compilers emit or
-   a datom-literal program; the semantic VM's encoder observer projects
-   either to rows before the VM's own observer sees it (§7.1).
+  "Evaluate one frontend program — the map AST the compilers emit or a
+   datom-literal program — through the §10.1 composition.  The encoder
+   projects it to an input batch of canonical rows with its harvest and
+   declaration rows; the shell appends that batch to `program-in`, drives
+   the expander, drains its summary, and drives the evaluator only when a
+   program was forwarded.  An expansion failure is reported as data: its
+   batch is consumed, the store keeps its previous macros, and the next
+   input evaluates normally.  An encoding failure throws before anything
+   is appended.
 
    The observers recover across a gap on their own, but the shell reads the
    gap counts around the round: an increase on any medium means one or more
@@ -571,45 +601,31 @@
    A completed program's lexical environment does not outlive it: the VM's
    environment is restored to the one the round began with, as `vm/eval`
    does.  A round that throws is consumed by `consume-failed-round`."
-  [state batch]
+  [state program]
   (if (:ingress-loss? state)
     [state (str "Error: " ingress-loss-text)]
     (let [state' (inject-last-value state)
-          admitted (if (= :semantic (:vm-type state'))
-                     (encoder/source-envelope (:program-identity state')
-                                              (str (random-uuid))
-                                              [batch])
-                     batch)
-          append (stream/append! (:program-stream state') admitted)]
+          batch (encoder/program-batch program)
+          append (stream/append! (:program-stream state') batch)]
       (if-not (= :dao.stream/ok (:dao.stream/outcome append))
         [state (str "Error: program batch not ingested: "
                     (name (:dao.stream/outcome append)))]
-        (try
-          (let [gaps-before (+ (:ingress-gaps (:observer state') 0)
-                               (:ingress-gaps (:row-observer state') 0))
-                stages (run-program-stages state')
-                state'' (merge state' stages)
-                gaps-after (+ (:ingress-gaps (:observer state'') 0)
-                              (:ingress-gaps (:row-observer state'') 0))]
-            (cond
-              (> gaps-after gaps-before)
-              [(assoc state'' :ingress-loss? true)
-               (str "Error: " ingress-loss-text)]
+        (let [expanded (try
+                         (run-expander-stage state')
+                         (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+                           {:failed (consume-failed-round state error)}))]
+          (if-let [failed (:failed expanded)]
+            failed
+            (let [[expanded {:keys [errors forwarded]}] expanded]
+              (cond
+                (> (ingress-gaps expanded) (ingress-gaps state'))
+                [(assoc expanded :ingress-loss? true)
+                 (str "Error: " ingress-loss-text)]
 
-              (vm/halted? (:vm state''))
-              (finalize-eval state state''
-                             (engine/restore-initial-env (:env (:vm state'))
-                                                         (:vm state'')))
+                (pos? forwarded) (run-evaluation state expanded)
 
-              :else
-              (throw
-                (ex-info
-                  "Program stream did not form a complete, runnable Yin VM program.
-Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
-                  {:vm-type (:vm-type state')
-                   :batch (if (map? batch) :ast (count batch))}))))
-          (catch #?(:cljd Object :clj Exception :cljs js/Error) error
-            (consume-failed-round state error)))))))
+                :else [(assoc expanded :vm (:vm state))
+                       (format-expansion-errors errors)]))))))))
 
 
 (defn- compile-clojure-forms
@@ -641,32 +657,35 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 
 
 (defn- render-compile-output
-  [ast]
-  (str "AST:\n" (format-value ast)
-       "\n\nDatoms:\n" (format-value (vec (vm/ast->datoms ast)))))
+  "Render the frontend syntax, the input row batch, and what the session's
+   expander would make of it against its current store: the expanded tree
+   packet (or the expansion error) and the event rows.  The expansion is a
+   preview; its context is discarded, so nothing is committed."
+  [state ast]
+  (let [batch (encoder/program-batch ast)
+        {:keys [tree error log]} (macro/expand-batch batch
+                                                     (get-in state [:expander :ctx]))]
+    (str "AST:\n" (format-value ast)
+         "\n\nInput rows:\n" (format-value batch)
+         (if tree
+           (str "\n\nExpanded rows:\n" (format-value tree))
+           (str "\n\nExpansion error:\n" (format-value error)))
+         "\n\nEvents:\n" (format-value (second log)))))
 
 
 (defn- rebuild-session
-  "Replace the VM and its media, attachments, and observers.  The value
-   history is cleared with them: a closure in `*1` names a code segment the
-   old VM held, which the new one does not."
+  "Replace the VM, the expander, and their media, attachments, and
+   observers.  The value history is cleared with them: a closure in `*1`
+   names a code segment the old VM held, which the new one does not.  The
+   new expander holds only the standard forms."
   [state vm-type]
-  (let [{:keys [program-stream program-identity observer row-stream row-observer
-                vm load-program]}
-        (make-session vm-type (:output-stream state) (:extra-primitives state))]
-    (assoc state
-           :vm-type vm-type
-           :vm vm
-           :load-program load-program
-           :program-stream program-stream
-           :program-identity program-identity
-           :observer observer
-           :row-stream row-stream
-           :row-observer row-observer
-           :ingress-loss? false
-           :last-value nil
-           :last-value-2 nil
-           :last-value-3 nil)))
+  (merge state
+         (make-session vm-type (:output-stream state) (:extra-primitives state))
+         {:vm-type vm-type
+          :ingress-loss? false
+          :last-value nil
+          :last-value-2 nil
+          :last-value-3 nil}))
 
 
 (declare repl-state)
@@ -689,7 +708,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                [(assoc state :lang lang) (str "Switched to " (get lang-labels lang))]
                [state (str "Error: Unknown Yin REPL language " (pr-str lang)
                            "; supported: " (pr-str (vec (keys lang-labels))))]))
-      compile [state (render-compile-output (compile-command-ast state (first args)))]
+      compile [state (render-compile-output state (compile-command-ast state (first args)))]
       reset [(rebuild-session state (:vm-type state))
              (str (get vm-labels (:vm-type state)) " reset")]
       help [state help-text]
@@ -707,12 +726,12 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       (cond
         (and form (command-form? form)) (handle-command state form)
         (and form (datom-stream? form)) (eval-program state (vec form))
-        (and form (ast-map? form)) (eval-ast state form)
+        (and form (ast-map? form)) (eval-program state form)
         forms (if (= :clojure (:lang state))
-                (eval-ast state (compile-clojure-forms forms))
-                (eval-ast state (compile-source (:lang state) trimmed)))
+                (eval-program state (compile-clojure-forms forms))
+                (eval-program state (compile-source (:lang state) trimmed)))
         (= :clojure (:lang state)) [state (format-error (:error parsed))]
-        :else (eval-ast state (compile-source (:lang state) trimmed))))
+        :else (eval-program state (compile-source (:lang state) trimmed))))
     (catch #?(:cljd Object :clj Exception :cljs js/Error) error
       (let [[state' output-text] (drain-output state)]
         [state' (str output-text (format-error error))]))))
@@ -746,15 +765,18 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    The program media are the composition's own, observed beside the VM, so
    the shell reports what it knows of them — the declared capacity, the gaps
    the session's observers counted, and whether a loss has already refused
-   further evaluation."
+   further evaluation.  `:macros` maps each macro the expander's store holds
+   to its lambda's root address (yin.vm.macro.md §10.1)."
   [state]
   {:lang (:lang state)
+   :macros (into (sorted-map-by #(compare (str %1) (str %2)))
+                 (map (fn [[sym [root _]]] [sym root]))
+                 (get-in state [:expander :ctx :store]))
    :vm {:type (:vm-type state)
         :halted? (vm/halted? (:vm state))
         :blocked? (vm/blocked? (:vm state))
         :in-stream {:capacity ingress-capacity
-                    :gaps (+ (:ingress-gaps (:observer state) 0)
-                             (:ingress-gaps (:row-observer state) 0))
+                    :gaps (ingress-gaps state)
                     :lost? (boolean (:ingress-loss? state))}}
    :running? (:running? state)
    :output {:cursor (:output-cursor state)

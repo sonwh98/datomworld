@@ -161,6 +161,103 @@
     :else (datoms->rows batch)))
 
 
+;; =============================================================================
+;; The macro expander's input batch (yin.vm.macro.md §2.1, §10.2)
+;; =============================================================================
+
+(defn- definition-name
+  "The name of a `(yin/def <literal-symbol> value)` AST node (§2.2), else nil."
+  [{:keys [type operator operands]}]
+  (when (and (= :application type)
+             (= :variable (:type operator))
+             (= 'yin/def (:name operator))
+             (= 2 (count operands))
+             (= :literal (:type (first operands)))
+             (symbol? (:value (first operands))))
+    (:value (first operands))))
+
+
+(defn- ast-children
+  "`[[path-suffix child] ...]` of one AST node in grammar order. A suffix
+   holds one coordinate: the full-row position of a `node` slot or
+   `[position i]` of a `nodes` child, as in its canonical row (§2.1)."
+  [node]
+  (apply concat
+         (map-indexed (fn [i [field kind]]
+                        (let [pos (+ i 2)]
+                          (case kind
+                            :node [[[pos] (get node field)]]
+                            :nodes (map-indexed (fn [k c] [[[pos k]] c])
+                                                (get node field))
+                            nil)))
+                      (get vm/semantic-bytecode-grammar (:type node)))))
+
+
+(defn- declaration-order
+  "§3.5's declaration order for one node's children: for an application
+   whose operator is a lambda, the operands left to right and then the
+   lambda body (two coordinates below the application); otherwise grammar
+   order."
+  [node]
+  (let [places (ast-children node)]
+    (if (and (= :application (:type node)) (= :lambda (:type (:operator node))))
+      (concat (rest places) [[[2 3] (:body (:operator node))]])
+      places)))
+
+
+(defn- definition-occurrences
+  "Every definition occurrence of one member AST as `{:path p :declared? b}`,
+   in source declaration order. A declared occurrence is one whose value is
+   a lambda the frontend flagged `:macro?`."
+  [ast]
+  (letfn [(walk [node path]
+            (concat (when (definition-name node)
+                      [{:path path,
+                        :declared? (boolean (:macro? (second (:operands node))))}])
+                    (mapcat (fn [[suffix child]] (walk child (into path suffix)))
+                            (declaration-order node))))]
+    (vec (walk ast []))))
+
+
+(defn- member-ast
+  [member]
+  (cond (and (map? member) (contains? member :type)) member
+        (sequential? member) (vm/datoms->ast (vec member))
+        :else (throw (ex-info "Unsupported program batch member"
+                              {:rule :batch-member, :member member}))))
+
+
+(defn program-batch
+  "Encode frontend output as the expander's input batch (§2.1):
+   `[:yin.program/batch trees run-index declaration-rows harvest-rows]`.
+   Each member — a map AST or a `:yin/*` datom batch — projects to one tree
+   packet; `run-index` selects the one that becomes the program. Harvest
+   rows name every `(yin/def <literal-symbol> value)` occurrence in source
+   declaration order, member by member; declaration rows name those whose
+   lambda the frontend flagged `:macro?`. No syntax object crosses: every
+   code field is canonical rows."
+  ([member] (program-batch [member] 0))
+  ([members run-index]
+   (let [asts (mapv member-ast members)
+         trees (mapv (fn [ast]
+                       (let [{:keys [root rows]} (vm/ast->semantic-bytecode ast)]
+                         [root (vec (vals rows))]))
+                     asts)
+         occurrences (vec (mapcat (fn [j ast]
+                                    (map #(assoc % :tree j)
+                                         (definition-occurrences ast)))
+                                  (range) asts))]
+     [:yin.program/batch
+      trees
+      run-index
+      (into [] (comp (filter :declared?)
+                     (map (fn [{:keys [tree path]}] [:yin.macro/definition tree path])))
+            occurrences)
+      (into [] (map-indexed (fn [h {:keys [tree path]}]
+                              [:yin.macro/harvest h tree path]))
+            occurrences)])))
+
+
 (defn ready?
   "The encoder accepts a batch whenever its row medium can take one. A v2
    ring-buffer writer evicts rather than blocking, so it is always ready."

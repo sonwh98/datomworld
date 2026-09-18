@@ -924,10 +924,7 @@ the transport's own outcome carries it forward.
 > node (Part 3). This section describes *where* expansion happens, not a
 > node the VM steps through.
 
-Macro expansion is a compile-time (or load-time) transformation, external to
-every evaluator, that consumes unevaluated syntax and produces the AST the
-walker actually receives. `yin.vm.macro.md` specifies the expander itself,
-which does not exist in code yet — its `macro.cljc` is a stated future
+Macro expansion is a compile-time (or load-time) stream transformation, completely external to the evaluator, that consumes unexpanded AST and produces the canonical tuples the walker receives. `docs/design/yin.vm.macro.md` specifies the expander itself, and `src/cljc/yin/vm/macro.cljc` contains the implementation. No macro node or macro-expand tag ever reaches the tuple grammar.
 deliverable, not a shipped namespace (`yin.vm.code-as-tuples.md` §10 item 4).
 When it is built, it will run upstream of the walker, on a syntax medium the
 walker never observes, and hand the walker only fully-expanded `:lambda`/

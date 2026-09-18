@@ -96,9 +96,7 @@ detach instead, which does reattach.
 
 These follow from the VM plan's divergence register:
 
-- **User-defined macros stop evaluating.** `yang.clojure` compiles macro call
-  sites to `:yin/macro-expand`; the ast-walker has no such branch and throws.
-  `defn` still works through its native compile path.
+- **User-defined macros evaluate correctly.** The REPL is wired through the `yin.vm.macro` stream topology. `yang.clojure` translates macros into native function calls which are intercepted by the expander on `program-in` before reaching the evaluator.
 - **`stream/take!` is gone.** Programs use `cursor` and `next!` on the v2
   `stream` module, which this REPL registers.
 - **Park-on-full backpressure is absent under this composition.** The media
