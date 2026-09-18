@@ -1,7 +1,7 @@
 ## §7. The Universal Continuation Format (Proposed)
 
 > [!WARNING]  
-> **Status: Proposed / Deferred.** The Semantic VM's linear CESK state is theoretically sound as an architecture-agnostic continuation format, but true heterogeneous network migration requires addressing several critical defects identified in the 2026-09-14 architectural review. This revision (r2) answers that review's findings 1–19; §7.11 lists the acceptance blockers that keep this warning standing until an implementation phase closes each of them with tests.
+> **Status: Proposed / Deferred.** The Semantic VM's linear CESK state is theoretically sound as an architecture-agnostic continuation format, but true heterogeneous network migration requires addressing several critical defects identified in the 2026-09-14 architectural review. This revision (r3) incorporates r2's answers to that review's findings 1–19 and the subsequent owner ruling on §7.3's canonical form; §7.11 lists the acceptance blockers that keep this warning standing until an implementation phase closes each of them with tests.
 
 The Semantic VM's linear CESK state (`{:segment id, :pc n, :env E, :stack S, :k K}`) is proposed as the canonical exchange format for network-transparent continuations. Because this lowered representation resolves execution-order ambiguity inherent in the Universal AST, it provides a simpler target for specialized execution engines (e.g., WebAssembly, LLVM, hardware FPGA) to participate in the `datom.world` ecosystem.
 
@@ -299,7 +299,10 @@ the ordinary §2.6 loader, so every well-formedness check runs on the way in.
 The **direct path** decodes the canonical vector into an image without
 datoms, as a foreign engine would. The two paths are a conformance
 obligation: both must yield the same image, and a test in the harness (§7.11)
-asserts it for every corpus segment. The reference path is the projection;
+asserts it for every corpus segment. `yin.vm.code-as-tuples.md` §7.2
+supersedes this section's original designation of the projection path as the
+reference path: the direct path is primary and is the reference; the
+projection path is derived from it. Both invoke the same validator, and
 nothing may depend on which path a conforming engine takes.
 
 On lowering, the resumer resolves each address in this order and stops at the
@@ -756,12 +759,21 @@ guessed from the current environment:
 ```
 
 The fixed point starts from the frame, its K frames, the parked records of
-§7.6.3, the store slice, and the pending wait, and repeats until nothing new
-is reachable:
+§7.6.3, the store slice, and the pending wait. Its unit of analysis is a work
+item `[code-address context]`, not an address: `context` is the finite
+abstraction of the captured environment with which a closure enters that
+code. Code is fetched, validated, and projected once per address, but every
+newly discovered address-context pair is analyzed. Two closures over the
+same address with different captured environments are therefore distinct
+work items. A full pass repeats whenever it adds a work item or any dependency
+fact, and convergence is reached only when a full pass adds neither:
 
 - **Values:** every encoded closure contributes its segment address and its
-  captured env's values; every stream and cursor marker contributes a stream
-  identity; every `:yin.k/primitive` marker contributes a name.
+  captured env's values and the work item
+  `[segment-address captured-env-context]`; every stream and cursor marker
+  contributes a stream identity; every `:yin.k/primitive` marker contributes
+  a name. A captured environment contributes reachable values, never name
+  discharge.
 - **Code:** every reachable segment's instructions are walked — as datoms
   where the emitter holds the batch, as canonical tuples where only a vector
   was fetched (§7.3.4) — including **`:store-get` and `:store-put`
@@ -769,16 +781,18 @@ is reachable:
   keys directly and which the first draft missed entirely; every `:var`
   name; every effect op (`:stream-*`, `:ffi-call`, and the effects of
   `:effectful`-class primitives the walk finds); every `:resume` operand
-  (a parked id, §7.6.3). Walking a *newly fetched* segment continues the
-  fixed point with its own contents.
-- **Names:** a `:var` name is satisfied if it is bound in any environment
-  the value carries, any store key the slice includes, a required primitive,
-  or a required module. The walk collects *every* `:var` name in reachable
-  code, not merely those unbound in the top frame's E — E is per-activation
-  and closures capture different ones, so resolution against "the current
-  environment" is exactly the guess this computation exists not to make. An
-  unsatisfied name after the fixpoint is a required primitive (checked by
-  profile, §7.5.2) or a `:yin.k/unsatisfied` entry.
+  (a parked id, §7.6.3). Discovering a new work item continues the fixed point
+  with that address and context even when the address was already walked for
+  another context.
+- **Names:** only a free `:var` name is an obligation. An obligation is
+  discharged by a matching key in the reachable store slice, or retained as
+  a required primitive or module export and checked by profile (§7.5.2). An
+  environment never discharges a name: captured environments contribute
+  values to their work item's reachability analysis, while lexical binding
+  determines whether a `:var` is free before it becomes an obligation. If no
+  store key or profiled primitive/module requirement can discharge an
+  obligation, discovery is `:incomplete`; after lowering, an unavailable
+  retained requirement is `:yin.k/unsatisfied` (§7.6.5).
 - **Modules:** a module's manifest declares its exported primitive profiles
   and its **store footprint** (store keys and effect kinds its handlers may
   touch). Until manifests carry footprints, any required module whose
@@ -800,9 +814,9 @@ could not finish is reported as such, not passed off as a satisfied closure.
 The store S holds `def` results, stream handles, cursor entries, and the FFI
 pair (§4.1). None of it is global in the UCF sense; it is the emitter's. A
 continuation carries the **reachable slice**: every store key the fixed
-point of §7.6.1 can name — every `:var` name in reachable code, every
-`:store-get`/`:store-put` operand, every stream/cursor cell — with values
-encoded by §7.5:
+point of §7.6.1 can name — every free `:var` obligation for which the
+emitter's store has a matching key, every `:store-get`/`:store-put` operand,
+every stream/cursor cell — with values encoded by §7.5:
 
 ```clojure
 :yin.k/store {counter 41
@@ -1328,4 +1342,3 @@ the review's named architectural obligations; they are blockers to
 - **Exporting-state integration.** The lift driver's exporting transition
   and its failure/retry paths, tested specifically against the
   poll-a-blocked-writer-appends hazard of §7.7.4.
-
