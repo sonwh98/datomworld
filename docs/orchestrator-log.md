@@ -5472,3 +5472,4 @@ Next: Phase 1 U5 and U6.
 - **U10:** Content in `dao.jing` implemented by `glm-5.3` and signed off by `claude-fable-5-1`, `gpt-5.6-sol`, and `glm-5.3`.
 - **U12:** UCF committed and amended per D6 (context-sensitive discovery, name obligations, direct path supersession). Written by `gpt-5.6-sol` and committed.
 - **U11:** Observer Row Lane implemented by `glm-5.3`. Encoder observer decoupled per Architect. Reviewed by `gpt-5.6-sol` and committed. **PHASE 2 COMPLETE.**
+- **U16 (Architecture):** Rewrote `yin.vm.macro.md` from Datoms to Tuples/Rows per Owner D5 Override. Written by `gpt-5.6-sol`, Architect-approved by `claude-fable-5-1`, and committed.
