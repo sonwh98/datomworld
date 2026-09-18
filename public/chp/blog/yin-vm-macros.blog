@@ -1,90 +1,67 @@
-#:blog{:title "Unified Macros: Metaprogramming as a Stream of Immutable Facts"
-       :date #inst "2026-03-09T12:00:00.000-00:00"
-       :abstract [:p "How Yin.vm reimagines macros not as a hidden compiler phase, but as auditable, causality-preserving events in a datom stream. We compare this capability-gated approach to traditional Lisp macros, Fexprs, Racket, and Unison."]
+#:blog{:title "The Macro System That Isn't There: How yin.vm Reimagines Metaprogramming"
+       :date #inst "2026-09-18T10:25:00.000-00:00"
+       :abstract [:p "An architectural deep dive into how yin.vm achieves the power of Lisp macros by hiding them entirely from the evaluator, utilizing content-addressed AST streams, deterministic fuel guards, and pure data topology."]
        :content [:section.blog-article
                  [:div.section-inner
                   [:article
                    :$blog-title
                    :$blog-date
 
-                   [:p "Metaprogramming, code that writes code, is the defining feature of the Lisp family. It allows developers to mold the language to their domain rather than molding their domain to the language. But historically, macro expansion has been a \"black box\" compiler phase. It destroys source provenance, complicates debugging, and makes secure runtime execution nearly impossible."]
+                   [:p "Macros are the defining superpower of Lisp. They allow developers to bend the language to their will, creating domain-specific abstractions that feel native. But this power comes at a steep architectural cost: compile-time environments bleed into runtime, infinite loops crash compilers, and tracking the provenance of generated code is notoriously difficult."]
+                   
+                   [:p "In datom.world, the yin.vm runtime takes a radical approach to metaprogramming. It achieves the full power of homoiconic Lisp macros by doing something unthinkable: " [:strong "it hides macros completely from the evaluator."]]
+                   
+                   [:p "Here is a look at what makes the yin.vm macro system utterly unique, what it can do that other systems cannot, and how it compares to the macro engines of Clojure, Erlang, Rust, Racket, and Unison."]
 
-                   [:p "In Datom.world, we treat the Universal AST as a canonical stream of immutable facts (datoms). Because of this, we can model macros differently. A macro is not a compiler phase; it is an observable event in a bounded data stream. This is the keystone of our architecture: the deliberate fusion of compile-time and runtime capabilities enabled by the underlying datom structure."]
+                   [:h2 "1. The Evaluator is Macro-Blind"]
+                   [:p "In almost every Lisp (like Clojure or Common Lisp), macroexpansion is deeply interleaved with the compiler and evaluator. The engine looks at a symbol, checks if it has a special macro flag, and halts evaluation to execute the macro transformation before continuing."]
+                   
+                   [:p "In yin.vm, " [:strong "the evaluator knows absolutely nothing about macros."] " It has no macro instruction, no expansion ledger, and no macro metadata flag. Instead, yin.vm models macroexpansion strictly as a " [:strong "stream topology"] ":"]
 
-                   [:h2 "The Problem with Traditional Macros"]
-                   [:p "When a Lisp compiler encounters a macro like " [:code "(when test body...)"] ", it passes the raw syntax to the macro function, takes the resulting new syntax (e.g., " [:code "(if test (do body...))"] "), and silently overwrites the old AST. The original " [:code "when"] " form is gone. If an error occurs during execution, the stack trace points to the expanded " [:code "if"] " form, confusing the developer."]
-                   [:p "Furthermore, because macro expansion requires invoking the compiler dynamically, Lisp's " [:code "eval"] " is notoriously slow and completely prohibited in Ahead-Of-Time (AOT) environments like Dart, GraalVM native images, or WebAssembly. You cannot have runtime self-modifying code without dragging a heavy JVM classloader or JIT compiler along with you. As the article \"Data > Functions > Macros\" correctly points out, in traditional systems, macros are simply not available at runtime and are opaque after expansion."]
+                   [:pre "Frontend -> (program-in) -> Expander -> (program-out) -> Evaluator"]
 
-                   [:h2 "The Yin.vm Solution: Event Sourcing for ASTs"]
-                   [:p "Yin.vm unifies compile-time and runtime macros by modeling them as explicit facts appended to the " [:code "program-datoms"] " stream. The expansion contract is straightforward:"]
-                   [:p "In the canonical model, a macro is not a separate AST species. It is a lambda with metadata: " [:code ":yin/macro? true"] " and " [:code ":yin/phase-policy"] " set to " [:code ":compile"] ", " [:code ":runtime"] ", or " [:code ":both"] ". This lets the same macro run at compile time or runtime under explicit phase rules."]
+                   [:p "The Expander is simply a pure stream transducer. It wakes up, consumes batches of unexpanded AST packets from the program-in stream, rewrites them to a fixpoint, and appends the resulting canonical tuples to the program-out stream. By the time the Evaluator wakes up to read program-out, macros have ceased to exist."]
 
-                   [:ol
-                    [:li [:strong "Interception"] ": When the VM executes a call to a function tagged with " [:code ":yin/macro? true"] ", it passes the literal AST entity references to the macro, unevaluated."]
-                    [:li [:strong "Expansion"] ": The macro runs, generating new AST datoms."]
-                    [:li [:strong "Provenance"] ": Instead of destroying the original call, the VM asserts a new " [:code ":macro-expand-event"] " entity. This event has a " [:code ":yin/source-call"] " pointer back to the original AST, and a " [:code ":yin/expansion-root"] " pointer to the newly generated AST."]
-                    [:li [:strong "Metadata Linkage"] ": Every new datom produced by the macro gets its " [:code "m"] " (metadata) component set to the ID of the expansion event."]
-                    [:li [:strong "Boundary Recompile"] ": The newly appended datoms mark the execution stream as dirty. At the next safe execution boundary (e.g., a function call or scheduler yield), the VM dynamically updates its bytecode cache (" [:code "ast-datoms->asm"] ") and continues execution safely."]]
+                   [:h2 "2. The Opposite of Racket (Abolishing Phases)"]
+                   [:p "Racket is widely considered the undisputed king of Lisp macro systems. It solved the problem of macro hygiene and environment leakage by inventing an intricate, mathematically rigorous tower of " [:strong "Phases"] " (Phase 0 for runtime, Phase 1 for compile-time, Phase -1 for templating, etc.). In Racket, different phases have strictly isolated environments that are instantiated and destroyed as the compiler climbs the tower."]
 
-                   [:h2 "The Mechanism: Portable cljc and Persistent Datoms"]
-                   [:p "The technical foundation for this dual-phase capability is the portability of the system. The " [:code "yang.clojure"] " compiler and the Yin.vm interpreter are written in portable " [:code "cljc"] " (Clojure Common) code. This means the same codebase can run on the JVM for traditional compile-time, on JavaScript, and crucially, on static runtimes like Dart/Flutter."]
+                   [:p "Racket serves as a brilliant foil to yin.vm because it solves the same problem from the exact opposite direction. Racket looked at the chaos of macros and said: \"We must build complex internal walls (Phases) to keep compile-time and runtime from contaminating each other within the same memory space.\""]
 
-                   [:ul
-                    [:li [:strong "Compile-Time Expansion"] ": When the compiler encounters a macro during its compilation phase, it expands it, generating the final, optimized AST datoms that represent the program's initial state. This satisfies the need for static, ahead-of-time code generation."]
-                    [:li [:strong "Preserving the Macro"] ": The key innovation is that the compiler doesn't throw the macro definition away. Because everything is data, the macro itself is also persisted as datoms in the program stream. Its definition, its metadata, and its code are all stored alongside the code it generated."]
-                    [:li [:strong "Runtime Availability"] ": Later, when the Yin.vm interpreter (running on Dart, for example) encounters a new macro invocation, it can load the macro definition datoms still present in the stream and run the macro right then to generate new code."]]
+                   [:p "yin.vm looks at Phase theory and says: \"Phases are just a symptom of running two different systems in the same process.\""]
 
-                   [:p "This creates a continuum of metaprogramming that shatters the traditional boundary:"]
+                   [:p "By pushing expansion out of the compiler and into a dedicated stream transducer (whether a network pipe or a simple in-memory ringbuffer), yin.vm abolishes phases entirely. There is no \"compile time\" vs \"runtime.\" There is only data flowing down a pipe."]
 
-                   [:table
-                    [:thead
-                     [:tr
-                      [:th "Aspect"]
-                      [:th "Traditional Macros"]
-                      [:th "Yin.vm's Unified Macros"]]]
-                    [:tbody
-                     [:tr
-                      [:td "Compile-Time"]
-                      [:td "Macro expands, then disappears. Only the result remains."]
-                      [:td "Macro expands, but its definition persists as datoms."]]
-                     [:tr
-                      [:td "Runtime"]
-                      [:td "Macros are unavailable. eval is a slow, separate compiler."]
-                      [:td "The same macro definition can be invoked again, using the same interpreter (the Semantic VM)."]]
-                     [:tr
-                      [:td "Code Representation"]
-                      [:td "Opaque. The link between source and output is lost."]
-                      [:td "Transparent. Every generated node has a provenance link (m field) back to the macro expansion event."]]]]
+                   [:h2 "3. What yin.vm Can Do That Others Can't"]
+                   [:p "Because yin.vm treats macroexpansion as a pure stream transformation over content-addressed tuples (rows in a database, rather than raw text), it unlocks capabilities that are structurally impossible in other languages:"]
 
-                   [:h2 "Predictable Power"]
-                   [:p "This design addresses performance directly. Because the macro definition is just data, and its runtime expansion uses the same lightweight, sandboxed Semantic VM interpreter that is always present, there is no need to spin up a heavy, separate compiler at runtime. The boundary recompile and subsequent JIT optimization by the Register or Stack VMs can then happen efficiently, making runtime code generation a first-class, performant citizen."]
+                   [:h3 "Decoupled Compilers and Capability-Gated Macros"]
+                   [:p "By stripping away the text parser and moving the compiler boundary to the data stream, the role of a frontend is radically simplified. If a program possesses the ShiBi capability token granting write access to the program-in stream, it is effectively a compiler. A Python script, a visual block editor, or an AI agent can synthesize Universal AST tuples and append them to the stream. Because they output pure data to the standard topology, they instantly inherit the entire backend ecosystem—the Macro Expander, the stack and register VMs, and JIT optimizations—completely for free. Metaprogramming is no longer a language-specific feature; it is a capability-gated service on the stream."]
 
-                   [:p "Crucially, this expansion process is execution-model agnostic. While the Register and Stack VMs are optimized for high-performance execution, they both delegate the evaluation of the macro lambda itself to the " [:strong "Semantic VM"] ", the system's canonical reference interpreter. This ensures that macro expansion remains perfectly consistent across all environments, with the Semantic VM providing a safe, isolated sandbox for code generation."]
+                   [:h3 "Guaranteed Safety via Deterministic Fuel Guards"]
+                   [:p "If you write an infinite loop in a Clojure or Rust macro, you will hang the compiler or crash the build process with a Stack Overflow. Because yin.vm is an autonomous system, a macro cannot be allowed to crash a node. Expansion execution is deterministically bounded by " [:strong "fuel guards"] ". The Expander counts body steps, result rows, and cumulative batch depth. If a macro spins out of control, the Expander safely halts it, emits a fuel-guard error to the event stream, and keeps processing."]
 
-                   [:p "Because the Semantic VM is a lightweight, pure-functional interpreter for the datom stream, it is easily embedded into any distribution target, from a Flutter app to a WebAssembly module. However, in highly constrained edge environments, a node can even choose to delegate expansion entirely. Since a macro call and its result are simply facts in a synchronized datom stream, a resource-limited \"edge\" VM can park its execution, wait for a more powerful \"leader\" node to perform the expansion, and then resume execution once the new datoms arrive. Metaprogramming becomes a distributed, asynchronous capability of the network."]
+                   [:h3 "Distributed, Cross-Machine Expansion"]
+                   [:p "Because the Expander and the Evaluator are just two observers connected by streams, they do not have to live on the same machine. You can run the heavy Macro Expander on a massive cloud cluster, which streams the resulting lightweight, macro-free program-out tuples over WebSockets to a low-power IoT device running the yin.vm Evaluator."]
 
-                   [:p "This architecture provides perfect provenance. If you ask the database, \"Where did this AST node come from?\", a single Datalog query can traverse the " [:code "m"] " field back to the expansion event, and from there to the exact line of code the user typed. The compiler doesn't need to build a complex sourcemap side-channel; the sourcemap is intrinsically encoded in the datoms themselves."]
+                   [:h3 "Pure Dynamic Evaluation Without an Eval Function"]
+                   [:p "If a running yin.vm program wants to dynamically evaluate new code containing macros, it doesn't call a magical eval function. It simply appends the new AST packets to the program-in stream. The exact same stream topology takes over: the Expander wakes up, crunches the macros, and feeds the Evaluator. The runtime safely self-modifies by participating in its own plumbing."]
 
-                   [:h2 "How It Compares to Existing Systems"]
+                   [:h2 "Comparing the Competition"]
 
-                   [:h3 "1. The Lisp Family (Clojure, Common Lisp, Scheme)"]
-                   [:p "While Lisp pioneered the concept, it restricts macros to compile-time. Invoking " [:code "eval"] " at runtime spins up the entire compiler pipeline, generating ephemeral JVM bytecode or host classes. Yin.vm's " [:code "boundary recompile"] " never allocates host machine code. It simply translates datoms into a data array (Yin bytecode) that the static VM loop iterates over, making it perfectly safe for AOT targets like Flutter/Dart and WASM."]
+                   [:p "How does this stack up against the broader landscape of metaprogramming?"]
 
-                   [:h3 "2. Fexprs / Vau Calculi (Kernel, PicoLisp)"]
-                   [:p "Yin's unevaluated argument passing is conceptually identical to an " [:code "fexpr"] ". Historically, fexprs were abandoned because compilers couldn't optimize them; they never knew if an argument would be evaluated or treated as data. Yin solves this by making macro-expansion an explicit event that triggers a bounded recompile, allowing the Register and Stack VMs to aggressively optimize the resulting stream."]
+                   [:h3 "Clojure"]
+                   [:p "Clojure macros transform S-expressions (lists and symbols) and have full access to the host JVM. A Clojure macro can read from the filesystem, make HTTP requests, or mutate global state. yin.vm macros are strictly pure: they consume AST tree packets and return AST tree packets, with zero access to host I/O or streams."]
 
-                   [:h3 "3. Racket"]
-                   [:p "Racket operates on \"Syntax Objects\", AST nodes decorated with rich metadata (lexical scope, source location). While Racket uses this metadata primarily for complex macro hygiene during compilation, Yin tracks its metadata (" [:code "m"] ") for causality and provenance across the entire lifecycle: storage, distribution, and runtime execution."]
+                   [:h3 "Rust (Procedural Macros)"]
+                   [:p "Rust is conceptually the closest. A procedural macro is compiled as a separate binary that takes a TokenStream and returns a TokenStream. However, Rust macros are still arbitrary host code (meaning they lack yin.vm's deterministic fuel-guards and pure isolation)."]
 
-                   [:h3 "4. Unison"]
-                   [:p "Like Unison, Yin treats ASTs as immutable and hashes them by their structural content (Merkle hashing). Unison focuses on using these hashes to decouple code from names, enabling seamless refactoring. Yin takes this further by introducing computational time (" [:code "t"] ") and causality (" [:code "m"] ") via streams. Furthermore, while Unison enforces strict alpha-equivalence (throwing away variable names in the hash), Yin preserves the literal syntax in the primary " [:code ":yin/content-hash"] " and treats alpha-equivalence as a separate derived datom (" [:code ":yin/alpha-hash"] ")."]
+                   [:h3 "Erlang"]
+                   [:p "Erlang offers simple C-style textual macros (which are extremely limited) and parse-transforms (which allow arbitrary AST mutation). However, parse-transforms are notoriously difficult to write, globally mutating, and heavily discouraged by the community because they break tooling. yin.vm's macro system is local, hygienic by structure, and explicitly designed as the primary abstraction mechanism."]
 
-                   [:h3 "5. Object-Capability Security (E, Agoric)"]
-                   [:p "Perhaps the most significant departure is security. Allowing code to rewrite itself at runtime is inherently dangerous in a multi-tenant system. Yin.vm requires a " [:strong "ShiBi capability token"] " to execute a runtime " [:code ":yin/macro-expand"] " event. A rogue continuation cannot inject new code unless the host explicitly granted it a capability token scoped to the target program stream and the specific macro namespace."]
-
-                   [:h3 "6. Cross-Language Metaprogramming"]
-                   [:p "Traditional macros are deeply tied to the syntax of their host language. A Clojure macro cannot expand Python code. In datom.world, macro expansion happens purely on the Universal AST datom stream, making it completely language-agnostic."]
-                   [:p "This enables a unique architecture for non-homoiconic languages like Python or JavaScript. Writing AST-manipulating macros in these languages is notoriously painful. Instead of forcing it, Yin.vm treats macros as a cross-language database service. A macro can be seamlessly authored in " [:code "yang.clojure"] " and persisted in DaoSpace. When the " [:code "yang.python"] " compiler encounters a macro invocation, it doesn't parse text; it queries DaoSpace for the macro's canonical lambda EID and emits a " [:code ":yin/macro-expand"] " node. The burden of metaprogramming is gracefully shifted to the Lisp layer, while the benefits are universally shared across all frontends."]
+                   [:h3 "Unison"]
+                   [:p "While Unison doesn't have a macro system, it shares yin.vm's fundamental philosophy of content-addressed code. Unison stores ASTs in a database by their cryptographic hash rather than in text files, just as yin.vm operates natively on content-addressed row tuples. Unison evaluation never parses text; it evaluates canonical AST structures directly from the store. However, Unison eschews macros entirely, relying on Algebraic Effects for abstraction. yin.vm takes the Unison data-model and proves that you can build a safe, robust macro system on top of it by keeping the transformations confined to the stream layer."]
 
                    [:h2 "Conclusion"]
-                   [:p "By treating macro expansion not as a compiler phase, but as a capability-gated, auditable database transaction, Yin.vm achieves Lisp's expressive power, Unison's structural purity, and Datomic's temporal observability. The ability for the same macro definition to be usable at both compile-time and runtime is the keystone that makes Yin.vm's approach a new foundation for dynamic metaprogramming."]]]]}
+                   [:p "The brilliance of the yin.vm macro system lies in what it refuses to do. By refusing to let the evaluator know about macros, refusing to let macros access I/O, and refusing to invent complex compiler phases, it distills metaprogramming down to its purest essence: a deterministic, safe, and easily distributed stream of data."]
+                   ]]]}
