@@ -194,7 +194,8 @@
 
 (defn- cycle-defect
   [index addresses]
-  (letfn [(visit [a on-path path done]
+  (letfn [(visit
+            [a on-path path done]
             (cond (contains? on-path a) [{:reason :cyclic, :address a, :path path} done]
                   (contains? done a) [nil done]
                   :else (let [[err done']
@@ -231,8 +232,9 @@
   ([packet] (valid-tree? packet {}))
   ([packet {:keys [working?]}]
    (let [g (grammar working?)
-         err (fn [reason & kvs] (merge {:kind :malformed-input, :reason reason}
-                                       (apply hash-map kvs)))]
+         err (fn [reason & kvs]
+               (merge {:kind :malformed-input, :reason reason}
+                      (apply hash-map kvs)))]
      (if-not (and (vector? packet) (= 2 (count packet))
                   (jing/segment-address? (nth packet 0))
                   (sequential? (nth packet 1)))
@@ -248,8 +250,9 @@
                  addresses (sort-by name (keys by-addr))
                  index (into {} (map (fn [[a rs]] [a (first rs)])) by-addr)]
              (or
-               (first-defect (fn [a] (when-not (contains? g (row-tag (get index a)))
-                                       (err :unknown-tag :address a)))
+               (first-defect (fn [a]
+                               (when-not (contains? g (row-tag (get index a)))
+                                 (err :unknown-tag :address a)))
                              addresses)
                (first-defect
                  (fn [a]
@@ -290,8 +293,9 @@
                (when-let [{:keys [address path]} (cycle-defect index (cons root addresses))]
                  (err :cyclic :address address :path path))
                (let [seen (set (reachable index root))]
-                 (first-defect (fn [a] (when-not (contains? seen a)
-                                         (err :unreachable-row :address a)))
+                 (first-defect (fn [a]
+                                 (when-not (contains? seen a)
+                                   (err :unreachable-row :address a)))
                                addresses))))))))))
 
 
@@ -350,7 +354,8 @@
   "Every definition occurrence path of one tree, in preorder. Paths, not
    addresses: a shared definition row at two places is two occurrences."
   [index root]
-  (letfn [(walk [a path]
+  (letfn [(walk
+            [a path]
             (concat (when (definition-at index a) [path])
                     (mapcat (fn [[coord c]] (walk c (conj path coord)))
                             (child-places (get index a)))))]
@@ -506,7 +511,8 @@
    first. Content sharing never merges occurrences: only the named paths'
    ancestor chains change. Returns `[index' root']`."
   [index root replacements]
-  (letfn [(go [index a reps]
+  (letfn [(go
+            [index a reps]
             (if-let [[_ r] (find reps [])]
               [index r]
               (let [by-coord (group-by (comp first key) reps)
@@ -536,10 +542,10 @@
    (if (= (map second places) children')
      [index (first row)]
      (intern-body index (subvec (reduce (fn [r [[coord _] c]]
-                                     (into [(first r)] (with-child r coord c)))
-                                   row
-                                   (map vector places children'))
-                           1)))))
+                                          (into [(first r)] (with-child r coord c)))
+                                        row
+                                        (map vector places children'))
+                                1)))))
 
 
 ;; =============================================================================
@@ -820,7 +826,8 @@
    row in two contexts becomes two rows."
   [index root]
   (let [memo (volatile! {})]
-    (letfn [(go [index a tail?]
+    (letfn [(go
+              [index a tail?]
               (if-let [hit (get @memo [a tail?])]
                 [index hit]
                 (let [row (get index a)
@@ -859,7 +866,8 @@
   "Replace every stand-in by the canonical literal of its name."
   [index root]
   (let [memo (volatile! {})]
-    (letfn [(go [index a]
+    (letfn [(go
+              [index a]
               (if-let [hit (get @memo a)]
                 [index hit]
                 (let [row (get index a)
@@ -902,14 +910,16 @@
    name; a stand-in whose `k` exists and whose catalogue name matches
    installs that entry; later occurrences win."
   [store index root catalogue]
-  (letfn [(children [row]
+  (letfn [(children
+            [row]
             (let [places (child-places row)]
               (if (and (= :application (row-tag row))
                        (= :lambda (row-tag (get index (nth row 2)))))
                 (concat (map second (rest places))
                         [(nth (get index (nth row 2)) 3)])
                 (map second places))))
-          (walk [store a]
+          (walk
+            [store a]
             (let [row (get index a)
                   store (cond
                           (= standin-tag (row-tag row))
@@ -1207,14 +1217,14 @@
 (defn make-ctx
   "An expander context. The composition supplies the incarnation `token`
    and the opaque `source-medium` identity (§3.1); the store may be seeded."
-  [{:keys [token source-medium store guards eval]}]
+  [{:keys [token source-medium store guards], eval-fn :eval}]
   (cond-> {:store (or store {}),
            :incarnation {:yin.expander/token token},
            :attempt 0,
            :source-medium source-medium,
            :t 0,
            :guards (merge default-guards guards)}
-    eval (assoc :eval eval)))
+    eval-fn (assoc :eval eval-fn)))
 
 
 ;; =============================================================================

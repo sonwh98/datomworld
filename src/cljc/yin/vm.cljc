@@ -263,10 +263,14 @@
    Intentional aliases must resolve directly to one name through
    `canonical-names`. Returns the primitive map for convenient composition."
   [primitive-map canonical-names]
-  (doseq [[_ entry] primitive-map
-          :let [primitive (primitive-function entry)]
-          :when (fn? primitive)
-          :when (= ::ambiguous (name-of primitive-map canonical-names primitive))]
+  (when-let [primitive (->> (vals primitive-map)
+                            (map primitive-function)
+                            (filter fn?)
+                            (filter #(= ::ambiguous
+                                        (name-of primitive-map
+                                                 canonical-names
+                                                 %)))
+                            first)]
     (let [names (->> primitive-map
                      (keep (fn [[name candidate]]
                              (when (identical? (primitive-function candidate)
