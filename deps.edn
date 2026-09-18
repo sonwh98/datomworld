@@ -1,4 +1,5 @@
 {:deps {org.clojure/core.async {:mvn/version "1.8.741"}
+        org.clojure/tools.reader {:mvn/version "1.5.0"}
         ring/ring {:mvn/version "1.14.1"}
         com.cognitect/transit-clj {:mvn/version "1.0.333"}
         org.replikativ/boring {:mvn/version "0.1.30"}
