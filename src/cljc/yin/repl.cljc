@@ -29,8 +29,10 @@
 
 (def telemetry-text
   (str "--telemetry and --telemetry-stream are not part of the DaoStream v2 "
-       "REPL slice; v2 telemetry is owed to its own plan "
-       "(yin.vm.telemetry.implementation-plan.md, not yet written)"))
+       "REPL slice: the v2 emit path is built (yin.vm.telemetry, opt-in via "
+       "the :telemetry {:stream ...} construction option — "
+       "yin.vm.telemetry.implementation-plan.md), but composing a sink into "
+       "this shell is not, so the flags are rejected rather than ignored"))
 
 
 (defn parse-args

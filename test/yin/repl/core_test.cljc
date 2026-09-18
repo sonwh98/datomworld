@@ -227,7 +227,7 @@
     (is (false? (:running? state)))))
 
 
-(deftest telemetry-is-rejected-and-names-the-owed-plan
+(deftest telemetry-is-rejected-and-points-at-the-built-emit-path
   (let [[state result] (core/eval-input (core/create-state) "(telemetry)")]
     (is (str/includes? result "yin.vm.telemetry.implementation-plan.md"))
     (is (not (str/includes? result "yin.repl")))

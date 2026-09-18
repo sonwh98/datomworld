@@ -5,12 +5,18 @@
    a test that omits it gets a VM that cannot create streams. The ring buffer
    is the composition's choice here, not the VM's.
 
+   Telemetry tests read their sink the way any consumer reads a medium —
+   cursor at `:dao.stream/oldest`, then `next` until it blocks — over the
+   unbounded memory log, so an assertion sees every datom a run emitted
+   rather than the tail a ring buffer happened to keep.
+
    Stream-driven tests thread an observer session — a medium the test owns, a
    unary attacher bound to it, an attached observer, and a consumer — which
    is the composition the REPL uses, at test scale. The semantic VM's
    composition has two such stages over two media
    (`make-encoder-session`). The VM holds no program stream of its own."
   (:require [dao.stream :as stream]
+            [dao.stream.memory-log :as memory-log]
             [dao.stream.ringbuffer :as ringbuffer]
             [dao.stream.observer :as observer]
             [yin.vm :as vm]
@@ -41,6 +47,33 @@
      (if (= :dao.stream/ok (:dao.stream/outcome result))
        (:dao.stream/handle result)
        (throw (ex-info "Test stream creation failed" {:result result}))))))
+
+
+(defn new-memory-log
+  "Create one unbounded memory-log handle or throw: the complete-retention
+   sink a telemetry test asserts against."
+  []
+  (let [result (memory-log/create! {:dao.stream/type memory-log/transport-type})]
+    (if (= :dao.stream/ok (:dao.stream/outcome result))
+      (:dao.stream/handle result)
+      (throw (ex-info "Test memory log creation failed" {:result result})))))
+
+
+(defn drain
+  "Every value a reader handle holds, oldest first. The read is the
+   contract's own shape — a cursor minted at `:dao.stream/oldest`, then
+   `next` until something other than `ok` — so draining changes no state the
+   handle's owner depends on."
+  [handle]
+  (let [start (get-in (stream/cursor handle stream/anchor-oldest)
+                      [:dao.stream/cursor])]
+    (loop [cursor start
+           acc []]
+      (let [result (stream/next handle cursor)]
+        (if (= :dao.stream/ok (:dao.stream/outcome result))
+          (recur (:dao.stream/cursor result)
+                 (conj acc (:dao.stream/value result)))
+          acc)))))
 
 
 (defn create-vm

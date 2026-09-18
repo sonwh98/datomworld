@@ -402,3 +402,86 @@
                                                                true)}))))
       (is (= [::created-out] @closed)
           "The supplied call-in belongs to the composition, not the VM"))))
+
+
+;; =============================================================================
+;; Telemetry boundaries (vm-telemetry-design.md)
+;; =============================================================================
+
+(defn- phase-seq
+  "Every emitted snapshot's phase, in order: `:vm/phase` is written once per
+   snapshot, on its root, so the attribute itself is the timeline."
+  [sink]
+  (mapv #(nth % 2)
+        (filter (fn [[_e a _v]] (= :vm/phase a)) (tu/drain sink))))
+
+
+(defn- fact?
+  "True when the sink holds at least one datom `[e a v …]`."
+  [sink a v]
+  (some (fn [[_e attr value]] (and (= a attr) (= v value)))
+        (tu/drain sink)))
+
+
+(deftest handle-effect-emits-an-effect-snapshot-test
+  (let [sink (tu/new-memory-log)
+        r (engine/handle-effect (state {:telemetry {:stream sink}})
+                                {:effect :vm/store-put, :key :probe, :val 42}
+                                {})]
+    (testing "A handled effect emits exactly one :effect snapshot"
+      (is (= 42 (:value r)))
+      (is (= [:effect] (phase-seq sink)))
+      (is (fact? sink :vm/type :vm/snapshot) "the root is a :vm/snapshot")
+      (is (fact? sink :vm/effect-type :vm/store-put)
+          "the effect type rides along as one extra root fact"))))
+
+
+(deftest park-and-resume-emit-their-phases-test
+  (let [sink (tu/new-memory-log)
+        parked (engine/park-continuation (state {:telemetry {:stream sink}})
+                                         {:k {:type :probe-frame}, :env {}})
+        resumed (engine/resume-continuation parked
+                                            :parked-0
+                                            :resumed
+                                            (fn [base _parked v]
+                                              (assoc base :value v)))]
+    (testing "Park then resume is one :park snapshot and one :resume snapshot"
+      (is (:halted? parked))
+      (is (= :resumed (:value resumed)))
+      (is (= [:park :resume] (phase-seq sink)))
+      (is (fact? sink :vm/parked-id :parked-0)
+          "the parked identity names the continuation it belongs to")
+      (is (some (fn [[_e _a v]] (= :parked-0 v)) (tu/drain sink))
+          "the identity is also a continuation-summary key, so an analyzer
+           looking up parked continuations finds it"))))
+
+
+(deftest run-loop-exits-emit-one-terminal-snapshot-test
+  (let [resume-fn (fn [v] (engine/resume-from-run-queue v (fn [base _entry] base)))]
+    (testing "A blocked exit emits :blocked exactly once"
+      (let [sink (tu/new-memory-log)
+            [_ s0] (engine/handle-make (state {:telemetry {:stream sink}})
+                                       {:capacity 4}
+                                       :stream-0)
+            [_ s1] (engine/handle-cursor s0
+                                         {:stream {:type :stream-ref,
+                                                   :id :stream-0}}
+                                         :cursor-0)
+            parked (assoc s1
+                          :blocked? true
+                          :wait-set [(cursor-waiter :k1)])
+            out (engine/run-loop parked
+                                 engine/active-continuation?
+                                 identity
+                                 resume-fn)]
+        (is (:blocked? out) "nothing to read: the wait set keeps it parked")
+        (is (= [:blocked] (phase-seq sink)))))
+    (testing "A halted exit emits :halt exactly once"
+      (let [sink (tu/new-memory-log)
+            halted (assoc (state {:telemetry {:stream sink}}) :halted? true)
+            out (engine/run-loop halted
+                                 engine/active-continuation?
+                                 identity
+                                 resume-fn)]
+        (is (:halted? out))
+        (is (= [:halt] (phase-seq sink)))))))
