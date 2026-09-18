@@ -80,20 +80,21 @@
            "The fix is not a better diff algorithm or a smarter merge tool. The fix is to stop representing code as "
            [:strong "files"]
            " and start representing it as "
-           [:strong "datoms"]
-           ". A file is a linear byte sequence that happens to encode a program. A datom is a fact about the program itself. Versioning the file versions the encoding. Versioning the datoms versions the meaning."]
+           [:strong "semantic tuples"]
+           ". A file is a linear byte sequence that happens to encode a program. A semantic tuple is a structural fact about the program itself. Versioning the file versions the encoding. Versioning the tuples versions the meaning."]
           [:p
            "In "
            [:a {:href "/yin.chp"} "Yin.vm"]
            " the canonical form of code is the "
            [:strong "Universal AST"]
-           ", and the AST is a graph of datoms. A datom is a 5-tuple:"]
-          [:pre [:code "[e a v t m]"]]
-          [:p
-           "Entity, attribute, value, transaction, meta. Every AST node is an entity. Every property of that node (its name, its type, its parent, its position in a sequence, its docstring) is a separate fact. A function is not a blob of text, it is a set of datoms:"]
+           ", which is a tree represented as a map. However, for fast execution on the semantic VM, storage, and querying, the AST is linearized into a flat vector of semantic bytecode tuples. Instead of coarse text blocks, a function is a structured sequence of operations:"]
           [:pre
            [:code
-            "[fn-17 :ast/type       :function   t1 m1]\n[fn-17 :ast/name       \"calculate\" t1 m1]\n[fn-17 :ast/params     [p-1 p-2]   t1 m1]\n[fn-17 :ast/body       expr-42     t1 m1]\n[fn-17 :ast/doc        \"totals \"   t2 m2]"]]
+            "[:yin/def 'calculate]\n[:yin/bind 'p-1]\n[:yin/bind 'p-2]\n[:yin/return expr-42]"]]
+          [:p
+           "Because these tuples retain their semantic structure, they can be queried directly using "
+           [:code "dao.space.query/q"]
+           " Datalog."]
           [:p
            "Now put those tuples in "
            [:a {:href "/dao-space.chp"} [:strong "DaoSpace"]]
@@ -103,7 +104,7 @@
            [:a {:href "/dao-jing.chp"} "DaoJing"]
            ". Code is no longer \"checked out\" into isolated file trees and reconciled afterward. It lives as shared facts that agents can query, fork, refine, and promote directly."]
           [:p
-           "Editing is transacting new datoms. History is automatic, not a manual "
+           "Editing is transacting new tuples. History is automatic, not a manual "
            [:code "git commit"]
            ". The log of transactions "
            [:em "is"]
@@ -122,7 +123,7 @@
            [:em "wrong object"]
            ". It hashes the serialized byte stream of a file. Rename a local variable and the hash changes. Add a trailing newline and the hash changes. Reformat and the hash changes. The identity is pinned to the surface, not the substance."]
           [:p
-           "Datoms keep the idea and move it one layer down. In the design (specified in the datom spec, not yet implemented in the store), entity IDs are hashes of "
+           "Semantic tuples keep the idea and move it one layer down. In the design, identities are hashes of "
            [:strong "structural content"]
            ", not of text. A function's identity is the hash of its AST subtree: same parameters, same body, same facts, same ID, regardless of which file it lives in, which language it was written in, or how it was indented when a human last looked at it. Alpha-equivalent definitions collapse to one entity. Reformatting is invisible because formatting was never part of the hashed content in the first place."]
           [:p "A few consequences fall out once that identity scheme lands:"]
@@ -142,7 +143,7 @@
             " by hash. Dependency is attribution, not import."]
            [:li
             [:strong "Merge by union."]
-            " Two offline swarms producing disjoint fact sets can be merged by set union because hash collisions mean identical content by construction. There is no \"did we both invent the same thing\" ambiguity: if the hashes match, we did."]
+            " Two offline swarms producing disjoint tuple sets can be merged by set union because hash collisions mean identical content by construction. There is no \"did we both invent the same thing\" ambiguity: if the hashes match, we did."]
            [:li
             [:strong "Provenance is verifiable."]
             " \"Agent X asserted fact Y at transaction T\" is checkable by anyone, because Y is content-addressed. Audit logs stop being narratives and start being proofs."]
@@ -150,10 +151,10 @@
             [:strong "Queries over fragments."]
             " \"Find every call site that uses this exact expression\" becomes a hash lookup, not a regex. Copy-paste detection, supply-chain auditing, and refactor-impact analysis stop being heuristics."]]
           [:p
-           "Git showed that content addressing is the right primitive for a versioned, distributed, tamper-evident system. Datoms finish the argument by applying the primitive to the object the worker actually edits: the fact, not the file."]
+           "Git showed that content addressing is the right primitive for a versioned, distributed, tamper-evident system. Semantic tuples finish the argument by applying the primitive to the object the worker actually edits: the semantic instruction, not the file."]
           [:h2 "DaoSpace Is a Better Git Than Git"]
           [:p
-           "The claim sharpens once you put the pieces together. Datoms live as a "
+           "The claim sharpens once you put the pieces together. Semantic tuples live as a "
            [:strong "content-addressed stream"]
            " inside "
            [:a {:href "/dao-space.chp"} [:strong "DaoSpace"]]
@@ -163,9 +164,9 @@
            [:a {:href "/dao-jing.chp"} "DaoJing"]
            ". A stream of content-addressed, append-only, hash-linked records replicated by hash transfer is, structurally, "
            [:em "what Git is"]
-           ". The commit graph is a Merkle DAG of content-addressed blobs; our datom stream is a Merkle sequence of content-addressed facts. Same primitive, same guarantees."]
+           ". The commit graph is a Merkle DAG of content-addressed blobs; our tuple stream is a Merkle sequence of content-addressed bytecode tuples. Same primitive, same guarantees."]
           [:p
-           "So the comparison is not \"datoms instead of Git\" as if something is being given up. DaoSpace keeps Git's content-addressed, append-only core while changing the unit of storage from file blobs to tuples. Distribution, offline work, cryptographic integrity, replayable history, pull-by-missing-hashes: all present as properties of the substrate, not as features to reimplement."]
+           "So the comparison is not \"tuples instead of Git\" as if something is being given up. DaoSpace keeps Git's content-addressed, append-only core while changing the unit of storage from file blobs to tuples. Distribution, offline work, cryptographic integrity, replayable history, pull-by-missing-hashes: all present as properties of the substrate, not as features to reimplement."]
           [:p
            "What changes is the range above the floor. Because the addressed object is a semantic fact rather than a byte blob, everything Git could "
            [:em "not"]
@@ -175,28 +176,28 @@
            "Once code lives in DaoSpace, coordination happens over code facts themselves. One agent can query for every call site of a function. Another can emit candidate refactors for one subtree. A third can evaluate those variants and promote the winner by asserting a preferred fact set. The swarm no longer forks directories and prays over merges. It operates directly on the semantic graph."]
           [:p
            "Take a simple case. Agent A renames a function by asserting "
-           [:code "[fn-17 :ast/name \"total\" t3 m3]"]
+           [:code "[:yin/def 'total]"]
            ". Agent B adds a parameter by asserting "
-           [:code "[fn-17 :ast/params [p-1 p-2 p-3] t3 m3]"]
+           [:code "[:yin/bind 'p-3]"]
            ". In Git those edits often collide because both touch the same signature in the same file. In DaoSpace they are separate tuples, stored separately, queried separately, and merged semantically."]
           [:p
            "Only after the semantic state settles does Yang regenerate human-facing source files. Text comes later, as a view. The primary collaboration surface is the tuple space."]
           [:h2 "Programmers Keep Their Tools"]
           [:p
-           "The datom representation is the substrate, not the interface. Programmers do not have to learn a new language, a new editor, or a new workflow. They keep writing Clojure, Python, JavaScript, Dart, or whatever they already use. They keep using their editor, their formatter, their linter. They keep saving files."]
+           "The tuple representation is the substrate, not the interface. Programmers do not have to learn a new language, a new editor, or a new workflow. They keep writing Clojure, Python, JavaScript, Dart, or whatever they already use. They keep using their editor, their formatter, their linter. They keep saving files."]
           [:p
            "The "
            [:strong "Yang compiler"]
-           " sits at the boundary. It reads source in the programmer's language of choice and emits the canonical datom stream. Saving a file is what produces a transaction; the programmer never sees the datoms unless they want to. The source file is still there (a view, a serialization), but the facts that get versioned, forked, queried, and merged are the datoms that Yang produced."]
+           " sits at the boundary. It reads source in the programmer's language of choice and emits the canonical tuple stream. Saving a file is what produces a transaction; the programmer never sees the tuples unless they want to. The source file is still there (a view, a serialization), but the facts that get versioned, forked, queried, and merged are the tuples that Yang produced."]
           [:p
-           "This matters because it means the transition is not a rewrite of the ecosystem. A team can adopt the datom substrate while every developer keeps their familiar tools on the surface. Agents operate on the datom layer, where merges compose. Humans operate on the text layer, where habits live. Yang keeps the two in sync."]
+           "This matters because it means the transition is not a rewrite of the ecosystem. A team can adopt the tuple substrate while every developer keeps their familiar tools on the surface. Agents operate on the tuple layer, where merges compose. Humans operate on the text layer, where habits live. Yang keeps the two in sync."]
           [:h2 "The Round Trip"]
           [:p
-           "Because the datom AST preserves the full semantics of the original source, the trip goes "
+           "Because the bytecode AST preserves the full semantics of the original source, the trip goes "
            [:strong "both ways"]
-           ". Source compiles down to datoms through Yang, and datoms regenerate source through a pretty printer. Nothing meaningful is lost on the way down, so nothing meaningful is invented on the way back up."]
+           ". Source compiles down to tuples through Yang, and tuples regenerate source through a pretty printer. Nothing meaningful is lost on the way down, so nothing meaningful is invented on the way back up."]
           [:p
-           "This is what makes the substrate safe for humans. A developer can pull the latest datoms from a swarm of agents and read the result as ordinary Python, Clojure, or Dart, formatted however they prefer. The regenerated source is not a reconstruction guess, it is a rendering of the same facts the agents were editing. The AST is canonical; the source is a view. The view is always available, and it always matches."]
+           "This is what makes the substrate safe for humans. A developer can pull the latest tuples from a swarm of agents and read the result as ordinary Python, Clojure, or Dart, formatted however they prefer. The regenerated source is not a reconstruction guess, it is a rendering of the same facts the agents were editing. The AST is canonical; the source is a view. The view is always available, and it always matches."]
           [:p
            "The round-trip property is developed in detail elsewhere: "
            [:a
@@ -208,9 +209,9 @@
             "Yin.vm: Chinese Characters for Programming Languages"]
            " (bijective translation through the Universal AST), and "
            [:a
-            {:href "/blog/ast-datom-streams-bytecode-performance.blog"}
-            "AST Datom Streams and Bytecode Performance"]
-           " (source regenerated from AST datoms)."]
+            {:href "/blog/ast-tuple-streams-bytecode-performance.blog"}
+            "AST Tuple Streams and Bytecode Performance"]
+           " (source regenerated from bytecode AST tuples)."]
           [:h2 "The Conflict Surface Collapses"]
           [:p "Now replay the three Git failure modes:"]
           [:ul.bulleted
@@ -225,9 +226,9 @@
            [:li
             [:strong "Rename plus add-parameter."]
             " One agent writes "
-            [:code "[fn-17 :ast/name \"total\" t3 m3]"]
+            [:code "[:yin/def 'total]"]
             ". Another writes "
-            [:code "[fn-17 :ast/params [p-1 p-2 p-3] t3 m3]"]
+            [:code "[:yin/bind 'p-3]"]
             ". Different attributes, different facts, no file-level conflict. The merge is semantic set union."]]
           [:p
            "Formatting changes vanish entirely. Whitespace, bracket style, import ordering are all properties of the text rendering, not of the AST. Two agents that disagree about formatting are not disagreeing about anything the store records."]
@@ -236,7 +237,7 @@
            [:em "different values for the same attribute on the same entity at the same transaction"]
            ". That is a narrow, precise, semantic disagreement. A human (or a policy) can resolve it with full context, because the conflict is stated in the vocabulary of the program, not of the file."]
           [:h2 "What Agents Can Finally Do"]
-          [:p "Once code is datoms, the agent gets capabilities Git never offered:"]
+          [:p "Once code is semantic tuples, the agent gets capabilities Git never offered:"]
           [:ul.bulleted
            [:li
             [:strong "Sub-atomic forking."]
@@ -248,7 +249,7 @@
             " \"Find every call site that uses the legacy connection without a timeout.\" That is a query, not a regex."]
            [:li
             [:strong "Semantic diffs."]
-            " The diff is a list of facts added and retracted, not a pile of line changes. \"Renamed "
+            " The diff is a list of semantic tuples added and retracted, not a pile of line changes. \"Renamed "
             [:code "total"]
             " to "
             [:code "sum"]
@@ -257,12 +258,12 @@
             " parameter, no logic change.\""]
            [:li
             [:strong "Parallel swarms that actually merge."]
-            " N agents working on N parts of the graph produce N disjoint fact sets. The merge is a "
+            " N agents working on N parts of the graph produce N disjoint tuple sets. The merge is a "
             [:code "transact"]
             ", not a negotiation."]
            [:li
             [:strong "Time travel for free."]
-            " Every fact has a "
+            " Every tuple transaction has a "
             [:code "t"]
             ". Ask what the function looked like before the refactor. Ask which transaction introduced the regression. The log is the answer, within a single agent's stream today; comparing "
             [:code "t"]
@@ -273,15 +274,15 @@
           [:p
            "This does not mean Git disappears tomorrow. Text is still how humans read code on a plane, and "
            [:code "git log"]
-           " is still how humans narrate change to each other. In a datom-native world both are "
+           " is still how humans narrate change to each other. In a tuple-native world both are "
            [:strong "views"]
-           ". The canonical form is the fact stream in DaoSpace. Text, patch files, and commit history are projections for humans who want them, the same way "
+           ". The canonical form is the tuple stream in DaoSpace. Text, patch files, and commit history are projections for humans who want them, the same way "
            [:a
             {:href "/blog/ide-edits-ast-not-text.blog"}
             "text is a projection over the AST"]
            "."]
           [:p
-           "An agent can emit a Git patch for a reviewer. A reviewer can approve the patch. Behind the scenes the patch is a packaging of the underlying datom transactions. Git is demoted from substrate to serialization."]
+           "An agent can emit a Git patch for a reviewer. A reviewer can approve the patch. Behind the scenes the patch is a packaging of the underlying tuple transactions. Git is demoted from substrate to serialization."]
           [:h2 "The Line That Matters"]
           [:p
            "Git solved version control for "
@@ -298,11 +299,11 @@
              "When the IDE Edits AST, Not Text"]]
            [:li
             [:a
-             {:href "/blog/collaborative-writing-needs-datoms.blog"}
-             "Collaborative Writing Needs Datoms"]]
+             {:href "/blog/collaborative-writing-needs-tuples.blog"}
+             "Collaborative Writing Needs Tuples"]]
            [:li
             [:a
-             {:href "/blog/ast-higher-dimensional-datom-streams.blog"}
-             "AST as Higher Dimensional Construction of Datom Streams"]]
+             {:href "/blog/ast-higher-dimensional-tuple-streams.blog"}
+             "AST as Higher Dimensional Construction of Tuple Streams"]]
            [:li
             [:a {:href "/yin.chp"} "Yin VM Documentation"]]]]]]}
