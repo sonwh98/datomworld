@@ -319,7 +319,11 @@ responding.
 
 > [!IMPORTANT]
 > **AGY Backgrounding and Parallel Execution**:
-> AGY orchestrators must **never** use `&` to background shell commands when dispatching delegates. The AGY `run_command` tool natively handles long-running processes by converting them into system background tasks and proactively waking the orchestrator upon completion. Appending `&` forces an immediate `exit 0`, which short-circuits the native task tracker and requires writing manual polling loops. Launch commands normally (without `&`) and let the system handle parallel execution and notifications. If the raw OS PID is needed for host tools (e.g. `keep-awake`), use `pgrep -f` after launching.
+> NEVER use `&` in shell commands to background long-running delegate tasks. Running a command with `&` forces an immediate `exit 0`, which short-circuits Antigravity's task tracker and loses the PID/status hook.
+> Instead, run delegate CLI commands natively in the foreground and rely on Antigravity's `WaitMsBeforeAsync` tool parameter to gracefully transition them to background tasks that automatically notify you upon completion.
+> 
+> **Concurrent Worktree Isolation:**
+> When dispatching multiple implementation delegates concurrently, you MUST NOT run them in the main working tree. They will trample each other's files and break concurrent test runs. For each concurrent implementation task, spin up an isolated Git worktree (e.g. `git worktree add ../datomworld-<task-id>`) and execute the delegate CLI inside that isolated worktree. Once verified, merge it back into the main tree. If the raw OS PID is needed for host tools (e.g. `keep-awake`), use `pgrep -f` after launching.
 
 Prompts contain authorized paths, not source text. Headless plan agents must be told to produce the complete
 deliverable without waiting for a human. Never use AGY `invoke_subagent` to delegate; always shell out to the
