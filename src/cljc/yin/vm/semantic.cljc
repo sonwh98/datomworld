@@ -65,10 +65,12 @@
    store          ; heap memory map
    value          ; last computed value
    wait-set       ; vector of continuations waiting on a transport
-   telemetry      ; optional telemetry config (always nil in this slice)
+   telemetry      ; telemetry config map ({:stream … :vm-id …}) or nil
    telemetry-step ; telemetry snapshot counter
    telemetry-t    ; telemetry transaction counter
+   telemetry-eid  ; telemetry entity-id seed, floored at datom/first-user-id
    vm-model       ; telemetry model keyword
+   vm-id          ; telemetry instance id, minted by telemetry/install
    code           ; {segment-id image}; built once per segment, never written
    code-aliases]) ; {address segment-id}; additive, one address one id (UCF §7.3.4)
 

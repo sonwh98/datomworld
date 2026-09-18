@@ -384,9 +384,28 @@
 
 
 ;; =============================================================================
-;; Telemetry is a stub
+;; Telemetry opt-in
 ;; =============================================================================
 
-(deftest telemetry-opt-is-rejected-test
-  (testing "A supplied telemetry stream would be named and never written"
-    (is (throws? (fn [] (create-vm {:telemetry {:stream (tu/new-stream 4)}}))))))
+(deftest telemetry-opt-is-installed-test
+  (testing "A supplied telemetry stream is accepted and written at :init"
+    (let [sink (tu/new-stream 128)
+          vm (create-vm {:telemetry {:stream sink, :vm-id :test/telemetry}})
+          start (:dao.stream/cursor (stream/cursor sink stream/anchor-oldest))
+          drain (fn drain [cursor acc]
+                  (let [result (stream/next sink cursor)]
+                    (if (= :dao.stream/ok (:dao.stream/outcome result))
+                      (recur (:dao.stream/cursor result)
+                             (conj acc (:dao.stream/value result)))
+                      acc)))
+          datoms (drain start [])]
+      (is (identical? sink (get-in vm [:telemetry :stream])))
+      (is (= :test/telemetry (:vm-id vm)))
+      (is (pos? (count datoms)) "construction emitted its :init snapshot")
+      (is (some (fn [[_e a v]] (and (= :vm/type a) (= :vm/snapshot v))) datoms)
+          "the snapshot root is a :vm/snapshot entity")))
+  (testing "A malformed telemetry configuration is a construction error"
+    (is (throws? (fn [] (create-vm {:telemetry {:vm-id :test/no-stream}}))))
+    (is (throws? (fn [] (create-vm {:telemetry {:stream :not-a-writer}}))))
+    (is (throws? (fn [] (create-vm {:telemetry (tu/new-stream 4)})))
+        "the config is a map naming a stream, not the stream itself")))

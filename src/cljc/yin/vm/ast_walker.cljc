@@ -56,10 +56,12 @@
    store          ; heap memory map
    value          ; last computed value
    wait-set       ; vector of continuations waiting on a transport
-   telemetry      ; optional telemetry config (always nil in this slice)
+   telemetry      ; telemetry config map ({:stream … :vm-id …}) or nil
    telemetry-step ; telemetry snapshot counter
    telemetry-t    ; telemetry transaction counter
+   telemetry-eid  ; telemetry entity-id seed, floored at datom/first-user-id
    vm-model       ; telemetry model keyword
+   vm-id          ; telemetry instance id, minted by telemetry/install
    ])
 
 
@@ -91,7 +93,9 @@
                    (:telemetry vm)
                    (:telemetry-step vm)
                    (:telemetry-t vm)
-                   (:vm-model vm))))
+                   (:telemetry-eid vm)
+                   (:vm-model vm)
+                   (:vm-id vm))))
 
 
 (defn- handle-primitive-result

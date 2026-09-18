@@ -26,8 +26,7 @@
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.space.query :as query]
-            [dao.stream :as stream]
-            [yin.vm.telemetry :as telemetry]))
+            [dao.stream :as stream]))
 
 
 ;; =============================================================================
@@ -1600,6 +1599,9 @@
      :call-out     explicit outbound response handle
      :call-capacity capacity for a constructed FFI pair
      :vm-model     telemetry model keyword
+     :telemetry    telemetry config {:stream <dao.stream writer> :vm-id <id>};
+                   validated by telemetry/install, which both create-vms call
+                   after this
 
    The FFI pair comes from explicitly supplied `:call-in`/`:call-out` first —
    matching v1's precedence, so a composition handing over streams directly is
@@ -1613,7 +1615,6 @@
    composes beside the VM rather than inside it."
   ([] (empty-state {}))
   ([opts]
-   (telemetry/reject-telemetry-opt! (:telemetry opts))
    (let [installed-primitives (or (:primitives opts) primitives)
          installed-profiles (or (:primitive-profiles opts)
                                 (into {} (keep (fn [[name _]]
@@ -1695,7 +1696,8 @@
         :modules (:modules opts),
         :make-stream make-stream,
         :call-capacity capacity,
-        :telemetry nil,
+        :telemetry (:telemetry opts),
         :telemetry-step 0,
         :telemetry-t 0,
+        :telemetry-eid datom/first-user-id,
         :vm-model (:vm-model opts)}))))
