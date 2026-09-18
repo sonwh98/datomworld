@@ -5531,3 +5531,9 @@ Next: Stage and commit the u16-macro-expander worktree, then merge to dao.stream
 - **Execution**: Claude Opus-5 (Implementer) + DeepSeek V4-Pro (Architect Reviewer)
 - **Outcome**: Claude successfully wired `hydrate-async` and `store-tree-async` in `dao.data.btree.storage` to use the new async backend. DeepSeek reviewed the diff and signed off, confirming that all §5.4 durability and ordering invariants were perfectly preserved (failed segments stay queued and are re-pushed upon retry to guarantee write-durability before root CAS). Tests were verified across the JVM, CLJS, and CLJD.
 - **Status**: Merged (`c7dae224`). The `dao.jing.remote` implementation is now **100% fully complete**, concluding both the async client and the B-Tree consumers.
+
+## 2026-09-18 - yin.vm.telemetry (Phase 2 & 3)
+
+- **Execution**: Zhipu GLM-5.3 (Implementer) + DeepSeek V4-Pro (Architect Reviewer)
+- **Outcome**: GLM successfully implemented Phase 2 (exhaustively testing the structural telemetry snapshots across ast-walker and semantic VMs, verifying monotonic counters, bridge ops, and serialization constraints) and Phase 3 (updating the REPL help text and design prose). DeepSeek verified the work matched the implementation plan exactly and granted a SIGN-OFF. The orchestrator ran the CLJS test suite since the agent lacked permissions, yielding 1,322 passing tests.
+- **Status**: Merged (`820cc121`). The `yin.vm.telemetry` implementation is now **100% complete**.
