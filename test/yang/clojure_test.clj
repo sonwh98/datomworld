@@ -1,7 +1,9 @@
 (ns yang.clojure-test
   (:require [clojure.test :refer [deftest is testing]]
             [yang.clojure :as yang]
+            [yang.io :as yang-io]
             [yin.vm :as vm]
+            [yin.vm.encoder :as encoder]
             [yin.vm.module :as module]
             [yin.vm.test-utils :as tu]))
 
@@ -22,6 +24,38 @@
        tu/run-session
        :consumer
        vm/value)))
+
+
+(deftest reader-metadata-becomes-occurrence-side-tables
+  (let [form (with-meta '(+ 1 2)
+               {:file "sample.clj" :line 9 :column 3 :note :source-form})
+        ast (yang/compile form)
+        projected (encoder/project
+                    (encoder/source-envelope :program "batch-1" [ast]))
+        tree (first (:yin/batch projected))
+        origin [:source :program "batch-1" 0]]
+    (is (= {:file "sample.clj" :line 9 :column 3 :note :source-form}
+           (meta ast)))
+    (is (some #{[origin (:root tree) [] "sample.clj" 9 3]}
+              (:yin/source-positions projected)))
+    (is (some #{[origin (:root tree) [] :note :source-form]}
+              (:yin/frontend-metadata projected)))))
+
+
+(deftest indexing-reader-injects-nested-source-positions
+  (let [ast (first (yang-io/compile-string "(+ x\n   (* x 2))"))]
+    (is (= {:file "<string>" :line 1 :column 1
+            :end-line 2 :end-column 12}
+           (select-keys (meta ast)
+                        [:file :line :column :end-line :end-column])))
+    (is (= {:file "<string>" :line 2 :column 4
+            :end-line 2 :end-column 11}
+           (select-keys (meta (second (:operands ast)))
+                        [:file :line :column :end-line :end-column])))
+    (is (= {:file "<string>" :line 2 :column 5
+            :end-line 2 :end-column 6}
+           (select-keys (meta (:operator (second (:operands ast))))
+                        [:file :line :column :end-line :end-column])))))
 
 
 (defn compile-program-and-run

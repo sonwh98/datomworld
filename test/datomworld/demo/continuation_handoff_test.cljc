@@ -124,7 +124,7 @@
 
 (deftest register-encoding-keeps-data-and-primitives-apart-test
   (let [code (linearize/lower-ast {:type :literal, :value 1})
-        plus (get vm/primitives '+)
+        plus (vm/primitive-function (get vm/primitives '+))
         tag handoff/tag-key
         env {'marker {tag :primitive, :name '+},
              'quoted {tag :quote, :value {tag :primitive, :name '+}},

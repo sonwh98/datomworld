@@ -301,9 +301,12 @@
   (let [writer (:dao.stream/handle
                  (ring/create! {:dao.stream/type ring/transport-type
                                 ring/capacity-key capacity}))
-        descriptor (:dao.stream/descriptor (stream/descriptor writer))
+        described (stream/descriptor writer)
+        descriptor (:dao.stream/descriptor described)
+        identity (:dao.stream/identity described)
         attach! (ring/make-attacher {(:dao.stream/identity descriptor) writer})]
     {:stream writer
+     :identity identity
      :observer (observer/attach attach! descriptor)}))
 
 
@@ -327,12 +330,14 @@
         {:vm vm
          :load-program (get program-loaders vm-type)
          :program-stream (:stream program)
+         :program-identity (:identity program)
          :observer (:observer program)
          :row-stream (:stream rows)
          :row-observer (:observer rows)})
       {:vm vm
        :load-program (get program-loaders vm-type)
        :program-stream (:stream program)
+       :program-identity (:identity program)
        :observer (:observer program)
        :row-stream nil
        :row-observer nil})))
@@ -354,7 +359,8 @@
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
-         {:keys [program-stream observer row-stream row-observer vm load-program]}
+         {:keys [program-stream program-identity observer row-stream row-observer
+                 vm load-program]}
          (make-session vm-type output-stream primitives)]
      {:lang lang
       :vm-type vm-type
@@ -362,6 +368,7 @@
       :vm vm
       :load-program load-program
       :program-stream program-stream
+      :program-identity program-identity
       :observer observer
       :row-stream row-stream
       :row-observer row-observer
@@ -568,7 +575,12 @@
   (if (:ingress-loss? state)
     [state (str "Error: " ingress-loss-text)]
     (let [state' (inject-last-value state)
-          append (stream/append! (:program-stream state') batch)]
+          admitted (if (= :semantic (:vm-type state'))
+                     (encoder/source-envelope (:program-identity state')
+                                              (str (random-uuid))
+                                              [batch])
+                     batch)
+          append (stream/append! (:program-stream state') admitted)]
       (if-not (= :dao.stream/ok (:dao.stream/outcome append))
         [state (str "Error: program batch not ingested: "
                     (name (:dao.stream/outcome append)))]
@@ -639,13 +651,15 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    history is cleared with them: a closure in `*1` names a code segment the
    old VM held, which the new one does not."
   [state vm-type]
-  (let [{:keys [program-stream observer row-stream row-observer vm load-program]}
+  (let [{:keys [program-stream program-identity observer row-stream row-observer
+                vm load-program]}
         (make-session vm-type (:output-stream state) (:extra-primitives state))]
     (assoc state
            :vm-type vm-type
            :vm vm
            :load-program load-program
            :program-stream program-stream
+           :program-identity program-identity
            :observer observer
            :row-stream row-stream
            :row-observer row-observer

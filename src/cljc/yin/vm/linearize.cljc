@@ -334,8 +334,8 @@
 
    `bc` is `yin.vm/ast->semantic-bytecode`'s `{:root id, :rows {id row}}`;
    it is validated (§7.4) first and a defect throws naming it. `origin` is
-   opaque provenance input (§5.3), stored verbatim in every provenance
-   row; nil is legal. Returns `{:vector v, :provenance [[pc origin root
+   nil for the legacy bare-row lane or one of §2.5's ruled portable shapes;
+   arbitrary opaque values are rejected. Returns `{:vector v, :provenance [[pc origin root
    path] …]}` with one provenance row per pc in pc order, `path` being the
    emitting node's §2.5 structural path (row-position steps — id 0, tag 1,
    first slot 2; a `nodes` item a `[position i]` pair) rooted at the
@@ -343,6 +343,9 @@
    relation on `[root path]` (§5.3)."
   ([bc] (lower-rows bc nil))
   ([{:keys [root rows] :as bc} origin]
+   (when-not (or (nil? origin) (vm/occurrence-origin? origin))
+     (throw (ex-info "Cannot lower rows with a malformed occurrence origin"
+                     {:rule :origin, :origin origin})))
    (when-let [{:keys [rule path id]} (vm/validate-rows bc)]
      (throw (ex-info "Cannot lower rows that fail validation"
                      (cond-> {:rule rule}
@@ -356,6 +359,29 @@
                      tuple))]
      {:vector (mapv resolve code),
       :provenance (mapv (fn [pc path] [pc origin root path]) (range) paths)})))
+
+
+(defn lower-envelope
+  "Lower the evaluator root of a provenance-bearing §8.5 batch envelope.
+   The envelope's composition-minted token and logical medium identity form
+   `[:source medium batch-token j]`; the member index is the selected
+   `:yin/root`. Side tables remain beside the lowering result for consumers
+   that retain or index them."
+  [{:yin/keys [source-medium batch-token batch root
+               source-positions frontend-metadata entity-occurrences]
+    :as envelope}]
+  (when-not (and (vector? batch)
+                 (integer? root)
+                 (<= 0 root)
+                 (< root (count batch)))
+    (throw (ex-info "Malformed provenance-bearing row batch"
+                    {:rule :batch-envelope, :envelope envelope})))
+  (let [origin (vm/source-origin source-medium batch-token root)]
+    (assoc (lower-rows (nth batch root) origin)
+           :origin origin
+           :source-positions (or source-positions [])
+           :frontend-metadata (or frontend-metadata [])
+           :entity-occurrences (or entity-occurrences []))))
 
 
 (defn- ast-children
@@ -416,4 +442,6 @@
    travels."
   [load-vector]
   (fn [vm bc]
-    (load-vector vm (:vector (lower-rows bc)))))
+    (load-vector vm (:vector (if (and (map? bc) (contains? bc :yin/batch))
+                               (lower-envelope bc)
+                               (lower-rows bc))))))

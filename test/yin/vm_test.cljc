@@ -8,7 +8,8 @@
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.malformed-rows :as malformed]
-            [yin.vm.parity-test :as parity]))
+            [yin.vm.parity-test :as parity]
+            [yin.vm.semantic :as semantic]))
 
 
 (defn- error-message
@@ -202,11 +203,86 @@
 ;; =============================================================================
 
 (deftest division-by-zero-is-host-uniform
-  (let [divide (get vm/primitives '/)]
+  (let [divide (vm/primitive-function (get vm/primitives '/))]
     (is (= "Divide by zero" (error-message #(divide 1 0)))
         "a zero divisor raises with the JVM's text instead of yielding ##Inf")
     (is (= "Divide by zero" (error-message #(divide 24 2 0)))
         "the variadic path checks every division it reduces over")))
+
+
+(deftest standard-primitives-publish-portable-profiles
+  (let [profile-keys #{:yin.k/profile :yin.k/class :yin.k/arities
+                       :yin.k/effects :yin.k/host-state}]
+    (is (= (set (keys vm/primitives)) (set (keys vm/primitive-profiles)))
+        "every standard primitive has a published profile")
+    (doseq [[name entry] vm/primitives
+            :let [profile (vm/profile-of vm/primitives name)]]
+      (is (= profile-keys (set (keys profile))) (str name))
+      (is (fn? (vm/primitive-function entry)) (str name))
+      (is (= profile (get vm/primitive-profiles name)))
+      (is (= :none (:yin.k/host-state profile)))
+      (is (= "yin.k.pp" (namespace (:yin.k/profile profile)))))
+    (is (= :effectful (get-in vm/primitives
+                              ['yin/def :yin.k/class])))
+    (is (= #{:vm/store-put} (get-in vm/primitives
+                                    ['yin/def :yin.k/effects])))
+    (is (= :effectful (get-in vm/primitives
+                              ['require :yin.k/class])))
+    (is (= #{:module/require} (get-in vm/primitives
+                                      ['require :yin.k/effects])))))
+
+
+(deftest primitive-reverse-lookup-is-identity-based-and-unambiguous
+  (let [f (fn [] :same-object)
+        same-behavior (fn [] :same-object)]
+    (is (= 'a (vm/name-of {'a f} f)))
+    (is (nil? (vm/name-of {'a same-behavior} f))
+        "equal behavior is not function identity")
+    (is (= ::vm/ambiguous (vm/name-of {'a f, 'b f} f)))
+    (is (= 'a (vm/name-of {'a f, 'b f} {'b 'a} f)))))
+
+
+(deftest create-vm-rejects-undeclared-primitive-aliases
+  (let [f (fn [] :shared)
+        opts {:primitives {'a f, 'b f}}
+        failure (fn [create]
+                  (try (create opts)
+                       nil
+                       (catch #?(:cljd Object :clj Exception :cljs :default) e
+                         (ex-data e))))]
+    (doseq [create [ast-walker/create-vm semantic/create-vm]]
+      (let [data (failure create)]
+        (is (= :ambiguous-primitive (:rule data)))
+        (is (= #{'a 'b} (set (:names data))))))))
+
+
+(deftest create-vm-accepts-explicit-primitive-disambiguation
+  (let [f (fn [] :shared)
+        opts {:primitives {'a f, 'b f}
+              :primitive-canonical-names {'b 'a}}]
+    (doseq [create [ast-walker/create-vm semantic/create-vm]]
+      (let [machine (create opts)]
+        (is (= 'a (vm/name-of (:primitives machine)
+                              (:primitive-canonical-names machine)
+                              f)))))))
+
+
+(deftest create-vm-rejects-invalid-primitive-disambiguation
+  (let [f (fn [] :shared)
+        data (try (ast-walker/create-vm
+                    {:primitives {'a f, 'b f}
+                     :primitive-canonical-names {'b 'missing}})
+                  nil
+                  (catch #?(:cljd Object :clj Exception :cljs :default) e
+                    (ex-data e)))]
+    (is (= :ambiguous-primitive (:rule data)))
+    (is (= :ambiguous-primitive
+           (:rule (try (ast-walker/create-vm
+                         {:primitives {'= f, '== f}})
+                       nil
+                       (catch #?(:cljd Object :clj Exception :cljs :default) e
+                         (ex-data e)))))
+        "the standard alias declaration does not bless replacement functions")))
 
 
 ;; =============================================================================

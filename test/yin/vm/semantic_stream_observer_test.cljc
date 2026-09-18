@@ -17,6 +17,7 @@
             [dao.stream :as stream]
             [dao.stream.observer :as observer]
             [yin.vm :as vm]
+            [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
             [yin.vm.malformed-rows :as malformed]
@@ -29,6 +30,63 @@
   (try (thunk) nil
        (catch #?(:clj Exception :cljs js/Error :cljd Object) e
          (or (ex-data e) {}))))
+
+
+(deftest source-envelope-projects-occurrence-side-tables
+  (let [ast (with-meta
+              {:type :application
+               :operator (with-meta {:type :variable
+                                     :name (with-meta 'f {:role :callee})
+                                     :yang/scope :lexical}
+                           {:file "program.clj" :line 4 :column 2})
+               :operands [{:type :literal :value 1}]
+               :tail? false}
+              {:file "program.clj" :line 4 :column 1 :form :call})
+        batch #(encoder/project {:yin/source-medium :program
+                                 :yin/batch-token %
+                                 :yin/batch [ast]
+                                 :yin/root 0})
+        projected-a (batch "a")
+        projected-b (batch "b")
+        tree (first (:yin/batch projected-a))
+        root (:root tree)
+        source-a (set (:yin/source-positions projected-a))
+        metadata-a (set (:yin/frontend-metadata projected-a))]
+    (is (= (:yin/batch projected-a) (:yin/batch projected-b))
+        "occurrence facts do not enter content identity")
+    (is (contains? source-a
+                   [[:source :program "a" 0] root [] "program.clj" 4 1]))
+    (is (contains? source-a
+                   [[:source :program "a" 0] root [2] "program.clj" 4 2]))
+    (is (contains? metadata-a
+                   [[:source :program "a" 0] root [] :form :call]))
+    (is (contains? metadata-a
+                   [[:source :program "a" 0] root [2] :yang/scope :lexical]))
+    (is (contains? metadata-a
+                   [[:source :program "a" 0] root [2]
+                    [:name :role] :callee]))
+    (is (not= (:yin/source-positions projected-a)
+              (:yin/source-positions projected-b)))))
+
+
+(deftest datom-adapter-records-every-path-of-a-shared-entity
+  (let [datoms [[-1 :yin/type :application 0 1]
+                [-1 :yin/operator -2 0 1]
+                [-1 :yin/operands [-3 -3] 0 1]
+                [-1 :yin/root true 0 1]
+                [-2 :yin/type :variable 0 1]
+                [-2 :yin/name 'f 0 1]
+                [-3 :yin/type :literal 0 1]
+                [-3 :yin/value 1 0 1]]
+        projected (encoder/project {:yin/source-medium :program
+                                    :yin/batch-token "shared"
+                                    :yin/batch [datoms]
+                                    :yin/root 0})]
+    (is (= #{[0 [] -1]
+             [0 [2] -2]
+             [0 [[3 0]] -3]
+             [0 [[3 1]] -3]}
+           (set (:yin/entity-occurrences projected))))))
 
 
 (def ^:private load-rows (linearize/rows-loader semantic/load-vector))
@@ -202,6 +260,16 @@
         (stream/append! (:program session)
                         (vec (vm/ast->datoms (binop '+ (lit 2) (lit 3)))))
         (is (= 5 (vm/value (:consumer (:evaluator (tu/run-encoder-session session))))))))
+    (testing "A source envelope carries its occurrence identity through lowering"
+      (let [session (tu/make-encoder-session (new-vm))
+            batch {:yin/source-medium :program-medium
+                   :yin/batch-token "admission-1"
+                   :yin/batch [(binop '+ (lit 2) (lit 3))]
+                   :yin/root 0}]
+        (stream/append! (:program session) batch)
+        (let [run (tu/run-encoder-session session)
+              vm (:consumer (:evaluator run))]
+          (is (= 5 (vm/value vm))))))
     (testing "A blocked program holds the next batch behind the row medium"
       (let [session (tu/make-encoder-session (new-vm))]
         (stream/append! (:program session) (read-first 4))

@@ -60,7 +60,7 @@
     (if-let [pair (find store name)]
       (val pair)
       (if-let [pair (find primitives name)]
-        (val pair)
+        (vm/primitive-function (val pair))
         (if-let [resolved (when (namespace name)
                             (module/resolve-module
                               registry

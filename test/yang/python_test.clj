@@ -214,6 +214,11 @@
       ;; Python: (1 if x < 5 else 2) if True else 3
       (is (= 1
              (compile-and-run (py/compile "(1 if x < 5 else 2) if True else 3")
-                              (merge vm/primitives {'x 3})))))
+                              (merge (into {} (map (fn [[name entry]]
+                                                     [name
+                                                      (vm/primitive-function
+                                                        entry)]))
+                                           vm/primitives)
+                                     {'x 3})))))
     (testing "Multiple operations"
       (is (= 65 (compile-and-run (py/compile "10 + 20 * 3 - 5")))))))

@@ -295,7 +295,7 @@
   (when (contains? #{'+ '- '* '/ '= '< '>} sym) sym))
 
 
-(defn compile-form
+(defn- compile-form*
   "Compile a Clojure form to Universal AST.
 
   This is the main entry point that dispatches to specific compilers
@@ -303,96 +303,107 @@
 
   macro-env: compile-time set of macro names. Calls to names in this set emit
   :yin/macro-expand nodes instead of :application nodes."
+  [form tail? env macro-env]
+  (cond
+    ;; Literals
+    (literal? form) (compile-literal form tail?)
+    ;; Variables (symbols)
+    (symbol? form) (compile-variable form tail?)
+    ;; Special forms and function application
+    (seq? form)
+    (let [[operator & operands] form]
+      (cond
+        ;; dao.stream.apply call: (dao.stream.apply/call :op/name arg1 arg2)
+        (= operator 'dao.stream.apply/call)
+        (let [[op & args] operands]
+          (compile-dao-stream-apply-call op args env tail? macro-env))
+        ;; Macro call: operator is a known macro name — emit :yin/macro-expand.
+        ;; User macros embed the compiled lambda AST directly as the operator so that
+        ;; the expander uses the EID without a name lookup (avoids synthetic names in
+        ;; canonical datoms and correctly handles multiple definitions of the same name).
+        ;; Bootstrap macros (no :lambda-ast) fall back to a :variable node resolved via
+        ;; the name-registry in the expander.
+        (get macro-env operator)
+        (let [macro-info   (get macro-env operator)
+              operator-ast (if-let [la (:lambda-ast macro-info)]
+                             la
+                             {:type :variable, :name operator})
+              compiled-operands (compile-macro-operands operands env macro-env macro-info)]
+          (cond-> {:type     :yin/macro-expand
+                   :operator operator-ast
+                   :operands compiled-operands}
+            tail? (assoc :tail? true)))
+        ;; Native defn fallback: used only when no defmacro defn is in scope
+        ;; and the form actually matches defn syntax.
+        (and (= operator 'defn)
+             (<= 2 (count operands))
+             (vector? (second operands)))
+        (let [[fn-name params & body-forms] operands]
+          (compile-defn fn-name params body-forms env tail? macro-env))
+
+        ;; Special forms
+        :else
+        (case operator
+          ;; Lambda: (fn [params] body)
+          fn (let [[params & body] operands
+                   body-expr (if (= 1 (count body)) (first body) (cons 'do body))]
+               (compile-lambda params body-expr env tail? macro-env))
+          ;; Conditional: (if test consequent alternate?)
+          if (let [[test consequent alternate] operands]
+               (compile-if test consequent alternate env tail? macro-env))
+          ;; Let binding: (let [bindings] body)
+          let (let [[bindings & body] operands
+                    body-expr (if (= 1 (count body)) (first body) (cons 'do body))]
+                (compile-let bindings body-expr env tail? macro-env))
+          ;; Do block: (do expr1 expr2 ...)
+          do (compile-do operands env tail? macro-env)
+          ;; Short-circuit logical: expand to if chains so unevaluated operands are never touched
+          ;; (and)       → true
+          ;; (and x)     → x
+          ;; (and x y z) → (let [g x] (if g (and y z) g))
+          and (cond
+                (empty? operands) {:type :literal :value true}
+                (= 1 (count operands)) (compile-form (first operands) tail? env macro-env)
+                :else (let [g (gensym "and__")]
+                        (compile-form (list 'let [g (first operands)]
+                                            (list 'if g (cons 'and (rest operands)) g))
+                                      tail? env macro-env)))
+          ;; (or)        → nil
+          ;; (or x)      → x
+          ;; (or x y z)  → (let [g x] (if g g (or y z)))
+          or  (cond
+                (empty? operands) {:type :literal :value nil}
+                (= 1 (count operands)) (compile-form (first operands) tail? env macro-env)
+                :else (let [g (gensym "or__")]
+                        (compile-form (list 'let [g (first operands)]
+                                            (list 'if g g (cons 'or (rest operands))))
+                                      tail? env macro-env)))
+          ;; Quote: (quote form)
+          quote (compile-quote (first operands) tail?)
+          ;; Def: (def sym value)
+          def (let [[sym value] operands] (compile-def sym value env tail? macro-env))
+          ;; Function application: (f arg1 arg2 ...)
+          (compile-application operator operands env tail? macro-env))))
+    ;; Unknown form type
+    :else (throw (ex-info "Cannot compile unknown form type"
+                          {:form form,
+                           :type #?(:cljd (clojure.core/str (.-runtimeType form))
+                                    :default (clojure.core/type form))}))))
+
+
+(defn compile-form
+  "Compile one Clojure form and retain the reader's plain metadata on the
+   emitted Universal AST node. The tuple boundary removes it from content
+   and writes positions and other frontend facts to occurrence side tables."
   ([form] (compile-form form false {} initial-macro-env))
   ([form env] (compile-form form false env initial-macro-env))
   ([form tail? env] (compile-form form tail? env initial-macro-env))
   ([form tail? env macro-env]
-   (cond
-     ;; Literals
-     (literal? form) (compile-literal form tail?)
-     ;; Variables (symbols)
-     (symbol? form) (compile-variable form tail?)
-     ;; Special forms and function application
-     (seq? form)
-     (let [[operator & operands] form]
-       (cond
-         ;; dao.stream.apply call: (dao.stream.apply/call :op/name arg1 arg2)
-         (= operator 'dao.stream.apply/call)
-         (let [[op & args] operands]
-           (compile-dao-stream-apply-call op args env tail? macro-env))
-         ;; Macro call: operator is a known macro name — emit :yin/macro-expand.
-         ;; User macros embed the compiled lambda AST directly as the operator so that
-         ;; the expander uses the EID without a name lookup (avoids synthetic names in
-         ;; canonical datoms and correctly handles multiple definitions of the same name).
-         ;; Bootstrap macros (no :lambda-ast) fall back to a :variable node resolved via
-         ;; the name-registry in the expander.
-         (get macro-env operator)
-         (let [macro-info   (get macro-env operator)
-               operator-ast (if-let [la (:lambda-ast macro-info)]
-                              la
-                              {:type :variable, :name operator})
-               compiled-operands (compile-macro-operands operands env macro-env macro-info)]
-           (cond-> {:type     :yin/macro-expand
-                    :operator operator-ast
-                    :operands compiled-operands}
-             tail? (assoc :tail? true)))
-         ;; Native defn fallback: used only when no defmacro defn is in scope
-         ;; and the form actually matches defn syntax.
-         (and (= operator 'defn)
-              (<= 2 (count operands))
-              (vector? (second operands)))
-         (let [[fn-name params & body-forms] operands]
-           (compile-defn fn-name params body-forms env tail? macro-env))
-
-         ;; Special forms
-         :else
-         (case operator
-           ;; Lambda: (fn [params] body)
-           fn (let [[params & body] operands
-                    body-expr (if (= 1 (count body)) (first body) (cons 'do body))]
-                (compile-lambda params body-expr env tail? macro-env))
-           ;; Conditional: (if test consequent alternate?)
-           if (let [[test consequent alternate] operands]
-                (compile-if test consequent alternate env tail? macro-env))
-           ;; Let binding: (let [bindings] body)
-           let (let [[bindings & body] operands
-                     body-expr (if (= 1 (count body)) (first body) (cons 'do body))]
-                 (compile-let bindings body-expr env tail? macro-env))
-           ;; Do block: (do expr1 expr2 ...)
-           do (compile-do operands env tail? macro-env)
-           ;; Short-circuit logical: expand to if chains so unevaluated operands are never touched
-           ;; (and)       → true
-           ;; (and x)     → x
-           ;; (and x y z) → (let [g x] (if g (and y z) g))
-           and (cond
-                 (empty? operands) {:type :literal :value true}
-                 (= 1 (count operands)) (compile-form (first operands) tail? env macro-env)
-                 :else (let [g (gensym "and__")]
-                         (compile-form (list 'let [g (first operands)]
-                                             (list 'if g (cons 'and (rest operands)) g))
-                                       tail? env macro-env)))
-           ;; (or)        → nil
-           ;; (or x)      → x
-           ;; (or x y z)  → (let [g x] (if g g (or y z)))
-           or  (cond
-                 (empty? operands) {:type :literal :value nil}
-                 (= 1 (count operands)) (compile-form (first operands) tail? env macro-env)
-                 :else (let [g (gensym "or__")]
-                         (compile-form (list 'let [g (first operands)]
-                                             (list 'if g g (cons 'or (rest operands))))
-                                       tail? env macro-env)))
-           ;; Quote: (quote form)
-           quote (compile-quote (first operands) tail?)
-           ;; Def: (def sym value)
-           def (let [[sym value] operands] (compile-def sym value env tail? macro-env))
-           ;; Function application: (f arg1 arg2 ...)
-           (compile-application operator operands env tail? macro-env))))
-     ;; Unknown form type
-     :else (throw (ex-info "Cannot compile unknown form type"
-                           {:form form,
-                            :type #?(:cljd (clojure.core/str (.-runtimeType
-                                                               form))
-                                     :default (clojure.core/type form))})))))
+   (let [ast (compile-form* form tail? env macro-env)
+         m (meta form)]
+     (if (and m (seq m))
+       (with-meta ast m)
+       ast))))
 
 
 (defn compile-program

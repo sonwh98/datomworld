@@ -399,11 +399,16 @@ sweep narrows what is available:
   own content address (which collapses two admissions of identical
   batches, the case §2.5 says must stay distinct).
 
-No default is offered; the three options trade portability against
-`dao.stream.md`'s cursor rules in ways the owner has ruled on before (the
-retirement plans' "consumers never construct cursor internals"). Gates
-U15/U16 and the provenance half of U4: U4 takes `origin` as an opaque value
-and stores it verbatim, so it does not wait.
+**Ruling.** A source coordinate is `[:source medium batch-token j]`.
+`medium` is the program descriptor's `:dao.stream/identity`; the admitting
+composition mints a fresh random, plain-data `batch-token` for each new
+admission and carries it under `:yin/batch-token` beside
+`:yin/source-medium` in the §8.5 envelope. A retry of one staged, unaccepted
+append retains the token; a new admission after an accepted append mints a
+new one. The transport mints nothing and no cursor, payload hash, or expander
+counter is interpreted as occurrence identity. Bare legacy row sets retain
+U4's nil origin. U15 validates this shape and rejects arbitrary opaque
+origins before they enter provenance or side tables.
 
 ### D5 — build the expander datom-native first, or row-native [Owner: datom-native first, 2026-09-18]
 

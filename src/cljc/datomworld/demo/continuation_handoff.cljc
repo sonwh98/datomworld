@@ -89,7 +89,9 @@
    a host function that is not a primitive: it has no portable encoding
    (§7 item 2)."
   [primitives x]
-  (let [names (into {} (map (fn [[n f]] [f n])) primitives)]
+  (let [names (into {} (map (fn [[n entry]]
+                              [(vm/primitive-function entry) n]))
+                    primitives)]
     (walk/postwalk (fn [v]
                      (cond (fn? v)
                            (if-let [n (get names v)]
@@ -111,7 +113,8 @@
                                     %)]
     (if (and (map? x) (contains? x tag-key))
       (case (get x tag-key)
-        :primitive (or (get primitives (:name x))
+        :primitive (or (some-> (get primitives (:name x))
+                               vm/primitive-function)
                        (throw (ex-info "The receiver has no such primitive"
                                        {:name (:name x)})))
         :quote (decode-children (:value x))

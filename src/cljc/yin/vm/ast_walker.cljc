@@ -47,6 +47,8 @@
    id-counter     ; integer counter for unique IDs
    parked         ; parked continuations map
    primitives     ; primitive operations map
+   primitive-profiles ; portable primitive profile projection
+   primitive-canonical-names ; declared aliases for identity reverse lookup
    modules        ; module registry value
    make-stream    ; host-supplied stream constructor, or nil
    call-capacity  ; declared capacity of the FFI pair
@@ -77,6 +79,8 @@
                    (:id-counter vm)
                    (:parked vm)
                    (:primitives vm)
+                   (:primitive-profiles vm)
+                   (:primitive-canonical-names vm)
                    (:modules vm)
                    (:make-stream vm)
                    (:call-capacity vm)
@@ -800,6 +804,8 @@
    Options:
      :env           initial lexical environment
      :primitives    primitive operations map
+     :primitive-profiles published primitive profile registry
+     :primitive-canonical-names name -> canonical name for intentional aliases
      :modules       module registry value (see `yin.vm.module`)
      :make-stream   (fn [capacity] -> create outcome); no default
      :call-in       explicit inbound request handle
@@ -824,8 +830,10 @@
    (let [env (or (:env opts) {})
          base (vm/empty-state
                 (assoc (select-keys opts
-                                    [:primitives :modules :make-stream :call-in
-                                     :call-out :call-capacity])
+                                    [:primitives :primitive-profiles
+                                     :primitive-canonical-names :modules
+                                     :make-stream :call-in :call-out
+                                     :call-capacity])
                        :telemetry (:telemetry opts)
                        :vm-model :ast-walker))]
      (-> (map->ASTWalkerVM (merge base

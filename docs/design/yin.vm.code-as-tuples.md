@@ -397,6 +397,12 @@ name *where*, and each is a distinct coordinate:
   batches, or sitting at two indices of one batch have one root address
   and two source occurrences. A root address alone never identifies a
   source, and neither does a batch without its member index.
+  Here `medium` is the program medium's `:dao.stream/identity` and `batch`
+  is the admitting composition's fresh plain-data token, carried as
+  `:yin/source-medium` and `:yin/batch-token` in the batch envelope. A retry
+  of an unaccepted staged append keeps that token; a distinct admission
+  mints another. Neither coordinate is inferred from cursor internals or
+  content.
 - A **producing event** names one generated tree: the `:expand` event
   (§8.4) whose output it is. Two expansion attempts with identical output
   have one output address and two producing events. An event has two
@@ -2012,16 +2018,14 @@ seen from the migration side:
    definition. This document now states it uniformly; the implementation
    phase must not reintroduce a narrower one, and the corpus must contain
    a numeric key beside the keyword one.
-3. **Complete occurrence identity** (§2.5, §5.3, §8.4) — design work
-   with stated mechanisms, not yet implementable. Source origins
-   `[:source medium batch j]` must be supplied to the lowering and
-   recorded in instruction provenance and initial expansion events;
+3. **Complete occurrence identity** (§2.5, §5.3, §8.4). Source origins
+   `[:source medium batch j]` are supplied to lowering by the D4 envelope
+   and recorded in instruction provenance: `medium` is the program stream's
+   logical identity, `batch` is the composition-minted token, and `j` is the
+   member index. Initial and
    nested expansion events must carry both the declared-ref parent link
    and the parent record address, and the record must be minted after
-   the parent's. The medium identity coordinate is whatever the
-   composition names its program medium by; this document does not fix
-   its shape, and that shape must be fixed before an origin can be
-   written. The expander incarnation (§8.4.1) is a composition-minted
+   the parent's. The expander incarnation (§8.4.1) is a composition-minted
    random token, never a log-allocated id or a stream position; its
    uniqueness is the composition's warranty, discharged by the token's
    randomness, and no transactor is claimed to provide it. The

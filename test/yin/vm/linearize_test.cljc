@@ -38,6 +38,13 @@
   (assoc node :tail? true))
 
 
+(defn- throws-ex-data
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj Exception :cljs js/Error :cljd Object) e
+         (or (ex-data e) {}))))
+
+
 (defn- if-node
   [t c a]
   {:type :if, :test t, :consequent c, :alternate a})
@@ -357,7 +364,7 @@
         :var (let [s (:yin.code/name i)
                    x (cond (contains? env s) (get env s)
                            (contains? store s) (get store s)
-                           :else (get primitives s))]
+                           :else (vm/primitive-function (get primitives s)))]
                (recur (inc pc) x st env store k))
         :closure (recur (inc pc)
                         {:type :closure,
@@ -502,11 +509,43 @@
            provenance)
         "one row per pc in pc order, origin verbatim, the tree's root id")
     (is (= (count vector) (count provenance)))
-    (testing "origin defaults to nil and is stored verbatim"
+    (testing "a bare row set has no source occurrence"
       (is (nil? (nth (first (:provenance (linearize/lower-rows bc))) 1)))
-      (is (= {:batch 7}
-             (nth (first (:provenance (linearize/lower-rows bc {:batch 7})))
-                  1))))))
+      (is (= :origin
+             (:rule (throws-ex-data
+                      #(linearize/lower-rows bc {:batch 7}))))))))
+
+
+(deftest lower-rows-rejects-incomplete-source-occurrence-identities
+  (let [bc (vm/ast->semantic-bytecode worked-example)]
+    (doseq [origin [[:source :medium :batch]
+                    [:source :medium :batch -1]
+                    [:source nil :batch 0]
+                    [:source :medium nil 0]
+                    [:expansion :not-an-address]
+                    {:source :medium}]]
+      (is (= :origin
+             (:rule (throws-ex-data #(linearize/lower-rows bc origin))))
+          (pr-str origin)))))
+
+
+(deftest lower-envelope-stamps-the-selected-member-source-origin
+  (let [bc (vm/ast->semantic-bytecode worked-example)
+        other (vm/ast->semantic-bytecode {:type :literal, :value 1})
+        envelope {:yin/source-medium :medium
+                  :yin/batch-token "token"
+                  :yin/batch [other bc]
+                  :yin/root 1}
+        {:keys [vector provenance origin]} (linearize/lower-envelope envelope)]
+    (is (= [:source :medium "token" 1] origin))
+    (is (= (:vector (linearize/lower-rows bc)) vector)
+        "occurrence identity never changes the lowered content")
+    (is (= (count vector) (count provenance)))
+    (is (every? #(= [origin (:root bc)] [(nth % 1) (nth % 2)]) provenance)
+        "every pc maps back to the admitted member's occurrence")
+    (is (= :batch-envelope
+           (:rule (throws-ex-data
+                    #(linearize/lower-envelope (assoc envelope :yin/root 2))))))))
 
 
 (defn- path-row

@@ -120,39 +120,165 @@
   ([x y & more] (reduce checked-divide (checked-divide x y) more)))
 
 
+(defn primitive-profile
+  "Build UCF §7.5.2's published profile record for `name`.
+
+   The address covers the name and all four semantic declarations. The name
+   remains the registry key rather than being duplicated in the returned
+   record. Profile values contain no host function objects and are therefore
+   ordinary portable data."
+  [name class arities effects host-state]
+  (let [description {:yin.k/name name,
+                     :yin.k/class class,
+                     :yin.k/arities (vec arities),
+                     :yin.k/effects (set effects),
+                     :yin.k/host-state host-state}]
+    {:yin.k/profile (keyword "yin.k.pp"
+                             (str "sha256-" (jing/content-hash description))),
+     :yin.k/class class,
+     :yin.k/arities (vec arities),
+     :yin.k/effects (set effects),
+     :yin.k/host-state host-state}))
+
+
+(defn primitive-function
+  "Return the executable value published by a primitive registry entry.
+
+   Bare entries remain supported for composition-supplied legacy registries."
+  [entry]
+  (if (and (map? entry) (contains? entry :yin.k/function))
+    (:yin.k/function entry)
+    entry))
+
+
+(defn- primitive-entry
+  [name function class arities effects]
+  (assoc (primitive-profile name class arities effects :none)
+         :yin.k/function function))
+
+
 (def primitives
-  {'+ +,
-   '- -,
-   '* *,
-   '/ checked-divide,
-   '= =,
-   '== =,
-   '!= not=,
-   '< <,
-   '> >,
-   '<= <=,
-   '>= >=,
-   'not not,
-   'nil? nil?,
-   'empty? empty?,
-   'first first,
-   'rest (fn [a] (vec (rest a))), ; clojure.core/rest returns a lazy seq;
-   ;; vec coerces to vector so conj appends rather than prepends
-   'conj conj,
-   'assoc assoc,
-   'get get,
-   'vec vec,
-   'bytes->str #?(:clj (fn
-                         ([b] (String. ^bytes b "UTF-8"))
-                         ([b enc] (String. ^bytes b ^String enc)))
-                  :cljs (fn [b] (.apply js/String.fromCharCode nil b))
-                  :cljd (fn [b] (dart:core/String.fromCharCodes b))),
-   ;; Definition primitive - returns an effect
-   'yin/def (fn [k v] {:effect :vm/store-put, :key k, :val v}),
-   ;; Module loading primitive - returns an effect dispatched to the host
-   'require (fn [spec]
-              (let [ns-sym (if (vector? spec) (first spec) spec)]
-                {:effect :module/require, :module ns-sym}))})
+  "The standard executable primitive registry, published with UCF §7.5.2
+   profiles. `:yin.k/function` is host-local; the five profile keys are the
+   portable publication. `:variadic` means the greatest listed fixed arity
+   extends to further arguments."
+  (let [pure (fn [name function arities]
+               [name (primitive-entry name function :pure arities #{})])]
+    (into {}
+          [(pure '+ + [0 1 2 :variadic])
+           (pure '- - [1 2 :variadic])
+           (pure '* * [0 1 2 :variadic])
+           (pure '/ checked-divide [1 2 :variadic])
+           (pure '= = [0 1 2 :variadic])
+           (pure '== = [0 1 2 :variadic])
+           (pure '!= not= [1 2 :variadic])
+           (pure '< < [1 2 :variadic])
+           (pure '> > [1 2 :variadic])
+           (pure '<= <= [1 2 :variadic])
+           (pure '>= >= [1 2 :variadic])
+           (pure 'not not [1])
+           (pure 'nil? nil? [1])
+           (pure 'empty? empty? [1])
+           (pure 'first first [1])
+           (pure 'rest (fn [a] (vec (rest a))) [1])
+           (pure 'conj conj [1 2 :variadic])
+           (pure 'assoc assoc [3 :variadic])
+           (pure 'get get [2 3])
+           (pure 'vec vec [1])
+           (pure 'bytes->str
+                 #?(:clj (fn
+                           ([b] (String. ^bytes b "UTF-8"))
+                           ([b enc] (String. ^bytes b ^String enc)))
+                    :cljs (fn [b] (.apply js/String.fromCharCode nil b))
+                    :cljd (fn [b] (dart:core/String.fromCharCodes b)))
+                 [1 2])
+           ['yin/def (primitive-entry
+                       'yin/def
+                       (fn [k v] {:effect :vm/store-put, :key k, :val v})
+                       :effectful [2] #{:vm/store-put})]
+           ['require (primitive-entry
+                       'require
+                       (fn [spec]
+                         (let [ns-sym (if (vector? spec) (first spec) spec)]
+                           {:effect :module/require, :module ns-sym}))
+                       :effectful [1] #{:module/require})]])))
+
+
+(def ^:private primitive-profile-keys
+  [:yin.k/profile :yin.k/class :yin.k/arities :yin.k/effects
+   :yin.k/host-state])
+
+
+(def primitive-profiles
+  "Portable projection of the standard registry, retained as a convenience."
+  (into {} (map (fn [[name entry]]
+                  [name (select-keys entry primitive-profile-keys)]))
+        primitives))
+
+
+(def primitive-canonical-names
+  "Canonical-name declarations for intentional aliases in `primitives`.
+
+   The table is name -> canonical name, not function -> name, so it remains
+   plain portable data. `=` and `==` intentionally share one host function."
+  {'== '=})
+
+
+(defn profile-of
+  "Return `name`'s published profile from a registry, or nil."
+  [registry name]
+  (when-let [entry (get registry name)]
+    (when (and (map? entry) (contains? entry :yin.k/profile))
+      (select-keys entry primitive-profile-keys))))
+
+
+(defn name-of
+  "Reverse-look up `primitive` by host-object identity.
+
+   Returns nil when unnamed, `::ambiguous` when several names remain after
+   applying `canonical-names`, or the one resolved name. The two-argument
+   form declares no aliases."
+  ([primitive-map primitive]
+   (name-of primitive-map {} primitive))
+  ([primitive-map canonical-names primitive]
+   (let [names (->> primitive-map
+                    (keep (fn [[name entry]]
+                            (when (identical? (primitive-function entry)
+                                              primitive)
+                              name)))
+                    (sort-by str)
+                    vec)]
+     (case (count names)
+       0 nil
+       1 (first names)
+       (let [resolved (set (map #(get canonical-names % %) names))]
+         (if (and (= 1 (count resolved))
+                  (contains? (set names) (first resolved)))
+           (first resolved)
+           ::ambiguous))))))
+
+
+(defn assert-primitive-reverse-lookup-unique!
+  "Assert UCF §7.5.2 reverse-lookup uniqueness for an installed primitive map.
+
+   Intentional aliases must resolve directly to one name through
+   `canonical-names`. Returns the primitive map for convenient composition."
+  [primitive-map canonical-names]
+  (doseq [[_ entry] primitive-map
+          :let [primitive (primitive-function entry)]
+          :when (fn? primitive)
+          :when (= ::ambiguous (name-of primitive-map canonical-names primitive))]
+    (let [names (->> primitive-map
+                     (keep (fn [[name candidate]]
+                             (when (identical? (primitive-function candidate)
+                                               primitive)
+                               name)))
+                     (sort-by str)
+                     vec)]
+      (throw (ex-info "Primitive reverse lookup is ambiguous"
+                      {:rule :ambiguous-primitive,
+                       :names names}))))
+  primitive-map)
 
 
 (def call-in-stream-key
@@ -604,6 +730,41 @@
            (plain-data? (meta x)))))
 
 
+(defn occurrence-origin?
+  "True when `origin` has one of §2.5's portable ruled shapes. `nil` is not
+   an occurrence; it is accepted separately by the legacy bare-row lane.
+
+   A source origin is `[:source medium batch-token member-index]`. Medium and
+   token are opaque non-nil plain data supplied by the admitting composition,
+   and the member index is a non-negative integer. An expansion origin names
+   the portable content address of its expansion record."
+  [origin]
+  (and (vector? origin)
+       (case (first origin)
+         :source (and (= 4 (count origin))
+                      (some? (nth origin 1))
+                      (plain-data? (nth origin 1))
+                      (some? (nth origin 2))
+                      (plain-data? (nth origin 2))
+                      (integer? (nth origin 3))
+                      (not (neg? (nth origin 3))))
+         :expansion (and (= 2 (count origin))
+                         (jing/segment-address? (nth origin 1)))
+         false)))
+
+
+(defn source-origin
+  "Construct and validate the source occurrence coordinate owned by a batch
+   envelope. Throws with `:rule :origin` instead of allowing an incomplete
+   coordinate to enter a provenance or frontend side table."
+  [medium batch-token member-index]
+  (let [origin [:source medium batch-token member-index]]
+    (when-not (occurrence-origin? origin)
+      (throw (ex-info "Malformed source occurrence origin"
+                      {:rule :origin, :origin origin})))
+    origin))
+
+
 (defn loaded-code-floor
   "The lowest entity id claimed by the segments in a `{segment-id image}`
    code map — each segment id minus its length — or 0 when none is loaded.
@@ -782,6 +943,100 @@
            id))]
       (let [root (convert ast)]
         {:root root, :rows @rows}))))
+
+
+(def ^:private source-position-keys
+  #{:file :line :column :end-line :end-column})
+
+
+(defn- reader-position
+  [node]
+  (let [source (:yang/source-position node)
+        m (meta node)
+        value (merge (select-keys m source-position-keys)
+                     (select-keys node source-position-keys)
+                     (when (map? source) source))]
+    (when (some #(contains? value %) [:file :line :column])
+      value)))
+
+
+(defn- frontend-meta-entries
+  "Ordered `[key value]` entries attached to one Universal AST node. Yang
+   keys and non-position map metadata are node facts. Reader metadata on a
+   name or parameter is qualified by its semantic field so two parameters
+   cannot silently claim the same key at one lambda occurrence."
+  [tag node]
+  (let [slots (get semantic-bytecode-grammar tag)
+        node-meta (apply dissoc (or (meta node) {}) source-position-keys)
+        yang (for [[k v] node
+                   :when (and (= "yang" (namespace k))
+                              (not= :yang/source-position k))]
+               [k v])
+        own (concat yang
+                    (sort-by (comp pr-str key) node-meta))
+        names (mapcat
+                (fn [[field kind]]
+                  (let [value (get node field)]
+                    (case kind
+                      :sym (for [[k v] (sort-by (comp pr-str key)
+                                                (apply dissoc (or (meta value) {})
+                                                       source-position-keys))]
+                             [[field k] v])
+                      :syms (mapcat
+                              (fn [i sym]
+                                (for [[k v] (sort-by (comp pr-str key)
+                                                     (apply dissoc (or (meta sym) {})
+                                                            source-position-keys))]
+                                  [[field i k] v]))
+                              (range) value)
+                      nil)))
+                slots)]
+    (concat own names)))
+
+
+(defn ast-side-tables
+  "Project occurrence-owned frontend facts from a map AST without putting
+   them in canonical rows. Returns the §2.5 relations
+   `{:source-positions [[origin root path file line col] ...]
+     :frontend-metadata [[origin root path key value] ...]}`.
+
+   `bc` must be the projection of `ast`; its root makes both relations join
+   the canonical row and occurrence relations. Structural paths use the same
+   row positions as `occurrences` and lowering."
+  [ast bc origin]
+  (when-not (occurrence-origin? origin)
+    (throw (ex-info "Side tables require a ruled occurrence origin"
+                    {:rule :origin, :origin origin})))
+  (let [root (:root bc)
+        positions (atom [])
+        metadata (atom [])]
+    (letfn [(visit
+              [node path]
+              (let [tag (:type node)
+                    slots (or (get semantic-bytecode-grammar tag)
+                              (throw (ex-info "Unknown AST node type"
+                                              {:type tag, :node node})))
+                    position (reader-position node)]
+                (when position
+                  (swap! positions conj
+                         [origin root path (:file position) (:line position)
+                          (:column position)]))
+                (doseq [[k v] (frontend-meta-entries tag node)]
+                  (when-not (and (plain-data? k) (plain-data? v))
+                    (throw (ex-info "Frontend metadata is not plain data"
+                                    {:rule :frontend-metadata, :path path,
+                                     :key k, :value v})))
+                  (swap! metadata conj [origin root path k v]))
+                (doseq [[j [field kind]] (map-indexed vector slots)
+                        :let [pos (+ j 2)
+                              value (get node field)]]
+                  (case kind
+                    :node (visit value (conj path pos))
+                    :nodes (doseq [[i child] (map-indexed vector value)]
+                             (visit child (conj path [pos i])))
+                    nil))))]
+      (visit ast [])
+      {:source-positions @positions, :frontend-metadata @metadata})))
 
 
 (defn- semantic-bytecode-slot-kind-ok?
@@ -1337,6 +1592,8 @@
 
    Options:
      :primitives   primitive operations map (defaults to `primitives`)
+     :primitive-profiles published profile registry (defaults to `primitive-profiles`)
+     :primitive-canonical-names name -> canonical name for intentional aliases
      :modules      module registry value (see `yin.vm.module`)
      :make-stream  (fn [capacity] -> create outcome); no default
      :call-in      explicit inbound request handle
@@ -1357,7 +1614,34 @@
   ([] (empty-state {}))
   ([opts]
    (telemetry/reject-telemetry-opt! (:telemetry opts))
-   (let [make-stream (:make-stream opts)
+   (let [installed-primitives (or (:primitives opts) primitives)
+         installed-profiles (or (:primitive-profiles opts)
+                                (into {} (keep (fn [[name _]]
+                                                 (when-let [profile
+                                                            (profile-of
+                                                              installed-primitives
+                                                              name)]
+                                                   [name profile])))
+                                      installed-primitives))
+         standard-aliases (into {}
+                                (filter
+                                  (fn [[alias canonical]]
+                                    (and (identical?
+                                           (primitive-function
+                                             (get installed-primitives alias))
+                                           (primitive-function
+                                             (get primitives alias)))
+                                         (identical?
+                                           (primitive-function
+                                             (get installed-primitives canonical))
+                                           (primitive-function
+                                             (get primitives canonical))))))
+                                primitive-canonical-names)
+         canonical-names (merge standard-aliases
+                                (:primitive-canonical-names opts))
+         _ (assert-primitive-reverse-lookup-unique! installed-primitives
+                                                    canonical-names)
+         make-stream (:make-stream opts)
          capacity (or (:call-capacity opts) default-call-capacity)
          supplied-in (:call-in opts)
          supplied-out (:call-out opts)]
@@ -1405,7 +1689,9 @@
         :id-counter 0,
         :ready-queue [],
         :wait-set [],
-        :primitives (or (:primitives opts) primitives),
+        :primitives installed-primitives,
+        :primitive-profiles installed-profiles,
+        :primitive-canonical-names canonical-names,
         :modules (:modules opts),
         :make-stream make-stream,
         :call-capacity capacity,
