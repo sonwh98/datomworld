@@ -867,13 +867,16 @@ carries the state:
   `max(local, carried)` so generated ids never repeat, and ids already
   minted (gensym results in env, stack, or store) travel as ordinary values,
   unaffected by the counter.
-- **Referenced parked records travel or the lift refuses.** The fixed point
-  of §7.6.1 collects every `:resume` operand in reachable code; each must
-  resolve within this task — to a parked record carried under
-  `:yin.k/scheduler :yin.k/parked {pid → frame}` — or the lift is refused
-  (`:yin.k/non-portable`, kind `:foreign-parked-ref`). Parked records not
-  named by reachable code do not travel; a record named by *another* task's
-  code is another task's state and is never silently seized.
+- **Referenced parked records travel.** The fixed point
+  of §7.6.1 collects every `:resume` operand in reachable code and every
+  `[:parked id]` value from reachable environments. Each must resolve
+  within this task to a parked record carried under
+  `:yin.k/scheduler :yin.k/parked {pid → frame}`. A missing id referenced
+  as a code operand is reported as an unsupplied requirement
+  (`:yin.k/unsatisfied`). A missing id referenced by an active value
+  refuses the lift (`:yin.k/non-portable`, kind `:foreign-parked-ref`),
+  as it represents corrupted state. Parked records not named by the
+  reachable graph do not travel.
 
 ### 7.6.4 Modules
 

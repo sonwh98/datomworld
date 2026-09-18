@@ -364,18 +364,15 @@ profile of each pulled cursor-entry's `:cursor` (supplied by the caller's
 8. A `:store-get` of an FFI pair key → refusal `:ffi-pair-key`.
 9. Step 4's verification pass is unchanged on every fixture above.
 
-## 12. Open questions for the owner
+## 12. Design Rulings (Mob Consensus 2026-09-18)
 
-1. **Missing parked id — refuse or report?** UCF §7.6.3 says the lift is refused
-   (`:yin.k/non-portable`, `:foreign-parked-ref`); `yin.vm.code-as-tuples.md`
-   §7.7.3 says `:yin.k/unsatisfied` naming the id. This design reports it under
-   `:missing :parked` and `:incomplete`, leaving the refusal to the lift. One of
-   the two documents should be amended to match.
-2. **Context drops binding names and collection shape** (§4). Sound and coarser;
-   confirm this is the intended "finite abstraction", or require name-keyed contexts.
-3. **Segment-side scoping is layout-dependent** (§5.1.1). Confirm that binding
-   the range rule to the `"ast-to-bytecode"` lowering profile, with all-free as the
-   fallback for other profiles, is acceptable.
-4. **U13 interface** (§6): `profile-of` / `name-of` are the two functions U14
-   consumes; U13's registry format should be written against them.
-5. **`:store-named` keys** (absent-from-store operands) do not travel; confirm.
+1. **Missing parked id — Modify (split by where the reference lives):**
+   A `:resume` pid **in code** is an unsatisfied requirement the emitter cannot supply, not an encoding failure. It maps to `:missing :parked` and `:incomplete`. UCF §7.6.3 must be amended to report this. However, a value-side `[:parked id]` abstract value whose pid is absent represents corrupted state and emits a `:foreign-parked-ref` refusal (halting the lift before encoding). `code-as-tuples.md` and UCF must be amended to match this split.
+2. **Context drops binding names and collection shape — Agree:**
+   Accepted. Both models confirmed that environments never discharge names, so dropping them is mathematically sound, preserves invariants, and prevents state space explosion.
+3. **Segment-side scoping is layout-dependent — Agree (with test obligation):**
+   Accepted. Derives from the `"ast-to-bytecode"` contiguous layout, with "all-free" as the conservative fallback for unknown profiles. (Architectural note: the §11.1 conformance corpus must include nested lambdas and sibling closures in one segment to explicitly guard this layout assumption).
+4. **U13 interface — Modify (needs modules and alias tie-breaker):**
+   Incomplete. U14 consumes `profile-of` and `name-of`, but §6 also consumes a **module** registry lookup. U13 must own this (e.g., `module-of`) or §6 must name its real owner. Furthermore, `name-of` must have a deterministic tie-breaker (e.g., lexicographically least) for aliases to guarantee portability.
+5. **`:store-named` keys do not travel — Agree:**
+   Accepted. Keys absent from the store do not enter the slice, mirroring the isolated resumer's `nil` response. This is behavior-preserving and saves payload space. (Note: this relies on the absence of a `contains?`-style store op).

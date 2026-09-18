@@ -1398,8 +1398,11 @@ and the iteration terminates.
   once per address; every newly discovered `[address context]` pair is
   analyzed, whether or not the address was seen before.
 - **Parked ids.** Each extracted parked id must name a record in the
-  carried `:parked` slice (UCF §7.6.3); a missing one is `:yin.k/unsatisfied`
-  naming the id.
+  carried `:parked` slice (UCF §7.6.3). A missing pid referenced as a
+  code operand is `:yin.k/unsatisfied` naming the id (an unsupplied
+  requirement). A missing pid referenced by an active value (e.g., a
+  captured parked continuation) refuses the lift (`:yin.k/non-portable`,
+  `:foreign-parked-ref`), as it represents an unresolvable graph cycle.
 - **Values.** Closures, streams, and cursors reachable from the frame, the
   K frames, parked records, the store slice, and the pending wait
   contribute work items and stream identities as §7.6.1 specifies; a
