@@ -101,9 +101,11 @@
 
 
 (def telemetry-text
-  (str "Telemetry is not part of the DaoStream v2 REPL slice; v2 telemetry is "
-       "owed to its own plan (yin.vm.telemetry.implementation-plan.md, "
-       "not yet written)"))
+  (str "(telemetry) is not wired into this shell: the v2 emit path is built "
+       "(yin.vm.telemetry, opt-in via the :telemetry {:stream ...} "
+       "construction option — yin.vm.telemetry.implementation-plan.md), but "
+       "composing a sink into this shell is not, so the command reports "
+       "rather than evaluates"))
 
 
 (def ingress-loss-text

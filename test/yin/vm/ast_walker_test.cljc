@@ -12,7 +12,7 @@
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.test-utils :as tu :refer [compile-and-run create-vm
-                                                 queue-ast!]]))
+                                              queue-ast!]]))
 
 
 (defn- throws?
@@ -389,16 +389,9 @@
 
 (deftest telemetry-opt-is-installed-test
   (testing "A supplied telemetry stream is accepted and written at :init"
-    (let [sink (tu/new-stream 128)
+    (let [sink (tu/new-memory-log)
           vm (create-vm {:telemetry {:stream sink, :vm-id :test/telemetry}})
-          start (:dao.stream/cursor (stream/cursor sink stream/anchor-oldest))
-          drain (fn drain [cursor acc]
-                  (let [result (stream/next sink cursor)]
-                    (if (= :dao.stream/ok (:dao.stream/outcome result))
-                      (recur (:dao.stream/cursor result)
-                             (conj acc (:dao.stream/value result)))
-                      acc)))
-          datoms (drain start [])]
+          datoms (tu/drain sink)]
       (is (identical? sink (get-in vm [:telemetry :stream])))
       (is (= :test/telemetry (:vm-id vm)))
       (is (pos? (count datoms)) "construction emitted its :init snapshot")
