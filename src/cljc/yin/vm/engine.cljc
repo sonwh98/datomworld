@@ -12,8 +12,10 @@
      `blocked` and `full` park; `end` and `gap` are values the program sees;
      the rest are errors that name their outcome.
    - **Waiters are gone.** No v2 transport is waitable, so the polling wait
-     set is the mechanism rather than a fallback. Cadence comes from the
-     driver above the VM.
+     set is the mechanism rather than a fallback. A poll is a synchronous
+     `next` or `append!` on the handle in the store; no scheduler runtime
+     sits between the VM and its streams. Cadence comes from the driver
+     above the VM.
    - **`:stream/take` is gone.** Destructive read needs a reader position in
      the medium, which the contract retired.
    - **The module registry is a value** carried in VM state, so effect
@@ -24,11 +26,9 @@
      nothing in this namespace polls a program stream."
   (:refer-clojure :exclude [gensym])
   (:require [clojure.set]
-            [dao.runtime :as rt]
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.module :as module]
-            [yin.vm.runtime-adapter :as adapter]
             [yin.vm.telemetry :as telemetry]))
 
 
@@ -134,31 +134,25 @@
    Readers (with :cursor-ref) store the successor cursor the transport
    returned. Writers (no :cursor-ref) just stamp :value.
 
-   Without restore-fn the ready entry stays pure data: the `:stream` handle
-   the poll resolved is dropped — the store-updates carry the successor
-   cursor, and handles are re-resolved from ids when needed again — so an
-   entry neither waits nor runs holding a host object."
-  ([state woken] (make-woken-run-queue-entries state woken nil))
-  ([state woken restore-fn]
-   (mapv (fn [{:keys [entry value cursor], :as woken-entry}]
-           (let [cursor-ref (:cursor-ref entry)
-                 store-updates
-                 (or (:store-updates woken-entry)
-                     (when (and cursor-ref cursor)
-                       (let [cursor-id (:id cursor-ref)
-                             cursor-data (get (:store state) cursor-id)]
-                         {cursor-id (assoc cursor-data :cursor cursor)})))
-                 base-entry (assoc entry
-                                   :value value
-                                   :store-updates store-updates
-                                   :cursor cursor)]
-             (if restore-fn
-               (let [task (adapter/vm-task base-entry restore-fn)]
-                 (assoc task
-                        :value value
-                        :cursor cursor))
-               (dissoc base-entry :stream))))
-         woken)))
+   The ready entry stays pure data: the `:stream` handle the poll resolved
+   is dropped — the store-updates carry the successor cursor, and handles
+   are re-resolved from ids when needed again — so an entry neither waits
+   nor runs holding a host object."
+  [state woken]
+  (mapv (fn [{:keys [entry value cursor], :as woken-entry}]
+          (let [cursor-ref (:cursor-ref entry)
+                store-updates
+                (or (:store-updates woken-entry)
+                    (when (and cursor-ref cursor)
+                      (let [cursor-id (:id cursor-ref)
+                            cursor-data (get (:store state) cursor-id)]
+                        {cursor-id (assoc cursor-data :cursor cursor)})))]
+            (dissoc (assoc entry
+                           :value value
+                           :store-updates store-updates
+                           :cursor cursor)
+                    :stream)))
+        woken))
 
 
 (defn handle-make
@@ -286,13 +280,47 @@
       entry)))
 
 
+(defn- poll-wait-entry
+  "Poll one resolved wait entry against its transport, synchronously.
+
+   Returns nil while the entry must keep waiting — `blocked` for a reader,
+   `full` for a writer, the only two outcomes that can change on their own —
+   and otherwise the ready-entry updates `{:value :status}`, plus `:cursor`
+   for a reader that moved. `end` and `gap` resolve to the values the
+   immediate path yields; any other outcome resolves under its own keyword
+   for `resume-from-run-queue` to raise. A parked writer retries by
+   appending: the append is an effect of this poll. An entry with no known
+   `:reason` keeps waiting."
+  [entry]
+  (case (:reason entry)
+    :next (let [result (stream/next (:stream entry) (:cursor entry))
+                o (outcome result)]
+            (case o
+              :dao.stream/ok {:value (:dao.stream/value result),
+                              :status :ok,
+                              :cursor (:dao.stream/cursor result)}
+              :dao.stream/blocked nil
+              :dao.stream/end {:value nil, :status :end}
+              :dao.stream/gap {:value :dao.stream/gap,
+                               :status :dao.stream/gap,
+                               :cursor (:dao.stream/cursor result)}
+              {:value o, :status o}))
+    :put (let [o (outcome (stream/append! (:stream entry) (:datom entry)))]
+           (case o
+             :dao.stream/ok {:value (:datom entry), :status :ok}
+             :dao.stream/full nil
+             {:value o, :status o}))
+    nil))
+
+
 (defn check-wait-set
   "Check wait-set entries against their transports.
 
    Every entry is resolved to a live handle and an opaque cursor out of the
-   store before `dao.runtime` polls it — resolution happens per poll, so
-   the stored entry itself never carries a handle. There is no
-   transport-local waking to fall back from: this is the only mechanism.
+   store and polled with a synchronous `next` or `append!` — resolution
+   happens per poll, so the stored entry itself never carries a handle.
+   There is no transport-local waking to fall back from: this is the only
+   mechanism.
 
    Entries are polled one at a time in wait-set order, and a woken reader's
    successor cursor is written back to the store before the next entry is
@@ -301,63 +329,85 @@
    of every waiter reading the value at the shared pre-poll cursor. An entry
    that stays waiting is retained in its stored, resource-id form; the
    resolved copy was for this poll only."
-  ([state] (check-wait-set state nil))
-  ([state restore-fn]
-   (let [wait-set (:wait-set state)]
-     (if (empty? wait-set)
-       state
-       (loop [remaining wait-set
-              v (assoc state :wait-set [])
-              woken []]
-         (if (empty? remaining)
-           (let [new-tasks (make-woken-run-queue-entries v woken restore-fn)]
-             (update v :ready-queue (fnil into []) new-tasks))
-           (let [entry (first remaining)
-                 augmented (augment-wait-entry (:store v) entry)
-                 ;; A singleton wait set makes the outcome below belong to
-                 ;; this entry alone.
-                 polled (rt/check-wait-set (assoc v
-                                                  :wait-set [augmented]
-                                                  :ready-queue []))
-                 raw (first (:ready-queue polled))
-                 ;; A woken reader's successor is stored before later entries
-                 ;; resolve, so a shared cursor-ref advances within the round.
-                 advance (when (and raw (:cursor-ref raw) (:cursor raw))
-                           {(:id (:cursor-ref raw))
-                            (assoc (get (:store polled) (:id (:cursor-ref raw)))
-                                   :cursor (:cursor raw))})]
-             (recur (rest remaining)
-                    (assoc polled
-                           :store (merge (:store polled) advance)
-                           :wait-set (into (:wait-set v)
-                                           (if raw (:wait-set polled) [entry]))
-                           :ready-queue (:ready-queue v))
-                    (if raw
-                      (conj woken {:entry raw,
-                                   :value (:value raw),
-                                   :cursor (:cursor raw),
-                                   :store-updates (:store-updates raw)})
-                      woken)))))))))
+  [state]
+  (let [wait-set (:wait-set state)]
+    (if (empty? wait-set)
+      state
+      (loop [remaining wait-set
+             store (:store state)
+             waiting []
+             woken []]
+        (if (empty? remaining)
+          (let [v (assoc state
+                         :store store
+                         :wait-set waiting)]
+            (update v
+                    :ready-queue (fnil into [])
+                    (make-woken-run-queue-entries v woken)))
+          (let [entry (first remaining)
+                augmented (augment-wait-entry store entry)]
+            (if-let [updates (poll-wait-entry augmented)]
+              (let [raw (merge augmented updates)
+                    cursor-id (:id (:cursor-ref raw))
+                    ;; A woken reader's successor is stored before later
+                    ;; entries resolve, so a shared cursor-ref advances
+                    ;; within the round.
+                    store (if (and cursor-id (:cursor raw))
+                            (assoc store
+                                   cursor-id
+                                   (assoc (get store cursor-id)
+                                          :cursor (:cursor raw)))
+                            store)]
+                (recur (rest remaining)
+                       store
+                       waiting
+                       (conj woken {:entry raw,
+                                    :value (:value raw),
+                                    :cursor (:cursor raw),
+                                    :store-updates (:store-updates raw)})))
+              (recur (rest remaining) store (conj waiting entry) woken))))))))
 
 
 (declare handle-effect resume-continuation)
 
 
 (defn run-loop
-  "Generic eval loop with scheduler support."
-  [state active? step-fn resume-fn restore-fn]
+  "Generic eval loop with scheduler support. Ready entries are pure data;
+   `resume-fn` pops and restores them."
+  [state active? step-fn resume-fn]
   (loop [v state]
     (let [q (or (:ready-queue v) [])]
       (cond (active? v) (recur (step-fn v))
-            (:blocked? v) (let [v' (check-wait-set v restore-fn)]
-                            (if-let [resumed (or (rt/run-once v')
-                                                 (resume-fn v'))]
+            (:blocked? v) (let [v' (check-wait-set v)]
+                            (if-let [resumed (resume-fn v')]
                               (recur resumed)
                               (telemetry/emit-snapshot v' :blocked)))
-            (seq q) (if-let [resumed (or (rt/run-once v) (resume-fn v))]
+            (seq q) (if-let [resumed (resume-fn v)]
                       (recur resumed)
                       v)
             :else (if (:halted? v) (telemetry/emit-snapshot v :halt) v)))))
+
+
+(defn- terminal-resume-outcome
+  "The outcome a woken entry resolved with, when it is one the immediate
+   path raises as an error. `handle-put` and `handle-next` throw for every
+   outcome outside ok/end/gap, and whether the first attempt blocked must not
+   change that. An entry that was never polled carries no status."
+  [entry]
+  (when (#{:next :put} (:reason entry))
+    (let [status (:status entry)]
+      (when-not (contains? #{nil :ok :end :dao.stream/gap} status) status))))
+
+
+(defn- throw-terminal-resume!
+  "Fail a resumed entry exactly as the immediate operation would have."
+  [entry o]
+  (if (= :next (:reason entry))
+    (fail "Stream read failed"
+          {:outcome o,
+           :stream-id (:stream-id entry),
+           :cursor-id (:id (:cursor-ref entry))})
+    (fail "Stream append failed" {:outcome o, :stream-id (:stream-id entry)})))
 
 
 (defn resume-from-run-queue
@@ -379,9 +429,8 @@
                         :store (merge (:store state) (:store-updates entry))
                         :blocked? false
                         :halted? false)]
-        (if-let [terminal (adapter/terminal-resume-outcome
-                            entry (:status entry))]
-          (adapter/throw-terminal-resume! entry terminal)
+        (if-let [terminal (terminal-resume-outcome entry)]
+          (throw-terminal-resume! entry terminal)
           (restore-fn base entry))))))
 
 
@@ -426,7 +475,7 @@
                     (fail "Parked entry required for blocking stream"
                           {:result result}))
           new-state (-> (:state result)
-                        (rt/park-task entry)
+                        (update :wait-set (fnil conj []) entry)
                         (assoc :value :yin/blocked
                                :blocked? true
                                :halted? false))]

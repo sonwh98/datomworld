@@ -1,0 +1,36 @@
+I've refactored `src/cljc/yin/vm/engine.cljc` so it no longer requires `dao.runtime` or `yin.vm.runtime-adapter`. The full JVM suite passes (`clj -M:test`: 1395 tests, 167,494 assertions, 0 failures, 0 errors). I couldn't run the CLJS tests or clj-kondo because this session wasn't allowed to run those commands. Nothing is committed or staged.
+
+## What changed
+
+**`src/cljc/yin/vm/engine.cljc`**
+
+| Where the engine used the old runtime | What it does now |
+|---|---|
+| `rt/check-wait-set` was called with a one-entry wait set per entry | A new private `poll-wait-entry` calls `stream/next` (readers) or `stream/append!` (writers) directly on the handle in the store. It returns `nil` if the entry should keep waiting (`blocked` or `full`), otherwise the value and status to resume with. |
+| `rt/run-once` in `run-loop` ran ready entries that carried a `:resume` function | Removed. Every ready entry is now plain data and is resumed through `resume-fn`. |
+| `rt/park-task` in `handle-stream-block` | Replaced with `(update :wait-set (fnil conj []) entry)`, which is exactly what `park-task` did. |
+| `adapter/vm-task` in `make-woken-run-queue-entries` wrapped woken entries in a resume function | Removed, along with the `restore-fn` argument. Woken entries always drop `:stream` and stay plain data. |
+| `adapter/terminal-resume-outcome` and `adapter/throw-terminal-resume!` | Moved into the engine as private functions. They raise the same "Stream read failed" / "Stream append failed" errors as `handle-next` and `handle-put`. |
+
+`check-wait-set` still polls one entry at a time, in order, and saves a woken reader's new cursor before polling the next entry. So waiters that share a cursor still read different values, and waiters that keep waiting are stored without a live handle.
+
+**Signature changes and their callers**
+- `run-loop` went from `[state active? step-fn resume-fn restore-fn]` to `[state active? step-fn resume-fn]`.
+- `check-wait-set` now takes only `[state]`.
+- `make-woken-run-queue-entries` now takes only `[state woken]`.
+- `ast_walker.cljc` and `semantic.cljc` were updated to match. `semantic.cljc` was already passing `nil` for `restore-fn`, and I adjusted its docstring.
+
+## Decisions
+
+1. **"Synchronous/transducer topology" is my interpretation.** I read it as: the VM polls v2 streams directly, with no scheduler layer or resume closures in between. I didn't add any transducers, and the brief doesn't define the term. If you meant something more specific, this will need another pass.
+2. **Error handling is slightly stricter.** Before, a woken reader that got an outcome outside the known set was handed to Yin code as an ordinary value. Now it throws, the same way `handle-next` does when there's no wait. A writer resuming on a closed stream is now tagged `:dao.stream/closed` directly instead of `:end`; the error it throws is unchanged.
+3. **The AST walker now resumes woken entries the same way the semantic VM does.** Before, it passed `ast-walker-restore` down, so woken entries became resume functions run by the old scheduler. Now they are resumed through `resume-from-run-queue`, which does the same steps: apply store updates, check for a failure outcome, then restore.
+4. **I didn't delete anything outside the engine.**
+   - `yin.vm.runtime-adapter` now has no users except its own test, so it can be deleted.
+   - `dao.runtime` is still used by the host drivers under `src/{clj,cljs,cljd}/dao/runtime/`.
+   - Removing either is a separate, broader change.
+
+## Still to verify
+- CLJS: `bin/run-cljs-tests.sh`
+- Lint: `clj-kondo --lint src/cljc/yin/vm/{engine,ast_walker,semantic}.cljc`
+- The ClojureDart build is untested. The change uses only portable Clojure plus `dao.stream`.

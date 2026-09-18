@@ -487,15 +487,13 @@
    loop. `ffi/maybe-run` wraps this for bridge dispatch, and `vm/run` stops
    here — no program stream is polled.
 
-   No restore function is handed down: woken entries stay pure data and are
-   resumed explicitly through `resume-from-run-queue`, which dispatches the
+   Woken entries stay pure data and are resumed explicitly through `resume-from-run-queue`, which dispatches the
    terminal-outcome check and the machine's restore itself."
   [vm]
   (engine/run-loop vm
                    engine/active-continuation?
                    (fn [v] (vm-hot v nil))
-                   resume-from-run-queue
-                   nil))
+                   resume-from-run-queue))
 
 
 ;; =============================================================================

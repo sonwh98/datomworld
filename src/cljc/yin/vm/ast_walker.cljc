@@ -755,8 +755,7 @@
   (engine/run-loop vm
                    engine/active-continuation?
                    vm-step
-                   resume-from-run-queue
-                   ast-walker-restore))
+                   resume-from-run-queue))
 
 
 (defn- vm-eval
