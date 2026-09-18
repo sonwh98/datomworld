@@ -317,6 +317,10 @@ responding.
 > below are canonical and pre-verified. Document the exact tool call here and invoke delegates directly,
 > capturing output into the appropriate `collab/` artifacts.
 
+> [!IMPORTANT]
+> **AGY Backgrounding and Parallel Execution**:
+> AGY orchestrators must **never** use `&` to background shell commands when dispatching delegates. The AGY `run_command` tool natively handles long-running processes by converting them into system background tasks and proactively waking the orchestrator upon completion. Appending `&` forces an immediate `exit 0`, which short-circuits the native task tracker and requires writing manual polling loops. Launch commands normally (without `&`) and let the system handle parallel execution and notifications. If the raw OS PID is needed for host tools (e.g. `keep-awake`), use `pgrep -f` after launching.
+
 Prompts contain authorized paths, not source text. Headless plan agents must be told to produce the complete
 deliverable without waiting for a human. Never use AGY `invoke_subagent` to delegate; always shell out to the
 listed CLIs.
