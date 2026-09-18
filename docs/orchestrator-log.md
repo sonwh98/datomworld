@@ -5485,3 +5485,14 @@ Decisions: All 6 of Opus's architectural choices (e.g. scoping gensyms per invoc
 Verification: Ran `bb test:clj` (1381 tests, 0 failures), `bb test:cljs` (1301 tests, 0 failures), and `bb test:cljd` (All tests passed). GLM-5.3 issued full architectural SIGN OFF.
 Delegates: `claude-opus-5` (Session: c5298aac-5af8-4493-b868-056bbab95c91) for implementation; `glm-5.3` (Session: 9b51ee25-0ee6-4785-bb99-8263ab137791) for architectural review.
 Next: Stage and commit the u16-macro-expander worktree, then merge to dao.stream-redesign-v2. Phase 2 (Macro Expansion Frontend/Encoder) is up next.
+
+## 2026-09-18 - U16 Phase 2 (REPL & Builds) Completion
+
+- **Delegation**: Opus (`claude-opus-5`) implemented Phase 2 in the `u16-phase2-encoder` worktree.
+- **Architectural Review**: DeepSeek (`deepseek-v4-pro`) performed the architectural review against `docs/design/yin.vm.macro.md` taking advantage of off-peak hours and cache discounts.
+- **Outcome**: DeepSeek approved the 4 implementation decisions made by Opus. It correctly verified that macro definitions are dropped by projection, standard forms seed correctly, and that evaluator macros are completely eradicated. DeepSeek requested a minor doc cleanup regarding the historical `:yin/macro-expand` nodes.
+- **Orchestrator Actions**:
+  - Validated tests across JVM, Node (CLJS), and Dart (CLJD) via `task-2892`.
+  - Executed DeepSeek's doc cleanup (Decision 5), striking out `:yin/macro-expand` from `ast.md`, `yin.repl.md`, and `yin-defmacro.md`.
+  - Fast-forward merged the worktree into `dao.stream-redesign-v2`.
+- **Status**: **U16 is completely closed**. The `yin.vm.code-as-tuples` migration is functionally complete.
