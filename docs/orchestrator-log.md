@@ -5474,3 +5474,14 @@ Next: Phase 1 U5 and U6.
 - **U11:** Observer Row Lane implemented by `glm-5.3`. Encoder observer decoupled per Architect. Reviewed by `gpt-5.6-sol` and committed. **PHASE 2 COMPLETE.**
 - **U16 (Architecture):** Rewrote `yin.vm.macro.md` from Datoms to Tuples/Rows per Owner D5 Override. Written by `gpt-5.6-sol`, Architect-approved by `claude-fable-5-1`, and committed.
 - **U14 Design Round:** Dependency completion fixed-point data structures designed by `claude-fable-5-1` and initially committed. Then, the 5 open questions were answered by an independent architectural team mob (`gemini-3.1-pro-high`, `claude-fable-5-1`, `glm-5.3`). The consensus rulings were officially applied to the design doc, and `code-as-tuples.md` / UCF were amended to reflect the split ruling on missing parked ids.
+
+## 2026-09-18 16:45:00 +07:00 — U16 Phase 1 Macro Expander
+Completed-GMT: 2026-09-18 09:45:00
+Coding-Agent: interactive
+Session-ID: not-applicable
+Tree: u16-macro-expander@uncommitted, uncommitted changes: docs/design/yin.vm.macro.md, src/cljc/yin/vm/macro.cljc, test/yin/vm/macro_test.cljc
+Done: Implemented Phase 1 Macro Expander (`macro.cljc`) passing all tests and amended design docs (`yin.vm.macro.md`) to clarify post-harvest scoping, event path boundaries, and admission rules.
+Decisions: All 6 of Opus's architectural choices (e.g. scoping gensyms per invocation, logging source occurrences after rewrite) were evaluated by GLM and accepted. GLM hallucinated a defect (F1) in `apply merge` which did not exist; Opus's `merge-indexes` with `same-value?` and the `:address-conflict` test were found flawless upon manual review.
+Verification: Ran `bb test:clj` (1381 tests, 0 failures), `bb test:cljs` (1301 tests, 0 failures), and `bb test:cljd` (All tests passed). GLM-5.3 issued full architectural SIGN OFF.
+Delegates: `claude-opus-5` (Session: c5298aac-5af8-4493-b868-056bbab95c91) for implementation; `glm-5.3` (Session: 9b51ee25-0ee6-4785-bb99-8263ab137791) for architectural review.
+Next: Stage and commit the u16-macro-expander worktree, then merge to dao.stream-redesign-v2. Phase 2 (Macro Expansion Frontend/Encoder) is up next.
