@@ -5515,3 +5515,8 @@ Next: Stage and commit the u16-macro-expander worktree, then merge to dao.stream
 
 - **Execution**: DeepSeek V4-Pro (Architect)
 - **Outcome**: Successfully drafted `docs/design/dao.lease.implementation-plan.md` in 4 phases. Cleanly established the judge as a pure `forward-step` function threading an immutable ledger, and the tick stream as a composition-supplied cursor. The plan is merged (`1e1c91ce`) and ready for Phase 1 coding.
+
+## 2026-09-18 - Fix CLJD REPL Bug (yang.python/php literal parsers)
+
+- **Execution**: Claude Opus-5 (Implementer)
+- **Outcome**: The agent discovered that the `yin.repl.core-test` failure on ClojureDart had absolutely nothing to do with the `dao.runtime` refactor. It was actually caused by a missing `:cljd` reader conditional branch for number parsing in `yang.python.cljc` and `yang.php.cljc`, which caused all Python/PHP numbers to evaluate to `nil` in Dart. The branches were added, and all 1,274 CLJD tests now pass. Merged (`ea11af3d`).
