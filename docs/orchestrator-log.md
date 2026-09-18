@@ -5496,3 +5496,11 @@ Next: Stage and commit the u16-macro-expander worktree, then merge to dao.stream
   - Executed DeepSeek's doc cleanup (Decision 5), striking out `:yin/macro-expand` from `ast.md`, `yin.repl.md`, and `yin-defmacro.md`.
   - Fast-forward merged the worktree into `dao.stream-redesign-v2`.
 - **Status**: **U16 is completely closed**. The `yin.vm.code-as-tuples` migration is functionally complete.
+
+## 2026-09-18 - dao.runtime.v2 Completion and yin.vm.telemetry Implementation Plan
+
+- **Execution**: Claude Opus-5 (Engine Refactor) and DeepSeek V4-Pro (Telemetry Architect) running concurrently.
+- **Outcome**: 
+  - `dao.runtime.v2`: Claude successfully decoupled `yin.vm.engine` from the legacy V1 `dao.runtime`, passing 167,494 cross-platform assertions. I immediately fast-forwarded and deleted the 1,400+ lines of V1 `dao.runtime` code. **Phase R4 is complete and the ticket is permanently closed.**
+  - `yin.vm.telemetry`: DeepSeek read the architecture specs and produced a concrete, phased implementation plan (`docs/design/yin.vm.telemetry.implementation-plan.md`), intelligently discarding obsolete design notes referencing deleted VM models. The spec is merged and ready for development.
+- **Next**: GLM is still processing the `dao.jing.remote` hydration in the background. The next unblocked pipeline is implementing Phase 1 of `yin.vm.telemetry` using the freshly minted plan.
