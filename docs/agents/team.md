@@ -140,6 +140,15 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | context retrieval. **Best for:** Open-source workflows, efficient  | restricted access to "max" reasoning; mixed coding consistency.     |
 |                             | bulk processing, or large-scale multi-step evaluation.             | **Avoid for:** Extreme autonomous coding needing verified max logic.|
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `inclusionai/ling-3.0-sante`| Lightweight MoE model capable of coding with health/medicine focus.| Narrower general knowledge base outside its tuning. **Avoid for:**  |
+|                             | **Best for:** Cost-effective, specialized workflows.               | Complex multi-step autonomous architecture building.                |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `meituan/longcat-2.0`       | 1T parameter agentic model with 1M token context. **Best for:**    | Context cache can be expensive. **Avoid for:** Extremely short      |
+|                             | Processing massive codebases, deep refactors, long-horizon tasks.  | latency-sensitive queries or tasks requiring strictly bounded logic.|
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `poolside/laguna-s-2.1`     | Built specifically for software engineering and coding benchmarks. | Can struggle with non-coding reasoning or creative tasks. **Avoid   |
+|                             | **Best for:** Fast, accurate code generation and test generation.  | for:** Pure analytical reasoning outside of standard SWE patterns.  |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `qwen/qwen3.8-max`          | 2.4T MoE foundation; strong multimodal and agentic benchmarks.     | High compute overhead; slower response times for short prompts;     |
 |                             | **Best for:** Compiler lowering, AST analysis, routine large-      | vendor-reported benchmarks. **Avoid for:** Low-latency bounded      |
 |                             | scale reviews.                                                     | searches or quick edits.                                            |
@@ -156,7 +165,7 @@ cost align with the task.
 Every change must be reviewed by a model from a **different family** to ensure
 independent defect discovery. Never silently substitute a same-family reviewer.
 The families represented in the Model Strengths table are: **Claude**,
-**DeepSeek**, **Gemini**, **GLM**, **GPT**, **Kimi**, **MiMo**, **MiniMax**, **Muse**, and **Qwen**.
+**DeepSeek**, **Gemini**, **GLM**, **GPT**, **InclusionAI**, **Kimi**, **Laguna**, **LongCat**, **MiMo**, **MiniMax**, **Muse**, and **Qwen**.
 Any author from one family must be reviewed by a model from a different family.
 
 Routine review applies only when independent; architectural or security review
