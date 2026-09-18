@@ -56,7 +56,9 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | codex           | Flat: ChatGPT Plus ($20/mo)            | Strict rate limits. Reserved strictly for Architectural Review roles. Do not assign implementation tasks.   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| deepseek        | Metered: Pay-by-token                  | Variable cost. Reserve for work worth the expense. V4-Pro is being superseded by V4.1 Flash; prefer Flash.  |
+| deepseek        | Metered: Pay-by-token                  | Flash: $0.14/M in, $0.28/M out. Pro: $0.435/M in, $0.87/M out.                                              |
+|                 |                                        | Off-peak (10:00-01:00, 04:00-06:00 UTC & wknds) is 50% cheaper.                                             |
+|                 |                                        | Cache hits are ~50x cheaper. Reserve for necessary work.                                                    |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | glm             | Flat: Pro yearly plan ($672/yr)        | Peak hours: weekdays 14:00-18:00 UTC+8. Schedule large jobs off-peak (50% rate).                            |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
