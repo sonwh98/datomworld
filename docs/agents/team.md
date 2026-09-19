@@ -103,9 +103,11 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | cybersecurity. **Best for:** Complex programming workflows, VMs,   | for:** UI/UX, canvas, or WebGPU tasks.                              |
 |                             | storage, indexing, DHTs, and networking.                           |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `glm-5.3-flash`             | High performance at a lower computational cost; steep discounts    | Limited complex reasoning on novel architectures. **Avoid for:**    |
-|                             | during off-peak hours. **Best for:** Scoped subagents, bounded     | Peak-hour execution if budget is tight; core architecture.          |
-|                             | searches.                                                          |                                                                     |
+| `glm-5.3-flash`             | High performance at a lower computational cost; steep discounts    | Limited complex reasoning on novel architectures; self-assessment   |
+|                             | off-peak and weekend boosts. Excels when claims are checkable      | is unreliable — judge it behaviorally. **Avoid for:** Core        |
+|                             | against an authority: evidence gathering, citation verification,   | architecture, unbounded design authorship, peak-hour execution if   |
+|                             | reconciliation, protocol discipline. **Best for:** Scoped          | budget is tight.                                                    |
+|                             | subagents, bounded searches, QA spot-checks, verification seats.   |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `gpt-5.4-mini`              | Extremely fast; highly cost-effective for large-scale repetition.  | Low reasoning ceiling; struggles with multi-step logic. **Avoid     |
 |                             | **Best for:** TDD loops, simple linting, scoped text edits.        | for:** Any complex logical refactoring.                             |
