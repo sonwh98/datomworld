@@ -197,6 +197,7 @@ is true, and their values belong to compositions.
 | S2 | The judge's tolerance covers expected flight time and the rate skew between its tick stream and the holder's | `[D]` *Sizing* |
 | S3 | A medium's retention window exceeds the judge's lag (cadence plus drain time) | `[D]` *Sizing* |
 | S4 | A false lapse is possible, and reclamation is bounded by duration + tolerance + cadence + the reclaim's own cost; a medium that gaps more often than one duration never completes an observation window and leaks continuously, and per-attachment media are the isolation | `[D]` *Limits* |
+| S5 | The holder's renewal interval plus one period of its tick stream is strictly below half the granted duration: a renewal lands at the first reading at or past the interval, up to one period late (duration 10, interval 4, ticks 0/3/6 renews at 6 > 5), so the before-half guarantee is bought against interval + period. `renewal-interval` validates this when the period is supplied | `[D]` *new* — review round P3-r2 |
 
 ---
 
@@ -516,13 +517,13 @@ Same file, holder section; `lease_test` holder deftests.
 
 ## 5. Host matrix
 
-State as of the Phase 1+2 build (r4): **Phases 1 and 2 are built and tested;
-Phases 3–5 items below are owed and listed in their target state.**
+State as of the Phase 1–3 build (r4 + holder): **Phases 1–3 are built and
+tested; the Phase 4 items below are owed and listed in their target state.**
 
 | | clj | cljs (Node) | cljd |
 |---|---|---|---|
 | Vocabulary and judge (Phases 1–2) | **built, tested** | **built, tested** | **built, tested** |
-| Holder (Phase 3) | owed — unbuilt | owed — unbuilt | owed — unbuilt |
+| Holder (Phase 3) | **built, tested** | **built, tested** | **built, tested** |
 | `make-judge` / `make-holder` constructors (Phase 4) | owed — unbuilt | owed — unbuilt | owed — unbuilt |
 | Reference tick **driver** (test-tree host policy, Phase 4) | owed — `Thread`/sleep | owed — `js/setInterval` | owed — `async/Timer.periodic` |
 | Use-case sketches (served connection, forwarder; Phase 4) | owed — unbuilt | n/a (host-specific transport) | n/a |
@@ -536,8 +537,8 @@ touch a host. The three hosts' tick sources already exist as patterns to mirror
 
 ## 6. Boundary — built here, and what is left owing
 
-Built here (Phase 1+2): the `dao.lease` vocabulary, judge, and their tests.
-Owed (Phases 3–4, unbuilt): the holder, the composition constructors and
+Built here (Phases 1–3): the `dao.lease` vocabulary, judge, holder, and
+their tests. Owed (Phase 4, unbuilt): the composition constructors and
 their tests, the reference tick driver, and the three use-case sketches.
 
 | owed | by | where recorded |
@@ -552,6 +553,7 @@ their tests, the reference tick driver, and the three use-case sketches.
 | A recovery helper that restores `unknown` entries (with `:resumed` readings) from a persisted ledger | the composition that persists the ledger | `dao.lease.md` *Judging with incomplete evidence*, *Restart* |
 | The fact-magnitude bound: a fact's raw magnitude ≤ 2⁵² and, against a unit table, ≤ `quot 2⁵² unit-magnitude` (division-checked), so every product and sum stays exact on all three hosts and no reading stream ever ages out of validity | each composition's unit table; enforced structurally and at `initial-judge` assembly | `dao.lease.md` *Units*; supersedes the r2 round's 10⁶ bound, which gave the judge a finite lifetime (review round r2 confirmation, N1) |
 | Whether the `unknown`-evidence silence rule should include tolerance (a gapped lease can currently be reclaimed earlier than an uninterrupted one) | the contract owner | `dao.lease.md` *The pass* §4 (literal text implemented; question raised by review round r2) |
+| The holder measures the cap from the reading at which it OBSERVED the grant — later than the judge's tenure start by the grant's flight time — so the holder can act past the judge's `:cap` reclaim by that flight time, and tolerance does not cover the cap. Literal contract text; a question for the contract owner, alongside the unknown-silence tolerance above | the contract owner | `dao.lease.md` *The holder*; review round P3-r2 |
 | Any truncated or gapped medium affects every never-renewed lease (suppression or fresh `unknown`), including an attacker's own medium; bounded because `:cap` still applies and it errs toward the holder | the Phase 4 composition constructors ("the grant declares its medium") | review round r2 confirmation, N6 |
 | A renewal dropped because the attribution resolver throws counts against the holder — a transient resolver failure can become a false lapse. Phase 4 should consider suppressing `:silence` for that medium in that pass, the same way a truncated drain does | the Phase 4 composition constructors | review round r3 gate, R5 |
 | Phase 1+2's `initial-judge` defers assembly validation of medium declarations to `make-*` (Phase 4); until those constructors exist, a composition is validated only by review | the Phase 4 constructors | `dao.lease.md` *Composition duties* |
