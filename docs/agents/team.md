@@ -95,8 +95,8 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | document/repo analysis, system-wide root-cause debugging, complex  | newer, specialized models. **Avoid for:** Simple, high-volume       |
 |                             | multimodal knowledge synthesis, and adversarial review fallback.   | repetitive coding loops where deep context is unnecessary.          |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gemini-3.8-flash`          | Lightning-fast; highly cost-efficient; 1M+ context with native     | Can oversimplify subtle invariant edge cases vs frontier models.   |
-|                             | multimodal support. **Best for:** High-volume agentic loops,         | **Avoid for:** Core security capability enforcement; top-level      |
+| `gemini-3.8-flash`          | Lightning-fast; highly cost-efficient; 1M+ context with native     | Can oversimplify subtle invariant edge cases vs frontier models.    |
+|                             | multimodal support. **Best for:** High-volume agentic loops,       | **Avoid for:** Core security capability enforcement; top-level      |
 |                             | visual/frontend inspection, rapid TDD/QA, and subagents.           | architecture.                                                       |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `glm-5.3`                   | Scaled post-training for exceptional long-horizon tasks and        | Heavier footprint; can overcomplicate simple data framing. **Avoid  |
@@ -104,7 +104,7 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | storage, indexing, DHTs, and networking.                           |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `glm-5.3-flash`             | High performance at a lower computational cost; steep discounts    | Limited complex reasoning on novel architectures; self-assessment   |
-|                             | off-peak and weekend boosts. Excels when claims are checkable      | is unreliable — judge it behaviorally. **Avoid for:** Core        |
+|                             | off-peak and weekend boosts. Excels when claims are checkable      | is unreliable — judge it behaviorally. **Avoid for:** Core          |
 |                             | against an authority: evidence gathering, citation verification,   | architecture, unbounded design authorship, peak-hour execution if   |
 |                             | reconciliation, protocol discipline. **Best for:** Scoped          | budget is tight.                                                    |
 |                             | subagents, bounded searches, QA spot-checks, verification seats.   |                                                                     |
@@ -129,7 +129,7 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 | `minimax/m3`                | Natively multimodal with 1M context. **Best for:** Large codebase  | Can fall into thinking loops; gives up early on difficult tasks.    |
 |                             | comprehension, orchestrating subagents, iterative refactoring.     | **Avoid for:** One-shot mission critical coding, unbounded tasks.   |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `mimo-v2.5-pro`             | 1.02T MoE tailored for IDE integration. **Best for:** IDE-         | Struggles with "lost in the middle" in massive contexts; can      |
+| `mimo-v2.5-pro`             | 1.02T MoE tailored for IDE integration. **Best for:** IDE-         | Struggles with "lost in the middle" in massive contexts; can        |
 |                             | integrated coding agents, high-volume automation, complex design.  | spoil stable code. **Avoid for:** Verification-poor environments.   |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `moonshotai/kimi-k2.7-code` | Extremely long context window tailored for SWE and long-horizon    | Niche ecosystem; less generalized reasoning outside of code.        |
