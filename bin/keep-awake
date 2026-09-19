@@ -1,0 +1,30 @@
+#!/bin/bash
+# Recreated keep-awake script
+PID=$1
+TIMEOUT=$2
+
+if [ "$EUID" -ne 0 ]; then
+  echo "Please run as root"
+  exit 1
+fi
+
+echo "Keeping system awake..."
+# Prevent sleep even when lid is closed
+pmset -a disablesleep 1
+
+# If PID is provided, we can use caffeinate to monitor it
+if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+  echo "Monitoring PID $PID..."
+  caffeinate -i -s -d -w "$PID"
+else
+  # Otherwise just sleep for the duration (if provided) or forever
+  if [ -n "$TIMEOUT" ]; then
+    sleep $((TIMEOUT * 3600)) # Assuming timeout is in hours
+  else
+    # Infinite loop to keep process alive so user can Ctrl+C it
+    while true; do sleep 3600; done
+  fi
+fi
+
+# Restore settings on exit
+pmset -a disablesleep 0
