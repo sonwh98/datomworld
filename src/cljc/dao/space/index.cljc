@@ -511,7 +511,7 @@
 
 
 (defn- append-ok!
-  "Append one opaque payload to an intake stream; every stream.v2/append!
+  "Append one opaque payload to an intake stream; every stream/append!
    must answer `:dao.stream/ok`, anything else throws with the result
    attached."
   [stream payload]

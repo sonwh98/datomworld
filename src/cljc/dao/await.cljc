@@ -229,8 +229,8 @@
 
    There is no wake list to hand over (v1's :woke came from dao.stream
    waiters, which no v2 transport has): resumption belongs to
-   dao.runtime's polling wait set, so resume just re-runs the VM. Its
-   scheduler polls each parked entry against its transport — next for a
+   the VM's own polling wait set (`yin.vm.engine/check-wait-set`), so resume
+   just re-runs the VM. Its scheduler polls each parked entry against its transport — next for a
    parked read, append! for a parked writer — and continues the continuation
    of every entry the poll resolves. Entries the poll does not resolve stay
    parked, so the result may still be blocked."

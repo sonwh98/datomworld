@@ -26,7 +26,7 @@
    append, a load, a materialization -- where that means advancing only after
    the effect answered ok.  Interpreters whose disposition is a local, total
    state transition keep their own read loops: `dao.stream.rpc/poll!`,
-   `dao.stream.apply/serve-once!` and `dao.runtime`'s wait set thread
+   `dao.stream.apply/serve-once!` and `yin.vm.engine`'s wait set thread
    whole caller state under a budget with terminal short-circuits, and for
    them advancing first and advancing after the commit are the same fact,
    because no window exists in which one happened and the other did not.
