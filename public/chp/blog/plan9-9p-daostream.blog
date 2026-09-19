@@ -242,9 +242,9 @@
            " and join a conversation it didn't know existed at start time—the topology of communication evolves at runtime, carried by the data itself. "
            "But nothing pretends the remote is local: attaching returns outcomes as data, appends answer "
            [:code "full"]
-           " when a send buffer is saturated, an unreachable endpoint is a retryable transport error, and a descriptor whose stream an endpoint disclaims resolves to a plain "
-           [:code ":dao.stream/not-found"]
-           "."]
+           " when a send buffer is saturated, an unreachable endpoint is a retryable transport error, and a descriptor whose stream an endpoint disclaims is not-found as data—a "
+           [:code ":ws/not-found"]
+           " event in the log you composed, never an exception."]
 
           [:h2 "The Comparison"]
           [:table
