@@ -517,16 +517,15 @@ Same file, holder section; `lease_test` holder deftests.
 
 ## 5. Host matrix
 
-State as of the Phase 1–3 build (r4 + holder): **Phases 1–3 are built and
-tested; the Phase 4 items below are owed and listed in their target state.**
+State as of the Phase 1–4 build: **all phases are built and tested.**
 
 | | clj | cljs (Node) | cljd |
 |---|---|---|---|
 | Vocabulary and judge (Phases 1–2) | **built, tested** | **built, tested** | **built, tested** |
 | Holder (Phase 3) | **built, tested** | **built, tested** | **built, tested** |
-| `make-judge` / `make-holder` constructors (Phase 4) | owed — unbuilt | owed — unbuilt | owed — unbuilt |
-| Reference tick **driver** (test-tree host policy, Phase 4) | owed — `Thread`/sleep | owed — `js/setInterval` | owed — `async/Timer.periodic` |
-| Use-case sketches (served connection, forwarder; Phase 4) | owed — unbuilt | n/a (host-specific transport) | n/a |
+| `make-judge` / `make-holder` constructors (Phase 4) | **built, tested** | **built, tested** | **built, tested** |
+| Reference tick **driver** (test-tree host policy, Phase 4) | **built** (stepped deposit; clock policy in the driver) | **built** | **built** |
+| Use-case sketches (served connection, forwarder, shared-work claim) | **built** as runnable composition tests | n/a (host-specific transport) | n/a |
 
 The portable core is `.cljc` and has no host branch; only the tick *driver* (in
 the test tree, not `dao.lease.cljc`) and the served-connection/forwarder sketches
@@ -537,9 +536,10 @@ touch a host. The three hosts' tick sources already exist as patterns to mirror
 
 ## 6. Boundary — built here, and what is left owing
 
-Built here (Phases 1–3): the `dao.lease` vocabulary, judge, holder, and
-their tests. Owed (Phase 4, unbuilt): the composition constructors and
-their tests, the reference tick driver, and the three use-case sketches.
+Built here (Phases 1–4): the `dao.lease` vocabulary, judge, holder,
+composition constructors (`make-judge`/`make-holder`), their tests, the
+reference tick driver (test tree, stepped), and the three use-case sketches
+as runnable composition tests.
 
 | owed | by | where recorded |
 |---|---|---|
@@ -551,12 +551,13 @@ their tests, the reference tick driver, and the three use-case sketches.
 | A generic unit table shared across compositions | the first composition that needs it | `dao.lease.md` *Units* ("a composition's interoperability decision") |
 | Legitimate-use growth of the judge's `:seen`/`:answered` maps in a long-lived judge | the composition that persists the ledger | `dao.lease.md` *Ledger* ("the ledger is not rebuildable from any stream"); pruned only with a persistence design |
 | A recovery helper that restores `unknown` entries (with `:resumed` readings) from a persisted ledger | the composition that persists the ledger | `dao.lease.md` *Judging with incomplete evidence*, *Restart* |
+| An `:unwrap` seam for envelope-carried lease facts: the one real envelope this codebase has (`ws.cljc` deposits `{:ws/attachment :ws/event :ws/value payload}`) hides a lease fact under `:ws/value`, where `lease-fact?` cannot see it, so `:envelope-key` attribution is unusable against it until a per-medium unwrap function exists | a transport-scoped plan (an API change to this vocabulary's reading seam) | review round P4-r2, F2; the sketches model a flattened, self-asserted shape until then |
 | The fact-magnitude bound: a fact's raw magnitude ≤ 2⁵² and, against a unit table, ≤ `quot 2⁵² unit-magnitude` (division-checked), so every product and sum stays exact on all three hosts and no reading stream ever ages out of validity | each composition's unit table; enforced structurally and at `initial-judge` assembly | `dao.lease.md` *Units*; supersedes the r2 round's 10⁶ bound, which gave the judge a finite lifetime (review round r2 confirmation, N1) |
 | Whether the `unknown`-evidence silence rule should include tolerance (a gapped lease can currently be reclaimed earlier than an uninterrupted one) | the contract owner | `dao.lease.md` *The pass* §4 (literal text implemented; question raised by review round r2) |
 | The holder measures the cap from the reading at which it OBSERVED the grant — later than the judge's tenure start by the grant's flight time — so the holder can act past the judge's `:cap` reclaim by that flight time, and tolerance does not cover the cap. Literal contract text; a question for the contract owner, alongside the unknown-silence tolerance above | the contract owner | `dao.lease.md` *The holder*; review round P3-r2 |
 | Any truncated or gapped medium affects every never-renewed lease (suppression or fresh `unknown`), including an attacker's own medium; bounded because `:cap` still applies and it errs toward the holder | the Phase 4 composition constructors ("the grant declares its medium") | review round r2 confirmation, N6 |
 | A renewal dropped because the attribution resolver throws counts against the holder — a transient resolver failure can become a false lapse. Phase 4 should consider suppressing `:silence` for that medium in that pass, the same way a truncated drain does | the Phase 4 composition constructors | review round r3 gate, R5 |
-| Phase 1+2's `initial-judge` defers assembly validation of medium declarations to `make-*` (Phase 4); until those constructors exist, a composition is validated only by review | the Phase 4 constructors | `dao.lease.md` *Composition duties* |
+| ~~Phase 1+2's `initial-judge` defers assembly validation of medium declarations to `make-*` (Phase 4)~~ **settled**: `make-judge`/`make-holder` now validate the medium declaration, resolver compatibility, reclaim, tolerance, units, drain budget, and the durable prerequisites at assembly | done (Phase 4) | `dao.lease.md` *Composition duties* |
 | Transfer of a lease between holders, and delegated renewal — both denied by the contract | never (recorded, not deferred) | `dao.lease.md` *Out of scope* |
 
 Explicitly not planned: `dao.space`, `dao.jing`, `yin.vm.*`, any transport, and

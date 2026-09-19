@@ -10,8 +10,9 @@
   observe the grant before acting, renew at strictly less than half the
   duration, stop at the bound, release when done -- is a set of pure
   functions over a small threaded state that the holder's own control
-  flow calls and drives; the composition constructors join this
-  namespace when they are built.
+  flow calls and drives. The composition constructors `make-judge` and
+  `make-holder` assemble the two halves, refusing at assembly -- before
+  any wiring -- a config missing or incompatible any injected seam.
 
   A fact carrying neither dispatch key is not a lease fact and is ignored by
   a reader; a fact carrying both is defective and establishes nothing. A
@@ -670,6 +671,13 @@
     (check-assembly! (fn? resolver)
                      "the judge needs an attribution resolver: (fn [source fact] -> author)"
                      {:resolver resolver})
+    ;; A nil :self would make the resolver's nil answer -- the natural
+    ;; result for an unknown source or a missing envelope key -- read as
+    ;; the grantor's own authorship, and a forged :accepted would seed
+    ;; tenure. Authority needs a non-nil identity to differ from.
+    (check-assembly! (some? (get config :self))
+                     "the judge needs its own author identity: the :self its attribution returns for it, never nil"
+                     {:self (get config :self) :refused :self})
     (check-units! units)
     ;; A tolerance in a unit the table does not know -- or past the unit's
     ;; per-unit bound -- would throw from add-duration inside
@@ -678,16 +686,16 @@
     (when (some? tolerance)
       (check-assembly! (tolerance? tolerance)
                        "the tolerance is a single-entry {unit non-negative-integer} map within the bound"
-                       {:tolerance tolerance})
+                       {:tolerance tolerance :refused :tolerance})
       (let [unit (first (keys tolerance))
             magnitude (get tolerance unit)]
         (check-assembly! (some? (get units unit))
                          "the tolerance's unit is in the unit table"
-                         {:tolerance tolerance :units units})
+                         {:tolerance tolerance :units units :refused :tolerance})
         (check-assembly! (<= magnitude
                              (quot magnitude-limit (get units unit)))
                          "the tolerance's magnitude is within the per-unit bound"
-                         {:tolerance tolerance :units units})))
+                         {:tolerance tolerance :units units :refused :tolerance})))
     {:units units
      :tolerance tolerance
      :drain-budget budget
@@ -1591,7 +1599,7 @@
                      {:resolver resolver})
     (check-assembly! (duration? renewal-interval)
                      "the renewal interval is a single-entry {unit positive-integer} map"
-                     {:renewal-interval renewal-interval})
+                     {:renewal-interval renewal-interval :refused :renewal-interval})
     (check-units! units)
     ;; The interval gets the tolerance's checks, run after check-units!:
     ;; unit membership, then the per-unit bound -- taken by division, so
@@ -1601,10 +1609,12 @@
           magnitude (get renewal-interval unit)]
       (check-assembly! (some? (get units unit))
                        "the renewal interval's unit is in the unit table"
-                       {:renewal-interval renewal-interval :units units})
+                       {:renewal-interval renewal-interval :units units
+                        :refused :renewal-interval})
       (check-assembly! (<= magnitude (quot magnitude-limit (get units unit)))
                        "the renewal interval's magnitude is within the per-unit bound"
-                       {:renewal-interval renewal-interval :units units}))
+                       {:renewal-interval renewal-interval :units units
+                        :refused :renewal-interval}))
     {:self self
      :grantor grantor
      :resolver resolver
@@ -1909,3 +1919,352 @@
                 (not (:undersized? holder))
                 (reading-ok? holder reading)
                 (not (at-bound? holder reading)))))
+
+
+;; =============================================================================
+;; The composition constructors
+;; =============================================================================
+;;
+;; make-judge and make-holder assemble the two halves of a composition
+;; that grants leases (C1-C4). Both validate the config's INJECTED SEAMS
+;; and refuse at assembly -- throwing ex-info BEFORE any wiring, so no
+;; stream is ever wired into a half-assembled composition -- on a missing
+;; or incompatible seam. Medium compatibility is decided by the EXPLICIT
+;; DECLARATION each fact-medium wiring carries, never by introspecting a
+;; handle: a handle exposes surfaces, not retention (C2). Nothing here
+;; creates a stream, installs a timer, holds a callback or reads a clock
+;; (C5): the runtime that drives the returned step at the declared
+;; cadence is host code outside this namespace, and the reference tick
+;; producer lives in the test tree as a stepped deposit function (D3).
+
+(def medium-retentions
+  "The two retentions a medium may declare: it either evicts its oldest
+  values at capacity or retains completely. A medium declared neither
+  retaining nor evict-oldest is refused at assembly (C3)."
+  #{:evict-oldest :complete})
+
+
+(def medium-value-domains
+  "The two value domains a medium may declare. `:host-values` declares
+  the medium process-local by construction -- its values cannot cross a
+  boundary -- which is the declaration's compatibility content beyond
+  the enum."
+  #{:portable-values :host-values})
+
+
+(def attribution-kinds
+  "The three source bindings an attribution can ride on (D4): per-author
+  media identity, an envelope key, or a transport's attachment identity.
+  A medium declares which one it attributes by; a resolver declares
+  which ones it resolves."
+  #{:per-author-media :envelope-key :attachment-identity})
+
+
+(defn- check-medium-declaration!
+  "C2/C3: validate one wiring's explicit medium declaration -- the
+  declaration, not the handle, establishes what the medium is. A
+  :complete medium declares no :capacity (nothing evicts); an
+  :evict-oldest one declares a positive :capacity. The capacity's
+  relation to the judge's cadence is a sizing question (S3: retention
+  against facts appended per interval), deliberately NOT derived here
+  from the :drain-budget."
+  [what decl]
+  (check-assembly! (map? decl)
+                   (str what " carries an explicit medium declaration map")
+                   {:medium decl :refused :medium})
+  (check-assembly! (contains? medium-retentions (get decl :retention))
+                   (str what " declares :retention :evict-oldest or :complete: "
+                        "a medium declared neither retaining nor evict-oldest "
+                        "is refused at assembly")
+                   {:medium decl :retention (get decl :retention) :refused :medium})
+  (when (= :evict-oldest (get decl :retention))
+    (check-assembly! (and (integer? (get decl :capacity))
+                          (pos? (get decl :capacity)))
+                     (str what " declares a positive :capacity: it evicts "
+                          "its oldest values, so it owes the bound it evicts at")
+                     {:medium decl :capacity (get decl :capacity)
+                      :refused :medium}))
+  (check-assembly! (contains? medium-value-domains (get decl :value-domain))
+                   (str what " declares :value-domain :portable-values or :host-values")
+                   {:medium decl :value-domain (get decl :value-domain)
+                    :refused :medium})
+  (check-assembly! (contains? attribution-kinds (get decl :attribution))
+                   (str what " declares its :attribution -- one of the three "
+                        "source bindings: :per-author-media, :envelope-key, "
+                        ":attachment-identity")
+                   {:medium decl :attribution (get decl :attribution)
+                    :refused :medium}))
+
+
+(defn- check-cadence!
+  "C1: the composition's runtime drives the step at a declared cadence --
+  a maximum interval between COMPLETED passes. A cadence is a strictly
+  positive duration in the unit table (zero would demand continuous
+  passes), with the tolerance's unit-membership and per-unit checks.
+  Runs after `check-units!`: its per-unit division must never meet a
+  zero or negative magnitude as a raw host error."
+  [config units]
+  (let [cadence (get config :cadence)]
+    (check-assembly! (tolerance? cadence)
+                     "the cadence is a single-entry {unit positive-integer} map"
+                     {:cadence cadence :refused :cadence})
+    (let [unit (first (keys cadence))
+          magnitude (get cadence unit)]
+      (check-assembly! (pos? magnitude)
+                       "the cadence is strictly positive: a maximum interval of zero demands continuous passes"
+                       {:cadence cadence :refused :cadence})
+      (check-assembly! (some? (get units unit))
+                       "the cadence's unit is in the unit table"
+                       {:cadence cadence :units units :refused :cadence})
+      (check-assembly! (<= magnitude (quot magnitude-limit (get units unit)))
+                       "the cadence's magnitude is within the per-unit bound"
+                       {:cadence cadence :units units :refused :cadence}))))
+
+
+(defn- check-resolver-compatibility!
+  "C2/D4: `fn?` establishes the resolver's PRESENCE; the declarations
+  establish COMPATIBILITY. The composition declares which of the three
+  source bindings its resolver resolves (`:resolver-bindings`), and every
+  wired medium declares the binding it attributes by -- a medium whose
+  kind the resolver does not cover is an incompatible resolver, refused
+  here exactly as a missing one is. What this CANNOT check is the
+  resolver's code against the medium's transport: the declarations agree
+  with each other, and the composition vouches that each side means what
+  it declared."
+  [what resolver bindings media]
+  (check-assembly! (fn? resolver)
+                   (str what " needs an attribution resolver: (fn [source fact] -> author)")
+                   {:resolver resolver :refused :resolver})
+  (check-assembly! (and (set? bindings)
+                        (seq bindings)
+                        (every? attribution-kinds bindings))
+                   (str what " declares :resolver-bindings, the set of "
+                        "attribution kinds its resolver resolves")
+                   {:resolver-bindings bindings :refused :resolver-bindings})
+  (doseq [entry media]
+    (check-assembly! (contains? bindings (get-in entry [:medium :attribution]))
+                     (str what "'s resolver is incompatible with a wired medium: "
+                          "it does not resolve the medium's declared attribution")
+                     {:attribution (get-in entry [:medium :attribution])
+                      :resolver-bindings bindings
+                      :refused :attribution})))
+
+
+(defn- check-durable-prerequisites!
+  "C4: for durable resources the vocabulary supplies neither a durable
+  judge, nor the rule for which incarnation may reclaim, nor fencing --
+  the composition must bring all three alongside `:durable?`. Presence
+  is everything the vocabulary can check; each prerequisite's adequacy
+  belongs to the resource's own plan. A composition that has not settled
+  all three does not construct durable at all -- it stays `:durable?
+  false` (the default) and its returned value is LABELED process-scoped:
+  the label is the composition's declaration for its consumers, not an
+  enforcement."
+  [config]
+  (when (get config :durable?)
+    (doseq [seam [:durable-judge :incarnation-rule :fencing]]
+      (check-assembly! (some? (get config seam))
+                       (str "a :durable? composition supplies " seam
+                            ": the vocabulary supplies none of the three")
+                       {seam (get config seam) :durable? true
+                        :refused seam}))))
+
+
+(defn- check-derived-medium-refusals!
+  "The refusal the declarations DERIVE from each other -- what makes them
+  wiring data rather than a checked-and-discarded questionnaire: a
+  `:durable?` composition cannot ride a `:host-values` medium, because
+  host values are process-local by construction and a durable tenure
+  whose evidence or records live only in this process is a
+  contradiction.
+
+  Deliberately NOT derived: an evict-oldest capacity against the
+  drain-budget. A budget larger than the capacity is the safe case --
+  the drain empties the medium within one pass -- and a smaller one is
+  already covered by the silence-suppression rule for truncated media;
+  S3 relates retention to facts-per-cadence, not to the budget."
+  [media durable?]
+  (doseq [entry media
+          :let [decl (get entry :medium)]]
+    (when durable?
+      (check-assembly! (not= :host-values (get decl :value-domain))
+                       "a :durable? composition cannot ride a :host-values medium: host values are process-local by construction"
+                       {:medium decl :refused :host-values}))))
+
+
+(defn- wire-declared-medium
+  "Wire one fact medium, KEEPING its explicit declaration on the wired
+  entry: the declaration is wiring data a consumer can still read, not a
+  validation scratchpad."
+  [judge entry]
+  (-> judge
+      (wire-facts (:handle entry) (:cursor entry) (:source entry))
+      (update :facts (fn [entries]
+                       (assoc entries
+                              (dec (count entries))
+                              (assoc (peek entries)
+                                     :medium (:medium entry)))))))
+
+
+(defn make-judge
+  "Assemble the judge half of a composition that grants leases (C1-C4).
+  Config, beyond `initial-judge`'s own seams (:units :tolerance
+  :drain-budget :resolver :reclaim :policy :writer :self :answer -- of
+  which :self and the tolerance are as required here as there):
+
+  :cadence           required: the maximum interval between COMPLETED
+                     passes -- a strictly positive duration in the unit
+                     table. The runtime that drives the returned step at
+                     it is host code outside this namespace (C1)
+  :tolerance         required EXPLICITLY: the contract's \"a tolerance
+                     supplied to the judge, possibly zero\" is an owed
+                     value, and `{:ms 0}` is the zero -- an omitted
+                     tolerance is not a supplied one (`initial-judge`
+                     alone still treats nil as zero for state-threaded
+                     recovery use)
+  :ticks             required, non-empty: `[{:handle :cursor} ...]`, the
+                     judge's tick streams (C1: a tick stream for the
+                     judge)
+  :media             required, non-empty: `[{:handle :cursor :source
+                     :medium declaration} ...]`, each recipient fact
+                     medium with its explicit declaration (C2: the
+                     declaration, never handle introspection, establishes
+                     the medium). The declarations are DERIVED against
+                     each other where they can contradict: a `:durable?`
+                     composition cannot ride a `:host-values` medium. The
+                     declaration rides the wired entry.
+  :resolver-bindings required: the set of attribution kinds the resolver
+                     resolves; a wired medium whose declared
+                     `:attribution` is not among them is an incompatible
+                     resolver, refused like a missing one (C2)
+  :durable?          default false; true additionally requires
+                     :durable-judge, :incarnation-rule and :fencing (C4)
+
+  Returns `{:judge state :step judge-step :scope :process-scoped|:durable
+  :cadence c}`: the driver calls `(:step v)` threading `(:judge v)` at
+  the declared cadence. A non-durable config's value is labeled
+  process-scoped -- a declaration for the composition's consumers, not
+  an enforcement. Every missing or incompatible seam throws ex-info
+  here, naming it under `:refused`, before any wiring: nothing is wired
+  into a refused composition."
+  [config]
+  (let [units (get config :units default-units)
+        ticks (get config :ticks)
+        media (get config :media)
+        budget (or (get config :drain-budget) default-drain-budget)]
+    (check-units! units)
+    (check-cadence! config units)
+    (check-assembly! (and (vector? ticks)
+                          (seq ticks)
+                          (every? (fn [t] (and (map? t)
+                                               (some? (:handle t))
+                                               (some? (:cursor t))))
+                                  ticks))
+                     "the judge is wired at least one tick stream: {:handle :cursor} each"
+                     {:ticks ticks :refused :ticks})
+    (check-assembly! (and (vector? media) (seq media))
+                     "the judge is wired the medium each recipient reads its facts from"
+                     {:media media :refused :media})
+    (doseq [entry media]
+      (check-assembly! (and (map? entry)
+                            (some? (:handle entry))
+                            (some? (:cursor entry))
+                            (some? (:source entry)))
+                       "each fact medium is wired {:handle :cursor :source :medium}"
+                       {:medium-entry entry :refused :medium-entry})
+      (check-medium-declaration! "each fact medium" (get entry :medium)))
+    ;; The budget is validated as an integer HERE, before anything could
+    ;; derive from it -- an assembly ex-info, never a raw host error --
+    ;; and again, with the rest of the state's seams, in initial-judge.
+    (check-assembly! (and (integer? budget) (pos? budget))
+                     "the drain budget is a positive integer"
+                     {:drain-budget budget :refused :drain-budget})
+    (check-derived-medium-refusals! media (get config :durable?))
+    (check-resolver-compatibility! "the judge"
+                                   (get config :resolver)
+                                   (get config :resolver-bindings)
+                                   media)
+    (check-assembly! (some? (get config :tolerance))
+                     "the judge is supplied an explicit tolerance, possibly zero: {:ms 0} is the zero"
+                     {:tolerance (get config :tolerance) :refused :tolerance})
+    (check-assembly! (fn? (get config :reclaim))
+                     "the judge needs a reclaim procedure per subject: (fn [subject] -> success?), idempotent, reporting"
+                     {:reclaim (get config :reclaim) :refused :reclaim})
+    (check-assembly! (some? (get config :writer))
+                     "the judge needs the stream it writes grants and :lapsed to"
+                     {:writer (get config :writer) :refused :writer})
+    (check-durable-prerequisites! config)
+    ;; Every check passed: build the state, then wire. Nothing is wired
+    ;; before the whole config has been refused or accepted.
+    (let [judge (initial-judge config)
+          judge (reduce (fn [j t] (wire-tick j (:handle t) (:cursor t) (get t :source)))
+                        judge ticks)
+          judge (reduce wire-declared-medium judge media)]
+      {:judge judge
+       :step judge-step
+       :scope (if (get config :durable?) :durable :process-scoped)
+       :cadence (get config :cadence)})))
+
+
+(defn make-holder
+  "Assemble the holder half of a composition that grants leases (C1-C4).
+  Config, beyond `initial-holder`'s own seams (:self :grantor :resolver
+  :units :renewal-interval :subject :proposal):
+
+  :tick              required: `{:handle :cursor}`, the holder's OWN tick
+                     stream (C1: one per holder)
+  :fact              required: `{:handle :cursor :source :medium
+                     declaration}`, the medium this recipient reads its
+                     facts from, declared explicitly (C2). A `:durable?`
+                     composition cannot ride a `:host-values` fact medium
+  :writer            required: `{:handle :medium declaration}`, the
+                     holder's OUTBOUND medium -- where it appends
+                     renewals and releases for the judge to read. A
+                     holder assembled with nowhere to renew constructs
+                     nothing: its lease would lapse in silence (C1's
+                     holder half)
+  :resolver-bindings required: as `make-judge`'s; must cover :fact's
+                     declared :attribution
+  :durable?          default false, with the same three prerequisites
+
+  Returns `{:holder state :tick ... :fact ... :writer ... :scope
+  :process-scoped|:durable}`: the holder's control flow drains :tick for
+  readings, observes grants read from :fact through the state's
+  resolver, appends renewals and releases to `(:handle (:writer v))`,
+  and calls the holder discipline functions with `(:holder v)`. Same
+  refusal-before-wiring contract as `make-judge`, each refusal named
+  under `:refused`."
+  [config]
+  (let [tick (get config :tick)
+        fact (get config :fact)
+        writer (get config :writer)]
+    (check-assembly! (and (map? tick)
+                          (some? (:handle tick))
+                          (some? (:cursor tick)))
+                     "the holder is wired its own tick stream: {:handle :cursor}"
+                     {:tick tick :refused :tick})
+    (check-assembly! (and (map? fact)
+                          (some? (:handle fact))
+                          (some? (:cursor fact))
+                          (some? (:source fact)))
+                     "the holder is wired the medium it reads its facts from: {:handle :cursor :source :medium}"
+                     {:fact fact :refused :fact})
+    (check-medium-declaration! "the holder's fact medium" (get fact :medium))
+    (check-assembly! (and (map? writer)
+                          (some? (:handle writer)))
+                     "the holder is wired the outbound medium it appends renewals and releases to: {:handle :medium}"
+                     {:writer writer :refused :writer})
+    (check-medium-declaration! "the holder's outbound medium" (get writer :medium))
+    (check-derived-medium-refusals! [fact writer]
+                                    (get config :durable?))
+    (check-resolver-compatibility! "the holder"
+                                   (get config :resolver)
+                                   (get config :resolver-bindings)
+                                   [fact])
+    (check-durable-prerequisites! config)
+    (let [holder (initial-holder config)]
+      {:holder holder
+       :tick tick
+       :fact fact
+       :writer writer
+       :scope (if (get config :durable?) :durable :process-scoped)})))
