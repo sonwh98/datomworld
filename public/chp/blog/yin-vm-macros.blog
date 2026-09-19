@@ -1,4 +1,4 @@
-#:blog{:title "The Macro System That Isn't There: How yin.vm Reimagines Metaprogramming"
+#:blog{:title "The Macro System That Isn't There: yin.vm Macros"
        :date #inst "2026-09-18T10:25:00.000-00:00"
        :abstract [:p "An architectural deep dive into how yin.vm achieves the power of Lisp macros by hiding them entirely from the evaluator, utilizing content-addressed AST streams, deterministic fuel guards, and pure data topology."]
        :content [:section.blog-article
@@ -16,7 +16,7 @@
                    [:h2 "1. The Evaluator is Macro-Blind"]
                    [:p "In almost every Lisp (like Clojure or Common Lisp), macroexpansion is deeply interleaved with the compiler and evaluator. The engine looks at a symbol, checks if it has a special macro flag, and halts evaluation to execute the macro transformation before continuing."]
                    
-                   [:p "In yin.vm, " [:strong "the evaluator knows absolutely nothing about macros."] " It has no macro instruction, no expansion ledger, and no macro metadata flag. Instead, yin.vm models macroexpansion strictly as a " [:strong "stream topology"] ":"]
+                   [:p "In yin.vm, " [:strong "the evaluator knows absolutely nothing about macros."] " It has no macro instruction, no expansion ledger, and no macro flag on closures. A lambda can be marked as a macro on the syntax side, but that mark is dropped before code reaches the evaluator. Instead, yin.vm models macroexpansion strictly as a " [:strong "stream topology"] ":"]
 
                    [:pre "Frontend -> (program-in) -> Expander -> (program-out) -> Evaluator"]
 
@@ -35,16 +35,16 @@
                    [:p "Because yin.vm treats macroexpansion as a pure stream transformation over content-addressed tuples (rows in a database, rather than raw text), it unlocks capabilities that are structurally impossible in other languages:"]
 
                    [:h3 "Decoupled Compilers and Capability-Gated Macros"]
-                   [:p "By stripping away the text parser and moving the compiler boundary to the data stream, the role of a frontend is radically simplified. A compiler can literally be a remote network service. If a program possesses the ShiBi capability token granting write access to the program-in stream, it is effectively a compiler. A Python script, a visual block editor, or an AI agent can synthesize Universal AST tuples and append them to the stream. Because they output pure data to the standard topology, they instantly inherit the entire backend ecosystem—the Macro Expander, the stack and register VMs, and JIT optimizations—completely for free. Metaprogramming is no longer a language-specific feature; it is a capability-gated service on the stream."]
+                   [:p "By stripping away the text parser and moving the compiler boundary to the data stream, the role of a frontend is radically simplified. A compiler can literally be a remote network service. If a program holds a writer handle to the program-in stream, it is effectively a compiler. Today that handle is the capability; gating it with ShiBi capability tokens is the planned next step. A Python script, a visual block editor, or an AI agent can synthesize Universal AST tuples and append them to the stream. Because they output pure data to the standard topology, they instantly inherit the entire backend ecosystem (the Macro Expander, the AST-walking evaluator, the bytecode VM, and whatever backends come later, such as the planned register VM and JIT) completely for free. Metaprogramming is no longer a language-specific feature; it is a capability-gated service on the stream."]
 
                    [:h3 "Guaranteed Safety via Deterministic Fuel Guards"]
-                   [:p "If you write an infinite loop in a Clojure or Rust macro, you will hang the compiler or crash the build process with a Stack Overflow. Because yin.vm is an autonomous system, a macro cannot be allowed to crash a node. Expansion execution is deterministically bounded by " [:strong "fuel guards"] ". The Expander counts body steps, result rows, and cumulative batch depth. If a macro spins out of control, the Expander safely halts it, emits a fuel-guard error to the event stream, and keeps processing."]
+                   [:p "If you write an infinite loop in a Clojure or Rust macro, you will hang the compiler or crash the build process with a Stack Overflow. Because yin.vm is an autonomous system, a macro cannot be allowed to crash a node. Expansion execution is deterministically bounded by " [:strong "fuel guards"] ". The Expander counts body steps, result rows, and expansion depth. If a macro spins out of control, the Expander safely halts it, records the fuel-guard error as data (and as an event row when a log stream is attached), and keeps processing. A macro body that tries to touch a stream is stopped the same way, by an effect guard."]
 
                    [:h3 "Distributed, Cross-Machine Expansion"]
-                   [:p "Because the Expander and the Evaluator are just two observers connected by streams, they do not have to live on the same machine. You can run the heavy Macro Expander on a massive cloud cluster, which streams the resulting lightweight, macro-free program-out tuples over WebSockets to a low-power IoT device running the yin.vm Evaluator."]
+                   [:p "Because the Expander and the Evaluator are just two observers connected by streams, they do not have to live on the same machine. The Expander speaks only the stream protocol, so nothing prevents running the heavy Macro Expander on a massive cloud cluster, which streams the resulting lightweight, macro-free program-out tuples over WebSockets to a low-power IoT device running the yin.vm Evaluator."]
 
                    [:h3 "Pure Dynamic Evaluation Without an Eval Function"]
-                   [:p "If a running yin.vm program wants to dynamically evaluate new code containing macros, it doesn't call a magical eval function. It simply appends the new AST packets to the program-in stream. The exact same stream topology takes over: the Expander wakes up, crunches the macros, and feeds the Evaluator. The runtime safely self-modifies by participating in its own plumbing."]
+                   [:p "Dynamic evaluation needs no magical eval function. New code containing macros is simply appended as AST packets to the program-in stream, and the exact same stream topology takes over: the Expander wakes up, crunches the macros, and feeds the Evaluator. Today the REPL shell is the writer that does this. A running yin.vm program handed the same writer could do it too, and the runtime would then self-modify by participating in its own plumbing."]
 
                    [:h2 "Comparing the Competition"]
 

@@ -33,7 +33,7 @@
          [:ul.bulleted
           [:li [:strong "Transactor (write + index), decentralized"] ": every agent appending to its own " [:a {:href "/dao-stream.chp"} "DaoStream"] " is its own transactor. The canonical datom path appends atomic transaction records and builds covered indexes over its own datoms via " [:code "dao.space.index"] ", with no global contention."]
           [:li [:strong "Storage: DaoJing"] ", the decentralized, content-addressed KV materialization where opaque payloads may persist. It holds immutable B-Tree segment blobs and manifests, with no mutable roots, matching, or query semantics."]
-          [:li [:strong "Query (read): the " [:code "dao.space.query"] " library"] " any interpreter embeds. Pure and in-process, it consumes the exact-bounded DaoStream descriptors or closed realizations the caller names, then runs positional matching, Datalog, and pull. This is Datomic's Peer model as a library rather than a service."]]
+          [:li [:strong "Query (read): the " [:code "dao.space.query"] " library"] " any interpreter embeds. Pure and in-process, it consumes only values the caller constructs (a relation, a datom view, an opened published index, or a snapshot taken from a DaoStream reader handle), never opening or closing a stream itself, then runs positional matching, Datalog, and pull. This is Datomic's Peer model as a library rather than a service."]]
          [:p
           "DaoSpace is not one of the three boundaries; it is the coordination surface that spans all three. "
           "Storage holds facts at rest; the tuple space is those facts " [:em "under shared interpretation"] ". "

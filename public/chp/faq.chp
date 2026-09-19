@@ -45,7 +45,7 @@
              "Streams are the single I/O abstraction: files, sockets, queues, and databases collapse into one primitive. "
              "The "
              [:a {:href "/dao-stream.chp"} "DaoStream"]
-             " protocol is four operations: open!, next (read), put! (write), close!. Backpressure and cursor-based reading are built in."]]]
+             " contract is seven operations: create! and attach! produce a handle, and descriptor, cursor, next (read), append! (write), and close! act on one. Reading is cursor-based and never consumes, no operation waits, and every outcome, including blocked, full, and gap, comes back as data."]]]
           [:details.faq
            [:summary "What does \"everything is a continuation\" mean?"]
            [:div
@@ -119,8 +119,8 @@
            [:summary "How does DaoStream compare to core.async?"]
            [:div
             [:p
-             "core.async is an application-level library for channels and go blocks. DaoStream is a portable substrate with a descriptor-plus-realization model and pluggable transports (ringbuffer, WebSocket, file, and others). "
-             "DaoStream streams are addressable, persistent, and cross-process. core.async channels are not. A DaoStream is closer in spirit to a Datomic log segment plus a core.async channel plus a Unix pipe, collapsed into one primitive."]]]
+             "core.async is an application-level library for channels and go blocks. DaoStream is a portable substrate: a stream is created from a specification, named by a portable descriptor that any host can attach to, and carried by pluggable transports (ringbuffer, in-memory log, WebSocket). It also has no go blocks of its own: no operation parks or waits, and a blocked read is an answer, not a suspension. "
+             "DaoStream streams are addressable, cross-process, and read without being consumed. core.async channels are not. A DaoStream is closer in spirit to a Datomic log segment plus a core.async channel plus a Unix pipe, collapsed into one primitive."]]]
           [:details.faq
            [:summary "Can I use existing Clojure libraries?"]
            [:div
@@ -265,9 +265,11 @@
            [:div
             [:p
              "Partly. The structural invariants match: streams are first-class, they are the sole I/O primitive, and they are mobile (streams can be sent through streams, which is pi-calculus's defining move). "
-             "The runtime model differs: pi-calculus channels are ephemeral rendezvous points with no history, while DaoStreams are append-only sequences with cursor-based non-destructive reads and backpressure. "
+             "The runtime model differs: pi-calculus channels are ephemeral rendezvous points with no history, while DaoStreams are append-only sequences with cursor-based non-destructive reads, where every reader sees every retained value. "
              "DaoStreams carry whatever values the consumer needs (binary bytes, EDN values, arbitrary payloads), and most commonly carry datoms, at which point the causal metadata in each datom's m field layers ordering semantics on top of the stream. "
-             "A DaoStream is closer to a durable, cursor-addressable pi-calculus channel. The project's own framing is \"beyond pi-calculus\": keep the mobility and first-class channel idea, add a persistent substrate. See "
+             "A DaoStream is closer to a retained, cursor-addressable pi-calculus channel: it keeps the pi-calculus's topology and leaves its reductions to interpreters. Durability comes from DaoJing observing the stream, not from the stream itself. See "
+             [:a {:href "/blog/messaging-as-a-noun.blog"} "Messaging as a Noun"]
+             ", "
              [:a {:href "/blog/beyond-pi-calculus.blog"} "Beyond Pi-Calculus"]
              " and "
              [:a {:href "/blog/process-calculus-causal-categories-datom-interpreters.blog"} "Process Calculus, Causal Categories, Datom Interpreters"]

@@ -1,7 +1,7 @@
-#:blog{:title "Messaging as a Noun: What OOP Forgot, What the Pi-Calculus Formalized, and What dao.stream Makes First Class"
+#:blog{:title "Messaging as a Noun: Kay, Milner, and dao.stream"
        :date #inst "2026-09-19T00:00:00.000-00:00"
        :abstract
-       [:p "Alan Kay's big idea was messaging; mainstream OOP reduced it to the synchronous method call, and the pi-calculus gave it mathematical form. " [:a {:href "/dao-stream.chp"} [:code "dao.stream"]] " completes the lineage: messages become facts that many observers read and nobody consumes. OOP made messaging a verb. dao.stream makes it a noun."]
+       [:p "Alan Kay's big idea was messaging; mainstream OOP reduced it to the synchronous method call, and the pi-calculus gave it mathematical form. " [:a {:href "/dao-stream.chp"} [:code "dao.stream"]] " completes the lineage: messages become facts that many observers read and nobody consumes. OOP made the message a verb. The pi-calculus and Linda made it a noun that someone consumes. dao.stream makes it a fact."]
        :content
        [:section.blog-article
         [:div.section-inner
@@ -41,7 +41,7 @@
              [:td "The system is defined by the messages between parts"]
              [:td "The system is defined by class hierarchies and inheritance taxonomies"]]]]
 
-          [:p "The language features grew around classes, because classes are what the compiler could see and check. Messages, the thing Kay cared about, were demoted to a calling convention. The idea survived elsewhere: partially in Smalltalk, more fully in Erlang's processes and mailboxes, in Hewitt's actor model, and above all in the Internet, which Kay has pointed to as the one system that genuinely scaled his vision."]
+          [:p "The language features grew around classes, because classes are what the compiler could see and check. Messages, the thing Kay cared about, were demoted to a calling convention. The idea survived elsewhere: partially in Smalltalk, more fully in Erlang's processes and mailboxes, in Hewitt's actor model, in Unix pipes, in " [:a {:href "/blog/plan9-9p-daostream.blog"} "Plan 9"] ", and above all in the Internet, which Kay has pointed to as the one system that genuinely scaled his vision."]
 
           [:h2 "2. The Pi-Calculus: Messaging Made Mathematical"]
 
@@ -59,17 +59,19 @@
 
           [:h3 "Mobility is topology"]
 
-          [:p "Passing a channel name in the pi-calculus corresponds to writing a stream reference into a datom. The computation is not only what flows over the wires; it is also how the wires get rearranged. This is the same view that underlies treating " [:a {:href "/blog/yin-vm-macros.blog"} "macro expansion as stream topology"] " in datom.world: an expander is not a feature of an evaluator but a process that sits on one side of a medium boundary and rewires what the other side sees."]
+          [:p "Passing a channel name in the pi-calculus corresponds to appending a stream descriptor as a value on another stream. The computation is not only what flows over the wires; it is also how the wires get rearranged. This is the same view that underlies treating " [:a {:href "/blog/yin-vm-macros.blog"} "macro expansion as stream topology"] " in datom.world: an expander is not a feature of an evaluator but a process that sits on one side of a medium boundary and rewires what the other side sees."]
 
           [:h3 "Functions are processes, and continuations are channels"]
 
           [:p "Milner showed that the lambda calculus can be encoded in the pi-calculus. A function call becomes: send the arguments along with a fresh " [:em "return channel"] ", then wait on that channel. The return channel is the continuation. Control flow turns into message flow."]
 
-          [:p "yin.vm makes the same move concretely. Its CESK machine state, including continuations, is represented as datoms. Once a continuation is a message on a medium, it can be persisted, inspected, and moved to another host, which is what makes migratory computation possible."]
+          [:p "yin.vm makes the same move at its stream boundary: a blocked read or an outbound call parks the continuation, and the stream it waits on is the return channel. Then it goes one step further. In the pi-calculus the continuation is only named by a channel. In yin.vm it is itself a value."]
+
+          [:p "That holds for code and state alike. A program's Universal AST travels on a stream as tuples, each row addressed by the hash of its own content. The machine's CESK state, including continuations, is likewise plain data with no host objects in it, and the design projects that state into datoms. Once a continuation is a message on a medium, it can be persisted, inspected, and moved to another host, which is what makes migratory computation possible."]
 
           [:h3 "The asynchronous pi-calculus: the message becomes a thing"]
 
-          [:p "In the asynchronous pi-calculus (Honda and Tokoro, Boudol), an output " [:code "x̄⟨y⟩"] " has no continuation. It is simply a term sitting in parallel with everything else until something consumes it. For the first time in this lineage, a message is a noun: a thing that exists independently of both its sender and its eventual receiver."]
+          [:p "In the asynchronous pi-calculus (Honda and Tokoro, Boudol), an output " [:code "x̄⟨y⟩"] " has no continuation. It is simply a term sitting in parallel with everything else until something consumes it. For the first time in this formal line, a message is a noun: a thing that exists independently of both its sender and its eventual receiver."]
 
           [:h2 "3. From Exchange to Publication"]
 
@@ -87,13 +89,15 @@
 
           [:p "A Smalltalk message exists only for the duration of its dispatch. A method call in Java exists only on the call stack. A value on a dao.stream outlives the act of writing it. It can be replayed, queried, and seen by observers who did not exist when it was written. How long it is retained is declared per stream, but no reader can destroy it by reading. Messaging stops being an act and becomes a medium."]
 
-          [:h3 "There is no addressee"]
+          [:h3 "Not even a known reader"]
 
           [:p "Kay decoupled the receiver's " [:em "implementation"] " from the sender, and the pi-calculus, as section 2 showed, decoupled the receiver's " [:em "identity"] ". dao.stream completes the decoupling: the writer does not know who, if anyone, will read. This is Gelernter's generative communication from Linda, where messages exist independently of both parties, and it is the formal core of stigmergy."]
 
+          [:p [:a {:href "/dao-space.chp"} [:code "dao.space"]] " is where the two halves meet, a hybrid of the pi-calculus and Linda's tuple space. Like the pi-calculus, agents write to a channel, their own " [:code "dao.stream"] ", and never to a process. Unlike the pi-calculus, nothing consumes it: each agent indexes its own stream and enqueues the index through a " [:code "dao.jing"] " intake pool, which stores it as immutable, content-addressed segments. Readers then find tuples by content with " [:code "dao.space.query/match"] " and " [:code "dao.space.query/q"] ", and that pairing of stream writes with associative reads is a Linda-style tuple space."]
+
           [:h3 "Interpretation belongs to the observer"]
 
-          [:p "In OOP, one receiver decides what a message means. On dao.stream, many observers read the same datom and each interprets it in its own terms. yin.vm reads a datom as part of a continuation. " [:a {:href "/dao-space.chp"} "dao.space"] " reads it as an indexed fact. An expander reads it as syntax. These observers are peers that remain ignorant of one another, connected only by the stream they share. This is late binding pushed to its limit: " [:a {:href "/blog/structure-vs-interpretation.blog"} "meaning lives in the interpreter, not in the structure"] ". It is bound at read time, and it can differ for every reader."]
+          [:p "In OOP, one receiver decides what a message means. On dao.stream, many observers read the same value and each interprets it in its own terms. yin.vm reads a tuple as code to run. " [:a {:href "/dao-space.chp"} "dao.space"] " reads it as an indexed fact. An expander reads it as syntax to rewrite. These observers are peers that remain ignorant of one another, connected only by the stream they share. This is late binding pushed to its limit: " [:a {:href "/blog/structure-vs-interpretation.blog"} "meaning lives in the interpreter, not in the structure"] ". It is bound at read time, and it can differ for every reader."]
 
           [:h2 "5. The Inversion"]
 
@@ -101,14 +105,17 @@
 
           [:p "In datom.world, the order is inverted. " [:strong "The stream is primary."] " What OOP would call objects (agents, virtual machines, indexes, expanders) are stable patterns of observation over the stream. They come and go. The facts remain."]
 
-          [:p "Kay's lineage, read in this light, is a sequence of progressively more complete answers to one question: " [:em "what is a message?"]]
+          [:p "Unix anticipated half of this inversion. A pipe carries no messages in Kay's sense, only an undelimited stream of bytes between two processes that know nothing about each other. The medium comes first, and the programs on either end are interchangeable. Plan 9 took the other half literally: every resource is a server, and every interaction with it is a 9P message. What neither kept is the history. A byte read from a pipe is gone, and a 9P request is answered and forgotten. dao.stream keeps the pipe's anonymity and adds retention."]
+
+          [:p "Kay's lineage, read in this light, is a sequence of progressively more complete answers to one question: " [:em "what is a message?"] " The order below is conceptual, not chronological: Linda is older than the pi-calculus, and Java arrived after both."]
 
           [:ul.bulleted
-           [:li [:strong "Mainstream OOP:"] " a function call with a receiver. A verb, and a synchronous one."]
-           [:li [:strong "Smalltalk and actors:"] " a dispatched request that the receiver interprets at runtime. Still a verb, but a late-bound one."]
-           [:li [:strong "The pi-calculus:"] " a name sent over a mobile, anonymous channel. In the asynchronous pi-calculus, briefly a noun, until it is consumed."]
-           [:li [:strong "Linda:"] " a tuple in a shared space, matched by content. A noun, but consumed by " [:code "in"] "."]
-           [:li [:strong "dao.stream:"] " an immutable value in an append-only stream. A noun that reading never consumes, read by any number of observers, each supplying its own meaning."]]
+           [:li [:strong "Mainstream OOP"] " (C++ 1985, Java 1995): a function call with a receiver. A verb, and a synchronous one."]
+           [:li [:strong "Smalltalk and actors"] " (1972, 1973): a dispatched request that the receiver interprets at runtime. Still a verb, but a late-bound one."]
+           [:li [:strong "The pi-calculus"] " (1989 to 1992): a name sent over a mobile, anonymous channel. In the asynchronous pi-calculus, briefly a noun, until it is consumed."]
+           [:li [:strong "Linda"] " (1985): a tuple in a shared space, matched by content. A noun, but consumed by " [:code "in"] "."]
+           [:li [:strong "Unix pipes"] " (1973): a medium with no addressee and no messages, only bytes. Consumed as it is read."]
+           [:li [:strong "dao.stream"] ": an immutable value in an append-only stream. A noun that reading never consumes, read by any number of observers, each supplying its own meaning."]]
 
           [:p "That completes the conceptual argument. The rest of the post holds it to a stricter standard. If dao.stream really is the next step after the pi-calculus, it should be possible to say exactly which parts of the pi-calculus it keeps and which it gives up."]
 
@@ -138,7 +145,7 @@
             [:tr
              [:td "Output " [:code "x̄⟨y⟩"]]
              [:td [:code "append!"]]
-             [:td "Matches the asynchronous pi-calculus: no continuation, never parks. Does not match the synchronous rendezvous of the original calculus"]]
+             [:td "Matches the asynchronous pi-calculus: no continuation, never parks. One difference: a bounded transport may answer " [:code "full"] " as data, where a pi-calculus output always succeeds. Does not match the synchronous rendezvous of the original calculus"]]
             [:tr
              [:td "Input " [:code "x(z).Q"]]
              [:td [:code "cursor"] " and " [:code "next"]]
@@ -171,11 +178,11 @@
 
           [:ul.bulleted
            [:li [:strong "Removal"] " (the message no longer holds) becomes a " [:strong "retraction datom"] " in dao.space. Linda's " [:code "in"] " becomes observe-then-retract: an append, not a stream operation."]
-           [:li [:strong "Exclusion"] " (only one receiver wins) becomes a " [:strong "lease"] ": a grant, issued by a grantor on its own stream, that lapses unless the holder renews it. Leases are ordinary facts on ordinary streams and add nothing to the dao.stream contract."]]
+           [:li [:strong "Exclusion"] " (only one receiver wins) becomes a " [:strong "lease"] ", today a proposed design rather than shipped code: a grant, issued by a grantor on its own stream, that lapses unless the holder renews it. Leases are ordinary facts on ordinary streams and add nothing to the dao.stream contract."]]
 
           [:p "The hard part of a take was never the removal. It was excluding competing takers, and that is something no stream can promise. A naive claim pattern shows why. If each worker appends a claim datom to its own single-writer stream and queries for unclaimed work, two workers can both run the query before either claim becomes visible, and both take the same task. Neither stream knows the other exists, so no layer can prevent the race or even detect it. Resolving it is interpreter policy: a reader-side tie-break with a genuinely shared clock, a single shared claims stream, a lease, or simply accepting both claims."]
 
-          [:p "The pi-calculus communication rule is atomic across every possible receiver, which silently assumes a global arbiter. datom.world makes the arbiter explicit and local: a lease grantor whose single-writer stream orders its grants. Consuming receive is then a composition:"]
+          [:p "The pi-calculus communication rule is atomic across every possible receiver, which silently assumes a global arbiter. The lease design makes the arbiter explicit and local: a lease grantor whose single-writer stream orders its grants. Consuming receive is then a composition:"]
 
           [:pre [:code "consuming receive = cursor read + lease on the message + retraction datom"]]
 
@@ -185,7 +192,7 @@
 
           [:p "Any number of processes may send on a pi-calculus channel, while datom.world streams are typically single-writer, so many-to-one communication becomes many streams merged by the reader. And the pi-calculus receives by channel name only; content-based matching in the Linda style lives one layer up, in dao.space."]
 
-          [:p "In the other direction, dao.stream has properties the pi-calculus has no term for: replay from any anchor, " [:code "gap"] " outcomes when history has been evicted, a " [:code "close!"] " that ends future availability without erasing the past, and every operational outcome returned as data rather than as behavior."]
+          [:p "In the other direction, dao.stream has properties the pi-calculus has no term for: replay from the oldest retained value or from any kept cursor, " [:code "gap"] " outcomes when history has been evicted, a " [:code "close!"] " that ends future availability without erasing the past, and every operational outcome returned as data rather than as behavior."]
 
           [:p "dao.stream can be modeled inside the pi-calculus, as a replicated server process that holds history and answers cursor requests. That works, but the property that matters most, a shared history that no one consumes, becomes an encoding rather than a primitive."]
 
@@ -209,7 +216,7 @@
              [:td "Streams are values in the language (yes)"]]
             [:tr
              [:td "Output " [:code "x̄⟨y⟩"]]
-             [:td [:code ":stream/put"] ", which never blocks: the asynchronous pi-calculus (yes)"]]
+             [:td [:code ":stream/put"] ", which has no continuation to synchronize with, as in the asynchronous pi-calculus. It parks only when a bounded transport answers " [:code "full"] " (yes)"]]
             [:tr
              [:td "Blocking input bound to a continuation " [:code "x(z).Q"]]
              [:td [:code ":stream/next"] " yields " [:code "blocked"] ", the continuation parks, and it is woken when data arrives. The parked continuation plays the role of " [:code "Q"] ". Park and resume are part of the machine relation, not a host feature (yes)"]]
@@ -228,21 +235,21 @@
 
           [:h3 "Broadcast is the real divide"]
 
-          [:p "The guarantee that exactly one receiver gets each message is what lets the pi-calculus express mutual exclusion, locks, and resource handoff directly. dao.stream plus yin.vm delivers every message to every reader and recovers exclusion only through an explicit lease. That is " [:em "broadcast"] " semantics, and the closest formal relatives are the broadcast calculi, the broadcast pi-calculus and Prasad's Calculus of Broadcasting Systems (CBS) in asynchronous form, rather than the pi-calculus itself."]
+          [:p "Exactly-one delivery is what lets the pi-calculus express mutual exclusion, locks, and resource handoff directly. Delivering every message to every reader is " [:em "broadcast"] " semantics, where exclusion would come back only through an explicit lease, and the closest formal relatives are the broadcast calculi, the broadcast pi-calculus and Prasad's Calculus of Broadcasting Systems (CBS) in asynchronous form, rather than the pi-calculus itself. Even they differ in one respect: a broadcast is heard only by whoever is listening at that moment, while a dao.stream retains its values, so a reader that arrives late still sees them. In that respect it is closer to Linda's non-destructive " [:code "rd"] " over a persistent log."]
 
           [:h3 "Nondeterminism becomes a fact"]
 
-          [:p "In the pi-calculus, which receiver wins and which branch of a choice fires are nondeterministic and unrecorded. yin.vm's design makes execution deterministic over its datom log: scheduling decisions such as park events are themselves logged, and cursor positions are derived from them, so a run can be replayed exactly. The pi-calculus treats an execution as a space of possible reductions. yin.vm treats it as a history. That is a conceptual addition, not just an implementation detail."]
+          [:p "In the pi-calculus, which receiver wins and which branch of a choice fires are nondeterministic and unrecorded. yin.vm's design direction is execution that is deterministic over its datom log: scheduling decisions such as park events would themselves be logged, and cursor positions derived from them, so a run could be replayed exactly. This is not built yet. Today a park is visible only as an optional, lossy telemetry snapshot. The pi-calculus treats an execution as a space of possible reductions. The yin.vm design treats it as a history. That is a conceptual addition, not just an implementation detail."]
 
           [:h3 "What \"faithful\" would require"]
 
-          [:p "Showing that a system faithfully implements the pi-calculus has a precise meaning: an encoding that is " [:em "fully abstract"] ", so that two pi-calculus terms are behaviorally equivalent (bisimilar) exactly when their encodings are. No such encoding has been given for dao.stream plus yin.vm, and given broadcast receive and recorded nondeterminism, one would not hold for the standard pi-calculus."]
+          [:p "Showing that a system faithfully implements the pi-calculus has a precise meaning: an encoding that is " [:em "fully abstract"] ", so that two pi-calculus terms are behaviorally equivalent (bisimilar) exactly when their encodings are. No such encoding has been given for dao.stream plus yin.vm, and given broadcast receive, one would not hold for the standard pi-calculus."]
 
           [:p "Closing the gap would take three additions: guarded choice over several streams, a spawn primitive that adds a process to the run queue, and consuming receive. Choice and spawn fit naturally into the existing park and wait-set machinery. Consuming receive cannot become a stream operation without breaking the architecture, but it can be composed from a lease and a retraction. It is the one piece that has to be built from the outside rather than added to the machine."]
 
           [:p "The gap also points to a practical resource. Questions like \"which observers can see which streams,\" \"how do stream references propagate,\" and \"are these two wirings equivalent\" are exactly the questions process calculi were built to answer. The broadcast calculi above, together with the join calculus for pattern-based reception, are the natural starting point for a formal semantics of dao.stream topology. Much of that theory already exists."]
 
-          [:p "So dao.stream plus yin.vm is a " [:strong "process calculus with mobile channels, asynchronous output, blocking input, broadcast receive, and recorded execution"] ". It is a close cousin of the pi-calculus that keeps the reductions stigmergy needs and replaces \"one receiver consumes the message\" with \"every observer reads the fact.\""]
+          [:p "So dao.stream plus yin.vm is a " [:strong "process calculus with mobile channels, asynchronous output, blocking input, and broadcast receive"] ", with recorded execution as its design direction. It is a close cousin of the pi-calculus that keeps the reductions stigmergy needs and replaces \"one receiver consumes the message\" with \"every observer reads the fact.\""]
 
           [:h2 "Conclusion"]
 
@@ -250,4 +257,4 @@
 
           [:p "dao.stream keeps what each step got right: Kay's autonomous entities, the pi-calculus's anonymous mobile channels, and Linda's generative communication. Then it adds the property all of them lacked: " [:strong "reading never destroys the message"] ". Consumption, where it is needed, becomes an explicit write rather than a side effect of observation. A message becomes a fact. Facts accumulate. Observers come and go, each reading the same history in its own way."]
 
-          [:p [:strong "OOP made messaging a verb. dao.stream makes it a noun."]]]]]}
+          [:p [:strong "OOP made the message a verb. The pi-calculus and Linda made it a noun that someone consumes. dao.stream makes it a fact."]]]]]}

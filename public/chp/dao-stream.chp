@@ -12,151 +12,150 @@
          [:p
           "DaoStream is an extension of Plan 9's " [:em "\"everything is a file\""] " philosophy. Plan 9 made processes, devices, and network endpoints accessible through one simple interface. DaoStream carries that same move forward: if Plan 9 says everything is a file, DaoStream says everything is a stream."]
          [:p
-          "This is not a rejection of the file model. It is a generalization of it. Files already suggest ordered data, append, and bounded history. DaoStream makes those stream semantics explicit and portable across in-memory transports, network transports, and durable logs."]
+          "This is not a rejection of the file model. It is a generalization of it. Files already suggest ordered data, append, and bounded history. DaoStream makes those stream semantics explicit and portable across in-memory transports and network transports."]
          [:p
-          "A stream has two explicit parts. First, a " [:strong "descriptor"] ", which is a first-class value. Second, an operational realization, " [:code "open!"] ", which takes that descriptor and constructs or attaches to a concrete transport."]
-         [:p
-          "The descriptor is canonical. It is serializable, can be stored, can be sent on other streams, and does not depend on any one backend. "
-          [:code "open!"] " is operational. It realizes the same descriptor as an in-memory ringbuffer, a network transport, a file-backed log, or another transport that preserves the same stream semantics."]
+          "The whole contract is seven operations. Two produce a handle: " [:code "create!"] " makes a new logical stream from a " [:strong "creation specification"] ", and " [:code "attach!"] " joins an existing one through a " [:strong "portable descriptor"] ". Five act on a handle: " [:code "descriptor"] ", " [:code "cursor"] ", " [:code "next"] ", " [:code "append!"] ", and " [:code "close!"] "."]
          [:div.principle-box
-          [:p [:strong "Descriptor"] " : plain data, serializable, mobile, runtime-independent."]
-          [:p [:strong "Realization"] " : " [:code "open!"] " turns that data into an operational transport."]
-          [:p [:strong "Transport"] " : runtime state produced locally, not the canonical identity of the stream."]]
+          [:p [:strong "Creation specification"] " : plain data that says what stream to make. Consumed by " [:code "create!"] "."]
+          [:p [:strong "Descriptor"] " : plain data that names a stream that already exists. Serializable, mobile, consumed by " [:code "attach!"] "."]
+          [:p [:strong "Handle"] " : local runtime state. It is how this process reaches the stream, not the identity of the stream."]]
          [:p
-          "In Datom.World, the most common payload is a stream of datoms, but DaoStream itself is broader than " [:a {:href "/dao-space.chp"} "DaoSpace"] " or " [:a {:href "/yin.chp"} "Yin"] ". DaoSpace consumes streams. FFI can use streams. Runtime services can observe streams. The substrate stays the same."]]]
+          "In Datom.World, the most common payload is a stream of datoms, but DaoStream itself is broader than " [:a {:href "/dao-space.chp"} "DaoSpace"] " or " [:a {:href "/yin.chp"} "Yin"] ". DaoSpace consumes streams. FFI can use streams. Runtime services can observe streams. The substrate stays the same, and it assigns the values it carries no meaning."]]]
 
        [:section.section-light
         [:div.section-inner
-         [:h2 "Descriptor First"]
+         [:h2 "Specifications and Descriptors"]
          [:p
-          "A stream exists first as a descriptor value. The minimal shape in current practice is small:"]
+          "A stream begins as a creation specification. The only key DaoStream itself requires is a qualified " [:code ":dao.stream/type"] "; everything else belongs to the transport named there:"]
          [:div.code-block
           [:pre [:code
-                 "{:dao.stream/type :ringbuffer\n :capacity 1024}"]]]
+                 "{:dao.stream/type :dao.stream/ringbuffer\n :dao.stream.ringbuffer/capacity 1024}"]]]
          [:p
-          "The design target expands that into a richer, still-serializable description (top-level fields stay flat):"]
+          "Once the stream exists, any handle on it can project a portable descriptor. The descriptor carries the type and the logical identity, not the configuration:"]
          [:div.code-block
           [:pre [:code
-                 "{:stream/id ...\n :dao.stream/type :ringbuffer\n :mode :create\n :capacity 1024\n :eviction-policy :reject\n :retention {:type :keep-all}\n :backpressure {:type :park-writer}\n :shibi {...}}"]]]
+                 "(stream/descriptor handle)\n;; => {:dao.stream/outcome    :dao.stream/ok\n;;     :dao.stream/descriptor {:dao.stream/type     :dao.stream/ringbuffer\n;;                             :dao.stream/identity \"7ef7a4c6-...\"}\n;;     :dao.stream/identity   \"7ef7a4c6-...\"}"]]]
          [:div.feature-grid
           [:article.feature-card
-           [:h3 [:code ":stream/id"]]
-           [:p "Names the stream independently of any one transport instance or runtime backend."]]
-          [:article.feature-card
            [:h3 [:code ":dao.stream/type"]]
-           [:p "Transport kind such as " [:code ":ringbuffer"] ", " [:code ":http"] ", or " [:code ":file-input-stream"] ". This is the " [:code "open!"] " dispatch key."]]
+           [:p "A qualified keyword naming the transport, such as " [:code ":dao.stream/ringbuffer"] ", " [:code ":dao.stream/memory-log"] ", or " [:code ":dao.stream/ws"] ". The host dispatches on it."]]
           [:article.feature-card
-           [:h3 [:code ":shibi"]]
-           [:p "Carries optional authority metadata. Trust is orthogonal to transport identity."]]]
+           [:h3 [:code ":dao.stream/identity"]]
+           [:p "Names the logical stream independently of any one handle, attachment, or process."]]
+          [:article.feature-card
+           [:h3 "Transport-owned keys"]
+           [:p "Each transport owns its own namespace, such as " [:code ":dao.stream.ringbuffer/capacity"] ". Unknown qualified keys are ignored, so the maps stay open to extension."]]]
          [:p
-          "The descriptor must remain plain serializable data. It must not contain buffer contents, cursor positions, blocked waiters, socket handles, or continuation state."]
+          "Both maps are plain serializable data. Neither contains buffer contents, cursor positions, socket handles, or continuation state."]
          [:p
-          "Because the descriptor is a value, a stream can be sent on a stream. Any host, agent, or runtime that receives the descriptor can realize it through its local " [:code "open!"] " implementation. This is the channel-mobility property."]]]
+          "Because the descriptor is a value, a stream can be sent on a stream. Any host, agent, or runtime that receives the descriptor can " [:code "attach!"] " to it through a transport it has composed locally. This is the channel-mobility property, the defining idea of the pi-calculus. "
+          [:a {:href "/blog/messaging-as-a-noun.blog"} "Messaging as a Noun"]
+          " maps DaoStream onto the pi-calculus primitive by primitive, and shows where it deliberately departs: reading never consumes."]]]
 
        [:section.section-dark
         [:div.section-inner
-         [:h2 "Realization via open!"]
+         [:h2 "create! and attach!"]
          [:p
-          "A descriptor is not yet an operational stream. The realization boundary is explicit:"]
+          [:code "create!"] " and " [:code "attach!"] " are ordinary functions that each transport provides. They are not on a protocol, and DaoStream ships no multimethod, no registry, and no load-time registration. Dispatch on " [:code ":dao.stream/type"] " is a lookup table the host owns:"]
          [:div.code-block
           [:pre [:code
-                 "(defmulti open!\n  \"Realize a descriptor into an operational transport.\"\n  (fn [descriptor] (:dao.stream/type descriptor)))"]]]
+                 "(def transports\n  {:dao.stream/ringbuffer {:dao.stream/create ringbuffer/create!}\n   :dao.stream/memory-log {:dao.stream/create memory-log/create!}\n   :dao.stream/ws         {:dao.stream/attach ws-attach!}})\n\n(stream/host-dispatch-create! transports spec)\n(stream/host-dispatch-attach! transports descriptor)\n;; => {:dao.stream/outcome :dao.stream/ok\n;;     :dao.stream/handle  handle}"]]]
          [:p
-          "The dispatcher reads the top-level " [:code ":dao.stream/type"] " from the descriptor, for example " [:code ":ringbuffer"] " or " [:code ":websocket"] ". Each transport adds a " [:code "defmethod"] " for its type (via the " [:code "defopen"] " macro). New transports do not require changing the core entry point."]
-         [:p
-          "This keeps descriptor schema and implementation decoupled. Different runtimes can realize the same descriptor differently while preserving the same high-level stream semantics."]
+          "A host that has not composed a transport answers " [:code ":dao.stream/not-found"] " as data. Different hosts can wire the same descriptor to different implementations while preserving the same stream semantics."]
          [:div.feature-grid
           [:article.feature-card
            [:h3 "RingBuffer"]
-           [:p "Low-latency in-process transport. Useful for queues, event logs, and runtime coordination."]]
+           [:p "Fixed-capacity, in-process, evict-oldest. It never refuses a write; a cursor that falls behind the retained window reads a gap."]]
+          [:article.feature-card
+           [:h3 "MemoryLog"]
+           [:p "Unbounded, in-process, complete retention. It has no capacity to declare, so it can produce neither " [:code "full"] " nor " [:code "gap"] ". It lasts as long as the process."]]
           [:article.feature-card
            [:h3 "WebSocket"]
-           [:p "Distributed bidirectional transport. Useful when the stream must cross process or host boundaries."]]
-          [:article.feature-card
-           [:h3 "File or Kafka"]
-           [:p "Durable append-only realizations where persistence and replay matter more than local latency."]]]
+           [:p "Carries a stream across process and host boundaries, with Transit JSON or CBOR as an explicit codec choice. Socket callbacks stay inside the host adapter and never reach the stream surface."]]]
          [:p
-          "A transport is the operational realization of a stream. It is runtime state that satisfies stream protocols. It is not the canonical identity of the stream."]]]
+          "No transport here is durable across a restart. Durability is the job of " [:a {:href "/dao-jing.chp"} "DaoJing"] ", which observes streams and stores what they carry."]]]
 
        [:section.section-light
         [:div.section-inner
-         [:h2 "Orthogonal Protocols"]
+         [:h2 "Surfaces"]
          [:p
-          "DaoStream keeps reading, writing, and lifecycle separate. The canonical model is not one giant protocol. It is a set of orthogonal protocol boundaries."]
+          "DaoStream keeps identity, reading, writing, and lifecycle separate. A handle implements only the surfaces its transport declares, so capability boundaries are explicit: a handle can be a reader without being a writer."]
          [:div.feature-grid
           [:article.feature-card
+           [:h3 "Descriptor"]
+           [:p [:code "(descriptor handle)"] " is universal. Every handle can project its portable descriptor and logical identity."]]
+          [:article.feature-card
            [:h3 "Reader"]
-           [:p [:code "(next stream cursor)"] " performs non-destructive cursor-based reading and returns " [:code "{:ok val :cursor cursor'}"] ", " [:code ":blocked"] ", " [:code ":end"] ", or " [:code ":daostream/gap"] "."]]
+           [:p [:code "(cursor handle anchor)"] " mints a cursor and " [:code "(next handle cursor)"] " reads at it. Both are non-destructive."]]
           [:article.feature-card
            [:h3 "Writer"]
-           [:p [:code "(put! stream val)"] " appends a value and returns " [:code "{:result :ok :woke [...]}"] " or " [:code "{:result :full}"] ". Writes throw if the transport is closed."]]
+           [:p [:code "(append! handle val)"] " appends one value. It never waits."]]
           [:article.feature-card
-           [:h3 "Bound"]
-           [:p [:code "(close! stream)"] " marks the stream closed without erasing prior values, and " [:code "(closed? stream)"] " reports lifecycle state."]]
-          [:article.feature-card
-           [:h3 "Utilities"]
-           [:p [:code "->seq"] ", " [:code "count"] ", and " [:code "drain-one!"] " are utilities or transport-specific conveniences, not the core ontology of the stream."]]]
+           [:h3 "Closable"]
+           [:p [:code "(close! handle)"] " ends future availability without erasing prior values. It is idempotent."]]]
          [:p
-          "This split makes capability boundaries explicit. A transport may implement all three core protocols, or only the ones that make sense for its role."]]]
+          "Every operation returns an outcome map keyed by " [:code ":dao.stream/outcome"] ", and each operation has a closed set of outcomes. Expected conditions such as closed, full, blocked, end, and gap are data, never exceptions and never callbacks."]
+         [:p
+          "Some things are absent on purpose. There is no " [:code "closed?"] " predicate, because its answer would be stale the moment it returned. There is no " [:code "seek"] ", no drain, no blocking take, and no waiter registration."]]]
 
        [:section.section-dark
         [:div.section-inner
          [:h2 "Cursor-Based Reading"]
          [:p
-          "The canonical read model is cursor-based and non-destructive. Advancing to the next value advances a cursor, not the stream itself."]
+          "The read model is cursor-based and non-destructive. A cursor is an opaque immutable value minted from an anchor. Reading returns the value together with the successor cursor; nothing in the stream moves."]
          [:div.code-block
           [:pre [:code
-                 ";; Illustrative cursor\n{:position n}\n\n;; Canonical result shapes\n(next stream {:position 0})\n;; => {:ok val :cursor {:position 1}}\n;; => :blocked\n;; => :end\n;; => :daostream/gap"]]]
+                 "(stream/cursor handle :dao.stream/oldest)  ; earliest retained value\n(stream/cursor handle :dao.stream/newest)  ; the next arrival\n;; => {:dao.stream/outcome :dao.stream/ok\n;;     :dao.stream/cursor  cursor}\n\n(stream/next handle cursor)\n;; => {:dao.stream/outcome :dao.stream/ok\n;;     :dao.stream/value   val\n;;     :dao.stream/cursor  cursor'}\n;; => {:dao.stream/outcome :dao.stream/blocked}\n;; => {:dao.stream/outcome :dao.stream/end}\n;; => {:dao.stream/outcome :dao.stream/gap\n;;     :dao.stream/cursor  recovery-cursor}"]]]
          [:ul.bulleted
-          [:li "Cursors are values."]
+          [:li "Cursors are values. Keep one, and you can resume from it later."]
           [:li "Multiple cursors on the same stream advance independently."]
           [:li "Reading does not consume values."]
           [:li "Prior values remain part of the stream while the transport retains them."]]
          [:p
-          "Sequence traversal is allowed, but it is snapshot-based. " [:code "->seq"] " observes the retained prefix visible at call time. It does not become a live, growing view of future appends."]
+          [:code "next"] " is total and non-blocking. An empty position answers " [:code ":dao.stream/blocked"] ", the stream's equivalent of " [:code "EAGAIN"] ", and the reader decides when to ask again."]
          [:p
-          "Closing or bounding a stream stops future appends. It does not erase the existing prefix. Reads at the end of a closed stream produce end-of-stream, not disappearance of prior facts."]
+          "Closing a stream stops future appends. It does not erase the existing prefix. Reads at the end of a closed stream produce " [:code ":dao.stream/end"] ", not disappearance of prior facts, and an append to a closed stream answers " [:code ":dao.stream/closed"] "."]
          [:p
-          "A gap is a discontinuity. It happens when a cursor falls behind the retention boundary of a transport that no longer keeps the full history. Gaps are not caused by reading. They are caused by retention policy."]]]
+          "A gap is a discontinuity. It happens when a cursor falls behind the retention boundary of a transport that no longer keeps the full history. The gap outcome carries a recovery cursor, and the reader decides what the missing data means. Gaps are not caused by reading. They are caused by retention."]]]
 
        [:section.section-light
         [:div.section-inner
-         [:h2 "Backpressure and Suspended Demand"]
+         [:h2 "Backpressure and Cadence"]
          [:p
-          "Backpressure is transport behavior, not stream ontology. An unbounded transport has no backpressure by definition. A bounded transport may reject writes, park writers, or reclaim space according to its local policy."]
+          "Backpressure is transport behavior, not stream ontology. An unbounded transport has none. A bounded transport either makes room or refuses, and which one it does is part of its declared nature."]
          [:div.feature-grid
           [:article.feature-card
            [:h3 "Writer pressure"]
-           [:p "When a bounded transport is full, the writer sees " [:code "{:result :full}"] ". Parking or retry strategy belongs to the realization layer."]]
+           [:p "A transport that will not accept a value answers " [:code ":dao.stream/full"] " and appends nothing. Retrying is the writer's decision. The ringbuffer evicts instead, so its pressure shows up on the read side as a gap."]]
           [:article.feature-card
-           [:h3 "Waitable transports"]
-           [:p "A transport may optionally implement waiter registration so blocked readers and full writers can be resumed without scheduler polling."]]
+           [:h3 "No waiters"]
+           [:p "No operation waits and there is no readiness notification. A blocked reader polls. Watching many idle streams costs a poll per stream, and that cost is stated in the contract rather than hidden."]]
           [:article.feature-card
            [:h3 "Runtime choice"]
-           [:p "A blocked read can map to a continuation, a promise, a callback, a parked thread, or an actor mailbox. DaoStream does not prescribe which one."]]]
+           [:p "Cadence belongs to whatever drives the reader: a loop, a timer, or a scheduler. DaoStream schedules nothing and invokes nothing."]]]
          [:p
-          "A useful formulation is: a bounded stream is stable data; an open stream is stable data plus suspended demand. DaoStream itself does not know what suspended demand means. It only exposes signals like " [:code ":blocked"] ", " [:code ":full"] ", and close."]
+          "A useful formulation is: a closed stream is stable data; an open stream is stable data plus suspended demand. DaoStream itself does not know what suspended demand means. It only answers " [:code "blocked"] ", " [:code "full"] ", and " [:code "end"] "."]
          [:p
-          "In " [:a {:href "/yin.chp"} "Yin"] ", those signals can park and resume continuations. In a standalone queue or event log, a polling loop is sufficient. The same stream semantics support both."]]]
+          "In " [:a {:href "/yin.chp"} "Yin"] ", a " [:code "blocked"] " read or a " [:code "full"] " write parks the continuation in a polling wait set, and it resumes when the outcome changes. In a standalone queue or event log, a plain loop is sufficient. The same stream semantics support both."]]]
 
        [:section.section-dark
         [:div.section-inner
          [:h2 "Standalone Usage"]
          [:p
-          "DaoStream works as a message bus or event log with no VM, continuation system, or scheduler. A ringbuffer descriptor is enough to build a simple queue:"]
+          "DaoStream works as a message bus or event log with no VM, continuation system, or scheduler. A ringbuffer is enough to build a simple queue:"]
          [:div.code-block
           [:pre [:code
-                 "(def queue\n  (dao.stream/open! {:dao.stream/type :ringbuffer\n                  :capacity 1000}))\n\n(dao.stream/put! queue {:id 1 :msg \"hello\"})\n(dao.stream/put! queue {:id 2 :msg \"world\"})\n\n(loop [cursor {:position 0}\n       messages []]\n  (let [result (dao.stream/next queue cursor)]\n    (cond\n      (map? result) (recur (:cursor result) (conj messages (:ok result)))\n      (= result :blocked) messages\n      (= result :end) messages)))"]]]
+                 "(require '[dao.stream :as stream]\n         '[dao.stream.ringbuffer :as ringbuffer])\n\n(def queue\n  (:dao.stream/handle\n    (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer\n                         :dao.stream.ringbuffer/capacity 1000})))\n\n(stream/append! queue {:id 1 :msg \"hello\"})\n(stream/append! queue {:id 2 :msg \"world\"})\n\n(loop [cursor (:dao.stream/cursor (stream/cursor queue :dao.stream/oldest))\n       messages []]\n  (let [result (stream/next queue cursor)]\n    (case (:dao.stream/outcome result)\n      :dao.stream/ok  (recur (:dao.stream/cursor result)\n                             (conj messages (:dao.stream/value result)))\n      :dao.stream/gap (recur (:dao.stream/cursor result) messages)\n      messages)))\n;; => [{:id 1 :msg \"hello\"} {:id 2 :msg \"world\"}]"]]]
          [:div.feature-grid
           [:article.feature-card
            [:h3 "Message queues"]
            [:p "One writer, many readers, append-only delivery, independent cursors."]]
           [:article.feature-card
            [:h3 "Event logs"]
-           [:p "Immutable history with replay, fan-out, and late joiners that choose their own cursor positions."]]
+           [:p "Immutable history with replay, fan-out, and late joiners that choose their own anchor."]]
           [:article.feature-card
            [:h3 "Request-response"]
-           [:p "Separate request and response streams support RPC patterns without requiring continuation parking."]]]
+           [:p [:code "dao.stream.rpc"] " layers polling request and response state machines over a writer and a reader, with no sockets, promises, or callbacks of its own."]]]
          [:p
           "This is the point of the design: no hidden scheduler is required, and no VM is required. DaoStream can stand alone."]]])}
     template))
