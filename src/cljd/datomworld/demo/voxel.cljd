@@ -1,10 +1,13 @@
 (ns datomworld.demo.voxel
   (:require ["dart:async" :as async]
             ["dart:core" :as core]
+            ["package:flutter/gestures.dart" :as gestures]
             ["package:flutter/material.dart" :as m]
             ["package:flutter/services.dart" :as services]
             [dao.postgraphics.flutter :as pg]
             [dao.postgraphics.flutter.gpu :as pg-gpu]
+            [datomworld.demo.voxel-controls :as controls]
+            [datomworld.demo.voxel-input :as input]
             [datomworld.demo.voxel-runner :as runner]
             [datomworld.demo.voxel-scene :as scene]))
 
@@ -17,30 +20,121 @@
 (defonce ^:private last-tick* (atom nil))
 
 
+;; The on-screen buttons currently held, for drawing them pressed.
+(defonce ^:private pressed-notifier (m/ValueNotifier #{}))
+
+
 ;; --- keyboard ---
 
-(def ^:private key->action
-  {services/LogicalKeyboardKey.keyW :forward,
-   services/LogicalKeyboardKey.keyS :back,
-   services/LogicalKeyboardKey.keyA :left,
-   services/LogicalKeyboardKey.keyD :right,
-   services/LogicalKeyboardKey.space :up,
-   services/LogicalKeyboardKey.shiftLeft :down,
-   services/LogicalKeyboardKey.arrowLeft :look-left,
-   services/LogicalKeyboardKey.arrowRight :look-right,
-   services/LogicalKeyboardKey.arrowUp :look-up,
-   services/LogicalKeyboardKey.arrowDown :look-down})
+;; Flutter PhysicalKeyboardKey -> portable dao.gui.event key code. Physical
+;; keys are layout-independent, matching the browser's KeyboardEvent.code.
+(def ^:private key->code
+  {services/PhysicalKeyboardKey.keyW :key-w,
+   services/PhysicalKeyboardKey.keyS :key-s,
+   services/PhysicalKeyboardKey.keyA :key-a,
+   services/PhysicalKeyboardKey.keyD :key-d,
+   services/PhysicalKeyboardKey.space :space,
+   services/PhysicalKeyboardKey.shiftLeft :shift-left,
+   services/PhysicalKeyboardKey.shiftRight :shift-right,
+   services/PhysicalKeyboardKey.arrowLeft :arrow-left,
+   services/PhysicalKeyboardKey.arrowRight :arrow-right,
+   services/PhysicalKeyboardKey.arrowUp :arrow-up,
+   services/PhysicalKeyboardKey.arrowDown :arrow-down})
 
 
 (defn- handle-key-event
   ^m/KeyEventResult [_node ^services/KeyEvent event]
-  (let [action (get key->action (.-logicalKey event))]
-    (cond (nil? action) m/KeyEventResult.ignored
-          (instance? services/KeyDownEvent event) (do (runner/key-down! action)
-                                                      m/KeyEventResult.handled)
-          (instance? services/KeyUpEvent event) (do (runner/key-up! action)
-                                                    m/KeyEventResult.handled)
-          :else m/KeyEventResult.handled)))
+  (if-some [code (get key->code (.-physicalKey event))]
+    (do (runner/key-input!
+          {:phase (if (instance? services/KeyUpEvent event) :up :down),
+           :code code,
+           :logical (input/logical-key (.-character event)),
+           :repeat? (instance? services/KeyRepeatEvent event),
+           :time-us (.-inMicroseconds (.-timeStamp event))})
+        m/KeyEventResult.handled)
+    m/KeyEventResult.ignored))
+
+
+;; --- pointer ---
+
+(defn- pointer-type
+  [^gestures/PointerEvent e]
+  (let [kind (.-kind e)]
+    (cond (= kind gestures/PointerDeviceKind.touch) :touch
+          (or (= kind gestures/PointerDeviceKind.stylus)
+              (= kind gestures/PointerDeviceKind.invertedStylus))
+          :stylus
+          :else :mouse)))
+
+
+(defn- handle-pointer
+  [phase ^gestures/PointerEvent e]
+  (let [position (.-localPosition e)]
+    (runner/pointer-input!
+      {:phase phase,
+       :id (.-pointer e),
+       :type (pointer-type e),
+       :buttons (.-buttons e),
+       :position {:x (.-dx position), :y (.-dy position)},
+       :pressure (.-pressure e),
+       :time-us (.-inMicroseconds (.-timeStamp e))})))
+
+
+;; --- controls ---
+
+(defn- control-button
+  [pressed {:keys [action label x y], w :width, h :height}]
+  (let [held? (contains? pressed action)
+        amber (m/Color.fromARGB 255 255 213 74)]
+    (m/Positioned
+      .left x
+      .top y
+      .width w
+      .height h
+      .child
+      (m/DecoratedBox
+        .decoration
+        (m/BoxDecoration
+          .color
+          (if held?
+            (m/Color.fromARGB 217 8 10 24)
+            (m/Color.fromARGB 128 8 10 24))
+          .border
+          (m/Border.all .color
+                        (if held? amber (m/Color.fromARGB 204 255 255 255))
+                        .width
+                        2.0)
+          .borderRadius
+          (m/BorderRadius.circular 16.0))
+        .child
+        (m/Center
+          .child
+          (m/Text label
+                  .style
+                  (m/TextStyle .color
+                               (if held? amber m.Colors/white)
+                               .fontSize
+                               (* 0.34 h)
+                               .fontWeight
+                               m/FontWeight.w600)))))))
+
+
+(defn- controls-overlay
+  "Draws the on-screen buttons from the shared layout. It ignores pointers:
+   touches reach the Listener and dao.gui.event decides which button, if any,
+   they landed on."
+  []
+  (m/IgnorePointer
+    .child
+    (m/ValueListenableBuilder
+      .valueListenable
+      pressed-notifier
+      .builder
+      (fn [_ pressed _]
+        (m/Stack .children
+                 (into []
+                       (map #(control-button pressed %))
+                       (controls/layout {:width W, :height H})))))))
 
 
 ;; --- tick loop ---
@@ -53,7 +147,11 @@
              (/ (double (.-inMicroseconds (.difference now last))) 1.0e6)
              (/ (double scene/frame-interval-ms) 1000.0))]
     (reset! last-tick* now)
-    (runner/tick! dt)))
+    (runner/tick! dt)
+    (let [^m/ValueNotifier notifier pressed-notifier
+          pressed (runner/pressed-controls)]
+      (when (not= pressed (.-value notifier))
+        (set! (.-value notifier) pressed)))))
 
 
 (defn stop!
@@ -61,7 +159,7 @@
   (when-let [^async/Timer timer @timer*]
     (.cancel timer)
     (reset! timer* nil))
-  (runner/clear-keys!)
+  (runner/stop-input!)
   :stopped)
 
 
@@ -70,6 +168,7 @@
   (stop!)
   (runner/ensure-chunk-mesh!)
   (runner/reset-player!)
+  (runner/start-input!)
   (reset! last-tick* nil)
   (tick!)
   (reset! timer* (async/Timer.periodic (core/Duration .milliseconds
@@ -99,14 +198,33 @@
                     true
                     .onKeyEvent
                     handle-key-event
+                    .onFocusChange
+                    runner/focus-input!
                     .child
-                    (m/SizedBox .width
-                                W
-                                .height
-                                H
-                                .child
-                                (pg/postgraphics-widget runner/frame-stream)))
+                    (m/Listener
+                      .behavior
+                      m/HitTestBehavior.opaque
+                      .onPointerDown
+                      (fn [e] (handle-pointer :down e))
+                      .onPointerMove
+                      (fn [e] (handle-pointer :move e))
+                      .onPointerUp
+                      (fn [e] (handle-pointer :up e))
+                      .onPointerCancel
+                      (fn [e] (handle-pointer :cancel e))
+                      .child
+                      (m/SizedBox .width
+                                  W
+                                  .height
+                                  H
+                                  .child
+                                  (m/Stack .fit
+                                           m/StackFit.expand
+                                           .children
+                                           [(pg/postgraphics-widget
+                                              runner/frame-stream)
+                                            (controls-overlay)]))))
            (m/SizedBox .height 12.0)
-           (m/Text "WASD to move, Space/Shift to fly, arrows to look"
+           (m/Text "WASD or the on-screen pad to move, Space/Shift or UP/DN to fly, arrows or drag to look"
                    .style
                    (m/TextStyle .color m.Colors/white70 .fontSize 14.0))])))))

@@ -256,6 +256,25 @@
   [(cos yaw) 0.0 (sin yaw)])
 
 
+(def max-pitch (* 0.49 pi))
+
+
+(def look-sensitivity
+  "Radians of turn per pixel of drag."
+  0.005)
+
+
+(defn look
+  "Turns the player by a drag of {:x :y} pixels: dragging right looks right
+   and dragging up looks up, with pitch held short of vertical."
+  [player {:keys [x y]}]
+  (-> player
+      (update :yaw + (* look-sensitivity x))
+      (update :pitch #(-> (- % (* look-sensitivity y))
+                          (max (- max-pitch))
+                          (min max-pitch)))))
+
+
 (defn integrate-motion
   "Advances player state by dt seconds. keys-down is a set of keywords:
    :forward :back :left :right :up :down :look-left :look-right :look-up
@@ -288,7 +307,6 @@
          move-y (* dy step)
          move-z (+ (* fz dz step) (* rz dx step))
          new-yaw (+ yaw (* dyaw look-speed dt))
-         max-pitch (* 0.49 pi)
          new-pitch (-> (+ pitch (* dpitch look-speed dt))
                        (max (- max-pitch))
                        (min max-pitch))
