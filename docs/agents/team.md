@@ -91,13 +91,13 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 | `deepseek-v4-pro`           | Legacy 1.6T MoE architecture. **Best for:** Advanced logic         | Actively being superseded by V4.1-Flash; high cost and undercooked  |
 |                             | workflows and adversarial reviews.                                 | relative to size. **Avoid for:** General use (use Flash instead).   |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gemini-3.1-pro-high`       | Native 2M token context; deep reasoning. **Best for:** Massive     | Legacy positioning; can fall behind newer models on daily agentic   |
-|                             | document/repo analysis, complex multimodal knowledge synthesis,    | coding. **Avoid for:** High-volume, real-time agentic tasks.        |
-|                             | and adversarial review fallback.                                   |                                                                     |
+| `gemini-3.1-pro-high`       | Native 2M token context; deep reasoning. **Best for:** Massive     | High context overhead makes it computationally heavy compared to    |
+|                             | document/repo analysis, system-wide root-cause debugging, complex  | newer, specialized models. **Avoid for:** Simple, high-volume       |
+|                             | multimodal knowledge synthesis, and adversarial review fallback.   | repetitive coding loops where deep context is unnecessary.          |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gemini-3.8-flash`          | Lightning-fast; highly cost-efficient; strong on long-horizon SWE  | Inconsistent on extreme complex reasoning vs larger frontier models.|
-|                             | and agentic workflows. **Best for:** High-volume production tasks, | **Avoid for:** Core security capability enforcement; top-level      |
-|                             | fast frontend fallback, QA, and subagents.                         | architecture.                                                       |
+| `gemini-3.8-flash`          | Lightning-fast; highly cost-efficient; 1M+ context with native     | Can oversimplify subtle invariant edge cases vs frontier models.   |
+|                             | multimodal support. **Best for:** High-volume agentic loops,         | **Avoid for:** Core security capability enforcement; top-level      |
+|                             | visual/frontend inspection, rapid TDD/QA, and subagents.           | architecture.                                                       |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `glm-5.3`                   | Scaled post-training for exceptional long-horizon tasks and        | Heavier footprint; can overcomplicate simple data framing. **Avoid  |
 |                             | cybersecurity. **Best for:** Complex programming workflows, VMs,   | for:** UI/UX, canvas, or WebGPU tasks.                              |
