@@ -8,7 +8,8 @@
    source each cursor was wired with -- the r2 review's D4 binding), the
    defect reader outcomes come from a scripted fake reader, and no host
    clock, timer or callback is read anywhere."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require #?@(:cljd [["dart:core" :as dart-core]])
+            [clojure.test :refer [deftest is testing]]
             [dao.lease :as lease]
             [dao.stream :as ds]
             [dao.stream.ringbuffer :as ringbuffer]))
@@ -335,9 +336,11 @@
 (defn- assembly-defect
   "The first key of the ex-data an assembly rejection carries, or nil when
   initial-judge succeeds -- so each negative case asserts WHICH check
-  refused it, not merely that something threw."
+  refused it, not merely that something threw. A default :self is
+  supplied (r4-P1 made it a required seam): these cases vary the seam
+  under test, not the identity."
   [config]
-  (try (lease/initial-judge config) nil
+  (try (lease/initial-judge (merge {:self :grantor} config)) nil
     (catch #?(:cljd Object :clj Exception :cljs :default) e
       (first (keys (ex-data e))))))
 
@@ -363,9 +366,11 @@
            (assembly-defect {:units {}
                              :resolver (fn [_source _fact] nil)}))
         "an empty table has no basis")
-    (is (some? (lease/initial-judge {:units {:ms 1 :s 1000 :min 60000}
+    (is (some? (lease/initial-judge {:self :grantor
+                                     :units {:ms 1 :s 1000 :min 60000}
                                      :resolver (fn [_source _fact] nil)})))
-    (is (some? (lease/initial-judge {:resolver (fn [_source _fact] nil)})))))
+    (is (some? (lease/initial-judge {:self :grantor
+                                     :resolver (fn [_source _fact] nil)})))))
 
 
 (def defective-corpus
@@ -1722,7 +1727,8 @@
     (is (= :unit
            (assembly-defect {:units {:ms 4503599627370497}
                              :resolver (fn [_source _fact] nil)})))
-    (is (some? (lease/initial-judge {:units {:ms 1 :h 3600000}
+    (is (some? (lease/initial-judge {:self :grantor
+                                     :units {:ms 1 :h 3600000}
                                      :resolver (fn [_source _fact] nil)}))
         "a plain hour unit is legal again: the old raw bound rejected it")))
 
@@ -1825,10 +1831,14 @@
                              :resolver (fn [_source _fact] nil)}))
         "past quot 2^52 1000 against an ms-based table, though raw-legal"))
   (testing "legal tolerances assemble"
-    (is (some? (lease/initial-judge {:units {:ms 1 :s 1000}
+    ;; initial-judge keeps nil-means-zero; make-judge is the one that
+    ;; demands the explicit value (r4-P2)
+    (is (some? (lease/initial-judge {:self :grantor
+                                     :units {:ms 1 :s 1000}
                                      :tolerance {:ms 0}
                                      :resolver (fn [_source _fact] nil)})))
-    (is (some? (lease/initial-judge {:units {:ms 1 :s 1000}
+    (is (some? (lease/initial-judge {:self :grantor
+                                     :units {:ms 1 :s 1000}
                                      :tolerance nil
                                      :resolver (fn [_source _fact] nil)})))))
 
@@ -1869,7 +1879,8 @@
          never silently drop every lease fact into :dropped")
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
                  (lease/initial-judge {:resolver :not-a-fn})))
-    (is (some? (lease/initial-judge {:resolver (fn [_source _fact] :x)}))))
+    (is (some? (lease/initial-judge {:self :grantor
+                                     :resolver (fn [_source _fact] :x)}))))
   (testing "R1: a constructed judge whose facts arrive never lapses via drops"
     (let [log (atom [])
           system (-> (setup {:reclaim (fn [subject] (swap! log conj subject) true)})
@@ -2390,3 +2401,92 @@
                                          :grantor standard-grant {:ms 1})
                                 nil))
         "an invalid reading is unanswerable, never free to act")))
+
+
+;; =============================================================================
+;; Phase 4: the reference tick driver (D3) -- test-tree host policy
+;; =============================================================================
+;;
+;; The contract's tick producer is a STEP/DEPOSIT function a host driver
+;; calls: the driver (and its timer, on hosts that use one) lives OUTSIDE
+;; dao.lease.cljc, which is why the host clock reads below are legal here
+;; and would not be one file up. This is test/example policy, not
+;; contract.
+
+(defn- host-clock-raw
+  "The lane's raw clock reading: nanoseconds on the JVM, milliseconds
+  elsewhere. Test-tree host policy (D3)."
+  []
+  #?(:cljd (.-millisecondsSinceEpoch (dart-core/DateTime.now))
+     :clj (System/nanoTime)
+     :cljs (js/Date.now)))
+
+
+(defn- elapsed-ms
+  "Milliseconds since baseline by this lane's clock. The JVM's
+  System/nanoTime has an arbitrary origin -- negative whenever the
+  counter's epoch predates the process -- so the driver subtracts a
+  baseline captured at its creation before converting: readings start
+  near zero instead of pinning at max-1 with time frozen."
+  [baseline]
+  #?(:cljd (max 0 (- (.-millisecondsSinceEpoch (dart-core/DateTime.now)) baseline))
+     :clj (max 0 (quot (- (System/nanoTime) baseline) 1000000))
+     :cljs (max 0 (- (js/Date.now) baseline))))
+
+
+(defn tick-driver
+  "The reference tick producer (D3), as a STEPPED, caller-driven deposit:
+  the host loop calls `(:deposit! driver)` once per cadence tick, and
+  each call computes ONE monotonic reading by the lane's host policy and
+  appends ONE tick fact. The driver holds no timer and no callback --
+  the cadence is the caller's, which is what keeps dao.lease.cljc free
+  of both. `(:stop! driver)` makes every later deposit a no-op.
+  Readings never decrease: a clock that runs backwards is clamped to
+  the last reading, and a non-positive reading never appends."
+  [handle]
+  (let [baseline (host-clock-raw)
+        stopped? (atom false)
+        last-ms (atom nil)
+        appended (atom 0)]
+    {:deposit! (fn []
+                 (boolean
+                   (when-not @stopped?
+                     (let [now (elapsed-ms baseline)
+                           ms (max 1 (if (and (some? @last-ms) (< now @last-ms))
+                                       @last-ms
+                                       now))]
+                       (append-ok! handle (lease/tick {:ms ms}))
+                       (reset! last-ms ms)
+                       (swap! appended inc)))))
+     :stop! (fn [] (reset! stopped? true))
+     :stopped? (fn [] @stopped?)
+     :appended (fn [] @appended)}))
+
+
+(deftest tick-driver-deposits-monotonic-readings-test
+  (testing "D3/4.4#4: the reference driver appends non-decreasing readings"
+    (let [buffer (new-buffer 16)
+          driver (tick-driver buffer)]
+      (dotimes [_ 5] ((:deposit! driver)))
+      (let [values (drain-values buffer)
+            readings (mapv #(get % :dao.lease/reading) values)]
+        (is (= 5 (count readings)) "five deposits appended five ticks")
+        (is (every? #(lease/valid? % {:ms 1}) values)
+            "each deposit is a well-formed tick fact")
+        (is (every? (fn [[earlier later]]
+                      (not (neg? (lease/compare-durations {:ms 1} later earlier))))
+                    (map vector readings (rest readings)))
+            "readings never decrease across deposits")))))
+
+
+(deftest tick-driver-stops-on-demand-test
+  (testing "D3/4.4#4: a stopped driver deposits nothing"
+    (let [buffer (new-buffer 16)
+          driver (tick-driver buffer)]
+      (is (true? ((:deposit! driver))))
+      (is (false? ((:stopped? driver))))
+      ((:stop! driver))
+      (is (true? ((:stopped? driver))))
+      (is (false? ((:deposit! driver))) "a stopped deposit is a no-op")
+      (is (= 1 ((:appended driver))) "exactly the one pre-stop tick landed")
+      (is (= 1 (count (drain-values buffer)))))))
