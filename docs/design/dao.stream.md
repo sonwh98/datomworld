@@ -787,21 +787,308 @@ Absent from the public surface, by derivation from the invariants:
   configuration the composition already holds, and reading it back at runtime
   invites code that branches on what it should have been wired with.
 
-## The v2 namespace is transient
+## Open Decisions
 
-`dao.stream` exists to protect a working system while its consumers move,
-not to live forever. When the last consumer has migrated under its own plan
-and legacy `dao.stream` is deleted, **`dao.stream` is renamed to
-`dao.stream`** — decided, not left open. An undecided coexistence of both
-namespaces is a defect of the migration, not a steady state.
+Status: **proposed, binding nothing.** Every other section of this document is
+contract; this one is not. Each entry names an assumption the contract makes
+without stating it, the use that would break it, and a proposed resolution.
+An entry leaves this section in one of two ways: accepted, its text moves into
+the section it amends and the entry is deleted; or rejected, the entry is
+replaced by one sentence in *Explicitly Absent* recording why. Drafted
+2026-09-19 from a review of this document against `dao.stream`, its three
+transports (`ringbuffer`, `memory-log`, `ws`), and their consumers.
 
-This is recorded here because the plan that carried it,
-`dao.stream.implementation-plan.md`, was consumed when its phases
-completed; the decision it left open outlived it, and a transient plan is
-safe to delete only once nothing in it is still owed.
+OD-1 to OD-4 are ordered by cost of delay. Each is a paragraph today, while
+three transports and a handful of consumers exist, and a migration once a
+durable or replicated transport ships. OD-5 was added afterwards and is
+numbered by arrival; it concerns the layers above this contract rather than the
+contract's own operations.
 
-The last v1 consumer migrated under `dao.stream.v1-retirement.implementation-plan.md`
-on 2026-09-17, and legacy `dao.stream` was deleted. The rename is now due.
+### OD-1. An unrecognized outcome has no defined meaning
 
-`dao.space` is done: `query`, `index` and `transactor` require `dao.stream`,
-and `schema` and `transact` require no stream namespace at all.
+**The assumption.** The Result Convention makes each operation's outcome set
+exhaustive and makes result *maps* open. The two rules are asymmetric: a future
+extension may add a key, never an outcome. The contract assumes the seven
+outcome sets are complete for every transport that will ever exist.
+
+**Evidence.** Consumers are already total over the closed sets and treat
+anything else as a fault: `dao.stream.observe/step` classifies an unrecognized
+read or effect outcome as `transport-error` and reports `:defect` or `:failed`;
+`yin.vm.engine/handle-put` and `handle-next` throw. *Envelopes* declines to
+reserve an outcome for gating and says gating "arrives as an addition", but
+under the exhaustive rule a new outcome is not an addition.
+
+**What breaks.** Any condition the present outcomes cannot express honestly:
+attachment or append refused for lack of authority; a descriptor that is valid
+but served elsewhere now; a transport that is throttling rather than full; an
+append whose effect is unknown (OD-2). Each must either be squeezed into an
+existing outcome that misdescribes it (`not-found` for unauthorized, `full` for
+throttled) or break every consumer.
+
+**Proposed resolution.** Keep each outcome set exhaustive *for this version of
+the contract* and add one rule to the Result Convention that makes later
+outcomes safe to introduce:
+
+> A consumer that receives an outcome it does not recognize treats it as: not
+> `ok`; nothing observed and nothing appended; and not retryable, unless the
+> result map carries `:dao.stream/retry? true`. It does not throw, because an
+> unrecognized outcome is a newer contract, not a defect in this host's
+> assembly.
+
+With that rule a newer transport degrades to "refused, do not retry" on an
+older consumer instead of to an exception, and `:dao.stream/retry?` lets it
+say when waiting is the right response. The existing `full` and `blocked` keep
+their meanings and need not carry the key.
+
+**Cost if deferred.** Every consumer written in the meantime hard-codes
+"unknown means defect", and the first new outcome is a coordinated change
+across all of them.
+
+### OD-2. `append!` assumes its own effect is always knowable
+
+**The assumption.** *Writing* defines `transport-error` as "the transport
+failed to perform the append; nothing was appended", and `ok` as acceptance at
+a definite position. Both assume the transport knows, at return time, whether
+the value is in the sequence.
+
+**Evidence.** True of all three transports today: `ringbuffer` and `memory-log`
+are single in-memory state transitions, and `ws` sidesteps the question because
+its writer surface is the outbound path, so `ok` claims only enqueueing. No
+transport yet has a medium that can fail *after* accepting bytes.
+
+**What breaks.** A durable file whose write succeeds and whose sync fails; a
+log replicated to a quorum; an append forwarded to a remote sequencer. Each has
+a third state, *unknown*, that the table cannot express. A consumer written
+against the present text retries on `transport-error`, which is correct only if
+nothing was appended, and duplicates the value when something was.
+
+Two related gaps compound it. `append!`'s `ok` carries no correlation value, so
+where the real answer is displaced to another channel (*Writing*: "what becomes
+of the value at the far end is reported there, not here") nothing in the
+contract ties that answer to the append that caused it. `attach!` has
+`:dao.stream/attachment` for exactly this; `append!` has no counterpart. And
+`ok` promises neither readability nor delivery nor durability, with no named
+way to learn any of the three later.
+
+**Proposed resolution.** Three sentences, no new operation:
+
+1. Reword `transport-error` on `append!`: "The transport failed to perform the
+   append. Whether the value was appended is unknown unless the transport
+   declares that its failures are clean." The three existing transports declare
+   clean failure, so nothing changes for them.
+2. State the rule the RPC layer already follows: **deduplication and
+   correlation are the payload's.** A writer that must retry safely puts an
+   identity in the value; a reader that must not act twice deduplicates on it.
+   The stream never promises exactly-once.
+3. Name where later answers land: a transport whose acceptance is not its
+   final answer (durability reached, far-end refusal) declares the channel on
+   which that answer is deposited, as *Close* already requires for a failing
+   flush.
+
+**Cost if deferred.** The first durable transport either lies (reports clean
+failure it cannot guarantee) or changes the meaning of an outcome that every
+retry loop already depends on.
+
+### OD-3. A cursor binds to the logical stream but is shaped by one transport
+
+**The assumption.** *Cursors* promises that "any handle on the same logical
+stream accepts it", and *Envelopes* allows that "different descriptors may
+reach the same logical stream through different endpoints". *Cursors* also says
+"a cursor's representation belongs to the transport". Together these hold only
+if a logical stream lives on exactly one transport for its whole life.
+
+**Evidence.** Cursor maps are keyed in the minting transport's namespace
+(`:dao.stream.ringbuffer/identity` and `/position`,
+`:dao.stream.memory-log/identity` and `/position`), so a cursor from one
+transport is `invalid-cursor` on any other, whatever identity it names. Across
+hosts the promise has never been exercised: `ws` has no reader surface, so
+inbound values are deposited on a local stream with its own identity and its
+own positions. What a remote host reads is a copy, not the stream. Finally,
+"whether a cursor survives serialization to another host is transport-owned and
+TBD", while *Explicitly Absent* removes `seek`: a kept cursor is therefore the
+only checkpoint a consumer has, and whether it can be written down is
+undecided.
+
+**What breaks.** Replication and DHT replicas (which replica's positions are
+the stream's?); re-homing a stream from memory to a durable medium without
+invalidating every kept cursor; a durable consumer resuming after restart;
+comparing two replicas to detect a forked history.
+
+**Proposed resolution.** Two decisions, the first a choice:
+
+1. **Choose what a logical identity ranges over.** Either
+   (a) *one origin, one transport*: a logical stream is the sequence one
+   transport instance owns. A copy on another host or medium is a different
+   logical stream with its own identity; that it mirrors the first is a fact for an
+   interpreter to record. This is how the code already behaves:
+   `dao.stream.forward` copies into a destination with its own identity. The
+   sentence
+   about different descriptors reaching one stream narrows to "different
+   endpoints of the same owning transport". Or
+   (b) *contract-level position*: the contract defines a position within an
+   identity (an ordinal), cursors carry it under a `:dao.stream/…` key, and any
+   transport serving that identity honors it.
+   Recommended: (a). It matches Axiom 2 (sameness between sequences is an
+   interpretation), costs a paragraph, and leaves (b) available later as an
+   additive key. (b) commits every future transport, including ones with no
+   natural ordinal, now.
+2. **Settle serialization.** Replace "TBD" with: "A cursor is plain data and
+   survives the host serialization codec structurally unchanged, under the same
+   rule as the envelopes. A cursor that outlives the stream it names yields
+   `not-found` at `attach!` or `cursor-mismatch` at `next`, never a defect."
+   Both existing transports already satisfy this.
+
+**Cost if deferred.** The first durable or replicated transport decides both
+questions implicitly, by whatever its cursor happens to look like, and every
+consumer that persisted a cursor inherits that accident.
+
+### OD-4. A logical stream can close but cannot end
+
+**The assumption.** *Complete history* obliges a transport to retain every
+element "for as long as the logical stream exists", and *Close* says close
+"erases nothing". Nothing says how a logical stream stops existing. The
+contract assumes storage is either bounded by eviction or kept forever.
+
+**Evidence.** There is no destroy, truncate, compact, or redact anywhere in the
+surface or in any transport. `memory-log` ends only when its process does. What
+`next`, `cursor`, or `attach!` answer for a stream whose medium was removed out
+of band is undefined; the nearest outcomes are `transport-error` and
+`not-found`, and the document chooses neither.
+
+**What breaks.** Reclaiming disk under a durable log; snapshot-and-truncate
+compaction, the ordinary way a replayed log stays bounded; erasure that law or
+a user requires. All three are forbidden to a transport that declared complete
+history, and consumers are wired to that declaration as a correctness
+requirement.
+
+**Proposed resolution.**
+
+1. Name a third retention nature beside *evicting* and *complete*:
+   **compacted**. A compacted transport may drop a prefix it has summarized. A
+   cursor into the dropped prefix receives `gap` exactly as under eviction, and
+   the result map may carry, under a transport-owned key, a descriptor or
+   content address for the summary that replaces the prefix. A consumer that
+   requires complete history is not wired to one; a consumer that can resume
+   from a summary is. No new outcome is needed.
+2. State the end of existence: **destruction is transport-owned**, like any
+   operation outside the seven. After it, `attach!` answers `not-found`; a live
+   handle's `next` and `cursor` answer `end` if the handle was closed first and
+   `transport-error` otherwise; `descriptor` still answers `ok`, because a name
+   outlives what it named. Redaction of a single element is not a stream
+   operation at all: under *taking is a write* it is a retraction datom, and
+   what must be unreadable is made so by discarding a key held elsewhere.
+
+**Cost if deferred.** The first durable transport ships as "complete", gains
+consumers that depend on that word, and can then never reclaim space without
+breaking them.
+
+### OD-5. "No operation waits" binds the seven operations and nothing above them
+
+**The assumption.** *The IO Model* argues that a blocking contract is
+"unimplementable on most of the targets" and that a callback contract "inverts
+control on all of them", and concludes that non-blocking polling is the only
+model that means the same thing on clj, cljs, and cljd. The argument is about
+hosts, not about streams, so it applies with equal force to any interface an
+interpreter publishes. The contract nevertheless binds only its own seven
+operations. It assumes the layers above will inherit the model without being
+told to.
+
+**Evidence.** Content lookup, the one random-access service in the system, is
+currently published in three shapes:
+
+- **Waiting.** `dao.jing/get` is `(get handle address not-found) -> value`, and
+  `materialize!` returns an address "only after the backend reports success".
+  Over a local store this is one in-memory or file read. Over a remote store it
+  must wait, which `dao.jing.md` records honestly: `connect-content!` is "a
+  blocking driver as host policy… a JVM thread polls and sleeps", and both
+  halves of `dao.jing.remote` are JVM-only. Nine call sites depend on this
+  shape: three in `dao.space.index` (index walks and manifest reads), four in
+  `dao.data.btree.storage`, two in `yin.vm.content`.
+- **Callback.** `dao.data.btree.storage/hydrate-async` takes `on-ok` and
+  `on-err` or returns a Promise / Future / CompletableFuture, tracking
+  completion in atoms, over an async content handle
+  (`:get-content-async-fn`). This is the second of the three IO models, the
+  one this document rejects by name, and it sits one layer above the contract.
+- **Stepped.** `dao.jing.remote.step` is "a pure function over explicit data…
+  no socket, atom, promise, callback, or scheduler": `request-get`, `step`,
+  `abandon` over `dao.stream.rpc`. This is the third model, and the only one of
+  the three shapes that is the same on every host.
+
+`dao.jing.md` already lists the consequences as deferred items (*The content
+write path as an effect stream*, *Async hydration*). What is undecided is not
+whether the problem exists but which shape is the interface.
+
+**What breaks.** Any interpreter that must reach content it does not hold
+locally, on a host that cannot wait: a browser or Dart agent querying a remote
+`dao.space` index; a VM loading code by address from another node
+(`yin.vm.content`); a game client fetching meshes or textures by address.
+Today each has two options. It can hydrate the whole reachable graph before
+reading, which turns a selective index read into a full download. Or it can
+adopt the callback shape, which reintroduces inverted control into every
+caller above it, the viral cost *Why this model and not the other two*
+describes.
+
+The general form matters more than this instance. Every future service that
+answers a question (a lookup, a query against a remote peer, a lease grant, a
+name resolution) faces the same three shapes. Without a rule each will choose
+by local convenience, and the convenient choice on the JVM is the one that
+does not port.
+
+**Proposed resolution.** One rule, stated here because this is where the
+argument for it lives, and one consequence, stated in `dao.jing.md`:
+
+1. Add to *Composition*:
+
+   > The IO model is inherited. An interpreter's portable interface is
+   > expressed the way this contract's is: a step that returns what is true
+   > now, including "not yet", over streams the caller supplied. A waiting
+   > call or a callback may wrap that step as **host policy**, named as such
+   > and confined to the hosts that can afford it, exactly as
+   > `connect-content!` wraps the stepped client. It is never the interface
+   > another interpreter is written against.
+
+2. In `dao.jing.md`, name the stepped request/response pair as the
+   agent-facing interface to content, and reclassify the synchronous handle
+   (`:get-content-fn`) as what it already is in practice: the store
+   interpreter's boundary adapter onto its own medium, plus a cache readers may
+   consult. The handle map does not change. What changes is which of the three
+   shapes new code is allowed to depend on.
+
+Two costs follow and should be accepted with open eyes. The tree walks in
+`dao.space.index` and `dao.data.btree.storage` become steppable: fetch, receive
+"not yet", return state, resume when the response is observed. Inside `yin.vm`
+this is the existing park and wait-set path; in library code it is the shape
+`forward-step` and `rpc/poll!` already have. And `hydrate-async` is either
+rewritten as a step or explicitly labelled host policy. The hydration cache
+itself survives unchanged: prefetching a graph so that a walk never misses is a
+legitimate optimization of a stepped interface, not an alternative to one.
+
+**Cost if deferred.** The nine call sites grow. Every new consumer of content
+written on the JVM is written against the waiting shape, and each one is a
+separate port when the first browser or Dart agent needs to read a remote
+index.
+
+### Recorded, not proposed
+
+These came out of the same review. Each is reachable by addition under the
+rules the contract already has, so none needs a decision now. They are listed
+so that a later plan does not rediscover them as surprises.
+
+- **A writer does not learn where its value landed.** `append!`'s `ok` carries
+  no cursor. Read-your-writes and causal references between streams arrive as
+  an optional `:dao.stream/cursor` key on `ok`. Conditional append ("only if
+  the tail is still here") would be an eighth operation; the design does not
+  need it because it assumes **one writer per logical stream**, which
+  `dao.space` practices and this document should say once in *Concurrency*.
+- **History is not verifiable.** Identity is an opaque value nothing
+  authenticates, and append-only is the transport's promise, not something a
+  reader can check. Self-certifying identities and signed or hash-chained
+  elements live in the payload, above the stream. The obligation on this layer
+  is only the one it already meets: identity is compared structurally and never
+  parsed.
+- **Readiness.** Polling is O(n) in streams observed (*What it costs*). The
+  extension is reserved, and `dao.stream.waitset.implementation-plan.md` pays
+  the cost in the runtime without it.
+- **Granularity.** An element is a whole value; there is no byte offset within
+  one and no chunked element. Large media travel as content addresses in the
+  payload, resolved through `dao.jing`.

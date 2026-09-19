@@ -74,7 +74,7 @@ bb test:cljd  # Runs Dart tests
 
 ## Flutter Prototype
 
-The active ClojureDart demo boots a Flutter surface backed by `dao.postgraphics/postgraphics-widget` and a remote Yin REPL. The demo entrypoint is `src/cljd/datomworld/demo/main.cljd`, which currently launches `datomworld.demo.mr-clean`.
+The active ClojureDart demo boots a Flutter surface backed by `dao.postgraphics/postgraphics-widget` and a remote Yin REPL. The demo entrypoint is `src/cljd/datomworld/demo/main.cljd`, which opens a picker of five demos: the `dao.gui` prototype, the glowing artifact, the solar system, the Earth and Moon, and the voxel scene.
 
 ### Android Emulator
 
@@ -107,7 +107,7 @@ flutter run -d emulator-5554
 
 ### Remote REPL UI Prototype
 
-The prototype screen starts a REPL server on port `7777` and exposes helpers for pushing either raw PostGraphics frames or `mr-clean` UI compiled into PostGraphics.
+The `dao.gui` prototype screen starts a REPL server on port `7777` (Android; `7778` on iOS) and exposes helpers for pushing either raw PostGraphics frames or `dao.gui` UI compiled into PostGraphics.
 
 Connect from a desktop REPL:
 ```bash
@@ -131,7 +131,7 @@ Push a raw frame:
    :color [0.2 0.6 1 1]}])
 ```
 
-Or compile `mr-clean` UI directly:
+Or compile `dao.gui` UI directly:
 ```clojure
 (set-ui!
  [:column
