@@ -1,7 +1,7 @@
 #:blog{:title "Messaging as a Noun: What OOP Forgot, What the Pi-Calculus Formalized, and What dao.stream Makes First Class"
        :date #inst "2026-09-19T00:00:00.000-00:00"
        :abstract
-       [:p "Alan Kay has said for decades that the big idea of object-oriented programming was never objects or classes. It was " [:strong "messaging"] ". Mainstream OOP languages reduced messages to synchronous method calls and built everything around class hierarchies instead. The pi-calculus later gave messaging a rigorous mathematical form, with anonymous channels and mobile names. This post traces that lineage and argues that " [:a {:href "/dao-stream.chp"} [:code "dao.stream"]] " completes it: messages become unaddressed facts that many observers read and nobody consumes. It then asks the precise question: is dao.stream, alone or together with yin.vm, actually a pi-calculus? OOP made messaging a verb. dao.stream makes it a noun."]
+       [:p "Alan Kay's big idea was messaging; mainstream OOP reduced it to the synchronous method call, and the pi-calculus gave it mathematical form. " [:a {:href "/dao-stream.chp"} [:code "dao.stream"]] " completes the lineage: messages become facts that many observers read and nobody consumes. OOP made messaging a verb. dao.stream makes it a noun."]
        :content
        [:section.blog-article
         [:div.section-inner

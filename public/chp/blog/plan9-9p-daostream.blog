@@ -3,7 +3,7 @@
        :date #inst "2026-08-29T00:00:00.000-00:00",
        :abstract
        [:p
-        "Plan 9's 9P required 13 message types and server-side state to maintain the illusion that everything is a file. DaoStream keeps Plan 9's discipline—one small verb set over every medium—but replaces the file with the log, the fid with a reader-owned cursor, and blocking calls with outcomes as data."],
+        "Plan 9's 9P needed 13 message types and server-side state to pretend everything is a file. DaoStream keeps the discipline—one small verb set over every medium—and changes the noun: everything is a log."],
        :content
        [:section.blog-article
         [:div.section-inner

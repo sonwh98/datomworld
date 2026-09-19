@@ -1,7 +1,7 @@
 #:blog{:title "DaoSpace and XTDB: Two Paths Through the Temporal and Tuple Landscape"
        :date #inst "2026-09-18T00:00:00.000-00:00"
        :abstract
-       [:p "Both DaoSpace and XTDB share common roots in the immutable data revolution sparked by Datomic, rejecting the monolithic in-place mutation of traditional databases. Yet they diverge fundamentally in architecture, temporal philosophy, and coordination. Where XTDB unbundles the database to deliver Arrow-powered bitemporal SQL for enterprise systems, DaoSpace dissolves the central database entirely, emerging as a decentralized, stigmergic tuple space over content-addressed storage for autonomous agents. This post explores their architectures, compares their temporal models, and examines whether either system can implement the features of the other."]
+       [:p "DaoSpace and XTDB share roots in Datomic's immutable data revolution, but diverge fundamentally. XTDB unbundles the database into Arrow-powered bitemporal SQL for enterprise systems; DaoSpace dissolves it entirely—a decentralized tuple space where autonomous agents coordinate over content-addressed storage."]
        :content
        [:section.blog-article
         [:div.section-inner
