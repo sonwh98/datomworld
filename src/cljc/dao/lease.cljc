@@ -6,8 +6,12 @@
   plain maps on ordinary streams, classified by two dispatch keys --
   `:dao.lease/status` for the negotiation, `:dao.lease/event` for evidence --
   and the judge is a single effectful, state-threaded step in the
-  `dao.stream.forward/forward-step` shape. The holder discipline and the
-  composition constructors join this namespace when they are built.
+  `dao.stream.forward/forward-step` shape. The holder discipline --
+  observe the grant before acting, renew at strictly less than half the
+  duration, stop at the bound, release when done -- is a set of pure
+  functions over a small threaded state that the holder's own control
+  flow calls and drives; the composition constructors join this
+  namespace when they are built.
 
   A fact carrying neither dispatch key is not a lease fact and is ignored by
   a reader; a fact carrying both is defective and establishes nothing. A
@@ -27,6 +31,16 @@
   fact's own claim about its author. The ledger is not rebuildable from any
   stream: it is state threaded through `judge-step` that a composition
   either persists or recovers by `restart`.
+
+  The holder keeps no ledger and owns no clock. Its state is the observed
+  grant, the readings the grant was observed and the last renewal was
+  appended at, and a stopped flag; time reaches it only as a reading the
+  control flow drained from the holder's own tick cursor, and a renewal
+  advances a bound only as an append that answered `:dao.stream/ok`
+  before the bound was reached -- the bound is terminal, and once reached
+  it is latched shut. Nothing here renews on a holder's behalf or
+  performs a reclaim, and the holder's bound bounds attention, not
+  access: a holder needing exclusion obtains it from the resource.
 
   `dao.lease` requires `dao.stream` and never the reverse."
   (:require [dao.stream :as stream]))
@@ -1512,3 +1526,386 @@
     {:judge judge
      :unreclaimed unreclaimed
      :discarded-queue discarded-queue}))
+
+
+;; =============================================================================
+;; The holder
+;; =============================================================================
+;;
+;; The holder discipline is a set of pure functions and constructors the
+;; holder's OWN control flow calls: observe the grant before acting (H1),
+;; renew at strictly less than half the duration (H2), stop at the bound
+;; (H3), release when done (H4). Nothing here installs a timer, renews on a
+;; holder's behalf, or reads a clock -- time reaches these functions only as
+;; readings the control flow drained from the holder's own tick cursor, and
+;; a renewal advances a bound only as an append that answered
+;; :dao.stream/ok. The holder threads a small plain map -- the observed
+;; grant, the readings it was observed and last renewed at, a stopped flag
+;; -- no ledger, no mutable state; a holder holding several leases threads
+;; one state per lease. The bound bounds attention, not access (H5): every
+;; function here returns a truth value, a fact, or that plain state -- there
+;; is no token, capability or access surface in this vocabulary.
+
+(defn initial-holder
+  "The holder's state before any grant is observed. The config carries the
+  injected seams:
+
+  :self              this holder's identity -- the :dao.lease/holder value
+                     of the grants it may observe
+  :grantor           the author value the composition's resolver returns
+                     for the grantor's facts
+  :resolver          (fn [source fact] -> author), the SAME attribution the
+                     judge is given; a fact's own claim about its author is
+                     never consulted
+  :units             the composition's shared unit table (default
+                     `default-units`), validated as `initial-judge`
+                     validates its own
+  :renewal-interval  the composition's renewal interval, sized by
+                     `renewal-interval` strictly below half the duration
+                     the composition is arranging (H2/S1); validated here
+                     with the tolerance's own checks -- unit membership and
+                     the per-unit quot bound, run after `check-units!` --
+                     so no first `due-to-renew?` can throw on it (assembly
+                     parity with the judge's N4/R3 tolerance gate)
+  :subject           optional expectation: when present, only a grant for
+                     this subject is held -- a holder that proposed for one
+                     resource will not keep-first an unsolicited or stale
+                     grant naming it for another
+  :proposal          optional expectation: when present, only a grant
+                     answering this proposal identity is held; a grant
+                     carrying no proposal does not match it
+
+  Missing or mis-shaped seams throw here, at assembly: a holder with no
+  working attribution would observe no grant, hold nothing, and falsely
+  never renew -- the same failure `initial-judge` refuses at assembly."
+  [{:keys [self grantor resolver renewal-interval] :as config}]
+  (let [units (get config :units default-units)]
+    (check-assembly! (some? self)
+                     "the holder needs its identity: the :dao.lease/holder it observes grants for"
+                     {:self self})
+    (check-assembly! (some? grantor)
+                     "the holder needs the author its attribution returns for the grantor"
+                     {:grantor grantor})
+    (check-assembly! (fn? resolver)
+                     "the holder needs an attribution resolver: (fn [source fact] -> author)"
+                     {:resolver resolver})
+    (check-assembly! (duration? renewal-interval)
+                     "the renewal interval is a single-entry {unit positive-integer} map"
+                     {:renewal-interval renewal-interval})
+    (check-units! units)
+    ;; The interval gets the tolerance's checks, run after check-units!:
+    ;; unit membership, then the per-unit bound -- taken by division, so
+    ;; the check itself cannot overflow and no later arithmetic on the
+    ;; interval can either (N4/R3 parity with the judge's tolerance).
+    (let [unit (first (keys renewal-interval))
+          magnitude (get renewal-interval unit)]
+      (check-assembly! (some? (get units unit))
+                       "the renewal interval's unit is in the unit table"
+                       {:renewal-interval renewal-interval :units units})
+      (check-assembly! (<= magnitude (quot magnitude-limit (get units unit)))
+                       "the renewal interval's magnitude is within the per-unit bound"
+                       {:renewal-interval renewal-interval :units units}))
+    {:self self
+     :grantor grantor
+     :resolver resolver
+     :units units
+     :renewal-interval renewal-interval
+     :subject (get config :subject)
+     :proposal (get config :proposal)
+     :grant nil
+     :granted-at nil
+     :last-renewal-at nil
+     :released? false
+     :bound-reached? false
+     :undersized? false}))
+
+
+(defn renewal-interval
+  "The composition's renewal interval, validated against the duration it
+  is sized to (H2 as amended): strictly below HALF the duration -- equality
+  is the violation, and an interval at or above half already breaks the
+  sizing relation duration > interval + interval, so no composition may
+  hold one. Returns the interval unchanged; throws, as an assembly defect,
+  when a shape is not a duration, a unit is outside the table or past its
+  per-unit bound (an over-bound magnitude would overflow the comparison
+  as a raw host error -- the gate runs before any arithmetic, as an
+  assembly ex-info), or the relation fails.
+
+  The optional `tick-period` sizes for discrete ticks: the holder renews
+  at the first reading at or past the interval, which lands up to one
+  period of its tick stream late, so the before-half guarantee must be
+  bought against the interval PLUS the period -- 2 x (interval + period)
+  strictly below the duration. A period is itself a duration. The granted
+  duration is the grantor's to mint, so sizing the interval against the
+  duration a composition expects is the composition's duty (S1); this is
+  the check to run wherever the two are known together, and
+  `observe-grant` runs the unsized check against the duration actually
+  granted."
+  ([units duration proposed] (renewal-interval units duration proposed nil))
+  ([units duration proposed tick-period]
+   (check-assembly! (duration? duration)
+                    "the renewal interval is sized against a duration"
+                    {:duration duration})
+   (check-assembly! (duration? proposed)
+                    "the renewal interval is a single-entry {unit positive-integer} map"
+                    {:renewal-interval proposed})
+   (check-assembly! (or (nil? tick-period) (duration? tick-period))
+                   "the tick period is a single-entry {unit positive-integer} map"
+                   {:tick-period tick-period})
+   (doseq [[key d] [[:duration duration]
+                    [:renewal-interval proposed]
+                    [:tick-period tick-period]]]
+     (when (some? d)
+       (let [unit (first (keys d))
+             magnitude (get d unit)]
+         (check-assembly! (some? (get units unit))
+                          "the duration, interval and period carry units from the unit table"
+                          {key d :units units})
+         (check-assembly! (<= magnitude (quot magnitude-limit (get units unit)))
+                          "the duration, interval and period are within the per-unit bound"
+                          {key d :units units}))))
+   (let [effective (if (nil? tick-period)
+                     proposed
+                     (add-duration units proposed tick-period))]
+     (check-assembly! (neg? (compare-durations units
+                                              (add-duration units effective effective)
+                                              duration))
+                      "the renewal interval (+ tick period) must be strictly below half the duration:
+                       at or above half it already violates the sizing relation"
+                      {:renewal-interval proposed
+                       :tick-period tick-period
+                       :duration duration})
+     proposed)))
+
+
+(defn- at-or-past?
+  "True when elapsed has REACHED bound. The holder acts at its bounds --
+  renewing at its interval, stopping at its bound -- unlike the judge,
+  which acts only past them: V3's strictness answers `exceeds?`'s
+  \"passed\", and the holder must not wait for the pass."
+  [units elapsed bound]
+  (not (neg? (compare-durations units elapsed bound))))
+
+
+(defn- later-reading
+  "The later of two readings on the shared unit table."
+  [units a b]
+  (if (pos? (compare-durations units a b)) a b))
+
+
+(defn- activity-basis
+  "The later of the holder's last renewal and its observed grant (H3): the
+  reading its duration bound is measured from."
+  [holder]
+  (if-some [renewed-at (:last-renewal-at holder)]
+    (later-reading (:units holder) renewed-at (:granted-at holder))
+    (:granted-at holder)))
+
+
+(defn- reading-ok?
+  "A reading the holder will act on: a well-shaped duration in a unit the
+  composition's table knows, within the per-unit bound -- the same gate
+  the judge's tick drain applies before letting a reading near any
+  arithmetic. An invalid reading is never an error the holder throws
+  (chosen to mirror the judge's first-tick rule, where no now means the
+  pass performs nothing): every function receiving one observes nothing
+  and answers nothing, so a control flow with no usable tick yet holds
+  nothing, renews nothing and is at no bound, rather than crashing
+  mid-flow."
+  [holder reading]
+  (and (duration? reading)
+       (let [k (first (keys reading))
+             v (get reading k)
+             m (get (:units holder) k)]
+         (and (some? m)
+              (<= v (quot magnitude-limit m))))))
+
+
+(defn observe-grant
+  "H1: observe the grant before acting. The grant is held only when the
+  fact is a structurally valid `:accepted` naming this holder
+  (`:dao.lease/holder` = `:self`) whose author, by the composition's
+  resolver bound to the source the fact was read from, is the grantor --
+  the same attribution seam the judge resolves with -- and, when the
+  state carries a `:subject` or `:proposal` expectation (wired at
+  assembly by a holder that proposed), the grant's subject and answered
+  proposal match it; a grant answering no proposal matches no proposal
+  expectation. Anything else -- a forged or non-grantor `:accepted`, a
+  grant naming another holder or another lease's proposal, a
+  structurally defective fact, a refusal -- establishes nothing: the
+  holder is returned unchanged and `:grant` nil is the report \"no grant
+  observed\"; a holder with `:grant` nil holds nothing, and every
+  discipline below answers false.
+
+  `reading` is the newest reading drained from the holder's OWN tick
+  cursor at the moment of observation -- the tenure basis no renewal
+  moves, which the cap binds -- and no clock supplies it. A reading that
+  is not a well-shaped, in-table, in-bound duration observes nothing
+  (mirroring the judge's first-tick rule; see `reading-ok?`).
+
+  Sizing is checked where the interval and the GRANTED duration are known
+  together, because the grantor may grant shorter than the ask: an
+  undersized grant -- interval + interval not strictly below the granted
+  duration, equality included -- is still HELD, recorded `:undersized?`:
+  the holder holds what it was granted, the grantor's word, and may
+  release it, but every discipline function treats it as at the bound --
+  no renewal is due, no renewal advances anything, `holding?` is false.
+
+  The first observed grant is the one held: observation seeds the basis
+  once, and no later fact moves it (a fresh lease id is a different
+  lease; a holder holding several threads one state per lease). A
+  resolver that throws propagates the throw: attribution failure is loud,
+  and the control flow observing through a broken seam observes nothing."
+  [holder source fact reading]
+  (if (and (reading-ok? holder reading)
+           (lease-fact? fact)
+           (= :dao.lease/accepted (get fact status-key))
+           (not (defective? fact (:units holder)))
+           (= (:self holder) (get fact :dao.lease/holder))
+           (= (:grantor holder) ((:resolver holder) source fact))
+           (nil? (:grant holder))
+           (or (nil? (:subject holder))
+               (= (:subject holder) (get fact :dao.lease/subject)))
+           (or (nil? (:proposal holder))
+               (= (:proposal holder) (get fact :dao.lease/proposal))))
+    (assoc holder
+           :grant fact
+           :granted-at reading
+           :last-renewal-at nil
+           :bound-reached? false
+           :undersized? (not (neg? (compare-durations
+                                    (:units holder)
+                                    (add-duration (:units holder)
+                                                  (:renewal-interval holder)
+                                                  (:renewal-interval holder))
+                                    (get fact :dao.lease/duration)))))
+    holder))
+
+
+(defn at-bound?
+  "H3: true when the holder's reading has reached the bound -- the earlier
+  of the duration since the later of its last renewal and its observed
+  grant, and the cap the grant carries measured from the grant itself --
+  whether or not anything has been heard. The holder stops acting AT the
+  bound: equality fires here where the judge's `exceeds?` would not, so a
+  stopped holder's last renewal lands before the judge's window closes.
+  The bound is TERMINAL (P1): once reached it is latched
+  (`:bound-reached?`) and stays true for any later reading, however stale
+  or small -- a late renewal cannot buy back a lease the judge may already
+  have reclaimed. An undersized grant is at the bound from observation on.
+  False before any grant is observed: no grant, no bound, nothing held.
+  An invalid reading answers false meaning UNANSWERABLE, never free to
+  act: with no usable tick there is no bound to measure, and a flow that
+  guards on this predicate alone would act on a bound it could not see --
+  gate flows through `holding?`, which fails closed on the same input.
+  The bound bounds attention, not access (H5): this answers a question, it revokes nothing."
+  [holder reading]
+  (let [{:keys [grant granted-at units]} holder]
+    (cond
+      (:bound-reached? holder) true
+      (:undersized? holder) true
+      (nil? grant) false
+      (not (reading-ok? holder reading)) false
+      :else (let [duration-reached (at-or-past?
+                                     units
+                                     (interval units reading (activity-basis holder))
+                                     (get grant :dao.lease/duration))]
+              (if-some [cap (get grant :dao.lease/max)]
+                (or duration-reached
+                    (at-or-past? units (interval units reading granted-at) cap))
+                duration-reached)))))
+
+
+(defn observe-renewal
+  "Record this holder's own renewal. The control flow appends the renewal
+  fact and hands the append's outcome here with `reading` -- the reading
+  drained BEFORE the append: a reading taken after it would move the
+  basis later than any evidence the judge can have for the renewal. The
+  activity basis advances to that reading only when the append answered
+  `:dao.stream/ok` (H2) -- a `full`, `closed` or
+  `:dao.stream/transport-error` append advances no bound, and the
+  schedule still says due, measured from where it was, so the control
+  flow retries -- AND only when the holder is not at its bound: the bound
+  is terminal (P1). A renewal that lands at or past the bound -- the
+  control flow stalled, and the judge may already have lapsed the lease --
+  latches `:bound-reached?` and moves nothing, and the latch is sticky:
+  no later stale or smaller reading reopens the lease. A renewal recorded
+  after `stop` records nothing: the holder's activity has stopped. A
+  reading that fails `reading-ok?` records nothing."
+  [holder reading outcome]
+  (cond
+    (or (nil? (:grant holder)) (:released? holder)) holder
+    (not (reading-ok? holder reading)) holder
+    (at-bound? holder reading) (assoc holder :bound-reached? true)
+    (= :dao.stream/ok (:dao.stream/outcome outcome)) (assoc holder :last-renewal-at reading)
+    :else holder))
+
+
+(defn due-to-renew?
+  "H2: true when the interval since the later of the last renewal and the
+  observed grant has REACHED the composition's renewal interval -- at
+  exactly the interval, never later, so a successful next renewal is
+  guaranteed before half the duration elapses -- measured against the
+  reading the holder's own tick cursor supplies. False before any grant is
+  observed: a holder that has not observed a grantor-authored grant holds
+  nothing and acts on nothing. False once `stop` has marked the holder
+  released: its activity is its own to have stopped. False at and past the
+  bound, latched or computed (P1): the holder stops acting at the bound
+  whether or not anything has been heard, and nothing past it is due.
+  An invalid reading answers nothing. Whether the append then answers ok
+  is `observe-renewal`'s to record; nothing here renews on the holder's
+  behalf."
+  [holder reading]
+  (let [{:keys [grant released? renewal-interval units]} holder]
+    (boolean
+      (and grant
+           (not released?)
+           (reading-ok? holder reading)
+           (not (at-bound? holder reading))
+           (at-or-past? units
+                        (interval units reading (activity-basis holder))
+                        renewal-interval)))))
+
+
+(defn stop
+  "H4, the release discipline: the holder is done. Returns
+  `{:holder ... :release ...}` -- the `:released` fact to append, authored
+  once and exactly the vocabulary's release (the holder authors no
+  `:lapsed`, and there is no reclaim here to perform: the grantor still
+  reclaims and records), and the holder with its own activity stopped --
+  `due-to-renew?` false from here on. Throws when no grant has been
+  observed: a holder that has not observed its grantor-authored grant
+  holds nothing, and there is nothing to release.
+
+  Idempotent (a repeated `:released` for one lease is a defect the
+  contract names): a second call returns `:release` nil and the holder
+  unchanged. A FAILED append is retried with the SAME fact the first
+  call returned -- the control flow keeps it and re-appends -- never by
+  stopping again for a fresh one."
+  [holder]
+  (if (:released? holder)
+    {:holder holder :release nil}
+    (do (check-assembly! (some? (:grant holder))
+                         "a holder that has observed no grant holds nothing to release"
+                         {:self (:self holder)})
+        {:holder (assoc holder :released? true)
+         :release (release (get-in holder [:grant :dao.lease/lease]))})))
+
+
+(defn holding?
+  "The one \"may I act?\" predicate, answered for the reading supplied:
+  a grant has been observed (the right lease, when expectations were
+  given), the holder has neither stopped nor latched its terminal bound,
+  the grant was not undersized, and the reading itself is valid and has
+  not reached the bound. Taking the reading is what makes this safe: the
+  bound latch is set only by a call a conforming flow never makes past
+  the bound, so state alone cannot see a stall -- this predicate can.
+  It fails closed: an invalid reading answers false (\"unanswerable\"),
+  never \"free to act\"."
+  [holder reading]
+  (boolean (and (some? (:grant holder))
+                (not (:released? holder))
+                (not (:bound-reached? holder))
+                (not (:undersized? holder))
+                (reading-ok? holder reading)
+                (not (at-bound? holder reading)))))

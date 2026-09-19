@@ -1,7 +1,7 @@
 (ns dao.lease-test
-  "Tests for dao.lease: the vocabulary (V1-V7) and the judge (J1-J16), per
-  the revised implementation plan's Phase 1 and Phase 2 prove lists and the
-  r2 review's prescribed tests.
+  "Tests for dao.lease: the vocabulary (V1-V7), the judge (J1-J16), and the
+  holder (H1-H5), per the revised implementation plan's Phase 1, Phase 2
+  and Phase 3 prove lists and the r2 review's prescribed tests.
 
    Everything is scripted. Ticks and facts are hand-appended to ring
    buffers, attribution is per-author media (the resolver answers from the
@@ -1886,3 +1886,507 @@
       (is (= [] @log)
           "the renewal counted: no false :silence over an observed holder")
       (is (contains? (get-in system [:judge :ledger]) :l1)))))
+
+
+;; =============================================================================
+;; H1-H5: the holder
+;; =============================================================================
+;;
+;; The holder tests are pure: no buffer carries the holder's facts, the
+;; readings are scripted data standing for the newest reading drained from
+;; the holder's own tick cursor, and the attribution is the same per-author
+;; resolver the judge tests use. Only the release test composes with the
+;; judge, to show the grantor still reclaims and records what the holder
+;; only announced.
+
+(defn- new-holder
+  "A holder state for :holder-a over the shared test units, grantor
+  :grantor, with the given renewal interval."
+  [renewal-interval]
+  (lease/initial-holder {:self :holder-a
+                         :grantor :grantor
+                         :units test-units
+                         :renewal-interval renewal-interval
+                         :resolver resolver}))
+
+
+(defn- observe
+  "The holder's control flow observing a fact read from source at reading."
+  [holder source fact reading]
+  (lease/observe-grant holder source fact reading))
+
+
+(defn- renewed-at
+  "The holder's control flow recording a renewal appended at reading that
+  answered ok (or not, when ok? is false)."
+  [holder reading ok?]
+  (lease/observe-renewal holder
+                         reading
+                         {:dao.stream/outcome (if ok?
+                                                :dao.stream/ok
+                                                :dao.stream/full)}))
+
+
+(def standard-grant (lease/grant :l1 :db :holder-a {:ms 10}))
+
+
+(deftest initial-holder-rejects-misconfiguration-test
+  (testing "assembly: a holder with a broken seam would observe nothing,
+            hold nothing, and falsely never renew -- refused before any
+            observation, as the judge refuses its own"
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/initial-holder {:grantor :grantor
+                                        :renewal-interval {:ms 4}
+                                        :resolver resolver}))
+        "no :self")
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/initial-holder {:self :holder-a
+                                        :renewal-interval {:ms 4}
+                                        :resolver resolver}))
+        "no :grantor")
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/initial-holder {:self :holder-a
+                                        :grantor :grantor
+                                        :renewal-interval {:ms 4}}))
+        "no resolver")
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/initial-holder {:self :holder-a
+                                        :grantor :grantor
+                                        :renewal-interval {:ms 4}
+                                        :resolver :not-a-fn})))
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/initial-holder {:self :holder-a
+                                        :grantor :grantor
+                                        :renewal-interval {:ms 0}
+                                        :resolver resolver}))
+        "a bad interval shape")
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/initial-holder {:self :holder-a
+                                        :grantor :grantor
+                                        :units {:ms 3 :s 1000}
+                                        :renewal-interval {:ms 4}
+                                        :resolver resolver}))
+        "an incommensurate unit table is refused here too")
+      (is (some? (lease/initial-holder {:self :holder-a
+                                        :grantor :grantor
+                                        :renewal-interval {:ms 4}
+                                        :resolver resolver})))))
+
+
+(deftest observe-grant-attribution-gate-test
+  (testing "H1: a grantor-authored grant is observed and seeds the basis"
+    (let [holder (observe (new-holder {:ms 4}) :grantor standard-grant {:ms 1})]
+      (is (= standard-grant (:grant holder)))
+      (is (= {:ms 1} (:granted-at holder))
+          "the reading of the holder's own tick cursor at observation")
+      (is (nil? (:last-renewal-at holder)))))
+  (testing "H1/finding 15: a forged, non-grantor :accepted establishes nothing"
+    ;; the very same grant text, on a medium the composition attributes to
+    ;; someone else
+    (let [holder (observe (new-holder {:ms 4})
+                          :someone-else standard-grant {:ms 1})]
+      (is (nil? (:grant holder)) "no grant observed")
+      (is (false? (lease/due-to-renew? holder {:ms 100}))
+          "holding nothing, the holder acts on nothing")
+      (is (false? (lease/at-bound? holder {:ms 100})))))
+  (testing "H1: a grant naming another holder is not this holder's grant"
+    (let [holder (observe (new-holder {:ms 4})
+                          :grantor
+                          (lease/grant :l1 :db :holder-b {:ms 10})
+                          {:ms 1})]
+      (is (nil? (:grant holder)))))
+  (testing "a structurally defective grant establishes nothing"
+    (let [holder (observe (new-holder {:ms 4})
+                          :grantor
+                          {:dao.lease/status :dao.lease/accepted
+                           :dao.lease/lease :l1
+                           :dao.lease/subject :db
+                           :dao.lease/holder :holder-a
+                           :dao.lease/duration {:ms 0}}
+                          {:ms 1})]
+      (is (nil? (:grant holder)))))
+  (testing "a refusal is not a grant"
+    (let [holder (observe (new-holder {:ms 4}) :grantor (lease/refusal :p1) {:ms 1})]
+      (is (nil? (:grant holder)))))
+  (testing "the first observed grant is the one held; no later fact moves the basis"
+    (let [holder (-> (new-holder {:ms 4})
+                     (observe :grantor standard-grant {:ms 1})
+                     (observe :grantor (lease/grant :l2 :db :holder-a {:ms 10})
+                              {:ms 5}))]
+      (is (= :l1 (get-in holder [:grant :dao.lease/lease])))
+      (is (= {:ms 1} (:granted-at holder))
+          "a fresh lease id is a different lease; this single-lease state
+           keeps the lease it holds, one state per lease"))))
+
+
+(deftest renewal-interval-strictly-below-half-test
+  (testing "H2/finding 14: the interval is strictly below half the duration"
+    (is (= {:ms 4} (lease/renewal-interval test-units {:ms 10} {:ms 4})))
+    (is (= {:s 4} (lease/renewal-interval test-units {:s 10} {:s 4})))
+    (is (= {:ms 4999} (lease/renewal-interval test-units {:s 10} {:ms 4999}))
+        "sizing normalizes on the shared table: 4999ms is strictly below 5s")
+    (doseq [[duration interval] [[{:ms 10} {:ms 5}]
+                                 [{:ms 10} {:ms 6}]
+                                 [{:ms 10} {:ms 10}]
+                                 [{:s 10} {:s 5}]
+                                 [{:s 10} {:ms 5000}]
+                                 [{:ms 10} {:ms 0}]
+                                 [{:ms 10} 5]
+                                 [{:ms 10} {:ms 1 :s 1}]]]
+      (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                   (lease/renewal-interval test-units duration interval))
+          (str "half or more -- equality included -- or a bad shape, is the
+                violation: " (pr-str duration) " vs " (pr-str interval))))))
+
+
+(deftest due-to-renew-schedule-test
+  (testing "H2/finding 14: due at the interval, on the holder's own ticks"
+    (let [holder (new-holder {:ms 4})]
+      (is (false? (lease/due-to-renew? holder {:ms 100}))
+          "false before the grant is observed: the holder holds nothing")
+      (let [holder (observe holder :grantor standard-grant {:ms 1})]
+        (is (false? (lease/due-to-renew? holder {:ms 4})))
+        (is (true? (lease/due-to-renew? holder {:ms 5}))
+            "at the interval: 4 past the grant, not at the deadline 10 --
+             the holder does not wait until the deadline to renew")
+        (is (true? (lease/due-to-renew? holder {:ms 10}))
+            "due through the whole renewal window")
+        (is (false? (lease/due-to-renew? holder {:ms 11}))
+            "r2/P1: 11 is the bound -- grant 1 plus duration 10 -- and the
+             bound is terminal: nothing at or past it is due")))))
+
+
+(deftest observe-renewal-advances-only-on-ok-test
+  (testing "H2/finding 20: only a :dao.stream/ok append advances the bound"
+    (let [holder (observe (new-holder {:ms 4}) :grantor standard-grant {:ms 1})]
+      (doseq [outcome (disj ds/outcomes-append :dao.stream/ok)]
+        (let [holder (lease/observe-renewal holder
+                                            {:ms 6}
+                                            {:dao.stream/outcome outcome})]
+          (is (nil? (:last-renewal-at holder))
+              (str (pr-str outcome) " advances nothing"))
+          (is (true? (lease/due-to-renew? holder {:ms 6}))
+              "the schedule still says due, measured from where it was")
+          (is (false? (lease/at-bound? holder {:ms 10}))
+              "the duration bound did not move either: 10 - 1 = 9")))
+      (let [holder (renewed-at holder {:ms 6} true)]
+        (is (= {:ms 6} (:last-renewal-at holder)))
+        (is (false? (lease/due-to-renew? holder {:ms 9})) "9 - 6 = 3")
+        (is (true? (lease/due-to-renew? holder {:ms 10})))
+        (is (false? (lease/at-bound? holder {:ms 15})) "15 - 6 = 9")
+        (is (true? (lease/at-bound? holder {:ms 16}))
+            "the bound moved to the later of the renewal 6 and the grant 1"))))
+  (testing "H4: a stopped holder records no renewal"
+    (let [holder (-> (new-holder {:ms 4})
+                     (observe :grantor standard-grant {:ms 1})
+                     (lease/stop)
+                     (:holder)
+                     (renewed-at {:ms 7} true))]
+      (is (nil? (:last-renewal-at holder)))
+      (is (false? (lease/due-to-renew? holder {:ms 100}))))))
+
+
+(deftest at-bound-test
+  (testing "H3: the duration bound, from the later of the last renewal and the grant"
+    (let [holder (observe (new-holder {:ms 4}) :grantor standard-grant {:ms 1})]
+      (is (false? (lease/at-bound? holder {:ms 10})))
+      (is (true? (lease/at-bound? holder {:ms 11}))
+          "grant at 1 + duration 10: whether or not anything has been heard")))
+  (testing "H3: the cap fires even with fresh renewals"
+    (let [holder (-> (new-holder {:ms 4})
+                     (observe :grantor
+                              (lease/grant :l1 :db :holder-a {:ms 10}
+                                           {:dao.lease/max {:ms 8}})
+                              {:ms 1})
+                     (renewed-at {:ms 4} true)
+                     (renewed-at {:ms 6} true))]
+      (is (false? (lease/at-bound? holder {:ms 8})))
+      (is (true? (lease/at-bound? holder {:ms 9}))
+          "tenure 9 - 1 = 8 reaches the cap, though the last renewal was 3 ago")))
+  (testing "H3: the earlier of the two bounds governs"
+    ;; the cap earlier than the duration bound
+    (let [holder (observe (new-holder {:ms 4})
+                          :grantor
+                          (lease/grant :l1 :db :holder-a {:ms 100}
+                                       {:dao.lease/max {:ms 5}})
+                          {:ms 1})]
+      (is (false? (lease/at-bound? holder {:ms 5})))
+      (is (true? (lease/at-bound? holder {:ms 6}))))
+    ;; the duration bound earlier than the cap. Interval 1 against
+    ;; duration 3 keeps the sizing relation (r2: 1 + 1 is strictly below
+    ;; 3), so the grant is sized and only the duration bound can fire;
+    ;; the renewal at 2 lands inside the window (1 elapsed, bound at 4).
+    (let [holder (-> (new-holder {:ms 1})
+                     (observe :grantor
+                              (lease/grant :l1 :db :holder-a {:ms 3}
+                                           {:dao.lease/max {:ms 1000}})
+                              {:ms 1})
+                     (renewed-at {:ms 2} true))]
+      (is (false? (lease/at-bound? holder {:ms 4})))
+      (is (true? (lease/at-bound? holder {:ms 5}))
+          "2 + 3, the cap far off")))
+  (testing "no grant observed, no bound"
+    (is (false? (lease/at-bound? (new-holder {:ms 4}) {:ms 999})))))
+
+
+(deftest release-discipline-test
+  (testing "H4/finding 15: stop authors exactly :released and stops the activity"
+    (let [holder (-> (new-holder {:ms 4})
+                     (observe :grantor standard-grant {:ms 1})
+                     (renewed-at {:ms 5} true))
+          {:keys [holder release]} (lease/stop holder)]
+      (is (= (lease/release :l1) release)
+          "the authored fact is exactly the vocabulary's :released")
+      (is (true? (:released? holder)))
+      (is (false? (lease/due-to-renew? holder {:ms 100}))
+          "stopped: the holder's activity is its own to have stopped")))
+  (testing "H4: a holder that observed no grant holds nothing to release"
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/stop (new-holder {:ms 4})))))
+  (testing "H4/finding 15: the grantor still reclaims and records; the holder
+            authored only :released"
+    (let [log (atom [])
+          system (-> (setup {:reclaim (fn [subject] (swap! log conj subject) true)})
+                     grant!
+                     (tick! 1)
+                     step!)
+          holder (observe (new-holder {:ms 4}) :grantor standard-grant {:ms 1})
+          {:keys [release]} (lease/stop holder)
+          system (-> system (tick! 6) (fact! release) step!)]
+      (is (= [:db] @log) "the grantor performed the reclaim")
+      (is (= [(lease/grant :l1 :db :holder-a {:ms 10})
+              (lease/lapsed :l1 :release)]
+             (drain-values (:writer system)))
+          "and recorded it: the :lapsed is the grantor's record on the
+           grantor's writer -- the holder authored only :released"))))
+
+
+;; H5 -- the bound bounds attention, not access -- is structural and has no
+;; failing test to write: every holder entry point above returns a truth
+;; value, a fact, or the plain threaded state. There is no token,
+;; capability or revocation in the holder section for a test to assert the
+;; absence of; a holder needing exclusion obtains it from the resource.
+
+
+;; =============================================================================
+;; p3 r2 review findings: the prescribed failing tests, written before the fixes
+;; =============================================================================
+
+(defn- thrown-data-key
+  "The first key of the ex-data an assembly rejection carries, or nil when
+  the call succeeds or throws raw -- the shape a host ArithmeticException
+  has, which is exactly what these assertions must distinguish from an
+  assembly ex-info."
+  [thunk]
+  (try (thunk) nil
+    (catch #?(:cljd Object :clj Exception :cljs :default) e
+      (first (keys (ex-data e))))))
+
+
+(deftest r2-bound-is-terminal-test
+  (testing "P1: a renewal appended at or past the bound moves nothing"
+    ;; the reviewer's stall scenario: grant observed at 1, duration 10, and
+    ;; the control flow stalls. The judge lapsed the lease at about 12; a
+    ;; renewal that lands at 30 must not buy the holder a further duration
+    ;; on a resource the judge may already have reclaimed.
+    (let [holder (observe (new-holder {:ms 4}) :grantor standard-grant {:ms 1})]
+      (is (true? (lease/at-bound? holder {:ms 30})))
+      (is (false? (lease/due-to-renew? holder {:ms 30}))
+          "at the bound nothing is due: the holder does not act again")
+      ;; the flow appends one anyway -- a race, or a stale control path --
+      ;; and the transport answers ok
+      (let [holder (renewed-at holder {:ms 30} true)]
+        (is (nil? (:last-renewal-at holder))
+            "an ok append past the bound advances no basis")
+        (is (= {:ms 1} (:granted-at holder)))
+        (is (true? (:bound-reached? holder)) "the bound latched")
+        (is (true? (lease/at-bound? holder {:ms 8}))
+            "a later stale, smaller reading cannot reopen the lease")
+        (is (false? (lease/due-to-renew? holder {:ms 8})))
+        (is (false? (lease/holding? holder {:ms 8}))))))
+  (testing "P1: the latch holds across an earlier genuine renewal"
+    (let [holder (-> (new-holder {:ms 4})
+                     (observe :grantor standard-grant {:ms 1})
+                     (renewed-at {:ms 6} true))]
+      (is (= {:ms 6} (:last-renewal-at holder)) "6 - 1 = 5: a timely renewal")
+      (let [holder (renewed-at holder {:ms 30} true)]
+        (is (= {:ms 6} (:last-renewal-at holder))
+            "30 - 6 = 24 is past the duration 10: the basis does not move")
+        (is (true? (:bound-reached? holder)))
+        (is (true? (lease/at-bound? holder {:ms 7}))
+            "not even a reading before the last renewal reopens it")
+        (is (false? (lease/holding? holder {:ms 7})))))))
+
+
+(deftest r2-undersized-grant-is-held-at-the-bound-test
+  (testing "P2: the granted duration, not the ask, sizes the interval"
+    (let [holder (observe (new-holder {:ms 4}) :grantor
+                          (lease/grant :l1 :db :holder-a {:ms 7})
+                          {:ms 1})]
+      (is (true? (:undersized? holder))
+          "4 + 4 = 8 is not strictly below 7: the grantor granted shorter
+           than the composition's sizing assumed")
+      (is (true? (lease/at-bound? holder {:ms 1}))
+          "every discipline function treats an undersized grant as
+           at-bound, from observation on")
+      (is (false? (lease/due-to-renew? holder {:ms 5})))
+      (is (false? (lease/holding? holder {:ms 5})))
+      (let [holder (renewed-at holder {:ms 2} true)]
+        (is (nil? (:last-renewal-at holder)) "no renewal advances anything"))
+      (let [{:keys [release]} (lease/stop holder)]
+        (is (= (lease/release :l1) release)
+            "the holder still holds what it was granted -- the grantor's
+             word -- and may release it"))))
+  (testing "P2: equality is the violation; one past is sized"
+    (is (true? (:undersized? (observe (new-holder {:ms 4}) :grantor
+                                      (lease/grant :l1 :db :holder-a {:ms 8})
+                                      {:ms 1})))
+        "4 + 4 = 8 is not strictly below 8")
+    (is (false? (:undersized? (observe (new-holder {:ms 4}) :grantor
+                                       (lease/grant :l1 :db :holder-a {:ms 9})
+                                       {:ms 1})))
+        "4 + 4 = 8 is strictly below 9: sized")))
+
+
+(deftest r2-expectations-bind-the-state-to-a-lease-test
+  (testing "P2: a subject expectation refuses the wrong resource's grant"
+    (let [holder (lease/initial-holder {:self :holder-a
+                                        :grantor :grantor
+                                        :units test-units
+                                        :renewal-interval {:ms 4}
+                                        :subject :db
+                                        :resolver resolver})]
+      (is (nil? (:grant (observe holder :grantor
+                                 (lease/grant :l0 :other-db :holder-a {:ms 10})
+                                 {:ms 1})))
+          "an earlier unsolicited grant for another subject establishes
+           nothing: keep-first no longer holds whatever names this holder")
+      (is (= :l1 (get-in (observe holder :grantor standard-grant {:ms 1})
+                         [:grant :dao.lease/lease]))
+          "the matching grant is held")))
+  (testing "P2: a proposal expectation matches only its own answer"
+    (let [holder (lease/initial-holder {:self :holder-a
+                                        :grantor :grantor
+                                        :units test-units
+                                        :renewal-interval {:ms 4}
+                                        :proposal :p1
+                                        :resolver resolver})]
+      (is (nil? (:grant (observe holder :grantor standard-grant {:ms 1})))
+          "a grant answering no proposal does not match a proposal
+           expectation")
+      (is (nil? (:grant (observe holder :grantor
+                                 (lease/grant :l2 :db :holder-a {:ms 10}
+                                              {:dao.lease/proposal :p2})
+                                 {:ms 1})))
+          "another proposal's answer is not this state's grant")
+      (is (= :l1 (get-in (observe holder :grantor
+                                  (lease/grant :l1 :db :holder-a {:ms 10}
+                                               {:dao.lease/proposal :p1})
+                                  {:ms 1})
+                         [:grant :dao.lease/lease]))))))
+
+
+(deftest r2-invalid-readings-observe-nothing-test
+  (testing "P2: a reading without a drained tick holds nothing -- the
+            judge's first-tick rule, mirrored"
+    (let [holder (new-holder {:ms 4})]
+      (is (nil? (:grant (observe holder :grantor standard-grant nil)))
+          "nil is not a reading: nothing is observed, nothing crashes")
+      (is (nil? (:grant (observe holder :grantor standard-grant {:hr 5})))
+          "a unit outside the table")
+      (is (nil? (:grant (observe holder :grantor standard-grant
+                                 {:s 4503599627371})))
+          "past the per-unit bound for :s against an ms-based table")))
+  (testing "P2: the predicates answer nothing for an invalid reading"
+    (let [holder (observe (new-holder {:ms 4}) :grantor standard-grant {:ms 1})]
+      (is (false? (lease/due-to-renew? holder nil)))
+      (is (false? (lease/at-bound? holder {:hr 5})))
+      (let [holder (renewed-at holder nil true)]
+        (is (nil? (:last-renewal-at holder))
+            "a renewal recorded at no reading advances nothing")))))
+
+
+(deftest r2-assembly-parity-test
+  (testing "P2: the interval gets the tolerance's checks (N4/R3 parity)"
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/initial-holder {:self :holder-a
+                                        :grantor :grantor
+                                        :units test-units
+                                        :renewal-interval {:hr 1}
+                                        :resolver resolver}))
+        "a unit outside the table must throw at assembly, not on the first
+         due-to-renew? call")
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/initial-holder {:self :holder-a
+                                        :grantor :grantor
+                                        :units test-units
+                                        :renewal-interval
+                                        {:s 4503599627370496}
+                                        :resolver resolver}))
+        "past the per-unit quot bound"))
+  (testing "P2: renewal-interval overflows as an assembly ex-info, never a
+            raw host error"
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/renewal-interval test-units
+                                         {:ms 10}
+                                         {:s 4503599627370496})))
+    (is (= :renewal-interval
+           (thrown-data-key
+             (fn [] (lease/renewal-interval test-units {:ms 10} {:hr 1}))))
+        "the ex-data names the seam: an assembly report, not a raw
+         ArithmeticException with no data")))
+
+
+(deftest r2-stop-is-idempotent-test
+  (testing "P2: a second stop returns no second release"
+    (let [holder (observe (new-holder {:ms 4}) :grantor standard-grant {:ms 1})
+          first (lease/stop holder)
+          again (lease/stop (:holder first))]
+      (is (= (lease/release :l1) (:release first)))
+      (is (nil? (:release again))
+          "the contract calls a repeated :released for one lease a defect")
+      (is (= (:holder first) (:holder again))
+          "the holder is unchanged by the second call"))))
+
+
+(deftest r2-tick-period-sizes-the-interval-test
+  (testing "P3: discrete ticks land the renewal up to one period late"
+    (is (= {:ms 3} (lease/renewal-interval test-units {:ms 10} {:ms 3} {:ms 1}))
+        "2 x (3 + 1) = 8 is strictly below 10")
+    (is (= {:ms 4} (lease/renewal-interval test-units {:ms 10} {:ms 4}))
+        "no period supplied: the plain strictly-below-half relation")
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/renewal-interval test-units {:ms 10} {:ms 4} {:ms 1}))
+        "2 x (4 + 1) = 10 is not strictly below 10")
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                 (lease/renewal-interval test-units {:ms 10} {:ms 3} {:ms 0}))
+        "a period is a duration: positive")))
+
+
+(deftest r2-holding-predicate-test
+  (testing "P3/H1: one may-I-act predicate, answered for a reading, failing closed"
+    (is (false? (lease/holding? (new-holder {:ms 4}) {:ms 2})) "no grant observed")
+    (is (true? (lease/holding? (observe (new-holder {:ms 4})
+                                        :grantor standard-grant {:ms 1})
+                               {:ms 2})))
+    (is (false? (lease/holding?
+                  (:holder (lease/stop
+                             (observe (new-holder {:ms 4})
+                                      :grantor standard-grant {:ms 1})))
+                  {:ms 2}))
+        "stopped")
+    (is (false? (lease/holding?
+                  (renewed-at (observe (new-holder {:ms 4})
+                                       :grantor standard-grant {:ms 1})
+                              {:ms 30} true)
+                  {:ms 8}))
+        "the bound latched by a past-bound renewal: no stale reading
+         reopens it")
+    (is (false? (lease/holding? (observe (new-holder {:ms 4})
+                                         :grantor standard-grant {:ms 1})
+                                {:ms 11}))
+        "at the bound: not holding, with no observe-renewal call ever made")
+    (is (false? (lease/holding? (observe (new-holder {:ms 4})
+                                         :grantor standard-grant {:ms 1})
+                                nil))
+        "an invalid reading is unanswerable, never free to act")))
