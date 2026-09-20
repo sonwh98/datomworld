@@ -117,4 +117,4 @@
           [:a {:href "/dao-stream.chp"} "DaoStream"] " carries the facts, "
           [:a {:href "/dao-space.chp"} "DaoSpace"] " makes them queryable, "
           [:a {:href "/shibi.chp"} "Shibi"] " confines untrusted computation, "
-          "and DaoLease decides whose turn it is."]]]])})
+          "and DaoLease decides whose turn it is."]]]])} template))
