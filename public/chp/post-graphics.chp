@@ -6,7 +6,7 @@
        [:section#post-graphics.section-dark
         [:div.section-inner
          [:span.status-pill "Graphics vocabulary"]
-         [:h1 "PostGraphics"]
+         [:h1 "🎨 PostGraphics"]
          [:p.section-lead
           "PostGraphics is a frame-oriented graphics vocabulary. "
           "A frame is a vector of operation records: datoms describing what to draw, not how to draw it. "
