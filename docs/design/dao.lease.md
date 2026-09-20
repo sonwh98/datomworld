@@ -154,7 +154,8 @@ in this order:
    `:dao.lease/max`, `:cap`; the grantor's own policy ends it, `:policy`; its
    interval since the last relevant observation exceeds duration plus
    tolerance, `:silence`. A lease whose evidence state is `unknown` is due for
-   `:silence` only once a full duration has passed since its resumed reading.
+   `:silence` only once, in addition, a full duration has passed since its
+   resumed reading.
 5. **Reclaim** each due lease by its composition-supplied procedure, marking it
    `pending` with its cause first. The procedure is idempotent and reports
    whether it succeeded; a reclaim that fails or does not report leaves the
@@ -201,6 +202,12 @@ A grantor with neither persists its ledger instead.
   its last renewal and its observed grant, and the cap the grant carries —
   whether or not anything has been heard.
 - **Release when done.** The grantor still performs the reclaim and records it.
+
+For cap purposes, the holder measures the cap interval from the reading at
+which it observed the grant; that reading may be later than the grantor
+judge's tenure start. The holder's observation-flight interval does not
+extend, delay, or alter the judge's cap or reclaim decision; a resource
+requiring exclusion must enforce it through fencing.
 
 The bound bounds attention, not access; a holder needing exclusion obtains it
 from the resource.
