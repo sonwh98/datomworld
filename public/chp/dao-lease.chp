@@ -113,6 +113,12 @@
           "and the implementation under "
           [:a {:href "https://github.com/sonwh98/datomworld/tree/master/src/cljc/dao" :target "_blank" :rel "noopener noreferrer"} "src/cljc/dao"] "."]
          [:p
+          "The deeper lineage is written down too. The judge is a garbage collector for claims: "
+          "it reclaims what a silent holder no longer proves it wants, the way a collector reclaims what the "
+          "execution log no longer reaches. That unification, where JIT, GC, and this judge become three "
+          "interpreters of the same stream, is the subject of "
+          [:a {:href "/blog/unification-of-jit-and-gc.blog"} "The Unification of JIT and GC"] "."]
+         [:p
           "DaoLease pairs with the rest of the stack: "
           [:a {:href "/dao-stream.chp"} "DaoStream"] " carries the facts, "
           [:a {:href "/dao-space.chp"} "DaoSpace"] " makes them queryable, "
