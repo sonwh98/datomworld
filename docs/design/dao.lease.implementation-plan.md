@@ -24,7 +24,8 @@ The brief is the two design documents. Three sharpenings, each of which changes
 what the plan says rather than what the contract means:
 
 1. **The two operative contracts still contradict each other, and this plan does
-   not resolve that on its own authority.** `dao.stream.md:752-755` says a
+   not resolve that on its own authority.** `dao.stream.md` (Composition;
+   lines 758-759 as found 2026-09-20) says a
    pause's "semantics live in `dao.lease.md`, whose facts are datoms on a medium
    (`dao.space`)"; `dao.lease.md:14` says "Facts are plain data on ordinary
    streams, classified by two dispatch keys." Datoms *are* plain data, so the
@@ -37,8 +38,9 @@ what the plan says rather than what the contract means:
    `dao.stream.md`'s Composition section: change "Those semantics live in
    `dao.lease.md`, whose facts are datoms on a medium (`dao.space`)" to read
    "Those semantics live in `dao.lease.md`, whose facts are plain data on
-   ordinary streams." Until that amendment is applied, this plan's plain-map
-   choice is flagged **unresolved-contract** in §6, not asserted as settled.
+   ordinary streams." **Applied 2026-09-20** (user-approved; `dao.stream.md`
+   Composition section, the sentence at what was lines 758-759). The
+   plain-map choice is no longer flagged unresolved-contract.
 
 2. **The tick stream is net-new, and its producer must not be a `dao.lease`
    timer.** `grep -r dao.lease src/` returns nothing, and no `:dao.lease/tick`
@@ -543,7 +545,7 @@ as runnable composition tests.
 
 | owed | by | where recorded |
 |---|---|---|
-| **Unresolved contract**: the `dao.stream.md:752-755` / `dao.lease.md:14` fact-carrier contradiction, and the one-sentence amendment in §0.1 | the orchestrator (this plan must not edit `dao.stream.md`) | §0.1 |
+| ~~**Unresolved contract**: the `dao.stream.md:752-755` / `dao.lease.md:14` fact-carrier contradiction~~ **settled 2026-09-20**: the proposed one-sentence amendment was applied to `dao.stream.md`'s Composition section (user-approved); its facts-citation now reads `dao.lease.md`, plain data on ordinary streams | done | §0.1 |
 | A persisted ledger for a judge that must survive restart (a stream its owner writes and reads, or the Restart rule) | a composition that needs durability, not this plan | `dao.lease.md` *Restart*; this plan binds the interface, not a persistence transport |
 | The three durable-resource prerequisites — a durable judge, an incarnation rule, fencing | the resource's own plan | `dao.lease.md` *Composition duties* |
 | The wire form of a pause vocabulary between peers | `dao.stream.ws.md`'s close-code design gate | `dao.lease.md` *Carriage* ("distinguishing reclaim on the wire belongs to `dao.stream.ws.md`'s deferred close-code design") |

@@ -755,8 +755,8 @@ yielding execution as needed by the host runtime.
 
 Flow control (a reader pausing a sender) is an interpreter's concern. A pause
 has to be a lease and not a switch to avoid permanently stuck states. Those
-semantics live in `dao.lease.md`, whose facts are datoms on a medium
-(`dao.space`). DaoStream provides the honest baseline: a cursor that falls
+semantics live in `dao.lease.md`, whose facts are plain data on ordinary
+streams. DaoStream provides the honest baseline: a cursor that falls
 behind is evicted past and told so with a `gap`, and the reader holding it
 decides what that means.
 
