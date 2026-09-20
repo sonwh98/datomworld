@@ -76,7 +76,7 @@ Consequences:
 - Under a ring-buffer composition, `append!` never returns `full`, so puts
   never park and loss surfaces as a `gap` at the *reader's* cursor instead.
 - The VM is still total over `full`, and `full` still parks in the polling
-  wait set (`dao.runtime/write-outcome->task`). What a given composition
+  wait set (the engine's ready-queue construction). What a given composition
   observes follows from the transport it chose, not from the VM.
 - No "same results as v1" claim covers a program that relies on backpressure.
   Backpressure semantics, if wanted later, come from the deferred queue
