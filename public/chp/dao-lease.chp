@@ -6,7 +6,7 @@
        [:section#dao-lease.section-dark
         [:div.section-inner
          [:span.status-pill "Coordination primitive"]
-         [:h1 "⏳ DaoLease"]
+         [:h1 "租 DaoLease"]
          [:p.section-lead
           "An agent claims shared work. Then it dies, hangs, or vanishes into a network partition, and the claim outlives it. "
           "Locks need someone to unlock them. Heartbeats need a trusted witness. Watchdogs err toward stale data or toward killing live workers. "
