@@ -50,7 +50,11 @@ ignored; a fact carrying both is defective.
   medium's attribution takes.
 - `:dao.lease/duration` — a single-entry map from a unit keyword to a positive
   integer magnitude. `:dao.lease/max`, `:dao.lease/reading` and a judge's
-  tolerance use the same representation; tolerance may be zero.
+  tolerance use the same representation; tolerance may be zero. A magnitude
+  stays within the bound that keeps every comparison and sum of the
+  composition's units exact on every host — the reference bound is 2^52 raw
+  and, against a supplied table, `quot 2^52 unit-magnitude`; a magnitude past
+  it establishes nothing.
 - `:dao.lease/cause` — why a reclaim happened.
 
 **Units.** The unit keywords and their ratios are a composition's
@@ -143,7 +147,12 @@ in this order:
    the lease's last relevant observation to *now* and returns it to `known`; a
    valid `:released` from the holder marks it released; a `:dao.stream/gap`
    marks every lease on that medium `unknown` with *now* as its resumed
-   reading.
+   reading. Each cursor's drain may be bounded by a composition-declared
+   budget; a cursor still yielding when the budget is spent has not completed
+   its observation, and while any wired fact cursor is so truncated, the pass
+   classifies no `:silence` for the leases that truncated medium carries —
+   `:release`, `:cap`, `:policy` and pending retries are never suppressed. An
+   incomplete drain may delay a reclaim; it may never manufacture one.
 3. **Answer and grant.** Proposals drained this pass may be answered, and
    unsolicited grants authored, both seeded and stamped with this pass's *now*.
    A grant authored between passes is seeded with the next pass's *now*.
@@ -201,7 +210,12 @@ A grantor with neither persists its ledger instead.
 - **Stop acting at the bound** — the earlier of the duration since the later of
   its last renewal and its observed grant, and the cap the grant carries —
   whether or not anything has been heard.
-- **Release when done.** The grantor still performs the reclaim and records it.
+- **Release when done.** The grantor still performs the reclaim and records
+  it.
+- **Treat an unusable reading as unanswerable.** A reading that is not a
+  single-entry `{unit, positive integer magnitude}` within the composition's
+  table answers nothing: every holder discipline fails closed on it, and a
+  flow that guards on its bound alone does not act.
 
 For cap purposes, the holder measures the cap interval from the reading at
 which it observed the grant; that reading may be later than the grantor
@@ -244,6 +258,10 @@ Stated as relations; the values belong to compositions.
   its tick stream and the holder's.
 - A medium's retention window exceeds the judge's lag — cadence plus drain time.
 - A cap below the duration is permitted, and tenure then ends at the cap.
+- The holder's renewal interval plus one period of its tick stream is
+  strictly below half the granted duration: a renewal lands at the first
+  reading at or past the interval, up to one period late, so the
+  before-half guarantee is bought against interval plus period.
 
 ## Limits
 
