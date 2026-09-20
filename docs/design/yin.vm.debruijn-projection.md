@@ -175,7 +175,9 @@ Every slot is tagged and length-delimited. Keywords and symbols encode
 namespace and name separately. Strings use UTF-8 NFC with length prefixes;
 bytes are length-prefixed; booleans are `00`/`01`; nil has its own tag; maps
 sort by canonical encoded key bytes; sets sort by canonical encoded element
-bytes. Unsupported values are diagnostics.
+bytes. Lists and vectors are distinct sequence classes and never merge: the
+language observes the difference, so identity must not. Unsupported values
+are diagnostics.
 
 Numeric canonicalisation is fixed in D0: exact integers in signed int64 use
 int64 encoding, and every integral double in that range also uses int64
@@ -314,4 +316,7 @@ canonical byte ordering; the published `:yin.debruijn/*` dimension supplies
 the domain separator and SHA-256 is the hash; the source-to-projected index is
 ephemeral by default and separate if later persisted. The Dart NFC source is
 `unorm_dart` (Unicode 16.0), settled by the owner 2026-09-21 and validated by
-the D3 cross-host fixtures.
+the D3 cross-host fixtures. At the D0 review 2026-09-21 the value table's
+sequence class was ruled split: lists and vectors are distinct classes and
+never merge, because a program can observe the difference and identity never
+merges distinguishable values.
