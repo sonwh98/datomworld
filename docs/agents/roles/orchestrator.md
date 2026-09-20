@@ -219,7 +219,12 @@ Roster, role routing, and reviewer independence are defined in [`team.md`](../te
 4. **Choose execution and review routes.** Follow the role selection and reviewer independence rules in
    [`team.md`](../team.md). Implement simple, low-risk work directly when delegation would cost more in
    coordination, tokens, or review. Otherwise, assign a specialized implementation role to the optimal
-   model. Add Architect or Security review when the role or risk requires it.
+   model. When OpenAI seats are available for the task, route bounded high-volume work to Luna, balanced
+   daily engineering to Terra, difficult professional work or high-stakes review to Sol, and the hardest
+   end-to-end architecture, security, research, or coding work to Astra. The cost-constraint table takes
+   precedence: under the current policy, codex/OpenAI seats are reserved for Architectural Review and must
+   not receive implementation tasks. Treat that reservation as an operational constraint rather than a claim
+   about model capability. Add Architect or Security review when the role or risk requires it.
 5. **Brief and execute.** When delegating, use the selected role's prompt
    template and keep it concise and unambiguous. A delegate's exit code or
    promise is not a deliverable: inspect the artifact and resume an unfinished

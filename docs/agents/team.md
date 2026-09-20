@@ -109,22 +109,26 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | reconciliation, protocol discipline. **Best for:** Scoped          | budget is tight.                                                    |
 |                             | subagents, bounded searches, QA spot-checks, verification seats.   |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-5.4-mini`              | Extremely fast; highly cost-effective for large-scale repetition.  | Low reasoning ceiling; struggles with multi-step logic. **Avoid     |
-|                             | **Best for:** TDD loops, simple linting, scoped text edits.        | for:** Any complex logical refactoring.                             |
+| `gpt-5.4-mini`              | Fast, lower-cost model for bounded, repetitive work with explicit  | Do not use as the sole judge of subtle invariants or broad design.  |
+|                             | acceptance criteria. **Best for:** TDD loops, simple linting,      | Escalate multi-step refactors and disputed findings to Terra, Sol,  |
+|                             | extraction, and scoped text edits.                                 | or Astra.                                                           |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-5.6-luna`              | High-frequency, latency-sensitive tasks. **Best for:** Simple      | Poor long-form context processing and reasoning. **Avoid for:**     |
-|                             | network stream framing, classification, and extraction.            | Complex AST compilation; long-running agentic tasks.                |
+| `gpt-5.6-luna`              | Cost-sensitive, high-volume work. **Best for:** Classification,    | Low-cost does not mean suitable for unbounded design or the hardest |
+|                             | extraction, scoped searches, routine QA, and bounded edits.        | invariant reasoning. Escalate complex AST, architecture, and        |
+|                             |                                                                    | security decisions.                                                 |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-5.6-sol`               | Flagship tier for complex reasoning and advanced coding agents.    | Strict rate limits. **Avoid for:** Implementation tasks. Reserved   |
-|                             | **Best for:** High-stakes security, routine complex reviews.       | exclusively for Architectural Review.                               |
+| `gpt-5.6-sol`               | Flagship model for difficult professional work. **Best for:**      | More expensive than Terra/Luna. Use Astra when the task is the      |
+|                             | Complex implementation, advanced coding, high-stakes security,     | hardest end-to-end problem; apply the repository's reservation      |
+|                             | and routine architectural or adversarial review.                   | policy separately from capability.                                  |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-5.6-terra`             | The "default" balanced model for daily workflows. **Best for:**    | Struggles with the deepest compiler lowering edge cases. **Avoid    |
-|                             | Daily business workflows, production engineering, network streams, | for:** Top-level system architecture; extreme specialized reasoning.|
-|                             | VM runtimes, subagent fallback.                                    |                                                                     |
+| `gpt-5.6-terra`             | Balanced intelligence and cost. **Best for:** Default production   | Use Sol or Astra for the hardest reasoning, high-risk security, or  |
+|                             | engineering, integration work, network streams, VM runtimes,       | architecture decisions. Validate compiler-lowering and other        |
+|                             | moderate-complexity implementation, and subagent fallback.         | specialist work with focused tests and independent review.          |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-6-astra`               | True "computer operator" capabilities; generational leap in deep   | Strict rate limits. **Avoid for:** Implementation tasks. Reserved   |
-|                             | reasoning and safety. **Best for:** Autonomous multi-step          | exclusively for Architectural Review.                               |
-|                             | workflows, one-shot feature implementations, general daily tasks.  |                                                                     |
+| `gpt-6-astra`               | Most capable end-to-end model. **Best for:** Hardest architecture, | Highest cost. Reserve for the highest-risk or most difficult work   |
+|                             | security, research, coding, computer-use, and long-horizon tasks.  | under the subscription policy; that policy does not make Astra      |
+|                             | Capability includes implementation, but the current codex policy   | unsuitable for implementation.                                      |
+|                             | reserves OpenAI seats for Architectural Review.                    |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `minimax/m3`                | Natively multimodal with 1M context. **Best for:** Large codebase  | Can fall into thinking loops; gives up early on difficult tasks.    |
 |                             | comprehension, orchestrating subagents, iterative refactoring.     | **Avoid for:** One-shot mission critical coding, unbounded tasks.   |
