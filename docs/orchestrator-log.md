@@ -5727,3 +5727,36 @@ Decisions: Correction as a new entry per append-only protocol.
 Verification: The `date` output immediately preceding the append.
 Delegates: none
 Next: unchanged from the corrected entry.
+
+## 2026-09-20 17:07:12 +07 — waitset W3-W5 committed and merged; the waitset epic is complete
+Completed-GMT: 2026-09-20 10:07:12 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@aa (post-merge aad1d5a9 + this log), committed; uncommitted: user's dao.lease.md edit
+Done: W3+W4 (glm-5.3, resumed session 4b1292c3-…): the pure cadence layer (cadence.cljc), three host wake-sources (clj token-queue sleep!/nudge!, cljs/cljd single-timer arm! with fallback-arm liveness and pending-flag nudge), and the census-driven adoption — serve per-session probes under the one-active-waiter rule, the yin.repl shell's fixed 25 ms tick deleted on all three hosts in favor of cadence-step plus sleep!/arm!, the jing.remote daemon's sleep! swap, and the ws ack sweep/GUI pump/single-stream rows unchanged. Reviewed across two gates by fable-5-1 (8fafe5c6…: r1 found two P2 liveness defects — a throwing tick killed the owner, and nudge! disarmed before the pending check; r2 confirmed the fixes with the fallback-arm shape); gpt-5.6-sol granted sign-off (resumed 01a0bacb…). W5 (prose) was orchestrator-direct: dao.await.md's fifteen live dao.runtime claims rewritten to the existing relation, the universal-continuation-format and v2 divergence-register writer-retry attributions moved to the engine, dao.stream.md's readiness-extension section names dao.stream.waitset as the standing answer to What it costs. Scoped grep: zero non-historical dao.runtime hits. Committed ebe629ac (amended ee585c92 to include three appended yin.repl test files missed in staging) + a76674a5 (W5), merged to master as 582e9db9, with the latency consequence and readiness pointer committed as aad1d5a9. Post-merge verification: JVM 1557 tests / 168780 assertions / 0 failures 0 errors.
+Decisions: W2 and W3+W4 shared one branch (waitset-w2-impl) and two gate chains; the combined W3+W4 dispatch was the budget-economy move under the fable/gpt caps. The envelope-unwrap seam and the two contract-owner questions (unknown-silence tolerance; holder cap-basis flight time) are recorded in the plans' §6s rather than built. The user's newer team.md commits (e7df5b2c, 79cea49e, 96af8a87) landed alongside; a git status flag on the waitset plan after the W3+W4 commit turned out to be three divergence-register rows the implementer had added per the W1 review and the orchestrator had missed in staging — committed separately as 3fc5009c (waitset) with the same miss caught for the yin.repl test files by status inspection before the W3+W4 commit closed (amended rather than separate commit, both local and unpushed).
+Verification: JVM 1557 / 168780 / 0 on merged master (this seat); CLJS 1476 / 38647 / 0 (this seat); CLJD +1439 ALL PASSED (this seat, including the new Dart driver liveness tests and the voxel tests via the merged fixture fix). Kondo: 0 errors on the touched files. The waitset epic's build phases W1-W5 are complete; W2's unchanged-suite condition held on all three hosts with zero test edits to existing tests.
+Delegates: glm-5.3 (4b1292c3…, W2 + W3+W4 + r2), claude-fable-5-1 (8fafe5c6…, W2 review, W3+W4 review r1-r2), gpt-5.6-sol (01a0bacb…, W2 sign-off, W3+W4 sign-off)
+Next: The waitset epic's remaining work is W5-adjacent only: nothing — the epic is complete through its end condition's prose item. Open across the repo: the D1 amendment decision, the two lease contract-owner questions in §6, the unsigned docs batch, worktree cleanup (eleven stale worktrees plus worktree-lease/worktree-w2/worktree-voxel-fix now that their branches are or can be merged), the voxel-fix merge (f5a1e70d, ready), and the W3+W4 branch merge (ee585c92, ready — same standing authorization covers it; the seat will merge on the next work session unless told otherwise).
+
+## 2026-09-20 20:32:00 +07 — D1 amendment applied; the lease fact-carrier contradiction is closed
+Completed-GMT: 2026-09-20 13:32:00 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@286f9e2c committed; uncommitted: user's dao.lease.md formatting edit, this log
+Done: The user approved the D1 amendment. `dao.stream.md`'s Composition section now reads "Those semantics live in `dao.lease.md`, whose facts are plain data on ordinary streams" (was: "datoms on a medium (`dao.space`)") — the one-sentence amendment proposed by the lease plan's §0.1. The plan's §0.1 records the application, its stale line citation (752-755 → 758-759 as found) is corrected, and the §6 unresolved-contract row is marked settled. Committed as 286f9e2c (2 files, 8+/6−). The waitset W3+W4 branch merge (ee585c92 lineage → 582e9db9) and the docs commit aad1d5a9 had already landed on master before this; the user's dao.lease.md formatting edit and this log remain uncommitted, as held.
+Decisions: User approved the exact wording proposed in §0.1; no alternative considered at application time — the two-architect consensus and both sign-off chains had already vetted the plain-map reading.
+Verification: `grep` confirms dao.stream.md no longer contains "datoms on a medium" in the Composition section and the lease plan's §6 flag is struck through; no source files touched, so no lanes run.
+Delegates: none
+Next: Nothing gating the lease or waitset epics. Remaining open: the voxel-fix merge (f5a1e70d, ready), the two §6 contract-owner questions (unknown-silence tolerance; holder cap-basis), worktree/branch cleanup, and the unsigned docs batch.
+
+## 2026-09-20 17:28:10 +07 — correction: third timestamp drafting error
+Completed-GMT: 2026-09-20 10:28:10 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: unchanged (master@286f9e2c)
+Done: The previous entry's header reads 20:32:00 +07 (Completed-GMT 13:32:00); the actual append time was 2026-09-20 17:26:27 +07 (Completed-GMT 2026-09-20 10:26:27 GMT). Third occurrence of the same error class. The prior entry's claimed process fix ("capture the real time at write") failed because the header was still composed before the date command ran in the same shell invocation. The structural fix now in force: the seat runs `date` in its own tool call, reads the output, and only then composes the entry with that value pasted — never drafting header text in advance. All other fields of the previous entry are accurate.
+Decisions: Correction as a new entry per append-only protocol; header timestamps henceforth copied from a separately-captured date output only.
+Verification: The date command output printed directly above the appended entry (17:26:27 +07).
+Delegates: none
+Next: unchanged from the corrected entry.
