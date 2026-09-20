@@ -108,18 +108,28 @@ namespace (D3); it lives in the test tree as host driver code.
 The two dispatch keys and the fact table are the contract's, reproduced here
 because every invariant below cites them:
 
-| Fact     | `:dao.lease/status`   | Author  | Identity carried                                      | Also required                                                                             |
-|----------|-----------------------|---------|--------------------------------------------------------|--------------------------------------------------------------------------------------------|
-| Proposal | `:dao.lease/proposed` | holder  | `:dao.lease/proposal`                                  | `:dao.lease/subject`; `:dao.lease/duration` optional, an ask                              |
-| Grant    | `:dao.lease/accepted` | grantor | `:dao.lease/lease`, plus `:dao.lease/proposal` if answering | `:dao.lease/subject`, `:dao.lease/holder`, `:dao.lease/duration`; `:dao.lease/max` optional |
-| Refusal  | `:dao.lease/rejected` | grantor | `:dao.lease/proposal`                                  | —                                                                                          |
-| Release  | `:dao.lease/released` | holder  | `:dao.lease/lease`                                     | —                                                                                          |
-| Reclaim  | `:dao.lease/lapsed`   | grantor | `:dao.lease/lease`                                     | `:dao.lease/cause` — `:silence`, `:release`, `:cap`, or `:policy`                          |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
+| Fact     | `:dao.lease/status`   | Author  | Identity carried                            | Also required                                                             |
++==========+=======================+=========+=============================================+===========================================================================+
+| Proposal | `:dao.lease/proposed` | holder  | `:dao.lease/proposal`                       | `:dao.lease/subject`; `:dao.lease/duration` optional, an ask              |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
+| Grant    | `:dao.lease/accepted` | grantor | `:dao.lease/lease`, plus                    | `:dao.lease/subject`, `:dao.lease/holder`, `:dao.lease/duration`;         |
+|          |                       |         | `:dao.lease/proposal` if answering          | `:dao.lease/max` optional                                                 |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
+| Refusal  | `:dao.lease/rejected` | grantor | `:dao.lease/proposal`                       | —                                                                         |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
+| Release  | `:dao.lease/released` | holder  | `:dao.lease/lease`                          | —                                                                         |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
+| Reclaim  | `:dao.lease/lapsed`   | grantor | `:dao.lease/lease`                          | `:dao.lease/cause` — `:silence`, `:release`, `:cap`, or `:policy`         |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
 
-| Evidence | `:dao.lease/event`  | Author  | Identity carried     | Also required     |
-|----------|---------------------|---------|----------------------|-------------------|
-| Renewal  | `:dao.lease/renewal`| holder  | `:dao.lease/lease`   | —                 |
-| Tick     | `:dao.lease/tick`   | adapter | —                    | `:dao.lease/reading` |
++------------+----------------------+---------+----------------------+----------------------+
+| Evidence   | `:dao.lease/event`   | Author  | Identity carried     | Also required        |
++============+======================+=========+======================+======================+
+| Renewal    | `:dao.lease/renewal` | holder  | `:dao.lease/lease`   | —                    |
++------------+----------------------+---------+----------------------+----------------------+
+| Tick       | `:dao.lease/tick`    | adapter | —                    | `:dao.lease/reading` |
++------------+----------------------+---------+----------------------+----------------------+
 
 Keys: `:dao.lease/lease`, `:dao.lease/proposal`, `:dao.lease/subject`,
 `:dao.lease/holder`, `:dao.lease/duration`, `:dao.lease/max`,
@@ -134,72 +144,198 @@ deftests (Phase 1–3) and `composition_test` deftests (Phase 4), named inline.
 
 ### 2.1 Vocabulary, validity, and identity
 
-| # | Invariant | |
-|---|---|---|
-| V1 | A fact carries exactly one of the two dispatch keys; a fact carrying neither is not a lease fact and is ignored by a reader; a fact carrying both is defective | `[D]` *Vocabulary* |
-| V2 | A `:dao.lease/duration`, `:dao.lease/max`, and `:dao.lease/reading` are each a single-entry map from a unit keyword to a positive integer; a `:dao.lease/cause` is one of `:silence` `:release` `:cap` `:policy`; tolerance (a composition value, not a fact key) is the same shape and may be zero | `[D]` *Keys*, *Validity* |
-| V3 | Unit keywords and their ratios are a composition-wide decision fixed once and shared by grantor, holders, and judge; comparison normalizes to the finer of two units and is strict — an interval exactly equal to its bound has not passed it | `[D]` *Units* |
-| V4 | **Structural** defect, decided from a fact alone: a fact is defective when it omits a key its status/event requires, carries a status/event outside the tables, carries a duration/cap/reading not of the required shape, or carries a lease id on a proposal. A structurally defective fact establishes nothing | `[D]` *Validity* |
-| V5 | `defective?` is pure and host-neutral: given a fact alone it returns a truth value without consulting any stream, clock, or ambient state. Purity is pinned by a test that passes facts through a validator wired to a global atom and a clock and asserts neither is read | `[T]` — pins purity |
-| V6 | **Identity minting**: `:dao.lease/lease` is minted by the grantor and never reused within that grantor; `:dao.lease/proposal` is minted by the holder and echoed by the grant or refusal answering it; a proposal carries no lease id | `[D]` *Keys* |
-| V7 | **Admissibility** is history-dependent and judge-local, not a property of a fact alone: a fact is inadmissible when it answers one proposal with both `:accepted` and `:rejected`, repeats `:accepted`/`:released`/`:lapsed` for one lease, or carries a reading older than one already observed. The judge's drain decides admissibility against its ledger; `defective?` (V4) does not | `[D]` *Validity*, `[D]` *new* — pins *where* each check runs |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| #   | Invariant                                                                                                        |                                             |
++=====+==================================================================================================================+=============================================+
+| V1  | A fact carries exactly one of the two dispatch keys; a fact carrying neither is not a lease fact and is ignored  | `[D]` *Vocabulary*                          |
+|     | by a reader; a fact carrying both is defective                                                                   |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| V2  | A `:dao.lease/duration`, `:dao.lease/max`, and `:dao.lease/reading` are each a single-entry map from a unit      | `[D]` *Keys*, *Validity*                    |
+|     | keyword to a positive integer; a `:dao.lease/cause` is one of `:silence` `:release` `:cap` `:policy`; tolerance  |                                             |
+|     | (a composition value, not a fact key) is the same shape and may be zero                                          |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| V3  | Unit keywords and their ratios are a composition-wide decision fixed once and shared by grantor, holders, and    | `[D]` *Units*                               |
+|     | judge; comparison normalizes to the finer of two units and is strict — an interval exactly equal to its bound    |                                             |
+|     | has not passed it                                                                                                |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| V4  | **Structural** defect, decided from a fact alone: a fact is defective when it omits a key its status/event       | `[D]` *Validity*                            |
+|     | requires, carries a status/event outside the tables, carries a duration/cap/reading not of the required shape,   |                                             |
+|     | or carries a lease id on a proposal. A structurally defective fact establishes nothing                           |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| V5  | `defective?` is pure and host-neutral: given a fact alone it returns a truth value without consulting any        | `[T]` — pins purity                         |
+|     | stream, clock, or ambient state. Purity is pinned by a test that passes facts through a validator wired to a     |                                             |
+|     | global atom and a clock and asserts neither is read                                                              |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| V6  | **Identity minting**: `:dao.lease/lease` is minted by the grantor and never reused within that grantor;          | `[D]` *Keys*                                |
+|     | `:dao.lease/proposal` is minted by the holder and echoed by the grant or refusal answering it; a proposal        |                                             |
+|     | carries no lease id                                                                                              |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| V7  | **Admissibility** is history-dependent and judge-local, not a property of a fact alone: a fact is inadmissible   | `[D]` *Validity*, `[D]` *new* — pins        |
+|     | when it answers one proposal with both `:accepted` and `:rejected`, repeats `:accepted`/`:released`/`:lapsed`    | *where* each check runs                     |
+|     | for one lease, or carries a reading older than one already observed. The judge's drain decides admissibility     |                                             |
+|     | against its ledger; `defective?` (V4) does not                                                                   |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
 
 ### 2.2 The judge — ledger and pass
 
-| # | Invariant | |
-|---|---|---|
-| J1 | Only grantor-authored facts establish terms; a holder fact establishes no term, and a delayed holder renewal still counts as evidence | `[D]` *Authority* |
-| J2 | A renewal counts only when its attributed author is the lease's holder; a renewal from any other author is a fact about that author and silence is measured as though it had not arrived | `[D]` *Authority* |
-| J3 | At most one of `:accepted` or `:rejected` answers a proposal; a proposal creates no state; nothing exists until `:accepted` | `[D]` *Authority* |
-| J4 | A lease **enters** the ledger when the grantor grants it, seeded from that act, and **leaves** once its reclaim has succeeded *and* its `:lapsed` record has been appended with `:dao.stream/ok`. Until both, it remains | `[D]` *The judge — Ledger* |
-| J5 | The ledger records, per live lease: its terms (subject, holder, duration, cap), its tenure start (the reading the grant was seeded at, unchanged by renewal), its last relevant observation, its evidence state (`known`/`unknown` with resumed reading), and its reclaim state (`live`/`pending` with cause and success) | `[D]` *Ledger* |
-| J6 | The pass classifies nothing until a first tick has been observed; at each pass, in order: (1) drain every wired tick cursor, the newest reading (or the newest previously observed) is *now*; (2) drain every wired lease-fact cursor, stamping each fact with *now*, applying renewals/releases/gaps; (3) answer and grant, seeded and stamped with *now*; (4) classify; (5) reclaim each due lease, marking it `pending` with its cause first; (6) record `:lapsed`, and on `:dao.stream/ok` the lease leaves the ledger | `[D]` *The pass* |
-| J7 | Eligibility precedes policy. A renewal is counted (and the lease's last relevant observation advanced) whether or not any other condition ends the lease in the same pass; a `:policy` cause may not be implemented by declining to count evidence received. Then a lease is due when, first-holding-in-order: already `pending` (keeps its cause); a valid `:released` observed, `:release`; tenure start further back than `:dao.lease/max`, `:cap`; the grantor's policy ends it, `:policy`; interval since last relevant observation exceeds duration + tolerance, `:silence`. A lease whose evidence is `unknown` is due for `:silence` only once a full duration has passed since its resumed reading | `[D]` *Authority*, *The pass* §4 |
-| J8 | The reclaim procedure is idempotent and reports success. The record follows the act and never precedes it: mark `pending` with the cause, perform the reclaim, append `:lapsed`, and remove the lease from the ledger only on `:dao.stream/ok`; a reclaim that fails or does not report leaves the lease `pending` and unrecorded, and a non-`ok` `:lapsed` append leaves it `pending` for the next pass (reached through the first clause of classification). The absence of a `:lapsed` fact is never evidence of tenure | `[D]` *The pass* §5-6, *The judge* |
-| J9 | Incomplete evidence: absence is evidence only over a window the judge observed; a `:dao.stream/gap` on a lease-fact medium marks every lease on that medium `unknown` with *now* as its resumed reading; a surviving older renewal is **not** inferred to be the newest; a lease recovered from a persisted ledger is `unknown`; conditions other than `:silence` apply to an `unknown` lease unchanged. A **tick-cursor gap is not a lease-evidence gap**: a late pass is not a wrong pass, and it does not mark leases `unknown` | `[D]` *Judging with incomplete evidence*, *Time* |
-| J10 | A drain ending in `:dao.stream/end` retires that cursor for later passes; a drain ending in `:dao.stream/transport-error` ends the pass before classification. `:dao.stream/cursor-mismatch` and `:dao.stream/invalid-cursor` are **pass-aborting defects** — they end the pass before classification, and are never treated as a completed drain (that would manufacture absence evidence) | `[D]` *The pass*, `[D]` *new* — pins the unclassified reader outcomes |
-| J11 | A grantor that has lost its ledger reclaims and re-grants: for each resource it still possesses it reclaims first, then grants afresh; the reclaim ends the prior tenure, a new grant alone does not | `[D]` *Restart* |
-| J12 | A grantor owes no answer to a proposal; a holder's wait on an unanswered proposal is bounded by nothing in this vocabulary, and no lease state is created by the wait | `[D]` *Authority* |
-| J13 | A grantor may grant unsolicited, with no proposal; the holder is the party the grant is delivered to, and the grant carries `:dao.lease/subject` and `:dao.lease/holder` outright so a reader of the grant alone knows what was granted to whom | `[D]` *Authority* |
-| J14 | A composition persisting a ledger across a restart keeps its readings comparable across it: the tick stream's readings never decrease, and a recovered ledger resumes with the same unit table and reading basis | `[D]` *Time* |
-| J15 | `:dao.lease/max` binds within one ledger lifetime: tenure start is set once at the grant and no gap or renewal moves it, so the cap bounds tenure even across gaps and restarts of evidence | `[D]` *Limits* |
-| J16 | The pass is bounded: each cursor is drained up to a composition-declared `:drain-budget` of elements per pass, and a cursor still yielding `:dao.stream/ok` after the budget leaves the remainder to the next pass. "Late, not wrong" is unconditional for ticks; a fact cursor truncated this pass suppresses `:silence` for its medium's leases (and unregistered leases while any medium is truncated) until a completed drain — suppression never touches `:release`, `:cap`, `:policy` or pending retries. This resolves the contract's demand to "drain to blocked" against DaoStream's lack of a snapshot tail | `[D]` *new* — the quiescence resolution, D7; suppression added by review round r2 |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| #   | Invariant                                                                                                        |                                             |
++=====+==================================================================================================================+=============================================+
+| J1  | Only grantor-authored facts establish terms; a holder fact establishes no term, and a delayed holder renewal     | `[D]` *Authority*                           |
+|     | still counts as evidence                                                                                         |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J2  | A renewal counts only when its attributed author is the lease's holder; a renewal from any other author is a     | `[D]` *Authority*                           |
+|     | fact about that author and silence is measured as though it had not arrived                                      |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J3  | At most one of `:accepted` or `:rejected` answers a proposal; a proposal creates no state; nothing exists until  | `[D]` *Authority*                           |
+|     | `:accepted`                                                                                                      |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J4  | A lease **enters** the ledger when the grantor grants it, seeded from that act, and **leaves** once its reclaim  | `[D]` *The judge — Ledger*                  |
+|     | has succeeded *and* its `:lapsed` record has been appended with `:dao.stream/ok`. Until both, it remains         |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J5  | The ledger records, per live lease: its terms (subject, holder, duration, cap), its tenure start (the reading    | `[D]` *Ledger*                              |
+|     | the grant was seeded at, unchanged by renewal), its last relevant observation, its evidence state                |                                             |
+|     | (`known`/`unknown` with resumed reading), and its reclaim state (`live`/`pending` with cause and success)        |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J6  | The pass classifies nothing until a first tick has been observed; at each pass, in order: (1) drain every wired  | `[D]` *The pass*                            |
+|     | tick cursor, the newest reading (or the newest previously observed) is *now*; (2) drain every wired lease-fact   |                                             |
+|     | cursor, stamping each fact with *now*, applying renewals/releases/gaps; (3) answer and grant, seeded and stamped |                                             |
+|     | with *now*; (4) classify; (5) reclaim each due lease, marking it `pending` with its cause first; (6) record      |                                             |
+|     | `:lapsed`, and on `:dao.stream/ok` the lease leaves the ledger                                                   |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J7  | Eligibility precedes policy. A renewal is counted (and the lease's last relevant observation advanced) whether   | `[D]` *Authority*, *The pass* §4            |
+|     | or not any other condition ends the lease in the same pass; a `:policy` cause may not be implemented by          |                                             |
+|     | declining to count evidence received. Then a lease is due when, first-holding-in-order: already `pending` (keeps |                                             |
+|     | its cause); a valid `:released` observed, `:release`; tenure start further back than `:dao.lease/max`, `:cap`;   |                                             |
+|     | the grantor's policy ends it, `:policy`; interval since last relevant observation exceeds duration + tolerance,  |                                             |
+|     | `:silence`. A lease whose evidence is `unknown` is due for `:silence` only once a full duration has passed since |                                             |
+|     | its resumed reading                                                                                              |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J8  | The reclaim procedure is idempotent and reports success. The record follows the act and never precedes it: mark  | `[D]` *The pass* §5-6, *The judge*          |
+|     | `pending` with the cause, perform the reclaim, append `:lapsed`, and remove the lease from the ledger only on    |                                             |
+|     | `:dao.stream/ok`; a reclaim that fails or does not report leaves the lease `pending` and unrecorded, and a       |                                             |
+|     | non-`ok` `:lapsed` append leaves it `pending` for the next pass (reached through the first clause of             |                                             |
+|     | classification). The absence of a `:lapsed` fact is never evidence of tenure                                     |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J9  | Incomplete evidence: absence is evidence only over a window the judge observed; a `:dao.stream/gap` on a         | `[D]` *Judging with incomplete evidence*,   |
+|     | lease-fact medium marks every lease on that medium `unknown` with *now* as its resumed reading; a surviving      | *Time*                                      |
+|     | older renewal is **not** inferred to be the newest; a lease recovered from a persisted ledger is `unknown`;      |                                             |
+|     | conditions other than `:silence` apply to an `unknown` lease unchanged. A **tick-cursor gap is not a             |                                             |
+|     | lease-evidence gap**: a late pass is not a wrong pass, and it does not mark leases `unknown`                     |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J10 | A drain ending in `:dao.stream/end` retires that cursor for later passes; a drain ending in                      | `[D]` *The pass*, `[D]` *new* — pins the    |
+|     | `:dao.stream/transport-error` ends the pass before classification. `:dao.stream/cursor-mismatch` and             | unclassified reader outcomes                |
+|     | `:dao.stream/invalid-cursor` are **pass-aborting defects** — they end the pass before classification, and are    |                                             |
+|     | never treated as a completed drain (that would manufacture absence evidence)                                     |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J11 | A grantor that has lost its ledger reclaims and re-grants: for each resource it still possesses it reclaims      | `[D]` *Restart*                             |
+|     | first, then grants afresh; the reclaim ends the prior tenure, a new grant alone does not                         |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J12 | A grantor owes no answer to a proposal; a holder's wait on an unanswered proposal is bounded by nothing in this  | `[D]` *Authority*                           |
+|     | vocabulary, and no lease state is created by the wait                                                            |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J13 | A grantor may grant unsolicited, with no proposal; the holder is the party the grant is delivered to, and the    | `[D]` *Authority*                           |
+|     | grant carries `:dao.lease/subject` and `:dao.lease/holder` outright so a reader of the grant alone knows what    |                                             |
+|     | was granted to whom                                                                                              |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J14 | A composition persisting a ledger across a restart keeps its readings comparable across it: the tick stream's    | `[D]` *Time*                                |
+|     | readings never decrease, and a recovered ledger resumes with the same unit table and reading basis               |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J15 | `:dao.lease/max` binds within one ledger lifetime: tenure start is set once at the grant and no gap or renewal   | `[D]` *Limits*                              |
+|     | moves it, so the cap bounds tenure even across gaps and restarts of evidence                                     |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| J16 | The pass is bounded: each cursor is drained up to a composition-declared `:drain-budget` of elements per pass,   | `[D]` *new* — the quiescence resolution,    |
+|     | and a cursor still yielding `:dao.stream/ok` after the budget leaves the remainder to the next pass. "Late, not  | D7; suppression added by review round r2    |
+|     | wrong" is unconditional for ticks; a fact cursor truncated this pass suppresses `:silence` for its medium's      |                                             |
+|     | leases (and unregistered leases while any medium is truncated) until a completed drain — suppression never       |                                             |
+|     | touches `:release`, `:cap`, `:policy` or pending retries. This resolves the contract's demand to "drain to       |                                             |
+|     | blocked" against DaoStream's lack of a snapshot tail                                                             |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
 
 ### 2.3 The holder
 
-| # | Invariant | |
-|---|---|---|
-| H1 | A holder observes its grant before acting and establishes the grantor authored it by the composition's attribution; a holder that has not observed a grantor-authored grant holds nothing, and a forged/non-grantor `:accepted` establishes nothing | `[D]` *The holder* |
-| H2 | A holder renews at **strictly less than half** the duration, measured against ticks on its own tick stream; a renewal is an append returning `:dao.stream/ok`, and any other outcome does not advance the holder's bound. The holder's renewal interval is a composition value strictly below half the duration, so a successful next renewal is guaranteed before half the duration elapses; an interval at or above half already violates the sizing relation | `[D]` *The holder*, *Sizing* |
-| H3 | A holder stops acting at the bound — the earlier of duration since the later of its last renewal and its observed grant, and the cap the grant carries — whether or not anything has been heard | `[D]` *The holder* |
-| H4 | A holder releases when done — appending `:released` — and stops its own activity; it does not reclaim and does not author `:lapsed`. The grantor still performs the reclaim and records it | `[D]` *The holder* |
-| H5 | The holder's bound bounds attention, not access: a holder needing exclusion obtains it from the resource, not from this vocabulary | `[D]` *The holder* |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| #   | Invariant                                                                                                        |                                             |
++=====+==================================================================================================================+=============================================+
+| H1  | A holder observes its grant before acting and establishes the grantor authored it by the composition's           | `[D]` *The holder*                          |
+|     | attribution; a holder that has not observed a grantor-authored grant holds nothing, and a forged/non-grantor     |                                             |
+|     | `:accepted` establishes nothing                                                                                  |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| H2  | A holder renews at **strictly less than half** the duration, measured against ticks on its own tick stream; a    | `[D]` *The holder*, *Sizing*                |
+|     | renewal is an append returning `:dao.stream/ok`, and any other outcome does not advance the holder's bound. The  |                                             |
+|     | holder's renewal interval is a composition value strictly below half the duration, so a successful next renewal  |                                             |
+|     | is guaranteed before half the duration elapses; an interval at or above half already violates the sizing         |                                             |
+|     | relation                                                                                                         |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| H3  | A holder stops acting at the bound — the earlier of duration since the later of its last renewal and its         | `[D]` *The holder*                          |
+|     | observed grant, and the cap the grant carries — whether or not anything has been heard                           |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| H4  | A holder releases when done — appending `:released` — and stops its own activity; it does not reclaim and does   | `[D]` *The holder*                          |
+|     | not author `:lapsed`. The grantor still performs the reclaim and records it                                      |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| H5  | The holder's bound bounds attention, not access: a holder needing exclusion obtains it from the resource, not    | `[D]` *The holder*                          |
+|     | from this vocabulary                                                                                             |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
 
 ### 2.4 Composition
 
-| # | Invariant | |
-|---|---|---|
-| C1 | A composition that grants leases wires: a judging interpreter and a runtime driving it at a declared cadence (a maximum interval between *completed* passes); a tick stream for the judge and one per holder; a tolerance; an attribution resolver bound to a source; a reclaim procedure per subject; a stream the grantor writes grants and `:lapsed` to, and the medium each recipient reads its facts from; media that retain or declare evict-oldest | `[D]` *Composition duties* |
-| C2 | `make-*` validates an **explicit medium declaration** in its config — `{:retention :evict-oldest|:complete, :capacity n, :value-domain :portable-values|:host-values}` — not the handle (a handle exposes surfaces, not retention). One handed no resolver, a resolver incompatible with the declared medium, or a medium declared neither retain nor evict-oldest is refused at assembly: the constructor throws before any stream exists. `fn?` establishes presence; the declaration establishes compatibility | `[D]` *Composition duties*, `[T]` pins the throw |
-| C3 | Media declared neither retaining nor evict-oldest are refused at assembly | `[D]` *Composition duties* |
-| C4 | For durable resources, three things the vocabulary does not supply — a durable judge, a rule for which incarnation may reclaim, and fencing — are required. `make-*` takes `:durable?` (default false) plus the three prerequisites; a `:durable?` config missing any of the three throws at assembly, and a non-durable config is declared process-scoped on the returned value — an unsettled composition *cannot* claim durable use | `[D]` *Composition duties*, `[D]` *new* — pins the process-scoped fallback |
-| C5 | No code in `src/cljc/dao/lease.cljc` reads a host clock, holds a callback, installs a timer, or consults a registry; time reaches lease code only as data on a tick cursor. A timer, if any, lives in the host driver outside the namespace, and the reference tick producer is a step/deposit function, not a timer | `[D]` *Prohibitions*, *Time*; `[T]` pins the absence by grep over the whole file (§7) |
-| C6 | A lease does not extend retention, defer eviction, or gate history, and no `dao.stream` operation consults a lease | `[D]` *Prohibitions* — asserted by construction, since `dao.lease` imports `dao.stream` and never the reverse |
-| C7 | No notification marks a lapse; no absolute time appears in any fact; a reclaim frees the resource, never the record; a holder renews from its own control flow and no machinery renews on its behalf | `[D]` *Prohibitions* |
-| C8 | Carriage is delivery, not a second authoring. `:lapsed` does not cross a boundary — it is the grantor's record on the grantor's stream — and a remote holder observes a reclaim as the resource event (e.g. an ordinary `:ws/closed`), not as a `:lapsed` fact | `[D]` *Carriage* |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| #   | Invariant                                                                                                        |                                             |
++=====+==================================================================================================================+=============================================+
+| C1  | A composition that grants leases wires: a judging interpreter and a runtime driving it at a declared cadence (a  | `[D]` *Composition duties*                  |
+|     | maximum interval between *completed* passes); a tick stream for the judge and one per holder; a tolerance; an    |                                             |
+|     | attribution resolver bound to a source; a reclaim procedure per subject; a stream the grantor writes grants and  |                                             |
+|     | `:lapsed` to, and the medium each recipient reads its facts from; media that retain or declare evict-oldest      |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| C2  | `make-*` validates an **explicit medium declaration** in its config — `{:retention :evict-oldest                 | :complete, :capacity n, :value-domain       |
+|     |                                                                                                                  | :portable-values                            |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| C3  | Media declared neither retaining nor evict-oldest are refused at assembly                                        | `[D]` *Composition duties*                  |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| C4  | For durable resources, three things the vocabulary does not supply — a durable judge, a rule for which           | `[D]` *Composition duties*, `[D]` *new* —   |
+|     | incarnation may reclaim, and fencing — are required. `make-*` takes `:durable?` (default false) plus the three   | pins the process-scoped fallback            |
+|     | prerequisites; a `:durable?` config missing any of the three throws at assembly, and a non-durable config is     |                                             |
+|     | declared process-scoped on the returned value — an unsettled composition *cannot* claim durable use              |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| C5  | No code in `src/cljc/dao/lease.cljc` reads a host clock, holds a callback, installs a timer, or consults a       | `[D]` *Prohibitions*, *Time*; `[T]` pins    |
+|     | registry; time reaches lease code only as data on a tick cursor. A timer, if any, lives in the host driver       | the absence by grep over the whole file     |
+|     | outside the namespace, and the reference tick producer is a step/deposit function, not a timer                   | (§7)                                        |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| C6  | A lease does not extend retention, defer eviction, or gate history, and no `dao.stream` operation consults a     | `[D]` *Prohibitions* — asserted by          |
+|     | lease                                                                                                            | construction, since `dao.lease` imports     |
+|     |                                                                                                                  | `dao.stream` and never the reverse          |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| C7  | No notification marks a lapse; no absolute time appears in any fact; a reclaim frees the resource, never the     | `[D]` *Prohibitions*                        |
+|     | record; a holder renews from its own control flow and no machinery renews on its behalf                          |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| C8  | Carriage is delivery, not a second authoring. `:lapsed` does not cross a boundary — it is the grantor's record   | `[D]` *Carriage*                            |
+|     | on the grantor's stream — and a remote holder observes a reclaim as the resource event (e.g. an ordinary         |                                             |
+|     | `:ws/closed`), not as a `:lapsed` fact                                                                           |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
 
 ### 2.5 Sizing and limits (recorded guidance)
 
 These bind compositions, not the code; they are recorded here so §7's accounting
 is true, and their values belong to compositions.
 
-| # | Relation / limit | |
-|---|---|---|
-| S1 | The granted duration exceeds twice the holder's renewal interval | `[D]` *Sizing* |
-| S2 | The judge's tolerance covers expected flight time and the rate skew between its tick stream and the holder's | `[D]` *Sizing* |
-| S3 | A medium's retention window exceeds the judge's lag (cadence plus drain time) | `[D]` *Sizing* |
-| S4 | A false lapse is possible, and reclamation is bounded by duration + tolerance + cadence + the reclaim's own cost; a medium that gaps more often than one duration never completes an observation window and leaks continuously, and per-attachment media are the isolation | `[D]` *Limits* |
-| S5 | The holder's renewal interval plus one period of its tick stream is strictly below half the granted duration: a renewal lands at the first reading at or past the interval, up to one period late (duration 10, interval 4, ticks 0/3/6 renews at 6 > 5), so the before-half guarantee is bought against interval + period. `renewal-interval` validates this when the period is supplied | `[D]` *new* — review round P3-r2 |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| #   | Relation / limit                                                                                                 |                                             |
++=====+==================================================================================================================+=============================================+
+| S1  | The granted duration exceeds twice the holder's renewal interval                                                 | `[D]` *Sizing*                              |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| S2  | The judge's tolerance covers expected flight time and the rate skew between its tick stream and the holder's     | `[D]` *Sizing*                              |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| S3  | A medium's retention window exceeds the judge's lag (cadence plus drain time)                                    | `[D]` *Sizing*                              |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| S4  | A false lapse is possible, and reclamation is bounded by duration + tolerance + cadence + the reclaim's own      | `[D]` *Limits*                              |
+|     | cost; a medium that gaps more often than one duration never completes an observation window and leaks            |                                             |
+|     | continuously, and per-attachment media are the isolation                                                         |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
+| S5  | The holder's renewal interval plus one period of its tick stream is strictly below half the granted duration: a  | `[D]` *new* — review round P3-r2            |
+|     | renewal lands at the first reading at or past the interval, up to one period late (duration 10, interval 4,      |                                             |
+|     | ticks 0/3/6 renews at 6 > 5), so the before-half guarantee is bought against interval + period.                  |                                             |
+|     | `renewal-interval` validates this when the period is supplied                                                    |                                             |
++-----+------------------------------------------------------------------------------------------------------------------+---------------------------------------------+
 
 ---
 
@@ -521,13 +657,21 @@ Same file, holder section; `lease_test` holder deftests.
 
 State as of the Phase 1–4 build: **all phases are built and tested.**
 
-| | clj | cljs (Node) | cljd |
-|---|---|---|---|
-| Vocabulary and judge (Phases 1–2) | **built, tested** | **built, tested** | **built, tested** |
-| Holder (Phase 3) | **built, tested** | **built, tested** | **built, tested** |
-| `make-judge` / `make-holder` constructors (Phase 4) | **built, tested** | **built, tested** | **built, tested** |
-| Reference tick **driver** (test-tree host policy, Phase 4) | **built** (stepped deposit; clock policy in the driver) | **built** | **built** |
-| Use-case sketches (served connection, forwarder, shared-work claim) | **built** as runnable composition tests | n/a (host-specific transport) | n/a |
++--------------------------------------------------------------+--------------------------------------------+-------------------------------+-----------------------+
+|                                                              | clj                                        | cljs (Node)                   | cljd                  |
++==============================================================+============================================+===============================+=======================+
+| Vocabulary and judge (Phases 1–2)                            | **built, tested**                          | **built, tested**             | **built, tested**     |
++--------------------------------------------------------------+--------------------------------------------+-------------------------------+-----------------------+
+| Holder (Phase 3)                                             | **built, tested**                          | **built, tested**             | **built, tested**     |
++--------------------------------------------------------------+--------------------------------------------+-------------------------------+-----------------------+
+| `make-judge` / `make-holder` constructors (Phase 4)          | **built, tested**                          | **built, tested**             | **built, tested**     |
++--------------------------------------------------------------+--------------------------------------------+-------------------------------+-----------------------+
+| Reference tick **driver** (test-tree host policy, Phase 4)   | **built** (stepped deposit; clock policy   | **built**                     | **built**             |
+|                                                              | in the driver)                             |                               |                       |
++--------------------------------------------------------------+--------------------------------------------+-------------------------------+-----------------------+
+| Use-case sketches (served connection, forwarder, shared-work | **built** as runnable composition tests    | n/a (host-specific transport) | n/a                   |
+| claim)                                                       |                                            |                               |                       |
++--------------------------------------------------------------+--------------------------------------------+-------------------------------+-----------------------+
 
 The portable core is `.cljc` and has no host branch; only the tick *driver* (in
 the test tree, not `dao.lease.cljc`) and the served-connection/forwarder sketches
@@ -543,24 +687,77 @@ composition constructors (`make-judge`/`make-holder`), their tests, the
 reference tick driver (test tree, stepped), and the three use-case sketches
 as runnable composition tests.
 
-| owed | by | where recorded |
-|---|---|---|
-| ~~**Unresolved contract**: the `dao.stream.md:752-755` / `dao.lease.md:14` fact-carrier contradiction~~ **settled 2026-09-20**: the proposed one-sentence amendment was applied to `dao.stream.md`'s Composition section (user-approved); its facts-citation now reads `dao.lease.md`, plain data on ordinary streams | done | §0.1 |
-| A persisted ledger for a judge that must survive restart (a stream its owner writes and reads, or the Restart rule) | a composition that needs durability, not this plan | `dao.lease.md` *Restart*; this plan binds the interface, not a persistence transport |
-| The three durable-resource prerequisites — a durable judge, an incarnation rule, fencing | the resource's own plan | `dao.lease.md` *Composition duties* |
-| The wire form of a pause vocabulary between peers | `dao.stream.ws.md`'s close-code design gate | `dao.lease.md` *Carriage* ("distinguishing reclaim on the wire belongs to `dao.stream.ws.md`'s deferred close-code design") |
-| The three use cases as finished components (forwarder pause, served-connection lifetime, shared-work claim) | their owners, as consumers of this vocabulary | `dao.lease.md` *Out of scope* ("this contract gates nothing, and the domain decides") |
-| A generic unit table shared across compositions | the first composition that needs it | `dao.lease.md` *Units* ("a composition's interoperability decision") |
-| Legitimate-use growth of the judge's `:seen`/`:answered` maps in a long-lived judge | the composition that persists the ledger | `dao.lease.md` *Ledger* ("the ledger is not rebuildable from any stream"); pruned only with a persistence design |
-| A recovery helper that restores `unknown` entries (with `:resumed` readings) from a persisted ledger | the composition that persists the ledger | `dao.lease.md` *Judging with incomplete evidence*, *Restart* |
-| An `:unwrap` seam for envelope-carried lease facts: the one real envelope this codebase has (`ws.cljc` deposits `{:ws/attachment :ws/event :ws/value payload}`) hides a lease fact under `:ws/value`, where `lease-fact?` cannot see it, so `:envelope-key` attribution is unusable against it until a per-medium unwrap function exists | a transport-scoped plan (an API change to this vocabulary's reading seam) | review round P4-r2, F2; the sketches model a flattened, self-asserted shape until then |
-| The fact-magnitude bound: a fact's raw magnitude ≤ 2⁵² and, against a unit table, ≤ `quot 2⁵² unit-magnitude` (division-checked), so every product and sum stays exact on all three hosts and no reading stream ever ages out of validity | each composition's unit table; enforced structurally and at `initial-judge` assembly | `dao.lease.md` *Units*; supersedes the r2 round's 10⁶ bound, which gave the judge a finite lifetime (review round r2 confirmation, N1) |
-| Whether the `unknown`-evidence silence rule should include tolerance (a gapped lease can currently be reclaimed earlier than an uninterrupted one) | the contract owner | `dao.lease.md` *The pass* §4 (literal text implemented; question raised by review round r2) |
-| The holder measures the cap from the reading at which it OBSERVED the grant — later than the judge's tenure start by the grant's flight time — so the holder can act past the judge's `:cap` reclaim by that flight time, and tolerance does not cover the cap. Literal contract text; a question for the contract owner, alongside the unknown-silence tolerance above | the contract owner | `dao.lease.md` *The holder*; review round P3-r2 |
-| Any truncated or gapped medium affects every never-renewed lease (suppression or fresh `unknown`), including an attacker's own medium; bounded because `:cap` still applies and it errs toward the holder | the Phase 4 composition constructors ("the grant declares its medium") | review round r2 confirmation, N6 |
-| A renewal dropped because the attribution resolver throws counts against the holder — a transient resolver failure can become a false lapse. Phase 4 should consider suppressing `:silence` for that medium in that pass, the same way a truncated drain does | the Phase 4 composition constructors | review round r3 gate, R5 |
-| ~~Phase 1+2's `initial-judge` defers assembly validation of medium declarations to `make-*` (Phase 4)~~ **settled**: `make-judge`/`make-holder` now validate the medium declaration, resolver compatibility, reclaim, tolerance, units, drain budget, and the durable prerequisites at assembly | done (Phase 4) | `dao.lease.md` *Composition duties* |
-| Transfer of a lease between holders, and delegated renewal — both denied by the contract | never (recorded, not deferred) | `dao.lease.md` *Out of scope* |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| owed                                                                         | by                                   | where recorded                                 |
++==============================================================================+======================================+================================================+
+| ~~**Unresolved contract**: the `dao.stream.md:752-755` / `dao.lease.md:14`   | done                                 | §0.1                                           |
+| fact-carrier contradiction~~ **settled 2026-09-20**: the proposed            |                                      |                                                |
+| one-sentence amendment was applied to `dao.stream.md`'s Composition section  |                                      |                                                |
+| (user-approved); its facts-citation now reads `dao.lease.md`, plain data on  |                                      |                                                |
+| ordinary streams                                                             |                                      |                                                |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| A persisted ledger for a judge that must survive restart (a stream its owner | a composition that needs durability, | `dao.lease.md` *Restart*; this plan binds the  |
+| writes and reads, or the Restart rule)                                       | not this plan                        | interface, not a persistence transport         |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| The three durable-resource prerequisites — a durable judge, an incarnation   | the resource's own plan              | `dao.lease.md` *Composition duties*            |
+| rule, fencing                                                                |                                      |                                                |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| The wire form of a pause vocabulary between peers                            | `dao.stream.ws.md`'s close-code      | `dao.lease.md` *Carriage* ("distinguishing     |
+|                                                                              | design gate                          | reclaim on the wire belongs to                 |
+|                                                                              |                                      | `dao.stream.ws.md`'s deferred close-code       |
+|                                                                              |                                      | design")                                       |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| The three use cases as finished components (forwarder pause,                 | their owners, as consumers of this   | `dao.lease.md` *Out of scope* ("this contract  |
+| served-connection lifetime, shared-work claim)                               | vocabulary                           | gates nothing, and the domain decides")        |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| A generic unit table shared across compositions                              | the first composition that needs it  | `dao.lease.md` *Units* ("a composition's       |
+|                                                                              |                                      | interoperability decision")                    |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| Legitimate-use growth of the judge's `:seen`/`:answered` maps in a           | the composition that persists the    | `dao.lease.md` *Ledger* ("the ledger is not    |
+| long-lived judge                                                             | ledger                               | rebuildable from any stream"); pruned only     |
+|                                                                              |                                      | with a persistence design                      |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| A recovery helper that restores `unknown` entries (with `:resumed` readings) | the composition that persists the    | `dao.lease.md` *Judging with incomplete        |
+| from a persisted ledger                                                      | ledger                               | evidence*, *Restart*                           |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| An `:unwrap` seam for envelope-carried lease facts: the one real envelope    | a transport-scoped plan (an API      | review round P4-r2, F2; the sketches model a   |
+| this codebase has (`ws.cljc` deposits `{:ws/attachment :ws/event :ws/value   | change to this vocabulary's reading  | flattened, self-asserted shape until then      |
+| payload}`) hides a lease fact under `:ws/value`, where `lease-fact?` cannot  | seam)                                |                                                |
+| see it, so `:envelope-key` attribution is unusable against it until a        |                                      |                                                |
+| per-medium unwrap function exists                                            |                                      |                                                |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| The fact-magnitude bound: a fact's raw magnitude ≤ 2⁵² and, against a unit   | each composition's unit table;       | `dao.lease.md` *Units*; supersedes the r2      |
+| table, ≤ `quot 2⁵² unit-magnitude` (division-checked), so every product and  | enforced structurally and at         | round's 10⁶ bound, which gave the judge a      |
+| sum stays exact on all three hosts and no reading stream ever ages out of    | `initial-judge` assembly             | finite lifetime (review round r2 confirmation, |
+| validity                                                                     |                                      | N1)                                            |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| Whether the `unknown`-evidence silence rule should include tolerance (a      | the contract owner                   | `dao.lease.md` *The pass* §4 (literal text     |
+| gapped lease can currently be reclaimed earlier than an uninterrupted one)   |                                      | implemented; question raised by review round   |
+|                                                                              |                                      | r2)                                            |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| The holder measures the cap from the reading at which it OBSERVED the grant  | the contract owner                   | `dao.lease.md` *The holder*; review round      |
+| — later than the judge's tenure start by the grant's flight time — so the    |                                      | P3-r2                                          |
+| holder can act past the judge's `:cap` reclaim by that flight time, and      |                                      |                                                |
+| tolerance does not cover the cap. Literal contract text; a question for the  |                                      |                                                |
+| contract owner, alongside the unknown-silence tolerance above                |                                      |                                                |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| Any truncated or gapped medium affects every never-renewed lease             | the Phase 4 composition constructors | review round r2 confirmation, N6               |
+| (suppression or fresh `unknown`), including an attacker's own medium;        | ("the grant declares its medium")    |                                                |
+| bounded because `:cap` still applies and it errs toward the holder           |                                      |                                                |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| A renewal dropped because the attribution resolver throws counts against the | the Phase 4 composition constructors | review round r3 gate, R5                       |
+| holder — a transient resolver failure can become a false lapse. Phase 4      |                                      |                                                |
+| should consider suppressing `:silence` for that medium in that pass, the     |                                      |                                                |
+| same way a truncated drain does                                              |                                      |                                                |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| ~~Phase 1+2's `initial-judge` defers assembly validation of medium           | done (Phase 4)                       | `dao.lease.md` *Composition duties*            |
+| declarations to `make-*` (Phase 4)~~ **settled**: `make-judge`/`make-holder` |                                      |                                                |
+| now validate the medium declaration, resolver compatibility, reclaim,        |                                      |                                                |
+| tolerance, units, drain budget, and the durable prerequisites at assembly    |                                      |                                                |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
+| Transfer of a lease between holders, and delegated renewal — both denied by  | never (recorded, not deferred)       | `dao.lease.md` *Out of scope*                  |
+| the contract                                                                 |                                      |                                                |
++------------------------------------------------------------------------------+--------------------------------------+------------------------------------------------+
 
 Explicitly not planned: `dao.space`, `dao.jing`, `yin.vm.*`, any transport, and
 any change to `dao.stream` or `dao.stream.ws`.
@@ -593,28 +790,56 @@ any change to `dao.stream` or `dao.stream.ws`.
 Disposition of the twenty findings of the independent review (gpt-5.6-sol,
 verdict "unsound"), applied against the contract text:
 
-| # | Finding | Disposition |
-|---|---|---|
-| 1 | D1 contract contradiction | Applied — §0.1 states the contradiction, proposes the one-sentence `dao.stream.md` amendment, builds plain maps, flags unresolved-contract in §6 |
-| 2 | Reference tick source installs a timer | Applied — the producer is a `tick` constructor + host driver in the test tree; no timer/callback in `dao.lease.cljc`; C5 grep scope widened to the whole file |
-| 3 | `judge-step` is not pure | Applied — D2/§1/§4.2 reworded to "effectful, state-threaded interpreter step" |
-| 4 | `observe/step` cannot do reclaim→record | Applied — D5 rewritten to explicit `judge-step` sequencing; `observe/step` dropped from the mechanism |
-| 5 | §7 accounting incomplete | Applied — added V6–V7, J12–J16, H5, C7–C8, S1–S4; §6 records the out-of-scope and unresolved items |
-| 6 | J7 policy can suppress evidence | Applied — J7 reordered to eligibility-before-policy, with a test (4.2 #2) |
-| 7 | J9 incomplete-evidence semantics | Applied — J9 completes absence-over-window, no-inference-of-newest, and tick-gap≠fact-gap; tests 4.2 #7 |
-| 8 | Drain-to-blocked unbounded | Applied — D7 + J16 add a `:drain-budget`; test 4.2 #10 |
-| 9 | Resolver signature lacks source | Applied — D4 widens to `(resolver source fact)`; C2 binds the source |
-| 10 | Assembly compatibility uninspectable | Applied — C2 requires an explicit, validated medium declaration in config, not handle introspection |
-| 11 | Phase 1 tests incomplete | Applied — corpus extended (neither/both keys, non-positive cap/reading, invalid tolerance incl. zero, foreign unit, unit-table agreement) + adversarial purity test |
-| 12 | Phase 2 leaves J invariants untested | Applied — 4.2 enumerates attribution, proposal-state, precedence, all cursor outcomes, seed-through-grant, budget, restart; a scripted fake reader supplies the defect outcomes |
-| 13 | Seed-from-grant too weak | Applied — 4.2 #1 enters through the real grant path and asserts tenure start and last-observation equal the pass-wide stamp |
-| 14 | Renewal rule inverted | Applied — H2 + 4.3 #2 make the interval strictly below half and treat equality as a violation |
-| 15 | H1/H4 unproven | Applied — 4.3 #1 (forged grant) and #5 (release emits `:released`, stops, no reclaim) |
-| 16 | Phase 4 covers a fraction of C1–C5 | Applied — 4.4 #1 enumerates the full refusal matrix incl. incompatible resolver and durable-without-prerequisites |
-| 17 | C4 process-scoped fallback unenforced | Applied — C4 + 4.4 #2 make the fallback a declared, constructor-enforced property |
-| 18 | Repeated-fact validity is stateful | Applied — V4 (structural, `defective?`) split from V7 (admissibility, `admissible?` in the drain); D6 states where each runs |
-| 19 | Unclassified reader outcomes | Applied — J10 classifies `cursor-mismatch`/`invalid-cursor` as pass-aborting defects; test 4.2 #9 |
-| 20 | Tests pass while invariant false | Applied — 4.2/4.3/4.4 harden the named cases (cause precedence, per-medium gap, no reclassification, pass-wide `now`, no partial reclaim on abort, non-`ok` `:lapsed` after `full`/`closed`/`transport-error`) |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| #   | Finding                                  | Disposition                                                                                                         |
++=====+==========================================+=====================================================================================================================+
+| 1   | D1 contract contradiction                | Applied — §0.1 states the contradiction, proposes the one-sentence `dao.stream.md` amendment, builds plain maps,    |
+|     |                                          | flags unresolved-contract in §6                                                                                     |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 2   | Reference tick source installs a timer   | Applied — the producer is a `tick` constructor + host driver in the test tree; no timer/callback in                 |
+|     |                                          | `dao.lease.cljc`; C5 grep scope widened to the whole file                                                           |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 3   | `judge-step` is not pure                 | Applied — D2/§1/§4.2 reworded to "effectful, state-threaded interpreter step"                                       |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 4   | `observe/step` cannot do reclaim→record  | Applied — D5 rewritten to explicit `judge-step` sequencing; `observe/step` dropped from the mechanism               |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 5   | §7 accounting incomplete                 | Applied — added V6–V7, J12–J16, H5, C7–C8, S1–S4; §6 records the out-of-scope and unresolved items                  |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 6   | J7 policy can suppress evidence          | Applied — J7 reordered to eligibility-before-policy, with a test (4.2 #2)                                           |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 7   | J9 incomplete-evidence semantics         | Applied — J9 completes absence-over-window, no-inference-of-newest, and tick-gap≠fact-gap; tests 4.2 #7             |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 8   | Drain-to-blocked unbounded               | Applied — D7 + J16 add a `:drain-budget`; test 4.2 #10                                                              |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 9   | Resolver signature lacks source          | Applied — D4 widens to `(resolver source fact)`; C2 binds the source                                                |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 10  | Assembly compatibility uninspectable     | Applied — C2 requires an explicit, validated medium declaration in config, not handle introspection                 |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 11  | Phase 1 tests incomplete                 | Applied — corpus extended (neither/both keys, non-positive cap/reading, invalid tolerance incl. zero, foreign unit, |
+|     |                                          | unit-table agreement) + adversarial purity test                                                                     |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 12  | Phase 2 leaves J invariants untested     | Applied — 4.2 enumerates attribution, proposal-state, precedence, all cursor outcomes, seed-through-grant, budget,  |
+|     |                                          | restart; a scripted fake reader supplies the defect outcomes                                                        |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 13  | Seed-from-grant too weak                 | Applied — 4.2 #1 enters through the real grant path and asserts tenure start and last-observation equal the         |
+|     |                                          | pass-wide stamp                                                                                                     |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 14  | Renewal rule inverted                    | Applied — H2 + 4.3 #2 make the interval strictly below half and treat equality as a violation                       |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 15  | H1/H4 unproven                           | Applied — 4.3 #1 (forged grant) and #5 (release emits `:released`, stops, no reclaim)                               |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 16  | Phase 4 covers a fraction of C1–C5       | Applied — 4.4 #1 enumerates the full refusal matrix incl. incompatible resolver and durable-without-prerequisites   |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 17  | C4 process-scoped fallback unenforced    | Applied — C4 + 4.4 #2 make the fallback a declared, constructor-enforced property                                   |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 18  | Repeated-fact validity is stateful       | Applied — V4 (structural, `defective?`) split from V7 (admissibility, `admissible?` in the drain); D6 states where  |
+|     |                                          | each runs                                                                                                           |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 19  | Unclassified reader outcomes             | Applied — J10 classifies `cursor-mismatch`/`invalid-cursor` as pass-aborting defects; test 4.2 #9                   |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
+| 20  | Tests pass while invariant false         | Applied — 4.2/4.3/4.4 harden the named cases (cause precedence, per-medium gap, no reclassification, pass-wide      |
+|     |                                          | `now`, no partial reclaim on abort, non-`ok` `:lapsed` after `full`/`closed`/`transport-error`)                     |
++-----+------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 
 No finding is rebutted: the four load-bearing source citations were spot-checked
 by the orchestrator and are accurate, and each finding's required change is
