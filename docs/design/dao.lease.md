@@ -16,18 +16,28 @@ Facts are plain data on ordinary streams, classified by two dispatch keys:
 reader switches on both. A fact carrying neither is not a lease fact and is
 ignored; a fact carrying both is defective.
 
-| Fact     | `:dao.lease/status`   | Author  | Identity carried                                                | Also required                                                                               |
-|----------|-----------------------|---------|------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| Proposal | `:dao.lease/proposed` | holder  | `:dao.lease/proposal`                                            | `:dao.lease/subject`; `:dao.lease/duration` optional, an ask                                  |
-| Grant    | `:dao.lease/accepted` | grantor | `:dao.lease/lease`, plus `:dao.lease/proposal` if answering one   | `:dao.lease/subject`, `:dao.lease/holder`, `:dao.lease/duration`; `:dao.lease/max` optional    |
-| Refusal  | `:dao.lease/rejected` | grantor | `:dao.lease/proposal`                                            | —                                                                                             |
-| Release  | `:dao.lease/released` | holder  | `:dao.lease/lease`                                               | —                                                                                             |
-| Reclaim  | `:dao.lease/lapsed`   | grantor | `:dao.lease/lease`                                               | `:dao.lease/cause` — `:silence`, `:release`, `:cap`, or `:policy`                              |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
+| Fact     | `:dao.lease/status`   | Author  | Identity carried                            | Also required                                                             |
++==========+=======================+=========+=============================================+===========================================================================+
+| Proposal | `:dao.lease/proposed` | holder  | `:dao.lease/proposal`                       | `:dao.lease/subject`; `:dao.lease/duration` optional, an ask              |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
+| Grant    | `:dao.lease/accepted` | grantor | `:dao.lease/lease`, plus                    | `:dao.lease/subject`, `:dao.lease/holder`, `:dao.lease/duration`;         |
+|          |                       |         | `:dao.lease/proposal` if answering one      | `:dao.lease/max` optional                                                 |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
+| Refusal  | `:dao.lease/rejected` | grantor | `:dao.lease/proposal`                       | —                                                                         |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
+| Release  | `:dao.lease/released` | holder  | `:dao.lease/lease`                          | —                                                                         |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
+| Reclaim  | `:dao.lease/lapsed`   | grantor | `:dao.lease/lease`                          | `:dao.lease/cause` — `:silence`, `:release`, `:cap`, or `:policy`         |
++----------+-----------------------+---------+---------------------------------------------+---------------------------------------------------------------------------+
 
-| Evidence | `:dao.lease/event`  | Author  | Identity carried     | Also required           |
-|----------|---------------------|---------|----------------------|-------------------------|
-| Renewal  | `:dao.lease/renewal`| holder  | `:dao.lease/lease`   | —                       |
-| Tick     | `:dao.lease/tick`   | adapter | —                    | `:dao.lease/reading`    |
++------------+----------------------+---------+----------------------+----------------------+
+| Evidence   | `:dao.lease/event`   | Author  | Identity carried     | Also required        |
++============+======================+=========+======================+======================+
+| Renewal    | `:dao.lease/renewal` | holder  | `:dao.lease/lease`   | —                    |
++------------+----------------------+---------+----------------------+----------------------+
+| Tick       | `:dao.lease/tick`    | adapter | —                    | `:dao.lease/reading` |
++------------+----------------------+---------+----------------------+----------------------+
 
 **Keys.**
 
