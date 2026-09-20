@@ -1,0 +1,120 @@
+(let [template (load-file "public/chp/template.chp")]
+  (clojure.walk/postwalk-replace
+    {:template/title "Datom.World , DaoLease"
+     :template/content
+     (list
+       [:section#dao-lease.section-dark
+        [:div.section-inner
+         [:span.status-pill "Coordination primitive"]
+         [:h1 "⏳ DaoLease"]
+         [:p.section-lead
+          "An agent claims shared work. Then it dies, hangs, or vanishes into a network partition, and the claim outlives it. "
+          "Locks need someone to unlock them. Heartbeats need a trusted witness. Watchdogs err toward stale data or toward killing live workers. "
+          "DaoLease inverts the problem: a grant that lapses unless renewed, so silence itself becomes the death signal, "
+          "and the only party whose judgment can end the claim is the party that owns the resource."]
+         [:p
+          "Leases were introduced by Gray and Cheriton in 1989 for distributed file-cache consistency, "
+          "and became famous through Jini's service leases. We keep Jini's one good idea and reject its design. "
+          "The insight: instead of proving a holder is dead (undetectable in general, and requiring consensus an unreachable peer cannot give), "
+          "make the holder keep proving it is alive. Silence, the one signal a dead process reliably produces, becomes the reclaim condition. "
+          "The rejected design: a lease as a live remote object, expiry as an absolute timestamp in the holder's clock, and a background renewal manager. "
+          "DaoLease keeps the insight on different physics: facts are plain data on ordinary DaoStreams, "
+          "so a lease can be stored, replayed, and read by an interpreter that does not exist yet."]
+         [:p
+          "There is no lease server. The vocabulary is a single portable library, "
+          "and the judge is a step function embedded in the process that possesses the resource, "
+          "driven by that process's own loop. Anyone may reach a conclusion about a lease. "
+          "Only the possessor's conclusion has effect, because only the possessor can actually take the resource back."]]
+       [:section#how.section-dark
+        [:div.section-inner
+         [:h2 "How a lease lives and dies"]
+         [:p
+          "A holder that has not observed a grantor-authored grant holds nothing. "
+          "Once it has, it renews at strictly less than half the granted duration, "
+          "measured against readings on its own tick stream. A renewal is an append that answers ok; "
+          "any other outcome advances no bound. The holder stops acting at its bound whether or not anything has been heard, "
+          "and releases when done, which spares the grantor a full duration of waiting."]
+         [:p
+          "The judge keeps a private ledger of live grants and runs a pass at a declared cadence. "
+          "Each pass drains its tick cursor (that reading is now, never a clock call), drains the lease-fact cursors, "
+          "answers proposals, classifies every lease by the first cause that holds, reclaims, and only then records. "
+          "The record follows the act: an absent :lapsed fact is never evidence of tenure. "
+          "A lease is due for reclaim by the first cause that holds, in this order:"]
+         [:table.principles-table
+          [:thead
+           [:tr
+            [:th "Cause"]
+            [:th "Meaning"]]]
+          [:tbody
+           [:tr
+            [:td ":release"]
+            [:td "The holder said it was done. The reclaim is still the grantor's act; the release just spares everyone a duration of waiting."]]
+           [:tr
+            [:td ":silence"]
+            [:td "No eligible renewal was observed within duration plus tolerance, over a window the judge actually observed."]]
+           [:tr
+            [:td ":cap"]
+            [:td "Total tenure passed the grant's maximum. Renewals cannot help: a hostile or wedged holder cannot squat forever."]]
+           [:tr
+            [:td ":policy"]
+            [:td "The grantor's own reason to end it early. A policy may end a lease, but it may not be implemented by declining to count eligible evidence."]]]]
+         [:p
+          "The four causes are ordered: a lease already pending its reclaim keeps its cause, "
+          "a release wins before the cap, the cap before policy, and silence comes last. "
+          "Reclamation is bounded by duration plus tolerance plus cadence plus the cost of the reclaim itself."]]]
+       [:section#authority.section-dark
+        [:div.section-inner
+         [:h2 "Facts can be forged. Leases cannot."]
+         [:p
+          "A lease fact is an unauthenticated map, and anyone who can append to a medium can write one. "
+          "So the security never rests on the fact. It rests on three gates the fact cannot cross by forgery:"]
+         [:p
+          "Attribution first: every fact passes through a composition-supplied resolver bound to the medium it was read from, "
+          "and only facts the resolver attributes to the right party count. "
+          "A forged renewal in the holder's name counts for nothing: silence is measured as though it never arrived. "
+          "A forged release establishes nothing, and cannot pre-empt the genuine holder's later one. "
+          "A forged grant seeds no tenure: only the judge's own grants do that."]
+         [:p
+          "Registration second: a lease connects to a medium only through an authoritative fact, "
+          "so an attacker's own noisy medium cannot be attached to someone else's lease, "
+          "and flooding it manufactures no evidence."]
+         [:p
+          "Possession third: a forged :lapsed records nothing, because recording follows a successful reclaim, "
+          "and only the possessor can perform the reclaim. "
+          "The resource itself is the ground truth: a remote holder learns of a reclaim by observing it, "
+          "not by trusting anyone's broadcast."]
+         [:p
+          "And when the medium breaks its promise, by evicting facts before the judge read them, "
+          "the judge does not guess. The lease's evidence state becomes unknown, "
+          "and the judge demands a full clean duration of observation before silence counts again. "
+          "Weaker evidence may delay a conclusion. It must never accelerate one."]]]
+       [:section#uses.section-dark
+        [:div.section-inner
+         [:h2 "Three uses, and the refusals"]
+         [:p
+          "The vocabulary is scoped to three sanctioned uses: "
+          "the pause a reader holds over a forwarder, the lifetime of a served connection, "
+          "and the claim an agent leaves on shared work. "
+          "It is deliberately silent about everything else:"]
+         [:ul
+          [:li "No delegated renewal: a renewal is evidence about its own author. Delegation is a chain of ordinary leases, each with its own judge."]
+          [:li "No transfer between holders: renegotiate instead."]
+          [:li "No absolute time in any fact: durations cross boundaries, moments never do."]
+          [:li "No access enforcement: the bound bounds attention, not access. A holder needing real exclusion obtains it from the resource, through fencing."]]
+         [:p
+          "Sizing is stated as relations and the values belong to compositions: "
+          "the granted duration exceeds twice the renewal interval, "
+          "the tolerance covers flight time and clock skew, "
+          "the renewal interval plus one tick period stays below half the duration, "
+          "and a medium's retention window exceeds the judge's lag. "
+          "The contract, the rationale, and the implementation are on GitHub: "
+          [:a {:href "https://github.com/sonwh98/datomworld/blob/master/docs/design/dao.lease.md" :target "_blank" :rel "noopener noreferrer"} "dao.lease.md"] ", "
+          [:a {:href "https://github.com/sonwh98/datomworld/blob/master/docs/design/dao.lease.rationale.md" :target "_blank" :rel "noopener noreferrer"} "dao.lease.rationale.md"] ", "
+          "and the implementation under "
+          [:a {:href "https://github.com/sonwh98/datomworld/tree/master/src/cljc/dao" :target "_blank" :rel "noopener noreferrer"} "src/cljc/dao"] "."]
+         [:p
+          "DaoLease pairs with the rest of the stack: "
+          [:a {:href "/dao-stream.chp"} "DaoStream"] " carries the facts, "
+          [:a {:href "/dao-space.chp"} "DaoSpace"] " makes them queryable, "
+          [:a {:href "/shibi.chp"} "Shibi"] " confines untrusted computation, "
+          "and DaoLease decides whose turn it is."]]]])})
