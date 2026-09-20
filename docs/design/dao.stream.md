@@ -193,7 +193,11 @@ A future readiness extension would be additive: an optional protocol on
 transports that support it, plus optional keys in operation results (for
 example a wake token list on `append!`), which the open-map rule already
 permits. Nothing in this contract needs to change for that; no consumer of
-this contract may depend on it existing.
+this contract may depend on it existing. The standing answer to *What it
+costs* is `dao.stream.waitset`: poll-based classification over a complete
+ordered sweep, with the host cadence layer deciding when the sweep runs —
+which is why no consumer needs the reserved extension to sleep between
+rounds, and the contract remains untouched by it.
 
 ## Creation and Attachment
 

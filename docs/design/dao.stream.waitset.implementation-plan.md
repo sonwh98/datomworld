@@ -544,6 +544,12 @@ readiness.
 | `dao.gui.event/advance` and its demo drivers | Unchanged | Single input medium per binding, append-side pumped, never idle-polls; pending output retries stay in `advance` |
 | `rpc/poll!`, `observer/run-on-stream`, `connect/observe`, `remote.step/step`, `ffi/maybe-run`, the postgraphics pump, the one-shot snapshots, `connect-content!`, `call!` | Unchanged | Single-stream or bounded budget steps, recorded in W0 with the reason each stays |
 
+Recorded latency consequence of the shell adoption: **the served composition's
+first-request latency can reach the ceiling (200 ms where it was 25 ms)**,
+because only the line producers and `request-stop!` nudge — the serving
+inbound path has none. Lower the ceiling for a served composition or add a
+serving-path nudge if it matters (P3, review round W34-r2).
+
 Single-stream consumers stay on `observe/step` and
 `observer/run-on-stream`: the waitset is for owners holding many waiters,
 and converting a one-stream loop onto it is the over-adoption failure mode
