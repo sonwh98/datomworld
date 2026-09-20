@@ -177,7 +177,13 @@ bytes are length-prefixed; booleans are `00`/`01`; nil has its own tag; maps
 sort by canonical encoded key bytes; sets sort by canonical encoded element
 bytes. Lists and vectors are distinct sequence classes and never merge: the
 language observes the difference, so identity must not. Unsupported values
-are diagnostics.
+are diagnostics, including an unpaired surrogate and a record literal; a map
+whose entries collide under key canonicalization is likewise a diagnostic,
+so iteration order never decides a hash. The preimage is a text stream: each
+part frames as its class's tag byte, an 8-hex-digit length, and the content —
+numeric and byte content is hex, string content is the raw UTF-8 text, and
+the length counts the content's UTF-8 bytes. The hashed bytes are the
+stream's UTF-8 encoding.
 
 Numeric canonicalisation is fixed in D0: exact integers in signed int64 use
 int64 encoding, and every integral double in that range also uses int64
