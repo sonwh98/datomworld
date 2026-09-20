@@ -5,13 +5,29 @@
             [datomworld.demo.voxel-input :as input]))
 
 
-(use-fixtures :each
-  (fn [run]
-    (input/stop!)
-    (input/resize! 720.0 540.0)
-    (run)
-    (input/stop!)
-    (input/resize! 720.0 540.0)))
+(defn- with-input-reset
+  "Bounds each test with a stopped, default-sized input stream. clojure.test
+   on the JVM and on Node calls the fixture once with the zero-argument
+   test continuation; cljd.test instead splits a fixture into a setUp that
+   calls it with no arguments and a tearDown that calls it with that call's
+   result (see cljd.test/fixture-callbacks), so the zero-arity half is the
+   setup and the one-arity half dispatches on whether its argument is the
+   continuation."
+  ([]
+   (input/stop!)
+   (input/resize! 720.0 540.0))
+  ([run]
+   (if (fn? run)
+     (do (input/stop!)
+         (input/resize! 720.0 540.0)
+         (run)
+         (input/stop!)
+         (input/resize! 720.0 540.0))
+     (do (input/stop!)
+         (input/resize! 720.0 540.0)))))
+
+
+(use-fixtures :each with-input-reset)
 
 
 (defn- down
