@@ -6,6 +6,7 @@
    captured socket.  Nothing here binds a port."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dao.stream :as stream]
             [dao.stream.apply :as apply]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
@@ -301,3 +302,126 @@
     (is (= "daostream:ws://127.0.0.1:8080/repl" (:url summary)))
     (is (true? (:serving? summary)))
     (is (= [] (:sessions summary)))))
+
+
+;; =============================================================================
+;; The request-medium probes (W4): one active waiter per session
+;; =============================================================================
+
+
+(defn- gated-writer
+  "A writer that answers `full` while `gate` holds true, recording everything
+   appended. A reified handle for an outcome the ring-buffer fixtures cannot
+   produce — `full` on demand."
+  [gate appended]
+  (reify
+    stream/IDaoStreamWriter
+
+    (append!
+      [_ value]
+      (if @gate
+        {:dao.stream/outcome :dao.stream/full}
+        (do (swap! appended conj value)
+            {:dao.stream/outcome :dao.stream/ok})))))
+
+
+(defn- waiting-probes
+  "The wait-set entries parked for `attachment`."
+  [endpoint attachment]
+  (filter #(= attachment (:attachment %)) (:waiting (:probes endpoint))))
+
+
+(deftest a-pending-response-is-retried-while-its-source-is-blocked
+  (let [{:keys [endpoint]} (endpoint!)
+        endpoint (serve/step endpoint 1)
+        s (socket)
+        [endpoint handle attachment] (connect! endpoint s 2)
+        gate (atom true)
+        appended (atom [])
+        endpoint (assoc-in endpoint [:sessions attachment :writer]
+                           (gated-writer gate appended))]
+    (request! handle 0 "(+ 1 2)")
+    (let [endpoint (serve/step endpoint 4)
+          session (get-in endpoint [:sessions attachment])]
+      (is (= 0 (apply/response-id (:pending-response session)))
+          "the writer answered full, so the response is retained, not dropped")
+      (is (some? (:pending-successor session))
+          "and the request cursor is not committed: delivery owns it")
+      (is (empty? (waiting-probes endpoint attachment))
+          "one active waiter: while the response is pending, no probe is parked")
+      (is (true? (serve/moved? endpoint))
+          "an outstanding pending write must never wait out a backoff ceiling"))
+    ;; The source stays blocked — no second request arrives — and the gate is
+    ;; lifted. The retry is host cadence: gated on nothing but the next step.
+    (reset! gate false)
+    (let [endpoint (serve/step endpoint 5)
+          session (get-in endpoint [:sessions attachment])]
+      (is (nil? (:pending-response session)) "the identical response was retried")
+      (is (= 1 (count @appended)) "and appended once, the first time it could")
+      (is (= 0 (apply/response-id (first @appended)))
+          "the appended value is the retained response the handler produced")
+      (is (seq (waiting-probes endpoint attachment))
+          "delivered: the session observes again and its probe is re-parked"))))
+
+
+(deftest a-terminal-session-leaves-no-probe-parked
+  (testing "a departed session's probe is retired, not left to poll a dead medium"
+    (let [{:keys [endpoint]} (endpoint!)
+          endpoint (serve/step endpoint 1)
+          s (socket)
+          [endpoint handle attachment] (connect! endpoint s 2)
+          endpoint (serve/step endpoint 4)]
+      (is (= 1 (count (waiting-probes endpoint attachment)))
+          "an observing session holds exactly one parked probe")
+      (ws/closed! handle 1000 "peer")
+      (let [endpoint (serve/step endpoint 6)]
+        (is (empty? (waiting-probes endpoint attachment))
+            "the departed session's probe left the wait set"))))
+  (testing "a session the driver marked terminal parks nothing"
+    (let [{:keys [endpoint]} (endpoint!)
+          endpoint (serve/step endpoint 1)
+          s (socket)
+          [endpoint _handle attachment] (connect! endpoint s 2)
+          endpoint (serve/step endpoint 4)
+          endpoint (assoc-in endpoint [:sessions attachment :terminal]
+                             :dao.stream.apply/detached)
+          endpoint (serve/step endpoint 5)]
+      (is (empty? (waiting-probes endpoint attachment))
+          "a terminal session observes nothing, so it holds no probe"))))
+
+
+(deftest a-probe-carries-no-cursor-state-and-wakes-on-the-current-position
+  (let [{:keys [endpoint]} (endpoint!)
+        endpoint (serve/step endpoint 1)
+        s (socket)
+        [endpoint handle attachment] (connect! endpoint s 2)
+        endpoint (serve/step endpoint 3)
+        probe-shape? (fn [endpoint]
+                       (every? #(= {:reason :next, :attachment attachment} %)
+                               (waiting-probes endpoint attachment)))]
+    (is (probe-shape? endpoint)
+        "a parked probe is exactly its reason and its session: no cursor, no
+         handle, no value — cursor state belongs to the session alone, so no
+         advancing hand-off can share what the probe never held")
+    (request! handle 0 "(def x 41)")
+    (let [endpoint (serve/step endpoint 4)]
+      (is (= "41" (apply/response-ok (last (values s))))
+          "the woken probe selected the session; its own re-read served it")
+      (is (probe-shape? endpoint)
+          "the re-parked probe is still the same cursorless shape")
+      (request! handle 1 "(+ x 1)")
+      (let [endpoint (serve/step endpoint 5)]
+        (is (= "42" (apply/response-ok (last (values s))))
+            "the re-parked probe resolved the session's committed cursor — it
+             woke on the second request, not a second copy of the first")
+        (is (= 2 (count (values s))) "each request answered exactly once")
+        (is (probe-shape? endpoint))
+        (testing "cursor-state isolation: only identity-advance probes wait here"
+          ;; Probe rule 3 holds by construction in this composition: the
+          ;; endpoint's wait set holds nothing but probes, whose :advance is
+          ;; identity — no advancing entry exists that could move a cursor
+          ;; state a probe aliases. The commit authority stays session-step.
+          (is (every? #(= :next (:reason %))
+                      (:waiting (:probes endpoint)))
+              "no entry in this wait set advances anything, so nothing an
+               entry's :advance could move is cursor state a probe reads"))))))

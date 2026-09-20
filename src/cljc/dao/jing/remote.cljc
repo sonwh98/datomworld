@@ -26,6 +26,7 @@
                       [dao.stream.transit :as transit]
                       [dao.stream.ringbuffer :as ring]
                       [dao.stream.serving :as serving]
+                      [dao.stream.waitset.driver :as wait-driver]
                       [dao.stream.ws.jvm :as jvm]]))
   #?(:cljs (:require-macros [dao.jing])))
 
@@ -977,15 +978,18 @@
               ;; The ticker is host policy: a daemon thread advancing the
               ;; composition once per tick until stop!, because the JVM
               ;; client blocks in the caller's thread and cannot step the
-              ;; server itself.
-              (doto (Thread.
-                      (fn []
-                        (while @running
-                          (serving/step! composition (System/currentTimeMillis))
-                          (Thread/sleep ^long tick-ms))))
-                (.setDaemon true)
-                (.setName "dao.jing.remote/content-endpoint")
-                (.start))
+              ;; server itself. It sleeps each tick on a waitset wake source
+              ;; — a fixed interval with no nudge callers today, but a sleep
+              ;; a later composition can end early — and gains nothing else.
+              (let [w (wait-driver/make-wake)]
+                (doto (Thread.
+                        (fn []
+                          (while @running
+                            (serving/step! composition (System/currentTimeMillis))
+                            (wait-driver/sleep! w tick-ms))))
+                  (.setDaemon true)
+                  (.setName "dao.jing.remote/content-endpoint")
+                  (.start)))
               {:port (or @bound-port port)
                :stop! (fn []
                         (when (compare-and-set! running true false)

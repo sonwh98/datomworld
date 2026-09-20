@@ -877,3 +877,44 @@
                                              (is false (str "cross-host slice failure: "
                                                             (pr-str error)))))
                                     (.then (fn [_] (finish!))))))))))))
+
+
+;; =============================================================================
+;; The tick owner's cadence bit (W4): what keeps a shell off the idle curve
+;; =============================================================================
+
+
+(deftest moved?-is-true-for-lines-pending-writes-and-endpoint-movement
+  (let [state (repl/boot {})
+        idle (repl/step-all state nil 0)]
+    (is (false? (repl/moved? (first idle) (second idle) (nth idle 2)))
+        "a round that printed nothing and owes nothing may idle"))
+  (testing "lines to print move the round"
+    (let [state (repl/boot {})]
+      (driver/submit-line! (:input state) "(+ 1 2)")
+      (let [[state' server' lines] (repl/step-all state nil 0)]
+        (is (true? (repl/moved? state' server' lines))))))
+  (testing "an endpoint holding a pending response never idles"
+    (let [server (serve/serve! {:bind-port 8080 :host (host-adapter)})
+          [state server _] (repl/step-all (repl/boot {}) server 0)
+          s (socket)
+          accepted (ws/accept-connection! (:ws-endpoint server)
+                                          (:path server)
+                                          (:socket s)
+                                          2)
+          [_ server _] (repl/step-all state server 3)
+          [state server _] (repl/step-all state server 4)]
+      (is (some? (:ws/handle accepted)))
+      (remote-request! (:ws/handle accepted) 0 "(+ 1 2)")
+      ;; A step with the writer gated full leaves the response pending, and
+      ;; the endpoint's own moved? — one input to the owner's bit — holds.
+      (is (false? (serve/moved? server))
+          "an empty idle endpoint reports no movement")
+      (let [[_ server' _] (repl/step-all state server 5)]
+        (is (= "3" (apply/response-ok (last (reply-values s))))
+            "sanity: the request was served in the same step")
+        (is (true? (serve/moved? server'))
+            "the round that served moved — a probe woke and a notice printed")
+        (let [[_ server'' _] (repl/step-all state server' 6)]
+          (is (false? (serve/moved? server''))
+              "the next round owes nothing, so the endpoint may idle"))))))
