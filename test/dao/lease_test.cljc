@@ -341,8 +341,8 @@
   under test, not the identity."
   [config]
   (try (lease/initial-judge (merge {:self :grantor} config)) nil
-    (catch #?(:cljd Object :clj Exception :cljs :default) e
-      (first (keys (ex-data e))))))
+       (catch #?(:cljd Object :clj Exception :cljs :default) e
+         (first (keys (ex-data e))))))
 
 
 (deftest initial-judge-rejects-misconfiguration-test
@@ -885,6 +885,37 @@
       (let [system (-> system (tick! 10) step!)]
         (is (= [:db] @log) "cap applies: tenure 10-1=9 > max 8 despite unknown evidence")
         (is (= [(lease/lapsed :l1 :cap)] (records system)))))))
+
+
+(deftest gap-inside-tolerance-window-test
+  (testing "Q1 ruling: a gap inside the tolerance window must not speed up the reclaim"
+    ;; duration 10, tolerance 5. Known bound: last observation 3 + 15 = 18.
+    ;; Post-gap bound: resumed 6 + 10 = 16. The conjunction (both must hold)
+    ;; reclaims at 18; the flawed sufficient-only reading reclaimed at 16.
+    (let [log (atom [])
+          system (-> (setup {:reclaim (fn [subject] (swap! log conj subject) true)
+                             :capacity 4
+                             :tolerance {:ms 5}})
+                     grant!
+                     (tick! 1)
+                     step!
+                     (tick! 3)
+                     (renewal-from :l1 :holder-a)
+                     step!
+                     (fill! 5 :filler)
+                     (tick! 6)
+                     step!)]
+      (is (= :unknown (get-in system [:judge :ledger :l1 :evidence])))
+      (is (= {:ms 6} (get-in system [:judge :ledger :l1 :resumed])))
+      (let [system (-> system (tick! 14) step!)]
+        (is (= [] @log) "14 is past neither bound"))
+      ;; 17 is past the post-gap bound (16) but not past the known bound (18):
+      ;; the conjunction holds the lease; the flawed reading reclaimed here
+      (let [system (-> system (tick! 17) step!)]
+        (is (= [] @log) "a gap must not speed up the reclaim"))
+      (let [system (-> system (tick! 19) step!)]
+        (is (= [:db] @log) "19 passes both bounds: reclaimed")
+        (is (= [(lease/lapsed :l1 :silence)] (records system)))))))
 
 
 (deftest gap-before-first-renewal-test
@@ -1874,11 +1905,11 @@
 (deftest r4-judge-without-a-resolver-throws-test
   (testing "R1: a missing resolver is an assembly defect, not dropped facts"
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/initial-judge {}))
+          (lease/initial-judge {}))
         "a judge assembled with no resolver must throw before any step,
          never silently drop every lease fact into :dropped")
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/initial-judge {:resolver :not-a-fn})))
+          (lease/initial-judge {:resolver :not-a-fn})))
     (is (some? (lease/initial-judge {:self :grantor
                                      :resolver (fn [_source _fact] :x)}))))
   (testing "R1: a constructed judge whose facts arrive never lapses via drops"
@@ -1946,42 +1977,42 @@
             hold nothing, and falsely never renew -- refused before any
             observation, as the judge refuses its own"
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/initial-holder {:grantor :grantor
-                                        :renewal-interval {:ms 4}
-                                        :resolver resolver}))
+          (lease/initial-holder {:grantor :grantor
+                                 :renewal-interval {:ms 4}
+                                 :resolver resolver}))
         "no :self")
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/initial-holder {:self :holder-a
-                                        :renewal-interval {:ms 4}
-                                        :resolver resolver}))
+          (lease/initial-holder {:self :holder-a
+                                 :renewal-interval {:ms 4}
+                                 :resolver resolver}))
         "no :grantor")
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/initial-holder {:self :holder-a
-                                        :grantor :grantor
-                                        :renewal-interval {:ms 4}}))
+          (lease/initial-holder {:self :holder-a
+                                 :grantor :grantor
+                                 :renewal-interval {:ms 4}}))
         "no resolver")
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/initial-holder {:self :holder-a
-                                        :grantor :grantor
-                                        :renewal-interval {:ms 4}
-                                        :resolver :not-a-fn})))
+          (lease/initial-holder {:self :holder-a
+                                 :grantor :grantor
+                                 :renewal-interval {:ms 4}
+                                 :resolver :not-a-fn})))
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/initial-holder {:self :holder-a
-                                        :grantor :grantor
-                                        :renewal-interval {:ms 0}
-                                        :resolver resolver}))
+          (lease/initial-holder {:self :holder-a
+                                 :grantor :grantor
+                                 :renewal-interval {:ms 0}
+                                 :resolver resolver}))
         "a bad interval shape")
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/initial-holder {:self :holder-a
-                                        :grantor :grantor
-                                        :units {:ms 3 :s 1000}
-                                        :renewal-interval {:ms 4}
-                                        :resolver resolver}))
+          (lease/initial-holder {:self :holder-a
+                                 :grantor :grantor
+                                 :units {:ms 3 :s 1000}
+                                 :renewal-interval {:ms 4}
+                                 :resolver resolver}))
         "an incommensurate unit table is refused here too")
-      (is (some? (lease/initial-holder {:self :holder-a
-                                        :grantor :grantor
-                                        :renewal-interval {:ms 4}
-                                        :resolver resolver})))))
+    (is (some? (lease/initial-holder {:self :holder-a
+                                      :grantor :grantor
+                                      :renewal-interval {:ms 4}
+                                      :resolver resolver})))))
 
 
 (deftest observe-grant-attribution-gate-test
@@ -2045,7 +2076,7 @@
                                  [{:ms 10} 5]
                                  [{:ms 10} {:ms 1 :s 1}]]]
       (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                   (lease/renewal-interval test-units duration interval))
+            (lease/renewal-interval test-units duration interval))
           (str "half or more -- equality included -- or a bad shape, is the
                 violation: " (pr-str duration) " vs " (pr-str interval))))))
 
@@ -2153,7 +2184,7 @@
           "stopped: the holder's activity is its own to have stopped")))
   (testing "H4: a holder that observed no grant holds nothing to release"
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/stop (new-holder {:ms 4})))))
+          (lease/stop (new-holder {:ms 4})))))
   (testing "H4/finding 15: the grantor still reclaims and records; the holder
             authored only :released"
     (let [log (atom [])
@@ -2190,8 +2221,8 @@
   assembly ex-info."
   [thunk]
   (try (thunk) nil
-    (catch #?(:cljd Object :clj Exception :cljs :default) e
-      (first (keys (ex-data e))))))
+       (catch #?(:cljd Object :clj Exception :cljs :default) e
+         (first (keys (ex-data e))))))
 
 
 (deftest r2-bound-is-terminal-test
@@ -2320,27 +2351,27 @@
 (deftest r2-assembly-parity-test
   (testing "P2: the interval gets the tolerance's checks (N4/R3 parity)"
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/initial-holder {:self :holder-a
-                                        :grantor :grantor
-                                        :units test-units
-                                        :renewal-interval {:hr 1}
-                                        :resolver resolver}))
+          (lease/initial-holder {:self :holder-a
+                                 :grantor :grantor
+                                 :units test-units
+                                 :renewal-interval {:hr 1}
+                                 :resolver resolver}))
         "a unit outside the table must throw at assembly, not on the first
          due-to-renew? call")
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/initial-holder {:self :holder-a
-                                        :grantor :grantor
-                                        :units test-units
-                                        :renewal-interval
-                                        {:s 4503599627370496}
-                                        :resolver resolver}))
+          (lease/initial-holder {:self :holder-a
+                                 :grantor :grantor
+                                 :units test-units
+                                 :renewal-interval
+                                 {:s 4503599627370496}
+                                 :resolver resolver}))
         "past the per-unit quot bound"))
   (testing "P2: renewal-interval overflows as an assembly ex-info, never a
             raw host error"
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/renewal-interval test-units
-                                         {:ms 10}
-                                         {:s 4503599627370496})))
+          (lease/renewal-interval test-units
+                                  {:ms 10}
+                                  {:s 4503599627370496})))
     (is (= :renewal-interval
            (thrown-data-key
              (fn [] (lease/renewal-interval test-units {:ms 10} {:hr 1}))))
@@ -2367,10 +2398,10 @@
     (is (= {:ms 4} (lease/renewal-interval test-units {:ms 10} {:ms 4}))
         "no period supplied: the plain strictly-below-half relation")
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/renewal-interval test-units {:ms 10} {:ms 4} {:ms 1}))
+          (lease/renewal-interval test-units {:ms 10} {:ms 4} {:ms 1}))
         "2 x (4 + 1) = 10 is not strictly below 10")
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/renewal-interval test-units {:ms 10} {:ms 3} {:ms 0}))
+          (lease/renewal-interval test-units {:ms 10} {:ms 3} {:ms 0}))
         "a period is a duration: positive")))
 
 

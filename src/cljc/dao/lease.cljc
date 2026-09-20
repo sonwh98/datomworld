@@ -1359,7 +1359,12 @@
            (some? (:resumed entry))
            (exceeds? units
                      (interval units now (get entry :resumed))
-                     (:duration entry)))
+                     (:duration entry))
+           (exceeds? units
+                     (interval units now (:last-observation entry))
+                     (duration-plus-tolerance units
+                                              (:duration entry)
+                                              (:tolerance judge))))
       :silence
 
       (and (not suppressed?)
@@ -1660,8 +1665,8 @@
                     "the renewal interval is a single-entry {unit positive-integer} map"
                     {:renewal-interval proposed})
    (check-assembly! (or (nil? tick-period) (duration? tick-period))
-                   "the tick period is a single-entry {unit positive-integer} map"
-                   {:tick-period tick-period})
+                    "the tick period is a single-entry {unit positive-integer} map"
+                    {:tick-period tick-period})
    (doseq [[key d] [[:duration duration]
                     [:renewal-interval proposed]
                     [:tick-period tick-period]]]
@@ -1678,8 +1683,8 @@
                      proposed
                      (add-duration units proposed tick-period))]
      (check-assembly! (neg? (compare-durations units
-                                              (add-duration units effective effective)
-                                              duration))
+                                               (add-duration units effective effective)
+                                               duration))
                       "the renewal interval (+ tick period) must be strictly below half the duration:
                        at or above half it already violates the sizing relation"
                       {:renewal-interval proposed
@@ -1784,11 +1789,11 @@
            :last-renewal-at nil
            :bound-reached? false
            :undersized? (not (neg? (compare-durations
-                                    (:units holder)
-                                    (add-duration (:units holder)
-                                                  (:renewal-interval holder)
-                                                  (:renewal-interval holder))
-                                    (get fact :dao.lease/duration)))))
+                                     (:units holder)
+                                     (add-duration (:units holder)
+                                                   (:renewal-interval holder)
+                                                   (:renewal-interval holder))
+                                     (get fact :dao.lease/duration)))))
     holder))
 
 
@@ -2156,9 +2161,10 @@
     (check-cadence! config units)
     (check-assembly! (and (vector? ticks)
                           (seq ticks)
-                          (every? (fn [t] (and (map? t)
-                                               (some? (:handle t))
-                                               (some? (:cursor t))))
+                          (every? (fn [t]
+                                    (and (map? t)
+                                         (some? (:handle t))
+                                         (some? (:cursor t))))
                                   ticks))
                      "the judge is wired at least one tick stream: {:handle :cursor} each"
                      {:ticks ticks :refused :ticks})
