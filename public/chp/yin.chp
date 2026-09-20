@@ -6,7 +6,7 @@
        [:section#yin-vm.section-dark
         [:div.section-inner
          [:span.status-pill "Continuation VM"]
-         [:h1 "Yin VM"]
+         [:h1 "陰 Yin VM"]
          [:p.section-lead
           "Yin is what happens when Clojure, Smalltalk, and Datomic got together and had a baby. "
           "It is a continuation virtual machine whose programs and runtime state are plain immutable data. The Universal AST projects into datoms, queryable with Datalog, and the design does the same for runtime state. "

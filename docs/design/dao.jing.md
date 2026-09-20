@@ -1,5 +1,7 @@
 # DaoJing: The Content-Addressed Storage Observer
 
+Named for 井 (jǐng), the well: shared storage everyone draws from, holding whatever is poured in and giving it back unchanged. Not 经, the canon, and not a reference to any scripture.
+
 Status: implemented. The observer (`observer-state` / `observe-step!`) and the
 plain-data content-store handles described here are the current
 `src/cljc/dao/jing*.cljc` code. What remains open — the final canonical

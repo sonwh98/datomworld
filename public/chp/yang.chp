@@ -6,7 +6,7 @@
        [:section#yang.section-dark
         [:div.section-inner
          [:span.status-pill "Compiler"]
-         [:h1 "Yang Compiler — The generative half of Yin"]
+         [:h1 "陽 Yang Compiler — The generative half of Yin"]
          [:p.section-lead
           "If Yin is the continuation engine, the Yang compiler is its expression engine. "
           "Together they form a dual system—Yin for execution, reception, and introspection; Yang for generation, expression, and emission."]
