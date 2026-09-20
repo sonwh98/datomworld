@@ -11,7 +11,7 @@
           :$blog-title
           :$blog-date
           [:h2 "The Observation"]
-          [:p "Look at how a simple function like " [:code "(fn [count] (+ count 1))"] " appears when compiled by Yang into the Universal AST and projected as datoms:"]
+          [:p "Look at how a simple function like " [:code "(fn [count] (+ count 1))"] " appears when compiled by Yang into the Universal AST and projected as semantic tuples:"]
           [:pre
            [:code
             "[-1 :yin/type :lambda]\n[-1 :yin/params [count]]\n[-1 :yin/body -2]\n[-2 :yin/type :application]\n[-2 :yin/operator -3]\n[-2 :yin/operands [-4 -5]]\n[-3 :yin/type :variable]\n[-3 :yin/name +]\n[-4 :yin/type :variable]\n[-4 :yin/name count]\n[-5 :yin/type :literal]\n[-5 :yin/value 1]\n[-1 :yin/root true]"]]
@@ -139,7 +139,7 @@
           [:p
            "You cannot easily ask an assembly file: "Find all call sites of addition." You would have to parse raw opcodes, reconstruct control-flow graphs, and guess register lifespans."]
           [:p
-           "Because the Universal AST projects into structured datoms, it is queryable with Datalog in "
+           "Because the Universal AST projects into structured semantic tuples, it is queryable with Datalog in "
            [:a {:href "/dao-space.chp"} "DaoSpace"]
            ":"]
           [:pre
@@ -157,7 +157,7 @@
  [?node :yin/type :variable]
  [?node :yin/name count]]"]]
           [:p
-           "The low-level tuple form enables high-level queries. Instead of obscuring intent behind register allocations, the explicit datom representation makes intent directly inspectable."]
+           "The low-level tuple form enables high-level queries. Instead of obscuring intent behind register allocations, the explicit tuple representation makes intent directly inspectable."]
           [:h2 "The RISC Analogy"]
           [:p
            "A useful mental model is RISC vs CISC, applied to semantics instead of microprocessors:"]
@@ -195,7 +195,7 @@
            "Assembly is difficult for humans to write because developers think in domain abstractions, not register swaps. Does the Universal AST suffer from the same problem?"]
           [:p
            [:strong "No."]
-           " Developers do not write raw AST datoms by hand. They write standard Clojure, Python, or PHP. "
+           " Developers do not write raw AST tuples by hand. They write standard Clojure, Python, or PHP. "
            [:a {:href "/yang.chp"} "Yang"]
            " compiles source text into the Universal AST, and can render the Universal AST back into any supported syntax."]
           [:p
