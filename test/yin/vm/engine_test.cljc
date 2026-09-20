@@ -15,6 +15,15 @@
        (catch #?(:clj Exception :cljs js/Error :cljd Object) _ true)))
 
 
+(defn- throws-ex-data
+  "The ex-data of the error `thunk` throws, or nil. Same host-neutral
+   thunk shape as `throws?`."
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj Exception :cljs js/Error :cljd Object) e
+         (or (ex-data e) {}))))
+
+
 (defn- state
   ([] (state {}))
   ([opts] (vm/empty-state (merge {:make-stream tu/make-stream} opts))))
@@ -327,6 +336,43 @@
           ;; second copy of a value it never consumed.
           (is (= [:a :b] (mapv :value (:ready-queue r3))))
           (is (empty? (:wait-set r3))))))))
+
+
+(deftest waitset-diagnostics-raise-before-restoration-test
+  (testing "An unsupported reason wakes as a diagnostic and raises on resume,
+            never falling through to the restore"
+    (let [restored (atom [])
+          restore-fn (fn [base entry] (swap! restored conj entry) base)
+          bad {:reason :stare, :k {:type :probe-frame}, :env {}}
+          woken (engine/check-wait-set (assoc (state)
+                                               :blocked? true
+                                               :wait-set [bad]))
+          entry (first (:ready-queue woken))]
+      (is (empty? (:wait-set woken))
+          "The malformed entry leaves the wait set instead of waiting forever")
+      (is (= :dao.stream.waitset/unsupported-reason (:status entry))
+          "The diagnostic is stamped where terminal-resume-outcome reads it")
+      (let [data (throws-ex-data
+                   (fn [] (engine/resume-from-run-queue woken restore-fn)))]
+        (is (= :dao.stream.waitset/unsupported-reason (:status data))
+            "the raise names the status")
+        (is (= entry (:entry data)) "and the entry that earned it"))
+      (is (empty? @restored)
+          "The raise happens before any continuation is restored")))
+  (testing "An entry that cannot be resolved wakes as :unresolved and raises
+            the same way"
+    (let [bad {:reason :next,
+               :cursor-ref {:type :cursor-ref, :id :nowhere},
+               :k {:type :probe-frame},
+               :env {}}
+          woken (engine/check-wait-set (assoc (state)
+                                               :blocked? true
+                                               :wait-set [bad]))]
+      (is (= :dao.stream.waitset/unresolved
+             (:status (first (:ready-queue woken)))))
+      (is (throws? (fn []
+                     (engine/resume-from-run-queue
+                       woken (fn [base _entry] base))))))))
 
 
 ;; =============================================================================
