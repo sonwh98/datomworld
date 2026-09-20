@@ -6,7 +6,7 @@
        [:section#dao-stream.section-dark
         [:div.section-inner
          [:span.status-pill "Standalone Stream Substrate"]
-         [:h1 "道川 DaoStream"]
+         [:h1 "川道 DaoStream"]
          [:p.section-lead
           "DaoStream is a standalone streaming abstraction for message queues, event logs, request-response systems, and distributed data transport. It is runtime-agnostic and VM-independent."]
          [:p

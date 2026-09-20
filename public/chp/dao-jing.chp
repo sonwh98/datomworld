@@ -6,7 +6,7 @@
        [:section#dao-jing.section-dark
         [:div.section-inner
          [:span.status-pill "The Storage Boundary"]
-         [:h1 "道井 DaoJing"]
+         [:h1 "井道 DaoJing"]
          [:p.section-lead
           "DaoJing is a content-addressed storage observer: it consumes an explicit pool of DaoStream values, hashes each opaque payload, and materializes it in key-value storage without interpreting it."]
          [:p

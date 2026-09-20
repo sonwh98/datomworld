@@ -6,7 +6,7 @@
        [:section#dao-space.section-dark
         [:div.section-inner
          [:span.status-pill "The Coordinator"]
-         [:h1 "道空 DaoSpace"]
+         [:h1 "空道 DaoSpace"]
          [:p.section-lead
           "DaoSpace is not a component you deploy or a store you instantiate. It is the " [:strong "tuple space that emerges"] " when agents use two libraries over shared storage: "
           [:code "dao.space.index"] " builds covered indexes over each agent's own " [:a {:href "/dao-stream.chp"} "DaoStream"] " and publishes them through an intake stream for DaoJing to materialize, while "
