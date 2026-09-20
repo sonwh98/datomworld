@@ -15,7 +15,7 @@
           [:pre
            [:code
             "[-1 :yin/type :lambda]\n[-1 :yin/params [count]]\n[-1 :yin/body -2]\n[-2 :yin/type :application]\n[-2 :yin/operator -3]\n[-2 :yin/operands [-4 -5]]\n[-3 :yin/type :variable]\n[-3 :yin/name +]\n[-4 :yin/type :variable]\n[-4 :yin/name count]\n[-5 :yin/type :literal]\n[-5 :yin/value 1]\n[-1 :yin/root true]"]]
-          [:p "Or when stored as flat, content-addressed tuple rows in dao.jing:"]
+          [:p "Or when lowered into dao.jing as content-addressed index segments:"]
           [:pre
            [:code
             "[-1 :lambda [count] -2]\n[-2 :app -3 [-4 -5]]\n[-3 :var +]\n[-4 :var count]\n[-5 :lit 1]"]]
