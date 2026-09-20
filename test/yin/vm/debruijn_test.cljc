@@ -1,10 +1,12 @@
 (ns yin.vm.debruijn-test
-  "D0+D1 of docs/design/yin.vm.debruijn-projection.md: the published
+  "D0+D1+D2 of docs/design/yin.vm.debruijn-projection.md: the published
    :yin.debruijn/* dimension with its hash domain, §5's canonical value
-   table and NFC seam, §2's root framing and input validation, and §3's
-   scope resolution — all exercised over the emitter's own datoms. Node
-   hashes are D2/D3; nothing here asserts a fingerprint."
+   table and NFC seam, §2's root framing and input validation, §3's
+   scope resolution, and D2's Merkle records — node hashes, the root
+   fingerprint, hash-consing, and the d5 storage adapter — all exercised
+   over the emitter's own datoms. Cross-host byte identity is D3's."
   (:require [clojure.test :refer [are deftest is testing]]
+            [dao.datom :as datom]
             [dao.jing :as jing]
             [yin.vm :as vm]
             [yin.vm.debruijn :as d]
@@ -631,3 +633,195 @@
                          [-17 :yin/value 1 0 1]
                          [-16 :yin/root true 0 1]])))
       "params must be an ordered vector of symbols"))
+
+
+;; =============================================================================
+;; D2: Merkle records, hash-consing, and the d5 storage adapter (§4-§5)
+;; =============================================================================
+
+(deftest the-fingerprint-is-the-root-records-hash
+  (let [p (project worked-example)]
+    (is (= (:fingerprint p)
+           (:yin.debruijn/hash (get (:records p) (:fingerprint p)))))
+    (is (re-matches #"^[0-9a-f]{64}$" (:fingerprint p)))
+    (is (every? #(re-matches #"^[0-9a-f]{64}$" %) (keys (:records p))))))
+
+
+(deftest identity-inputs-never-enter-the-fingerprint
+  (let [base (project (lam '[x] (v 'x)))
+        renamed (project (lam '[y] (v 'y)))
+        [_shifted-root shifted] (vm/ast->datoms-with-root (lam '[x] (v 'x))
+                                                          {:id-start -100})
+        decorated (conj (vec (datoms-of (lam '[x] (v 'x))))
+                        [-17 :yin/macro-name 'm 0 1]
+                        [-17 :yin/tail? true 0 1])]
+    (is (= (:fingerprint base) (:fingerprint renamed))
+        "binder names and bound occurrence names never enter identity")
+    (is (= (:records base) (:records renamed)))
+    (is (= (:fingerprint base) (:fingerprint (d/project-datoms shifted)))
+        "source tempids are storage layout, not identity")
+    (is (= (:fingerprint base) (:fingerprint (d/project-datoms decorated)))
+        "tail flags and macro-name never enter identity")))
+
+
+(deftest content-changes-change-the-fingerprint
+  (let [fp (comp :fingerprint project)]
+    (are [a b] (not= (fp a) (fp b))
+      (lam '[x] (app (v '+) (v 'x) (lit 1)))
+      (lam '[x] (app (v '+) (v 'x) (lit 2)))
+      (lam '[x] (v 'y))
+      (lam '[x] (v 'z))
+      {:type :vm/store-get, :key 'k}
+      {:type :vm/store-get, :key 'k2}
+      (lam '[x] (v 'x))
+      (lam '[x y] (v 'x))
+      (lam '[x] (v 'x))
+      (lam '[x x] (v 'x))
+      (if-node (v 'a) (lit 1) (lit 2))
+      (if-node (v 'a) (lit 2) (lit 1))
+      {:type :stream/make, :buffer 4}
+      {:type :stream/make, :buffer 8}
+      {:type :vm/resume, :parked-id :p1, :val (lit 1)}
+      {:type :vm/resume, :parked-id :p2, :val (lit 1)}
+      {:type :dao.stream.apply/call, :op :op/echo, :operands [(lit 1)]}
+      {:type :dao.stream.apply/call, :op :op/ping, :operands [(lit 1)]}
+      (lam '[x] (v 'x))
+      {:type :lambda, :macro? true, :params '[x], :body (v 'x)})))
+
+
+(deftest operand-order-changes-the-hash
+  (let [left (project (app (v 'f) (v 'x) (v 'y)))
+        right (project (app (v 'f) (v 'y) (v 'x)))]
+    (is (not= (:fingerprint left) (:fingerprint right)))
+    (is (not= (:records left) (:records right)))))
+
+
+(deftest tree-and-graph-emission-are-one-merkle-graph
+  (let [shared (assoc (lam '[x] (v 'x)) :eid -60)
+        graph (project (app (v 'list) shared shared))
+        tree (project (app (v 'list) (lam '[x] (v 'x)) (lam '[x] (v 'x))))]
+    (is (= (:records tree) (:records graph)))
+    (is (= (:fingerprint tree) (:fingerprint graph)))
+    (is (= 4 (count (:records graph)))
+        "app, free list, one hash-consed lambda, its bound body")))
+
+
+(deftest equal-subterms-hash-cons-to-one-record
+  (let [p (project (app (v 'f) (lam '[x] (v 'x)) (lam '[y] (v 'y))))
+        lambdas (filter #(= :lambda (:yin.debruijn/type %)) (vals (:records p)))]
+    (is (= 1 (count lambdas))
+        "two alpha-equal source lambdas are one projected record")
+    (is (= 4 (count (:records p))))))
+
+
+(deftest shared-under-unequal-contexts-hash-differently
+  (let [body (assoc (v 'x) :eid -41)
+        p (project (app (v 'list) (lam '[x] body) (lam '[y] body)))
+        vars (vals (:records p))
+        bound-h (:yin.debruijn/hash (some #(when (:yin.debruijn/bound %) %) vars))
+        free-h (:yin.debruijn/hash (some #(when (= 'x (:yin.debruijn/free %)) %) vars))]
+    (is (not= bound-h free-h))
+    (is (= 6 (count (:records p)))
+        "the two lambdas stay distinct: their bodies differ by resolution")))
+
+
+(deftest the-storage-adapter-round-trips
+  (let [p (project every-type)
+        ds (d/projected->datoms p)
+        by-entity (group-by first ds)
+        roots (filter #(= :yin.debruijn/root (nth % 1)) ds)
+        root-e (first (first roots))
+        root-hash (some (fn [x]
+                          (when (and (= root-e (first x))
+                                     (= :yin.debruijn/hash (nth x 1)))
+                            (nth x 2)))
+                        ds)]
+    (is (= (select-keys p [:fingerprint :records]) (d/datoms->projected ds)))
+    (is (= (count (keys by-entity)) (count (:records p)))
+        "one entity per hash-consed record")
+    (is (every? #(>= (first %) datom/first-user-id) ds)
+        "handles are local layout from first-user-id")
+    (is (every? #(and (zero? (nth % 3)) (= datom/default-op (nth % 4))) ds)
+        "t 0 and the assert op are the adapter's fixed provenance")
+    (is (= 1 (count roots)))
+    (is (= (:fingerprint p) root-hash)
+        "the root marker's entity carries the fingerprint as its hash")
+    (is (= (count (filter #(= :yin.debruijn/operands (nth % 1)) ds))
+           (count (filter :yin.debruijn/operands (vals (:records p)))))
+        ":yin.debruijn/operands stays one ordered vector datom, never
+         cardinality-many")))
+
+
+(deftest projected-dangling-child-hashes-diagnose
+  (let [ds (d/projected->datoms (project (lam '[x] (v 'x))))
+        body-hash (some (fn [x] (when (= :yin.debruijn/body (nth x 1)) (nth x 2))) ds)
+        body-e (some (fn [x]
+                       (when (and (= :yin.debruijn/hash (nth x 1))
+                                  (= body-hash (nth x 2)))
+                         (first x)))
+                     ds)
+        pruned (vec (remove #(= body-e (first %)) ds))]
+    (is (= :dangling-ref
+           (:rule (throws-data #(d/datoms->projected pruned)))))))
+
+
+;; =============================================================================
+;; D2 fix round: preimage-keyed consing, NFC idents, verified content address
+;; =============================================================================
+
+(deftest the-consing-memo-separates-what-the-hash-separates
+  (testing "a list literal alongside a vector literal, in one program"
+    (let [mixed (project (app (v 'list) (lit (list 1 2)) (lit [1 2])))
+          all-list (project (app (v 'list) (lit (list 1 2)) (lit (list 1 2))))
+          hashes (->> (:records mixed) vals
+                      (filter #(= :literal (:yin.debruijn/type %)))
+                      (map :yin.debruijn/hash))]
+      (is (= 2 (count hashes)))
+      (is (not= (first hashes) (second hashes))
+          "Clojure = merges '(1 2) with [1 2]; the preimage does not")
+      (is (not= (:fingerprint mixed) (:fingerprint all-list)))))
+  (testing "0.0 alongside -0.0, in one program"
+    (let [hashes (->> (project (app (v 'list) (lit 0.0) (lit -0.0)))
+                      (:records) vals
+                      (filter #(= :literal (:yin.debruijn/type %)))
+                      (map :yin.debruijn/hash))]
+      (is (= 2 (count hashes)))
+      (is (not= (first hashes) (second hashes))
+          "= holds for the signed zeros; the preimage keeps them apart"))))
+
+
+(deftest decomposed-and-composed-ident-parts-hash-identically
+  (let [decomposed (v (symbol "e\u0301"))
+        composed (v (symbol "\u00e9"))]
+    (is (= (:fingerprint (project decomposed))
+           (:fingerprint (project composed)))
+        "ident parts pass the NFC seam: one free name, one hash")))
+
+
+(deftest the-reader-verifies-the-content-address
+  (let [ds (d/projected->datoms (project (lam '[x] (v 'x))))
+        tampered (mapv (fn [x]
+                         (if (= :yin.debruijn/bound (nth x 1))
+                           [(nth x 0) (nth x 1) [1 0] (nth x 3) (nth x 4)]
+                           x))
+                       ds)]
+    (is (= :hash-mismatch
+           (:rule (throws-data #(d/datoms->projected tampered)))))
+    (is (= :malformed-hash
+           (:rule (throws-data
+                    #(d/datoms->projected
+                       (mapv (fn [x]
+                               (if (= :yin.debruijn/hash (nth x 1))
+                                 [(nth x 0) (nth x 1) 42 (nth x 3) (nth x 4)]
+                                 x))
+                             ds)))))
+        "a non-string hash value diagnoses rather than throwing a host
+         regex error")))
+
+
+(deftest integral-doubles-and-integers-share-one-fingerprint
+  (let [int-version (project (lam '[x] (app (v '+) (v 'x) (lit 1))))
+        double-version (project (lam '[x] (app (v '+) (v 'x) (lit 1.0))))]
+    (is (= (:fingerprint int-version) (:fingerprint double-version))
+        "the value table's intentional 1/1.0 collision holds in D2's
+         provisional content, on every host")))

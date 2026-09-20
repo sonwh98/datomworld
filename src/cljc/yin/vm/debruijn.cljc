@@ -2,12 +2,14 @@
   "Alpha-canonical de Bruijn projection of the named Universal AST
    (docs/design/yin.vm.debruijn-projection.md).
 
-   This namespace is D0+D1 of that design: the published :yin.debruijn/*
-   dimension and its hash domain, §5's canonical value table with the NFC
-   seam, §2's root framing and input validation, and §3's scope resolver.
-   Node hashes, Merkle records, the canonical byte encoder, and the
-   dao.stream forward-step are D2/D3/D4 and are not here: `project-datoms`
-   returns the resolved semantic graph with no hashes at all.
+   This namespace is D0+D1+D2 of that design: the published
+   :yin.debruijn/* dimension and its hash domain, §5's canonical value
+   table with the NFC seam, §2's root framing and input validation, §3's
+   scope resolver, §4-§5's Merkle records — node hashes over the
+   dimension hash, hash-consed records, and the root fingerprint — and
+   the pure d5 storage adapter over the projected records. The settled
+   cross-host byte encoder is D3's and the dao.stream forward-step is
+   D4's; neither is here.
 
    The projection is an interpreter over plain AST datoms and never
    executes values, primitives, streams, continuations, or effects. Its
@@ -387,14 +389,14 @@
 
 
 (defn- index-frame
-  "Build one frame's fact index {eid {attribute v}}. Input order never
-   matters: the index is keyed by [e a], t and m are dropped, attributes
-   outside the :yin namespace are ignored, and a second fact on the same
-   [e a] is §2's duplicate structural fact."
-  [datoms]
+  "Build one frame's fact index {eid {attribute v}} over the attributes of
+   one namespace. Input order never matters: the index is keyed by [e a],
+   t and m are dropped, attributes in other namespaces are ignored, and a
+   second fact on the same [e a] is §2's duplicate structural fact."
+  [ns-name datoms]
   (reduce (fn [index d]
             (let [[e a v] (check-datom d)]
-              (if-not (= "yin" (namespace a))
+              (if-not (= ns-name (namespace a))
                 index
                 (if (contains? (get index e) a)
                   (throw (ex-info "Duplicate structural fact in AST datoms"
@@ -728,25 +730,357 @@
         [node (assoc memo' [eid stack] node)]))))
 
 
+;; =============================================================================
+;; D2: the canonical encoder and node hashes (§5)
+;; =============================================================================
+
+(def ^:private hex-digit-chars "0123456789abcdef")
+
+
+(defn- to-hex
+  "Width-padded lowercase hex of the non-negative integer n."
+  [n width]
+  (let [base (if (zero? n)
+               "0"
+               (loop [n n, acc ""]
+                 (if (zero? n)
+                   acc
+                   (recur (unsigned-bit-shift-right n 4)
+                          (str (nth hex-digit-chars (bit-and n 0xf)) acc)))))
+        padded (str (apply str (repeat width "0")) base)]
+    (subs padded (- (count padded) width))))
+
+
+(def ^:private slot-tag
+  "The provisional D2 tag byte (hex) each canonical class and compound
+   slot type renders under. Class tags are the class's index in the value
+   table's declared :classes order — read through the descriptor — and
+   the compound types (child refs, the fixed pair, the ordered vector)
+   take bytes outside that range. D3 pins the final tag table; D2 fixes
+   only that every slot is tagged."
+  (into {:ref "c0", :hash "c1", :tuple "c2", :ordered-vector "c3"}
+        (map-indexed (fn [i class] [class (to-hex i 2)]))
+        (:classes canonical-value-table)))
+
+
+(defn- framed
+  "One self-delimiting encoded part: the class's tag byte, the 8-hex
+   char length of the content, and the content. §5's tagged,
+   length-delimited framing; the content rules below are D2's
+   provisional ones, which D3's settled byte rules replace in place."
+  [class content]
+  (str (get slot-tag class) (to-hex (count content) 8) content))
+
+
+(defn- double-content
+  "Provisional :double content: the host's decimal print, with NaN and
+   -0.0 normalized so the classes §5 keeps distinct do not collide
+   before D3's IEEE-754 bit encoding lands."
+  [v]
+  (cond
+    (not= v v) "NaN"
+    (negative-zero? v) "-0.0"
+    :else (str v)))
+
+
+(defn- ident-content
+  "§5 keywords and symbols encode namespace and name separately, each
+   through the NFC seam — the value table declares :nfc-utf-8 for both
+   parts; an absent namespace has nil's own framing, never an empty
+   string's."
+  [x]
+  (str (if-let [ns (namespace x)]
+         (framed :string (normalize-nfc ns))
+         (framed :nil ""))
+       (framed :string (normalize-nfc (name x)))))
+
+
+(defn encode-value
+  "Encode one canonical-domain value under its value-table class: the
+   full tagged, length-delimited part. Strings pass the NFC seam; maps
+   and sets sort by their encoded parts, the §5 order rule transposed to
+   this encoding; vectors and lists are the distinct classes the D0
+   ruling split. An out-of-domain value is a diagnostic."
+  [v]
+  (let [class (canonical-class v)]
+    (case class
+      :nil (framed :nil "")
+      :bool (framed :bool (if v "01" "00"))
+      :int64 (framed :int64 (str (long v)))
+      :double (framed :double (double-content v))
+      :string (framed :string (normalize-nfc v))
+      :bytes (framed :bytes (apply str (map #(to-hex (bit-and % 0xff) 2) v)))
+      :keyword (framed :keyword (ident-content v))
+      :symbol (framed :symbol (ident-content v))
+      :map (framed :map
+                   (apply str (mapcat identity
+                                      (sort (map (fn [[k x]]
+                                                   [(encode-value k) (encode-value x)])
+                                                 v)))))
+      :set (framed :set (apply str (sort (map encode-value v))))
+      :vector (framed :vector (apply str (map encode-value v)))
+      :list (framed :list (apply str (map encode-value v)))
+      (throw (ex-info "Unsupported value in Merkle encoding"
+                      {:rule :unsupported-value, :value v})))))
+
+
+(defn- encode-typed
+  "Encode one descriptor slot's value under its declared type:
+   :canonical is polymorphic, the compound types frame their parts, and
+   a declared scalar type encodes by its (already validated) value
+   class."
+  [type v]
+  (cond
+    (= :canonical type) (encode-value v)
+    (vector? type) (if (= :tuple (first type))
+                     (framed :tuple (apply str (map encode-typed (rest type) v)))
+                     (framed :ordered-vector
+                             (str (framed :int64 (str (long (count v))))
+                                  (apply str (map #(encode-typed :ref %) v)))))
+    (or (= :ref type) (= :hash type)) (framed :ref v)
+    :else (encode-value v)))
+
+
+(defn- node-hash
+  "§5: hash(node) = SHA-256(dimension-hash || encode(tag-specific-slots-
+   in-descriptor-order)). D2's preimage is the dimension hash's hex
+   followed by the framed slots — a provisional byte rule D3 re-pins
+   over the settled encoder; the shape (descriptor order, tags, length
+   delimiters, ordered child hashes) is what D2 fixes. Markers are never
+   among the encodings: only present, non-marker slots reach here."
+  [encodings]
+  (jing/sha256 (apply str dimension-hash encodings)))
+
+
+;; =============================================================================
+;; D2: hash-consing and the projected records (§4)
+;; =============================================================================
+
+(declare merkle-node)
+
+
+(defn- slot-encodings
+  "The descriptor-order encodings of one record's present, non-marker
+   slots — with the dimension hash, the only input to a node hash.
+   Children already carry child hashes, so this is total over a record
+   and serves both the mint and the storage reader's content check."
+  [record]
+  (for [[slot type role] dimension-slots
+        :when (and (not= :marker role) (contains? record slot))]
+    (encode-typed type (get record slot))))
+
+
+(defn- merkle-node
+  "Hash-cons one resolved node (§4-§5): children first in descriptor
+   order, then the node hash over the dimension hash and the node's
+   tag-specific slots in descriptor order, then the record — the node
+   with child slots carrying child hashes and :yin.debruijn/hash added.
+   Returns [h acc'] over {:hashcons preimage->h, :records h->record}.
+   The consing memo is keyed on the node's preimage — the concatenated
+   slot encodings — never on Clojure =, which merges a list literal with
+   a vector literal and the signed zeros; a preimage hit implies the
+   identical hash, and within one hash the first spelling is the record
+   written. The memo stays an optimisation only: identity is the hash
+   either way, so traversal order never enters it."
+  [node {:keys [hashcons] :as acc}]
+  (let [slot-defs (for [[slot type role] dimension-slots
+                        :when (and (not= :marker role) (contains? node slot))]
+                    [slot type role])
+        [child-refs acc']
+        (reduce (fn [[refs a] [slot type role]]
+                  (if (not= :child role)
+                    [refs a]
+                    (let [v (get node slot)]
+                      (if (and (vector? type) (= :ordered-vector (first type)))
+                        (let [[hs a*] (reduce (fn [[hs ai] child]
+                                                (let [[h aj] (merkle-node child ai)]
+                                                  [(conj hs h) aj]))
+                                              [[] a]
+                                              v)]
+                          [(assoc refs slot hs) a*])
+                        (let [[h a*] (merkle-node v a)]
+                          [(assoc refs slot h) a*])))))
+                [{} acc]
+                slot-defs)
+        pre-record (reduce (fn [r [slot _type role]]
+                             (if (= :child role)
+                               (assoc r slot (get child-refs slot))
+                               r))
+                           node
+                           slot-defs)
+        encodings (slot-encodings pre-record)
+        preimage (apply str encodings)]
+    (if-let [cached (find hashcons preimage)]
+      [(val cached) acc']
+      (let [h (node-hash encodings)
+            record (assoc pre-record :yin.debruijn/hash h)]
+        [h (-> acc'
+               (assoc-in [:hashcons preimage] h)
+               (assoc-in [:records h] record))]))))
+
+
 (defn project-datoms
   "§6's pure projection of one complete rooted graph of :yin/* AST
-   datoms. D0+D1 scope: §2 validation and §3 scope resolution only — no
-   node hashes (D2/D3 mint the Merkle records and root fingerprint this
-   will carry). Returns {:root node}, the resolved semantic graph; the
-   :root wrapper key is the graph's root marker — the node map itself
-   carries none, so it equals the same term appearing as a subterm. A
-   bound occurrence carries :yin.debruijn/bound [frame-depth position],
-   a free one :yin.debruijn/free name, and a lambda's binder is its
+   datoms, through §2 validation and §3 scope resolution to D2's Merkle
+   records. Returns {:root node, :fingerprint h, :records {h record}}:
+   the resolved semantic graph under :root (whose wrapper key is the
+   graph's root marker — the node map carries none, so it equals the
+   same term appearing as a subterm), the root node hash as
+   :fingerprint, and the hash-consed projected records — each the
+   resolved node with child slots carrying child hashes and
+   :yin.debruijn/hash h added. A bound occurrence carries
+   :yin.debruijn/bound [frame-depth position], a free one
+   :yin.debruijn/free name, and a lambda's binder is its
    :yin.debruijn/arity.
 
    Input order, source tempids, t, m, and non-:yin/* namespaces never
-   enter the result. Every defect is ex-info carrying :rule (and, where
-   the walk has descended, :entity and :path). For a stream carrying
-   several adjacent graphs, frame it first with `frame-datoms` and
-   project each frame — the per-frame fact index resets there."
+   enter the result, at graph level or hash level. Every defect is
+   ex-info carrying :rule (and, where the walk has descended, :entity
+   and :path). For a stream carrying several adjacent graphs, frame it
+   first with `frame-datoms` and project each frame — the per-frame fact
+   index resets there."
   [datoms]
   (let [datoms (vec datoms)
-        index (index-frame datoms)
+        index (index-frame "yin" datoms)
         root-eid (frame-root datoms)
-        [root _memo] (project-node index root-eid [] {} #{} [])]
-    {:root root}))
+        [root _memo] (project-node index root-eid [] {} #{} [])
+        [fingerprint {:keys [records]}] (merkle-node root {:hashcons {}, :records {}})]
+    {:root root, :fingerprint fingerprint, :records records}))
+
+
+;; =============================================================================
+;; D2: the d5 storage adapter (§4)
+;; =============================================================================
+
+(defn projected->datoms
+  "The d5 storage adapter's write half (§4): one projection's records as
+   d5 datoms [e a v t m]. Entities are local handles minted from
+   dao.datom's first-user-id in a deterministic root-down, descriptor
+   slot order walk — handles, ordinals, and row count are storage layout
+   only, never identity. Each entity carries :yin.debruijn/hash h; child
+   slots carry child hashes; :yin.debruijn/operands is one ordered
+   vector datom, never cardinality-many; and the root entity is
+   explicitly marked :yin.debruijn/root true — the root-hash marker, its
+   :yin.debruijn/hash being the fingerprint. t 0 and the assert op are
+   the adapter's fixed provenance, mirroring the named emitter's
+   defaults."
+  [{:keys [fingerprint records]}]
+  (let [t 0
+        m datom/default-op
+        out (atom [])
+        emitted (atom #{})
+        next-eid (atom (dec datom/first-user-id))
+        emit! (fn [e a v] (swap! out conj [e a v t m]))
+        walk (fn walk
+               [h]
+               ;; one entity per hash: a record reachable by several paths
+               ;; is emitted once, and the slot datoms already pointing at
+               ;; its hash are the sharing
+               (when-not (contains? @emitted h)
+                 (let [e (swap! next-eid inc)
+                       record (or (get records h)
+                                  (throw (ex-info
+                                           "Projected record set does not contain a child hash"
+                                           {:rule :dangling-ref, :hash h})))]
+                   (swap! emitted conj h)
+                   (emit! e :yin.debruijn/hash h)
+                   (doseq [[slot type role] dimension-slots
+                           :when (and (not= :marker role) (contains? record slot))]
+                     (let [v (get record slot)]
+                       (emit! e slot v)
+                       (when (= :child role)
+                         (if (and (vector? type) (= :ordered-vector (first type)))
+                           (doseq [child v] (walk child))
+                           (walk v)))))
+                   (when (= h fingerprint)
+                     (emit! e :yin.debruijn/root true)))))]
+    (walk fingerprint)
+    @out))
+
+
+(def ^:private record-attributes
+  "Every attribute a projected record entity may carry: the declared
+   dimension slots, markers included."
+  (into #{} (map first) dimension-slots))
+
+
+(defn datoms->projected
+  "The d5 storage adapter's read half (§4): projected datoms back to
+   {:fingerprint h, :records {h record}} — the inverse of
+   `projected->datoms` over the record set (the resolved :root graph is
+   the named side's, never rebuilt here). Every entity must carry its
+   :yin.debruijn/hash; exactly one entity is the :yin.debruijn/root
+   marker and its hash is the fingerprint; child refs must resolve to
+   records; :yin.debruijn/operands must be one vector of hashes. Each
+   record is re-hashed and a disagreement is a :hash-mismatch
+   diagnostic — content addressing is verified at this boundary, never
+   trusted. t, m, and other namespaces are layout, ignored."
+  [datoms]
+  (let [datoms (vec datoms)
+        index (index-frame "yin.debruijn" datoms)
+        markers (into []
+                      (comp (filter #(= :yin.debruijn/root (nth % 1)))
+                            (filter #(true? (nth % 2)))
+                            (map first))
+                      datoms)
+        _ (when-not (= 1 (count markers))
+            (throw (ex-info "Projected datoms have not exactly one root marker"
+                            (if (zero? (count markers))
+                              {:rule :missing-root}
+                              {:rule :multiple-roots, :roots markers}))))
+        root-e (first markers)
+        records (reduce-kv (fn [recs e facts]
+                             (let [h (or (when (contains? facts :yin.debruijn/hash)
+                                           (get facts :yin.debruijn/hash))
+                                         (throw (ex-info
+                                                  "Projected entity carries no :yin.debruijn/hash"
+                                                  {:rule :missing-hash, :entity e})))
+                                   record (dissoc facts :yin.debruijn/root)]
+                               (doseq [a (keys record)]
+                                 (when-not (contains? record-attributes a)
+                                   (throw (ex-info
+                                            "Unknown :yin.debruijn/* attribute on a projected record"
+                                            {:rule :unknown-attribute,
+                                             :attribute a,
+                                             :entity e}))))
+                               (when-not (and (string? h)
+                                              (re-matches #"^[0-9a-f]{64}$" h))
+                                 (throw (ex-info "Projected hash is not 64 lowercase hex"
+                                                 {:rule :malformed-hash,
+                                                  :hash h,
+                                                  :entity e})))
+                               (if (contains? recs h)
+                                 (throw (ex-info
+                                          "Two entities claim one projected hash"
+                                          {:rule :duplicate-fact,
+                                           :attribute :yin.debruijn/hash,
+                                           :entity e}))
+                                 (do (when-not (= h (node-hash (slot-encodings record)))
+                                       (throw (ex-info
+                                                "Projected record does not hash to its address"
+                                                {:rule :hash-mismatch,
+                                                 :hash h,
+                                                 :entity e})))
+                                     (assoc recs h record)))))
+                           {}
+                           index)
+        fingerprint (get-in index [root-e :yin.debruijn/hash])]
+    (doseq [[h record] records
+            [slot type role] dimension-slots
+            :when (and (= :child role) (contains? record slot))]
+      (let [refs (if (and (vector? type) (= :ordered-vector (first type)))
+                   (let [v (get record slot)]
+                     (when-not (vector? v)
+                       (throw (ex-info
+                                "Projected :yin.debruijn/operands is not an ordered vector"
+                                {:rule :unsupported-value,
+                                 :slot slot,
+                                 :value v,
+                                 :hash h})))
+                     v)
+                   [(get record slot)])]
+        (doseq [ref refs]
+          (when-not (contains? records ref)
+            (throw (ex-info "Projected child hash resolves to no record"
+                            {:rule :dangling-ref, :hash ref, :via h, :slot slot}))))))
+    {:fingerprint fingerprint, :records records}))
