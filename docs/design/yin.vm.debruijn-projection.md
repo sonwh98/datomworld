@@ -187,7 +187,9 @@ Consequently, integer `1` and integral double `1.0` intentionally collide in
 the canonical form. Bigints, ratios, characters, and other out-of-domain
 numeric objects are diagnostic. NFC normalisation collisions, and the
 `1`/`1.0` collision, are inherited limits of the repository encoding.
-A portable Dart NFC implementation/source must be settled before D3.
+The Dart NFC source is settled 2026-09-21: the pure-Dart `unorm_dart`
+package (Unicode 16.0) provides NFC on every ClojureDart target. D3 still
+proves byte identity on all three hosts against the §8 fixtures.
 
 ## 6. Stream composition and consumers
 
@@ -216,7 +218,8 @@ Publish the `:yin.debruijn/*` descriptor and hash domain; record the fully
 expanded macro domain and its lambda-operator detection rule and limit,
 assert-only input, root framing and per-frame index reset, rightmost duplicate
 binding, scope pair convention, canonical value table, NFC and numeric limits,
-and node grammar. Settle the portable Dart NFC source. Add all node fixtures.
+and node grammar. Pin the Dart NFC source (`unorm_dart`, Unicode 16.0)
+behind one host-dispatched normalize seam. Add all node fixtures.
 
 ### D1 — graph index and scope resolver
 
@@ -309,4 +312,6 @@ zero; duplicate names are rightmost-wins; shared nodes may be duplicated by
 lexical context but sharing is invisible to identity; maps and sets use
 canonical byte ordering; the published `:yin.debruijn/*` dimension supplies
 the domain separator and SHA-256 is the hash; the source-to-projected index is
-ephemeral by default and separate if later persisted.
+ephemeral by default and separate if later persisted. The Dart NFC source is
+`unorm_dart` (Unicode 16.0), settled by the owner 2026-09-21 and validated by
+the D3 cross-host fixtures.
