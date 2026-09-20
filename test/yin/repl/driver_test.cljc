@@ -187,3 +187,19 @@
   (let [state (driver/create-state)]
     (driver/submit-line! (:input state) "(connect)")
     (is (str/includes? (text-of (driver/repl-step state 0)) "daostream:ws://"))))
+
+
+(deftest pending-write?-names-every-write-the-operator-is-owed
+  (testing "a fresh driver owes nothing, and neither does an idle step"
+    (is (false? (driver/pending-write? (driver/create-state))))
+    (is (false? (driver/pending-write? (driver/repl-step (driver/create-state) 0)))))
+  (testing "a request awaiting its response holds the cadence at the base interval"
+    (let [{:keys [requests request-cursor state]} (remote)]
+      (driver/submit-line! (:input state) "(+ 1 2)")
+      (let [stepped (driver/repl-step state 0)]
+        (is (true? (driver/pending-write? stepped))
+            "an outstanding request is a pending write: it must never wait out
+             a backoff ceiling")
+        (is (= :dao.stream/ok (:dao.stream/outcome (stream/next requests
+                                                                 request-cursor)))
+            "the request really was sent")))))

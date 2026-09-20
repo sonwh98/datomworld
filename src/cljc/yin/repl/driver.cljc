@@ -193,6 +193,18 @@
   (rpc/unsent? (rpc-client state)))
 
 
+(defn pending-write?
+  "True while a remote write the operator is owed remains in flight: a
+   request awaiting its response, a line held for a full writer, or an
+   envelope the RPC client still retains. This is one half of the tick
+   owner's `moved?` — a pending write must never wait out a backoff ceiling,
+   so cadence stays at the base interval until it clears."
+  [state]
+  (boolean (or (:outstanding state)
+               (:retrying state)
+               (remote-unsent? state))))
+
+
 (def queueable-terminals
   "Terminal reasons after which an ordinary line still has a reattachment
    decision to wait for.  Only `/detached` reattaches.  A reachability failure

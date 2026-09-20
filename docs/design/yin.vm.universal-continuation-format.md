@@ -532,7 +532,7 @@ Three rules make these resumable somewhere other than where they were minted:
   descriptor in the frame, pending, and cells; an attachment resolving to
   `not-found` is `:yin.k/unsatisfied` naming the stream identity, never a
   silent `nil`; a `:put` wait retries its retained value and resumes with it
-  on `ok` (`dao.runtime`, a woken writer's retry appends and stamps the
+  on `ok` (the engine, a woken writer's retry appends and stamps the
   value); a `:next` wait polls its cell. No wait is silently dropped and no
   retained value is recomputed — what parks is what resumes.
 
@@ -1023,7 +1023,7 @@ source-wakeup race, and it does not close the publication window. The
 lifecycle published first and made the emitter a candidate afterward, but
 nothing ever removed the emitter's *local* eligibility: its driver may
 still poll the wait set — and polling a blocked writer **performs the
-append** (`dao.runtime`, a `:put` entry retries `append!` on every
+append** (the engine, a `:put` entry retries `append!` on every
 poll) — may restore a woken entry from the ready queue, may satisfy a
 direct `:resume`, and may retry a blocked write, all after the value is in
 other machines' hands. Delaying register restoration is too late; the

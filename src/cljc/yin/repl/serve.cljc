@@ -15,13 +15,20 @@
    transport's `endpoint-step` through `dao.stream.serving`, adopts accepted
    sessions, and advances each one against a single serially threaded REPL
    state.  It never loops on `blocked`, never waits, and never schedules
-   itself."
+   itself.
+
+   Each session's request medium is observed through a `dao.stream.waitset`
+   probe: a non-advancing `:next` entry whose wake selects the session for
+   its own `session-step` re-read.  A session holds one active waiter —
+   while a response append is pending, the retry belongs to the host's
+   cadence and no probe is parked."
   (:require [dao.data :as data]
             [dao.stream :as stream]
             [dao.stream.apply :as apply]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc.ws :as rpc-ws]
             [dao.stream.serving :as serving]
+            [dao.stream.waitset :as waitset]
             [dao.stream.ws :as ws]
             [yin.repl.connect :as connect]
             [yin.repl.core :as core]
@@ -227,9 +234,11 @@
               :bind-port bind-port
               :resolution nil
               :sessions {}
+              :probes (waitset/empty-waitset)
               :repl (or repl (core/create-state))
               :status :new
               :stop-initiated? false
+              :step-moved? false
               :outbox []}]
     (cond
       (nil? advertised-host)
@@ -440,6 +449,66 @@
    :terminal nil})
 
 
+(def ^:private probe-resolver
+  "The waitset resolver for this endpoint's request-medium probes.  The
+   store is the endpoint itself — opaque to the library — and a probe's
+   `:resolve` reads the session's own *current* cursor each round, so a
+   cursor committed by a delivered response is what the next probe reads.
+   A session that cannot observe — terminal, holding a pending response,
+   or adopted with a nil cursor (a failed mint) — resolves to nil, so its
+   probe wakes once as a diagnostic and is not re-parked.  `:advance` is
+   identity: the probe is the non-advancing handoff of a compound step, and
+   `session-step` — which re-reads and commits `:pending-successor` only
+   when the response append answers ok — remains the sole commit
+   authority."
+  {:resolve (fn [endpoint entry]
+              (let [session (get-in endpoint [:sessions (:attachment entry)])]
+                (when (and session
+                           (nil? (:terminal session))
+                           (nil? (:pending-response session))
+                           (some? (:cursor session)))
+                  {:stream (:reader session)
+                   :cursor (:cursor session)})))
+   :advance (fn [endpoint _entry _cursor] endpoint)})
+
+
+(defn- retire-probe
+  "Remove `attachment`'s probe from the wait set: its session ended, or its
+   wait belongs to host cadence now."
+  [probes attachment]
+  (update probes :waiting (fn [waiting]
+                            (vec (remove #(= attachment (:attachment %))
+                                         waiting)))))
+
+
+(defn- maintain-probes
+  "Retire the probes of sessions that no longer observe — departed, terminal,
+   holding a pending response whose retry is the host's cadence, or adopted
+   with a nil cursor, which would spin a probe every round — and park one
+   for every session that still does.  A session holds exactly one active
+   waiter."
+  [endpoint]
+  (let [observing? (fn [session]
+                     (and (nil? (:terminal session))
+                          (nil? (:pending-response session))
+                          (some? (:cursor session))))
+        observing (set (keep (fn [[attachment session]]
+                               (when (observing? session) attachment))
+                             (:sessions endpoint)))
+        waiting (vec (filter #(contains? observing (:attachment %))
+                             (:waiting (:probes endpoint))))
+        probes (reduce (fn [probes attachment]
+                         (if (some #(= attachment (:attachment %))
+                                   (:waiting probes))
+                           probes
+                           (waitset/park probes
+                                         {:reason :next
+                                          :attachment attachment})))
+                       {:waiting waiting}
+                       (sort (seq observing)))]
+    (assoc endpoint :probes probes)))
+
+
 (defn- sync-sessions
   [endpoint]
   (let [live (:sessions (serving/state (:serving endpoint)))
@@ -459,7 +528,19 @@
           (reduce (fn [e a]
                     (publish e :yin.repl.serve/notice
                              (str ";; attachment " a " left")))
-                  endpoint departed))))
+                  endpoint departed)
+          ;; A fresh session is observable the moment it is adopted: its
+          ;; probe is parked before this step's sweep, so a request that
+          ;; arrived with the attachment is answered this same step.
+          (assoc endpoint :probes (reduce (fn [probes a]
+                                            (waitset/park probes
+                                                          {:reason :next
+                                                           :attachment a}))
+                                          (:probes endpoint) joined))
+          ;; A departed session observes nothing more; its probe leaves the
+          ;; wait set here, never by polling a dead medium.
+          (assoc endpoint :probes (reduce retire-probe
+                                          (:probes endpoint) departed)))))
 
 
 (defn- close-attachment!
@@ -584,14 +665,21 @@
 
 
 (defn- session-step
-  [endpoint attachment]
+  "Advance one session one bounded step.  A session holding a pending
+   response is retried every round the host runs — its wait is host cadence,
+   never a probe, and while it holds one no probe is parked (one active
+   waiter per session).  A session whose probe woke is stepped through its
+   own read: `stream/next` re-reads from the session's cursor, because a
+   probe's value and cursor are advisory.  A session with nothing pending
+   and no wake keeps its probe parked — no unconditional read remains."
+  [endpoint attachment selected?]
   (let [session (get-in endpoint [:sessions attachment])]
     (cond
       (or (nil? session) (:terminal session) (nil? (:cursor session))) endpoint
 
       (:pending-response session) (deliver-response endpoint attachment)
 
-      :else
+      selected?
       (let [result (stream/next (:reader session) (:cursor session))
             outcome (:dao.stream/outcome result)]
         (case outcome
@@ -611,12 +699,21 @@
                        (str ";; requests lost from " attachment "; closing it"))
               (close-attachment! attachment :dao.stream/gap))
 
-          (close-attachment! endpoint attachment outcome))))))
+          (close-attachment! endpoint attachment outcome)))
+
+      :else endpoint)))
 
 
 (defn- advance-sessions
-  [endpoint]
-  (reduce session-step endpoint (keys (:sessions endpoint))))
+  "One bounded step per session, in `:sessions` keys order — the same order
+   every prior form of this driver reduced in.  Pending responses first —
+   their retry runs on the host's cadence, gated on nothing — then the
+   sessions this sweep's probes woke; the rest keep their probes parked."
+  [endpoint selected]
+  (reduce (fn [endpoint attachment]
+            (session-step endpoint attachment (contains? selected attachment)))
+          endpoint
+          (keys (:sessions endpoint))))
 
 
 ;; =============================================================================
@@ -686,12 +783,17 @@
 
    Ordering is intentional: lifecycle first, so a bind result is known before
    anything claims to be serving; then the transport and serving composition;
-   then session adoption; then one bounded step per session against the single
-   shared REPL state."
+   then session adoption, parking each new session's request-medium probe;
+   then one sweep of the probe wait set, whose wakes select the sessions
+   that read this step; then one bounded step per session — a pending
+   response first, a selected session's own re-read — against the single
+   shared REPL state; then probe maintenance, so a session holds exactly one
+   active waiter."
   [endpoint now]
   (if-not endpoint
     endpoint
-    (let [endpoint (drain-lifecycle endpoint)]
+    (let [outbox-before (count (:outbox endpoint))
+          endpoint (drain-lifecycle endpoint)]
       (if-not (:serving endpoint)
         ;; An endpoint that never composed a serving driver — a refused bind
         ;; configuration or a missing host package — still owns and reports its
@@ -699,10 +801,31 @@
         endpoint
         (do
           (serving/step! (:serving endpoint) now)
-          (-> endpoint
-              sync-sessions
-              advance-sessions
-              finish-stop))))))
+          (let [endpoint (sync-sessions endpoint)
+                {:keys [woken], :as result}
+                (waitset/check (:probes endpoint) probe-resolver endpoint)
+                endpoint (assoc endpoint :probes (:waitset result))
+                selected (set (map #(:attachment (:entry %)) woken))
+                endpoint (advance-sessions endpoint selected)]
+            (-> endpoint
+                maintain-probes
+                (assoc :step-moved? (boolean (or (seq woken)
+                                                 (> (count (:outbox endpoint))
+                                                    outbox-before))))
+                finish-stop)))))))
+
+
+(defn moved?
+  "True when the last `step` moved something a caller's cadence must not
+   sleep through: a probe woke, or a notice was published — or a session
+   still owes a response append, which must never wait out a backoff
+   ceiling."
+  [endpoint]
+  (boolean (or (:step-moved? endpoint)
+               (some (fn [session]
+                       (or (:pending-response session)
+                           (:pending-successor session)))
+                     (vals (:sessions endpoint))))))
 
 
 (defn summary

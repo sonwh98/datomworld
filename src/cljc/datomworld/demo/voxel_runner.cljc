@@ -105,6 +105,13 @@
   (controls/pressed-actions @controls-down*))
 
 
+(defn player-pos
+  "The player's current pose, for tests and any frontend that reads the
+   runtime state directly rather than through the frame stream."
+  []
+  @player*)
+
+
 (defn focus-input!
   "Reports host focus gained or lost. Losing focus releases every held key."
   [focused?]

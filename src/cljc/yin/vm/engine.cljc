@@ -27,6 +27,7 @@
   (:refer-clojure :exclude [gensym])
   (:require [clojure.set]
             [dao.stream :as stream]
+            [dao.stream.waitset :as waitset]
             [yin.vm :as vm]
             [yin.vm.module :as module]
             [yin.vm.telemetry :as telemetry]))
@@ -132,14 +133,16 @@
 (defn make-woken-run-queue-entries
   "Transform woken wait-set entries into ready-queue entries.
    Readers (with :cursor-ref) store the successor cursor the transport
-   returned. Writers (no :cursor-ref) just stamp :value.
+   returned. Writers (no :cursor-ref) just stamp :value. Each woken
+   result's :status rides onto the ready entry, where
+   terminal-resume-outcome reads it.
 
-   The ready entry stays pure data: the `:stream` handle the poll resolved
+   The ready entry stays pure data: any `:stream` handle a poll resolved
    is dropped — the store-updates carry the successor cursor, and handles
    are re-resolved from ids when needed again — so an entry neither waits
    nor runs holding a host object."
   [state woken]
-  (mapv (fn [{:keys [entry value cursor], :as woken-entry}]
+  (mapv (fn [{:keys [entry value cursor status], :as woken-entry}]
           (let [cursor-ref (:cursor-ref entry)
                 store-updates
                 (or (:store-updates woken-entry)
@@ -150,6 +153,7 @@
             (dissoc (assoc entry
                            :value value
                            :store-updates store-updates
+                           :status status
                            :cursor cursor)
                     :stream)))
         woken))
@@ -263,109 +267,73 @@
     {:state state}))
 
 
-(defn- augment-wait-entry
-  "Resolve one wait entry to a live handle and an opaque cursor out of the
-   store. The cursor is re-resolved on every round even when an earlier round
-   baked a value into the entry: another waiter on the same cursor-ref may
-   have advanced the stored cursor since."
-  [store entry]
-  (if-let [cursor-ref (:cursor-ref entry)]
-    (let [cursor-data (get store (:id cursor-ref))]
-      (assoc entry
-             :stream (or (:stream entry)
-                         (get store (:stream-id cursor-data)))
-             :cursor (:cursor cursor-data)))
-    (if (and (not (:stream entry)) (:stream-id entry))
-      (assoc entry :stream (get store (:stream-id entry)))
-      entry)))
+(def ^:private waitset-resolver
+  "The engine's composition for `dao.stream.waitset/check`: the whole
+   resolver contract in one value, both functions synchronous and pure over
+   the immutable store. Neither touches a transport — the library polls,
+   the engine maps.
 
-
-(defn- poll-wait-entry
-  "Poll one resolved wait entry against its transport, synchronously.
-
-   Returns nil while the entry must keep waiting — `blocked` for a reader,
-   `full` for a writer, the only two outcomes that can change on their own —
-   and otherwise the ready-entry updates `{:value :status}`, plus `:cursor`
-   for a reader that moved. `end` and `gap` resolve to the values the
-   immediate path yields; any other outcome resolves under its own keyword
-   for `resume-from-run-queue` to raise. A parked writer retries by
-   appending: the append is an effect of this poll. An entry with no known
-   `:reason` keeps waiting."
-  [entry]
-  (case (:reason entry)
-    :next (let [result (stream/next (:stream entry) (:cursor entry))
-                o (outcome result)]
-            (case o
-              :dao.stream/ok {:value (:dao.stream/value result),
-                              :status :ok,
-                              :cursor (:dao.stream/cursor result)}
-              :dao.stream/blocked nil
-              :dao.stream/end {:value nil, :status :end}
-              :dao.stream/gap {:value :dao.stream/gap,
-                               :status :dao.stream/gap,
-                               :cursor (:dao.stream/cursor result)}
-              {:value o, :status o}))
-    :put (let [o (outcome (stream/append! (:stream entry) (:datom entry)))]
-           (case o
-             :dao.stream/ok {:value (:datom entry), :status :ok}
-             :dao.stream/full nil
-             {:value o, :status o}))
-    nil))
+   `:resolve` is the sweep's old resolution step nearly verbatim: it maps one
+   whole parked entry to its live handle plus the cursor to read from — or
+   the value to append — out of the VM's `:store`. The cursor is
+   re-resolved on every round even when an earlier round baked a value into
+   the entry: another waiter on the same cursor-ref may have advanced the
+   stored cursor since. `:advance` is the sweep's old write-back: it
+   commits a woken reader's successor — or recovery — cursor to the store
+   before later entries resolve, so a shared cursor-ref advances within the
+   round."
+  {:resolve (fn [store entry]
+              (if-let [cursor-ref (:cursor-ref entry)]
+                (let [cursor-data (get store (:id cursor-ref))]
+                  {:stream (or (:stream entry)
+                               (get store (:stream-id cursor-data)))
+                   :cursor (:cursor cursor-data)})
+                {:stream (or (:stream entry) (get store (:stream-id entry)))
+                 :value (:datom entry)}))
+   :advance (fn [store entry cursor]
+              (let [cursor-id (:id (:cursor-ref entry))]
+                (if cursor-id
+                  (assoc store
+                         cursor-id
+                         (assoc (get store cursor-id) :cursor cursor))
+                  store)))})
 
 
 (defn check-wait-set
   "Check wait-set entries against their transports.
 
-   Every entry is resolved to a live handle and an opaque cursor out of the
-   store and polled with a synchronous `next` or `append!` — resolution
-   happens per poll, so the stored entry itself never carries a handle.
-   There is no transport-local waking to fall back from: this is the only
-   mechanism.
+   The sweep is `dao.stream.waitset/check` — this engine was that library's
+   seed and is now its first consumer. Every entry is resolved to a live
+   handle and an opaque cursor out of the store by `waitset-resolver` and
+   polled with a synchronous `next` or `append!` — resolution happens per
+   poll, so the stored entry itself never carries a handle. There is no
+   transport-local waking to fall back from: this is the only mechanism.
 
    Entries are polled one at a time in wait-set order, and a woken reader's
    successor cursor is written back to the store before the next entry is
-   resolved. Waiters sharing a cursor-ref therefore read distinct values — the
-   value at the cursor wakes the first, its successor wakes the next — instead
-   of every waiter reading the value at the shared pre-poll cursor. An entry
-   that stays waiting is retained in its stored, resource-id form; the
-   resolved copy was for this poll only."
+   resolved. Waiters sharing a cursor-ref therefore read distinct values —
+   the value at the cursor wakes the first, its successor wakes the next —
+   instead of every waiter reading the value at the shared pre-poll
+   cursor. An entry that stays waiting is retained in its stored,
+   resource-id form.
+
+   Each woken result's `:status` is stamped onto its ready entry, where
+   `terminal-resume-outcome` reads it: an outcome the immediate operation
+   raises as an error fails the same way when the resume pops it — and a
+   waitset diagnostic, an entry the sweep could not poll at all, raises
+   there too, before any continuation is restored."
   [state]
   (let [wait-set (:wait-set state)]
     (if (empty? wait-set)
       state
-      (loop [remaining wait-set
-             store (:store state)
-             waiting []
-             woken []]
-        (if (empty? remaining)
-          (let [v (assoc state
-                         :store store
-                         :wait-set waiting)]
-            (update v
-                    :ready-queue (fnil into [])
-                    (make-woken-run-queue-entries v woken)))
-          (let [entry (first remaining)
-                augmented (augment-wait-entry store entry)]
-            (if-let [updates (poll-wait-entry augmented)]
-              (let [raw (merge augmented updates)
-                    cursor-id (:id (:cursor-ref raw))
-                    ;; A woken reader's successor is stored before later
-                    ;; entries resolve, so a shared cursor-ref advances
-                    ;; within the round.
-                    store (if (and cursor-id (:cursor raw))
-                            (assoc store
-                                   cursor-id
-                                   (assoc (get store cursor-id)
-                                          :cursor (:cursor raw)))
-                            store)]
-                (recur (rest remaining)
-                       store
-                       waiting
-                       (conj woken {:entry raw,
-                                    :value (:value raw),
-                                    :cursor (:cursor raw),
-                                    :store-updates (:store-updates raw)})))
-              (recur (rest remaining) store (conj waiting entry) woken))))))))
+      (let [{:keys [woken store], :as result}
+            (waitset/check {:waiting wait-set} waitset-resolver (:store state))
+            v (assoc state
+                     :store store
+                     :wait-set (:waiting (:waitset result)))]
+        (update v
+                :ready-queue (fnil into [])
+                (make-woken-run-queue-entries v woken))))))
 
 
 (declare handle-effect resume-continuation)
@@ -388,26 +356,49 @@
             :else (if (:halted? v) (telemetry/emit-snapshot v :halt) v)))))
 
 
+(def ^:private waitset-diagnostics
+  "The statuses `dao.stream.waitset/check` wakes an entry it could not poll
+   at all with: an unsupported reason, an unresolvable entry, or an answer —
+   or transport — it could not interpret. No park site in `yin.vm` produces
+   an entry that earns one, and an entry that earns one must not reach a
+   restore function as a value."
+  #{:dao.stream.waitset/unsupported-reason
+    :dao.stream.waitset/unresolved
+    :dao.stream.waitset/invalid-answer})
+
+
 (defn- terminal-resume-outcome
   "The outcome a woken entry resolved with, when it is one the immediate
    path raises as an error. `handle-put` and `handle-next` throw for every
    outcome outside ok/end/gap, and whether the first attempt blocked must not
-   change that. An entry that was never polled carries no status."
+   change that. A waitset diagnostic is terminal whatever the entry's
+   `:reason` — an unsupported reason is by definition outside the
+   `#{:next :put}` this check otherwise reads — so it is named here rather
+   than falling through to the restore. An entry that was never polled
+   carries no status."
   [entry]
-  (when (#{:next :put} (:reason entry))
-    (let [status (:status entry)]
+  (let [status (:status entry)]
+    (cond
+      (contains? waitset-diagnostics status) status
+      (contains? #{:next :put} (:reason entry))
       (when-not (contains? #{nil :ok :end :dao.stream/gap} status) status))))
 
 
 (defn- throw-terminal-resume!
-  "Fail a resumed entry exactly as the immediate operation would have."
+  "Fail a resumed entry exactly as the immediate operation would have. A
+   waitset diagnostic names its status and the entry that earned it: there
+   is no stream operation whose error vocabulary it belongs to."
   [entry o]
-  (if (= :next (:reason entry))
+  (cond
+    (contains? waitset-diagnostics o)
+    (fail "Wait-set entry woke with a diagnostic" {:status o, :entry entry})
+    (= :next (:reason entry))
     (fail "Stream read failed"
           {:outcome o,
            :stream-id (:stream-id entry),
            :cursor-id (:id (:cursor-ref entry))})
-    (fail "Stream append failed" {:outcome o, :stream-id (:stream-id entry)})))
+    :else (fail "Stream append failed"
+                {:outcome o, :stream-id (:stream-id entry)})))
 
 
 (defn resume-from-run-queue

@@ -5,13 +5,29 @@
             [datomworld.demo.voxel-runner :as runner]))
 
 
-(use-fixtures :each
-  (fn [run]
-    (runner/stop-input!)
-    (input/resize! 720.0 540.0)
-    (run)
-    (runner/stop-input!)
-    (input/resize! 720.0 540.0)))
+(defn- with-runner-input-reset
+  "Bounds each test with dropped runner state and a default-sized input
+   stream. clojure.test on the JVM and on Node calls the fixture once with
+   the zero-argument test continuation; cljd.test instead splits a fixture
+   into a setUp that calls it with no arguments and a tearDown that calls
+   it with that call's result (see cljd.test/fixture-callbacks), so the
+   zero-arity half is the setup and the one-arity half dispatches on
+   whether its argument is the continuation."
+  ([]
+   (runner/stop-input!)
+   (input/resize! 720.0 540.0))
+  ([run]
+   (if (fn? run)
+     (do (runner/stop-input!)
+         (input/resize! 720.0 540.0)
+         (run)
+         (runner/stop-input!)
+         (input/resize! 720.0 540.0))
+     (do (runner/stop-input!)
+         (input/resize! 720.0 540.0)))))
+
+
+(use-fixtures :each with-runner-input-reset)
 
 
 (def ^:private size {:width 720.0, :height 540.0})
@@ -34,8 +50,11 @@
 
 
 (defn- player-pos
+  "The :pos of the runner's player, read through the runner's public
+   accessor: cljd compiles a var quote to a bare symbol, so the JVM
+   @#'var-deref idiom has no cross-host form."
   []
-  (:pos @@#'runner/player*))
+  (:pos (runner/player-pos)))
 
 
 (deftest a-pressed-button-is-held-until-the-finger-lifts

@@ -1,0 +1,80 @@
+(ns dao.stream.waitset.driver
+  "Host policy — the Node (and browser) wake source for a wait-set owner.
+
+   There is no sleeping loop on this host, so a wake source arms exactly one
+   timer at a time: `arm!` cancels any armed timer and arms another at
+   `:sleep-ms`, and a firing calls the composition root's own tick — the
+   zero-argument function handed to `make-wake`, exactly as `yin.repl`'s
+   Node shell hands its step to a timer. That tick owns the state box and
+   performs check → consume `:woken` → cadence-step → `arm!`; the driver
+   never sees the waitset, the store, or any result, and passes the tick no
+   arguments — this is the bottom of the stack a host timer occupies, not a
+   disposition callback.
+
+   `nudge!` cancels the armed timer and schedules the same tick once on a
+   microtask; a pending flag coalesces repeated nudges and keeps a nudge
+   issued from inside the tick from re-entering it — the tick re-arms
+   itself before returning, so a swallowed in-tick nudge costs nothing
+   until the interval it armed. An idle composition costs one timer, zero
+   busy loops.")
+
+
+(defn make-wake
+  "A wake source over `tick`, the composition root's own zero-argument step.
+   The wake holds only sleep machinery — a timer id and a pending flag — and
+   no interpreter state."
+  [tick]
+  {:tick tick
+   :timer (volatile! nil)
+   :pending? (volatile! false)})
+
+
+(defn disarm!
+  "Cancel the armed timer, if any, and schedule nothing: teardown for an
+   owner whose tick has ended."
+  [wake]
+  (when-let [t @(:timer wake)]
+    (js/clearTimeout t))
+  (vreset! (:timer wake) nil)
+  nil)
+
+
+(defn arm!
+  "Cancel-and-rearm: after this call exactly one timer is armed, firing
+   `sleep-ms` from now. A nil `sleep-ms` arms the shortest timer the host
+   allows. Node timers are unref'ed where the host supports it, so an idle
+   owner never holds the process open."
+  [wake sleep-ms]
+  (disarm! wake)
+  (vreset! (:timer wake)
+           (let [t (js/setTimeout (fn []
+                                    (vreset! (:timer wake) nil)
+                                    ((:tick wake)))
+                                  (or sleep-ms 0))]
+             (when (fn? (.-unref t))
+               (.unref t))
+             t))
+  nil)
+
+
+(defn nudge!
+  "End the current sleep early: cancel the armed timer and schedule the tick
+   once on a microtask. Never runs the tick inline in the caller. Repeated
+   nudges coalesce — the pending flag stays up until the tick it scheduled
+   has run — and a nudge issued while the flag is up (from inside a tick,
+   before or after that tick's own `arm!`) touches nothing: no disarm, no
+   schedule, so the timer the tick last armed is the next round and the
+   owner is never left with neither. The tick's own re-arm is the next
+   guaranteed round; a swallowed nudge costs at most the interval then
+   armed."
+  [wake]
+  (when-not @(:pending? wake)
+    (disarm! wake)
+    (vreset! (:pending? wake) true)
+    (js/queueMicrotask
+      (fn []
+        (try
+          ((:tick wake))
+          (finally
+            (vreset! (:pending? wake) false))))))
+  nil)

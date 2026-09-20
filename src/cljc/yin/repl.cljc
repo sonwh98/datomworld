@@ -3,9 +3,11 @@
 
    The one thing this namespace adds to `yin.repl.driver` is cadence, which
    the DaoStream contract leaves to the runtime.  Per host, a line producer
-   appends what was typed to the input medium and returns; one ticker owns the
-   state value and calls `repl-step` serially.  There is no second state owner,
-   and no line handler evaluates, requests, polls, or prints.
+   appends what was typed to the input medium, nudges the step owner's wake
+   source, and returns; one ticker owns the state value and calls
+   `repl-step` serially at the interval `cadence-step` computes.  There is
+   no second state owner, and no line handler evaluates, requests, polls,
+   or prints.
 
    `yin.repl` is untouched and keeps its aliases; this is a second REPL beside
    it."
@@ -13,15 +15,28 @@
                        ["dart:convert" :as convert]
                        ["dart:core" :as dart-core]
                        ["dart:io" :as io]])
+            [dao.stream.waitset.cadence :as cadence]
+            [dao.stream.waitset.driver :as wake]
             [yin.repl.driver :as driver]
             [yin.repl.host :as host]
             [yin.repl.serve :as serve]))
 
 
 (def tick-millis
-  "Cadence of the single step owner.  Slow enough to cost nothing while idle,
-   fast enough that a remote result prints without waiting for a keystroke."
+  "The base cadence of the single step owner.  Slow enough to cost nothing
+   while anything moves, fast enough that a remote result prints without
+   waiting for a keystroke."
   25)
+
+
+(def default-cadence
+  "The tick owner's idle curve.  `tick-millis` is the base interval — what a
+   wake resets to and what a pending write holds — and an idle composition
+   backs off doubling to 200 ms.  Local input and the explicit stop trigger
+   nudge the wake source, so operator actions never wait the curve out; a
+   lost nudge costs at most the armed interval."
+  {:poll-ms tick-millis
+   :backoff {:factor 2 :ceiling-ms 200}})
 
 
 (def prompt "yin> ")
@@ -110,6 +125,18 @@
     [state'' server'' (mapv entry-text (into (vec entries) server-entries))]))
 
 
+(defn moved?
+  "The tick owner's cadence bit, computed from this tick's own results: true
+   when there are lines to print, when the endpoint reports movement — a
+   woken probe, a published notice — or when either composition still owes a
+   write.  A pending write keeps cadence at the base interval; it must never
+   wait out a backoff ceiling."
+  [state server lines]
+  (boolean (or (seq lines)
+               (driver/pending-write? state)
+               (and server (serve/moved? server)))))
+
+
 ;; =============================================================================
 ;; Shutdown
 ;; =============================================================================
@@ -142,9 +169,15 @@
    This is the whole of what a host signal handler, a headless supervisor, or a
    test does to stop the composition.  It is a line producer like any other, so
    the one step owner still performs the shutdown — `(quit)` stops the shell,
-   and the shell stopping is what stops the endpoint."
-  [state]
-  (driver/submit-line! (:input state) "(quit)"))
+   and the shell stopping is what stops the endpoint.  The wake source, when
+   one is supplied, is nudged so the step owner runs the quit line at once
+   rather than at the idle interval it had armed."
+  ([state]
+   (driver/submit-line! (:input state) "(quit)"))
+  ([state w]
+   (let [result (request-stop! state)]
+     (when w (wake/nudge! w))
+     result)))
 
 
 (defn stop-tick
@@ -176,8 +209,9 @@
        "The shell has quit, so the endpoint stops before the host exits: ask it
         once, then keep stepping until it reports `:stopped` or the bounded
         budget runs out.  A connected client must observe `:ws/ended`, not the
-        `:ws/closed` a process exit would leave behind."
-       [server]
+        `:ws/closed` a process exit would leave behind.  The bounded drain
+        sleeps the base interval — it is a budget, not a cadence."
+       [server w]
        (when server
          (loop [server (serve/stop! server)
                 remaining stop-ticks]
@@ -188,12 +222,17 @@
              (cond
                stopped? nil
                (zero? remaining) (println stop-timeout-text)
-               :else (do (Thread/sleep ^long tick-millis)
+               :else (do (wake/sleep! w tick-millis)
                          (recur server' (dec remaining))))))))
 
      (defn poll-loop!
        "The sole owner of REPL and endpoint state on the JVM.  It carries both
         values through serial steps; nothing is shared with the reader.
+
+        Its cadence is `cadence/cadence-step` over `default-cadence`, slept
+        through the wake source `w` (one is made when the caller supplied
+        none): any line the reader deposits — and the explicit stop trigger —
+        nudges it, so operator actions never wait out the idle curve.
 
         It also owns the exit.  The reader is parked in `read-line` and cannot
         observe that the shell has quit, so a typed `(quit)` would otherwise
@@ -203,57 +242,71 @@
        ([state server headless?]
         (poll-loop! state server headless? #(.halt (Runtime/getRuntime) 0)))
        ([state server headless? exit!]
+        (poll-loop! state server headless? exit! (wake/make-wake)))
+       ([state server headless? exit! w]
         (loop [state state
-               server server]
+               server server
+               cadence (cadence/init default-cadence)]
           (let [[state' server' lines] (step-all state server
-                                                 (System/currentTimeMillis))]
+                                                  (System/currentTimeMillis))]
             (doseq [line lines]
               (println line))
             (if (:running? state')
               (do (when (and (seq lines) (not headless?))
                     (print-prompt!))
-                  (Thread/sleep ^long tick-millis)
-                  (recur state' server'))
-              (do (drain-server! server')
+                  (let [{:keys [cadence-state sleep-ms]}
+                        (cadence/cadence-step cadence (moved? state' server' lines))]
+                    (wake/sleep! w sleep-ms)
+                    (recur state' server' cadence-state)))
+              (do (drain-server! server' w)
                   (println)
                   (exit!)))))))
 
      (defn- read-loop!
-       "The reader parks in `read-line` and appends.  It reads no state."
-       [input]
+       "The reader parks in `read-line` and appends, nudging the step owner's
+        wake: a typed line ends the idle sleep at once.  It reads no state."
+       [input w]
        (loop []
          (if-let [line (read-line)]
            (do (driver/submit-line! input line)
+               (wake/nudge! w)
                (recur))
-           (driver/submit-line! input "(quit)"))))
+           (do (driver/submit-line! input "(quit)")
+               (wake/nudge! w)))))
 
      (defn -main
        [& args]
        (let [opts (parse-args args)
              state (boot opts)
              server (boot-server opts)
-             headless? (boolean (:headless? opts))]
+             headless? (boolean (:headless? opts))
+             w (wake/make-wake)]
          (doseq [line (banner opts)]
            (println line))
-         (let [poller (Thread. ^Runnable (fn [] (poll-loop! state server headless?)))]
+         (let [poller (Thread. ^Runnable (fn [] (poll-loop! state
+                                                            server
+                                                            headless?
+                                                            #(.halt (Runtime/getRuntime) 0)
+                                                            w)))]
            (.setDaemon poller true)
            (.start poller)
            ;; Headless attends the endpoint only: there is no reader, so the
            ;; step owner is joined until it stops, and the explicit stop trigger
            ;; is the host signal a shutdown hook observes.  The hook appends a
-           ;; line like any producer and then waits for the one step owner.
+           ;; line like any producer, nudges, and then waits for the one step
+           ;; owner.
            (if headless?
              (do (.addShutdownHook
                    (Runtime/getRuntime)
                    (Thread. ^Runnable (fn []
-                                        (request-stop! state)
+                                        (request-stop! state w)
                                         (.join poller ^long stop-join-millis))))
                  (.join poller))
              (do (print-prompt!)
                  ;; End-of-input is one way to stop; a typed `(quit)` is the
                  ;; other, and the step owner has already exited the process by
                  ;; the time this join is reached in that case.
-                 (read-loop! (:input state))
+                 (read-loop! (:input state) w)
                  (.join poller ^long stop-join-millis))))
          (.halt (Runtime/getRuntime) 0)))))
 
@@ -265,50 +318,74 @@
 #?(:cljs
    (do
      (defn- run-node!
+       "The tick owner on Node: one wake source arms exactly one timer per
+        round, at the interval `cadence-step` computes over
+        `default-cadence`.  Returns the wake so the composition can wire its
+        line producers — the readline handlers, the stop signals — as
+        `nudge!` callers.
+
+        `repl-step` is synchronous and the Node event loop is single
+        threaded, so a tick cannot overlap itself.  The box is host cadence
+        plumbing: the tick is the only reader and writer of it.  `:stopping`
+        is nil while the shell runs and a tick budget afterwards: the
+        endpoint is asked to stop once and stepped at the base interval — a
+        bounded drain, not a curve — until it reports it."
        [state server rl]
-       ;; `repl-step` is synchronous and the Node event loop is single threaded,
-       ;; so this interval callback cannot overlap itself.  The box is host
-       ;; cadence plumbing: the interval is the only reader and writer of it.
-       ;; `:stopping` is nil while the shell runs and a tick budget afterwards:
-       ;; the endpoint is asked to stop once and stepped until it reports it.
-       (let [box (atom {:state state :server server :stopping nil})
-             timer (atom nil)
+       (let [box (atom {:state state :server server :stopping nil
+                        :cadence (cadence/init default-cadence)})
+             wake-ref (volatile! nil)
              finish! (fn []
-                       (js/clearInterval @timer)
+                       (wake/disarm! @wake-ref)
                        (when rl (.close rl))
-                       (js/process.exit 0))]
-         (reset! timer
-                 (js/setInterval
-                   (fn []
-                     (let [{:keys [state server stopping]} @box]
-                       (if (nil? stopping)
-                         (let [[state' server' lines] (step-all state server
-                                                                (js/Date.now))]
-                           (reset! box {:state state' :server server' :stopping nil})
-                           (doseq [line lines]
-                             (js/console.log line))
-                           (cond
-                             (:running? state')
-                             (when (and (seq lines) rl) (.prompt rl))
+                       (js/process.exit 0))
+             tick (fn []
+                    ;; The interval timer this namespace replaced fired
+                    ;; again whatever happened, so a tick whose body throws
+                    ;; must not kill the owner: arm the fallback first and
+                    ;; let the body's own `arm!` replace it. `finish!`
+                    ;; disarms, so a finished owner parks nothing.
+                    (wake/arm! @wake-ref tick-millis)
+                    (let [{:keys [state server stopping cadence]} @box]
+                      (if (nil? stopping)
+                        (let [[state' server' lines] (step-all state server
+                                                               (js/Date.now))]
+                          (reset! box {:state state'
+                                       :server server'
+                                       :stopping nil
+                                       :cadence cadence})
+                          (doseq [line lines]
+                            (js/console.log line))
+                          (cond
+                            (:running? state')
+                            (let [{:keys [cadence-state sleep-ms]}
+                                  (cadence/cadence-step cadence
+                                                        (moved? state' server' lines))]
+                              (swap! box assoc :cadence cadence-state)
+                              (when (and (seq lines) rl) (.prompt rl))
+                              (wake/arm! @wake-ref sleep-ms))
 
-                             server'
-                             (swap! box assoc
-                                    :server (serve/stop! server')
-                                    :stopping stop-ticks)
+                            server'
+                            (do (swap! box assoc
+                                       :server (serve/stop! server')
+                                       :stopping stop-ticks)
+                                (wake/arm! @wake-ref tick-millis))
 
-                             :else (finish!)))
-                         (let [[server' lines stopped?] (stop-tick server
-                                                                   (js/Date.now))]
-                           (doseq [line lines]
-                             (js/console.log line))
-                           (cond
-                             stopped? (finish!)
-                             (zero? stopping) (do (js/console.log stop-timeout-text)
-                                                  (finish!))
-                             :else (swap! box assoc
-                                          :server server'
-                                          :stopping (dec stopping)))))))
-                   tick-millis))))
+                            :else (finish!)))
+                        (let [[server' lines stopped?] (stop-tick server
+                                                                  (js/Date.now))]
+                          (doseq [line lines]
+                            (js/console.log line))
+                          (cond
+                            stopped? (finish!)
+                            (zero? stopping) (do (js/console.log stop-timeout-text)
+                                                 (finish!))
+                            :else (do (swap! box assoc
+                                             :server server'
+                                             :stopping (dec stopping))
+                                      (wake/arm! @wake-ref tick-millis)))))))]
+         (vreset! wake-ref (wake/make-wake tick))
+         (wake/arm! @wake-ref tick-millis)
+         @wake-ref))
 
      (defn -main
        [& args]
@@ -323,15 +400,23 @@
                                          :prompt prompt}))]
          (doseq [line (banner opts)]
            (js/console.log line))
-         (if rl
-           (do (.on rl "line" (fn [line] (driver/submit-line! (:input state) line)))
-               (.on rl "close" (fn [] (driver/submit-line! (:input state) "(quit)")))
-               (.prompt rl))
-           ;; Headless has no reader, so the explicit stop trigger is the host
-           ;; signal: it appends a line and returns, like any producer.
-           (doseq [signal ["SIGINT" "SIGTERM"]]
-             (.on js/process signal (fn [] (request-stop! state)))))
-         (run-node! state server rl)))))
+         ;; The tick owner arms its first round, and the composition wires the
+         ;; deposit it hands each line producer with the nudge: a typed line
+         ;; ends the idle sleep at once.
+         (let [w (run-node! state server rl)]
+           (if rl
+             (do (.on rl "line" (fn [line]
+                                  (driver/submit-line! (:input state) line)
+                                  (wake/nudge! w)))
+                 (.on rl "close" (fn []
+                                   (driver/submit-line! (:input state) "(quit)")
+                                   (wake/nudge! w)))
+                 (.prompt rl))
+             ;; Headless has no reader, so the explicit stop trigger is the host
+             ;; signal: it appends a line, nudges, and returns, like any
+             ;; producer.
+             (doseq [signal ["SIGINT" "SIGTERM"]]
+               (.on js/process signal (fn [] (request-stop! state w))))))))))
 
 
 ;; =============================================================================
@@ -350,52 +435,75 @@
        (.flush io/stdout))
 
      (defn- run-dart!
-       "One `Timer.periodic` owns both values.  A synchronous poll loop would
-        deadlock the Dart event loop: IO never progresses, so `blocked` never
-        clears.
+       "One wake source owns the tick: exactly one `Timer` armed per round, at
+        the interval `cadence-step` computes over `default-cadence`, because a
+        synchronous poll loop would deadlock the Dart event loop — IO never
+        progresses, so `blocked` never clears.  Returns the wake so the
+        composition can wire its line producers — the stdin listener, the
+        stop signals — as `nudge!` callers.
 
         `:stopping` is nil while the shell runs and a tick budget afterwards:
-        the endpoint is asked to stop once and stepped until it reports it, so
-        the host does not exit with a live listener."
+        the endpoint is asked to stop once and stepped at the base interval —
+        a bounded drain, not a curve — until it reports it, so the host does
+        not exit with a live listener."
        [state server headless?]
-       (let [box (atom {:state state :server server :stopping nil})]
-         (async/Timer.periodic
-           (dart-core/Duration .milliseconds tick-millis)
-           (fn [^async/Timer timer]
-             (let [{:keys [state server stopping]} @box
-                   now (.-millisecondsSinceEpoch (dart-core/DateTime.now))
-                   finish! (fn []
-                             (.cancel timer)
-                             (io/exit 0)
-                             nil)]
-               (if (nil? stopping)
-                 (let [[state' server' lines] (step-all state server now)]
-                   (reset! box {:state state' :server server' :stopping nil})
-                   (doseq [line lines]
-                     (write-line! line))
-                   (cond
-                     (:running? state')
-                     (when (and (seq lines) (not headless?))
-                       (print-prompt!))
+       (let [box (atom {:state state :server server :stopping nil
+                        :cadence (cadence/init default-cadence)})
+             wake-ref (volatile! nil)
+             finish! (fn []
+                       (wake/disarm! @wake-ref)
+                       (io/exit 0)
+                       nil)
+             tick (fn []
+                    ;; The periodic timer this namespace replaced fired
+                    ;; again whatever happened, so a tick whose body throws
+                    ;; must not kill the owner: arm the fallback first and
+                    ;; let the body's own `arm!` replace it. `finish!`
+                    ;; disarms, so a finished owner parks nothing.
+                    (wake/arm! @wake-ref tick-millis)
+                    (let [{:keys [state server stopping cadence]} @box
+                          now (.-millisecondsSinceEpoch (dart-core/DateTime.now))]
+                      (if (nil? stopping)
+                        (let [[state' server' lines] (step-all state server now)]
+                          (reset! box {:state state'
+                                       :server server'
+                                       :stopping nil
+                                       :cadence cadence})
+                          (doseq [line lines]
+                            (write-line! line))
+                          (cond
+                            (:running? state')
+                            (let [{:keys [cadence-state sleep-ms]}
+                                  (cadence/cadence-step cadence
+                                                        (moved? state' server' lines))]
+                              (swap! box assoc :cadence cadence-state)
+                              (when (and (seq lines) (not headless?))
+                                (print-prompt!))
+                              (wake/arm! @wake-ref sleep-ms))
 
-                     server'
-                     (do (swap! box assoc
-                                :server (serve/stop! server')
-                                :stopping stop-ticks)
-                         nil)
+                            server'
+                            (do (swap! box assoc
+                                       :server (serve/stop! server')
+                                       :stopping stop-ticks)
+                                (wake/arm! @wake-ref tick-millis)
+                                nil)
 
-                     :else (finish!)))
-                 (let [[server' lines stopped?] (stop-tick server now)]
-                   (doseq [line lines]
-                     (write-line! line))
-                   (cond
-                     stopped? (finish!)
-                     (zero? stopping) (do (write-line! stop-timeout-text)
-                                          (finish!))
-                     :else (do (swap! box assoc
-                                      :server server'
-                                      :stopping (dec stopping))
-                               nil)))))))))
+                            :else (finish!)))
+                        (let [[server' lines stopped?] (stop-tick server now)]
+                          (doseq [line lines]
+                            (write-line! line))
+                          (cond
+                            stopped? (finish!)
+                            (zero? stopping) (do (write-line! stop-timeout-text)
+                                                 (finish!))
+                            :else (do (swap! box assoc
+                                             :server server'
+                                             :stopping (dec stopping))
+                                      (wake/arm! @wake-ref tick-millis)
+                                      nil))))))]
+         (vreset! wake-ref (wake/make-wake tick))
+         (wake/arm! @wake-ref tick-millis)
+         @wake-ref))
 
      (defn -main
        [& args]
@@ -405,18 +513,27 @@
              headless? (boolean (:headless? opts))]
          (doseq [line (banner opts)]
            (write-line! line))
-         (if headless?
-           ;; Headless has no reader, so the explicit stop trigger is the host
-           ;; signal: it appends a line and returns, like any producer.
-           (-> (.watch io/ProcessSignal.sigint)
-               (.listen (fn [_signal] (request-stop! state))))
-           (do (-> io/stdin
-                   (.transform (.-decoder convert/utf8))
-                   (.transform (convert/LineSplitter.))
-                   (.listen (fn [line] (driver/submit-line! (:input state) line))
-                            .onDone (fn [] (driver/submit-line! (:input state) "(quit)"))))
-               (print-prompt!)))
-         (run-dart! state server headless?)))
+         ;; The tick owner arms its first round, and the composition wires the
+         ;; deposit it hands each line producer with the nudge: a typed line
+         ;; ends the idle sleep at once.  A timer fires only on the event
+         ;; loop, so arming before the producers are wired races nothing.
+         (let [w (run-dart! state server headless?)]
+           (if headless?
+             ;; Headless has no reader, so the explicit stop trigger is the
+             ;; host signal: it appends a line, nudges, and returns, like any
+             ;; producer.
+             (-> (.watch io/ProcessSignal.sigint)
+                 (.listen (fn [_signal] (request-stop! state w))))
+             (do (-> io/stdin
+                     (.transform (.-decoder convert/utf8))
+                     (.transform (convert/LineSplitter.))
+                     (.listen (fn [line]
+                                (driver/submit-line! (:input state) line)
+                                (wake/nudge! w))
+                              .onDone (fn []
+                                        (driver/submit-line! (:input state) "(quit)")
+                                        (wake/nudge! w))))
+                 (print-prompt!))))))
 
      (defn ^{:dart/name main} run-main
        [args]
