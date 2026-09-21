@@ -218,10 +218,13 @@ existing `:yin/*` schema and shares no transport code. It exposes:
 
 Named storage, renderers, Datalog queries, source maps, and diagnostics consume
 the named stream. Deduplication, cache lookup, and alpha-equivalence consume
-the projected segment/fingerprint. The semantic VM and `yin.vm.linearize`
-continue to consume the named AST. A waitset is optional only for a composition
-that owns several independent waiters; no lease fact, lease timer, callback,
-or scheduler is introduced here.
+the projected segment/fingerprint. The named AST remains the execution source:
+`yin.vm/ast->datoms` emits named AST datoms; `yin.vm.linearize` lowers those
+datoms to `:yin.code/*` datoms, which the semantic VM loads and executes;
+`yin.vm.ast-walker` can evaluate the named AST map directly. None of these
+execution paths consumes the de Bruijn projection. A waitset is optional only
+for a composition that owns several independent waiters; no lease fact, lease
+timer, callback, or scheduler is introduced here.
 
 ## 7. Implementation plan
 
