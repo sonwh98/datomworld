@@ -12,7 +12,9 @@
   #?@(:cljd [(:require ["dart:convert" :as dart-convert]
                        ["dart:io" :as dart-io]
                        ["dart:typed_data" :as typed])]
-      :clj [(:require [clojure.data.json :as json])]))
+      :clj [(:require [clojure.data.json :as json]
+                      [dao.jing.cbor :as cbor])]
+      :cljs [(:require [dao.jing.cbor :as cbor])]))
 
 
 (def path
@@ -111,3 +113,150 @@
     #?(:cljd (typed/Uint8List.fromList ints)
        :clj (byte-array (map unchecked-byte ints))
        :cljs (js/Uint8Array.from (clj->js ints)))))
+
+
+;; =============================================================================
+;; Codec-test helpers (JVM and ClojureScript; J2 adds the Dart construction).
+;; They build host values from the corpus input DSL (README "Input DSL") and
+;; never compute expected bytes.
+;; =============================================================================
+
+#?(:cljd nil
+   :default
+   (defn bytes->hex
+     "Lowercase hex of host bytes."
+     [bs]
+     (apply str (map (fn [i]
+                       (let [b #?(:clj (bit-and (aget ^bytes bs i) 0xff)
+                                  :cljs (aget bs i))]
+                         (str (when (< b 16) "0")
+                              #?(:clj (Integer/toHexString b)
+                                 :cljs (.toString b 16)))))
+                     (range (alength bs))))))
+
+
+#?(:cljd nil
+   :default
+   (defrecord Probe
+     [a]))
+
+
+#?(:cljd nil
+   :default
+   (def not-constructible
+     "Marks a DSL node this host cannot build (no such host type)."
+     ::not-constructible))
+
+
+#?(:cljd nil
+   :default
+   (defn- text
+     "A DSL text: a JSON string, or {\"utf16\" [hex code units]}."
+     [t]
+     (if (string? t)
+       t
+       (let [codes (mapv (fn [u] (let [[hi lo] (hex->ints u)] (+ (* 256 hi) lo)))
+                         (get t "utf16"))]
+         #?(:clj (String. (char-array (map char codes)))
+            :cljs (apply js/String.fromCharCode codes))))))
+
+
+#?(:cljd nil
+   :default
+   (defn- host-int
+     "The host integer for a DSL int: small when it fits the host's small
+      type and \"host\" is not \"big\", else the host big-integer type."
+     [s big?]
+     #?(:clj (let [b (bigint s)]
+               (if (or big? (not (<= Long/MIN_VALUE b Long/MAX_VALUE)))
+                 (if big? (biginteger b) b)
+                 (long b)))
+        :cljs (let [b (js/BigInt s)
+                    n (js/Number b)]
+                (if (and (not big?) (js/Number.isSafeInteger n)) n b)))))
+
+
+#?(:cljd nil
+   :default
+   (defn- float32-widened
+     "The exact float64 widening of float32 bits (8 hex digits), as the host
+      would hold a native float32: a Float on the JVM, the widened carrier on
+      JavaScript, which has no float32 type (README A16)."
+     [hex]
+     #?(:clj (Float/intBitsToFloat (unchecked-int (Long/parseLong hex 16)))
+        :cljs (let [view (js/DataView. (js/ArrayBuffer. 4))]
+                (.setUint32 view 0 (js/parseInt hex 16))
+                (cbor/float64 (.getFloat32 view 0))))))
+
+
+#?(:cljd nil
+   :default
+   (defn- host-value
+     "The unsupported host value a {\"t\":\"host\"} node names, or
+      not-constructible where the host has no such type."
+     [kind v]
+     (case kind
+       "char" #?(:clj (first v) :cljs not-constructible)
+       "inst" #?(:clj (java.util.Date/from (java.time.Instant/parse v))
+                 :cljs (js/Date. v))
+       "uuid" #?(:clj (java.util.UUID/fromString v) :cljs (uuid v))
+       "fn" identity
+       "record" (->Probe 1)
+       "js-unsafe-integer" #?(:clj not-constructible :cljs (js/Number v)))))
+
+
+#?(:cljd nil
+   :default
+   (defn input->value
+     "The host value a corpus DSL input node describes."
+     [node]
+     (let [t (get node "t")
+           build (fn [coll]
+                   (if-some [m (get node "meta")]
+                     (with-meta coll (input->value m))
+                     coll))
+           items #(mapv input->value (get node "items"))
+           entries #(mapv (fn [[k v]] [(input->value k) (input->value v)])
+                          (get node "entries"))]
+       (case t
+         "nil" nil
+         "bool" (get node "v")
+         "int" (host-int (get node "v") (= "big" (get node "host")))
+         "float64" (cbor/float64-from-bits (get node "bits"))
+         "float32" (float32-widened (get node "bits"))
+         "decimal" (cbor/decimal (host-int (get node "exponent") false)
+                                 (get node "mantissa"))
+         "ratio" (cbor/ratio (host-int (get node "num") true)
+                             (host-int (get node "den") true))
+         "str" (text (get node "v"))
+         "bytes" (hex->bytes (get node "hex"))
+         "keyword" (keyword (some-> (get node "ns") text) (text (get node "name")))
+         "symbol" (build (symbol (some-> (get node "ns") text) (text (get node "name"))))
+         "vector" (build (items))
+         "list" (build (apply list (items)))
+         "seq" (build (lazy-seq (seq (items))))
+         "map" (build (reduce (fn [m [k v]] (assoc m k v)) {} (entries)))
+         "sorted-map" (build (into (sorted-map) (entries)))
+         "set" (build (reduce conj #{} (items)))
+         "sorted-set" (build (into (sorted-set) (items)))
+         "host" (host-value (get node "kind") (get node "v"))))))
+
+
+#?(:cljd nil
+   :default
+   (defn constructible?
+     "False when the input contains a host value this host cannot build."
+     [value]
+     (not (some #(= not-constructible %)
+                (tree-seq coll? seq value)))))
+
+
+#?(:cljd nil
+   :default
+   (defn dsl-member-count
+     "How many members the DSL lists for a map or set input node, else nil."
+     [node]
+     (case (get node "t")
+       ("map" "sorted-map") (count (get node "entries"))
+       ("set" "sorted-set") (count (get node "items"))
+       nil)))
