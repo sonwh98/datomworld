@@ -115,10 +115,11 @@ the enclosing scope.
 
 ## 4. Projected form and published dimension
 
-The projection publishes a `:yin.debruijn/*` dimension descriptor, as required
-by `docs/design/datom.md`'s dimension protocol. Its descriptor hash is the
-hash domain separator. A projected semantic node is a content-addressed record
-whose identity is a 32-byte node hash `h`.
+The projection defines and exports a `:yin.debruijn/*` dimension descriptor,
+whose content hash is the node-hash domain separator. Persistent publication or
+discovery of that descriptor bundle is outside D0–D6; no external registry is
+required by the dimension protocol. A projected semantic node is a
+content-addressed record whose identity is a 32-byte node hash `h`.
 
 The descriptor declares the projected d5 semantic slots in this order:
 `[:yin.debruijn/hash :yin.debruijn/type :yin.debruijn/arity
