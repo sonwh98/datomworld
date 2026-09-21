@@ -10,6 +10,8 @@
   (:require [clojure.test :refer [are deftest is testing]]
             [dao.datom :as datom]
             [dao.jing :as jing]
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ring]
             [yin.vm :as vm]
             [yin.vm.debruijn :as d]
             [yin.vm.engine :as engine]))
@@ -953,3 +955,266 @@
                          (some #(when (= :literal (:yin.debruijn/type %))
                                   (:yin.debruijn/value %)))))
         "the decomposed input's record carries the composed NFC spelling")))
+
+
+;; =============================================================================
+;; D4: the dao.stream forward adapter (§6, §7-D4)
+;; =============================================================================
+
+(defn- buffer
+  [capacity]
+  (:dao.stream/handle (ring/create! {:dao.stream/type ring/transport-type,
+                                     ring/capacity-key capacity})))
+
+
+(defn- fill!
+  [handle values]
+  (doseq [v values]
+    (stream/append! handle v))
+  handle)
+
+
+(defn- sealed!
+  "Close `handle` and return it — close! answers an outcome map, not the
+   handle, so a threading composition would lose the handle."
+  [handle]
+  (stream/close! handle)
+  handle)
+
+
+(defn- oldest-cursor
+  [handle]
+  (:dao.stream/cursor (stream/cursor handle stream/anchor-oldest)))
+
+
+(defn- drain
+  [handle]
+  (loop [cursor (oldest-cursor handle), out []]
+    (let [result (stream/next handle cursor)]
+      (if (= :dao.stream/ok (:dao.stream/outcome result))
+        (recur (:dao.stream/cursor result) (conj out (:dao.stream/value result)))
+        out))))
+
+
+(defn- drive
+  "A host driver over forward-step: step while the adapter says
+   :continue. A :retry is the adapter handing cadence back — here the
+   test is the host, so each drive call is one cadence tick."
+  [source destination state]
+  (loop [state state, guard 4000]
+    (if (or (zero? guard) (not (contains? #{nil :continue} (:status state))))
+      state
+      (recur (d/forward-step source destination state {:batch-budget 8})
+             (dec guard)))))
+
+
+(defn- pump
+  "A patient host: step through retries too — every tick is another
+   cadence chance for a blocked read or a full write."
+  [source destination state]
+  (loop [state state, guard 4000]
+    (if (or (zero? guard) (not (contains? #{nil :continue :retry} (:status state))))
+      state
+      (recur (d/forward-step source destination state {:batch-budget 8})
+             (dec guard)))))
+
+
+(defn- scripted-writer
+  "A writer answering the queued outcomes, then ok, recording what it
+   accepts — macro-test's shape."
+  [outcomes]
+  (let [accepted (atom [])
+        queue (atom outcomes)]
+    {:accepted accepted,
+     :writer (reify stream/IDaoStreamWriter
+               (append!
+                 [_ v]
+                 (let [outcome (or (first @queue) :dao.stream/ok)]
+                   (swap! queue rest)
+                   (when (= :dao.stream/ok outcome)
+                     (swap! accepted conj v))
+                   {:dao.stream/outcome outcome})))}))
+
+
+(defn- refusing-reader
+  "A reader answering one fixed non-ok outcome forever."
+  [outcome]
+  (reify stream/IDaoStreamReader
+    (next
+      [_ _cursor]
+      {:dao.stream/outcome outcome})))
+
+
+(deftest forward-step-projects-one-graph-to-a-destination
+  (let [expected (d/projected->datoms (project worked-example))
+        source (-> (buffer 64) (fill! (datoms-of worked-example)) (sealed!))
+        destination (buffer 64)
+        final (drive source destination (d/forward-initial-state (oldest-cursor source)))]
+    (is (= :source-ended (:status final)))
+    (is (= expected (drain destination)))
+    (is (pos? (:forwarded final))
+        ":forwarded counts this call's writes, as dao.stream.forward's does")))
+
+
+(deftest forward-step-frames-adjacent-graphs-that-reuse-tempids
+  (let [[_ ds-one] (vm/ast->datoms-with-root (lam '[x] (v 'x)))
+        [_ ds-two] (vm/ast->datoms-with-root (lam '[x] (lit 42)))
+        source (-> (buffer 64) (fill! (concat ds-one ds-two)) (sealed!))
+        destination (buffer 64)
+        final (drive source destination (d/forward-initial-state (oldest-cursor source)))
+        forwarded (drain destination)]
+    (is (= :source-ended (:status final)))
+    (is (= (set (map first ds-one)) (set (map first ds-two)))
+        "both graphs mint -16-based tempids")
+    (is (not= (d/project-datoms ds-one) (d/project-datoms ds-two))
+        "the two graphs are semantically different, so a replay of one
+         projection for the other cannot pass")
+    (is (= (concat (d/projected->datoms (d/project-datoms ds-one))
+                   (d/projected->datoms (d/project-datoms ds-two)))
+           forwarded))
+    (is (= 2 (count (filter #(= :yin.debruijn/root (nth % 1)) forwarded)))
+        "two graphs, two explicit root markers")))
+
+
+(deftest end-of-stream-with-a-partial-frame-diagnoses
+  (testing "unclosed :yin/* datoms are a terminal partial frame"
+    (let [partial (vec (butlast (datoms-of worked-example)))
+          source (-> (buffer 64) (fill! partial) (sealed!))
+          destination (buffer 64)
+          final (drive source destination (d/forward-initial-state (oldest-cursor source)))]
+      (is (= :partial-frame (:status final)))
+      (is (= :partial-frame (:rule (:diagnostic final))))
+      (is (= partial (:datoms (:diagnostic final))))
+      (is (zero? (:forwarded final)))
+      (is (= final (d/forward-step source destination final {:batch-budget 8}))
+          "terminal state is data: re-stepping it is a no-op")))
+  (testing "trailing decorations from other namespaces close cleanly"
+    (let [source (-> (buffer 64)
+                     (fill! (datoms-of worked-example))
+                     (fill! [[-16 :yin.code/pc 3 0 1], [-9 :db/ident :x 0 1]])
+                     (sealed!))
+          destination (buffer 64)
+          final (drive source destination (d/forward-initial-state (oldest-cursor source)))]
+      (is (= :source-ended (:status final))))))
+
+
+(deftest blocked-input-retries-without-progress
+  (let [source (fill! (buffer 64) (datoms-of worked-example))
+        destination (buffer 64)
+        final (drive source destination (d/forward-initial-state (oldest-cursor source)))]
+    (is (= :retry (:status final)))
+    (is (= :dao.stream/blocked (:outcome final)))
+    (is (= (d/projected->datoms (project worked-example)) (drain destination))
+        "the closed graph was forwarded before the tail blocked")))
+
+
+(deftest a-half-read-frame-is-carried-across-a-retry
+  (let [datoms (datoms-of worked-example)
+        half (quot (count datoms) 2)
+        source (fill! (buffer 64) (take half datoms))
+        destination (buffer 64)
+        blocked (drive source destination (d/forward-initial-state (oldest-cursor source)))]
+    (is (= :retry (:status blocked)))
+    (is (= :dao.stream/blocked (:outcome blocked)))
+    (is (= (vec (take half datoms)) (:frame blocked))
+        "the half-read frame rides in the retry state — dropping it would
+         silently lose the graph's first datoms")
+    (is (zero? (:forwarded blocked))
+        "nothing is forwarded before the frame closes")
+    (fill! source (drop half datoms))
+    (sealed! source)
+    (let [final (pump source destination blocked)]
+      (is (= :source-ended (:status final)))
+      (is (= (d/projected->datoms (project worked-example)) (drain destination))
+          "the retried step completes the SAME graph, first half included"))))
+
+
+(deftest internal-defects-are-never-mislabeled-input
+  (is (= {:status :invalid-input, :diagnostic {:rule :dangling-ref}}
+         (d/exception-diagnostic (ex-info "dangling" {:rule :dangling-ref}))))
+  ;; a throwable carrying no diagnostic data is an internal defect with
+  ;; its message — never :invalid-input. The message is the host's
+  ;; ex-message: ClojureDart renders a plain Exception's as its toString.
+  (let [plain #?(:clj (RuntimeException. "boom")
+                 :cljs (js/Error. "boom")
+                 :cljd (Exception. "boom"))
+        message #?(:clj "boom"
+                   :cljs "boom"
+                   :cljd "Exception: boom")]
+    (is (= {:status :internal-error,
+            :diagnostic {:rule :internal-error, :message message}}
+           (d/exception-diagnostic plain)))))
+
+
+(deftest pending-writes-wait-for-host-cadence
+  (let [expected (d/projected->datoms (project worked-example))
+        source (-> (buffer 64) (fill! (datoms-of worked-example)) (sealed!))
+        {:keys [accepted writer]} (scripted-writer [:dao.stream/full])
+        first-pass (drive source writer (d/forward-initial-state (oldest-cursor source)))]
+    (is (= :retry (:status first-pass)))
+    (is (= :dao.stream/full (:outcome first-pass)))
+    (is (= (count expected) (count (:pending first-pass))))
+    (is (empty? @accepted)
+        "a full destination keeps every pending write explicit")
+    (let [second-pass (pump source writer first-pass)]
+      (is (= :source-ended (:status second-pass)))
+      (is (= expected @accepted))
+      (is (pos? (:forwarded second-pass)) "the retry cadence completed the writes"))))
+
+
+(deftest destination-defects-are-terminal
+  (let [source (-> (buffer 64) (fill! (datoms-of worked-example)) (sealed!))
+        destination (sealed! (buffer 64))
+        final (drive source destination (d/forward-initial-state (oldest-cursor source)))]
+    (is (= :destination-closed (:status final)))
+    (is (= :dao.stream/closed (:outcome final)))))
+
+
+(deftest source-transport-defects-are-terminal
+  (let [destination (buffer 8)]
+    (doseq [[outcome status] [[:dao.stream/transport-error :source-transport-error]
+                              [:dao.stream/gap :source-gap]
+                              [:dao.stream/cursor-mismatch :source-cursor-mismatch]
+                              [:dao.stream/invalid-cursor :source-invalid-cursor]]]
+      (let [final (d/forward-step (refusing-reader outcome)
+                                  destination
+                                  (d/forward-initial-state :cursor)
+                                  {:batch-budget 4})]
+        (is (= status (:status final)))
+        (is (= outcome (:outcome final)))))))
+
+
+(deftest invalid-stream-input-is-a-terminal-diagnostic
+  (testing "a malformed datom"
+    (let [source (-> (buffer 64) (fill! [(first (datoms-of worked-example))])
+                     (fill! [[16 :yin/type]])
+                     (sealed!))
+          destination (buffer 8)
+          final (drive source destination (d/forward-initial-state (oldest-cursor source)))]
+      (is (= :invalid-input (:status final)))
+      (is (= :malformed-datom (:rule (:diagnostic final))))))
+  (testing "a projection defect through the stream"
+    (let [dangling (mapv (fn [[e a _v :as x]]
+                           (if (= :yin/body a) [e a -999 (nth x 3) (nth x 4)] x))
+                         (datoms-of (lam '[x] (v 'x))))
+          source (-> (buffer 64) (fill! dangling) (sealed!))
+          destination (buffer 8)
+          final (drive source destination (d/forward-initial-state (oldest-cursor source)))]
+      (is (= :invalid-input (:status final)))
+      (is (= :dangling-ref (:rule (:diagnostic final)))))))
+
+
+(deftest wrongly-typed-projected-slots-diagnose-before-hashing
+  (let [ds (d/projected->datoms (project (lam '[x] (v 'x))))
+        revalue (fn [attr value]
+                  (mapv (fn [x]
+                          (if (= attr (nth x 1))
+                            [(nth x 0) (nth x 1) value (nth x 3) (nth x 4)]
+                            x))
+                        ds))]
+    (is (= :unsupported-value
+           (:rule (throws-data #(d/datoms->projected (revalue :yin.debruijn/bound 5)))))
+        "a scalar slot outside its declared tuple shape")
+    (is (= :unsupported-value
+           (:rule (throws-data #(d/datoms->projected (revalue :yin.debruijn/body 42)))))
+        "a numeric child ref")))

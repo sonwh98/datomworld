@@ -44,6 +44,7 @@
    host-dispatched `normalize-nfc` seam."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
+            [dao.stream :as stream]
             #?(:cljd ["package:unorm_dart/unorm_dart.dart" :as unorm]))
   #?(:cljd (:import ["dart:typed_data" ByteData Uint8List])))
 
@@ -1151,17 +1152,44 @@
   (into #{} (map first) dimension-slots))
 
 
+(defn- slot-shape-ok?
+  "Whether `v` fits the descriptor `type` on a projected record: the
+   deterministic gate the storage reader hashes behind, so a wrongly
+   typed slot — :yin.debruijn/bound 5, a numeric child ref — diagnoses
+   :unsupported-value instead of reaching host arithmetic inside the
+   hash recomputation."
+  [type v]
+  (cond
+    (= :canonical type) (canonical-value? v)
+    (= :keyword type) (keyword? v)
+    (= :symbol type) (symbol? v)
+    (= :string type) (string? v)
+    (= :bool type) (or (true? v) (false? v))
+    (= :int64 type) (and (number? v) (= :int64 (numeric-class v)))
+    (or (= :ref type) (= :hash type)) (and (string? v)
+                                           (re-matches #"^[0-9a-f]{64}$" v))
+    (and (vector? type) (= :tuple (first type)))
+    (and (vector? v)
+         (= (count v) (count (rest type)))
+         (every? true? (map slot-shape-ok? (rest type) v)))
+    (vector? type) (and (vector? v) (every? #(slot-shape-ok? :ref %) v))
+    :else false))
+
+
 (defn datoms->projected
   "The d5 storage adapter's read half (§4): projected datoms back to
    {:fingerprint h, :records {h record}} — the inverse of
    `projected->datoms` over the record set (the resolved :root graph is
    the named side's, never rebuilt here). Every entity must carry its
    :yin.debruijn/hash; exactly one entity is the :yin.debruijn/root
-   marker and its hash is the fingerprint; child refs must resolve to
-   records; :yin.debruijn/operands must be one vector of hashes. Each
-   record is re-hashed and a disagreement is a :hash-mismatch
-   diagnostic — content addressing is verified at this boundary, never
-   trusted. t, m, and other namespaces are layout, ignored."
+   marker and its hash is the fingerprint; every slot must fit its
+   declared shape BEFORE its hash is recomputed — a wrongly typed slot
+   diagnoses :unsupported-value, never a host exception; child refs must
+   resolve to records; :yin.debruijn/operands must be one vector of
+   hashes. Each record is re-hashed and a disagreement is a
+   :hash-mismatch diagnostic — content addressing is verified at this
+   boundary, never trusted. t, m, and other namespaces are layout,
+   ignored."
   [datoms]
   (let [datoms (vec datoms)
         index (index-frame "yin.debruijn" datoms)
@@ -1196,6 +1224,16 @@
                                                  {:rule :malformed-hash,
                                                   :hash h,
                                                   :entity e})))
+                               (doseq [[slot type role] dimension-slots
+                                       :when (and (not= :marker role)
+                                                  (contains? record slot))]
+                                 (when-not (slot-shape-ok? type (get record slot))
+                                   (throw (ex-info
+                                            "Projected slot value does not fit its declared type"
+                                            {:rule :unsupported-value,
+                                             :slot slot,
+                                             :value (get record slot),
+                                             :entity e}))))
                                (if (contains? recs h)
                                  (throw (ex-info
                                           "Two entities claim one projected hash"
@@ -1231,3 +1269,203 @@
             (throw (ex-info "Projected child hash resolves to no record"
                             {:rule :dangling-ref, :hash ref, :via h, :slot slot}))))))
     {:fingerprint fingerprint, :records records}))
+
+
+;; =============================================================================
+;; D4: the dao.stream forward adapter (§6)
+;; =============================================================================
+
+(def forward-default-options
+  "Defaults for `forward-step`: one read or one write per call, terminal
+   gap policy — the same shape `dao.stream.forward` gives its copier."
+  {:batch-budget 1})
+
+
+(defn forward-initial-state
+  "The state `forward-step` consumes: the input cursor, the current
+   graph frame (the §2 accumulation the next :yin/root marker closes),
+   and pending projected output. The fact index, scope stack, and
+   occurrence memo of §1 live inside the pure per-frame projection —
+   the index resets with every frame (§2) — so no step carries them."
+  [cursor]
+  {:cursor cursor, :frame [], :pending []})
+
+
+(defn- forward-positive-budget
+  [options]
+  (let [budget (:batch-budget options)]
+    (if (and (integer? budget) (not (neg? budget)))
+      budget
+      0)))
+
+
+(defn- forward-terminal-status
+  "The terminal status of a source-side outcome, named as
+   `dao.stream.forward` names its copier's."
+  [outcome]
+  (case outcome
+    :dao.stream/end :source-ended
+    :dao.stream/gap :source-gap
+    :dao.stream/cursor-mismatch :source-cursor-mismatch
+    :dao.stream/invalid-cursor :source-invalid-cursor
+    :dao.stream/transport-error :source-transport-error
+    :transport-error))
+
+
+(defn- forward-destination-status
+  [outcome]
+  (case outcome
+    :dao.stream/closed :destination-closed
+    :dao.stream/invalid-value :destination-invalid-value
+    :dao.stream/transport-error :destination-transport-error
+    :transport-error))
+
+
+(defn- forward-result
+  [state status forwarded outcome diagnostic]
+  (cond-> (assoc state :status status :forwarded forwarded)
+    outcome (assoc :outcome outcome)
+    diagnostic (assoc :diagnostic diagnostic)))
+
+
+(defn exception-diagnostic
+  "The terminal classification of a throw from forward-step's read path:
+   an ex-info carrying diagnostic data is invalid input — its own ex-data
+   — and anything else (no diagnostic data, a plain host error, an Error)
+   is an internal defect: :internal-error with the message, never
+   mislabeled input and never host-divergent."
+  [t]
+  (if-let [data (ex-data t)]
+    {:status :invalid-input, :diagnostic data}
+    {:status :internal-error,
+     :diagnostic {:rule :internal-error, :message (ex-message t)}}))
+
+
+(defn forward-step
+  "§6's forward interpretation: read :yin/* datoms from `source` at the
+   state's cursor, frame at the :yin/root marker — projecting there —
+   and emit the projected d5 tuples to `destination`. One call performs
+   at most :batch-budget units of work, a unit being one read or one
+   pending write; the state thread is the only state there is (§1: no
+   atom, callback, timer, registry, or clock).
+
+   Statuses: :continue (budget spent, work may remain) and :retry
+   (source blocked, or destination full with pending output kept —
+   pending writes are explicit and retried only by the host's cadence)
+   are non-terminal; terminal statuses are :source-ended (input ended
+   on a closed frame), :partial-frame (input ended with :yin/* datoms
+   no marker closes — §2's diagnostic, its frame under :diagnostic),
+   :invalid-input (a malformed datom or a projection diagnostic, the
+   ex-data under :diagnostic), :internal-error (a non-diagnostic
+   throwable from the read path — an internal defect, never mislabeled
+   input), the source transport defects (:source-gap,
+   :source-cursor-mismatch, :source-invalid-cursor,
+   :source-transport-error, :transport-error), and the destination
+   defects (:destination-closed, :destination-invalid-value,
+   :destination-transport-error). Every result carries :forwarded — the
+   count of THIS call's writes, as dao.stream.forward's does — and
+   carries :outcome whenever the last transport operation produced one,
+   including the blocked/full outcome a :retry hands back. Terminal
+   state is data: re-stepping it is a no-op. `end` stops this
+   interpreter and never closes a handle; a gap terminates (the
+   terminal default policy — this adapter resumes nothing on its own)."
+  ([source destination state]
+   (forward-step source destination state forward-default-options))
+  ([source destination state options]
+   (let [state (if (map? state) state {})
+         options (merge forward-default-options (or options {}))
+         status (:status state)]
+     (if (and status (not (contains? #{:continue :retry} status)))
+       state
+       (loop [cursor (:cursor state)
+              frame (:frame state)
+              pending (:pending state)
+              remaining (forward-positive-budget options)
+              forwarded 0]
+         (if (zero? remaining)
+           (forward-result {:cursor cursor, :frame frame, :pending pending}
+                           :continue
+                           forwarded
+                           nil
+                           nil)
+           (if (seq pending)
+             (let [result (stream/append! destination (first pending))
+                   outcome (:dao.stream/outcome result)]
+               (case outcome
+                 :dao.stream/ok
+                 (recur cursor frame (rest pending) (dec remaining) (inc forwarded))
+                 :dao.stream/full
+                 (forward-result {:cursor cursor, :frame frame, :pending pending}
+                                 :retry
+                                 forwarded
+                                 outcome
+                                 nil)
+                 (forward-result {:cursor cursor, :frame frame, :pending pending}
+                                 (forward-destination-status outcome)
+                                 forwarded
+                                 outcome
+                                 nil)))
+             (let [result (stream/next source cursor)
+                   outcome (:dao.stream/outcome result)]
+               (case outcome
+                 :dao.stream/ok
+                 ;; the try computes the successor frame; the recur stays
+                 ;; outside it — a diagnostic is data, never a throw
+                 (let [datum (:dao.stream/value result)
+                       successor (:dao.stream/cursor result)
+                       advanced (try
+                                  (let [[_e a v] (check-datom datum)]
+                                    (cond
+                                      (and (= :yin/root a) (true? v))
+                                      {:frame [],
+                                       :pending (projected->datoms
+                                                  (project-datoms (conj frame datum)))}
+
+                                      ;; datoms outside the :yin namespace
+                                      ;; advance the cursor without extending
+                                      ;; the frame, exactly as frame-datoms
+                                      ;; frames them
+                                      (not= "yin" (namespace a))
+                                      {:frame frame, :pending pending}
+
+                                      :else {:frame (conj frame datum),
+                                             :pending pending}))
+                                  (catch #?(:cljd Object :clj Throwable :cljs :default) t
+                                    (exception-diagnostic t)))]
+                   (if (:diagnostic advanced)
+                     (forward-result {:cursor cursor, :frame frame, :pending pending}
+                                     (:status advanced)
+                                     forwarded
+                                     nil
+                                     (:diagnostic advanced))
+                     (recur successor
+                            (:frame advanced)
+                            (:pending advanced)
+                            (dec remaining)
+                            forwarded)))
+
+                 :dao.stream/blocked
+                 (forward-result {:cursor cursor, :frame frame, :pending pending}
+                                 :retry
+                                 forwarded
+                                 outcome
+                                 nil)
+
+                 :dao.stream/end
+                 (if (seq frame)
+                   (forward-result {:cursor cursor, :frame frame, :pending pending}
+                                   :partial-frame
+                                   forwarded
+                                   outcome
+                                   {:rule :partial-frame, :datoms (vec frame)})
+                   (forward-result {:cursor cursor, :frame frame, :pending pending}
+                                   :source-ended
+                                   forwarded
+                                   outcome
+                                   nil))
+
+                 (forward-result {:cursor cursor, :frame frame, :pending pending}
+                                 (forward-terminal-status outcome)
+                                 forwarded
+                                 outcome
+                                 nil))))))))))
