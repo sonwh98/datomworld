@@ -7,10 +7,11 @@ description: Alpha-canonical de Bruijn projection of the named Universal AST
 Status: implemented through D6 (merged 2026-09-21). D0–D6 implementation and
 tests are merged; the DaoJing file store's host-specific refusal/hash-mismatch
 cases are pinned by tests, and projected-reader lexical scope validation remains
-outside this plan. The sections below are the design, phase scope, and
-completion criteria used to build and review the implementation; §7 records
-phase scope and completion criteria. This is compilation-layer work. The
-pipeline is:
+outside this plan. The de Bruijn VM leaves this merged projection dormant; it
+consumes no projected records and uses only executable image hash H for
+sharing. The sections below are the design, phase scope, and completion criteria
+used to build and review the implementation; §7 records phase scope and
+completion criteria. This is compilation-layer work. The pipeline is:
 
 ```
 Yang -> named Universal AST -> de Bruijn projection -> projected form
