@@ -354,14 +354,25 @@
   #{:yin/macro?})
 
 
+(def ^:private tolerated-attributes
+  "The :yin/* facts legal on a walked node of any type: :yin/type, the
+   :yin/root framing fact, and §2's tolerated-and-ignored emission
+   metadata."
+  #{:yin/type :yin/root :yin/tail? :yin/macro-name})
+
+
 (def ^:private known-attributes
-  "The complete legal :yin/* vocabulary on a walked node: the grammar's
-   slots, :yin/type, the :yin/root framing fact, and §2's
-   tolerated-and-ignored emission metadata."
-  (reduce (fn [acc [_tag {:keys [scalars children]}]]
-            (into acc (concat (map first scalars) (map first children))))
-          #{:yin/type :yin/root :yin/tail? :yin/macro-name}
-          node-grammar))
+  "Per node type, the complete legal :yin/* vocabulary on a walked node
+   of that type: its grammar row's slots plus the tolerated set. A known
+   attribute on a type whose row does not list it — a :yin/body on a
+   :literal, dangling or not — is as unknown there as :yin/extra, never
+   silently ignored."
+  (into {}
+        (map (fn [[tag {:keys [scalars children]}]]
+               [tag (into tolerated-attributes
+                          (map first)
+                          (concat scalars children))]))
+        node-grammar))
 
 
 ;; =============================================================================
@@ -471,16 +482,18 @@
 
 (defn- check-attributes
   "§2's unknown-attribute diagnostic: every :yin/* fact on a walked node
-   must be inside the grammar's vocabulary or §2's tolerated set. Facts
+   must be inside its own type's grammar row or §2's tolerated set. Facts
    on entities the walk never reaches are not diagnosed."
-  [facts eid path]
-  (doseq [a (keys facts)]
-    (when-not (contains? known-attributes a)
-      (throw (ex-info "Unknown :yin/* attribute on a walked node"
-                      {:rule :unknown-attribute,
-                       :attribute a,
-                       :entity eid,
-                       :path path})))))
+  [tag facts eid path]
+  (let [known (get known-attributes tag)]
+    (doseq [a (keys facts)]
+      (when-not (contains? known a)
+        (throw (ex-info "Unknown :yin/* attribute on a walked node"
+                        {:rule :unknown-attribute,
+                         :attribute a,
+                         :type tag,
+                         :entity eid,
+                         :path path}))))))
 
 
 (defn- check-unexpanded
@@ -617,133 +630,119 @@
 ;; D1: the projection walk (§2 grammar, §3 scopes, no hashing)
 ;; =============================================================================
 
-(declare project-node)
+(declare project-node mint-record)
 
 
 (defn- build-node
   "Build one walked node's resolved semantic node — the §4 projected
-   slots minus the hashes D2/D3 mint — recursing over children in the
+   slots, children as resolved nodes — recursing over children in the
    grammar's fixed order under the scope at each occurrence. Returns
-   [node memo']; `active` is the set of eids on the current path."
-  [tag index facts scalar eid stack memo active path]
-  (let [child (fn [attr memo]
-                (let [ref (child-ref facts attr eid path)]
-                  (project-node index ref stack memo active (conj path attr))))
-        children (fn [attr memo]
-                   (reduce (fn [[nodes memo] ref]
-                             (let [[node memo'] (project-node index
-                                                              ref
-                                                              stack
-                                                              memo
-                                                              active
-                                                              (conj path attr))]
-                               [(conj nodes node) memo']))
-                           [[] memo]
-                           (child-refs facts attr eid path)))]
+   [node child-hashes acc'], child-hashes being {slot h} with an ordered
+   vector of hashes under :yin.debruijn/operands; `active` is the set of
+   eids on the current path."
+  [tag index facts scalar eid stack acc active path]
+  (let [;; each step threads [node child-hashes acc]
+        child (fn [[node refs acc] slot attr stack]
+                (let [[n h acc'] (project-node index
+                                               (child-ref facts attr eid path)
+                                               stack
+                                               acc
+                                               active
+                                               (conj path attr))]
+                  [(assoc node slot n) (assoc refs slot h) acc']))
+        children (fn [[node refs acc] slot attr]
+                   (let [[ns hs acc']
+                         (reduce (fn [[ns hs a] ref]
+                                   (let [[n h a'] (project-node index
+                                                                ref
+                                                                stack
+                                                                a
+                                                                active
+                                                                (conj path attr))]
+                                     [(conj ns n) (conj hs h) a']))
+                                 [[] [] acc]
+                                 (child-refs facts attr eid path))]
+                     [(assoc node slot ns) (assoc refs slot hs) acc']))
+        leaf (fn [node] [node {} acc])]
     (case tag
-      :literal [{:yin.debruijn/type :literal,
-                 :yin.debruijn/value (get scalar :yin/value)}
-                memo]
+      :literal (leaf {:yin.debruijn/type :literal,
+                      :yin.debruijn/value (get scalar :yin/value)})
       :variable (let [name (get scalar :yin/name)
                       resolution (resolve-name stack name)]
-                  [(if-let [bound (:bound resolution)]
-                     {:yin.debruijn/type :variable,
-                      :yin.debruijn/bound bound}
-                     {:yin.debruijn/type :variable,
-                      :yin.debruijn/free (:free resolution)})
-                   memo])
-      :lambda (let [params (get scalar :yin/params)
-                    [body memo'] (project-node index
-                                               (child-ref facts :yin/body eid path)
-                                               (into [params] stack)
-                                               memo
-                                               active
-                                               (conj path :yin/body))]
-                [(merge {:yin.debruijn/type :lambda,
-                         :yin.debruijn/arity (count params),
-                         :yin.debruijn/body body}
-                        ;; truthy only: an explicit false and an absent
-                        ;; :yin/macro? project identically
-                        (when (get scalar :yin/macro?)
-                          {:yin.debruijn/macro? (get scalar :yin/macro?)}))
-                 memo'])
-      :application (let [operator-eid (child-ref facts :yin/operator eid path)
-                         _ (check-unexpanded index eid operator-eid path)
-                         [operator memo'] (project-node index
-                                                        operator-eid
-                                                        stack
-                                                        memo
-                                                        active
-                                                        (conj path :yin/operator))
-                         [operands memo''] (children :yin/operands memo')]
-                     [{:yin.debruijn/type :application,
-                       :yin.debruijn/operator operator,
-                       :yin.debruijn/operands operands}
-                      memo''])
-      :dao.stream.apply/call (let [[operands memo'] (children :yin/operands memo)]
-                               [{:yin.debruijn/type :dao.stream.apply/call,
-                                 :yin.debruijn/op (get scalar :yin/op),
-                                 :yin.debruijn/operands operands}
-                                memo'])
-      :if (let [[test memo'] (child :yin/test memo)
-                [consequent memo''] (child :yin/consequent memo')
-                [alternate memo'''] (child :yin/alternate memo'')]
-            [{:yin.debruijn/type :if,
-              :yin.debruijn/test test,
-              :yin.debruijn/consequent consequent,
-              :yin.debruijn/alternate alternate}
-             memo'''])
-      :vm/gensym [{:yin.debruijn/type :vm/gensym,
-                   :yin.debruijn/prefix (get scalar :yin/prefix)}
-                  memo]
-      :vm/store-get [{:yin.debruijn/type :vm/store-get,
-                      :yin.debruijn/key (get scalar :yin/key)}
-                     memo]
-      :vm/store-put [{:yin.debruijn/type :vm/store-put,
-                      :yin.debruijn/value (get scalar :yin/value),
-                      :yin.debruijn/key (get scalar :yin/key)}
-                     memo]
-      :vm/current-continuation [{:yin.debruijn/type :vm/current-continuation}
-                                memo]
-      :vm/park [{:yin.debruijn/type :vm/park}
-                memo]
-      :vm/resume (let [[val memo'] (child :yin/val-node memo)]
-                   [{:yin.debruijn/type :vm/resume,
-                     :yin.debruijn/parked-id (get scalar :yin/parked-id),
-                     :yin.debruijn/val-node val}
-                    memo'])
-      :stream/make [{:yin.debruijn/type :stream/make,
-                     :yin.debruijn/buffer (get scalar :yin/buffer)}
-                    memo]
-      :stream/put (let [[target memo'] (child :yin/target memo)
-                        [val memo''] (child :yin/val-node memo')]
-                    [{:yin.debruijn/type :stream/put,
-                      :yin.debruijn/target target,
-                      :yin.debruijn/val-node val}
-                     memo''])
+                  (leaf (if-let [bound (:bound resolution)]
+                          {:yin.debruijn/type :variable,
+                           :yin.debruijn/bound bound}
+                          {:yin.debruijn/type :variable,
+                           :yin.debruijn/free (:free resolution)})))
+      :lambda (let [params (get scalar :yin/params)]
+                (child (leaf (merge {:yin.debruijn/type :lambda,
+                                     :yin.debruijn/arity (count params)}
+                                    ;; truthy only: an explicit false and an
+                                    ;; absent :yin/macro? project identically
+                                    (when (get scalar :yin/macro?)
+                                      {:yin.debruijn/macro? (get scalar :yin/macro?)})))
+                       :yin.debruijn/body
+                       :yin/body
+                       (into [params] stack)))
+      :application (let [operator-eid (child-ref facts :yin/operator eid path)]
+                     (check-unexpanded index eid operator-eid path)
+                     (-> (leaf {:yin.debruijn/type :application})
+                         (child :yin.debruijn/operator :yin/operator stack)
+                         (children :yin.debruijn/operands :yin/operands)))
+      :dao.stream.apply/call (children (leaf {:yin.debruijn/type :dao.stream.apply/call,
+                                              :yin.debruijn/op (get scalar :yin/op)})
+                                       :yin.debruijn/operands
+                                       :yin/operands)
+      :if (-> (leaf {:yin.debruijn/type :if})
+              (child :yin.debruijn/test :yin/test stack)
+              (child :yin.debruijn/consequent :yin/consequent stack)
+              (child :yin.debruijn/alternate :yin/alternate stack))
+      :vm/gensym (leaf {:yin.debruijn/type :vm/gensym,
+                        :yin.debruijn/prefix (get scalar :yin/prefix)})
+      :vm/store-get (leaf {:yin.debruijn/type :vm/store-get,
+                           :yin.debruijn/key (get scalar :yin/key)})
+      :vm/store-put (leaf {:yin.debruijn/type :vm/store-put,
+                           :yin.debruijn/value (get scalar :yin/value),
+                           :yin.debruijn/key (get scalar :yin/key)})
+      :vm/current-continuation (leaf {:yin.debruijn/type :vm/current-continuation})
+      :vm/park (leaf {:yin.debruijn/type :vm/park})
+      :vm/resume (child (leaf {:yin.debruijn/type :vm/resume,
+                               :yin.debruijn/parked-id (get scalar :yin/parked-id)})
+                        :yin.debruijn/val-node
+                        :yin/val-node
+                        stack)
+      :stream/make (leaf {:yin.debruijn/type :stream/make,
+                          :yin.debruijn/buffer (get scalar :yin/buffer)})
+      :stream/put (-> (leaf {:yin.debruijn/type :stream/put})
+                      (child :yin.debruijn/target :yin/target stack)
+                      (child :yin.debruijn/val-node :yin/val-node stack))
       (:stream/cursor :stream/next :stream/close)
-      (let [[source memo'] (child :yin/source memo)]
-        [{:yin.debruijn/type tag,
-          :yin.debruijn/source source}
-         memo']))))
+      (child (leaf {:yin.debruijn/type tag})
+             :yin.debruijn/source
+             :yin/source
+             stack))))
 
 
 (defn- project-node
-  "Project one source node under `stack`, memoized by [source-eid stack]
-   — §2's [source-eid lexical-context] key, where the lexical context is
-   the complete stack of frame parameter vectors. The memo is an
-   optimisation only: it is threaded explicitly and can never affect
-   output identity. Cycle detection runs before the memo, so an eid on
-   the active path is a diagnostic even if it was memoized at another
+  "Project and hash-cons one source node under `stack`, memoized by
+   [source-eid stack] — §2's [source-eid lexical-context] key, where the
+   lexical context is the complete stack of frame parameter vectors.
+   Returns [node h acc']. The memo carries the resolved node AND its
+   hash, so a shared occurrence is resolved and hashed once: without the
+   hash in the memo, a doubling chain of shared subgraphs is minted once
+   per unfolded path, exponentially. The memo is an optimisation only:
+   it is threaded explicitly in `acc` and can never affect output
+   identity. Cycle detection runs before the memo, so an eid on the
+   active path is a diagnostic even if it was memoized at another
    occurrence."
-  [index eid stack memo active path]
+  [index eid stack acc active path]
   (if (contains? active eid)
     (throw (ex-info "Cyclic AST reference"
                     {:rule :cycle, :entity eid, :path path}))
-    (if-let [cached (find memo [eid stack])]
-      [(val cached) memo]
+    (if-let [cached (find (:memo acc) [eid stack])]
+      (let [[node h] (val cached)]
+        [node h acc])
       (let [facts (node-facts index eid path)
-            _ (check-attributes facts eid path)
             tag (get facts :yin/type)
             grammar (or (get node-grammar tag)
                         (throw (ex-info "Unknown AST node type in projection"
@@ -751,17 +750,19 @@
                                          :type tag,
                                          :entity eid,
                                          :path path})))
+            _ (check-attributes tag facts eid path)
             scalar (validated-scalars tag grammar facts eid path)
-            [node memo'] (build-node tag
-                                     index
-                                     facts
-                                     scalar
-                                     eid
-                                     stack
-                                     memo
-                                     (conj active eid)
-                                     path)]
-        [node (assoc memo' [eid stack] node)]))))
+            [node refs acc'] (build-node tag
+                                         index
+                                         facts
+                                         scalar
+                                         eid
+                                         stack
+                                         acc
+                                         (conj active eid)
+                                         path)
+            [h acc''] (mint-record node refs acc')]
+        [node h (assoc-in acc'' [:memo [eid stack]] [node h])]))))
 
 
 ;; =============================================================================
@@ -911,7 +912,11 @@
                (throw (ex-info "Map keys collide in canonical encoding"
                                {:rule :unsupported-value, :value v})))
              (framed :map (apply str (mapcat identity entries))))
-      :set (framed :set (apply str (sort (map encode-value v))))
+      :set (let [elements (sort (map encode-value v))]
+             (when (some (fn [[a b]] (= a b)) (partition 2 1 elements))
+               (throw (ex-info "Set elements collide in canonical encoding"
+                               {:rule :unsupported-value, :value v})))
+             (framed :set (apply str elements)))
       :vector (framed :vector (apply str (map encode-value v)))
       :list (framed :list (apply str (map encode-value v)))
       (throw (ex-info "Unsupported value in Merkle encoding"
@@ -955,7 +960,10 @@
    record content: equal fingerprints imply equal :records maps.
    Canonicalizing a map whose keys merge — {1 :a, 1.0 :b}, or two string
    keys with one NFC form — is a key collision, diagnosed rather than
-   letting iteration order decide which entry survives."
+   letting iteration order decide which entry survives; a set whose
+   elements merge — #{1 1.0}, or two spellings of é — is diagnosed the
+   same way, because the merge changes its count, not just a scalar's
+   spelling."
   [v]
   (let [class (canonical-class v)]
     (case class
@@ -979,7 +987,11 @@
                (throw (ex-info "Canonicalizing a map merges distinct keys"
                                {:rule :unsupported-value, :value v}))
                canonical))
-      :set (into (empty v) (map canonical-value) v)
+      :set (let [canonical (into (empty v) (map canonical-value) v)]
+             (if (< (count canonical) (count v))
+               (throw (ex-info "Canonicalizing a set merges distinct elements"
+                               {:rule :unsupported-value, :value v}))
+               canonical))
       :vector (mapv canonical-value v)
       :list (apply list (map canonical-value v))
       v)))
@@ -1000,9 +1012,6 @@
 ;; D2: hash-consing and the projected records (§4)
 ;; =============================================================================
 
-(declare merkle-node)
-
-
 (defn- slot-encodings
   "The descriptor-order encodings of one record's present, non-marker
    slots — with the dimension hash, the only input to a node hash.
@@ -1014,57 +1023,61 @@
     (encode-typed type (get record slot))))
 
 
-(defn- merkle-node
-  "Hash-cons one resolved node (§4-§5): children first in descriptor
-   order, then the node hash over the dimension hash and the node's
-   tag-specific slots in descriptor order, then the record — the node
-   with child slots carrying child hashes, scalars in their canonical
-   spellings, and :yin.debruijn/hash added. Returns [h acc'] over
-   {:hashcons preimage->h, :records h->record}. The consing memo is
-   keyed on the node's preimage — the concatenated slot encodings —
-   never on Clojure =, which merges a list literal with a vector
-   literal and the signed zeros; a preimage hit implies the identical
-   hash and, records carrying canonical spellings, the identical record.
-   The memo stays an optimisation only: identity is the hash either way,
-   so traversal order never enters it."
-  [node {:keys [hashcons] :as acc}]
-  (let [slot-defs (for [[slot type role] dimension-slots
-                        :when (and (not= :marker role) (contains? node slot))]
-                    [slot type role])
-        [child-refs acc']
-        (reduce (fn [[refs a] [slot type role]]
-                  (if (not= :child role)
-                    [refs a]
-                    (let [v (get node slot)]
-                      (if (and (vector? type) (= :ordered-vector (first type)))
-                        (let [[hs a*] (reduce (fn [[hs ai] child]
-                                                (let [[h aj] (merkle-node child ai)]
-                                                  [(conj hs h) aj]))
-                                              [[] a]
-                                              v)]
-                          [(assoc refs slot hs) a*])
-                        (let [[h a*] (merkle-node v a)]
-                          [(assoc refs slot h) a*])))))
-                [{} acc]
-                slot-defs)
-        pre-record (reduce (fn [r [slot _type role]]
-                             (cond
-                               (= :child role) (assoc r slot (get child-refs slot))
-                               ;; the carried D3 obligation: a record's stored
-                               ;; scalar is its canonical spelling, so equal
-                               ;; fingerprints imply equal records
-                               :else (assoc r slot (canonical-value (get node slot)))))
-                           node
-                           slot-defs)
-        encodings (slot-encodings pre-record)
+(defn- mint-record
+  "Hash-cons one resolved node (§4-§5) whose children are already
+   minted, their hashes in `child-hashes` ({slot h}, an ordered vector
+   under :yin.debruijn/operands): the node hash over the dimension hash
+   and the node's tag-specific slots in descriptor order, then the record
+   — the node with child slots carrying child hashes, scalars in their
+   canonical spellings, and :yin.debruijn/hash added. Returns [h acc']
+   over {:hashcons preimage->h, :records h->record, :mints n}; :mints
+   counts every call, the walk's instrumentation seam. The consing memo
+   is keyed on the node's preimage — the concatenated slot encodings —
+   never on Clojure =, which merges a list literal with a vector literal
+   and the signed zeros; a preimage hit implies the identical hash and,
+   records carrying canonical spellings, the identical record. The memo
+   stays an optimisation only: identity is the hash either way, so
+   traversal order never enters it."
+  [node child-hashes acc]
+  (let [acc (update acc :mints inc)
+        record (reduce (fn [r [slot _type role]]
+                         (cond
+                           (or (= :marker role) (not (contains? node slot))) r
+                           (= :child role) (assoc r slot (get child-hashes slot))
+                           ;; the carried D3 obligation: a record's stored
+                           ;; scalar is its canonical spelling, so equal
+                           ;; fingerprints imply equal records
+                           :else (assoc r slot (canonical-value (get node slot)))))
+                       node
+                       dimension-slots)
+        encodings (slot-encodings record)
         preimage (apply str encodings)]
-    (if-let [cached (find hashcons preimage)]
-      [(val cached) acc']
-      (let [h (node-hash encodings)
-            record (assoc pre-record :yin.debruijn/hash h)]
-        [h (-> acc'
+    (if-let [cached (find (:hashcons acc) preimage)]
+      [(val cached) acc]
+      (let [h (node-hash encodings)]
+        [h (-> acc
                (assoc-in [:hashcons preimage] h)
-               (assoc-in [:records h] record))]))))
+               (assoc-in [:records h] (assoc record :yin.debruijn/hash h)))]))))
+
+
+(defn project-datoms-counted
+  "`project-datoms` plus :mints, the number of record mints the walk
+   performed — the honest instrumentation seam for the shared-subgraph
+   bound: one mint per distinct [source-eid lexical-context] occurrence,
+   never one per unfolded path. Output-neutral: every other key is
+   exactly `project-datoms`'s."
+  [datoms]
+  (let [datoms (vec datoms)
+        index (index-frame "yin" datoms)
+        root-eid (frame-root datoms)
+        [root fingerprint {:keys [records mints]}]
+        (project-node index
+                      root-eid
+                      []
+                      {:memo {}, :hashcons {}, :records {}, :mints 0}
+                      #{}
+                      [])]
+    {:root root, :fingerprint fingerprint, :records records, :mints mints}))
 
 
 (defn project-datoms
@@ -1088,12 +1101,7 @@
    first with `frame-datoms` and project each frame — the per-frame fact
    index resets there."
   [datoms]
-  (let [datoms (vec datoms)
-        index (index-frame "yin" datoms)
-        root-eid (frame-root datoms)
-        [root _memo] (project-node index root-eid [] {} #{} [])
-        [fingerprint {:keys [records]}] (merkle-node root {:hashcons {}, :records {}})]
-    {:root root, :fingerprint fingerprint, :records records}))
+  (dissoc (project-datoms-counted datoms) :mints))
 
 
 ;; =============================================================================
@@ -1126,10 +1134,14 @@
                ;; its hash are the sharing
                (when-not (contains? @emitted h)
                  (let [e (swap! next-eid inc)
+                       ;; the records came from the projection itself, so a
+                       ;; missing one is a projection defect, never input:
+                       ;; its rule is one `exception-diagnostic` classifies
+                       ;; :internal-error
                        record (or (get records h)
                                   (throw (ex-info
                                            "Projected record set does not contain a child hash"
-                                           {:rule :dangling-ref, :hash h})))]
+                                           {:rule :missing-record, :hash h})))]
                    (swap! emitted conj h)
                    (emit! e :yin.debruijn/hash h)
                    (doseq [[slot type role] dimension-slots
@@ -1176,6 +1188,107 @@
     :else false))
 
 
+(defn- projected-slots-of
+  "The projected slots one §2 grammar attribute becomes (§4): the binder
+   :yin/params becomes :arity, an occurrence's :yin/name becomes one of
+   :bound or :free, and every other attribute keeps its name under
+   :yin.debruijn."
+  [attr]
+  (case attr
+    :yin/params [:yin.debruijn/arity]
+    :yin/name [:yin.debruijn/bound :yin.debruijn/free]
+    [(keyword "yin.debruijn" (name attr))]))
+
+
+(def ^:private record-slots
+  "Per node type, every slot its projected record may carry besides
+   :yin.debruijn/hash — derived from `node-grammar`, so the reader's
+   grammar and the walk's are one table. The preimage frames slots by
+   type tag, not name, so this check is what keeps a slot renamed within
+   one type (:free to :key on a :variable, :arity to :buffer) from
+   passing under a valid address."
+  (into {}
+        (map (fn [[tag {:keys [scalars children]}]]
+               [tag (into #{:yin.debruijn/type}
+                          (mapcat (comp projected-slots-of first))
+                          (concat scalars children))]))
+        node-grammar))
+
+
+(def ^:private optional-record-slots
+  "The record slots a writer may leave absent: :macro? (only a true one
+   is written) and :bound/:free, of which a :variable carries exactly
+   one."
+  #{:yin.debruijn/macro? :yin.debruijn/bound :yin.debruijn/free})
+
+
+(defn- canonical-spelling?
+  "Whether `v` is already its own canonical spelling — the form
+   `canonical-value` gives every stored scalar. Exact, never =: Dart's
+   1 == 1.0 and Clojure's = across a set's members would pass a stored
+   1.0 whose address is 1's, and the reader would hand back a record no
+   writer produces. A JS number carries one spelling per value, so every
+   in-domain number is canonical there."
+  [v]
+  (case (canonical-class v)
+    (:nil :bool :bytes) true
+    :int64 #?(:cljs true :default (int? v))
+    ;; :cljd first: the ClojureDart host pass also reads :clj
+    :double #?(:cljd true :clj (instance? Double v) :cljs true)
+    :string (= v (normalize-nfc v))
+    (:keyword :symbol) (and (or (nil? (namespace v))
+                                (= (namespace v) (normalize-nfc (namespace v))))
+                            (= (name v) (normalize-nfc (name v))))
+    :map (every? (fn [[k x]] (and (canonical-spelling? k) (canonical-spelling? x))) v)
+    (:set :vector :list) (every? canonical-spelling? v)
+    false))
+
+
+(defn- check-record
+  "The reader's record gate, after every slot fits its declared shape:
+   the record's type is a grammar type, it carries exactly its type's
+   slots (a :variable exactly one of :bound/:free, a :macro? only when
+   true), and every scalar is its canonical spelling. Everything here is
+   what the writer already guarantees, so no minted hash moves."
+  [record e]
+  (let [tag (get record :yin.debruijn/type)
+        allowed (or (get record-slots tag)
+                    (throw (ex-info "Projected record has an unknown node type"
+                                    {:rule :unknown-node-type, :type tag, :entity e})))
+        present (disj (set (keys record)) :yin.debruijn/hash)]
+    (doseq [slot present]
+      (when-not (contains? allowed slot)
+        (throw (ex-info "Projected slot is outside its node type's grammar row"
+                        {:rule :unknown-attribute,
+                         :attribute slot,
+                         :type tag,
+                         :entity e}))))
+    (doseq [slot allowed]
+      (when-not (or (contains? present slot)
+                    (contains? optional-record-slots slot))
+        (throw (ex-info "Projected record lacks a required slot"
+                        {:rule :missing-slot, :slot slot, :type tag, :entity e}))))
+    (when (and (= :variable tag)
+               (not= 1 (count (filter #(contains? present %)
+                                      [:yin.debruijn/bound :yin.debruijn/free]))))
+      (throw (ex-info "A projected :variable carries exactly one of :bound and :free"
+                      {:rule :missing-slot,
+                       :slot [:yin.debruijn/bound :yin.debruijn/free],
+                       :type tag,
+                       :entity e})))
+    (doseq [[slot _type role] dimension-slots
+            :when (and (= :scalar role) (contains? record slot))]
+      (let [v (get record slot)]
+        (when-not (and (canonical-spelling? v)
+                       ;; the writer spells a false :macro? by its absence
+                       (not (and (= :yin.debruijn/macro? slot) (false? v))))
+          (throw (ex-info "Projected scalar is not its canonical spelling"
+                          {:rule :noncanonical-value,
+                           :slot slot,
+                           :value v,
+                           :entity e})))))))
+
+
 (defn datoms->projected
   "The d5 storage adapter's read half (§4): projected datoms back to
    {:fingerprint h, :records {h record}} — the inverse of
@@ -1184,9 +1297,14 @@
    :yin.debruijn/hash; exactly one entity is the :yin.debruijn/root
    marker and its hash is the fingerprint; every slot must fit its
    declared shape BEFORE its hash is recomputed — a wrongly typed slot
-   diagnoses :unsupported-value, never a host exception; child refs must
-   resolve to records; :yin.debruijn/operands must be one vector of
-   hashes. Each record is re-hashed and a disagreement is a
+   diagnoses :unsupported-value, never a host exception; each record must
+   then be one its writer can produce — its type's grammar slots only
+   (:unknown-node-type, :unknown-attribute, :missing-slot), every scalar
+   in its canonical spelling (:noncanonical-value) — because the
+   preimage frames slots by type tag, not name, and equal encodings do
+   not mean equal spellings; child refs must resolve to records;
+   :yin.debruijn/operands must be one vector of hashes. Each record is
+   re-hashed and a disagreement is a
    :hash-mismatch diagnostic — content addressing is verified at this
    boundary, never trusted. t, m, and other namespaces are layout,
    ignored."
@@ -1234,6 +1352,7 @@
                                              :slot slot,
                                              :value (get record slot),
                                              :entity e}))))
+                               (check-record record e)
                                (if (contains? recs h)
                                  (throw (ex-info
                                           "Two entities claim one projected hash"
@@ -1291,12 +1410,12 @@
   {:cursor cursor, :frame [], :pending []})
 
 
-(defn- forward-positive-budget
-  [options]
-  (let [budget (:batch-budget options)]
-    (if (and (integer? budget) (not (neg? budget)))
-      budget
-      0)))
+(defn- forward-budget-ok?
+  "A batch budget is a positive integer: 0 would answer :continue with no
+   progress under every host cadence, forever, so it is invalid input
+   like any other non-positive or non-integer budget."
+  [budget]
+  (and (integer? budget) (pos? budget)))
 
 
 (defn- forward-terminal-status
@@ -1328,17 +1447,28 @@
     diagnostic (assoc :diagnostic diagnostic)))
 
 
+(def ^:private internal-rules
+  "Diagnostic rules only the projection's own code can produce — a
+   defect in it, never in its input."
+  #{:missing-record})
+
+
 (defn exception-diagnostic
   "The terminal classification of a throw from forward-step's read path:
-   an ex-info carrying diagnostic data is invalid input — its own ex-data
-   — and anything else (no diagnostic data, a plain host error, an Error)
-   is an internal defect: :internal-error with the message, never
-   mislabeled input and never host-divergent."
+   an ex-info carrying an input diagnostic — a keyword :rule outside
+   `internal-rules` — is invalid input, its own ex-data; anything else
+   (an internal rule, ex-data without a :rule, a plain host error, an
+   Error) is an internal defect: :internal-error with the message, and
+   the ex-data under :data when there is any — never mislabeled input
+   and never host-divergent."
   [t]
-  (if-let [data (ex-data t)]
-    {:status :invalid-input, :diagnostic data}
-    {:status :internal-error,
-     :diagnostic {:rule :internal-error, :message (ex-message t)}}))
+  (let [data (ex-data t)
+        rule (when (map? data) (get data :rule))]
+    (if (and (keyword? rule) (not (contains? internal-rules rule)))
+      {:status :invalid-input, :diagnostic data}
+      {:status :internal-error,
+       :diagnostic (cond-> {:rule :internal-error, :message (ex-message t)}
+                     data (assoc :data data))})))
 
 
 (defn forward-step
@@ -1356,7 +1486,8 @@
    on a closed frame), :partial-frame (input ended with :yin/* datoms
    no marker closes — §2's diagnostic, its frame under :diagnostic),
    :invalid-input (a malformed datom or a projection diagnostic, the
-   ex-data under :diagnostic), :internal-error (a non-diagnostic
+   ex-data under :diagnostic; or a :batch-budget that is not a positive
+   integer, :rule :invalid-budget, before any work), :internal-error (a non-diagnostic
    throwable from the read path — an internal defect, never mislabeled
    input), the source transport defects (:source-gap,
    :source-cursor-mismatch, :source-invalid-cursor,
@@ -1374,13 +1505,26 @@
   ([source destination state options]
    (let [state (if (map? state) state {})
          options (merge forward-default-options (or options {}))
-         status (:status state)]
-     (if (and status (not (contains? #{:continue :retry} status)))
+         status (:status state)
+         budget (:batch-budget options)]
+     (cond
+       (and status (not (contains? #{:continue :retry} status)))
        state
+
+       (not (forward-budget-ok? budget))
+       (forward-result {:cursor (:cursor state),
+                        :frame (:frame state),
+                        :pending (:pending state)}
+                       :invalid-input
+                       0
+                       nil
+                       {:rule :invalid-budget, :batch-budget budget})
+
+       :else
        (loop [cursor (:cursor state)
               frame (:frame state)
               pending (:pending state)
-              remaining (forward-positive-budget options)
+              remaining budget
               forwarded 0]
          (if (zero? remaining)
            (forward-result {:cursor cursor, :frame frame, :pending pending}

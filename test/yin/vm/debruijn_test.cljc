@@ -1218,3 +1218,298 @@
     (is (= :unsupported-value
            (:rule (throws-data #(d/datoms->projected (revalue :yin.debruijn/body 42)))))
         "a numeric child ref")))
+
+
+;; =============================================================================
+;; Epic-audit fix round: set collisions, the reader's record gate, the
+;; shared-subgraph bound, per-type attributes, and the D4 outcome gaps
+;; =============================================================================
+
+(deftest colliding-set-elements-diagnose
+  ;; a set whose members merge changes cardinality, not just a spelling:
+  ;; the map rule's collision diagnostic applies, never a silent collapse
+  (when #?(:cljs false :default true)
+    (let [s (hash-set 1 1.0)]
+      (is (= 2 (count s)) "the host keeps 1 and 1.0 apart as set members")
+      (is (= :unsupported-value (:rule (throws-data #(d/canonical-value s)))))
+      (is (= :unsupported-value (:rule (throws-data #(d/encode-value s)))))
+      (is (= :unsupported-value (:rule (defect (datoms-of (lit s)))))
+          "and a projection diagnoses it rather than sharing #{1}'s fingerprint")))
+  (let [s (hash-set "é" "é")]
+    (is (= 2 (count s)))
+    (is (= :unsupported-value (:rule (throws-data #(d/canonical-value s))))
+        "two spellings of é are one NFC element")
+    (is (= :unsupported-value (:rule (throws-data #(d/encode-value s))))
+        "the encode path sees the same collision as equal element encodings")
+    (is (= :unsupported-value (:rule (defect (datoms-of (lit s))))))
+    (is (some? (:fingerprint (project (lit #{"é" "e"}))))
+        "a set whose members stay distinct still projects")))
+
+
+(defn- restated
+  "Projected datoms `ds` with every `attr` fact's attribute renamed to
+   `to` and its value replaced by `value-fn` of the old one."
+  [ds attr to value-fn]
+  (mapv (fn [x]
+          (if (= attr (nth x 1))
+            [(nth x 0) to (value-fn (nth x 2)) (nth x 3) (nth x 4)]
+            x))
+        ds))
+
+
+(deftest the-reader-checks-records-against-the-grammar
+  (let [free-ds (d/projected->datoms (project (lam '[x] (v 'y))))
+        reader-rule (fn [ds] (:rule (throws-data #(d/datoms->projected ds))))]
+    (testing "a slot renamed within its type's tag class keeps its hash"
+      (let [swapped (restated free-ds :yin.debruijn/free :yin.debruijn/key identity)]
+        (is (= (filter #(= :yin.debruijn/hash (nth % 1)) free-ds)
+               (filter #(= :yin.debruijn/hash (nth % 1)) swapped))
+            "the stored addresses are untouched: only the grammar can tell")
+        (is (= {:rule :unknown-attribute,
+                :attribute :yin.debruijn/key,
+                :type :variable}
+               (select-keys (throws-data #(d/datoms->projected swapped))
+                            [:rule :attribute :type])))))
+    (is (= :unknown-attribute
+           (reader-rule (restated free-ds :yin.debruijn/free :yin.debruijn/value identity)))
+        ":free to :value on a :variable")
+    (is (= :unknown-attribute
+           (reader-rule (restated free-ds :yin.debruijn/arity :yin.debruijn/buffer identity)))
+        ":arity to :buffer on a :lambda — both int64")
+    (is (= :missing-slot
+           (reader-rule (vec (remove #(= :yin.debruijn/arity (nth % 1)) free-ds))))
+        "a required slot absent from its record")
+    (is (= :missing-slot
+           (reader-rule (vec (remove #(= :yin.debruijn/free (nth % 1)) free-ds))))
+        "a :variable carries one of :bound and :free")))
+
+
+(deftest the-reader-requires-canonical-spellings
+  (let [reader-rule (fn [ds] (:rule (throws-data #(d/datoms->projected ds))))
+        respelled (fn [ast attr value]
+                    (restated (d/projected->datoms (project ast)) attr attr (constantly value)))]
+    ;; a JS number has one spelling per value, so 1.0 is 1 there
+    (when #?(:cljs false :default true)
+      (is (= :noncanonical-value
+             (reader-rule (respelled (lit 1) :yin.debruijn/value 1.0)))
+          "a stored 1.0 under 1's address")
+      (is (= :noncanonical-value
+             (reader-rule (respelled (lam '[x] (v 'x)) :yin.debruijn/arity 1.0)))
+          "an int64 slot spelled as a double"))
+    (is (= :noncanonical-value
+           (reader-rule (respelled (lit "é") :yin.debruijn/value "é")))
+        "a decomposed string under the composed one's address")
+    (is (= :noncanonical-value
+           (reader-rule (respelled (lit {:a [1 "é"]})
+                                   :yin.debruijn/value
+                                   {:a [1 "é"]})))
+        "spelling is checked inside collections")
+    (is (= :noncanonical-value
+           (reader-rule (respelled (v (symbol "é"))
+                                   :yin.debruijn/free
+                                   (symbol "é"))))
+        "and in ident parts")))
+
+
+(deftest every-written-record-passes-the-reader
+  (let [p (project (app (v 'f)
+                        {:type :lambda, :macro? true, :params '[x], :body (v 'x)}
+                        (lit false)
+                        (lit nil)
+                        (lit #{"a" 1 :k})
+                        (lit (list 1.5 -0.0 (/ 0.0 0.0)))
+                        (lit {"é" [1 2.5]})))]
+    (is (= (:fingerprint p)
+           (:fingerprint (d/datoms->projected (d/projected->datoms p))))
+        "the gate adds nothing the writer does not already guarantee: false
+         literals, nil, a true :macro?, sets, doubles, NaN, and NFC keys
+         round-trip")))
+
+
+(defn- doubling-chain
+  "`depth` applications, each of whose two operands is the previous
+   level — ONE shared source entity per level, so the unfolded term has
+   2^depth leaves while the emitted graph grows linearly."
+  [depth]
+  (reduce (fn [prev k]
+            (assoc (app (v 'f) prev prev) :eid (- -1000 k)))
+          (assoc (lit 0) :eid -999)
+          (range depth)))
+
+
+(defn- doubling-tree
+  [depth]
+  (reduce (fn [prev _] (app (v 'f) prev prev)) (lit 0) (range depth)))
+
+
+(deftest shared-subgraphs-are-minted-once
+  (testing "a deep doubling chain mints once per source entity"
+    (let [depth 40
+          ds (datoms-of (doubling-chain depth))
+          entities (count (distinct (keep (fn [[e a]] (when (= :yin/type a) e)) ds)))
+          counted (d/project-datoms-counted ds)]
+      (is (= (inc (* 2 depth)) entities)
+          "one entity per level, one per level's `f`, and the leaf")
+      (is (= entities (:mints counted))
+          "one mint per [eid lexical-context] occurrence, never one per
+           unfolded path — 2^40 paths here")
+      (is (= (+ depth 2) (count (:records counted)))
+          "the levels, the leaf, and one hash-consed free `f`")
+      ;; never compare :root here: it is a 2^40-leaf tree under structural
+      ;; sharing, and = over two separately built copies walks every leaf
+      (is (= (select-keys (d/project-datoms ds) [:fingerprint :records])
+             (select-keys counted [:fingerprint :records]))
+          "the counted seam is output-neutral")))
+  (testing "the graph is the tree-built term's Merkle graph"
+    (let [graph (project (doubling-chain 6))
+          tree (project (doubling-tree 6))]
+      (is (= (:fingerprint tree) (:fingerprint graph)))
+      (is (= (:records tree) (:records graph))))))
+
+
+(deftest known-attributes-on-the-wrong-type-diagnose
+  ;; the emitter mints the root first, at -17
+  (is (= {:rule :unknown-attribute, :entity -17, :path [], :attribute :yin/body}
+         (defect (conj (datoms-of (lit 1)) [-17 :yin/body 999 0 1])))
+      "a dangling :yin/body on a :literal is diagnosed, not ignored")
+  (is (= {:rule :unknown-attribute, :entity -17, :path [], :attribute :yin/macro?}
+         (defect (conj (datoms-of (app (v 'f) (lit 1))) [-17 :yin/macro? true 0 1])))
+      ":macro? belongs to the :lambda row only")
+  (is (= {:rule :unknown-attribute, :entity -17, :path [], :attribute :yin/params}
+         (defect (conj (datoms-of (v 'x)) [-17 :yin/params '[x] 0 1])))))
+
+
+(deftest renamed-programs-store-equal-datoms
+  (is (= (d/projected->datoms (project worked-example))
+         (d/projected->datoms (project (lam '[n] (app (v '+) (v 'n) (lit 1))))))
+      "alpha-equivalent programs write the identical projected d5 tuples,
+       not only one fingerprint"))
+
+
+(deftest internal-rules-are-internal-errors
+  (is (= :internal-error
+         (:status (d/exception-diagnostic
+                    (ex-info "writer defect" {:rule :missing-record, :hash "h"}))))
+      "a rule only the projection's own code can produce is its defect")
+  (is (= {:rule :missing-record, :hash "h"}
+         (get-in (d/exception-diagnostic
+                   (ex-info "writer defect" {:rule :missing-record, :hash "h"}))
+                 [:diagnostic :data]))
+      "the defect's data rides along for diagnosis")
+  (is (= :internal-error
+         (:status (d/exception-diagnostic (ex-info "no rule" {:detail 1}))))
+      "ex-data without a :rule is not an input diagnostic"))
+
+
+(deftest a-non-positive-batch-budget-is-invalid-input
+  (doseq [budget [0 -1 nil 1.5]]
+    (let [source (-> (buffer 64) (fill! (datoms-of worked-example)) (sealed!))
+          destination (buffer 64)
+          state (d/forward-initial-state (oldest-cursor source))
+          final (d/forward-step source destination state {:batch-budget budget})]
+      (is (= :invalid-input (:status final)) (str "budget " (pr-str budget)))
+      (is (= {:rule :invalid-budget, :batch-budget budget} (:diagnostic final)))
+      (is (zero? (:forwarded final)))
+      (is (= (:cursor state) (:cursor final)) "no work was done")
+      (is (= final (d/forward-step source destination final {:batch-budget budget}))
+          "terminal, never an endless :continue"))))
+
+
+(deftest destination-outcomes-map-to-terminal-statuses
+  (doseq [[outcome status] [[:dao.stream/invalid-value :destination-invalid-value]
+                            [:dao.stream/transport-error :destination-transport-error]
+                            [:dao.stream/closed :destination-closed]]]
+    (let [source (-> (buffer 64) (fill! (datoms-of worked-example)) (sealed!))
+          {:keys [accepted writer]} (scripted-writer [outcome])
+          final (drive source writer (d/forward-initial-state (oldest-cursor source)))]
+      (is (= status (:status final)))
+      (is (= outcome (:outcome final)))
+      (is (empty? @accepted))
+      (is (seq (:pending final)) "the refused write stays pending in the state")
+      (is (= final (d/forward-step source writer final {:batch-budget 8}))
+          "re-stepping a terminal destination defect is a no-op")
+      (is (empty? @accepted) "and never retries the write"))))
+
+
+(deftest every-terminal-state-is-idempotent
+  (let [closed-source (fn [] (-> (buffer 64) (fill! (datoms-of worked-example)) (sealed!)))
+        initial (fn [source] (d/forward-initial-state (oldest-cursor source)))
+        cases [[:source-ended
+                (let [s (closed-source)] [s (buffer 64) (initial s)])]
+               [:destination-closed
+                (let [s (closed-source)] [s (sealed! (buffer 64)) (initial s)])]
+               [:source-gap
+                [(refusing-reader :dao.stream/gap) (buffer 8)
+                 (d/forward-initial-state :cursor)]]
+               [:invalid-input
+                (let [s (-> (buffer 8) (fill! [[16 :yin/type]]) (sealed!))]
+                  [s (buffer 8) (initial s)])]]]
+    (doseq [[status [source destination state]] cases]
+      (let [final (drive source destination state)]
+        (is (= status (:status final)))
+        (is (= final (d/forward-step source destination final {:batch-budget 8}))
+            (str status " re-steps to itself"))))))
+
+
+;; =============================================================================
+;; D6: the remaining §8 matrix rows
+;; =============================================================================
+
+(defn- pairwise-distinct?
+  [xs]
+  (= (count xs) (count (set xs))))
+
+
+(deftest zero-one-and-multi-parameter-lambdas-are-distinct
+  (let [fp (comp :fingerprint project)
+        body (app (v 'f) (lit 1))]
+    (is (pairwise-distinct? [(fp (lam '[] body))
+                             (fp (lam '[x] body))
+                             (fp (lam '[x y] body))])
+        "arity alone separates lambdas over one body")
+    (is (= [0 1 2]
+           (map #(:yin.debruijn/arity (:root (project (lam % body))))
+                ['[] '[x] '[x y]])))
+    (is (= (fp (lam '[] body)) (fp (lam '[] body)))
+        "a zero-parameter lambda has no binder to rename")
+    (is (= (fp (lam '[a] (v 'a))) (fp (lam '[x] (v 'x)))))
+    (is (= (fp (lam '[a b] (app (v 'f) (v 'a) (v 'b))))
+           (fp (lam '[x y] (app (v 'f) (v 'x) (v 'y))))))
+    (is (not= (fp (lam '[a] (v 'a))) (fp (lam '[a b] (v 'a))))
+        "a renamed twin must also match arity")))
+
+
+(deftest parameter-order-is-identity
+  (let [fp (comp :fingerprint project)
+        bound-of (fn [ast] (get-in (project ast) [:root :yin.debruijn/body :yin.debruijn/bound]))]
+    (is (= [0 0] (bound-of (lam '[x y] (v 'x)))))
+    (is (= [0 1] (bound-of (lam '[y x] (v 'x)))))
+    (is (not= (fp (lam '[x y] (v 'x))) (fp (lam '[y x] (v 'x)))))
+    (is (= (fp (lam '[a b] (v 'a))) (fp (lam '[x y] (v 'x)))))
+    (is (= (fp (lam '[a b] (v 'b))) (fp (lam '[y x] (v 'x)))))))
+
+
+(deftest stream-operations-change-the-fingerprint
+  (let [fp (comp :fingerprint project)
+        source {:type :stream/make, :buffer 4}
+        over (fn [tag] {:type tag, :source source})]
+    (is (pairwise-distinct? [(fp (over :stream/cursor))
+                             (fp (over :stream/next))
+                             (fp (over :stream/close))])
+        "one source, three operations, three identities")
+    (is (not= (fp {:type :stream/put, :target source, :val (lit 7)})
+              (fp {:type :stream/put, :target (lit 7), :val source}))
+        "a put's target and value are ordered slots")))
+
+
+(deftest continuation-markers-are-distinct-and-stable
+  (let [fp (comp :fingerprint project)
+        markers [{:type :vm/current-continuation} {:type :vm/park} (lit nil)]]
+    (is (pairwise-distinct? (map fp markers))
+        "the two markers differ from each other and from a literal")
+    (doseq [m markers]
+      (is (= (fp m) (fp m) (:fingerprint (d/project-datoms (vec (reverse (datoms-of m))))))
+          "stable under repeated projection and shuffled input"))
+    (is (pairwise-distinct? [(fp (lam '[x] {:type :vm/park}))
+                             (fp (lam '[x] {:type :vm/current-continuation}))])
+        "and they stay distinct as subterms")))
