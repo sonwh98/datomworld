@@ -29,10 +29,11 @@ values, primitives, streams, continuations, or effects. It does not change the
 AST schema, AST walker, semantic VM, linearizer, `dao.stream`, `dao.lease`, or
 the waitset.
 
-All state is explicit in the forward-step state: input cursor, current graph
-frame, indexed facts, scope stack, occurrence memo, pending output, and output
-cursor. There is no namespace atom, callback, timer, registry, or clock. A
-blocked input is returned as an outcome; it is never hidden execution.
+All state is explicit: `forward-step` carries the input cursor, current graph
+frame, and pending output; the atomic per-frame projection threads the indexed
+facts, scope stack, and occurrence memo. There is no output cursor. There is no
+namespace atom, callback, timer, registry, or clock. A blocked input is returned
+as an outcome; it is never hidden execution.
 
 The input domain is a fully macro-expanded Universal AST. An unexpanded macro
 call site is a terminal diagnostic: an application whose operator is a
@@ -268,9 +269,10 @@ covered on every host.
 
 ### D5 — pipeline and storage integration
 
-Wire Yang's post-emission path before projected persistence. Store named and
-projected segments separately; use only the Merkle fingerprint for dedupe.
-Do not alter named consumers or runtime layers.
+D5 delivers a standalone `yin.vm.pipeline/persist-compiled!` adapter for the
+post-emission boundary before projected persistence; no Yang caller is wired
+yet. Store named and projected segments separately; use only the Merkle
+fingerprint for dedupe. Do not alter named consumers or runtime layers.
 
 ### D6 — end condition
 
