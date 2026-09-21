@@ -55,11 +55,13 @@ free names supplied by the initial environment or store until the named-VM
 leak is fixed; otherwise B5 records a named-path refusal.
 
 Until B7 dependency closure exists, invariant I safely shares an image only
-when it is closed, or when the receiver binds every free name identically.
-Free names are `:load-free` operands, not bindings. An unresolvable name in
-the receiver's `resolve-var` order is a qualified runtime error outcome. B6
-may refuse a non-closed image; a closed image is derivable by scanning its
-operands.
+when it is closed for the receiving environment, or when that environment
+binds every free name identically. Free names are `:load-free` operands, not
+bindings. Closed means that the receiver-side closure check passes: every
+free name resolves through primitives or modules, and none is shadowed by the
+receiver's free environment or store. An image with no `:load-free` operands
+passes trivially. Otherwise B6 refuses it with `:unresolved-free` or
+`:shadowed-free`, rather than executing it.
 
 H is alpha-invariant for binder renames because binder names are outside the
 hash. Equal H therefore implies agreement on exact scalar spelling and free
@@ -85,9 +87,9 @@ datom.world principles.
     +--------------------------+--------------------------------------------+
     | Requirement              | Mechanism                                  |
     +--------------------------+--------------------------------------------+
-    | I: share executable code | B0-B5 provide canonical hash, verified     |
-    | over dao.stream          | loading and stream transfer; B6 adds hash  |
-    |                          | request and response (§2, §6, §7.2).       |
+    | I: share executable code | B1-B2 define H and the lift; B6 fetches    |
+    | over dao.stream          | and verifies images over streams without   |
+    |                          | requiring B3 or B4 (§2, §6, §7.2).         |
     | Everything is a stream   | Effects, transfer, linking and failure     |
     |                          | are stream outcomes (§4, §7.2).            |
     | Everything is a          | Parked machine state is explicit data and  |
@@ -125,10 +127,11 @@ datom.world principles.
 The primary benefit is network-shareable, alpha-invariant, content-addressed
 executable code over `dao.stream`. Existing named code is already content
 addressed by `yin.vm.content`; this adds binder-alpha-invariant image identity
-and portable bytes for the common scalar domain. Free names still resolve by
-name until the stream linker in §7.2 supplies dependency closure. Physical Jing
-addresses remain print-based until the DaoJing CBOR work lands; the image hash
-uses its own canonical encoding and is independent of that address.
+and portable bytes for the common scalar domain. Sharing does not require the
+frame VM: its additional benefit is positional lookup performance, which is
+measured but not assumed. Free names still require B7 dependency closure.
+Physical Jing addresses remain print-based until the DaoJing CBOR work lands;
+H uses its own canonical encoding and is independent of that address.
 
 After B3, the semantic VM section 8 harness reports throughput, allocation,
 image size, and load time on identical pure-program corpora. The report is
@@ -147,7 +150,8 @@ existing `yin.vm.code/vector-operand-table`; only lexical addressing differs:
 arity and body references rather than parameter symbols. The stack operations,
 `:const`, `:push`, `:halt`, `:branch-false`, stream operations, store
 operations, park, resume, gensym, and FFI retain their existing opcode shapes.
-Its descriptor declares arity, ordered slots, canonical encoding, and one lift
+Its descriptor declares a lowering-contract version, arity, ordered slots,
+canonical encoding, and one lift
 morphism from `:yin.debruijn.code/*` to `:yin.code/*`; the lift uses diagnostic
 binder names or synthesized names. Exact-spelling slots are typed raw `Bytes`,
 so no-NFC behavior is a slot rule, not an exception to the dimension contract.
@@ -173,8 +177,11 @@ the `:const` operands and are included in the image hash; free names remain
 hashed `:load-free` operands.
 
 Host classification is explicit. On CLJS, a JavaScript number is encoded as a
-long when it is a safe integer and as a double otherwise; CLJS cannot
-distinguish source spellings that already read as the same number. Characters
+long when it is a safe integer and as a double otherwise. Integral-valued
+doubles are outside the CLJS common scalar domain, because JavaScript cannot
+distinguish them from longs; a CLJS receiver refuses such an image with
+`unsupported-value`. CLJS cannot distinguish source spellings that already
+read as the same number. Characters
 are host characters where available and strings otherwise. Ratios and host
 bigints are JVM or Dart classes unless a host provides an equivalent. Cross-
 host byte identity is required only for values present on all three hosts.
@@ -188,16 +195,18 @@ A receiving host that lacks a class refuses the image with a qualified
 not a stream gap.
 
 The code-image identity H is computed by one B1 function, `image-hash`, over
-the descriptor hash and canonical positional instruction vector: pc-indexed
-tuples, refs resolved to pcs, no header, and exact scalar bytes. Provenance is
+the descriptor hash, including its lowering-contract version, and the
+canonical positional instruction vector: pc-indexed tuples, refs resolved to
+pcs, no header, and exact scalar bytes. Provenance is
 a diagnostic side table indexed by pc and is outside the hash. H is the only
 executable and sharing identity. No projection fingerprint or second identity
 is attached to the image, request, response, verification, or cache. Any later
 cache is keyed by H.
 No cache is specified by B0 through B5; any later cache is an explicit value
-keyed by the canonical image hash. `jing/segment-key` is only the storage
+keyed by H. A receiver hashes the received canonical wire bytes before
+decoding; those bytes are H's preimage. `jing/segment-key` is only the storage
 address for the same bytes and is not H; `yin.vm.content` stores and fetches
-the bytes, while verification recomputes `image-hash`.
+bytes, while verification recomputes `image-hash`.
 
 ## 3. Lowering and scope
 
@@ -235,8 +244,8 @@ Scope validation is mandatory in both places where an image can enter:
    arity and enclosing-body chain. A shape-valid hand-built image with
    `[:load-bound [5 0]]` is rejected before execution.
 
-The projected reader's existing tuple-shape check remains useful, but it is
-not a scope check.
+No projected reader participates in this path; only the B1 image validator
+admits executable images.
 
 ## 4. VM state and execution
 
@@ -301,6 +310,9 @@ outcomes, or error classifications.
 
 Each phase B0 through B7 has a file box, a must-not-change list, completion
 criteria, and JVM, Node/CLJS, ClojureDart, kondo, and cljstyle verification.
+The shortest sharing path is B0, B1, B2, B6, then B3 through B5, then B7.
+B6 depends on B1, B2, and the lift, not on B3 or B4; it may execute a fetched
+image through the existing semantic VM after lifting with synthesized names.
 
 ### B0: contract and normalizer
 
@@ -311,9 +323,9 @@ criteria, and JVM, Node/CLJS, ClojureDart, kondo, and cljstyle verification.
 
 Freeze the result/error normalizer and actual parity corpus:
 `parity-test` plus the every-tag corpora in `content_test` and
-`completion_test`. Completion requires normalized closure, continuation, error,
-stream, cursor, and store comparisons, plus duplicate-parameter and all-node
-fixtures.
+`completion_test`. Completion requires named-VM self-parity and idempotence of
+the normalizer, plus normalized closure, continuation, error, stream, cursor,
+and store comparisons, duplicate-parameter, and all-node fixtures.
 
 ### B1: executable dimension and validator
 
@@ -322,14 +334,16 @@ fixtures.
     Existing edits: none
     Must not change: yin.vm.code, :yin.code/*, merged projection namespace
 
-Define and export the descriptor, mirrored opcode table, exact executable
+Define and export the descriptor, derived opcode table, exact executable
 scalar encoder, code-image hash, and validator. Completion includes malformed
 rows,
 out-of-range bound operands, exact spelling preservation, distinct hashes for
 composed and decomposed e-acute, a ratio fixture that is either encoded or
 refused with `:unsupported-value`, distinct hashes for `1`/`1.0`, ratios, and
-chars on JVM and Dart, and
-identical bytes across hosts for the common scalar domain.
+chars on JVM and Dart, and identical bytes across hosts for the common scalar
+domain. Golden image bytes and H values for a frozen corpus are checked on all
+three host lanes. A lowering layout change must fail those fixtures rather than
+silently forking identity.
 
 ### B2: named-datom lowerer adapter
 
@@ -345,17 +359,19 @@ arity. Scope reconstruction is a pure function of the image, never of
 the body containing the `:closure`, and the name stack for `resolve-name` is
 built innermost-first. This is opposite to the runtime frame vector's
 outermost-to-innermost order and the conversion is explicit. `segment-scope`
-is the public precedent; `closure-ranges` and `layout-conforms?` are private
-helpers whose rules are reproduced or exposed in the new namespace. A failed
+is the public precedent; the new namespace reproduces the rules of private
+`closure-ranges` and `layout-conforms?` rather than changing their visibility.
+A failed
 `layout-conforms?` check is a validation defect. Completion requires
 deterministic output, every node and opcode, lexical validation, a structural
 opcode-by-opcode comparison with `lower` differing only at variable and
 closure operands, image encode/validate/load round trips, and
 `lift(adapt(lower x), side-table) = canonical-vector(lower x)`. The lift is a
-function of the image plus its diagnostic side table. With synthesized names,
-the equality holds when original binder names are in the side table; with
-synthesized names the lifted result is alpha-equivalent to `lower x`, including
-`(fn [x x] x)`.
+function of the image plus its diagnostic side table. With the original binder
+names in the side table, equality holds; with synthesized names, the lifted
+result is alpha-equivalent to `lower x`, including `(fn [x x] x)`. Synthesized
+names must be fresh against the image's free-name set. A supplied side table is
+accepted only when adapting its lift returns the original image.
 Every image B2 emits must be accepted by B1's validator, and every hand-built
 out-of-range image must be rejected by both validators.
 
@@ -402,23 +418,32 @@ same H on every host lane for the common scalar domain. Programs differing in
 exact scalar spelling, front-end tail flags, or free names must produce
 different H values. An image sent over a `dao.stream` from one host lane must
 load, validate, and execute on another with the same normalized result as
-local execution. All three host lanes must agree under the normalizer.
+local execution. B5 uses committed golden bytes for cross-runtime identity;
+the real cross-process stream transfer is a B6 acceptance test. All three host
+lanes must agree under the normalizer.
 
 ### B6: committed closed-image stream linker
 
     New: src/cljc/yin/vm/debruijn_linker.cljc
+    New: src/cljc/yin/vm/debruijn_linker_responder.cljc
     New: test/yin/vm/debruijn_linker_test.cljc
+    New: test/yin/vm/debruijn_linker_responder_test.cljc
     Existing edits: none
     Must not change: merged projection namespace, image-hash, dao.stream,
     named VM semantics
 
-Implement fetch-by-H for closed images. A host parks on `:call-hash H` or an
-explicit fetch, emits a REQUEST value carrying H, receives image bytes or a
-qualified absence/unsupported outcome, recomputes `image-hash`, validates, and
-loads only verified bytes. Completion requires JVM to Dart stream transfer,
-where the receiver initially knows only H, hash mismatch refusal,
-unsupported-class refusal, absence events, and equal normalized execution
-results.
+Implement fetch-by-H for closed images. B6 tests use an explicit fetch; the
+`:call-hash` instruction is emitted only by the later dependency linker. A
+host emits a REQUEST value carrying H, and a responder process holds an
+explicit value mapping H to image bytes or queries an H-to-address datom chosen
+by its composition. The response carries canonical wire bytes or a qualified
+absence/unsupported outcome. The receiver hashes those bytes before decoding,
+checks H and the descriptor, runs the closure check, validates, and loads only
+verified bytes. Every free name must resolve through primitives or modules and
+must not be shadowed by free-env or store; failures are `:unresolved-free` or
+`:shadowed-free`. Completion requires JVM to Dart stream transfer, where the
+receiver initially knows only H, mismatch and unsupported refusal, absence
+events, and equal normalized results using the existing semantic VM via lift.
 
 ### B7: dependency closure linker
 
@@ -469,7 +494,7 @@ property from those sources.
 In this project, lambda lifting or ANF may be separate AST-to-AST stream
 stages upstream of both lowerers. Such a stage reads and writes named
 `:yin/*` datoms, is optional, and changes arity. Synthesized parameters need
-name-table entries. It must write `:yin/tail?` on every node it creates,
+side-table entries. It must write `:yin/tail?` on every node it creates,
 because both lowerers copy that flag and infer nothing. Lifted and unlifted
 programs must be compared under an explicit arity caveat, and the B0
 normalizer applies to whichever named AST the lowerer receives. This VM
@@ -505,19 +530,21 @@ The boundary is `dao.stream`; local and remote resolution are the same
 transport-neutral mechanism, and their physical placement is not a linker
 decision.
 
-`yin.vm.content` stores and fetches bytes. B verifies a received image by
-recomputing `image-hash`, not by treating `jing/segment-key` as H. `load-vector`
+`yin.vm.content` stores and fetches bytes. B hashes received canonical wire
+bytes before decoding, then verifies H with `image-hash`, not by treating
+`jing/segment-key` as H. `load-vector`
 and `:code-aliases` remain named-VM machinery. B6 does not require persistent
 publication or discovery: an observer or peer wired by the composition supplies
 the response stream.
 
-A linked dimension may contain `:call-hash H`. If H is unavailable, the linked
-interpreter parks its explicit continuation and emits a REQUEST value carrying
-H. A response stream carries image bytes or a qualified absence/unsupported
-outcome. B recomputes `image-hash`, rejects mismatches, loads only verified
-bytes, and resumes. The request token, parked continuation, and response are
-data; no callback is retained. Gaps, timeouts, and permanent absence remain
-explicit stream events.
+A linked dimension may contain `:call-hash H` once B7 emits it. If H is
+unavailable, the linked interpreter parks its explicit continuation and emits a
+REQUEST value carrying H. A response stream carries canonical image bytes or
+a qualified absence/unsupported outcome. B hashes the wire bytes before
+decoding, rejects mismatches, runs the receiver closure check, loads only
+verified bytes, and resumes. The request token, parked continuation, and
+response are data; no callback is retained. Gaps, timeouts, and permanent
+absence remain explicit stream events.
 
 B7 supplies dependency closure for free names. Mutually recursive definitions
 form one strongly connected component, whose members are ordered by canonical
@@ -584,18 +611,31 @@ DECIDED:
 8. D8 committed B6: closed images are fetched by H over `dao.stream`, verified
    with `image-hash`, and loaded only after verification. This directly serves
    invariant I.
-9. D9 H function: B1's single `image-hash` function hashes descriptor bytes
-   and the canonical positional vector. Jing addresses are storage locations,
-   not H.
+9. D9 H function: B1's single `image-hash` function hashes the descriptor
+   hash, including the lowering-contract version, and the canonical positional
+   vector. Jing addresses are storage locations, not H.
 10. D10 scalar classes: classes are derived from hashed constant tags; a host
     lacking one refuses before execution. No redundant class manifest exists.
-11. D11 free names: before B7, sharing is safe only for closed images or
-    identically bound free names; unresolved names are qualified runtime
-    errors, and B6 may refuse non-closed images.
+11. D11 free names: closed means the receiver closure check passes against
+    its primitive/module tables with no free-env or store shadowing. B6 refuses
+    `:unresolved-free` and `:shadowed-free`; an image with no free operands
+    passes trivially.
 12. D12 sharing identity: H is the only identity on the sharing path. The
     merged projection remains dormant, untouched, and has no new dependents.
     This serves invariant I and "derive, do not persist" because H is already
     alpha-invariant for binder names.
+13. D13 dependency order: B6 depends on B1, B2, and the lift, not B3 or B4;
+    the existing semantic VM can execute a fetched image after lifting. This
+    serves invariant I by making sharing available before the new VM kernel.
+14. D14 wire verification: receivers hash canonical received bytes before
+    decoding, and the descriptor hash includes the lowering-contract version.
+    This serves content integrity and host-boundary safety.
+15. D15 receiver closure: free names are derived by scanning operands and are
+    accepted only when primitive/module resolution is unshadowed. This serves
+    explicit state and prevents same-H semantic drift.
+16. D16 responder ownership: B6 responders hold an explicit H-to-bytes value
+    or query an H-to-address datom selected by composition. This serves the
+    no-global-state and no-callback invariants.
 
 DEFERRED:
 
