@@ -5,8 +5,8 @@ Status: design; not implemented
 This document specifies a second executable path for `yin.vm`. The existing
 path lowers named Universal AST datoms to `:yin.code/*` and executes that
 image. This design defines a sibling VM for a derived linear image. No second
-lossless source view is built. The projection remains a separate identity and
-deduplication artifact.
+lossless source view is built. The merged projection is retained as a dormant,
+non-load-bearing artifact and is not consumed by this VM or its linker.
 
 ## 1. Architecture and invariants
 
@@ -15,9 +15,10 @@ linker. The linker may be local or remote, but its boundary is always the
 stream.
 
 Three artifacts are associated with one named AST. The named datoms are the
-bijective source representation. The projection is the alpha-canonical,
-lossy identity representation. The executable de Bruijn image is a third,
-executable, derived representation and is not itself invertible.
+bijective source representation. The executable de Bruijn image is the
+execution artifact and the sole sharing identity, H. The merged projection is
+an alpha-canonical, lossy historical artifact. It is dormant, has no consumer
+in this design, and is not itself executable.
 
 Architecture A means lowering from projected records. Architecture B, the
 recommended architecture, lowers from named datoms and is not the same as A.
@@ -25,8 +26,9 @@ Lowering projected records cannot promise named execution semantics because
 projection deliberately canonicalizes scalar spelling, preserves free names
 only in canonical form, removes binder names and provenance, and drops
 front-end `:yin/tail?`. Restricting the input to already-canonical programs,
-weakening continuation guarantees, and abandoning the fingerprint as a cache
-key would make that path sound but would make it a poor executable artifact.
+weakening continuation guarantees, and treating the records as a cache key
+would make that path unsound; making them non-identities would make it a poor
+executable artifact.
 
 Named datoms remain the lossless truth. Binder names and provenance are kept
 in the diagnostic side table used by the executable image, while lexical
@@ -59,15 +61,22 @@ the receiver's `resolve-var` order is a qualified runtime error outcome. B6
 may refuse a non-closed image; a closed image is derivable by scanning its
 operands.
 
+H is alpha-invariant for binder renames because binder names are outside the
+hash. Equal H therefore implies agreement on exact scalar spelling and free
+name operands as well as the same executable image. Alpha-equivalent source
+programs share H only when their front-end tail flags agree; this is sound but
+intentionally incomplete.
+
 The following are not promised to be identical: binder spelling in the
-projected fingerprint, instruction program counters, temporary ids, allocation
+dormant projection, instruction program counters, temporary ids, allocation
 identity, stack-trace text, source-map formatting, or interchangeability of
 continuations between the two VMs. Named datoms remain available for complete
 decoding and debugging; the executable image is not an inverse encoding.
 
 The VM obeys the datom.world invariants: state is explicit data, execution is
 an interpreter above streams, callbacks are never retained, effects are
-stream-visible, and the existing AST, projection, lease, waitset, and named VM
+stream-visible, and the existing AST, merged dormant projection, lease, waitset,
+and named VM
 contracts are not changed.
 
 The following table records compliance with design invariant I and the
@@ -93,8 +102,8 @@ datom.world principles.
     |                          | cross stream boundaries (§7.2).            |
     | No shared mutable state  | Frames, stores and continuations are       |
     |                          | persistent transition data (§4).           |
-    | No layer collapse        | Projection, lowering, VM and linker are    |
-    |                          | separate interpreters (§1, §7.2).          |
+    | No layer collapse        | Named source, lowering, VM and linker      |
+    |                          | remain separate interpreters (§1, §7.2).   |
     | No assumed graphs        | Image refs and body ranges are validated   |
     |                          | before execution (§3).                     |
     | Derive, do not persist   | Named datoms stay authoritative; lexical   |
@@ -144,7 +153,8 @@ binder names or synthesized names. Exact-spelling slots are typed raw `Bytes`,
 so no-NFC behavior is a slot rule, not an exception to the dimension contract.
 
 The new code namespace copies its small framing and length-prefix helpers and
-defines its own scalar tag table; it does not reach private projection vars.
+defines its own scalar tag table; it does not reach private vars in the merged
+dormant projection namespace.
 It uses `jing/sha256` and a separate executable scalar encoding: distinct tags
 represent nil, booleans, long, double, ratio, bigint, char, string, keyword,
 symbol, vectors, lists, maps, sets, and other explicitly supported values.
@@ -180,12 +190,10 @@ not a stream gap.
 The code-image identity H is computed by one B1 function, `image-hash`, over
 the descriptor hash and canonical positional instruction vector: pc-indexed
 tuples, refs resolved to pcs, no header, and exact scalar bytes. Provenance is
-a diagnostic side table indexed by pc and is outside the hash. The projection
-fingerprint may be recorded as metadata and used to find alpha-equivalent
-candidates, but
-it is not the executable cache key. Two programs with equal projection
-fingerprints may therefore have different executable images, for example
-because their literal spelling or tail flags differ.
+a diagnostic side table indexed by pc and is outside the hash. H is the only
+executable and sharing identity. No projection fingerprint or second identity
+is attached to the image, request, response, verification, or cache. Any later
+cache is keyed by H.
 No cache is specified by B0 through B5; any later cache is an explicit value
 keyed by the canonical image hash. `jing/segment-key` is only the storage
 address for the same bytes and is not H; `yin.vm.content` stores and fetches
@@ -193,13 +201,14 @@ the bytes, while verification recomputes `image-hash`.
 
 ## 3. Lowering and scope
 
-The lowerer receives complete `:yin/*` named datoms plus the projected
-fingerprint as optional metadata. It reuses only the public
+The lowerer receives complete `:yin/*` named datoms. It reuses only the public
 `yin.vm.debruijn/resolve-name` helper. That helper compares names exactly,
 including rightmost-wins duplicate parameters, and does not canonicalize
 values. Projection-only helpers such as `index-frame`, `build-node`, and
 `project-node` are not reused. Unexpanded-macro validation remains the named
 front end's responsibility.
+The projection is therefore kept, not removed: if it is ever retired, this
+public helper must first move into this design's namespace.
 
 The walk is deterministic and left to right. Lambda bodies are out of line,
 applications evaluate operator then operands, and `if` evaluates one arm.
@@ -297,7 +306,8 @@ criteria, and JVM, Node/CLJS, ClojureDart, kondo, and cljstyle verification.
 
     New: test/yin/vm/debruijn_vm_contract_test.cljc
     Existing edits: none
-    Must not change: AST, emitter, projection, named VM, code dimension
+    Must not change: AST, emitter, merged projection namespace, named VM,
+    code dimension
 
 Freeze the result/error normalizer and actual parity corpus:
 `parity-test` plus the every-tag corpora in `content_test` and
@@ -310,7 +320,7 @@ fixtures.
     New: src/cljc/yin/vm/debruijn_code.cljc
     New: test/yin/vm/debruijn_code_test.cljc
     Existing edits: none
-    Must not change: yin.vm.code, :yin.code/*, projection encoder
+    Must not change: yin.vm.code, :yin.code/*, merged projection namespace
 
 Define and export the descriptor, mirrored opcode table, exact executable
 scalar encoder, code-image hash, and validator. Completion includes malformed
@@ -354,7 +364,8 @@ out-of-range image must be rejected by both validators.
     New: src/cljc/yin/vm/debruijn_vm.cljc
     New: test/yin/vm/debruijn_vm_test.cljc
     Existing edits: none
-    Must not change: semantic VM, engine, IVM protocols, named environment
+    Must not change: semantic VM, engine, IVM protocols, named environment,
+    merged projection namespace
 
 Implement frames, closures, loads, calls, returns, branches, literals, and
 store operations. Completion requires pure-program parity using B0's
@@ -366,7 +377,8 @@ benchmark report, not an acceptance condition.
     Existing source: src/cljc/yin/vm/debruijn_vm.cljc
     New: test/yin/vm/debruijn_vm_effects_test.cljc
     Existing edits: none
-    Must not change: dao.stream protocols, lease, waitset, named effect rules
+    Must not change: dao.stream protocols, lease, waitset, named effect rules,
+    merged projection namespace
 
 Implement stream operations, primitives, FFI, gensym, current-continuation,
 park, and resume. Completion requires parity for values, errors, effects,
@@ -382,23 +394,23 @@ completion adapter so `:yin.k/requires` is not under-approximated.
     Existing edits: none
     Must not change: named storage and the existing linearizer pipeline
 
-Compare `ast->datoms` -> projection metadata plus B2 -> de Bruijn VM against
+Compare `ast->datoms` -> B2 -> de Bruijn VM against
 `ast->datoms` -> `linearize/lower` -> semantic VM. Use the actual parity and
 content/completion corpora, not helper-only tests as execution fixtures.
-Completion requires alpha-equivalent programs to share projection identity
-and binder-renamed programs to produce the same image hash on every host lane
-for the common scalar domain. Programs differing in exact scalar spelling,
-front-end tail flags, or free names must produce different image hashes. An
-image sent over a `dao.stream` from one host lane must load, validate, and
-execute on another with the same normalized result as local execution. All
-three host lanes must agree under the normalizer.
+Completion requires programs differing only in binder names to produce the
+same H on every host lane for the common scalar domain. Programs differing in
+exact scalar spelling, front-end tail flags, or free names must produce
+different H values. An image sent over a `dao.stream` from one host lane must
+load, validate, and execute on another with the same normalized result as
+local execution. All three host lanes must agree under the normalizer.
 
 ### B6: committed closed-image stream linker
 
     New: src/cljc/yin/vm/debruijn_linker.cljc
     New: test/yin/vm/debruijn_linker_test.cljc
     Existing edits: none
-    Must not change: projection, image-hash, dao.stream, named VM semantics
+    Must not change: merged projection namespace, image-hash, dao.stream,
+    named VM semantics
 
 Implement fetch-by-H for closed images. A host parks on `:call-hash H` or an
 explicit fetch, emits a REQUEST value carrying H, receives image bytes or a
@@ -413,7 +425,7 @@ results.
     New: src/cljc/yin/vm/debruijn_linker.cljc
     New: test/yin/vm/debruijn_linker_dependency_test.cljc
     Existing edits: none
-    Must not change: projection fingerprint or B6 closed-image semantics
+    Must not change: merged projection namespace or B6 closed-image semantics
 
 Add value/stream name environments, hash-of-unit dependency closure, and
 strongly connected component manifests. Completion requires cycle-safe
@@ -431,7 +443,7 @@ tail-flag differences with distinct hashes, free-name changes, stream transfer,
 and cross-host code-image bytes.
 
 Non-goals are equality saturation, a new JIT, global distribution beyond B6
-and B7, and any change to the projection or its fingerprint.
+and B7, and any change to the merged dormant projection or its fingerprint.
 
 ### 7.1 Prior art: Unison's runtime
 
@@ -484,9 +496,9 @@ reference resolution, MCode and Machine semantics, and whether
 
 Reference-by-hash is a stream process, not hidden VM machinery. B6 is the
 committed closed-image fetch path. It consumes executable images and a
-value-held name environment, uses the projection fingerprint only as a lookup
-index, emits verified definition requests, consumes definition datoms,
-and emits a linked image or an explicit refusal. This follows the axiom that
+value-held name environment, uses only H as identity and request key, emits
+verified image requests, consumes image bytes, and emits a linked image or an
+explicit refusal. This follows the axiom that
 all IO and data flow through append-only streams. No global mutable registry
 is introduced, and no direct function-to-function call crosses the boundary.
 The boundary is `dao.stream`; local and remote resolution are the same
@@ -521,8 +533,8 @@ never invokes a loader; absence is a park plus a request emission.
 Completion for B6 requires closed-image fetch by H, verified cross-runtime
 execution, malformed or missing-address diagnostics, and explicit absence and
 unsupported outcomes. B7 additionally requires cycle-safe manifests and
-dependency closure. Neither changes the projection fingerprint or establishes
-any property of the Unison runtime, which is UNVERIFIED here.
+dependency closure. Neither modifies the merged dormant projection or
+establishes any property of the Unison runtime, which is UNVERIFIED here.
 
 ### 7.3 Lossless source view non-goal
 
@@ -530,6 +542,12 @@ The VM does not build a second lossless record DAG. Named datoms remain the
 lossless source, and lexical positions, binder diagnostics, and provenance are
 derived into the executable image as needed. A separate inverse view would
 require its own design and is outside B0 through B7.
+
+If a future coarser semantic-deduplication identity is wanted, it must be
+derived from the executable image by hashing a normalized view with canonical
+scalars and tail flags dropped. It must not reuse or equal the dormant pinned
+projection fingerprint; it would be a new derived value and a separate
+decision.
 
 ## 8. Risks and owner decisions
 
@@ -555,8 +573,8 @@ DECIDED:
    outside these phases; retain the fixture restriction until fixed. The fix
    requires its own design.
 5. D5 hash identity: `:call-hash H` names the canonical executable image hash
-   of a definition unit; a recursive component is one hashed unit. The
-   projection fingerprint is never H.
+   of a definition unit; a recursive component is one hashed unit. H is not a
+   projection identity.
 6. D6 linker principles: the name environment is a value or stream, trust and
    provenance are composition policy, SCCs hash as units with canonical member
    ordering, and retry, timeout, and absence are stream events. The boundary
@@ -574,6 +592,10 @@ DECIDED:
 11. D11 free names: before B7, sharing is safe only for closed images or
     identically bound free names; unresolved names are qualified runtime
     errors, and B6 may refuse non-closed images.
+12. D12 sharing identity: H is the only identity on the sharing path. The
+    merged projection remains dormant, untouched, and has no new dependents.
+    This serves invariant I and "derive, do not persist" because H is already
+    alpha-invariant for binder names.
 
 DEFERRED:
 
@@ -581,6 +603,9 @@ DEFERRED:
 - B7 dependency-closure and SCC manifest mechanics.
 - The exact retry, timeout, and permanent-absence event vocabulary.
 - A named-VM environment-leak fix design, which owns D4's release condition.
+- If the merged projection is ever retired, move the public `resolve-name`
+  helper into this design's namespace before removal. Dormant means kept, not
+  removed.
 
 No owner decision blocks B0. B0 starts with D1 and the frozen parity corpus.
 
@@ -588,5 +613,6 @@ No owner decision blocks B0. B0 starts with D1 and the frozen parity corpus.
 
 The AST schema, AST walker, named emitter, named linearizer, semantic VM,
 existing `:yin.code/*` dimension, `dao.stream` protocols, lease layer, waitset,
-named storage, projection algorithm, and projection fingerprint remain
-unchanged. The executable encoding and VM are additional artifacts.
+named storage, and the merged projection namespace and pinned fingerprint
+remain unchanged. The projection is dormant and has no new dependents. The
+executable encoding and VM are additional artifacts.
