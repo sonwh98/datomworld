@@ -4,7 +4,12 @@ description: Alpha-canonical de Bruijn projection of the named Universal AST
 
 # DE BRUIJN PROJECTION OF THE UNIVERSAL AST
 
-Status: design and implementation plan. This is compilation-layer work. The
+Status: implemented through D6 (merged 2026-09-21). D0–D6 implementation and
+tests are merged; the DaoJing file store's host-specific refusal/hash-mismatch
+cases are pinned by tests, and projected-reader lexical scope validation remains
+outside this plan. The sections below are the design, phase scope, and
+completion criteria used to build and review the implementation; §7 records
+phase scope and completion criteria. This is compilation-layer work. The
 pipeline is:
 
 ```
