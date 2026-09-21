@@ -12,6 +12,10 @@ dependencies:
     sdk: flutter
   http: ^1.2.0
   cbor: 6.5.1
+  # The :cljd NFC seam (yin.vm.debruijn's normalize-nfc). Pinned to the
+  # Unicode 16.0 release the de Bruijn projection design settled on
+  # 2026-09-21; 0.3.2 moved to Unicode 17.0.
+  unorm_dart: 0.3.1+1
 
 dev_dependencies:
   flutter_test:
