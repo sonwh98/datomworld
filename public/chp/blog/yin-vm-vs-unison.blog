@@ -1,0 +1,78 @@
+#:blog{:title "Named Source, Canonical Identity: yin.vm and Unison's Different Trade-offs"
+       :date #inst "2026-09-21T22:26:54.000+07:00"
+       :abstract [:p "A look at the architectural trade-offs between Unison and yin.vm. Both derive code identity from a nameless, De Bruijn-style representation, but they diverge on what counts as the \"source of truth\", how code is stored and queried, and how names relate to identity. This post separates what yin.vm implements today from what is designed but not yet built."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+
+                   [:p "Unison and " [:code "datom.world"] " (via its " [:code "yin.vm"] " execution engine) both reject text files as the stored form of code. Unison identifies each definition by a hash of its syntax tree (" [:a {:href "https://www.unison-lang.org/docs/the-big-idea/"} "Unison documentation: the big idea"] "). " [:code "yin.vm"] " stores code as datoms (relational facts) and derives a hash-based identity from them."]
+
+                   [:p "Both systems use a mathematical concept known as " [:strong "De Bruijn indexing"] " (a technique for representing variable bindings without using names) to make that identity independent of variable names. In Unison's hashing algorithm, variable names are converted to their De Bruijn index (" [:a {:href "https://unison-lang.org/whats-new/writeup-of-our-first-unison-meetup"} "Unison meetup writeup"] "). In yin.vm, the design derives an executable image from the named AST, addresses local variables by De Bruijn position, and hashes the image without binder names. The two systems differ in what is stored, how it is queried, and how it is evaluated."]
+
+                   [:h2 "Status: What Exists Today"]
+                   [:p "As of 2026-09-22, this post mixes implemented behavior with design intent, so each claim about " [:code "yin.vm"] " falls into one of three groups:"]
+                   [:ul
+                    [:li [:strong "Implemented: "] "the named Universal AST as datoms, its lowering to executable " [:code ":yin.code/*"] " code that the semantic VM runs, content-addressed storage of that code through " [:code "yin.vm.content"] ", and a merged De Bruijn projection with Merkle fingerprints, tested on JVM, JavaScript, and Dart. Nothing in the running system uses the projection: it is left dormant."]
+                    [:li [:strong "Designed, not yet implemented: "] "a De Bruijn VM that runs an executable image derived from the named AST, an image hash " [:code "H"] " that ignores binder names, sharing of images over " [:code "dao.stream"] ", and a linker that fetches a closed image by its hash. The design is committed as " [:code "docs/design/yin.vm.debruijn-vm.md"] " (phases B0 to B7), and none of its phases is built yet."]
+                    [:li [:strong "Later: "] "dependency closure for free names (phase B7), references by dependency hash, cross-host continuation transport, and global distribution."]]
+                   [:p "Statements about Unison cite Unison's documentation and its codebase schema, linked inline."]
+
+                   [:h2 "1. Unison: Hashing a Nameless Syntax Tree"]
+                   [:p "In a purely content-addressed system, code is identified by its cryptographic hash. But if you include variable names in that hash, you have a problem. If Developer A writes " [:code "(fn [timeout] (+ timeout 1))"] " and Developer B writes " [:code "(fn [retry] (+ retry 1))"] ", a naive hashing algorithm sees two completely different functions, breaking deduplication and caching."]
+
+                   [:p "Unison's hashing algorithm avoids this. Variable names are converted to their De Bruijn index, so name choices do not affect the hash: " [:code "id x = x"] " hashes the same as " [:code "identity a = a"] ", because both " [:code "x"] " and " [:code "a"] " have De Bruijn index 0 (" [:a {:href "https://unison-lang.org/whats-new/writeup-of-our-first-unison-meetup"} "Unison meetup writeup"] "). Dependencies are replaced by their hashes (" [:a {:href "https://www.unison-lang.org/docs/the-big-idea/"} "Unison documentation: the big idea"] ")."]
+
+                   [:p "Names are kept outside the hash. Unison's documentation describes them as \"separately stored metadata that don't affect the function's hash\", and states that the definition associated with a hash never changes when names are reassigned (" [:a {:href "https://www.unison-lang.org/docs/the-big-idea/"} "the big idea"] ", " [:a {:href "https://www.unison-lang.org/docs/usage-topics/general-faqs/"} "general FAQ"] "). A rename therefore updates the name-to-hash mapping, and no definition changes."]
+
+                   [:h2 "2. Where Human Names Live"]
+                   [:p "In Unison, the mapping of names to hashes is \"just metadata for humans, used to resolve names to hashes at parse time when slurping up code into the codebase, and used for the other direction when displaying code for the user\" (" [:a {:href "https://unison-lang.org/whats-new/writeup-of-our-first-unison-meetup"} "Unison meetup writeup"] "). The stored definition is identified by its hash, and its name is a separate mapping."]
+
+                   [:p "In yin.vm, the names a developer wrote are part of the Named Universal AST itself, stored as datoms beside the structure they name."]
+
+                   [:h2 "3. yin.vm: One Truth, Many Interpretations"]
+                   [:p [:code "yin.vm"] " is built on an architectural axiom: " [:em "Interpretation Creates Semantics (one truth, many perspectives)."]]
+
+                   [:p "Rather than forcing a single monolithic representation, " [:code "yin.vm"] " keeps one source of truth and derives other forms from it:"]
+                   [:ul
+                    [:li [:strong "The Named Universal AST: "] "This is the canonical stored, queryable, and renderable source form. It stores the exact names the developer wrote. The AST walker can evaluate it directly, and the semantic VM executes a separately linearized " [:code ":yin.code/*"] " image lowered from it, with " [:code ":yin.code/source"] " provenance pointing back at the named entities."]
+                    [:li [:strong "The Executable De Bruijn Image (designed): "] "The design runs the existing lowering, " [:code "yin.vm.linearize/lower"] ", over the named datoms and then rewrites two things in its output. Each variable reference becomes a positional load: " [:code ":load-bound [depth position]"] " for a bound variable, or " [:code ":load-free name"] " for a free one. Each closure carries its arity instead of its parameter names. The result is a linear vector of tuples. Its identity " [:code "H"] " is the hash of that vector, with binder names and provenance held in a side table outside the hash. Exact scalar spelling, the front end's tail flags, and free names stay inside it."]
+                    [:li [:strong "The De Bruijn Projection (merged, dormant): "] "This is derived data that maps alpha-equivalent programs to one Merkle fingerprint. It is lossy by design: it folds " [:code "1.0"] " into " [:code "1"] ", normalizes strings, and drops tail flags and parameter names. That makes it a good identity for alpha-equivalence and unusable as an executable form, because " [:code "(/ 1.0 2)"] " and " [:code "(/ 1 2)"] " compute different values. The projection therefore stays merged and untouched, and the design does not depend on it apart from reusing its small public " [:code "resolve-name"] " scope helper."]
+                   ]
+
+                   [:p "When a developer renames a bound local variable in " [:code "yin.vm"] ", they update the Named AST, and the image hash " [:code "H"] " does not change, because binder names sit outside the hash. Renaming a free or global reference is different: free names stay inside the image as operands, so that change alters " [:code "H"] ". The design has no dependency-by-hash indirection before its later phases, so it does not offer Unison's rename behavior for global references."]
+
+                   [:p "Two programs with the same " [:code "H"] " are alpha-equivalent and agree on exact scalar spelling and free names. Alpha-equivalent programs share an " [:code "H"] " when their front ends chose the same tail flags, so " [:code "H"] " is a sound test of alpha-equivalence that can miss pairs differing only in tail flags."]
+
+                   [:h2 "4. Storage and Querying: Designed vs. Implemented"]
+                   [:p "A major difference is how these structures are stored and queried."]
+
+                   [:p "Unison's codebase is a SQLite database. Its schema stores terms, type declarations, and namespaces as binary blobs in an " [:code "object"] " table, keyed by hash, and adds indexes for type-based search (" [:code "find_type_index"] "), type mentions (" [:code "find_type_mentions_index"] "), dependents in both directions (" [:code "dependents_index"] "), and names (" [:code "scoped_term_name_lookup"] ", " [:code "scoped_type_name_lookup"] ") (" [:a {:href "https://github.com/unisonweb/unison/blob/trunk/codebase2/codebase-sqlite/sql/create.sql"} "codebase schema"] "). Unison's documentation describes the codebase as a database with \"perfect knowledge of dependencies\" and \"indices for type-based search\" (" [:a {:href "https://www.unison-lang.org/docs/the-big-idea/"} "the big idea"] "). The schema defines no index over the internal structure of a term's body, which is stored as opaque bytes."]
+
+                   [:p "In " [:code "datom.world"] ", the Named AST is stored as decomposed relational facts (datoms/tuples), so every node and edge is an independent tuple that can be indexed relationally and queried with Datalog through " [:code "dao.space.query/q"] ". Code is also content-addressed today: " [:code "yin.vm.content"] " stores canonical instruction vectors under a " [:code "dao.jing"] " address. Those vectors still carry variable names, so equivalent programs with different binder names get different addresses."]
+
+                   [:p "The design adds an image identity that ignores binder names, so two developers' equivalent programs share one address, and publishing the second one is a no-op. That is a property of the design, and it is not implemented yet. The earlier idea of indexing the projection's records in " [:code "dao.space"] " and grouping programs by projected fingerprint is not part of the design, since the projection is dormant and duplicate detection goes through the image hash."]
+
+                   [:h2 "5. References and Distribution"]
+                   [:p "Unison replaces a definition's dependencies with their hashes (" [:a {:href "https://www.unison-lang.org/docs/the-big-idea/"} "the big idea"] "), so identity extends across the dependency graph. The " [:code "yin.vm"] " image keeps free references by name, as " [:code ":load-free"] " operands, and does not rewrite them to dependency hashes."]
+
+                   [:h3 "Sharing Code Over dao.stream (designed)"]
+                   [:p "The goal of the design is that one yin.vm can easily share code with another over " [:code "dao.stream"] ". The design's scenario runs as follows. Host A lowers a program to an executable image and computes " [:code "H"] ". Host B, possibly a different runtime such as Dart, knows only " [:code "H"] ". B emits a request value carrying " [:code "H"] " on a stream, and an image or a qualified absence comes back on a stream. B recomputes the hash from the received bytes, validates the image, and loads it only if the hash matches. Then B runs it."]
+
+                   [:ul
+                    [:li [:strong "The linker is a process between streams. "] "The VM never invokes a loader. Missing code parks the continuation and emits a request, and whether the peer is local or remote is just a stream."]
+                    [:li [:strong "Integrity comes from the hash. "] "The address is the proof: the receiver verifies content against " [:code "H"] " before loading."]
+                    [:li [:strong "Closed images come first. "] "The committed phase B6 covers images with no free names. Dependency closure for free names, including mutually recursive definitions hashed as a unit, is the later phase B7."]
+                    [:li [:strong "Portability has a boundary. "] "Byte identity across hosts holds for the common scalar domain, and a receiving host that lacks a scalar class refuses the image before execution."]
+                   ]
+
+                   [:p "Until dependency closure exists, an image is safely shareable only if it is closed, or if its free names are bound identically on the receiver. The physical " [:code "dao.jing"] " address is still print-based until the DaoJing CBOR work lands, so the image hash uses its own canonical encoding and is independent of that address."]
+
+                   [:p "For Unison, the runtime documentation lists let-rec minimization, lambda lifting, ANF, and an intermediate representation in which variables use De Bruijn indices as stack positions (" [:a {:href "https://raw.githubusercontent.com/unisonweb/unison/trunk/unison-runtime/src/Unison/Runtime/docs.markdown"} "Unison runtime documentation"] "). That document does not state whether the runtime compiles the exact stored term or how it resolves references to other definitions. This post makes no claim about Unison runtime speed or parity, and exact interoperability with Unison is not a goal of yin.vm."]
+
+                   [:h2 "Conclusion"]
+                   [:p "Unison hashes a nameless form of each definition and keeps names as separate metadata. " [:code "yin.vm"] " keeps the names in the source AST, derives an executable image whose hash ignores binder names, and treats the sharing of that image over " [:code "dao.stream"] " as the point of the exercise."]
+
+                   [:p "Today, yin.vm has the named source, the semantic VM, name-based content-addressed code, and a merged but dormant De Bruijn projection. The image, the De Bruijn VM, and the stream linker are designed and not yet built. Dependency closure and global distribution come after that."]
+                   ]]]}
