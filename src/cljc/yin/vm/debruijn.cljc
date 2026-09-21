@@ -2,14 +2,15 @@
   "Alpha-canonical de Bruijn projection of the named Universal AST
    (docs/design/yin.vm.debruijn-projection.md).
 
-   This namespace is D0+D1+D2 of that design: the published
+   This namespace is D0-D3 of that design: the published
    :yin.debruijn/* dimension and its hash domain, §5's canonical value
    table with the NFC seam, §2's root framing and input validation, §3's
    scope resolver, §4-§5's Merkle records — node hashes over the
-   dimension hash, hash-consed records, and the root fingerprint — and
-   the pure d5 storage adapter over the projected records. The settled
-   cross-host byte encoder is D3's and the dao.stream forward-step is
-   D4's; neither is here.
+   dimension hash, hash-consed records with canonically spelled scalars,
+   and the root fingerprint — the settled canonical byte encoder whose
+   rules make those bytes identical on the JVM, JS, and Dart hosts, and
+   the pure d5 storage adapter over the projected records. The dao.stream
+   forward-step is D4's; it is not here.
 
    The projection is an interpreter over plain AST datoms and never
    executes values, primitives, streams, continuations, or effects. Its
@@ -44,7 +45,7 @@
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
             #?(:cljd ["package:unorm_dart/unorm_dart.dart" :as unorm]))
-  #?(:cljd (:import ["dart:typed_data" Uint8List])))
+  #?(:cljd (:import ["dart:typed_data" ByteData Uint8List])))
 
 
 ;; =============================================================================
@@ -144,16 +145,9 @@
       "yin.vm.debruijn/project-datoms is the lift"]]]])
 
 
-(def dimension-hash
-  "The published hash domain separator (§4): the content hash of the
-   descriptor subgraph, per datom.md's 'the content hash of this subgraph
-   IS the dimension's identity'. The descriptor is stable — its slots,
-   encoding rule, and morphisms do not change under later phases. Its
-   digest is transitional: D0 mints it through dao.jing's
-   order-normalized content hash, and D3 re-pins this one digest over the
-   settled canonical encoder. Only the digest ever changes; never the
-   descriptor."
-  (jing/content-hash descriptor))
+;; dimension-hash is minted below, beside the canonical encoder: §5's
+;; domain separator is the descriptor encoded through the settled encoder
+;; and hashed, and the encoder's definitions intervene between the two.
 
 
 ;; =============================================================================
@@ -230,24 +224,63 @@
      :cljd (if (int? v) :int64 (double-class v))))
 
 
+(defn- code-unit-at
+  [s i]
+  #?(:clj (int (.charAt ^String s i))
+     :cljs (.charCodeAt s i)
+     :cljd (.codeUnitAt s i)))
+
+
+(defn- well-formed-utf16?
+  "True when every surrogate in `s` is paired — the precondition for the
+   hosts' UTF-8 encoders to agree. An unpaired surrogate reaches storage
+   as itself on some hosts and as the replacement character on others,
+   so byte identity is unmakeable there: such a string classifies
+   unsupported, in a value or in an ident's parts alike."
+  [s]
+  (let [n (count s)]
+    (loop [i 0]
+      (if (>= i n)
+        true
+        (let [c (code-unit-at s i)]
+          (cond
+            (<= 0xDC00 c 0xDFFF) false
+            (<= 0xD800 c 0xDBFF) (if (and (< (inc i) n)
+                                          (<= 0xDC00 (code-unit-at s (inc i)) 0xDFFF))
+                                   (recur (+ i 2))
+                                   false)
+            :else (recur (inc i))))))))
+
+
+(defn- ident-parts-ok?
+  "An identifier classifies only when its namespace and name are both
+   well-formed UTF-16: ident parts are strings under NFC."
+  [x]
+  (and (or (nil? (namespace x))
+           (well-formed-utf16? (namespace x)))
+       (well-formed-utf16? (name x))))
+
+
 (defn canonical-class
   "Classify `v` under §5's canonical value table: the class keyword when
    v is inside the canonical domain, nil when v is unsupported (a
    diagnostic at the walk). Recursive over collections; maps and sets
    sort by canonical encoded bytes only at D3 encode time, so any
-   iteration order classifies identically."
+   iteration order classifies identically. Records are not the plain
+   map they print as — their host shapes disagree — so they diagnose."
   [v]
   (cond
     (nil? v) :nil
     (boolean? v) :bool
-    (string? v) :string
-    (keyword? v) :keyword
-    (symbol? v) :symbol
+    (string? v) (when (well-formed-utf16? v) :string)
+    (keyword? v) (when (ident-parts-ok? v) :keyword)
+    (symbol? v) (when (ident-parts-ok? v) :symbol)
     (bytes-like? v) :bytes
-    (map? v) (when (every? (fn [entry]
-                             (and (canonical-class (key entry))
-                                  (canonical-class (val entry))))
-                           v)
+    (map? v) (when (and (not (record? v))
+                        (every? (fn [entry]
+                                  (and (canonical-class (key entry))
+                                       (canonical-class (val entry))))
+                                v))
                :map)
     (set? v) (when (every? canonical-class v) :set)
     (vector? v) (when (every? canonical-class v) :vector)
@@ -752,35 +785,89 @@
 
 
 (def ^:private slot-tag
-  "The provisional D2 tag byte (hex) each canonical class and compound
-   slot type renders under. Class tags are the class's index in the value
-   table's declared :classes order — read through the descriptor — and
-   the compound types (child refs, the fixed pair, the ordered vector)
-   take bytes outside that range. D3 pins the final tag table; D2 fixes
-   only that every slot is tagged."
+  "The settled tag byte (hex) each canonical class and compound slot type
+   renders under. Class tags are the class's index in the value table's
+   declared :classes order — read through the descriptor — and the
+   compound types (child refs, the fixed pair, the ordered vector) take
+   bytes outside that range."
   (into {:ref "c0", :hash "c1", :tuple "c2", :ordered-vector "c3"}
         (map-indexed (fn [i class] [class (to-hex i 2)]))
         (:classes canonical-value-table)))
 
 
+;; code-unit-at lives with the D0 classifier: well-formed-utf16? reads
+;; code units there, before any encoder definition.
+
+
+(defn- utf8-byte-length
+  "The byte length of `s` under UTF-8, from its code units: a surrogate
+   pair is one 4-byte sequence, never two 3-byte ones, and an unpaired
+   surrogate — which the classifier has already refused — would be the
+   3-byte replacement character. Pure arithmetic over code units, so
+   every host agrees without encoding anything."
+  [s]
+  (let [unit-length (fn [c]
+                      (cond (< c 0x80) 1
+                            (< c 0x800) 2
+                            :else 3))
+        n (count s)]
+    (loop [i 0, total 0]
+      (if (>= i n)
+        total
+        (let [c (code-unit-at s i)]
+          (if (and (<= 0xD800 c 0xDBFF)
+                   (< (inc i) n)
+                   (<= 0xDC00 (code-unit-at s (inc i)) 0xDFFF))
+            (recur (+ i 2) (+ total 4))
+            (recur (inc i) (+ total (unit-length c)))))))))
+
+
 (defn- framed
-  "One self-delimiting encoded part: the class's tag byte, the 8-hex
-   char length of the content, and the content. §5's tagged,
-   length-delimited framing; the content rules below are D2's
-   provisional ones, which D3's settled byte rules replace in place."
+  "One self-delimiting encoded part: the class's tag byte, the 8-hex byte
+   length of the content, and the content. §5's tagged, length-delimited
+   framing with the settled rule that lengths count UTF-8 bytes — the
+   preimage is carried as text whose UTF-8 bytes are the hashed stream,
+   so a byte-count prefix keeps the framing's extents on that stream."
   [class content]
-  (str (get slot-tag class) (to-hex (count content) 8) content))
+  (str (get slot-tag class) (to-hex (utf8-byte-length content) 8) content))
 
 
-(defn- double-content
-  "Provisional :double content: the host's decimal print, with NaN and
-   -0.0 normalized so the classes §5 keeps distinct do not collide
-   before D3's IEEE-754 bit encoding lands."
+(defn- int64-le-hex
+  "The settled int64 byte rule: 8 bytes, two's complement, little-endian
+   (datom.md). Exact host integers go through bit ops; a :cljs number —
+   which the classifier only lets here as a safe integer — decomposes
+   exactly through floor and mod by 2^32, whose low bytes survive the
+   host's 32-bit bit ops."
   [v]
-  (cond
-    (not= v v) "NaN"
-    (negative-zero? v) "-0.0"
-    :else (str v)))
+  #?(:cljs (let [lo (mod v 4294967296)
+                 hi (js/Math.floor (/ v 4294967296))
+                 byte-at (fn [x i]
+                           (to-hex (bit-and (unsigned-bit-shift-right x (* i 8))
+                                            0xff)
+                                   2))]
+             (apply str (map #(byte-at (if (< % 4) lo hi) (mod % 4)) (range 8))))
+     :default (let [n (long v)]
+                (apply str (map #(to-hex (bit-and (unsigned-bit-shift-right n (* % 8)) 0xff) 2)
+                                (range 8))))))
+
+
+(defn- double-le-hex
+  "The settled :double byte rule: the IEEE-754 bits, little-endian, with
+   every NaN the one quiet encoding 7ff8000000000000 regardless of the
+   payload a host happens to hold. :clj reads the bits through
+   doubleToLongBits, :cljs through a DataView store with littleEndian
+   explicitly true, :cljd through a big-endian ByteData store read in
+   reverse — the endianness is stated, never the platform's default."
+  [v]
+  (if (not= v v)
+    "000000000000f87f"
+    #?(:clj (int64-le-hex (Double/doubleToLongBits (double v)))
+       :cljs (let [view (js/DataView. (js/ArrayBuffer. 8))]
+               (.setFloat64 view 0 v true)
+               (apply str (map #(to-hex (.getUint8 view %) 2) (range 8))))
+       :cljd (let [bd (ByteData. 8)]
+               (.setFloat64 bd 0 v)
+               (apply str (map #(to-hex (.getUint8 bd %) 2) (range 7 -1 -1)))))))
 
 
 (defn- ident-content
@@ -797,26 +884,32 @@
 
 (defn encode-value
   "Encode one canonical-domain value under its value-table class: the
-   full tagged, length-delimited part. Strings pass the NFC seam; maps
-   and sets sort by their encoded parts, the §5 order rule transposed to
-   this encoding; vectors and lists are the distinct classes the D0
+   full tagged, length-delimited part, under the settled D3 byte rules —
+   int64 little-endian two's complement for integers and integral
+   doubles alike (the recorded 1 ≡ 1.0 collision), IEEE-754 bits with one
+   quiet-NaN encoding for the other doubles, UTF-8 byte lengths, NFC
+   strings and ident parts. Maps and sets sort by their encoded parts,
+   the §5 order rule; vectors and lists are the distinct classes the D0
    ruling split. An out-of-domain value is a diagnostic."
   [v]
   (let [class (canonical-class v)]
     (case class
       :nil (framed :nil "")
       :bool (framed :bool (if v "01" "00"))
-      :int64 (framed :int64 (str (long v)))
-      :double (framed :double (double-content v))
+      :int64 (framed :int64 (int64-le-hex v))
+      :double (framed :double (double-le-hex v))
       :string (framed :string (normalize-nfc v))
       :bytes (framed :bytes (apply str (map #(to-hex (bit-and % 0xff) 2) v)))
       :keyword (framed :keyword (ident-content v))
       :symbol (framed :symbol (ident-content v))
-      :map (framed :map
-                   (apply str (mapcat identity
-                                      (sort (map (fn [[k x]]
-                                                   [(encode-value k) (encode-value x)])
-                                                 v)))))
+      :map (let [entries (sort (map (fn [[k x]]
+                                      [(encode-value k) (encode-value x)])
+                                    v))]
+             (when (some (fn [[a b]] (= (first a) (first b)))
+                         (partition 2 1 entries))
+               (throw (ex-info "Map keys collide in canonical encoding"
+                               {:rule :unsupported-value, :value v})))
+             (framed :map (apply str (mapcat identity entries))))
       :set (framed :set (apply str (sort (map encode-value v))))
       :vector (framed :vector (apply str (map encode-value v)))
       :list (framed :list (apply str (map encode-value v)))
@@ -835,19 +928,69 @@
     (vector? type) (if (= :tuple (first type))
                      (framed :tuple (apply str (map encode-typed (rest type) v)))
                      (framed :ordered-vector
-                             (str (framed :int64 (str (long (count v))))
+                             (str (framed :int64 (int64-le-hex (count v)))
                                   (apply str (map #(encode-typed :ref %) v)))))
     (or (= :ref type) (= :hash type)) (framed :ref v)
     :else (encode-value v)))
 
 
+(def dimension-hash
+  "The published hash domain separator (§4): the descriptor data encoded
+   through the settled canonical encoder and hashed, per datom.md's 'the
+   content hash of this subgraph IS the dimension's identity'. D0-D2
+   minted a transitional dao.jing digest; D3 re-pins it here over the
+   settled byte rules. The descriptor content is unchanged — only the
+   digest's derivation moved to the canonical encoder, so the separator
+   now separates this dimension from every other by the same bytes every
+   node hash uses."
+  (jing/sha256 (encode-value descriptor)))
+
+
+(defn canonical-value
+  "A record's stored scalar is its canonical spelling (the carried D3
+   obligation): the long form for integral numbers — so 1 and 1.0 hold
+   one record content — the NFC form for strings and ident parts, and
+   the same recursively inside collections. One content address, one
+   record content: equal fingerprints imply equal :records maps.
+   Canonicalizing a map whose keys merge — {1 :a, 1.0 :b}, or two string
+   keys with one NFC form — is a key collision, diagnosed rather than
+   letting iteration order decide which entry survives."
+  [v]
+  (let [class (canonical-class v)]
+    (case class
+      :nil v
+      :bool v
+      :int64 (long v)
+      :double (double v)
+      :string (normalize-nfc v)
+      :bytes v
+      :keyword (if-let [ns (namespace v)]
+                 (keyword (normalize-nfc ns) (normalize-nfc (name v)))
+                 (keyword (normalize-nfc (name v))))
+      :symbol (if-let [ns (namespace v)]
+                (symbol (normalize-nfc ns) (normalize-nfc (name v)))
+                (symbol (normalize-nfc (name v))))
+      :map (let [canonical (into {}
+                                 (map (fn [[k x]]
+                                        [(canonical-value k) (canonical-value x)]))
+                                 v)]
+             (if (< (count canonical) (count v))
+               (throw (ex-info "Canonicalizing a map merges distinct keys"
+                               {:rule :unsupported-value, :value v}))
+               canonical))
+      :set (into (empty v) (map canonical-value) v)
+      :vector (mapv canonical-value v)
+      :list (apply list (map canonical-value v))
+      v)))
+
+
 (defn- node-hash
   "§5: hash(node) = SHA-256(dimension-hash || encode(tag-specific-slots-
-   in-descriptor-order)). D2's preimage is the dimension hash's hex
-   followed by the framed slots — a provisional byte rule D3 re-pins
-   over the settled encoder; the shape (descriptor order, tags, length
-   delimiters, ordered child hashes) is what D2 fixes. Markers are never
-   among the encodings: only present, non-marker slots reach here."
+   in-descriptor-order)). The preimage is the dimension hash's hex
+   followed by the framed slots under the settled byte rules; the shape —
+   descriptor order, tags, byte-count length delimiters, ordered child
+   hashes — is what D2 fixed and D3 settled. Markers are never among the
+   encodings: only present, non-marker slots reach here."
   [encodings]
   (jing/sha256 (apply str dimension-hash encodings)))
 
@@ -874,14 +1017,15 @@
   "Hash-cons one resolved node (§4-§5): children first in descriptor
    order, then the node hash over the dimension hash and the node's
    tag-specific slots in descriptor order, then the record — the node
-   with child slots carrying child hashes and :yin.debruijn/hash added.
-   Returns [h acc'] over {:hashcons preimage->h, :records h->record}.
-   The consing memo is keyed on the node's preimage — the concatenated
-   slot encodings — never on Clojure =, which merges a list literal with
-   a vector literal and the signed zeros; a preimage hit implies the
-   identical hash, and within one hash the first spelling is the record
-   written. The memo stays an optimisation only: identity is the hash
-   either way, so traversal order never enters it."
+   with child slots carrying child hashes, scalars in their canonical
+   spellings, and :yin.debruijn/hash added. Returns [h acc'] over
+   {:hashcons preimage->h, :records h->record}. The consing memo is
+   keyed on the node's preimage — the concatenated slot encodings —
+   never on Clojure =, which merges a list literal with a vector
+   literal and the signed zeros; a preimage hit implies the identical
+   hash and, records carrying canonical spellings, the identical record.
+   The memo stays an optimisation only: identity is the hash either way,
+   so traversal order never enters it."
   [node {:keys [hashcons] :as acc}]
   (let [slot-defs (for [[slot type role] dimension-slots
                         :when (and (not= :marker role) (contains? node slot))]
@@ -903,9 +1047,12 @@
                 [{} acc]
                 slot-defs)
         pre-record (reduce (fn [r [slot _type role]]
-                             (if (= :child role)
-                               (assoc r slot (get child-refs slot))
-                               r))
+                             (cond
+                               (= :child role) (assoc r slot (get child-refs slot))
+                               ;; the carried D3 obligation: a record's stored
+                               ;; scalar is its canonical spelling, so equal
+                               ;; fingerprints imply equal records
+                               :else (assoc r slot (canonical-value (get node slot)))))
                            node
                            slot-defs)
         encodings (slot-encodings pre-record)

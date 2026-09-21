@@ -1,10 +1,12 @@
 (ns yin.vm.debruijn-test
-  "D0+D1+D2 of docs/design/yin.vm.debruijn-projection.md: the published
+  "D0-D3 of docs/design/yin.vm.debruijn-projection.md: the published
    :yin.debruijn/* dimension with its hash domain, §5's canonical value
    table and NFC seam, §2's root framing and input validation, §3's
-   scope resolution, and D2's Merkle records — node hashes, the root
-   fingerprint, hash-consing, and the d5 storage adapter — all exercised
-   over the emitter's own datoms. Cross-host byte identity is D3's."
+   scope resolution, D2's Merkle records — node hashes, the root
+   fingerprint, hash-consing, and the d5 storage adapter — and D3's
+   settled byte rules with pinned cross-host byte fixtures. The pinned
+   literals are asserted by the JVM, Node, and Dart lanes alike: one
+   byte string, three hosts."
   (:require [clojure.test :refer [are deftest is testing]]
             [dao.datom :as datom]
             [dao.jing :as jing]
@@ -125,9 +127,14 @@
     (is (= d/canonical-value-table (get-in dimension [:dim/encoding :values])))
     (is (= #{:d1 :d3} (set (map first (:dim/projection-to dimension)))))
     (is (= :d5 (ffirst (:dim/lift-from dimension))))
-    (is (= (jing/content-hash d/descriptor) d/dimension-hash)
-        "the domain separator is the descriptor's content hash, datom.md's
-         dimension identity — not an ad hoc string")
+    (is (= (jing/sha256 (d/encode-value d/descriptor)) d/dimension-hash)
+        "the domain separator is the descriptor encoded through the settled
+         canonical encoder and hashed — D3's re-pin of datom.md's dimension
+         identity, not an ad hoc string")
+    (is (= "11954e461ed58cfef109c6e426cb2eabbdc89ae7850c95ef9e4a5e59f578a2d3"
+           d/dimension-hash)
+        "the settled digest, pinned: descriptor drift fails here as a
+         descriptor failure, not as a definition restating itself")
     (is (re-matches #"^[0-9a-f]{64}$" d/dimension-hash))))
 
 
@@ -179,7 +186,10 @@
   #?(:cljs (do
              (is (= :int64 (d/canonical-class 9007199254740991)))
              (is (nil? (d/canonical-class 9007199254740992)))
-             (is (nil? (d/canonical-class -9007199254740992))))))
+             (is (nil? (d/canonical-class -9007199254740992)))
+             (is (= :unsupported-value
+                    (:rule (throws-data #(d/encode-value 9007199254740992)))))
+             (is (= "0200000010ffffffffffff1f00" (d/encode-value 9007199254740991))))))
 
 
 (deftest the-nfc-seam-composes-on-every-host
@@ -823,5 +833,123 @@
   (let [int-version (project (lam '[x] (app (v '+) (v 'x) (lit 1))))
         double-version (project (lam '[x] (app (v '+) (v 'x) (lit 1.0))))]
     (is (= (:fingerprint int-version) (:fingerprint double-version))
-        "the value table's intentional 1/1.0 collision holds in D2's
-         provisional content, on every host")))
+        "the value table's intentional 1/1.0 collision holds under the
+         settled int64 byte rule, on every host")))
+
+
+;; =============================================================================
+;; D3: the settled byte rules, pinned (§5, §8's cross-host rows)
+;; =============================================================================
+;; Every literal below is asserted by the JVM, Node, and Dart lanes alike:
+;; one pinned byte string, three hosts. If any host's encoder diverges by one
+;; bit, its lane fails here — that is the cross-host byte-identity proof, and
+;; the essay fingerprint below is the stable §8 row. (A live pair transport —
+;; one Dart peer spawned by the JVM/Node lanes, per the R5 precedent — needs
+;; files outside this dispatch's box and is flagged to the orchestrator.)
+
+(deftest the-settled-scalar-bytes-are-pinned
+  (are [expected v] (= expected (d/encode-value v))
+    "02000000100100000000000000" 1
+    "02000000100100000000000000" 1.0
+    "0200000010ffffffffffffffff" -1
+    "0200000010ffffffffffff1f00" 9007199254740991
+    "0300000010000000000000f87f" (/ 0.0 0.0)
+    "03000000100000000000000080" -0.0
+    "0300000010000000000000f83f" 1.5
+    "0300000010000000000000f07f" (/ 1.0 0.0)
+    "0400000003abc" "abc"
+    "0400000002é" "é"
+    "0400000003€" "€"
+    "0400000004😀" "😀"
+    "060000001a0400000002op0400000004echo" :op/echo
+    "070000001800000000000400000004list" 'list
+    "0000000000" nil
+    "010000000201" true
+    "010000000200" false)
+  ;; the full int64 extremes exist only where a 64-bit integer does: a JS
+  ;; number cannot hold them exactly — §5's JS-number rule — so the boundary
+  ;; row every host shares is 2^53-1 above
+  (when #?(:cljs false :default true)
+    (are [expected v] (= expected (d/encode-value v))
+      "0200000010ffffffffffffff7f" 9223372036854775807
+      "02000000100000000000000080" -9223372036854775808))
+  (is (= (str "0a00000034" (d/encode-value 1) (d/encode-value 2))
+         (d/encode-value [1 2])))
+  (is (= (str "0b00000034" (d/encode-value 1) (d/encode-value 2))
+         (d/encode-value (list 1 2))))
+  (is (not= (d/encode-value [1 2]) (d/encode-value (list 1 2)))
+      "the D0 vector/list split is two tags over one ordering")
+  ;; the unpaired surrogates are SLICED from a well-formed pair at runtime:
+  ;; a lone-surrogate string literal does not survive ClojureDart's macro
+  ;; host, which rewrites it before the test ever runs
+  (let [lone-high (subs "😀" 0 1)
+        lone-low (subs "😀" 1 2)]
+    (are [v] (= :unsupported-value (:rule (throws-data #(d/encode-value v))))
+      lone-high
+      lone-low
+      (str "a" lone-high "b")
+      (symbol (str "a" lone-high "b"))
+      (keyword (str "a" lone-low "b")))
+    (is (nil? (d/canonical-class lone-high)))))
+
+
+(deftest colliding-map-keys-diagnose
+  ;; iteration order must never decide which entry survives a merge
+  (when #?(:cljs false :default true)
+    (is (= :unsupported-value
+           (:rule (throws-data #(d/canonical-value {1 :a, 1.0 :b}))))
+        "1 and 1.0 are one int64 key under canonicalisation"))
+  (is (= :unsupported-value
+         (:rule (throws-data #(d/canonical-value {"é" :a, "é" :b}))))
+      "two string keys with one NFC form collide")
+  (is (= :unsupported-value
+         (:rule (throws-data #(d/encode-value {"é" :a, "é" :b}))))
+      "the encode path sees the same collision as equal key encodings")
+  (is (= :unsupported-value
+         (:rule (defect (datoms-of (lit {"é" :a, "é" :b})))))
+      "and a projection diagnoses it at the walk"))
+
+
+(deftest nfc-and-collection-order-limits-hold
+  (is (= (d/encode-value "e\u0301") (d/encode-value "\u00e9"))
+      "the NFC limit: a decomposed string and its composed form are one
+       canonical encoding — an inherited collision of the repository
+       encoding, declared in §5")
+  (is (= (d/encode-value {:a 1, :b 2}) (d/encode-value {:b 2, :a 1})))
+  (is (= (d/encode-value #{1 2}) (d/encode-value (conj #{2} 1)))
+      "maps and sets sort by encoded parts, so iteration order never
+       enters the bytes"))
+
+
+(deftest the-essays-fingerprint-is-stable
+  (is (= "095c83f742a83ded2cbf2318abcceb9d5663757f346f25ca48a9dfda0099a290"
+         (:fingerprint (project worked-example))
+         (:fingerprint (project (lam '[n] (app (v '+) (v 'n) (lit 1.0)))))
+         (:fingerprint (d/project-datoms
+                         (vec (reverse (datoms-of worked-example)))))
+         (:fingerprint (d/project-datoms
+                         (vec (concat (drop 3 (datoms-of worked-example))
+                                      (take 3 (datoms-of worked-example)))))))
+      "the essay's (fn [count] (+ count 1)): one pinned fingerprint for the
+       renamed binder, the 1/1.0 literal, and shuffled datom input alike"))
+
+
+(deftest records-carry-canonical-scalars
+  (let [int-version (project (lam '[x] (app (v '+) (v 'x) (lit 1))))
+        double-version (project (lam '[x] (app (v '+) (v 'x) (lit 1.0))))
+        literal-value (fn [p]
+                        (->> (:records p) vals
+                             (some #(when (= :literal (:yin.debruijn/type %))
+                                      (:yin.debruijn/value %)))))]
+    (is (= (:records int-version) (:records double-version))
+        "one content address, one record content")
+    (is (= 1 (literal-value double-version))
+        "the integral double's record carries its long spelling"))
+  (let [decomposed (project (lit "e\u0301"))
+        composed (project (lit "\u00e9"))]
+    (is (= (:fingerprint decomposed) (:fingerprint composed)))
+    (is (= (:records decomposed) (:records composed)))
+    (is (= "\u00e9" (->> (:records decomposed) vals
+                         (some #(when (= :literal (:yin.debruijn/type %))
+                                  (:yin.debruijn/value %)))))
+        "the decomposed input's record carries the composed NFC spelling")))
