@@ -88,7 +88,7 @@ exponents out), so this is codec policy, not a corpus change.
 
 ## E4. Maximum nesting depth
 
-`max-depth` is 128, a J1 policy pending ratification. The top-level item is
+`max-depth` is 128, a J1 policy, ratified. The top-level item is
 at depth 1 and every array, map and tag puts its contents one level deeper;
 a list frame (tag 27 over `[name items]`) therefore costs three levels.
 Decode refuses deeper nesting `malformed-cbor` before recursing; encode
