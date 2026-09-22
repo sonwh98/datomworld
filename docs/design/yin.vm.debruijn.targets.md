@@ -1,10 +1,14 @@
 # yin.vm de Bruijn target hosts and emitters
 
 Status: design only, not authorized for implementation. Exploratory
-architecture for an OPTIONAL compilation and foreign-host pipeline over the
-committed `:yin.debruijn.code/*` stack image. Nothing here changes B0-B7,
-R0-R5, H, R, the engine seam, or any existing namespace. Implementation of
-any phase below is a separate, later owner decision.
+architecture for an OPTIONAL compilation and foreign-host pipeline. Its
+emitters are peer lowerings of the resolved tuples, the de Bruijn encoding
+of the named semantic tuples that the stack and register lowerers already
+branch from; its foreign hosts execute the committed `:yin.debruijn.code/*`
+stack image. Revised 2026-09-22 after the owner's correction of section
+3.1 (the first revision had both consume the stack image). Nothing here
+changes B0-B7, R0-R5, H, R, the engine seam, or any existing namespace.
+Implementation of any phase below is a separate, later owner decision.
 
 This document covers Rust first, and designs the same approach for Gambit
 Scheme, Chez Scheme, Clojure (the JVM host, distinct from this project's
@@ -43,10 +47,11 @@ document is superseded or coexists is an owner decision (section 10).
 
 ## 1. Two directions, and why the answer is per family
 
-Direction A, native codegen: lower an executable image into source in the
+Direction A, native codegen: lower the resolved tuples into source in the
 target language, then hand it to that language's own compiler. One emitter
-per target. Output is a target-specific artifact with no identity in the
-H/R model.
+per target, each a peer of `lower-stack` and `lower-register` in the
+compilation topology. Output is a target-specific artifact with no
+identity in the H/R model.
 
 Direction B, Ribbit-style host: write one thin interpreter per target
 language for the `:yin.debruijn.code/*` image. No new bytecode, no new
@@ -175,45 +180,104 @@ pure programs.
 
 ### 3.1 Source representation
 
-Direction B consumes the canonical wire bytes of a `:yin.debruijn.code/*`
-image as-is. Nothing else arises: the host hashes received bytes, checks
-H against the descriptor (D14), runs the receiver closure check (D11,
-D15), validates the image by B1's rules reimplemented in the host, and
-loads. No resolver, no lowerer, no named datoms exist on a foreign host.
+The two directions consume different things, because they sit at
+different places in the compilation topology of `docs/agents/
+architecture.md` and the register design's section 2:
 
-Direction A consumes an EXECUTABLE IMAGE WITH AN IDENTITY: the stack image
-(H) now, the register image (R) if R1 is ever built. It never consumes
-resolved tuples or named datoms. Justification against the peer-
-projection precedent:
+    named datoms --resolve--> resolved tuples
+                                 |\
+                                 | \-> lower-stack    -> stack image (H)
+                                 |  \-> lower-register-> register image (R)
+                                 |   \-> emit-<target> -> target source
+                                 |                        (no identity)
+    stack image (H) --------------------> stack kernels: CLJ, CLJS, CLJD,
+                                          and every Direction B host
 
-1. The stack/register split kept two IDENTITY-BEARING formats from being
-   derived from each other, so that H and R are independent preimages
-   (D9, D12, register design invariant 3). A Direction A artifact has no
-   identity and no sharing role (section 3.5). "Derived from H" is not
-   the relationship that precedent forbids; it is the relationship a
-   cache wants: the artifact is a pure function of (H, target, emitter
-   version) and is keyed by exactly that.
-2. Invariant I shares executable code over the stream linker. What is
-   fetched by H must be sufficient to run. If an emitter consumed
-   resolved tuples, a host that fetched an image by H could not compile
-   it; it would need the named datoms and the resolver, which B6 does not
-   ship. Consuming the image means "fetch by H, then compile locally" is
-   the whole story on every host, including foreign ones.
-3. Resolved tuples have no identity and are not executable (stack design
-   section 3.1). Keying a compiled artifact on them would give them the
-   cache-key role D12 and "derive, do not persist" deny them.
+Direction A emitters are LOWERINGS. They consume the resolved tuples and
+their side table, call `validate-resolved` first exactly as `lower-stack`
+and `lower-register` do, and refuse on its diagnostic. They never consume
+the stack image, the register image, or named datoms. This is the owner's
+correction of the first revision, which had emitters decode the stack
+image; that choice was wrong, for a reason the first revision's own
+section 3.6 exposed: decoding a stack image into blocks with static stack
+effects was reconstructing the expression tree that the resolved tuples
+already are. An emitter that starts from the tree performs the same walk
+`lower-stack` performs (operator, operands left to right, `if` arms,
+lambda bodies out of line in discovery order, occurrences expanded
+positionally) and prints target syntax instead of stack instructions.
+There is no body-extent recovery, no basic-block analysis, and no
+dependence on the `:push`/argc shape of one particular lowering.
 
-Cost accepted: an emitter working from a flat stack image must rediscover
-body extents. It does not need the fused design's removed `closure-body-
-ranges`. Each `[:closure arity body-pc]` names a body entry; a body is
-the set of pcs reachable from its entry through `:jump` and
-`:branch-false` targets and fall-through, terminated by `:return`. B1's
-validator already performs an equivalent walk to check bound operands, so
-the emitter's front end (section 3.6) is a second consumer of that
-reachability, not a new analysis. The register image, when it exists, is
-the better AOT source (no `:push`, named operands) and the emitter front
-end must be shaped so that switching its input from H to R changes the
-decoder, not the printers.
+Direction B hosts are KERNELS. They consume the canonical wire bytes of a
+`:yin.debruijn.code/*` image as-is: hash the received bytes, check H
+against the descriptor (D14), run the receiver closure check (D11, D15),
+validate by B1's rules reimplemented in the host, load. No resolver, no
+lowerer, no named datoms, no resolved tuples exist on a foreign host. A
+foreign host is a fourth host of the stack format, beside CLJ, CLJS and
+CLJD, not a third lowerer. The peer-projection topology places kernels
+below formats, not beside lowerers, and the register design's own rule
+that a register kernel executes R, not resolved tuples, is the precedent.
+Interpreting resolved tuples directly would make them an executable
+format, which the stack design's section 3.1 and the register design's
+decision 3 both deny, and would then require them to carry a sharing
+identity, which D12 denies. This part of the first revision stands.
+
+The first revision gave two reasons for having emitters consume H. Both
+are answered rather than dropped:
+
+1. Identity. Resolved tuples still have no hash, no identity and no
+   sharing role. The new consumer does not need one, because nothing is
+   keyed on the tuples: a Direction A artifact is keyed by `(H, target,
+   emitter-version)` (section 3.5), where H is the stack image of the
+   SAME resolved tuples, computed by running `lower-stack` beside the
+   emitter. That pairing is deterministic (equal resolved tuples give
+   equal H, register design section 1.1) and is a composition fact
+   carried beside the artifact, exactly as an R is paired with an H. An
+   identity over the tuples themselves would, once `raise` below exists,
+   be equivalent as an equivalence relation to H and therefore the
+   "third identity that no request, response, verification, or cache
+   needs" the register design rejects. D9, D12 and "derive, do not
+   persist" continue to forbid it; option (a) of the correction prompt is
+   declined.
+
+2. Fetchability. Invariant I shares executable code by H, and a host
+   that holds only an image fetched by H has no resolved tuples. Two
+   cases:
+
+   - The common case, compiling where the program is written: the
+     producer holds the named datoms, runs `resolve` once, and feeds the
+     same tuples to `lower-stack` (for H) and to the emitter. No fetch is
+     involved. T3 and T4 cover only this case.
+   - Fetch-by-H, then compile locally: the host runs `raise`, the inverse
+     of `lower-stack` on images `lower-stack` produced: stack image plus
+     pc side table to resolved tuples plus resolver side table. `raise`
+     is a new, bounded component with two laws as its completion
+     criteria: `lower-stack(raise(img)) = img` byte for byte for every
+     validator-accepted image the corpus produces, and `raise(lower-stack
+     (t)) = t` as a record set up to occurrence sharing (the stack
+     lowerer expands occurrences positionally, so sharing is not
+     recoverable and is not needed: neither lowerer's bytes depend on
+     it). A valid image that does not fit the linearizer's pattern (a
+     hand-built one) is refused with `:not-raisable` and remains
+     executable by every kernel. `raise` is at the de Bruijn level, where
+     no names have to be synthesized. It is scheduled as its own deferred
+     phase (T8), so that no early phase depends on it.
+
+   Option (b) of the correction prompt, lift then resolve, does not work
+   with the pieces that exist: B2's `lift` produces a `:yin.code/*`
+   canonical instruction vector for the semantic VM, not named datoms
+   (stack design section 3.2, `lift(adapt x) = canonical-vector(lower
+   x)`), and the stack design states that "the executable image is not
+   an inverse encoding". Going from linear named code back to a tree is
+   the same decompilation `raise` performs, done at the named level with
+   synthesized names for no benefit. `raise` is that decompiler placed
+   where it is smallest.
+
+Consequences: the stack image remains the only thing that crosses a
+stream, H remains the only identity, and every emitter is a peer of the
+two existing lowerers. The register image is not an emitter input either;
+if a target ever wants register-shaped input, it is a lowering of the
+resolved tuples too, and `lower-register` already is one.
 
 ### 3.2 State as Rust types
 
@@ -409,20 +473,29 @@ Direction A artifacts are NOT an executable format under invariant I.
    MUST NOT execute one it did not derive itself. Stated as a decision
    in section 8 (T-D5).
 3. Continuations produced by a Direction A artifact, when they exist
-   (Level 1 and above), are the B4 register payload with pcs into the
-   ORIGINAL image, never into emitted code. This is what keeps an
+   (Level 1 and above), are the B4 register payload, and their return
+   points are labelled with the pcs `lower-stack` assigns to the same
+   resolved tuples, never with positions in emitted code. The emitter
+   obtains those labels by running `lower-stack` beside itself on the
+   same tuples, a deterministic pairing (section 3.1). This keeps an
    offloaded continuation restorable by the stack VM on a host without
    the artifact: the artifact is an accelerator for a machine whose
-   state vocabulary is the image's.
+   state vocabulary is the stack image's. Pure-subset emitters (T3, T4)
+   expose no continuation and need no labels.
 
 ### 3.6 The shared emitter front end (Direction A)
 
-One `.cljc` namespace decodes an image into a target-neutral body form:
-for each body entry (the main body at pc 0 and every `:closure` target),
-the reachable pcs partitioned into basic blocks at jump targets, with the
-operand-stack effect of each block computed statically (B1's operand
-table gives every instruction's stack delta, so a body's temporaries can
-be named rather than pushed and popped). Per-target work is then:
+One `.cljc` namespace walks the resolved tuples in the linearizer's order
+and produces a target-neutral body form: one body per resolved lambda
+plus the main body, each a tree of `:literal`, bound reference `[depth
+position]`, free reference, `:closure` (arity, body id), `:if`, and
+`:application` with its copied `:yin/tail?`, with every intermediate
+value named in evaluation order. For trampoline targets the front end
+additionally marks each non-tail application as a return point, so a
+printer can emit a per-body state machine whose driver re-enters at that
+point; for direct-style targets the marks are ignored. This is the tree
+the resolver already produced with names attached to intermediates; no
+analysis of any flat image occurs. Per-target work is then:
 
     +--------------------+----------------------------------------------+
     | Per target         | Contents                                     |
@@ -498,33 +571,39 @@ depth. The T0 million-iteration fixtures prove it.
 
 ### 5.2 T4, the Rust emitter (Direction A, gated)
 
-Input: the section 3.6 body form of one image. Output: a Rust source
-file that depends on the T1 crate's `value`, `scalar`, `prims` and the
-`ReturnFrame`/`Registers` types, and defines one `fn body_N(m: &mut
-Machine) -> Next` per body, plus a `dispatch(body_id)` table used by the
-driver. Inside a body, blocks become labelled loop arms and the operand
-stack is replaced by local `Value` bindings where the static stack effect
-allows it, with `:push` disappearing entirely. `:call` with `tail?` false
-pushes a `ReturnFrame` whose `return_pc` is the ORIGINAL image pc of the
-continuation block; `dispatch` maps image pcs of block entries to
-generated functions, so a restored continuation resumes into emitted code
-by pc, and, on a host without the artifact, into the T1 interpreter by
-the same pc. Bound loads walk `Frames` as in T1; the emitter does not
-change frame layout, so closures created by emitted code and by the
+Input: the section 3.6 body form of one program's resolved tuples.
+Output: a Rust source file that depends on the T1 crate's `value`,
+`scalar`, `prims` and the `ReturnFrame`/`Registers` types, and defines
+one `fn body_N(m: &mut Machine, entry: Label) -> Next` per body, plus a
+`dispatch(label)` table used by the driver. Inside a body, intermediates
+are local `Value` bindings in evaluation order; there is no operand stack
+and no `:push`. `:call` with `tail?` true replaces `frames` and returns
+`Next::Enter(body, entry)` to the driver; with `tail?` false it pushes a
+`ReturnFrame` naming the return point after the call and enters the
+callee the same way. Bound loads walk `Frames` as in T1; the emitter does
+not change frame layout, so closures created by emitted code and by the
 interpreter are the same data. The driver is the T1 `run` loop with
-`step1` replaced by `dispatch`.
+`step1` replaced by `dispatch`. Labels are emitter-local in T4; when T5
+offload is extended to emitted code, labels are the stack pcs of section
+3.5 item 3, obtained from `lower-stack` over the same tuples, so that the
+payload is the B4 payload and a continuation parked under emitted code
+restores under the T1 interpreter or the stack VM.
 
-Gate: T4 is commissioned only if the T3 benchmark (T1 interpreter versus
-JVM B3 versus a hand-written Rust translation of two corpus programs)
-shows a material gap that an emitter would close. The number is the
-owner's, as R3's is.
+Gate: T4 is commissioned only if a benchmark (T1 interpreter versus JVM
+B3 versus a hand-written Rust translation of two corpus programs) shows a
+material gap that an emitter would close. The number is the owner's, as
+R3's is.
 
 ### 5.3 What Direction B and Direction A share on Rust
 
-Everything except `machine::step1` and the printer: the value model,
-scalar decoder, validator, primitives, `Registers`, `ReturnFrame`, the
-driver loop and the conformance harness. This is the concrete reason B
-precedes A on Rust: T1 is roughly the whole of T4's runtime.
+Everything except `machine::step1`, the image decoder, and the printer:
+the value model, scalar rules, primitives, `Registers`, `ReturnFrame`,
+the driver loop and the conformance harness. This is the concrete reason
+B precedes A on Rust: T1 is roughly the whole of T4's runtime. The two
+have different INPUTS (T1 the stack image, T4 the resolved tuples) and
+the same RUNTIME, which is what section 3.1's topology predicts: kernels
+and lowerings differ in what they read, not in what a value or a frame
+is.
 
 ### 5.4 T5, offload (Level 1)
 
@@ -560,10 +639,14 @@ A printer from the section 3.6 body form to R7RS-small source using only
 the intersection Gambit and Chez both accept, with a per-implementation
 prelude of a few lines for anything outside it (UNVERIFIED which forms
 differ; expected: record definitions, hash tables, bytevector I/O). A
-`:closure` becomes a `lambda` of `arity` parameters whose free variables
-are Scheme lexicals; there is no `Frames` structure because Scheme's own
-closures capture. A `:call` becomes an application, in tail position when
-`tail?` is true. Missing arguments nil-fill and extra arguments drop, so
+resolved lambda becomes a `lambda` of `arity` parameters; a bound
+reference `[depth position]` prints as the `position`-th parameter of the
+`depth`-th enclosing `lambda`, from a name stack the printer maintains
+exactly as the resolver did, with synthesized names fresh against the
+program's free names (the lift's own rule); there is no `Frames`
+structure because Scheme's own closures capture. A free reference prints
+as a prelude global. A `:call` becomes an application, in tail position
+when `tail?` is true. Missing arguments nil-fill and extra arguments drop, so
 each lambda takes a rest argument and binds positionally, or the emitter
 emits an arity-adapting wrapper; the exact form is the printer's, and
 either must pass the nil-fill and extras-dropped fixtures. `:if` is
@@ -572,10 +655,12 @@ and the eleven-class common domain maps onto Scheme values with a small
 prelude for keywords and symbols so that the `=` primitive keeps Clojure
 semantics.
 
-The pure-subset restriction (section 2) is enforced by the same static
-opcode scan Level 0 hosts use: an image containing any B4 opcode is
-refused by the emitter with `:not-yet-implemented`, never emitted as
-direct-style code that would hide its continuation in the Scheme stack.
+The pure-subset restriction (section 2) is enforced by a static scan of
+the resolved tuples, the tree-level twin of the opcode scan Level 0 hosts
+run on images: a program containing any stream, park, resume,
+current-continuation, gensym or FFI node is refused by the emitter with
+`:not-yet-implemented`, never emitted as direct-style code that would
+hide its continuation in the Scheme stack.
 
 Why this is worth doing before any Scheme Direction B host: it is the
 smallest possible demonstration that an image is a program, not just
@@ -587,11 +672,14 @@ call rather than a loop.
 
 ### 6.3 Clojure Direction A (deferred)
 
-The JVM already runs the image through B3. A Clojure emitter would either
-print source or, more usefully, compile the image at load time into a
-vector of Clojure fns (one per block) closed over the image, invoked by a
-typed driver: a block returns `Value` or a `Step` record naming the next
-block, and the driver loops on `Step`. `clojure.core/trampoline` is not
+The JVM already runs the image through B3. A Clojure emitter would be a
+peer lowering like the others: from the resolved tuples to a vector of
+Clojure fns (one per body, entered at a return point) closed over the
+runtime, invoked by a typed driver: a body returns `Value` or a `Step`
+record naming the next body and entry, and the driver loops on `Step`.
+(Closure-compiling the stack IMAGE at load time is a different thing, an
+interpreter technique inside the existing host, and is not a lowering;
+it is not proposed here.) `clojure.core/trampoline` is not
 used, because yin closures are values and the docstring's own caveat
 applies: a fn returned in tail position would be mistaken for a thunk.
 This is a speed optimization of an existing host and is commissioned
@@ -617,11 +705,15 @@ states what runs where. No phase edits an existing `.cljc` namespace.
     | T5  | Rust offload, Level 1      | T1, B4 merged                      |
     | T6  | any standalone Level 2     | B4, B6, dao.jing.cbor; deferred    |
     | T7  | Clojure Direction A        | benchmark gate; deferred           |
+    | T8  | raise: stack image to      | B2; needed only for fetch-by-H     |
+    |     | resolved tuples            | then compile; deferred             |
     +-----+----------------------------+------------------------------------+
 
 Order: T0, then T1 and T2 may run in parallel; T3 is independent of T1
 and T2 and may run at any time after T0; T4 and T5 follow T1 and are
-independent of each other; T6 and T7 are deferred and not scheduled.
+independent of each other; T6, T7 and T8 are deferred and not scheduled.
+T3 and T4 consume resolver output in the Clojure process and do not need
+T8.
 
 ### T0: host conformance kit
 
@@ -635,12 +727,16 @@ image bytes, H, and the B0-normalized expected result or error, plus the
 refusal fixtures (malformed rows, out-of-range operands, undeclared
 classes) with their rule keywords, plus the tail-depth fixtures of
 section 3.4 and a Level 0 opcode scan fixture (an image containing a B4
-opcode, expected `:not-yet-implemented`). Fixture format is data (EDN
-and a JSON mirror so hosts without an EDN reader can load it). The test
-asserts that CLJS and CLJD lanes reproduce the JVM kit exactly for the
-common domain, which makes the kit host-neutral before any foreign host
-consumes it. Completion: kit generated deterministically on all three
-lanes; a change to any golden byte fails the test.
+opcode, expected `:not-yet-implemented`). Each fixture also records the
+corpus id of its named root, so an emitter test in the Clojure process
+can pair `resolve` of that root with the same expected normalized result;
+the kit exports no resolved tuples, which have no wire form and no
+identity. Fixture format is data (EDN and a JSON mirror so hosts without
+an EDN reader can load it). The test asserts that CLJS and CLJD lanes
+reproduce the JVM kit exactly for the common domain, which makes the kit
+host-neutral before any foreign host consumes it. Completion: kit
+generated deterministically on all three lanes; a change to any golden
+byte fails the test.
 
 ### T1: Rust host, Level 0
 
@@ -675,10 +771,14 @@ bigint and ratio declared and char not declared. Verification as T1.
     Existing edits: none
     Must not change: B1-B3, the kit, the stack VM
 
-Completion: the front end's body form is deterministic on all three
-lanes and its static stack effects agree with actual B3 execution on the
-corpus (a `.cljc` test); emitted Scheme text is byte-identical across
-lanes; images with any B4 opcode are refused; on both Gambit and Chez,
+Completion: the front end calls `validate-resolved` first and refuses on
+its diagnostic; its body form is deterministic on all three lanes; the
+sequence of bound and free references it visits equals the register
+design's section 2.2 address law over the corpus (the same cross-check
+`lower-stack` and `lower-register` satisfy, which is what makes the
+emitter a third peer rather than a fork); emitted Scheme text is byte-
+identical across lanes; programs with any effect node are refused; on
+both Gambit and Chez,
 every T0 pure fixture evaluates to the normalized expected value and the
 tail-depth fixtures run in constant stack with no trampoline in the
 emitted text. The Scheme runs are a shell harness outside the `.cljc`
@@ -695,12 +795,28 @@ cljstyle; Gambit and Chez for the emitted programs.
 
 Gate: a benchmark report (T1 versus JVM B3 versus hand-written Rust on
 two corpus programs) reviewed by the owner; the threshold is the owner's.
-Completion: emitted programs pass the kit; continuation `return_pc`
-values are original image pcs; a program run half by the interpreter
-and half by emitted code (park under the interpreter at Level 1, resume
-into emitted code, or the reverse) produces the same normalized result,
-which is the test that emitted code and interpreter share one state
-vocabulary. Verification as T1 plus the `.cljc` lanes.
+Completion: the emitter consumes resolver output and satisfies the
+address law as T3 does; emitted programs pass the kit's pure fixtures
+with the same normalized results the T1 interpreter produces for the
+paired H; closures built by emitted code and by the T1 interpreter are
+byte-identical under the T5 wire form. The mixed interpreter/emitted
+continuation test belongs to the T5 extension for emitted code (section
+5.2), not to T4, because pure programs expose no continuation.
+Verification as T1 plus the `.cljc` lanes.
+
+### T8: raise (deferred)
+
+    New: src/cljc/yin/vm/debruijn/raise.cljc
+    New: test/yin/vm/debruijn/raise_test.cljc
+    Existing edits: none
+    Must not change: lower-stack, lower-register, H, R, the resolver
+
+Completion: the two laws of section 3.1 over the parity corpus and the
+shared-occurrence fixtures, `:not-raisable` on a hand-built valid image
+outside the linearizer's pattern, and determinism on all three lanes.
+Whether `raise` output may feed `lower-register` (which would let a host
+holding only H derive R) is a separate owner decision and is not
+assumed.
 
 ### T5: Rust offload, Level 1
 
@@ -753,9 +869,14 @@ DECIDED:
 1. T-D1 directions: phased, per family, per section 4. Direction B
    first for Rust and Python; Direction A pure-subset first for Scheme;
    Direction A for Clojure and Rust gated by benchmark.
-2. T-D2 source: Direction B consumes canonical image bytes as-is.
-   Direction A consumes an identity-bearing executable image (H now, R
-   if built), never resolved tuples or named datoms (section 3.1).
+2. T-D2 source: Direction B hosts are kernels of the stack format and
+   consume canonical image bytes as-is; resolved tuples remain
+   non-executable and identity-free. Direction A emitters are peer
+   lowerings and consume the resolved tuples plus side table, calling
+   `validate-resolved` first, never the stack image, the register image
+   or named datoms. A host holding only an image fetched by H obtains
+   tuples through `raise` (T8), never through a tuple identity (section
+   3.1). This reverses the first revision's T-D2 for Direction A.
 3. T-D3 continuation: in every direction and family the continuation is
    explicit data (`Vec<ReturnFrame>` or its target equivalent) and the
    native stack depth is constant per step; direct-style emission is
@@ -782,10 +903,21 @@ DECIDED:
 9. T-D9 `trampoline`: not used by any Clojure emitter, because yin
    closures are values and the docstring's caveat applies; a typed
    driver is used instead.
-10. T-D10 continuation pcs: emitted code's return frames name original
-    image pcs, so interpreter and emitted code share one state
-    vocabulary and a continuation restores on a host without the
-    artifact.
+10. T-D10 continuation labels: when emitted code exposes continuations
+    (T5 extended to emitted code), its return frames are labelled with
+    the pcs `lower-stack` assigns to the same resolved tuples, obtained
+    by running `lower-stack` beside the emitter, so interpreter and
+    emitted code share one state vocabulary and a continuation restores
+    on a host without the artifact. Pure-subset emitters need no labels.
+11. T-D11 artifact pairing: a Direction A artifact is keyed by `(H,
+    target, emitter-version)` where H is `lower-stack` of the same
+    resolved tuples; the pairing is composition data, as R's pairing
+    with H is, and gives the tuples no identity.
+12. T-D12 raise: fetch-by-H then compile locally goes through `raise`,
+    the inverse of `lower-stack` on images it produced, with the two
+    laws of section 3.1 as its completion criteria and `:not-raisable`
+    for images outside the pattern; `lift` then `resolve` is not the
+    path, because `lift` yields linear named code, not named datoms.
 
 DEFERRED:
 
@@ -796,6 +928,7 @@ DEFERRED:
 - The serialization tags for closures and continuations in the T5 wire
   form (an extension of B1's scalar encoding or a separate small
   dimension; not decided here).
+- Whether `raise` output may feed `lower-register`.
 - Ratio, bigint and char on the Rust host.
 - A C printer, and WASM beyond what `rustc --target wasm32` gives.
 - The relation between this document and `yin.vm-portability.md`
@@ -812,14 +945,20 @@ DEFERRED:
    its stated rules; a rule change in `.cljc` must fail the kit's
    refusal fixtures on every host, which requires the kit to be
    regenerated and rerun as part of any B1 change.
-3. Body-form divergence: the section 3.6 front end's static stack
-   effect must agree with actual execution; T3's `.cljc` test checks
-   this against B3 on the corpus, but an emitter bug that only appears
-   on non-corpus control flow is not caught.
-4. Offload transport becoming a hidden scheduler: T5 must keep the
+3. Walk divergence: the section 3.6 front end must visit the resolved
+   tuples in the linearizer's order or its tail flags, evaluation order
+   and address sequence silently differ from the stack image's; the
+   address law in T3 and T4 catches address-order drift over the corpus,
+   and the kit's normalized results catch evaluation-order drift where a
+   corpus program observes it, but nothing catches either on non-corpus
+   shapes.
+4. Raise pattern drift: `raise` (T8) decodes `lower-stack`'s emission
+   pattern; a layout change in `lower-stack` must fail T8's laws, which
+   means T8's tests must run on every B2 change once T8 exists.
+5. Offload transport becoming a hidden scheduler: T5 must keep the
    Clojure engine as the only place that decides what runs next; the
    Rust side returns and waits.
-5. Scope creep toward Level 2 before B4 and B6 exist.
+6. Scope creep toward Level 2 before B4 and B6 exist.
 
 ## 10. Owner decisions requested
 
@@ -835,3 +974,7 @@ DEFERRED:
    proposed.
 4. Whether a Scheme Direction B host is ever wanted; nothing here
    schedules one.
+5. Whether the fetch-by-H-then-compile case matters enough to schedule
+   T8 (`raise`) at all, and if so whether its output may feed
+   `lower-register`. Recommendation: leave T8 unscheduled until a
+   foreign host actually needs to compile an image it did not produce.
