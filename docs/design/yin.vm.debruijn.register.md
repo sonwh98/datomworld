@@ -284,11 +284,13 @@ The lowerer's R formula is:
 
     R = sha256(register-descriptor-hash || canonical-register-vector)
 
-Both components are canonical bytes. Received register bytes are hashed
-before decoding, as in B1's wire rule. A receiver verifies R, checks the
-descriptor, runs the receiver closure check over `:load-free` operands
-exactly as D11 and D15 define it for stack images, validates, and only then
-executes. No relation to a stack H is embedded or checked.
+Both components are canonical bytes. A receiver verifies R over the
+received image before trusting it, as B1's wire rule requires for H; the
+descriptor hash and contract version are inside R, so descriptor
+agreement is that same check. It then validates, runs the receiver
+closure check over `:load-free` operands exactly as D11 and D15 define it
+for stack images, and only then executes. No relation to a stack H is
+embedded or checked.
 
 The lift goes from the register image to the named `:yin.code/*` image, so
 that B6's rule "a fetched image may be executed by the semantic VM after
@@ -671,8 +673,11 @@ values, errors, effects, stores, stream outcomes, and blocked states, and
 deterministic stream/effect behavior. The pure-program tier may merge
 before R2 lands; R4 is complete only when both tiers are.
 
-The phase order is therefore R0, R1, R2, R4, R3, R5, with R4's pure-program
-tier free to precede R2.
+The phase order runs on two parallel tracks after R1: on the register
+track, the section 4.5 live-set change, then R2 and R4's pure-program
+tier, then R4's effects tier once B4 and R2 exist, then R3 against the
+real kernel; on the linker track, R5 together with B6, depending on R1
+and B6 only and free to land before R2 or R4.
 
 ### R5: linker integration over dao.jing
 
@@ -689,30 +694,52 @@ design's B6 box now specifies, and it is one function parameterized by a
 format record. R5 is that function's second format, not a second linker.
 It contributes the register format record
 `{:format :yin.debruijn.register :hash-fn register-hash :validate-fn ...
-:free-names-fn ... :descriptor ...}`, the register image stored in Jing
+:free-names-fn ...}`, the register image stored in Jing
 as its own value (the `{:bodies :instructions}` map) at its
 `segment-key`, and an R index `[R :yin.debruijn.register/address
 address]` with the same status as B6's H index: composition data, never
 Jing's. R is not the Jing address for the same reason H is not, and R5
 pins R values only, never addresses.
 
-Fetch follows B6's seven steps with R in place of H: the DHT verifies the
-payload against its address, the linker verifies `register-hash` against
-R, checks the descriptor, runs the D11 and D15 closure check over
-`:load-free` operands, runs the register validator including the section
-4.5 live-set rules, and returns the verified image. A host without a
-register kernel may refuse R and instead resolve, by H, a stack image the
-composition has published for the same named root; that pairing is
-composition data beside the two indexes, not linker machinery. No global
-loader or callback is introduced.
+Fetch follows B6's six steps with R in place of H: the linker verifies
+the value against its Jing address, verifies `register-hash` against R
+(the descriptor hash and contract version are inside R, so there is no
+separate descriptor check), runs the register validator including the
+section 4.5 live-set rules, runs the D11 and D15 closure check over
+`:load-free` operands of the validated image, and returns the verified
+image. No global loader or callback is introduced.
 
-New work is the format record, the R index, the refuse-R-then-H
-composition rule, and tests; everything else is B6's function and Jing's
-guarantees. R5 depends on R1 and on B6's shared function, not on B4, R2,
-or R4, and is built together with B6 as one unit, since the shared
-function's first two formats are best written against each other.
-Completion requires the B6 completion list with R in place of H, plus a
-live-set defect in a fetched image refused by the validator before load.
+A host without a register kernel may refuse R and instead resolve, by H,
+a stack image published for the same named root. That same-root pairing
+is the one relation in the linker that no hash checks: H and R have
+disjoint preimages, the receiver holds neither the named datoms nor an
+H-to-R law (section 1.1 disclaims one), so a stale or swapped pairing
+would execute a different program than the R asked for with no
+diagnostic. The rule is therefore explicit. The pairing is recorded at
+mint time beside the named root as datoms, `[root
+:yin.debruijn.code/hash H]` and `[root :yin.debruijn.register/hash R]`,
+never as a bare H-to-R entry. Trusting it is composition trust, on the
+same footing as the H and R indexes, and its ledger, authority, and
+provenance are B7's name-environment work; until B7, a receiver that
+follows the fallback is executing under that trust and must say so in its
+outcome. A receiver that requires verification does not trust the
+pairing: it fetches the named datoms by the root the pairing names,
+re-lowers them locally through `adapt` and `lower-register`, and accepts
+the fallback only when the recomputed H and R both equal the pair it was
+given; otherwise it refuses with a qualified `:pairing-mismatch`. That
+re-lowering is the only check strong enough, because the datoms are the
+one artifact both hashes are functions of.
+
+New work is the format record, the R index, the same-root pairing
+datoms and their verification path, and tests; everything else is B6's
+function and Jing's guarantees. R5 depends on R1 and on B6's shared
+function, not on B4, R2, or R4, and is built together with B6 as one
+unit, since the shared function's first two formats are best written
+against each other. Completion requires the B6 completion list with R in
+place of H, a live-set defect in a fetched image refused by the validator
+before load, and both fallback outcomes: a trusted fallback that names
+its trust, and a verifying fallback that refuses a swapped pairing with
+`:pairing-mismatch`.
 
 ## 7. Non-goals and protected surfaces
 
@@ -783,7 +810,8 @@ DEFERRED:
 - Owner approval to start R1 and the exact register descriptor publication.
 - Spill representation and register-file limits, if a target requires them.
 - Register continuation lifting and cross-model park/resume transport.
-- Whether R5 is ever commissioned; R4 is decided (DECIDED 1).
+- The B7 name-environment ledger and provenance that the R5 same-root
+  pairing's trust rests on; R4 and R5 are both decided phases.
 
 ## 9. End condition
 

@@ -466,19 +466,29 @@ else.
    `:value`; a park writes the parked record and a block writes
    `:yin/blocked` (both done by the engine). B3's `(peek stack)` is
    equivalent for pure programs and stays as the halting write.
-3. Register payload. `{:segment :pc :frames :stack :continuation}`. `:segment`
-   names the image as the record holds it, in the same role as the semantic
-   VM's segment id; while one image is loaded it is that image. These keys do
-   not collide with the engine-owned set. Free environment, store,
-   primitives, and modules are not registers and stay on the state map.
-4. Restore. One function, `stack-restore [base entry val]`, writing the
-   four registers from the entry and conjing `val` onto the restored
-   `:stack` (the B3 obligation that every value-producing opcode lands on
-   the stack, since there is no accumulator). The FFI two-step (engine
-   design section 4) lives here, on the entry keys `:request-sent` and
-   `:call-id`, using `ffi/call-result` and `ffi/response-wait-entry`. The
-   walker's frame-typed placement is not used: this machine's continuation
-   is a vector of return frames.
+3. Register payload. `{:segment :pc :frames :stack :continuation :format
+   :hash}`. `:segment` names the image as the record holds it, in the same
+   role as the semantic VM's segment id; while one image is loaded it is
+   that image. `:format` is `:yin.debruijn.code` and `:hash` is the loaded
+   image's H: every parked record and reified continuation carries the
+   model and image identity that produced it, so a continuation is never
+   interpreted by a VM or against an image other than its own. These keys
+   do not collide with the engine-owned set and the engine never reads
+   them. Free environment, store, primitives, and modules are not
+   registers and stay on the state map.
+4. Restore. One function, `stack-restore [base entry val]`, which first
+   refuses with a qualified `:continuation-format` outcome unless the
+   entry's `:format` is `:yin.debruijn.code` and its `:hash` equals the
+   loaded image's H, then writes the registers from the entry and conjes
+   `val` onto the restored `:stack` (the B3 obligation that every
+   value-producing opcode lands on the stack, since there is no
+   accumulator). The refusal is the same-model, same-image rule the
+   register design states in its section 5.1; cross-model transport is
+   not a lift here and is deliberately unsupported. The FFI two-step
+   (engine design section 4) lives here, on the entry keys `:request-sent`
+   and `:call-id`, using `ffi/call-result` and `ffi/response-wait-entry`.
+   The walker's frame-typed placement is not used: this machine's
+   continuation is a vector of return frames.
 5. Builders. Per blocking instruction, a `:stream/put` and `:stream/next`
    builder closing over the post-instruction registers (`pc` advanced,
    operands popped), returning the payload merged with `:reason` and the
@@ -634,6 +644,16 @@ environment leak is fixed. Before a continuation is exported, B4 must either
 lift frames through the descriptor morphism or run the frame-aware
 completion adapter so `:yin.k/requires` is not under-approximated.
 
+Recommended sequencing, across this design and the register design, now
+that the register kernel is committed unconditionally: B4 is the pole,
+because it gates the register kernel's effects tier and the cross-model
+continuation format, and its parity oracles already exist. Dispatch B4
+first. In parallel, on the register track: the live-set contract change,
+then R2, then the register kernel's pure-program tier. In parallel, on the
+linker track: B6 and R5 as one unit, which depend on neither B4 nor the
+kernel. Then the register kernel's effects tier, after B4 and R2. The
+continuation-format design, and its implementation, come last.
+
 ### B5: differential integration
 
     New: test/yin/vm/debruijn/stack_parity_test.cljc
@@ -698,25 +718,37 @@ environment with ledger, trust, and provenance; B6 needs only a value.
 Fetch is one function of a Jing handle, an H index, and a format record:
 
     1. address  <- (index H); absent is a qualified :absent outcome
-    2. value    <- (jing/get handle address absent); the DHT verifies
-                   the payload against the address before returning it
+    2. value    <- (jing/get handle address absent); then the linker
+                   itself refuses :address-mismatch unless
+                   (= address (jing/segment-key value))
     3. refuse :hash-mismatch unless (= H ((:hash-fn format) value))
-    4. refuse :descriptor unless the value's descriptor matches
+    4. refuse on any (:validate-fn format) defect
     5. refuse :unresolved-free or :shadowed-free per D11 and D15, using
-                   (:free-names-fn format) over the value's operands
-    6. refuse on any (:validate-fn format) defect
-    7. return the verified image
+                   (:free-names-fn format) over the validated image
+    6. return the verified image
 
-Steps 2 and 3 are different checks with different preimages and both
-run: the DHT proves the payload is the content at that address; step 3
-proves that content is the program the caller asked for, which the
-address alone cannot, because the address is not H. Neither layer is
-weakened or duplicated: Jing never learns what an image is, and the
-linker never re-verifies an address. The format record is
-`{:format :yin.debruijn.code :hash-fn image-hash :validate-fn
-image-defect :free-names-fn ... :descriptor ...}`; the register design's
-R5 supplies its own record and shares this function, so there is one
-linker parameterized by format, not two mirrors.
+Step 2's own check is what `yin.vm.content/fetch-vector` already does,
+and it is the linker's, not the handle's: a `create-content-dht` handle
+verifies address against payload before returning it, but a
+`content-client` handle, the RPC path over `dao.jing.remote` and the only
+cross-host path today, returns the value as received. The linker checks
+it on every topology so the guarantee never depends on which handle a
+composition wired. Steps 2 and 3 are different checks with different
+preimages and both run: step 2 proves the value is the content at that
+address; step 3 proves that content is the program the caller asked for,
+which the address alone cannot, because the address is not H. There is
+no separate descriptor check: the descriptor hash, including the
+lowering-contract version, is inside H's preimage (D9, D14), so a
+descriptor or version disagreement is a `:hash-mismatch` at step 3, and
+the stored payload carries no descriptor field. Validation runs before
+the closure check so that `:free-names-fn` only ever sees a well-formed
+image; it is not required to be total over malformed values. Neither
+layer is weakened or duplicated: Jing never learns what an image is, and
+the linker adds no second address computation beyond step 2. The format
+record is `{:format :yin.debruijn.code :hash-fn image-hash :validate-fn
+image-defect :free-names-fn ...}`; the register design's R5 supplies its
+own record and shares this function, so there is one linker
+parameterized by format, not two mirrors.
 
 What is new, precisely: the format record shape, the fetch function
 above, the H index as a value or datom query, the qualified refusal
@@ -730,16 +762,21 @@ One dependency risk is real and named: the transitional `content-hash`.
 Every Jing address changes when the CBOR encoding lands. H does not, and
 B6 code does not either, but every H index must be re-minted then. B6
 tests therefore pin H values only and never a Jing address as a golden.
+Until then, Jing addresses are portable only between hosts whose print
+of the value agrees, so the JVM to Dart corpus is restricted to
+print-stable scalars; a print divergence fails closed as `:absent` or
+`:address-mismatch`, never as a wrong program.
 
 B6 tests use an explicit fetch; the `:call-hash` instruction is emitted
 only by the later dependency linker. Completion requires JVM to Dart
 transfer over `dao.jing.remote`'s DaoStream transport, where the receiver
-initially knows only H and an H index; `:hash-mismatch`, `:descriptor`,
-`:unresolved-free`, `:shadowed-free`, and validator refusals each
+initially knows only H and an H index, which includes the Dart-side
+client harness for that path; `:address-mismatch`, `:hash-mismatch`,
+validator, `:unresolved-free`, and `:shadowed-free` refusals each
 exercised with a deliberately wrong payload or index entry; an `:absent`
 outcome for an unresolvable H; a peer serving the wrong content for an
-address rejected by the DHT before the linker sees it; and equal
-normalized results using the existing semantic VM via lift.
+address rejected before load on both a DHT handle and a client handle;
+and equal normalized results using the existing semantic VM via lift.
 
 ### B7: dependency closure linker
 
@@ -826,21 +863,25 @@ The boundary is `dao.stream`; local and remote resolution are the same
 transport-neutral mechanism, and their physical placement is not a linker
 decision.
 
-`yin.vm.content` stores and fetches bytes. B hashes received canonical wire
-bytes before decoding, then verifies H with `image-hash`, not by treating
-`jing/segment-key` as H. `load-vector`
-and `:code-aliases` remain named-VM machinery. B6 does not require persistent
-publication or discovery: an observer or peer wired by the composition supplies
-the response stream.
+`dao.jing` stores and fetches the image as a value at its own content
+address, over `dao.stream` through `dao.jing.remote`. B verifies the
+received value twice, against its Jing address with `segment-key` and
+against H with `image-hash`, and never treats `jing/segment-key` as H. The
+integrity rule is the same as hashing wire bytes before trusting them; the
+mechanics are Jing's, which hash the decoded value, and the B6 box states
+them. `load-vector` and `:code-aliases` remain named-VM machinery. B6 does
+not require persistent publication or discovery: the composition supplies
+the Jing handle and the H index.
 
 A linked dimension may contain `:call-hash H` once B7 emits it. If H is
 unavailable, the linked interpreter parks its explicit continuation and emits a
-REQUEST value carrying H. A response stream carries canonical image bytes or
-a qualified absence/unsupported outcome. B hashes the wire bytes before
-decoding, rejects mismatches, runs the receiver closure check, loads only
-verified bytes, and resumes. The request token, parked continuation, and
-response are data; no callback is retained. Gaps, timeouts, and permanent
-absence remain explicit stream events.
+REQUEST value carrying H. The composition resolves H to a Jing address
+through its index and fetches the value, or reports a qualified absence
+or unsupported outcome. B verifies the value against its address and
+against H, rejects mismatches, validates, runs the receiver closure check,
+loads only verified images, and resumes. The request token, parked
+continuation, and response are data; no callback is retained. Gaps,
+timeouts, and permanent absence remain explicit stream events.
 
 B7 supplies dependency closure for free names. Mutually recursive definitions
 form one strongly connected component, whose members are ordered by canonical
@@ -923,15 +964,20 @@ DECIDED:
 13. D13 dependency order: B6 depends on B1, B2, and the lift, not B3 or B4;
     the existing semantic VM can execute a fetched image after lifting. This
     serves invariant I by making sharing available before the new VM kernel.
-14. D14 wire verification: receivers hash canonical received bytes before
-    decoding, and the descriptor hash includes the lowering-contract version.
-    This serves content integrity and host-boundary safety.
+14. D14 wire verification: receivers verify received content before
+    trusting it, and the descriptor hash includes the lowering-contract
+    version. Under the B6 Jing path this is two checks on the received
+    value, `segment-key` against its address and `image-hash` against H,
+    before validation or load. This serves content integrity and
+    host-boundary safety.
 15. D15 receiver closure: free names are derived by scanning operands and are
     accepted only when primitive/module resolution is unshadowed. This serves
     explicit state and prevents same-H semantic drift.
-16. D16 responder ownership: B6 responders hold an explicit H-to-bytes value
-    or query an H-to-address datom selected by composition. This serves the
-    no-global-state and no-callback invariants.
+16. D16 index ownership: the composition holds the H index as an explicit
+    value or as H-to-address datoms it queries; the content itself is
+    served by `dao.jing`'s existing DHT and remote server side, and B6 has
+    no responder of its own. This serves the no-global-state and
+    no-callback invariants.
 
 DEFERRED:
 
