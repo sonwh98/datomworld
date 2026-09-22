@@ -267,7 +267,10 @@ The descriptor declares:
     | Scalar encoding      | Reuse B1 scalar bytes, never projection NFC   |
     | Lexical addressing   | :load-bound depth/position remains explicit   |
     | Free addressing      | :load-free name remains exact                 |
-    | Validation           | Shape, targets, body scope, register bounds   |
+    | Live sets            | In-band :call operand, hashed, recomputed by  |
+    |                      | the validator (section 4.5)                   |
+    | Validation           | Shape, targets, body scope, register bounds,  |
+    |                      | live-set shape, bounds, tail, and exactness   |
     | Lift                 | Register image to named semantics             |
     +----------------------+-----------------------------------------------+
 
@@ -368,7 +371,7 @@ The register instruction set is a positional form of the B1 table:
     :load-free    [op rd name]
     :closure      [op rd arity body-pc]
     :move         [op rd rs]
-    :call         [op rd fn-reg arg-regs tail?]
+    :call         [op rd fn-reg arg-regs tail? live]
     :branch-false [op cond-reg target]
     :jump         [op target]
     :return       [op value-reg]
@@ -380,15 +383,139 @@ There is no `:push`: operands are named by register, so the stack path's
 push-before-each-operand convention never arises. `:call` differs most from
 its stack form: instead of an argc over an operand stack it names an
 explicit function register, an ordered argument-register vector, a
-destination register, and the tail flag copied from `:yin/tail?`.
-`:branch-false`, `:return`, and `:halt` name registers instead of reading an
-operand stack. Constants, lexical loads, free loads, closures, jumps, and
-store operations retain their semantic operands while gaining explicit
-destinations where needed.
+destination register, the tail flag copied from `:yin/tail?`, and the live
+set of section 4.5. `:branch-false`, `:return`, and `:halt` name registers
+instead of reading an operand stack. Constants, lexical loads, free loads,
+closures, jumps, and store operations retain their semantic operands while
+gaining explicit destinations where needed.
 
 Stream, gensym, FFI, park, and resume instructions use the same explicit
 destination and source-register convention in R2. Their effect descriptors
-remain stream values; no callback or hidden scheduler is introduced.
+remain stream values; no callback or hidden scheduler is introduced. R2
+must add each of them to the use/def table of section 4.5 in the same
+phase, or the liveness computation is undefined for them.
+
+### 4.5 Live sets at call sites
+
+A non-tail `:call` is the one place a register body's state is saved: the
+return frame pushed there must hold whatever the caller still needs after
+the callee returns. Some of the caller's registers are already dead at
+that point. The owner's ruling is that a saved continuation carries only
+live registers, never dead ones: not tracking liveness does not avoid the
+cost, it retains every dead value in every saved continuation as
+unaccounted state. Liveness is therefore computed at lowering time and
+recorded in the image, where it is visible, hashed, and verified.
+
+The live set is in-band: the sixth operand of `:call`, named `live`, is
+the set of registers of the current body whose values are read after the
+call returns before being written again, excluding the destination `rd`,
+which the return itself writes. It is inside R's preimage because it is a
+claim about future reads that a kernel acts on by discarding everything
+else; a wrong live set changes observable results, so it is a correctness
+operand like an argument register or a jump target, not a diagnostic like
+a binder name. A side table would leave it outside the hash and outside
+wire verification, so a receiver could never trust it and would have to
+recompute it, which collapses analysis into execution. Two lowerings that
+differ only in `live` are different programs by R, and that is correct:
+one of them is wrong, and golden R fixtures catch it. "Derive, do not
+persist" is not violated: the register image is the executable artifact,
+whose purpose is to make execution-time facts explicit so the kernel
+interprets rather than analyzes, exactly as argc, arity, and resolved pcs
+are derivable from the tree yet belong in the image. The named datoms
+remain the only authority; the live set is derived from the image and
+re-derived by every receiver.
+
+Register numbering: `live` names physical registers by the same indices
+`rd`, `fn-reg`, and `arg-regs` already use, whatever the body's numbering
+of its local and temporary banks is. It never introduces a second index
+space. Frames captured for `:load-bound` and closures are not registers
+and are outside the live set; they are carried by the return frame as B3
+carries them.
+
+The computation is one pure function of the instruction vector and the
+body ranges, `body-liveness`, exported by the register code namespace and
+used by both the lowerer, to fill the operand, and the validator, to check
+it. Per body:
+
+    use/def, from the section 4.4 table:
+      :const rd _              def {rd}
+      :load-bound rd _ _       def {rd}
+      :load-free rd _          def {rd}
+      :closure rd _ _          def {rd}
+      :store-get rd _          def {rd}
+      :move rd rs              use {rs}            def {rd}
+      :call rd f args tail? _  use {f} + args      def {rd} unless tail?
+      :branch-false c _        use {c}
+      :jump _                  none
+      :return r                use {r}
+      :halt r                  use {r}
+      :store-put _ r           use {r}
+
+    successors within the body:
+      :jump t                  {t}
+      :branch-false c t        {t, pc + 1}
+      :return, :halt, tail :call   {}
+      every other instruction  {pc + 1}
+
+    live-in(p)  = use(p) + (live-out(p) - def(p))
+    live-out(p) = union of live-in(s) over successors s of p
+
+    iterate over the body's pcs in descending order until no set changes
+
+    live(call at p) = live-out(p) - {rd}
+
+The fixpoint is unique because the transfer functions are monotone over a
+finite lattice, so the result does not depend on iteration order; the
+descending-pc order is fixed only so that every host does the same work.
+Every set is a sorted set of register indices during computation and is
+serialized as a vector of those indices in strictly ascending order. No
+host map or set iteration order can reach the output: sorted-set
+iteration is integer order on JVM, CLJS, and CLJD alike, and union and
+difference are order-independent. A tail `:call` has no successors and
+saves nothing; its `live` operand is the empty vector, always. The
+lowerer's allocator is unchanged by this: it does not feed `live` from
+its own free-list state, which is a forward approximation; `live` comes
+from the backward pass over the emitted body, so there is exactly one
+definition of liveness in the format.
+
+Encoding: `live` is a `:data` operand, a vector of longs, and goes through
+the existing scalar encoder as a `:vector` of `:long` with no new framing.
+The ascending, duplicate-free rule is what makes the encoding canonical:
+two equal live sets can never produce different bytes.
+
+The validator adds four rules, after the existing structural and
+register-bounds rules and using the same defect shape `{:rule r :pc p}`:
+
+1. `:live-shape`: `live` is a vector of nonnegative integers in strictly
+   ascending order (so it is a set and it is canonical).
+2. `:live-bounds`: every index is below the body's declared register
+   count, the register-bounds rule extended to this operand.
+3. `:live-tail`: when `tail?` is true, `live` is `[]`.
+4. `:live-exact`: `live` equals `body-liveness`'s own answer for that pc,
+   reported with `:expected` and `:actual`. A received image's live sets
+   are not trusted; they are recomputed on the receiving host before
+   execution, the same discipline as B1's scope check.
+
+This is a format-shape change: the `:call` slot vector in the opcode table
+gains `[:yin.debruijn.register/live :data]`, which changes the descriptor
+and so `register-hash` for every image. The register contract version
+goes from 1 to 2. This is R1's file box, the lowerer and the format, and
+nothing here needs a kernel: the operand is computed and validated at
+lowering time and has no consumer until R4 pushes a real return frame.
+
+The follow-up implementation phase therefore: bumps the version constant
+and the `:call` slots in `debruijn_register_code.cljc`; adds
+`body-liveness` and the four rules there; has `lower-register` fill the
+operand from `body-liveness` after emitting each body; re-pins every
+golden register vector and R value, since all of them change, recording
+that version 1 values are retired with no compatibility path, per this
+repository's no-backward-compat rule; and adds hand-derived live-set
+fixtures, at least: a call whose temporaries are all dead afterwards
+(empty set), a call inside an `if` arm with a temporary live across it
+from before the branch, a temporary live in one arm but not the other,
+nested non-tail calls, and a tail call carrying `[]`. R0's frozen contract
+test is that phase's to re-pin as a versioned change; it is not edited by
+this design.
 
 ## 5. Execution boundary
 
@@ -571,6 +698,11 @@ DECIDED:
    VM or alter its protocols.
 8. B2 is the resolver-and-stack-lowerer split (section 2.2); the address
    law over the parity corpus remains a cross-check, not the coupling.
+9. Live sets are in-band: the sixth `:call` operand, a strictly ascending
+   vector of register indices, computed by one exported backward-dataflow
+   function, inside R's preimage, and recomputed by the validator on every
+   receiving host. Register contract version 2. Owner ruling, 2026-09-23:
+   a saved continuation carries only live registers (section 4.5).
 
 DEFERRED:
 
