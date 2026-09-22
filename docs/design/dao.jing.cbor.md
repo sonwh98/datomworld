@@ -226,6 +226,37 @@ Boring collection or record mappings are admitted. All lengths and integer
 arguments use shortest definite encodings; integers fitting CBOR major
 types 0/1 do not use bignum tags, and bignum magnitudes have no leading zero.
 
+### Ingress limits and host-capability refusals
+
+Ratified from the J0-J3 fixture corpus and its errata
+(`test/resources/dao/jing/cbor-v1.errata.md`), not derived from the text
+above: an implementation must enforce these explicitly rather than rely on
+host defaults.
+
+- Cap CBOR item nesting depth at 128 on both encode and decode, counting the
+  top-level item as depth 1 and every array, map, and tag as one level
+  deeper (a `dao.jing/list` frame therefore costs three levels). Refuse
+  `:unsupported-value` on encode and `:malformed-cbor` on decode past the
+  cap; this is a robustness rule against unbounded recursion, independent
+  of the profile's other refusal classes.
+- Constrain a decimal's exponent to `[-(2^31 - 1), 2^31]`, the JVM
+  `BigDecimal` scale range, identically on every host. Refuse
+  `:malformed-number` outside it. Without a shared window, one host can
+  accept a canonical payload another host refuses, letting the accepting
+  host determine the boundary the contract otherwise forbids.
+- A host whose identifier equality is joined-name-based (ClojureScript
+  keywords and symbols compare by namespace/name joined into one string)
+  cannot hold two Jing values that are namespace/name-distinct but
+  joined-name-equal (for example `(keyword nil "a/b")` and
+  `(keyword "a" "b")`) in one decoded map or set without merging them. This
+  is a host materialization limit, not a Jing acceptance rule: portable
+  equality (`equiv`) keeps such values distinct, and the encoded bytes are
+  canonical and unambiguous. Refuse with `:host-collapse`, a class outside
+  the sixteen decode-refusal classes above, on a host that cannot hold the
+  value. `:host-collapse` is a per-host capability refusal: J3's cross-host
+  conformance requires identical outcomes across hosts except this named
+  class, applied only on hosts whose identifier equality actually merges.
+
 ### Numeric identity
 
 Preserve integer, floating-point, decimal, and rational kinds. This is an
