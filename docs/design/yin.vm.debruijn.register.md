@@ -52,10 +52,9 @@ The following invariants apply:
    runs and hosts.
 
 The existing stack design's D1-D16 decisions remain authoritative. The
-register path adds no projection fingerprint and no global registry. It
-proposes one change to the stack design's B2 file box, recorded in section
-2.2 and deferred to the owner; everything else in `yin.vm.debruijn.stack.md`
-is unchanged.
+register path adds no projection fingerprint and no global registry. B2
+is decided as the resolver-and-stack-lowerer split described in section
+2.2 below; everything else in `yin.vm.debruijn.stack.md` is unchanged.
 
 ### 1.1 Identity and sharing
 
@@ -71,10 +70,12 @@ R is alpha-invariant for binder renames for the same reason H is: the
 register vector carries `:load-bound` depth and position operands and
 `:closure` arities, and binder names live in a diagnostic side table outside
 the hash. Equal R therefore implies agreement on exact scalar spelling, free
-name operands, and front-end tail flags, as equal H does. Two source
-programs that share H share R, and the converse holds, because both are
-pure functions of the same resolved tuples; this is a testable law, not a
-hashed relation.
+name operands, and front-end tail flags, as equal H does. Each format is
+deterministically derived from the resolved tuples, so equal resolved
+tuples give equal H and equal R, and a binder rename changes neither. No
+biconditional between H and R is claimed: two deterministic projections may
+preserve different distinctions, and the corpus tests are evidence for the
+one-directional law only.
 
 This is not a second semantic answer to alpha-equivalence. A register
 lowerer cannot repair differences in exact scalar spelling, free names, or
@@ -124,29 +125,40 @@ same named root to the stack path after receiving that outcome.
 
 ### 2.1 The shared artifact: resolved tuples
 
-The resolved tuples are the named `:yin/*` datoms with exactly two changes,
-the same two changes B1's opcode table makes to the named instruction table:
+The resolved tuples are defined by the stack design, section 3.1, and that
+definition is normative here. In summary: the named `:yin/*` datoms form a
+finite graph in which one source entity may be referenced under several
+lexical contexts, and resolution is a fact about an occurrence, the pair
+`[source-eid lexical-context]`, not about the entity. The resolver mints one
+resolved record per distinct occurrence, with a fresh deterministic id, and
+shares it across references under equal contexts. Each record is the source
+node's datoms with exactly two changes, the same two changes B1's opcode
+table makes to the named instruction table:
 
-1. Every `:variable` node is resolved by the public
+1. A `:variable` record is resolved by the public
    `yin.vm.debruijn/resolve-name` against the innermost-first stack of
    enclosing parameter vectors, to either a bound reference `[depth
    position]` or a free reference carrying the exact symbol.
-2. Every `:lambda` node carries its arity instead of its parameter vector.
+2. A `:lambda` record carries its arity instead of its parameter vector.
 
 Everything else is carried exactly: scalar values with their exact spelling,
 free names as supplied, `:yin/tail?` as the front end wrote it, node
-structure, and evaluation order. Binder names and provenance go to a
-diagnostic side table keyed by node, as B2's side table is keyed by pc.
-Nothing is canonicalized: this is not the dormant merged projection, which
-canonicalizes scalars, NFC-folds names, and drops tail flags, and which the
-stack design's architecture B rejected as a lowering input for those reasons.
+structure, and evaluation order. Binder names and provenance go to the
+resolver's side table, keyed by resolved record: `:source` maps every
+record to its source eid and `:params` maps every resolved lambda to its
+exact parameter vector. Nothing is canonicalized: this is not the dormant
+merged projection, which canonicalizes scalars, NFC-folds names, and drops
+tail flags, and which the stack design's architecture B rejected as a
+lowering input for those reasons. It does share that projection's
+occurrence key, because the two face the same graph.
 
-The resolver is the tree-level home of name resolution. It validates each
+The resolver is the graph-level home of name resolution. It validates each
 bound reference against the enclosing arity chain, the same nonnegative-
-depth-and-position rule B2 checks on the vector, and refuses a program whose
-resolution fails before either lowerer runs. It reuses only
-`resolve-name`; projection-only helpers are not reused, and the resolver
-inherits the stack design's retirement condition for that helper.
+depth-and-position rule B2 checks on the vector, refuses a program whose
+resolution fails before either lowerer runs, and exports the one
+`validate-resolved` both lowerers call unconditionally on their input. It
+reuses only `resolve-name`; projection-only helpers are not reused, and the
+resolver inherits the stack design's retirement condition for that helper.
 
 The resolved tuples have a shape contract and a namespace so that two
 lowerers and their tests can agree on what they consume. They have no hash,
@@ -172,45 +184,42 @@ no identity, and no sharing role:
 
 ### 2.2 Relation to B2 as implemented
 
-B2 today produces the stack image in one fused pass: it runs the named
-linearizer `yin.vm.linearize/lower`, converts the result to the canonical
-named vector, reconstructs body scopes from that vector, and rewrites `:var`
-to `:load-bound` or `:load-free` and `:closure` parameters to arity. Its de
-Bruijn addressing therefore happens after stack-shape assembly, over an
-already push-and-argc shaped vector. There is no point inside B2 at which an
-execution-model-agnostic de Bruijn form exists.
+The owner decided, and B2 now implements, the resolver-and-stack-lowerer
+split rather than the earlier fused pass: `yin.vm.debruijn-resolve/resolve`
+produces resolved tuples per section 2.1 (occurrence-indexed identity,
+cycle refusal, the exported `validate-resolved`), and
+`yin.vm.debruijn-linearize/lower-stack` consumes them, calling
+`validate-resolved` unconditionally at entry. `adapt`, the public entry
+from named datoms to a stack image, is the composition `lower-stack` after
+`resolve`. The stack image is therefore literally a peer projection of the
+resolved tuples, by construction, not merely an equivalent one proven by a
+separate law -- the vector-level scope reconstruction the earlier fused
+pass needed (`closure-body-ranges`, `layout-conforms?`, `body-owner`,
+`chain-of`) is removed, not moved, because scope is resolved on the graph
+before either lowerer runs.
 
-The peer topology above does not require that file box to change in order
-to ship R0-R2. B2's fused pass and the two-stage path `lower-stack` after
-`resolve` are extensionally equal: the named linearizer's walk order,
-occurrence expansion, and body layout are what `lower-stack` reproduces,
-and resolution commutes with that walk because it reads only the enclosing
-parameter stack. The register design therefore binds the two by a tested
-law rather than by construction:
+`lower-stack` still cannot call `yin.vm.linearize/lower` directly (it reads
+`:yin/name` and `:yin/params`, which resolved tuples no longer carry), so it
+reproduces the named linearizer's flattening walk itself: the same
+recursion order, the same `:push`/`:call`/label emission, occurrences
+expanded positionally exactly as `lower` expands them (a resolved record
+referenced twice contributes two emitted instructions, at two pcs). Layout
+equality with `lower` no longer holds by construction and is a required
+structural-comparison test instead. Every golden H is unchanged: the
+emitted bytes are identical to the fused pass's, confirmed against B1's
+golden fixtures.
+
+The address law remains useful as an additional cross-check for the
+register lowerer once it exists, not as B2's own coupling mechanism:
 
     addresses(B2 stack image) = addresses(register image)
                               = addresses(resolved tuples)
 
 where `addresses` is the sequence of resolved variable references, bound
-`[depth position]` or free name, in evaluation order: the main sequence
-first, then each out-of-line body in discovery order. The register lowerer
-pins that same body layout order so the three sequences align position by
-position. This law is an R0 fixture over the whole B0 parity corpus.
-
-Recommended, and deferred to the owner because it edits the stack design's
-section 3 and B2 box: refactor B2, while it is still uncommitted, into
-`resolve` followed by a stack linearization of the resolved tuples. That
-removes B2's vector-level scope reconstruction (`closure-body-ranges`,
-`layout-conforms?`, `body-owner`, `chain-of`), which exists only because
-resolution was placed after linearization, and makes the stack image
-literally a peer projection rather than an equivalent one. The cost is a
-copy of the named linearizer's flattening walk in the stack lowerer, since
-`lower` cannot consume resolved tuples, and the loss of by-construction
-layout equality with `lower`, which becomes the existing structural-
-comparison test instead. Every golden H is unchanged either way, because the
-emitted bytes are identical; the address law and B1's golden fixtures prove
-it. If the owner declines, B2 stays as is and the address law is the only
-coupling.
+`[depth position]` or free name, in evaluation order with occurrences
+expanded positionally: the main sequence first, then each out-of-line body
+in discovery order. This is an R0 fixture over the whole B0 parity corpus
+plus the shared-occurrence fixtures of the stack design's B2 box.
 
 ## 3. Register dimension
 
@@ -246,29 +255,41 @@ descriptor, runs the receiver closure check over `:load-free` operands
 exactly as D11 and D15 define it for stack images, validates, and only then
 executes. No relation to a stack H is embedded or checked.
 
-The lift goes from the register image to the named `:yin.code/*` image with
-diagnostic or synthesized binder names, so that B6's rule "a fetched image
-may be executed by the semantic VM after lifting" holds for register images
-too. It is a function of the register image plus its side table.
+The lift goes from the register image to the named `:yin.code/*` image, so
+that B6's rule "a fetched image may be executed by the semantic VM after
+lifting" holds for register images too. It is a function of the register
+image plus its side table, under the stack design's trust rule (section
+3.2 there): execution lifts use synthesized names, fresh against the
+image's free-name set and each other, by default. A supplied side table is
+used only when every closure entry's parameter count equals the
+instruction's arity, its names are capture-free by the same rule, and
+lowering the lifted result reproduces the original register image byte for
+byte; otherwise it is discarded. R1 tests original-name equality and
+synthesized-name alpha-equivalence, including duplicate parameters.
 
 ## 4. Resolved-tuples-to-register lowering
 
 ### 4.1 Input and validation
 
 The lowerer accepts only resolved tuples from the section 2.1 resolver and
-their side table. It does not accept named datoms directly, does not rerun
-name resolution, and does not accept a stack image. B2 remains the only
+their side table. It calls the resolver's `validate-resolved` first and
+refuses on its diagnostic, identically to `lower-stack`, before emitting
+anything. It does not accept named datoms directly, does not rerun name
+resolution, and does not accept a stack image. B2 remains the only
 producer of `:yin.debruijn.code/*` stack images; this lowerer is the only
 producer of `:yin.debruijn.register/*` register images.
 
-Because the input is a tree, there is no control-flow graph to recover and
-no abstract operand stack to simulate: every intermediate value is an
-expression whose extent is known from the tree. The walk is the named
-linearizer's order, operator then operands left to right, lambda bodies out
-of line in discovery order, `if` evaluating one arm. Every body has one
-enclosing lexical chain by construction, and the resolver has already
-validated every bound reference against it. The lowerer's own checks are
-register bounds, body ranges, and target bounds, applied to its output.
+Because the input is an expression graph rather than a flat instruction
+stream, there is no control-flow graph to recover and no abstract operand
+stack to simulate: every intermediate value is an expression whose extent
+is known from its record. The walk is the named linearizer's order,
+operator then operands left to right, lambda bodies out of line in
+discovery order, `if` evaluating one arm, with occurrences expanded
+positionally: a resolved record referenced twice is lowered twice, at two
+places, exactly as `lower-stack` and `lower` do. Every body has one
+enclosing lexical chain by construction, and every bound reference is
+already validated against it. The lowerer's own checks are register bounds,
+body ranges, and target bounds, applied to its output.
 
 ### 4.2 Register classes
 
@@ -294,9 +315,9 @@ implicit in R1.
 
 ### 4.3 Determinism
 
-Lowering from a tree removes the join-order risk a stack-image compiler
-would have: there are no predecessor traversals to order, and both arms of
-an `if` write the expression's one destination register. The remaining
+Lowering from expression records removes the join-order risk a stack-image
+compiler would have: there are no predecessor traversals to order, and both
+arms of an `if` write the expression's one destination register. The remaining
 risks are hash-map iteration, liveness tie breaks, and spill choices.
 
 The lowerer closes these risks by using evaluation order for virtual-value
@@ -348,7 +369,9 @@ If the benchmark gate passes, R3 may add
 `yin.vm.debruijn.register` as a sibling kernel. It owns explicit state
 `{:image :pc :registers :frames :free-env :continuation :store :status
 :primitives :modules}` and uses the same frame, free-name, store, stream, and
-continuation contracts as B3. It adds no `IVM` or `IVMState` methods.
+continuation contracts as B3, including the engine seam B4 implements
+(`yin.vm.engine.md`: one restore function, per-site park-entry builders, the
+engine-owned key sets). It adds no `IVM` or `IVMState` methods.
 
 The register kernel must execute only validator-approved images. It must
 preserve B3's frame direction, closure capture, nil-fill and extra-argument
@@ -387,9 +410,9 @@ checks, and a decision that no register kernel is assumed yet.
     Must not change: B1 code, B2 lowerer, B3 VM, resolver contract,
     dao.stream protocols
 
-Implement the descriptor, validation, deterministic tree lowering,
-allocation, encoding, R, and the lift to `:yin.code/*`. Completion requires
-every resolved node type either mapped or refused with a named diagnostic,
+Implement the descriptor, validation, deterministic lowering from resolved
+records, allocation, encoding, R, and the lift to `:yin.code/*`. Completion
+requires every resolved node type mapped or refused with a named diagnostic,
 byte-identical repeated lowerings, golden register vectors, cross-host R
 agreement, the section 2.2 address law extended to the register image, and
 the lift law `lift(lower-register (resolve x), side-table)` alpha-equivalent
@@ -490,8 +513,8 @@ DECIDED:
    virtual-id order, with a versioned descriptor and golden fixtures.
 7. A register kernel, if built, is a sibling and cannot silently replace the
    stack VM or alter its protocols.
-8. B2's fused pass is bound to the resolver by the section 2.2 address law
-   over the parity corpus, whether or not B2 is refactored.
+8. B2 is the resolver-and-stack-lowerer split (section 2.2); the address
+   law over the parity corpus remains a cross-check, not the coupling.
 
 DEFERRED:
 
