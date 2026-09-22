@@ -76,8 +76,12 @@ Read-only reviewers may share the main tree. Concurrent editors use separate
 worktrees from a committed base; uncommitted bases require serialization or
 explicit disjoint ownership. Only one process owns the CLJD lane because
 `bb test:cljd` writes shared generated output. Auxiliary worktrees lack
-`collab/`, so briefs use absolute paths. Never merge or delete worktrees or
-branches without user authority.
+`collab/`, so briefs use absolute paths, and delegates there often stage
+their own reference copies of prompts/findings in a local `collab/`. Before
+removing a worktree, diff its `collab/` against the main tree's and copy
+over anything unique — a worktree merge moves only committed content, so
+untracked `collab/` files are otherwise lost with the worktree. Never merge
+or delete worktrees or branches without user authority.
 
 Batch complete briefs, reuse sessions for related follow-ups, start new sessions for unrelated work, and never rely on CLI `--last` flags.
 
@@ -316,163 +320,72 @@ responding.
 ## Delegate Invocation Reference (Review & Implementation)
 
 > [!IMPORTANT]
-> **Do Not Run Tool-Call Verification Probes Every Time**:
-> Orchestrators must **not** run throwaway test or probe commands (such as executing `echo ok`, `--version`, or
-> `--help` checks) before invoking a delegate. All CLI flags, tool permissions, and invocation patterns
-> below are canonical and pre-verified. Document the exact tool call here and invoke delegates directly,
-> capturing output into the appropriate `collab/` artifacts.
+> **Don't probe before delegating.** Never run throwaway commands (`echo ok`, `--version`, `--help`) to
+> verify a delegate CLI before invoking it — every flag and pattern below is canonical and pre-verified.
+> Document the exact tool call here and invoke directly, capturing output into `collab/`.
 
 > [!IMPORTANT]
-> **AGY Backgrounding and Parallel Execution**:
-> NEVER use `&` in shell commands to background long-running delegate tasks. Running a command with `&` forces an immediate `exit 0`, which short-circuits Antigravity's task tracker and loses the PID/status hook.
-> Instead, run delegate CLI commands natively in the foreground and rely on Antigravity's `WaitMsBeforeAsync` tool parameter to gracefully transition them to background tasks that automatically notify you upon completion.
-> 
-> **Concurrent Worktree Isolation:**
-> When dispatching multiple implementation delegates concurrently, you MUST NOT run them in the main working tree. They will trample each other's files and break concurrent test runs. For each concurrent implementation task, spin up an isolated Git worktree (e.g. `git worktree add ../datomworld-<task-id>`) and execute the delegate CLI inside that isolated worktree. Once verified, merge it back into the main tree. If the raw OS PID is needed for host tools (e.g. `keep-awake`), use `pgrep -f` after launching.
+> **AGY backgrounding:** never use `&` to background a delegate task — it forces an immediate `exit 0`,
+> short-circuiting Antigravity's task tracker and losing the PID/status hook. Run the CLI natively in the
+> foreground and use Antigravity's `WaitMsBeforeAsync` tool parameter to background it gracefully with a
+> completion notification.
+>
+> **Concurrent worktree isolation:** dispatching multiple implementation delegates concurrently in the main
+> working tree lets them trample each other's files and break concurrent test runs. Give each concurrent
+> implementation task its own worktree (`git worktree add ../datomworld-<task-id>`), run the delegate CLI
+> inside it, and merge back into the main tree once verified. If a host tool needs the raw OS PID (e.g.
+> `keep-awake`), get it with `pgrep -f` after launching.
 
 Prompts contain authorized paths, not source text. Headless plan agents must be told to produce the complete
 deliverable without waiting for a human. Never use AGY `invoke_subagent` to delegate; always shell out to the
 listed CLIs.
 
-### CLI Routing & Model Assignment Rules
-- **Claude Code (`claude` and wrappers `glm`, `deepseek`, `muse`)**:
-  All model families running through Claude Code share the exact same CLI flags, permissions, and tool mechanisms.
-  The wrapper scripts (`glm`, `deepseek`, `muse`) configure provider endpoints and credentials, then execute `claude --model "$MODEL" "$@"`.
-  Calling different models is completely uniform across all wrappers: set `MODEL=<model>` (or omit it to use the provider's default model):
-  - `claude` (or `claude --model <model>`): Native Anthropic models (defaults to `claude-fable-5-1`).
-  - `glm` (or `MODEL=<model> glm`): Zhipu GLM models (defaults to `glm-5.3`; Sonnet/Haiku tier maps to `glm-5.3-flash`).
-  - `deepseek` (or `MODEL=<model> deepseek`): DeepSeek models (defaults to `deepseek-v4-pro`; Sonnet/Haiku tier maps to `deepseek-flash`).
-  - `muse` (or `MODEL=<model> muse`): Meta/Muse models (defaults to `muse-spark-1.3-contributor`; Sonnet tier maps to `muse-spark-1.3`).
-- **`codex`**: Flat-rate ChatGPT Plus wrapper. Used for all OpenAI models (`gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.4-mini`).
-- **`cmd`**: CommandCode.ai wrapper. **Reserved strictly for external/unsupported models** that do not have their own dedicated CLI wrapper in the team roster (e.g., `moonshotai/kimi-k3`, `moonshotai/kimi-k2.7-code`, `qwen/qwen3.8-max`). Do **not** use `cmd` for models that have a dedicated wrapper (`codex`, Claude Code / `glm`, `agy`).
-- **`agy`**: Flat-rate Gemini wrapper. Used for Google models (`gemini-3.1-ultra`, `gemini-3.1-pro-high`, `gemini-3.8-flash`).
+### CLI reference
 
-### Review vs. Implementation Modes
-- **Review (Read-Only / Plan)**:
-  - Claude Code (`claude`, `glm`, `deepseek`, `muse`) uses `--permission-mode plan --allowed-tools Read "Bash(git diff *)" "Bash(git status *)"`.
-  - `codex` uses `-s read-only`.
-  - `cmd` uses `--plan`.
-  - `agy` uses `--mode plan --sandbox`.
-- **Implementation (Authorized Edits / Writes)**:
-  - Claude Code (`claude`, `glm`, `deepseek`, `muse`) uses `--permission-mode acceptEdits`.
-  - `codex` uses `-s workspace-write`.
-  - `cmd` uses `--permission-mode auto-accept`.
-  - `agy` uses `--mode accept-edits --sandbox`.
-  Do not convert a review command into an editing command unless the user explicitly authorized edits.
+| CLI | Provider / models | Model select | Review-mode flags | Implementation-mode flags | Session start | Resume |
+|---|---|---|---|---|---|---|
+| `claude` | Anthropic; default **claude-fable-5-1** | `--model <model>` | `--permission-mode plan --allowed-tools Read "Bash(git diff *)" "Bash(git status *)"` | `--permission-mode acceptEdits` | `--session-id <uuid> --name <task>` | `--resume <uuid>` |
+| `glm` | Zhipu GLM; default **glm-5.3** (Sonnet/Haiku tier: `glm-5.3-flash`) | `MODEL=<model> glm` | same as `claude` | same as `claude` | same as `claude` | same as `claude` |
+| `deepseek` | DeepSeek; default **deepseek-v4-pro** (Sonnet/Haiku tier: `deepseek-flash`) | `MODEL=<model> deepseek` | same as `claude` | same as `claude` | same as `claude` | same as `claude` |
+| `muse` | Meta/Muse; default **muse-spark-1.3-contributor** (Sonnet tier: `muse-spark-1.3`) | `MODEL=<model> muse` | same as `claude` | same as `claude` | same as `claude` | same as `claude` |
+| `codex` | OpenAI, flat-rate ChatGPT Plus; `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.4-mini` | `-m <model>` | `-s read-only` | `-s workspace-write` | no caller ID; capture `thread.started.thread_id` (see Session continuity) | `codex exec resume <thread-id>` |
+| `cmd` | CommandCode.ai; **reserved strictly for external/unsupported models with no dedicated wrapper** (e.g. `moonshotai/kimi-k3`, `moonshotai/kimi-k2.7-code`, `qwen/qwen3.8-max`) — never for models a dedicated CLI already covers | `-m <model>` | `--plan` | `--permission-mode auto-accept` | no caller ID; capture `result.sessionId` | `--resume <session-id>` (or `--session <id\|path>`) |
+| `agy` | Gemini, flat-rate; `gemini-3.1-ultra`, `gemini-3.1-pro-high`, `gemini-3.8-flash` | `--model <model> --effort <effort>` | `--mode plan --sandbox` | `--mode accept-edits --sandbox` | no caller ID; capture `conversation_id` | `--conversation <id>` |
 
-`claude`, `glm`, `deepseek`, and `muse` share one Claude Code CLI base: none needs a PTY, and all accept
-redirected stdin under `-p` (pass `< /dev/null` to prevent stdin hangs). Their `claude-code:unrecognized_model`
-startup warnings are expected and benign.
+The wrapper scripts (`glm`, `deepseek`, `muse`) configure provider endpoints and credentials, then execute
+`claude --model "$MODEL" "$@"`, so `claude`/`glm`/`deepseek`/`muse` share one CLI base: none needs a PTY, all
+accept redirected stdin under `-p` (pass `< /dev/null` to prevent hangs), and their startup warning
+`claude-code:unrecognized_model` is expected and benign. Never convert a review command into an editing
+command unless the user explicitly authorized edits.
 
 > [!CAUTION]
-> **Never use the `--bare` flag with any CLI in these recipes.** The `--bare` flag forces Claude Code to
-> ignore user settings files, which wipes its memory of the OAuth login token and causes it to fail with "Not logged in".
+> **Never use the `--bare` flag with any CLI above.** It forces Claude Code to ignore user settings files,
+> wiping its memory of the OAuth login token and causing it to fail with "Not logged in".
 
-### Canonical Recipes
+### Canonical recipes
+
+One example per CLI. For a follow-up, swap the session-start flags for that row's Resume flag from the
+table above and append `-r<n>` to the output artifact's basename.
 
 ```sh
-# ==============================================================================
-# 1. Claude Code (claude, glm, deepseek, muse)
-# ==============================================================================
-# All models running on Claude Code (Anthropic, GLM, DeepSeek, Muse) use the
-# exact same CLI options. Calling different models is uniform across all wrappers
-# via the MODEL env var:
-#   - Anthropic: CLAUDE_BIN="claude --model <model>" (or default claude)
-#   - GLM:       CLAUDE_BIN="MODEL=<model> glm"      (or default glm)
-#   - DeepSeek:  CLAUDE_BIN="MODEL=<model> deepseek" (or default deepseek)
-#   - Muse:      CLAUDE_BIN="MODEL=<model> muse"     (or default muse)
-#
-#
-# Review (plan mode, read-only tools, closed stdin):
-$CLAUDE_BIN --session-id <uuid> --name <task> \
-  --permission-mode plan --allowed-tools Read "Bash(git diff *)" "Bash(git status *)" \
+# Claude Code family (claude, glm, deepseek, muse) — CLAUDE_BIN picks the wrapper, MODEL=<model> the model
+CLAUDE_BIN="claude"   # or: MODEL=<model> glm | MODEL=<model> deepseek | MODEL=<model> muse
+$CLAUDE_BIN --session-id <uuid> --name <task> <review-or-implementation-flags> \
   --output-format text -p "Read <prompt> and complete it now." < /dev/null \
   > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
 
-# Review follow-up (preserves conversation with the same UUID):
-$CLAUDE_BIN --resume <uuid> \
-  --permission-mode plan --allowed-tools Read "Bash(git diff *)" "Bash(git status *)" \
-  --output-format text -p "Read <follow-up-prompt> and complete it now." < /dev/null \
-  > collab/<timestamp>-<role>-<task>-r<n>.<sanitized-model>.stdout.log 2>&1
+# Codex
+codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
+  > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
 
-# Implementation (authorized edits, closed stdin):
-$CLAUDE_BIN --session-id <uuid> --name <task> \
-  --permission-mode acceptEdits \
-  --output-format text -p "Read <prompt> and complete it now." < /dev/null \
+# Command Code
+cmd -p -m <model> <review-or-implementation-flags> --output-format json < <prompt> \
   > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
 
-# Implementation follow-up (preserves conversation with the same UUID):
-$CLAUDE_BIN --resume <uuid> --permission-mode acceptEdits \
-  --output-format text -p "Read <follow-up-prompt> and complete it now." < /dev/null \
-  > collab/<timestamp>-<role>-<task>-r<n>.<sanitized-model>.stdout.log 2>&1
-
-
-# ==============================================================================
-# 2. Codex (OpenAI models: gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra, gpt-5.4-mini)
-# ==============================================================================
-# Review (read-only sandbox, jsonl stdin):
-codex exec -m <model> -s read-only --json - < <prompt> \
+# Gemini / AGY
+agy --model <model> --effort <effort> <review-or-implementation-flags> \
+  --print-timeout 5m --output-format json -p "Read <prompt> and complete it now." \
   > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
-
-# Review follow-up:
-codex exec resume <thread-id> --json - < <follow-up-prompt> \
-  > collab/<timestamp>-<role>-<task>-r<n>.<model>.stdout.log 2>&1
-
-# Implementation (workspace-write sandbox, jsonl stdin):
-codex exec -m <model> -s workspace-write --json - < <prompt> \
-  > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
-
-# Implementation follow-up:
-codex exec resume <thread-id> --json - < <follow-up-prompt> \
-  > collab/<timestamp>-<role>-<task>-r<n>.<model>.stdout.log 2>&1
-
-
-# ==============================================================================
-# 3. Command Code (External models only: moonshotai/kimi-k3, qwen/qwen3.8-max)
-# ==============================================================================
-# Review (plan mode, JSON output):
-cmd -p -m <model> --plan --output-format json < <prompt> \
-  > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
-
-# Review follow-up:
-cmd --resume <session-id> -p -m <model> --plan --output-format json < <follow-up-prompt> \
-  > collab/<timestamp>-<role>-<task>-r<n>.<sanitized-model>.stdout.log 2>&1
-
-# Implementation (auto-accept edits, JSON output):
-cmd -p -m <model> --permission-mode auto-accept --output-format json < <prompt> \
-  > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
-
-# Implementation follow-up:
-cmd --resume <session-id> -p -m <model> --permission-mode auto-accept --output-format json < <follow-up-prompt> \
-  > collab/<timestamp>-<role>-<task>-r<n>.<sanitized-model>.stdout.log 2>&1
-
-
-# ==============================================================================
-# 4. Gemini / AGY (Google models: gemini-3.1-ultra, gemini-3.8-flash)
-# ==============================================================================
-# Review (plan mode):
-agy --model <model> --effort <effort> --mode plan --sandbox \
-  --print-timeout 5m --output-format json \
-  -p "Read <prompt> and complete it now." \
-  > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
-
-# Review follow-up:
-agy --conversation <id> --model <model> --effort <effort> --mode plan --sandbox \
-  --print-timeout 5m --output-format json \
-  -p "Read <follow-up-prompt> and complete it now." \
-  > collab/<timestamp>-<role>-<task>-r<n>.<model>.stdout.log 2>&1
-
-# Implementation (accept-edits mode):
-agy --model <model> --effort <effort> --mode accept-edits --sandbox \
-  --print-timeout 5m --output-format json \
-  -p "Read <prompt> and complete it now." \
-  > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
-
-# Implementation follow-up:
-agy --conversation <id> --model <model> --effort <effort> --mode accept-edits --sandbox \
-  --print-timeout 5m --output-format json \
-  -p "Read <follow-up-prompt> and complete it now." \
-  > collab/<timestamp>-<role>-<task>-r<n>.<model>.stdout.log 2>&1
 ```
 
 ### Known CLI quirks
@@ -507,15 +420,15 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   with `java: Operation not permitted` under `--mode plan --sandbox` (probed
   2026-09-04), even though that mode reads files, runs read-only shell, and
   writes files outside the repo. The denial covers all of `~/.local` (the
-  mise-installed JDK included), and no host escalation reaches inside a
-  delegate's own session — the `BypassSandbox` fix needs an approval no
+  mise-installed JDK included); no host escalation reaches inside a
+  delegate's own session, since the `BypassSandbox` fix needs an approval no
   headless `-p` run can obtain. Such a delegate can appear to be verifying
   while unable to check any test claim it passes on: give it only static
-  analysis, never a deliverable that depends on running tests — the
-  orchestrator must run those suites itself. This is a property of the sandboxed headless configuration, not of
-  AGY — a user-run AGY Orchestrator seat isn't restricted this way, and like
-  any seat establishes its own capabilities rather than assuming them from
-  this entry.
+  analysis, never a test-dependent deliverable — the orchestrator runs those
+  suites itself. This is a property of the sandboxed headless configuration,
+  not of AGY itself: a user-run AGY Orchestrator seat isn't restricted this
+  way, and every seat establishes its own capabilities rather than assuming
+  them from this entry.
 - **`--permission-mode acceptEdits` auto-approves Edit/Write/NotebookEdit but
   not Bash**: a compound or piped command (chained `;` steps, `grep | grep`,
   a `for` loop over several files) can still be denied by the CLI's safety
