@@ -1,6 +1,6 @@
 # yin.vm de Bruijn stack VM
 
-Status: B0, B1, B3 implemented and merged; B2 in progress; B4-B7 not started
+Status: B0-B3 implemented and merged; B4-B7 not started
 
 This document specifies a second executable path for `yin.vm`. The existing
 path lowers named Universal AST datoms to `:yin.code/*` and executes that
