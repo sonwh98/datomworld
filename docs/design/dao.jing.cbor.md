@@ -328,11 +328,16 @@ JVM today). The portable versions instead: (1) if exactly one operand is
 finite (exact) precision, and float64 is the one inexact IEEE-754 kind, so
 it always loses a tie to an exact operand; (2) if both operands are
 `float64`, or both are exact but distinct (different kind, or the same
-kind at a different scale or sign), return whichever operand's canonical
-CBOR bytes sort first — the same unsigned bytewise order this profile
-already uses for map keys and set elements, so no new ordering machinery
-is needed. Both cases are independent of argument order and of which host
-runs them: `(min 1 1.0)` and `(min 1.0 1)` both return `1`.
+kind at a different scale or sign), return whichever operand has the
+shorter canonical CBOR encoding — the more compact representation, for
+example decimal `1.0` (exponent `-1`, mantissa `10`, a one-byte shortest
+head) over decimal `1.00` (exponent `-2`, mantissa `100`, a two-byte
+shortest head); (3) if the two encodings are the same length too, return
+whichever sorts first by canonical CBOR bytes, the same unsigned bytewise
+order this profile already uses for map keys and set elements, so no new
+ordering machinery is needed for the final, rarely-reached tiebreak. All
+three cases are independent of argument order and of which host runs them:
+`(min 1 1.0)` and `(min 1.0 1)` both return `1`.
 
 - Provide a portable `float64` constructor/carrier. JavaScript callers use
   it for integral floating-point values such as `1.0`; ordinary integral
