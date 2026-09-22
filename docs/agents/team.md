@@ -130,11 +130,11 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | Capability includes implementation, but the current codex policy   | unsuitable for implementation.                                      |
 |                             | reserves OpenAI seats for Architectural Review.                    |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `minimax/m3`                | Natively multimodal with 1M context. **Best for:** Large codebase  | Can fall into thinking loops; gives up early on difficult tasks.    |
-|                             | comprehension, orchestrating subagents, iterative refactoring.     | **Avoid for:** One-shot mission critical coding, unbounded tasks.   |
+| `minimax/m3`                | 428B MoE native multimodal with 1M context. **Best for:** Coding,  | Heavy local footprint; can fall into thinking loops on difficult    |
+|                             | autonomous task decomposition, tool invocation, and subagents.     | unbounded tasks. **Avoid for:** One-shot mission critical coding.   |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `mimo-v2.5-pro`             | 1.02T MoE tailored for IDE integration. **Best for:** IDE-         | Struggles with "lost in the middle" in massive contexts; can        |
-|                             | integrated coding agents, high-volume automation, complex design.  | spoil stable code. **Avoid for:** Verification-poor environments.   |
+| `mimo-v2.5-pro`             | Xiaomi 1.02T MoE text-only agentic model. **Best for:** Long chains| Text-only; can suffer "lost in the middle" in massive contexts and  |
+|                             | of thought, tool-calling, high-volume automation, and IDEs.        | spoil stable code. **Avoid for:** Verification-poor environments.   |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `moonshotai/kimi-k2.7-code` | Extremely long context window tailored for SWE and long-horizon    | Niche ecosystem; less generalized reasoning outside of code.        |
 |                             | coding. **Best for:** Context-heavy frontend or terminal tasks.    | **Avoid for:** Core VM or indexing logic requiring broad            |
