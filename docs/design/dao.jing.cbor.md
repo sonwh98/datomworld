@@ -472,8 +472,24 @@ out of a rejected old store.** A value whose intake stream has since
 evicted it (a `:dao.stream/gap`) and whose old store is rejected under this
 plan has no remaining source — that content is unrecoverable, not merely
 inconvenient to rebuild. Rebuild readiness should be checked against
-retained intake history before this migration lands, not assumed. Existing
-torn-tail recovery applies only
+retained intake history before this migration lands, not assumed.
+
+**Owner ruling (2026-09-22): rebuild-readiness gate cleared.** This is a
+development repository with no deployed store, no published index
+manifest, no externally held Jing address, and no retained intake history
+outside it. The orchestrator's repository-side audit found no committed
+production store or manifest (only unrelated build artifacts), no
+character/`#inst`/`#uuid` literal reaching a Jing-addressed value (the two
+candidates, `random-uuid` and `js/Date.now` in `yin.vm.telemetry` and
+`yin.repl`, are already stringified or numeric before use), and confirmed
+`test/dao/data/psset_fixtures.cljc` as the one committed old-address
+fixture already flagged for regeneration in step 5. With nothing deployed,
+there is no unrecoverable content at risk and no rebuild to perform: the
+clean break authorized by this document has no remaining precondition.
+Both owner gates on step 3 (this one and the `dao.space` comparator gate
+above) are now cleared.
+
+Existing torn-tail recovery applies only
 after the file is recognized as a valid new-format log; an old-format file
 must not be treated as an empty or recoverable new store.
 An empty file is a new log. Recognize a nonempty log only after its first
