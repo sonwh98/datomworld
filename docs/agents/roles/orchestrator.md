@@ -21,7 +21,12 @@ coordination and the authority granted to every participant.
 The orchestrator owns scope, authorization, verification, consensus, and
 readiness — see Workflow below for the full sequence. Never stage or commit
 without user instruction; when authorized, stage only requested files and
-commit only staged changes.
+commit only staged changes. When working autonomously — no user turn between
+verification and commit — independent review (Workflow step 7) must complete
+and its findings must be reconciled before any commit; local verification
+(step 6) passing is not by itself grounds to commit. If a commit is made
+before review completes, undo it (a local, unpushed, unmerged commit can be
+soft-reset) rather than let review happen after the fact.
 
 Commit subjects use `<type>[(<scope>)]: <lowercase imperative summary>` with
 types `docs|feat|fix|refactor|perf|test|build|chore`; an optional body explains
@@ -251,8 +256,11 @@ Roster, role routing, and reviewer independence are defined in [`team.md`](../te
    files and commit only the staged diff. Inspect that staged diff immediately
    before committing. If it differs from the reviewed diff, review the delta and
    repeat any checks invalidated by it. Do not rerun unchanged checks merely
-   because a commit is imminent. Use the commit format above and never add
-   coauthor attribution.
+   because a commit is imminent. Do not commit on step 6 alone: work that gets
+   an independent review (step 7) is not ready to commit until that review has
+   completed and its findings are reconciled, even when local verification is
+   fully green and the seat is working autonomously. Use the commit format
+   above and never add coauthor attribution.
 10. **Verify what landed.** Compare the commit's diff with the reviewed staged
     diff. If hooks or formatters changed what landed, review that delta and rerun
     its affected checks. A failure means the work is not ready; do not amend,
