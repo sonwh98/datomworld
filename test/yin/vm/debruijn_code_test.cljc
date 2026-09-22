@@ -1,5 +1,5 @@
 (ns yin.vm.debruijn-code-test
-  "B1 (docs/design/yin.vm.debruijn-vm.md S2): standalone tests of the
+  "B1 (docs/design/yin.vm.debruijn.stack.md S2): standalone tests of the
    `:yin.debruijn.code/*` dimension and its validator -- hand-built
    canonical instruction vectors only, no lowerer and no VM. Golden
    bytes and H values are pinned literals, computed once against this

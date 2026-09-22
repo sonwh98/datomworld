@@ -1,5 +1,5 @@
-(ns yin.vm.debruijn-vm
-  "B3 (docs/design/yin.vm.debruijn-vm.md, 'B3: de Bruijn VM kernel'): the
+(ns yin.vm.debruijn.stack
+  "B3 (docs/design/yin.vm.debruijn.stack.md, 'B3: de Bruijn VM kernel'): the
    sibling stack VM that interprets RAW positional instruction vectors --
    `[:closure arity body-pc]`, `[:load-bound depth position]`,
    `[:load-free name]`, `[:const value]`, `[:call argc tail?]`, `[:return]`,
@@ -7,10 +7,11 @@
    `[:store-put key value]` -- whose shapes come from
    `yin.vm.code/vector-operand-table` and section 2 of the design doc.
 
-   B2 (the named-datom lowerer) does not exist yet, so this namespace never
-   requires `yin.vm.debruijn-code`: every program used here and in its test
-   is a hand-built instruction vector, the same technique B1's own
-   standalone validator tests use.
+   This namespace never requires `yin.vm.debruijn-code`: every program used
+   here and in its own test is a hand-built instruction vector, the same
+   technique B1's own standalone validator tests use. B2 (the named-datom
+   lowerer, `yin.vm.debruijn-linearize`) produces real images against this
+   kernel from its own test namespace instead of from here.
 
    The instruction set in scope is frames, closures, loads, calls, returns,
    branches, `:const`, and `:store-get`/`:store-put` (section 4). Stream
@@ -155,6 +156,21 @@
                             {:type :closure, :arity arity,
                              :body-pc body-pc, :frames frames})))
 
+      ;; The named VM (semantic.cljc) keeps a separate `val` accumulator
+      ;; distinct from its operand stack `St`, so `:push` there commits
+      ;; `val` onto `St` (St <- St ++ [val]). This machine has no such
+      ;; split: every value-producing case above already conjes its
+      ;; result straight onto `:stack`. By the time control reaches a
+      ;; `:push`, the value it would push is already there -- so here
+      ;; it is a no-op that only advances `pc`. B4 obligation: every future
+      ;; value-producing opcode (:stream-*, :ffi-call, :gensym,
+      ;; :current-continuation, :resume) must conj its result straight onto
+      ;; `:stack` the same way, or a `:push` immediately after it will
+      ;; silently drop the value -- there is no `val` register to recover
+      ;; it from.
+      :push
+      (assoc vm :pc (inc pc))
+
       :call
       (let [argc (nth inst 1), tail? (nth inst 2)
             total (count stack)
@@ -237,7 +253,7 @@
       (if (= :halted (:status vm)) vm (recur (step1 vm)))))
   (eval [_ ast]
     (throw (ex-info
-             "The B3 kernel executes raw instruction vectors: B2 (the named-datom lowerer) does not exist yet, so there is no AST to convert here"
+             "The B3 kernel executes raw instruction vectors, not AST: lower and adapt it first (yin.vm.debruijn-linearize/adapt), then load and run the resulting image"
              {:ast ast})))
   (reset [this]
     (assoc this
