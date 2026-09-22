@@ -44,6 +44,7 @@
             [dao.data.btree.storage :as bts]
             [dao.datom :as datom]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.stream :as stream]))
 
 
@@ -52,22 +53,50 @@
 ;; =============================================================================
 
 (defn- type-rank
+  "The heterogeneous bucket of a datom value. Every Jing numeric kind is
+   one bucket (dao.jing.cbor/numeric?, not host number?): the JVM Rational
+   carrier and the JavaScript and Dart float64, decimal and rational
+   carriers are not host numbers, and must sort among numbers by value."
   [x]
   (cond (nil? x) 0
         (boolean? x) 1
-        (number? x) 2
+        (cbor/numeric? x) 2
         (string? x) 3
         (keyword? x) 4
         (symbol? x) 5
         :else 6))
 
 
+(defn- compare-numbers
+  "Portable numeric order (dao.jing.cbor/num-compare: exact, never rounded
+   through double; -infinity < finite < +infinity < NaN), with host compare
+   kept only where it answers identically: two host integers, and on the
+   JVM and ClojureScript two non-NaN doubles (both compare exactly, with
+   0.0 and -0.0 equal). Dart's double compareTo orders -0.0 below 0.0, so
+   Dart takes the fast path for ints only."
+  [a b]
+  (if #?(:cljd (and (dart/is? a int) (dart/is? b int))
+         :clj (or (and (instance? Long a) (instance? Long b))
+                  (and (instance? Double a) (instance? Double b)
+                       (not (Double/isNaN ^Double a)) (not (Double/isNaN ^Double b))))
+         :cljs (and (number? a) (number? b)
+                    (not (js/isNaN a)) (not (js/isNaN b))))
+    (compare a b)
+    (cbor/num-compare a b)))
+
+
 (defn compare-vals
-  "Compare two datom values across heterogeneous types using type-rank."
+  "Compare two datom values across heterogeneous types using type-rank.
+   Numbers compare by exact value across every kind and representation,
+   with no string fallback (docs/design/dao.jing.cbor.md, Numeric
+   identity); ties across kinds stay ties, so (compare-vals 1 1.0) is 0."
   [a b]
   (let [ra (type-rank a)
         rb (type-rank b)]
-    (if (= ra rb)
+    (cond
+      (not= ra rb) (compare ra rb)
+      (= 2 ra) (compare-numbers a b)
+      :else
       (try (compare a b)
            ;; :cljd FIRST in every reader-conditional: the cljd host-eval
            ;; pass also matches :clj, so a :clj branch appearing earlier
@@ -78,8 +107,7 @@
                      :clj ClassCastException
                      :cljs js/Error)
                   _
-             (compare (str a) (str b))))
-      (compare ra rb))))
+             (compare (str a) (str b)))))))
 
 
 ;; =============================================================================
