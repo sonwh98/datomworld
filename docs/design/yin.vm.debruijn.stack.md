@@ -1,6 +1,6 @@
-# yin.vm de Bruijn VM
+# yin.vm de Bruijn stack VM
 
-Status: design; not implemented
+Status: B0, B1, B3 implemented and merged; B2 in progress; B4-B7 not started
 
 This document specifies a second executable path for `yin.vm`. The existing
 path lowers named Universal AST datoms to `:yin.code/*` and executes that
@@ -217,28 +217,162 @@ bytes, while verification recomputes `image-hash`.
 
 ## 3. Lowering and scope
 
-The lowerer receives complete `:yin/*` named datoms. It reuses only the public
-`yin.vm.debruijn/resolve-name` helper. That helper compares names exactly,
-including rightmost-wins duplicate parameters, and does not canonicalize
-values. Projection-only helpers such as `index-frame`, `build-node`, and
-`project-node` are not reused. Unexpanded-macro validation remains the named
-front end's responsibility.
+Lowering is two stages, both pure stream-to-stream functions:
+
+    (resolve named-datoms)          -> resolved tuples + binder side table
+    (lower-stack resolved-tuples)   -> canonical stack image + pc side table
+
+`resolve` is the de Bruijn encoding of the named semantic tuples. It is the
+shared upstream of the stack projection specified here and the register
+projection specified in `yin.vm.debruijn.register.md`; neither projection
+is derived from the other, matching the parallel-projection topology in
+`docs/agents/architecture.md`. `resolve` receives complete `:yin/*` named
+datoms and reuses only the public `yin.vm.debruijn/resolve-name` helper.
+That helper compares names exactly, including rightmost-wins duplicate
+parameters, and does not canonicalize values. Projection-only helpers such
+as `index-frame`, `build-node`, and `project-node` are not reused.
+Unexpanded-macro validation remains the named front end's responsibility.
 The projection is therefore kept, not removed: if it is ever retired, this
-public helper must first move into this design's namespace.
+public helper must first move into the resolver's namespace.
 
-The walk is deterministic and left to right. Lambda bodies are out of line,
-applications evaluate operator then operands, and `if` evaluates one arm.
-The lowerer copies the front end's `:yin/tail?` exactly as the named linearizer
-does. It does not infer tail position from syntax. Only `:application` has a
-tail operand in the existing instruction table; `:dao.stream.apply/call`
-lowers to `:ffi-call` and has no tail operand.
+### 3.1 Resolved tuples
 
-The image inherits occurrence expansion, fresh lambda labels, and body layout
-from `yin.vm.linearize/lower`; B2 does not repeat that traversal. Any adapter
-memo is keyed by the emitted body and pc context. If a future source-level
-memo is introduced, its key must include node identity, the full vector of
-parameter-name vectors, and tail context. Frame arities remain separate scope
-validation data and cannot determine name resolution.
+The named datoms are a finite graph, not a tree. `ast->datoms-with-root`
+emits a node carrying a pre-assigned `:eid` exactly once and references it
+from every site that names it, for every node type. One source entity can
+therefore sit under two different lexical contexts, and its resolution is
+then different at each: the existing projection fixture
+`shared-nodes-resolve-per-their-lexical-context` places one `:variable`
+entity as the body of both `(fn [x] ...)` and `(fn [y] ...)`, bound `[0 0]`
+under the first and free `x` under the second. Resolution is a fact about
+an occurrence, not about a source entity, so resolved tuples are keyed by
+occurrence. Writing resolution facts onto the shared source entity would
+give one entity two contradictory fact sets and is not permitted.
+
+An occurrence is the pair `[source-eid lexical-context]`, where
+`lexical-context` is the complete innermost-first stack of enclosing
+parameter vectors, exactly the memo key the dormant projection documents.
+`resolve` mints one resolved record per distinct occurrence, with a fresh
+negative id assigned deterministically in first-visit order of the walk,
+and reuses that record wherever the same occurrence recurs. Two references
+to one entity under equal contexts share one record, so graph sharing is
+preserved; two references under unequal contexts get two records. A shared
+lambda under two contexts yields two resolved lambdas, each with its own
+resolved body. Resolved ids never equal source ids; provenance is a side
+table, below. A cyclic input is refused, as the projection refuses it.
+
+Each resolved record is the source node's datoms with exactly two changes,
+the same two changes the B1 opcode table makes to the named instruction
+table. Every other datom is carried unchanged: `:yin/type`, exact scalar
+values, exact free names, `:yin/tail?`, and the node's operand references,
+which now point at resolved record ids.
+
+1. A `:variable` record has no `:yin/name` datom and has either
+   `:yin.resolved/depth` and `:yin.resolved/position` (a bound reference,
+   from `resolve-name`'s `{:bound [depth position]}`) or `:yin.resolved/free`
+   carrying the exact symbol (from `{:free name}`).
+2. A `:lambda` record has no `:yin/params` datom and has
+   `:yin.resolved/arity`, the parameter count.
+
+The attribute namespace is `:yin.resolved/*`, not `:yin.debruijn/*`, which
+the dormant projection owns. The side table has two maps: `:source`,
+`{resolved-id source-eid}` for every record, and `:params`,
+`{resolved-lambda-id [param-symbol ...]}`, the exact parameter vector of
+every resolved lambda. No name is recorded per variable occurrence; a bound
+occurrence's original spelling is the owning resolved lambda's parameter at
+the resolved position, which `resolve-name`'s contract guarantees is exact.
+Binder names appear nowhere in the resolved tuples, including in ids.
+
+The walk is in the named linearizer's order: operator then operands left to
+right, `if` test then arms, lambda bodies with the lambda's parameter vector
+pushed innermost-first on the resolution stack for the body's extent. Depth
+0 is the innermost enclosing lambda. The resolution stack and the occurrence
+memo are the resolver's only state; the runtime frame vector's outermost-
+first order is B3's, and the conversion between them is explicit there.
+
+`resolve` refuses with a qualified diagnostic, before any lowerer runs, a
+program whose bound reference falls outside its enclosing arity chain, an
+unsupported node type, a host value in a data operand, or a cycle. The
+resolver also exports one pure `validate-resolved` over an already resolved
+tuple set and side table: shape, one resolution fact set per record, every
+bound reference inside its enclosing arity chain, every operand reference
+a record, and `:source` total over the records. Every lowerer calls it
+unconditionally on its input, so a hand-built resolved set with
+`:yin.resolved/depth 5` and no enclosing lambda is refused identically by
+`lower-stack` and by the register lowerer, before either emits anything.
+
+The inverse `unresolve` maps each record back through `:source`, restores
+`:yin/name` from the owning lambda's parameters and `:yin/params` from
+`:params`, and merges the records of one source entity, which carry equal
+facts by construction. `unresolve(resolve x, side-table)` equals `x` as a
+datom set, including the shared-entity fixtures.
+
+The resolved tuples are a derived stage value. They have this shape
+contract and namespace so that two lowerers and their tests agree on what
+they consume, but no hash, no identity, and no sharing role: H and R are
+the only executable identities (D9, D12), the tuples are not executable,
+and "derive, do not persist" forbids a persisted copy of facts the named
+datoms already hold. They are not the second lossless view D2 rejects:
+never stored as a source view, never served, never a fetch key. With the
+binder side table they invert to the named datoms; that inverse is the
+resolver's test oracle only.
+
+### 3.2 Stack lowering
+
+`lower-stack` consumes resolved tuples and their side table, calls
+`validate-resolved` first and refuses on its diagnostic, then emits the
+canonical positional `:yin.debruijn.code/*` image (section 2) plus the
+pc-keyed diagnostic side table the lift needs. It cannot call
+`yin.vm.linearize/lower`, which reads `:yin/name` and `:yin/params`. It
+therefore reproduces the named linearizer's flattening itself: the same
+recursion in evaluation order, the same `:push` after operator and after
+each operand, `:call` with argc and the copied `:yin/tail?`, `if` as
+`branch-false`, `jump`, and two labels, `:halt` after the root, lambda
+bodies out of line in discovery order each ending in `:return`, and labels
+resolved to pcs in a second pass. Like `lower`, it expands occurrences
+positionally: a resolved record referenced twice is emitted twice, at two
+pcs; the resolver's occurrence memo never changes emitted bytes. A
+`:variable` emits `[:load-bound depth position]` or `[:load-free name]`
+straight from its resolved attributes; a `:lambda` emits `[:closure arity
+body-pc]`. Every other node emits the carried mnemonic unchanged.
+
+Layout equality with the named linearizer no longer holds by construction.
+It is a required structural-comparison test: for every corpus program the
+canonical vector of `(lower x)` and `(lower-stack (resolve x))` have the
+same length and the same mnemonic at every pc, and differ only at `:var`
+versus `:load-bound`/`:load-free` operands and at `:closure`'s parameter
+versus arity operand. A layout change in `yin.vm.linearize` must fail this
+test rather than silently fork H.
+
+`lower-stack` copies `:yin/tail?` exactly as it was resolved. It does not
+infer tail position from syntax. Only `:application` has a tail operand in
+the existing instruction table; `:dao.stream.apply/call` lowers to
+`:ffi-call` and has no tail operand.
+
+The pc side table is `{pc {:kind :closure, :params [sym ...], :source e}}`
+for every `:closure` pc, with `:params` read from the resolver side table's
+`:params` by resolved lambda id, and `{pc {:kind :var, :source e}}` for
+every load pc. `:source` is the source eid, read through the resolver side
+table's `:source` map, never the resolved id, so it matches `lower`'s
+`:yin.code/source` at the same pc. `adapt` is the composition `lower-stack`
+after `resolve` and is the one public entry that takes named datoms to an
+image.
+
+The lift executes with synthesized names by default: fresh against the
+image's free-name set and against each other, so no lifted binder can
+capture a free name. A supplied pc side table is used only when every
+`:closure` entry's parameter count equals the instruction's arity, its
+names are capture-free by the same rule, and `adapt` of the lifted result
+reproduces the original image byte for byte; otherwise it is discarded and
+synthesis is used. This is the rule the B2 box's completion criteria
+already require; it is stated here as the contract.
+
+This removes the fused design's vector-level scope reconstruction:
+`closure-body-ranges`, `layout-conforms?`, `body-owner`, `chain-of`, and
+the vector-level `resolve-var` and `rewrite`. That machinery existed only
+because resolution was placed after linearization and had to recover body
+scopes from an already flattened vector. Scope is now known during the tree
+walk, and B1's validator remains the independent vector-level check.
 
 The executable image may carry a debug node hash and named source reference.
 Those fields are always diagnostic metadata outside code identity. They replace
@@ -246,7 +380,8 @@ no named source map.
 
 Scope validation is mandatory in both places where an image can enter:
 
-1. B2 validates nonnegative depth and position against the frame-arity vector.
+1. `resolve` validates nonnegative depth and position against the enclosing
+   arity chain at resolution time, on the tree.
 2. B1's image validator repeats the check by walking each body's declared
    arity and enclosing-body chain. A shape-valid hand-built image with
    `[:load-bound [5 0]]` is rejected before execution.
@@ -279,7 +414,7 @@ primitives, and module registry. Positional locals never fall through to a
 store key. `:macro?` is retained only in named datoms; runtime closure
 application ignores it exactly as the named runtime does after macro expansion.
 
-The VM is a new `yin.vm.debruijn-vm` namespace. It may implement existing VM
+The VM is a new `yin.vm.debruijn.stack` namespace. It may implement existing VM
 protocols without adding methods, and it may reuse data-only engine helpers
 for name resolution, primitive descriptions, stream descriptors, store
 operations, gensym, and continuation records. It reimplements any helper
@@ -298,6 +433,66 @@ registers as explicit data. B4 supplies a frame-aware completion adapter or a
 lift through the descriptor morphism before exporting a continuation. UCF
 remains proposed and deferred, so heterogeneous continuation transport is not
 yet promised.
+
+### 4.1 Engine seam (B4)
+
+`yin.vm.engine` is the shared scheduler for every Yin VM, and the contract
+between it and a VM is stated once in `yin.vm.engine.md`: the engine owns a
+closed set of bookkeeping keys on the state map and a closed set of keys on
+wait, ready, and parked entries; a VM supplies one restore function of the
+signature `base entry val -> state` and, at each blocking instruction, a
+park-entry builder returning its register payload merged with the transport
+keys. Everything on an entry that the engine does not own is the VM's
+payload, preserved verbatim. No protocol or multimethod formalizes this;
+`yin.vm.engine.md` section 6 records why, from the two live instances
+(`yin.vm.ast_walker`, `yin.vm.semantic`) and the three v1 instances that ran
+on the same bare-function convention.
+
+B4 implements that contract as follows. Each item is a decision, not a
+suggestion; the sentence "it reimplements any helper that serializes the
+named register layout" above means the restore and the builders, and nothing
+else.
+
+1. Bookkeeping. `:status` is replaced by the engine's `:halted?` and
+   `:blocked?`, and the record gains `:wait-set`, `:ready-queue`, `:parked`,
+   `:id-counter`, `:value`, and `:make-stream`. `halted?` becomes
+   `engine/halted-with-empty-queue?`, `blocked?` becomes
+   `engine/vm-blocked?`, and `run` becomes `engine/run-loop` with
+   `engine/active-continuation?`, the step function, and
+   `engine/scheduler-round` bound to this VM's restore. `create-vm` starts
+   halted with an empty program exactly as the semantic VM does.
+2. Value. `value` returns `(:value vm)`, as `engine/vm-value` reads it.
+   `:halt` and a `:return` on an empty continuation write the stack top into
+   `:value`; a park writes the parked record and a block writes
+   `:yin/blocked` (both done by the engine). B3's `(peek stack)` is
+   equivalent for pure programs and stays as the halting write.
+3. Register payload. `{:segment :pc :frames :stack :continuation}`. `:segment`
+   names the image as the record holds it, in the same role as the semantic
+   VM's segment id; while one image is loaded it is that image. These keys do
+   not collide with the engine-owned set. Free environment, store,
+   primitives, and modules are not registers and stay on the state map.
+4. Restore. One function, `stack-restore [base entry val]`, writing the
+   four registers from the entry and conjing `val` onto the restored
+   `:stack` (the B3 obligation that every value-producing opcode lands on
+   the stack, since there is no accumulator). The FFI two-step (engine
+   design section 4) lives here, on the entry keys `:request-sent` and
+   `:call-id`, using `ffi/call-result` and `ffi/response-wait-entry`. The
+   walker's frame-typed placement is not used: this machine's continuation
+   is a vector of return frames.
+5. Builders. Per blocking instruction, a `:stream/put` and `:stream/next`
+   builder closing over the post-instruction registers (`pc` advanced,
+   operands popped), returning the payload merged with `:reason` and the
+   `:stream-id`/`:cursor-ref` from the handler's result. Nothing else is
+   attached: no handle, no closure, no `:restore-fn` option to
+   `handle-effect`.
+6. Continuation tags. `:current-continuation` pushes
+   `{:type :reified-continuation ...payload}`; `:park` goes through
+   `engine/park-continuation` with the payload; `:resume` goes through
+   `engine/resume-continuation` with `stack-restore`. The B0 normalizer
+   compares these by type, so the tags match the named VM's.
+7. Idle predicate. `engine/ready-for-ingress?` reads named register keys and
+   is not consumed by this VM; if the stack VM is ever placed under
+   `dao.stream.observer`, it supplies its own.
 
 ## 5. Effects and equivalence boundaries
 
@@ -354,40 +549,56 @@ values for a frozen corpus are checked on all three host lanes. A
 lowering layout change must fail those fixtures rather than silently
 forking identity.
 
-### B2: named-datom lowerer adapter
+### B2: resolver and stack lowerer
 
+    New: src/cljc/yin/vm/debruijn_resolve.cljc
+    New: test/yin/vm/debruijn_resolve_test.cljc
     New: src/cljc/yin/vm/debruijn_linearize.cljc
     New: test/yin/vm/debruijn_linearize_test.cljc
     Existing edits: none
     Must not change: yin.vm.linearize and named lowering semantics
 
-Run the existing `yin.vm.linearize/lower` on the named datoms, then rewrite
-each `:var` operand and replace each `:closure` parameter vector with its
-arity. Scope reconstruction is a pure function of the image, never of
-`:yin.code/source`: each body range is `[entry, first :return]`, its parent is
-the body containing the `:closure`, and the name stack for `resolve-name` is
-built innermost-first. This is opposite to the runtime frame vector's
-outermost-to-innermost order and the conversion is explicit. `segment-scope`
-is the public precedent; the new namespace reproduces the rules of private
-`closure-ranges` and `layout-conforms?` rather than changing their visibility.
-A failed
-`layout-conforms?` check is a validation defect. Completion requires
-deterministic output, every node and opcode, lexical validation, a structural
-opcode-by-opcode comparison with `lower` differing only at variable and
-closure operands, image encode/validate/load round trips, and
-`lift(adapt(lower x), side-table) = canonical-vector(lower x)`. The lift is a
-function of the image plus its diagnostic side table. With the original binder
+B2 is two namespaces (section 3). `yin.vm.debruijn-resolve` owns `resolve`:
+named datoms to resolved tuples plus binder side table, its scope validator,
+and the inverse `unresolve` used as a test oracle. It is shared with the
+register design and depends on nothing in this design below section 3.1.
+`yin.vm.debruijn-linearize` owns `lower-stack`, `adapt`, `lift`, and the
+public `named-canonical-vector` helper the structural comparison uses. The
+fused implementation's `closure-body-ranges`, `layout-conforms?`,
+`body-owner`, `chain-of`, vector-level `resolve-var`, `rewrite`, and the
+duplicate vector-level `image-scope-defect` are removed, not moved: scope
+is known on the tree, and B1's validator is the vector-level check.
+
+Completion requires, for the resolver: deterministic output on every host,
+every node type resolved or refused with a named diagnostic, exact free
+names and scalars, the duplicate-parameter fixture `(fn [x x] x)` resolving
+to `[0 1]`, out-of-range hand-built resolved tuples refused by
+`validate-resolved`, a cyclic input refused, the shared-occurrence fixtures
+(one variable entity under `[x]` and `[y]` resolving bound `[0 0]` and free
+`x`; the same entity under `[x]` and `[x] [y]` resolving `[0 0]` and
+`[1 0]`; one entity twice under equal contexts yielding one record
+referenced twice; one lambda entity under two contexts yielding two
+resolved lambdas), and `unresolve(resolve x, side-table) = x` as a datom
+set over the corpus and those fixtures.
+
+For the stack lowerer: deterministic output, every node and opcode, the
+section 3.2 structural opcode-by-opcode comparison with `lower` differing
+only at variable and closure operands, image encode/validate/load round
+trips, and `lift(adapt x, side-table) = canonical-vector(lower x)`. The lift
+is a function of the image plus its pc side table. With the original binder
 names in the side table, equality holds; with synthesized names, the lifted
-result is alpha-equivalent to `lower x`, including `(fn [x x] x)`. Synthesized
-names must be fresh against the image's free-name set. A supplied side table is
-accepted only when adapting its lift returns the original image.
-Every image B2 emits must be accepted by B1's validator, and every hand-built
-out-of-range image must be rejected by both validators.
+result is alpha-equivalent to `lower x`, including `(fn [x x] x)`.
+Synthesized names must be fresh against the image's free-name set. A
+supplied side table is accepted only when `adapt` of its lift returns the
+original image. Every image B2 emits must be accepted by B1's validator, and
+every hand-built out-of-range image must be rejected by B1's validator. The
+golden image bytes and H values frozen in B1 must be reproduced unchanged
+by `adapt`; the refactor changes derivation, not bytes.
 
 ### B3: de Bruijn VM kernel
 
-    New: src/cljc/yin/vm/debruijn_vm.cljc
-    New: test/yin/vm/debruijn_vm_test.cljc
+    New: src/cljc/yin/vm/debruijn/stack.cljc
+    New: test/yin/vm/debruijn/stack_test.cljc
     Existing edits: none
     Must not change: semantic VM, engine, IVM protocols, named environment,
     merged projection namespace
@@ -399,23 +610,33 @@ benchmark report, not an acceptance condition.
 
 ### B4: effects and continuations
 
-    Existing source: src/cljc/yin/vm/debruijn_vm.cljc
-    New: test/yin/vm/debruijn_vm_effects_test.cljc
-    Existing edits: none
+    Existing source: src/cljc/yin/vm/debruijn/stack.cljc
+    New: test/yin/vm/debruijn/stack_effects_test.cljc
+    Existing edits: src/cljc/yin/vm/engine.cljc (additive only:
+      scheduler-round; resume-from-run-queue calls restore-fn with three
+      arguments), src/cljc/yin/vm/ffi.cljc (additive only:
+      response-wait-entry), test/yin/vm/engine_test.cljc (fake restore
+      arity; tests for the two additions)
     Must not change: dao.stream protocols, lease, waitset, named effect rules,
-    merged projection namespace
+    merged projection namespace, yin.vm.semantic, yin.vm.ast_walker (B4's
+    parity oracles; their migration to the engine additions is a separate
+    commit), any existing engine outcome or entry key
 
 Implement stream operations, primitives, FFI, gensym, current-continuation,
-park, and resume. Completion requires parity for values, errors, effects,
-stores, stream outcomes, and blocked states. Cross-program park/resume tests
-must use only initial-environment or store-resolved free names until the
-named-VM environment leak is fixed. Before a continuation is exported, B4
-must either lift frames through the descriptor morphism or run the frame-aware
+park, and resume against the engine seam in section 4.1 and
+`yin.vm.engine.md`. The engine edits are exactly the three listed in that
+document's section 7; B4 adds no other engine function and hand-writes no
+scheduler round, run-queue wrapper, or two-arity restore shim. Completion
+requires parity for values, errors, effects, stores, stream outcomes, and
+blocked states. Cross-program park/resume tests must use only
+initial-environment or store-resolved free names until the named-VM
+environment leak is fixed. Before a continuation is exported, B4 must either
+lift frames through the descriptor morphism or run the frame-aware
 completion adapter so `:yin.k/requires` is not under-approximated.
 
 ### B5: differential integration
 
-    New: test/yin/vm/debruijn_vm_parity_test.cljc
+    New: test/yin/vm/debruijn/stack_parity_test.cljc
     Existing edits: none
     Must not change: named storage and the existing linearizer pipeline
 
@@ -653,8 +874,8 @@ DEFERRED:
 - The exact retry, timeout, and permanent-absence event vocabulary.
 - A named-VM environment-leak fix design, which owns D4's release condition.
 - If the merged projection is ever retired, move the public `resolve-name`
-  helper into this design's namespace before removal. Dormant means kept, not
-  removed.
+  helper into `yin.vm.debruijn-resolve` before removal. Dormant means kept,
+  not removed.
 
 No owner decision blocks B0. B0 starts with D1 and the frozen parity corpus.
 
