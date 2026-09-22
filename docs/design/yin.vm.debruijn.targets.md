@@ -517,8 +517,15 @@ IS that. Hence the phasing: build the host first, then the printer.
 
 ### 3.7 Which format a foreign kernel interprets
 
-A new Direction B kernel interprets the stack image (H), not the register
-image (R), even in the hypothetical where both exist and are validated.
+Two answers, because the question has two readings, and the document
+must not confuse them: what a kernel built TODAY interprets, and which
+format is intrinsically the better kernel format once both are complete.
+
+#### 3.7.1 Today: the stack image
+
+A new Direction B kernel built against the repository as it stands
+interprets the stack image (H). Every reason below is grounded in what
+exists now, and 3.7.2 says what changes when that ground is removed.
 Reasons, strongest first:
 
 1. A kernel's format is decided by what reaches it, not by what is nicer
@@ -550,29 +557,95 @@ Reasons, strongest first:
    Clojure-semantics primitive fix is kept in sync across every host,
    first-party and foreign.
 
-Arguments that do not decide it: the per-instruction decode cost
-(implicit operand position versus explicit destination) is real but
-small next to the value model and primitives, which are identical for
-both formats (section 1.1); and the register format's interpreter speed
-advantage is unmeasured on any host (R3) and is not Direction B's goal.
-Speed on a target is Direction A's job, and Direction A no longer
-consumes either image (section 3.1), so neither the implicit stack nor
-the register file reaches an emitter. For the same reason, an emitter
-shares exactly as much runtime with a stack kernel as with a register
-kernel: the value model, primitives, frames and driver, none of which
-depend on the image format. Frames and closures are the same data in
-both formats (register design section 4.2 keeps B3's frame direction and
-capture), so a stack kernel can later add R as a second format by adding
-a temporaries bank per activation; the choice is which comes first, not
+Frames and closures are the same data in both formats (register design
+section 4.2 keeps B3's frame direction and capture), so a kernel built
+for one format adds the other by changing its activation model, not its
+value model, primitives or driver. The choice is which comes first, not
 which is ever possible.
 
-The choice re-opens for a given host only when all three hold: R4 exists
-and passes B0 parity on the Clojure hosts; R crosses the stream to that
-host (R5 exists) or the host can derive R from H through a decided `raise`
-to `lower-register` path; and that host's own benchmark of its stack
-kernel against a register prototype on the T0 corpus shows the R3-level
-material benefit. Until then, every kernel phase in this document is a
-stack kernel.
+#### 3.7.2 Complete world: the register image
+
+Hypothetical, stated so the document does not contradict itself: R4 is
+built and has B0 parity, R5 serves R over `dao.stream` as B6 serves H,
+`raise` exists, and every deferred register decision (spill policy, move
+order, register-file limits) is shipped. Nothing is missing on either
+side. Under that hypothetical a new foreign kernel should interpret the
+register image. The reasons are properties of the two formats
+themselves, and none refers to what exists today.
+
+1. Resource bounds are declared, not inferred. A register body declares
+   its register count, and the register validator checks every
+   destination and source against it before execution. The stack format
+   declares no operand-stack height anywhere, and its validator's rules
+   (shape, mnemonic, arity, operand kind, saturation, target bounds,
+   terminator, scope) do not verify stack discipline; a validator-
+   accepted stack image can still underflow at runtime, and every host
+   must carry that as a runtime check. For a foreign host, "assume
+   hostile or malformed inputs" and "VM boundaries are security
+   boundaries" (`docs/agents/architecture.md`) are cheaper to honour
+   when the format itself bounds every access statically and an
+   activation is a fixed-size array whose size is read from the image.
+   This is "state is explicit data" applied to the machine's own
+   resources.
+2. Fewer dispatches per program point. The register format has no
+   `:push` and names its operands, so each instruction does the work of
+   a stack instruction plus the pushes and pops around it. In an
+   interpreter, dispatch is the cost, and it dominates most in the slow
+   host languages Direction B exists for. The direction of this
+   advantage is intrinsic; only its magnitude varies by host. In the
+   complete world its magnitude is already known: R4 exists only because
+   R3 measured a material benefit on the reference hosts.
+3. The interpreter is the runtime path, so its speed is not Direction
+   A's job. The first revision's claim that "speed is Direction A's job"
+   is withdrawn for kernels: Direction A is ahead-of-time, and the
+   project's own scenario is code and continuations that arrive over a
+   stream and must run on arrival, with no target compiler in the loop.
+   That code runs in the kernel. A host that has both a kernel and an
+   emitter still executes arriving images in the kernel.
+4. A cleaner instruction set to port. The stack format inherits its
+   layout from the named linearizer (the structural-comparison law in
+   the stack design's section 3.2), which is why B3's `:push` is a no-op
+   with a documented obligation on every value-producing opcode. The
+   register format was designed from the resolved tuples with no layout
+   obligation and has no such convention. A porter of the register
+   format has fewer things to know that are not in the instruction
+   table.
+5. The activation model matches emitted code. An emitter lowering the
+   resolved tuples names its intermediates in evaluation order (section
+   3.6), which is a temporaries bank, not an operand stack. A register
+   kernel's activation record and return frame (register file plus
+   destination plus return point) are therefore the same shapes emitted
+   code uses, so the offload extension of section 5.2 that lets a
+   continuation parked under emitted code restore under the kernel is a
+   label mapping, not a reconstruction of an operand stack from named
+   locals. This is the surviving form of the "shared runtime" argument:
+   not shared decoding, which emitters do not do, but a shared
+   activation model.
+
+What the stack format keeps in its favour, and why it does not decide
+it: its continuation is smaller and uniform (one shared operand stack,
+a `stack_base` per frame, no destination register, and no dead values,
+since everything on an operand stack is live), whereas a register
+continuation saves a register file per frame and can carry dead
+temporaries unless liveness is also carried. That is a constant factor
+per activation on a payload that is data either way, and it is the one
+place a register kernel must be careful (clear dead temporaries at call
+sites, or carry the allocator's live set). The Ribbit precedent chose a
+stack machine for a 4 KB footprint goal that this project does not have.
+Neither outweighs points 1 to 3.
+
+#### 3.7.3 The transition rule
+
+A foreign host's first kernel is a stack kernel until both hold for that
+host: R4 has B0 parity on the reference hosts, and R reaches the host,
+by R5 or by a decided `raise` to `lower-register` path. When both hold,
+a NEW foreign host builds its first kernel against R, and an existing
+stack host adds R as a second format under section 3.7.1's last
+paragraph. No per-host benchmark gates the switch: the advantage's
+direction is intrinsic (3.7.2 item 2) and its magnitude was measured by
+R3 as the precondition of R4 existing. A host may report its own
+numbers, informationally. Every kernel phase in this document is a stack
+kernel because the first condition does not hold today.
 
 ## 4. Recommendation per target family
 
@@ -977,11 +1050,12 @@ DECIDED:
     laws of section 3.1 as its completion criteria and `:not-raisable`
     for images outside the pattern; `lift` then `resolve` is not the
     path, because `lift` yields linear named code, not named datoms.
-13. T-D13 kernel format: every foreign kernel interprets the stack image
-    first; a register kernel on a foreign host is considered only under
-    the three conditions of section 3.7, all of which are decidable
-    against existing gates (R4 parity, R5 or a decided raise path, a
-    per-host R3-level benchmark).
+13. T-D13 kernel format: today every foreign kernel interprets the stack
+    image (section 3.7.1). In the complete world, where R4 has parity
+    and R reaches the host, the register image is the better kernel
+    format on its intrinsic merits (section 3.7.2), and a new foreign
+    host builds its first kernel against R once both conditions hold
+    for it (section 3.7.3). No per-host benchmark gates that switch.
 
 DEFERRED:
 
