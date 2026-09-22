@@ -275,55 +275,54 @@ and canonical NaN last; canonical NaNs are equal to each other for this
 portable contract. Content identity remains stricter than numeric equality:
 integer/float kind, decimal scale, and float zero sign still affect bytes.
 
-**This is the only place this plan threads new runtime behavior into an
-existing consumer's comparison/equality logic outside `dao.jing*` — a real
-boundary widening, not a violation.** (The Implementation sequence's step 5
-also touches `dao.data.btree.md` §5.2's verification default, but that is
-a default flip §5.2 already pre-authorizes for exactly this trigger, not
-new or changed code; it carries none of this section's new-runtime-
-dependency weight and doesn't need the same sign-off.) Pushing portable
-`=`/`hash`/`compare` into `dao.space.index`'s
-datom comparators and `dao.space.query`'s builtins is architecturally
-sound (an interpreter consuming a storage-adjacent utility, not the
-reverse), but it is the widest blast radius in this plan and needs
-explicit sign-off from whoever owns `dao.space` before implementation
-starts on this section, separate from Jing's own review.
+**Owner ruling (2026-09-22): `dao.space.query`'s `=`/`not=` builtins and
+Datalog unification stay host-native and kind-strict.** `(= 1 1.0)` must
+remain `false`, matching content addressing's own kind-strictness; a datom
+value containing a numeric carrier unifies only with a value of the same
+kind, never across kinds. Portable numeric operations below feed ordering
+and index comparators only, never the `=` builtin or unification.
+
+Pushing portable `compare` into `dao.space.index`'s datom comparators and
+`dao.space.query`'s ordering builtins is architecturally sound (an
+interpreter consuming a storage-adjacent utility, not the reverse) and, on
+every axis that matters, a continuation of today's JVM behavior rather than
+a change: `compare-vals` already dispatches to host `compare`, and
+`(compare 1 1.0)` is already `0`; Clojure's native `< > <= >=` already
+compare numbers by value across kinds (`(<= 1 1.0)` is already `true`); and
+`dao.space.query`'s `=` builtin already binds host Clojure `=` directly
+(`query.cljc:751`, kind-strict, `(= 1 1.0)` is `false`) and stays that way.
+This section's sign-off from whoever owns `dao.space` is about making
+ordering correct and consistent for CBOR's decimal, rational, and
+big-integer carriers, which today's host `compare`/`< >` do not know about
+— not about changing `=` or unification.
 
 These operations must govern datom ordering in `dao.space.index` —
 `compare-vals` and the EAVT/AEVT/AVET/VAET comparators; the generic
-`dao.data.btree` comparator needs no change — and `dao.space.query`
-matching/Datalog unification, including hashed lookup. `compare-vals`'s
-numeric arm must use the portable compare directly, with no string-ordering
-fallback for numbers. Portable `=` and `hash` recurse through collections,
-so a datom value containing a carrier unifies structurally. In
-`dao.space.query`, the comparison builtins (`= not= < > <= >= min max`)
-route through these portable operations; the arithmetic builtins
+`dao.data.btree` comparator needs no change. `compare-vals`'s numeric arm
+must use the portable compare directly, with no string-ordering fallback
+for numbers. In `dao.space.query`, the ordering builtins (`< > <= >= min
+max`) route through the portable compare above; `=` and `not=` remain
+host-native per the ruling above. The arithmetic builtins
 (`+ - * / quot rem mod inc dec abs`) remain host-native and reject carrier
 operands loudly rather than computing garbage — queries that combine
 arithmetic builtins with floating, decimal, or rational datom values are
 therefore not portable across hosts until arithmetic itself is made
 portable, a recorded loud limitation consistent with VM arithmetic
-remaining outside this migration. Where host-native dispatch cannot satisfy
-the contract, the consumer's numeric comparison/equality/hash boundary must
-use explicit portable operations consistently. Reusing an upstream record
-representation alone does not satisfy this requirement. One intended
-consequence: covered-index membership and matching are by numeric value
-while content addressing is kind-strict, so `[e a 1 t m]`
-and `[e a 1.0 t m]` are one index entry with two distinct content
-addresses. **This is only half "uniform with today's JVM behavior."**
-Covered-index membership already is (`compare-vals` already dispatches to
-host `compare`, and JVM `(compare 1 1.0)` is `0`). Query matching is not:
-`dao.space.query`'s `=` builtin binds host Clojure `=` directly
-(`query.cljc:751`), and JVM `(= 1 1.0)` is `false` today — Clojure's `=`
-is kind-strict. Routing `=` through the portable numeric-value equality
-above flips that to `true` on the JVM. This is a real, intended change to
-JVM query semantics, not a continuation of existing behavior, and the
-`dao.space` sign-off in the paragraph above should be read with that in
-mind. Also left open by this document: `min`/`max` over mixed numeric
-kinds that compare equal return one of the two operands, and which one is
-host-arbitrary today (Clojure's `min`/`max` return the second argument on
-a tie, e.g. `(min 1 1.0)` ⟹ `1.0`); this plan does not pin a tie-break
-rule for the portable versions, and it should before implementation.
+remaining outside this migration. Where host-native dispatch cannot
+satisfy the ordering contract, the consumer's numeric comparison boundary
+must use explicit portable operations consistently. Reusing an upstream
+record representation alone does not satisfy this requirement. One
+intended consequence: covered-index membership and ordering are by numeric
+value while content addressing and query equality are both kind-strict, so
+`[e a 1 t m]` and `[e a 1.0 t m]` are one index entry with two distinct
+content addresses that do not unify against each other in a query. Left
+open by this document: `min`/`max` over mixed numeric kinds that compare
+equal return one of the two operands, and which one is host-arbitrary
+today (Clojure's `min`/`max` return the second argument on a tie, e.g.
+`(min 1 1.0)` => `1.0`); this is independent of the ruling above
+(`compare` already treats `1` and `1.0` as tied today, with or without
+this migration), and this plan does not pin a tie-break rule for the
+portable versions — it should before implementation.
 
 - Provide a portable `float64` constructor/carrier. JavaScript callers use
   it for integral floating-point values such as `1.0`; ordinary integral
@@ -499,13 +498,16 @@ records.
    file backends to opaque bytes. Preserve public value-facing call sites.
    `dao.jing.cbor` exports the portable `=`/`hash`/`compare`; the numeric
    arm of `dao.space.index/compare-vals` (the EAVT/AEVT/AVET/VAET datom
-   comparators) and `dao.space.query`'s comparison builtins route through
-   them, with the arithmetic builtins left host-native per *Numeric
-   identity* — the deepest of this migration's changes outside the
-   `dao.jing*` namespaces, threading new runtime behavior into an existing
-   consumer's comparison/equality logic (step 5's `dao.data.btree.md` §5.2
-   change is shallower: a pre-authorized default flip, not new code or a
-   new runtime dependency).
+   comparators) and `dao.space.query`'s ordering builtins (`< > <= >= min
+   max`) route through them, with the arithmetic builtins left host-native
+   per *Numeric identity* — the deepest of this migration's changes outside
+   the `dao.jing*` namespaces, threading new runtime behavior into an
+   existing consumer's ordering logic. Per the owner ruling in *Numeric
+   identity*, `dao.space.query`'s `=`/`not=` builtins and Datalog
+   unification stay host-native and kind-strict; they do not route through
+   the portable operations (step 5's `dao.data.btree.md` §5.2 change is
+   shallower still: a pre-authorized default flip, not new code or a new
+   runtime dependency).
 4. Migrate remote and DHT byte transport, including validation, missing-value
    behavior, transport limits, and errors.
 5. Update documentation and downstream address fixtures — including
@@ -547,13 +549,15 @@ Required test scenarios:
 - Node/Dart decoded numeric carriers in index-ordered datom positions
   (`dao.space.index/compare-vals`, no string fallback) and
   `dao.space.query` matched positions: native/carrier operands both ways,
-  mixed kinds, exact large values, hash lookup, equality and ordering,
-  signed zeros, infinities, NaN, and preserved kind on re-encoding. Also:
-  collection values containing carriers unify structurally; the comparison
-  builtins (`= not= < > <= >= min max`) over decoded carriers; the
-  arithmetic builtins over carriers reject loudly; and `[e a 1 t m]`
-  versus `[e a 1.0 t m]` collapse to one covered-index entry while keeping
-  two distinct content addresses.
+  mixed kinds, exact large values, ordering, signed zeros, infinities,
+  NaN, and preserved kind on re-encoding. Also: the ordering builtins
+  (`< > <= >= min max`) over decoded carriers; `=`/`not=` and Datalog
+  unification stay host-native and kind-strict per the owner ruling in
+  *Numeric identity*, so a collection value containing a carrier unifies
+  only with a value of the same kind; the arithmetic builtins over carriers
+  reject loudly; and `[e a 1 t m]` versus `[e a 1.0 t m]` collapse to one
+  covered-index entry while keeping two distinct content addresses and not
+  unifying against each other in a query.
 - Malformed and noncanonical encodings; duplicate keys; unknown tags;
   duplicate set elements and decoded equality collapse; TaggedValue and
   unsupported SimpleValue; native CBOR floats; invalid UTF-8; trailing data;
