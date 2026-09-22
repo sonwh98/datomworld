@@ -515,6 +515,65 @@ weaker than Direction B's: a printer is cheap, but the prelude is the
 same size as a Direction B host's value model and primitives, because it
 IS that. Hence the phasing: build the host first, then the printer.
 
+### 3.7 Which format a foreign kernel interprets
+
+A new Direction B kernel interprets the stack image (H), not the register
+image (R), even in the hypothetical where both exist and are validated.
+Reasons, strongest first:
+
+1. A kernel's format is decided by what reaches it, not by what is nicer
+   to dispatch. H is the only identity on the sharing path (D12); B6 is
+   the committed linker and serves H; R5 is gated and may never exist,
+   and the register design's section 7 states that a stack-only host
+   obtains a stack image by H for the same program. A foreign host built
+   for reach must run what the network publishes, and that is H. A
+   register-only foreign kernel could run nothing that arrived by H
+   unless it also held `raise` (T8) and a decided `raise` to
+   `lower-register` path, neither of which exists.
+2. The reference must exist before the foreign copy. A foreign register
+   kernel would be the FIRST register kernel anywhere, since R4 is gated
+   behind R3 and the register design states the format "is not a
+   promise that a second evaluator will exist". The project's oracle
+   discipline is that the `.cljc` implementation is the reference and a
+   foreign host is checked against its exported kit (T0, section 3.4).
+   Spill policy, move order and register-file limits are still DEFERRED
+   in that design; discovering them in Rust with no Clojure reference
+   inverts the discipline.
+3. The engine payload and continuation vocabulary are the stack VM's.
+   T5 offload restores through `stack-restore` with the B4 payload, and
+   register continuations "are not interchangeable with stack
+   continuations unless an explicit lift is provided" (register design
+   section 5). A register foreign kernel could offload only to an R4
+   kernel on the Clojure side, which does not exist.
+4. Consolidation: one validator, one conformance kit, one receiver
+   closure check, one place every B1 shape change and every
+   Clojure-semantics primitive fix is kept in sync across every host,
+   first-party and foreign.
+
+Arguments that do not decide it: the per-instruction decode cost
+(implicit operand position versus explicit destination) is real but
+small next to the value model and primitives, which are identical for
+both formats (section 1.1); and the register format's interpreter speed
+advantage is unmeasured on any host (R3) and is not Direction B's goal.
+Speed on a target is Direction A's job, and Direction A no longer
+consumes either image (section 3.1), so neither the implicit stack nor
+the register file reaches an emitter. For the same reason, an emitter
+shares exactly as much runtime with a stack kernel as with a register
+kernel: the value model, primitives, frames and driver, none of which
+depend on the image format. Frames and closures are the same data in
+both formats (register design section 4.2 keeps B3's frame direction and
+capture), so a stack kernel can later add R as a second format by adding
+a temporaries bank per activation; the choice is which comes first, not
+which is ever possible.
+
+The choice re-opens for a given host only when all three hold: R4 exists
+and passes B0 parity on the Clojure hosts; R crosses the stream to that
+host (R5 exists) or the host can derive R from H through a decided `raise`
+to `lower-register` path; and that host's own benchmark of its stack
+kernel against a register prototype on the T0 corpus shows the R3-level
+material benefit. Until then, every kernel phase in this document is a
+stack kernel.
+
 ## 4. Recommendation per target family
 
     +----------------+-----------+-----------------------------------------+
@@ -918,6 +977,11 @@ DECIDED:
     laws of section 3.1 as its completion criteria and `:not-raisable`
     for images outside the pattern; `lift` then `resolve` is not the
     path, because `lift` yields linear named code, not named datoms.
+13. T-D13 kernel format: every foreign kernel interprets the stack image
+    first; a register kernel on a foreign host is considered only under
+    the three conditions of section 3.7, all of which are decidable
+    against existing gates (R4 parity, R5 or a decided raise path, a
+    per-host R3-level benchmark).
 
 DEFERRED:
 
