@@ -652,28 +652,94 @@ local execution. B5 uses committed golden bytes for cross-runtime identity;
 the real cross-process stream transfer is a B6 acceptance test. All three host
 lanes must agree under the normalizer.
 
-### B6: committed closed-image stream linker
+### B6: committed closed-image linker over dao.jing
 
     New: src/cljc/yin/vm/debruijn_linker.cljc
-    New: src/cljc/yin/vm/debruijn_linker_responder.cljc
     New: test/yin/vm/debruijn_linker_test.cljc
-    New: test/yin/vm/debruijn_linker_responder_test.cljc
     Existing edits: none
+    Depends on: dao.jing (segment-key, materialize!, get), dao.jing.dht
+    (create-content-dht, IDhtNet), dao.jing.remote (the DaoStream
+    transport and its server handlers), B1 (image-hash, image-defect,
+    descriptor), B2 (lift)
     Must not change: merged projection namespace, image-hash, dao.stream,
-    named VM semantics
+    dao.jing, dao.jing.dht, dao.jing.remote, named VM semantics
 
-Implement fetch-by-H for closed images. B6 tests use an explicit fetch; the
-`:call-hash` instruction is emitted only by the later dependency linker. A
-host emits a REQUEST value carrying H, and a responder process holds an
-explicit value mapping H to image bytes or queries an H-to-address datom chosen
-by its composition. The response carries canonical wire bytes or a qualified
-absence/unsupported outcome. The receiver hashes those bytes before decoding,
-checks H and the descriptor, runs the closure check, validates, and loads only
-verified bytes. Every free name must resolve through primitives or modules and
-must not be shadowed by free-env or store; failures are `:unresolved-free` or
-`:shadowed-free`. Completion requires JVM to Dart stream transfer, where the
-receiver initially knows only H, mismatch and unsupported refusal, absence
-events, and equal normalized results using the existing semantic VM via lift.
+The linker is an application of `dao.jing` over `dao.stream`, per the
+owner's ruling: `dao.jing.dht` already does fetch-by-content-address with
+verify-before-trust (local read first, peer lookup nearest the hash, fetch,
+`segment-key` of the payload compared to the requested address before it
+is accepted, re-materialized locally, mismatch thrown), and
+`dao.jing.remote` already carries that DHT over DaoStream with a server
+side. B6 reuses all of it wholesale and writes no transport, no peer
+lookup, no cache, and no responder of its own. The earlier responder
+namespace is dropped from this box; D16's "explicit H-to-bytes value or
+H-to-address datom" is the H index below, and the bytes come from the DHT.
+
+H is not the `dao.jing` address, and no translation makes it one.
+`segment-key` is sha256 over the order-normalized print of a value, a
+transitional encoder that changes with every minted address when the
+DaoJing CBOR encoding lands; H is sha256 over B1's own exact byte
+encoding and the descriptor hash, and must not fork when the storage
+encoder does. D9 already states it: Jing addresses are storage locations,
+not H. The payload stored in Jing is the canonical instruction vector
+value itself, exactly as `yin.vm.content/materialize-vector!` already
+stores `:yin.code/*` vectors, at its own `segment-key`. The relation is:
+
+    address = (jing/segment-key image-vector)
+    H       = (image-hash image-vector)
+
+with the pairing `[H address]` recorded by whoever publishes the image.
+That pairing is the H index, and it is not Jing's job: Jing has no roots
+and no names by design. B6 takes the H index as composition data, a plain
+map or a set of datoms `[H :yin.debruijn.code/address address]` read
+through the composition's own store. B7 later makes the index a name
+environment with ledger, trust, and provenance; B6 needs only a value.
+
+Fetch is one function of a Jing handle, an H index, and a format record:
+
+    1. address  <- (index H); absent is a qualified :absent outcome
+    2. value    <- (jing/get handle address absent); the DHT verifies
+                   the payload against the address before returning it
+    3. refuse :hash-mismatch unless (= H ((:hash-fn format) value))
+    4. refuse :descriptor unless the value's descriptor matches
+    5. refuse :unresolved-free or :shadowed-free per D11 and D15, using
+                   (:free-names-fn format) over the value's operands
+    6. refuse on any (:validate-fn format) defect
+    7. return the verified image
+
+Steps 2 and 3 are different checks with different preimages and both
+run: the DHT proves the payload is the content at that address; step 3
+proves that content is the program the caller asked for, which the
+address alone cannot, because the address is not H. Neither layer is
+weakened or duplicated: Jing never learns what an image is, and the
+linker never re-verifies an address. The format record is
+`{:format :yin.debruijn.code :hash-fn image-hash :validate-fn
+image-defect :free-names-fn ... :descriptor ...}`; the register design's
+R5 supplies its own record and shares this function, so there is one
+linker parameterized by format, not two mirrors.
+
+What is new, precisely: the format record shape, the fetch function
+above, the H index as a value or datom query, the qualified refusal
+vocabulary, and the tests. What is inherited: addressing, peer lookup,
+transport over DaoStream, hash-before-trust, local caching, the server
+side, and closed-store, unreachable-peer, and malformed-envelope
+handling. A parked request for an H the index cannot resolve remains an
+explicit stream event (section 7.2), not a callback.
+
+One dependency risk is real and named: the transitional `content-hash`.
+Every Jing address changes when the CBOR encoding lands. H does not, and
+B6 code does not either, but every H index must be re-minted then. B6
+tests therefore pin H values only and never a Jing address as a golden.
+
+B6 tests use an explicit fetch; the `:call-hash` instruction is emitted
+only by the later dependency linker. Completion requires JVM to Dart
+transfer over `dao.jing.remote`'s DaoStream transport, where the receiver
+initially knows only H and an H index; `:hash-mismatch`, `:descriptor`,
+`:unresolved-free`, `:shadowed-free`, and validator refusals each
+exercised with a deliberately wrong payload or index entry; an `:absent`
+outcome for an unresolvable H; a peer serving the wrong content for an
+address rejected by the DHT before the linker sees it; and equal
+normalized results using the existing semantic VM via lift.
 
 ### B7: dependency closure linker
 

@@ -21,12 +21,13 @@ coordination and the authority granted to every participant.
 The orchestrator owns scope, authorization, verification, consensus, and
 readiness — see Workflow below for the full sequence. Never stage or commit
 without user instruction; when authorized, stage only requested files and
-commit only staged changes. When working autonomously — no user turn between
-verification and commit — independent review (Workflow step 7) must complete
-and its findings must be reconciled before any commit; local verification
-(step 6) passing is not by itself grounds to commit. If a commit is made
-before review completes, undo it (a local, unpushed, unmerged commit can be
-soft-reset) rather than let review happen after the fact.
+commit only staged changes. Local verification (Workflow step 6) passing is
+grounds to commit; independent review (step 7) runs against the committed
+diff, matching the common commit-then-review workflow (2026-09-23, owner
+instruction, reversing an earlier stricter rule from this project's own
+history). If review finds a defect, fix it in a follow-up commit — do not
+amend or rewrite the reviewed commit — so the review trail stays attached to
+what it actually reviewed.
 
 Commit subjects use `<type>[(<scope>)]: <lowercase imperative summary>` with
 types `docs|feat|fix|refactor|perf|test|build|chore`; an optional body explains
@@ -245,26 +246,24 @@ Roster, role routing, and reviewer independence are defined in [`team.md`](../te
    tested revision are available; otherwise run the checks. Tell later reviewers
    which checks already passed so they spend their budget on static analysis
    instead of redundant suites, except when security review requires a rerun.
-7. **Review and reconcile.** Give the verified diff to an independent reviewer.
-   Weigh findings on their merits, fix accepted defects, and resume the same
-   reviewer to confirm the correction. Preserve every round.
+7. **Review and reconcile.** After step 9's commit, give the committed diff to
+   an independent reviewer. Weigh findings on their merits, fix accepted
+   defects in a follow-up commit (never amend the reviewed commit), and resume
+   the same reviewer to confirm the correction. Preserve every round.
 8. **Report readiness.** Report exact commands, assertion counts, reviewer
    sign-off, unrun checks, unreviewed changes, unresolved risks, and any tool or
    hook noise. Do not let the summary outrun the evidence. Append the unit's
    entry to `docs/orchestrator-log.md` in the same terms.
 9. **Stage and commit only when explicitly authorized.** Stage only requested
    files and commit only the staged diff. Inspect that staged diff immediately
-   before committing. If it differs from the reviewed diff, review the delta and
-   repeat any checks invalidated by it. Do not rerun unchanged checks merely
-   because a commit is imminent. Do not commit on step 6 alone: work that gets
-   an independent review (step 7) is not ready to commit until that review has
-   completed and its findings are reconciled, even when local verification is
-   fully green and the seat is working autonomously. Use the commit format
-   above and never add coauthor attribution.
-10. **Verify what landed.** Compare the commit's diff with the reviewed staged
-    diff. If hooks or formatters changed what landed, review that delta and rerun
-    its affected checks. A failure means the work is not ready; do not amend,
-    revert, or otherwise rewrite history without user authorization.
+   before committing. Step 6 passing is sufficient to commit; step 7's
+   independent review runs against the resulting commit, not before it. Use
+   the commit format above and never add coauthor attribution.
+10. **Verify what landed.** Compare the commit's diff with the staged diff you
+    inspected before committing. If hooks or formatters changed what landed,
+    review that delta and rerun its affected checks. A failure means the work
+    is not ready; do not amend, revert, or otherwise rewrite history without
+    user authorization.
 11. **Archive completed-task artifacts.** After their work is committed, move
     prompts and findings from `collab/` into the flat, gitignored root `archive/`
     under their exact filenames. Never delete, truncate, rename, or overwrite an

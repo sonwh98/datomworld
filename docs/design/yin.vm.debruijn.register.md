@@ -532,8 +532,55 @@ engine-owned key sets). It adds no `IVM` or `IVMState` methods.
 
 The register kernel must execute only validator-approved images. It must
 preserve B3's frame direction, closure capture, nil-fill and extra-argument
-rules, and B0 normalization. Register continuations are not interchangeable
-with stack continuations unless an explicit lift is provided.
+rules, and B0 normalization. Register continuations and stack
+continuations are not interchangeable; section 5.1 states the rule.
+
+### 5.1 Continuation transport across VM models
+
+A parked continuation resumes only under the VM model, and the image
+identity, that parked it. This is a decided rule for B4 and R4, not a
+gap. Every parked record and reified continuation of either VM carries
+its model and image identity in its register payload, `{:format
+:yin.debruijn.code :hash H}` or `{:format :yin.debruijn.register :hash R}`
+beside the fields the engine seam already lists, and a restore whose VM or
+image does not match refuses with a qualified `:continuation-format`
+outcome instead of interpreting a foreign payload. The engine never reads
+those keys; they are register payload under the section 3 rule of
+`yin.vm.engine.md`.
+
+Direct cross-model resume is not possible, and a pairwise lift is the
+wrong shape. A register park site and a stack park site for the same
+program point have no pc correspondence, a register file is not an
+operand stack, and each is a positional artifact of one lowering.
+Translating one bytecode continuation into another is decompilation, and
+with a third model it becomes six lifts. This project already rules on
+the shape: `docs/agents/architecture.md`, "AGENTS", Continuation
+Migration says the AST datoms are the canonical payload, bytecode is a
+projection for one execution model, and a destination projects into
+whatever model it prefers. The cross-model form of a continuation is
+therefore a continuation over the source, not over either image: pending
+frames named by resolved-tuple occurrence, plus the values those frames
+hold. Both images carry provenance to source occurrences through their pc
+side tables, so each VM can supply a lift-out from its own continuation
+to that form and a lift-in from it, and no VM needs to know another
+exists. That form is the universal continuation format the stack design
+names as proposed and deferred. It is a shared concern of every VM, not
+either de Bruijn VM's, and belongs in its own design document; this
+document does not specify it.
+
+Two consequences hold now. First, the section 4.5 live sets lose nothing
+observable at that boundary: a register continuation carries only live
+registers, and a dead register is by definition never read again, so a
+lift-out has every value any pending frame can observe. What does not
+survive a round trip is pc identity, temporary ids, and dead values, all
+of which the stack design's section 1 already declines to promise.
+Second, until that format exists, cross-host transport of a parked
+continuation is same-model only: a register continuation travels to a
+host with a register kernel, a stack continuation to a host with the
+stack VM, and each such transfer also needs the image by R or H through
+the R5 or B6 linker. This rule is deliberate; the alternative was a pair
+of lossy lifts between two positional formats that the third VM would
+have made obsolete.
 
 ## 6. Implementation phases
 
@@ -627,18 +674,45 @@ before R2 lands; R4 is complete only when both tiers are.
 The phase order is therefore R0, R1, R2, R4, R3, R5, with R4's pure-program
 tier free to precede R2.
 
-### R5: linker integration
+### R5: linker integration over dao.jing
 
     New: src/cljc/yin/vm/debruijn_register_linker.cljc
     New: test/yin/vm/debruijn_register_linker_test.cljc
     Existing edits: none
-    Must not change: stack linker semantics or stack H
+    Depends on: B6's shared linker (`yin.vm.debruijn-linker`), dao.jing,
+    dao.jing.dht, dao.jing.remote, R1 (register-hash, the validator, the
+    descriptor)
+    Must not change: B6's linker function, stack H, dao.jing, dao.jing.dht
 
-Fetch and verify R over `dao.stream` with the same request, wire-hash,
-closure-check, and refusal shape as B6, keyed by R. A host may refuse R and
-instead request, by H, a stack image the composition has published for the
-same named root; that pairing is composition data, not linker machinery. No
-global loader or callback is introduced.
+The linker discipline is `dao.jing` over `dao.stream`, as the stack
+design's B6 box now specifies, and it is one function parameterized by a
+format record. R5 is that function's second format, not a second linker.
+It contributes the register format record
+`{:format :yin.debruijn.register :hash-fn register-hash :validate-fn ...
+:free-names-fn ... :descriptor ...}`, the register image stored in Jing
+as its own value (the `{:bodies :instructions}` map) at its
+`segment-key`, and an R index `[R :yin.debruijn.register/address
+address]` with the same status as B6's H index: composition data, never
+Jing's. R is not the Jing address for the same reason H is not, and R5
+pins R values only, never addresses.
+
+Fetch follows B6's seven steps with R in place of H: the DHT verifies the
+payload against its address, the linker verifies `register-hash` against
+R, checks the descriptor, runs the D11 and D15 closure check over
+`:load-free` operands, runs the register validator including the section
+4.5 live-set rules, and returns the verified image. A host without a
+register kernel may refuse R and instead resolve, by H, a stack image the
+composition has published for the same named root; that pairing is
+composition data beside the two indexes, not linker machinery. No global
+loader or callback is introduced.
+
+New work is the format record, the R index, the refuse-R-then-H
+composition rule, and tests; everything else is B6's function and Jing's
+guarantees. R5 depends on R1 and on B6's shared function, not on B4, R2,
+or R4, and is built together with B6 as one unit, since the shared
+function's first two formats are best written against each other.
+Completion requires the B6 completion list with R in place of H, plus a
+live-set defect in a fetched image refused by the validator before load.
 
 ## 7. Non-goals and protected surfaces
 
