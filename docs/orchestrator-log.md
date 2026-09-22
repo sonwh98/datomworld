@@ -6056,3 +6056,14 @@ Decisions: B1 (executable dimension and validator) is the next de Bruijn VM phas
 Verification: as above; exact commands and counts given in Done.
 Delegates: claude-sonnet-5 (B0 implementer, artifact 1790051909044-*, now archived to archive/).
 Next: (a) owner rulings on the two dao.space comparator-gate decisions above; (b) once ruled, either dispatch the dao.space implementation or proceed to B1 of the de Bruijn VM epic; (c) rebuild-readiness preflight (whether deployed/retained values fit the new narrower Jing domain) remains open and undispatched; (d) push this entry's commit (08099a53) once made.
+
+## 2026-09-22 12:05:00 +07 — owner ruling: dao.space query equality stays kind-strict (first CBOR comparator gate resolved)
+Completed-GMT: 2026-09-22 05:05:00 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@d74bbae6 (unpushed)
+Done: The owner ruled directly on the first of the two open dao.space comparator-gate decisions: "(= 1 1.0) should not be equal." Edited docs/design/dao.jing.cbor.md (three spots, kept consistent): the Numeric identity section now states dao.space.query's =/not= builtins and Datalog unification stay host-native and kind-strict, unaffected by this migration; portable numeric operations feed only the ordering builtins (< > <= >= min max) and dao.space.index's comparators (compare-vals, EAVT/AEVT/AVET/VAET), which the doc now correctly frames as a continuation of today's JVM behavior (Clojure's < > <= >= already compare numbers by value across kinds, and compare-vals already dispatches to host compare where (compare 1 1.0) is already 0), not a change, unlike the =/not= flip the original text proposed. Also fixed the Implementation sequence's step 3 and the Required test scenarios bullet, which both still described = routing through the portable operations, to agree. The min/max tie-break question (item 2 of the gate) is unaffected by this ruling and stays open. Committed d74bbae6, no trailers, hook changed nothing.
+Decisions: This resolves comparator-gate decision (a) from the 2026-09-22 11:52 entry. Decision (b) (min/max tie-break rule) and the rebuild-readiness gate remain open.
+Verification: read the full diff; grepped for every remaining = / not= / comparison-builtin / unification mention in the doc to confirm no contradicting text was left; git show confirmed a clean 1-file commit with no trailers.
+Delegates: none (direct owner instruction, applied by the orchestrator).
+Next: (a) owner ruling on the min/max mixed-kind tie-break rule; (b) rebuild-readiness preflight (whether deployed/retained values fit the new narrower Jing domain), still undispatched; (c) once both dao.space items are ruled, dispatch the dao.space.index/query implementation or proceed to B1 of the de Bruijn VM epic; (d) push this commit.
