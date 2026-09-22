@@ -1,0 +1,107 @@
+(ns dao.jing.cbor.cljd
+  "The Dart half of the `dao.jing.cbor` byte writer, over the pinned pub.dev
+   `cbor` package (6.5.1). The twin of `dao.jing.cbor.boring`: the same wire
+   vocabulary, so `dao.jing.cbor`'s normalization is shared and only the
+   node constructors differ.
+
+   `dao.jing.cbor` builds the wire tree through these functions; each node
+   has exactly one CBOR meaning and the package writes it:
+
+   * `null`, `bool`, `text`, `byte-string`, `integer` (a Dart int or a
+     BigInt inside the 64-bit CBOR range; the package's CborInt writes the
+     shortest head, 8-byte arguments included);
+   * `array-node` over a Clojure vector of nodes; `map-node` over
+     [key-hex key-node value-node] triples, written in bytewise key order
+     (the package writes map entries in insertion order, so the order is
+     chosen here, not by the package);
+   * `tagged` (tags 2, 3, 4, 30, 258) over a vector of nodes or host
+     bytes; `frame` (tag 27 over [name-string payload]).
+
+   Decoding does not go through the package: `dao.jing.cbor`'s structural
+   reader is shared by every host."
+  (:require ["package:cbor/cbor.dart" :as cbor])
+  (:import ["dart:typed_data" Uint8List]))
+
+
+(defn byte-payload?
+  "True for the host byte array: Uint8List."
+  [x]
+  #_{:clj-kondo/ignore [:unresolved-namespace]}
+  (dart/is? x Uint8List))
+
+
+(defn null
+  []
+  (cbor/CborNull.))
+
+
+(defn bool
+  [b]
+  (cbor/CborBool. (true? b)))
+
+
+(defn text
+  [s]
+  (cbor/CborString. s))
+
+
+(defn byte-string
+  [bs]
+  (cbor/CborBytes. bs))
+
+
+(defn integer
+  "A Dart int, or a BigInt inside [-2^64, 2^64)."
+  [n]
+  (if (dart/is? n int)
+    (cbor/CborSmallInt. n)
+    (cbor/CborInt. n)))
+
+
+(defn array-node
+  [nodes]
+  (cbor/CborList. (vec nodes) .type cbor/CborLengthType.definite))
+
+
+(defn map-node
+  "A CBOR map from [key-hex key-node value-node] triples, written with keys
+   in bytewise order of their canonical bytes (lowercase hex compares the
+   same way, a proper prefix first)."
+  [wired]
+  (let [sorted (sort-by first wired)]
+    (cbor/CborMap.fromIterables
+      (mapv second sorted)
+      (mapv #(nth % 2) sorted)
+      .type cbor/CborLengthType.definite)))
+
+
+(defn- content-node
+  [content]
+  (if (byte-payload? content)
+    (cbor/CborBytes. content)
+    (array-node content)))
+
+
+(defn tagged
+  "tag over content: host bytes (tags 2 and 3) or a vector of nodes."
+  [tag content]
+  (if (byte-payload? content)
+    (cbor/CborBytes. content .tags [tag])
+    (cbor/CborList. (vec content) .tags [tag] .type cbor/CborLengthType.definite)))
+
+
+(defn frame
+  "Tag 27 over [name payload]; payload is host bytes (the float64 frame) or
+   a vector of nodes."
+  [tag-symbol payload]
+  (cbor/CborList.
+    [(cbor/CborString. (str tag-symbol)) (content-node payload)]
+    .tags [27]
+    .type cbor/CborLengthType.definite))
+
+
+(defn encode
+  "Canonical CBOR bytes of one wire tree."
+  [wire]
+  #_{:clj-kondo/ignore [:unresolved-symbol]}
+  (Uint8List.fromList (cbor/cborEncode wire)))

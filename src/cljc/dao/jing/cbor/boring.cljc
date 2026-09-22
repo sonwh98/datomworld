@@ -50,6 +50,63 @@
         :cljs (instance? js/Uint8Array x))))
 
 
+;; Scalar and container nodes. Boring writes these host values with their
+;; one CBOR meaning, so each constructor is the identity (or builds the plain
+;; host collection); `dao.jing.cbor.cljd` implements the same vocabulary as
+;; `cbor` package objects.
+
+#?(:cljd nil
+   :default
+   (defn null
+     []
+     nil))
+
+
+#?(:cljd nil
+   :default
+   (defn bool
+     [b]
+     b))
+
+
+#?(:cljd nil
+   :default
+   (defn text
+     [s]
+     s))
+
+
+#?(:cljd nil
+   :default
+   (defn byte-string
+     [bs]
+     bs))
+
+
+#?(:cljd nil
+   :default
+   (defn integer
+     "A host integer inside [-2^64, 2^64)."
+     [n]
+     n))
+
+
+#?(:cljd nil
+   :default
+   (defn array-node
+     [nodes]
+     nodes))
+
+
+#?(:cljd nil
+   :default
+   (defn map-node
+     "A map from [key-hex key-node value-node] triples. Boring's :canonical
+      profile sorts the keys by their bytes."
+     [wired]
+     (into {} (map (fn [[_ kw vw]] [kw vw])) wired)))
+
+
 #?(:cljd nil
    :default
    (defn tagged

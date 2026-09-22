@@ -108,3 +108,58 @@ arrays) is refused instead of overflowing the host stack.
   ClojureScript with another scheme. Hash values are for use within one
   host and must never cross hosts; anything that partitions by hash across
   hosts (published-index sharding, for example) needs a specified digest.
+
+## E6. Dart column of the E1 table (RATIFIED architect sign-off 2026-09-22)
+
+The Dart column below is ratified from the J2 ClojureDart lane over cbor 6.5.1.
+Its N/A rows are host-constructor merges; its live rows are required refusal
+cases. Dart never raises host-collapse because identifier equality is
+namespace/name-field based. BigInt comparison is normalized to -1, 0, or 1,
+and leading BOM bytes are restored before strict UTF-8 decoding.
+
+Observed in J2 on the Dart VM (ClojureDart over `cbor` 6.5.1); E1 itself is
+unchanged. The `dart-host-merges-behind-the-e6-column` test pins the merges
+and the live rows this column relies on, so the column fails loudly if
+ClojureDart's equality changes.
+
+| Case | Dart |
+|---|---|
+| `coll/map-int-float-key-collapse` | live, refused |
+| `coll/set-float-decimal-collapse` | live, refused |
+| `coll/set-signed-zero-collapse` | N/A (merged) |
+| `coll/set-int-ratio-collapse` | live, refused |
+| `coll/set-decimal-scale-collapse` | live, refused |
+| `coll/set-vector-list-collapse` | N/A (merged) |
+| `coll/map-integer-width-duplicate` | live, refused |
+| `coll/set-nan-payload-duplicate` | live, refused |
+| `coll/map-nan-payload-duplicate` | live, refused |
+
+"N/A (merged)" means Dart's set constructor merged the two members, so the
+encode refusal cannot be observed there; the decode-side twins still refuse
+on Dart. "live, refused" means Dart held both members and the codec refused
+with the frozen class.
+
+`host-collapse` (E2) is never raised on Dart. ClojureDart compares keywords
+and symbols by their namespace and name fields, so slash-crossed
+identifiers such as `(keyword nil "a/b")` and `(keyword "a" "b")` stay
+distinct, and `coll/map-both-slash-keywords` decodes and round-trips.
+
+Two Dart-only behaviors the shared codec handles:
+
+- Dart's `BigInt.compareTo` returns any negative or positive int, not only
+  -1 or 1. The codec normalizes it, so every host's comparison answers
+  exactly -1, 0 or 1.
+- Dart's UTF-8 decoder drops a leading U+FEFF. A BOM is content in this
+  profile (`uni/bom`), so the reader takes leading BOM bytes itself and
+  restores them; the decoder only ever starts after them.
+
+E6 addendum (RATIFIED architect sign-off 2026-09-22):
+`coll/set-vector-list-collapse` is encode-unobservable on all three hosts.
+Each public host set constructor merges the list and vector before the codec
+sees them. Its decode twin `mal/collapse-vector-list-set` runs on all three
+hosts and is refused as `equality-collapse`. Reactivate the encode case if a
+host gains a set construction that preserves both members. This is the one
+documented exception to the rule that every corpus case runs on at least one
+host. The J3 conformance gate
+(`test/dao/jing/cbor_conformance_test.cljc`) pins it as the single case
+that runs on no host.
