@@ -305,6 +305,22 @@ big-integer carriers, which today's host `compare`/`< >` do not know about,
 and about wiring `content=` in place of host `=` where kind-strictness
 must be exact.
 
+**Owner-accepted limit (2026-09-22): a query's own returned result set can
+still merge two content-distinct rows on the JVM and Dart.** Matching,
+unification, ordering, and `min`/`max` are all `content=`-strict end to
+end, confirmed during step 3's implementation. But the value `q` returns is
+a plain host `#{...}`, and a host set decides membership with host `=`/
+`hash` as it inserts each row, independent of how carefully the rows were
+deduplicated beforehand: `[1.0M]` and `[1.00M]`, or `[0.0]` and `[-0.0]`,
+still collapse to one row on the JVM and Dart, because host `=` merges them
+regardless of insertion order (Node is unaffected, since its decoded
+carriers already stay host-distinct). Preserving both rows in the final
+output would require the return value to stop being a plain host set (for
+example a content-key-ordered structure), a real interface change the
+owner declined for this step. This is accepted as a narrower, separable
+limitation, pinned by a test (`query_numeric_test.cljc`) so it fails loudly
+if it silently changes rather than being rediscovered by surprise.
+
 These operations must govern datom ordering in `dao.space.index` —
 `compare-vals` and the EAVT/AEVT/AVET/VAET comparators; the generic
 `dao.data.btree` comparator needs no change. `compare-vals`'s numeric arm
