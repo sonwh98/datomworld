@@ -315,14 +315,24 @@ record representation alone does not satisfy this requirement. One
 intended consequence: covered-index membership and ordering are by numeric
 value while content addressing and query equality are both kind-strict, so
 `[e a 1 t m]` and `[e a 1.0 t m]` are one index entry with two distinct
-content addresses that do not unify against each other in a query. Left
-open by this document: `min`/`max` over mixed numeric kinds that compare
-equal return one of the two operands, and which one is host-arbitrary
-today (Clojure's `min`/`max` return the second argument on a tie, e.g.
-`(min 1 1.0)` => `1.0`); this is independent of the ruling above
-(`compare` already treats `1` and `1.0` as tied today, with or without
-this migration), and this plan does not pin a tie-break rule for the
-portable versions — it should before implementation.
+content addresses that do not unify against each other in a query.
+
+**Owner ruling (2026-09-22): `min`/`max` tie-break prefers finite
+precision.** `min`/`max` return one of their two operands unchanged, never
+a computed value; on a numeric tie (`compare` is `0` but the operands are
+not content-identical, e.g. `(min 1 1.0)`), Clojure's own `min`/`max` keep
+whichever operand a fold happens to see last, which depends on argument
+order and is not a rule (`(min 1 1.0)` and `(min 1.0 1)` disagree on the
+JVM today). The portable versions instead: (1) if exactly one operand is
+`float64`, return the other one — integer, decimal, and rational are all
+finite (exact) precision, and float64 is the one inexact IEEE-754 kind, so
+it always loses a tie to an exact operand; (2) if both operands are
+`float64`, or both are exact but distinct (different kind, or the same
+kind at a different scale or sign), return whichever operand's canonical
+CBOR bytes sort first — the same unsigned bytewise order this profile
+already uses for map keys and set elements, so no new ordering machinery
+is needed. Both cases are independent of argument order and of which host
+runs them: `(min 1 1.0)` and `(min 1.0 1)` both return `1`.
 
 - Provide a portable `float64` constructor/carrier. JavaScript callers use
   it for integral floating-point values such as `1.0`; ordinary integral
