@@ -1,5 +1,5 @@
 (ns yin.vm.debruijn-vm-contract-test
-  "B0 (docs/design/yin.vm.debruijn-vm.md, 'B0: contract and normalizer'):
+  "B0 (docs/design/yin.vm.debruijn.stack.md, 'B0: contract and normalizer'):
    freezes the result/error normalizer and the parity corpus that later
    phases (B1+) depend on. Adds no evaluator, no AST, no dimension -- it
    only pins tools that already exist.

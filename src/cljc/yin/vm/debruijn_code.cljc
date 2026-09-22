@@ -1,5 +1,5 @@
 (ns yin.vm.debruijn-code
-  "B1 (docs/design/yin.vm.debruijn-vm.md S2): the executable de Bruijn
+  "B1 (docs/design/yin.vm.debruijn.stack.md S2): the executable de Bruijn
    image dimension (`:yin.debruijn.code/*`) and its validator. Standalone:
    no lowerer (B2), no VM (B3), no linker (B6) -- only the dimension's
    descriptor, its derived opcode table, its own exact scalar encoder, the

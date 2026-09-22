@@ -1,10 +1,12 @@
-(ns yin.vm.debruijn-vm-test
-  "B3 (docs/design/yin.vm.debruijn-vm.md, 'B3: de Bruijn VM kernel'):
-   completion tests for `yin.vm.debruijn-vm`.
+(ns yin.vm.debruijn.stack-test
+  "B3 (docs/design/yin.vm.debruijn.stack.md, 'B3: de Bruijn VM kernel'):
+   completion tests for `yin.vm.debruijn.stack`.
 
-   Every program here is a hand-built instruction vector: B2 (the
-   named-datom lowerer) does not exist yet, so nothing here requires
-   `yin.vm.debruijn-code` or a real lowering pass. Parity fixtures pair a
+   Every program here is a hand-built instruction vector: this file
+   predates B2 (the named-datom lowerer) and still requires neither
+   `yin.vm.debruijn-code` nor a real lowering pass -- B2 exercises this
+   kernel against real lowered images from its own test namespace instead.
+   Parity fixtures pair a
    hand-lowered instruction vector with the equivalent named AST, run each
    through its own VM (a fresh instance every time -- D4, the named VM's
    environment leak, is sidestepped by construction, never reused), and
@@ -12,7 +14,7 @@
    reused rather than reimplemented."
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as v2]
-            [yin.vm.debruijn-vm :as dvm]
+            [yin.vm.debruijn.stack :as dvm]
             [yin.vm.debruijn-vm-contract-test :as b0]
             [yin.vm.test-utils :as tu]))
 
