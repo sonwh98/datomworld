@@ -341,14 +341,16 @@
 ;; path (mirroring B1's `image-defect`). Checks generic tuple shape first
 ;; (`nonempty`, `mnemonic-rule`, `arity-rule`, `operand-kind-rule`,
 ;; `target-bounds-rule` -- all mirroring B1's own rules of the same name,
-;; over this dimension's own opcode table), then the two checks new to
-;; this format: `body-scope-rule` (every body range is well formed, every
-;; closure's body pc names a real body of matching arity) and
-;; `register-bounds-rule` (every register operand is within its own
-;; body's declared register count), the four live-set rules of design
-;; section 4.5 (`live-shape-rule`, `live-bounds-rule`, `live-tail-rule`,
-;; `live-exact-rule`), and `terminator-rule` (every body ends `:return`,
-;; the main body `:halt`).
+;; over this dimension's own opcode table), then the checks new to this
+;; format: `body-scope-rule` (every body range is well formed, every
+;; closure's body pc names a real body of matching arity), `jump-scope-
+;; rule` (every `:jump`/`:branch-false` target lies within its own
+;; instruction's body, not merely within `target-bounds-rule`'s whole-
+;; vector bound) and `register-bounds-rule` (every register operand is
+;; within its own body's declared register count), the four live-set
+;; rules of design section 4.5 (`live-shape-rule`, `live-bounds-rule`,
+;; `live-tail-rule`, `live-exact-rule`), and `terminator-rule` (every
+;; body ends `:return`, the main body `:halt`).
 
 (defn- tuple-defect
   [rule pc]
@@ -474,6 +476,31 @@
         (map-indexed vector bodies)))
 
 
+(defn- jump-scope-rule
+  "Every `:jump`/`:branch-false` target must lie within the SAME body as
+   the instruction itself. `target-bounds-rule` only bounds a target
+   against the whole instruction vector's length, not against its own
+   enclosing body -- a hand-built `:jump` from one body into another
+   body's interior can be a perfectly in-range pc and still pass that
+   rule. `body-liveness`'s dataflow pass only updates pcs within the one
+   body it is walking, so a cross-body successor would read an empty
+   `live-in` and silently corrupt liveness for that body; this rule
+   rejects the image outright instead, before `body-liveness` is ever
+   run over it. `:closure` targets are a different operand (checked by
+   `body-scope-rule`) and are not touched here."
+  [{:keys [instructions] :as image}]
+  (let [owner (owner-of image)]
+    (some (fn [pc]
+            (let [t (nth instructions pc)]
+              (case (mnemonic-of t)
+                :jump (when (not= (get owner pc) (get owner (nth t 1)))
+                        (tuple-defect :jump-scope pc))
+                :branch-false (when (not= (get owner pc) (get owner (nth t 2)))
+                                (tuple-defect :jump-scope pc))
+                nil)))
+          (range (count instructions)))))
+
+
 (defn- register-bounds-rule
   [{:keys [bodies instructions] :as image}]
   (let [owner (owner-of image)]
@@ -572,13 +599,18 @@
 
 
 (def ^:private body-rules
-  "`terminator-rule` runs before the four live-set rules, not merely
-   after `register-bounds-rule`, deliberately: `body-liveness`'s
-   successor rule assumes every body ends `:return`/`:halt` (its
-   fall-through default otherwise reads one pc past a malformed body's
-   own end), so a body whose terminator is wrong must be rejected by
-   `terminator-rule` first rather than crash inside the dataflow."
-  [body-scope-rule register-bounds-rule terminator-rule
+  "`jump-scope-rule` runs right after `body-scope-rule` (the first rule
+   that makes `owner-of` meaningful), and before every rule downstream of
+   `body-liveness`: a cross-body `:jump`/`:branch-false` target makes
+   `body-liveness` itself produce meaningless results, which the live-set
+   rules must never be asked to check. `terminator-rule` runs before the
+   four live-set rules, not merely after `register-bounds-rule`,
+   deliberately: `body-liveness`'s successor rule assumes every body ends
+   `:return`/`:halt` (its fall-through default otherwise reads one pc
+   past a malformed body's own end), so a body whose terminator is wrong
+   must be rejected by `terminator-rule` first rather than crash inside
+   the dataflow."
+  [body-scope-rule jump-scope-rule register-bounds-rule terminator-rule
    live-shape-rule live-bounds-rule live-tail-rule live-exact-rule])
 
 

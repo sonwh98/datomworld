@@ -223,6 +223,33 @@
 
 
 ;; =============================================================================
+;; 4b. `:move`/`:store-get`/`:store-put` are never emitted (design 4.4's
+;;     docstring on `opcode-table`)
+;; =============================================================================
+;; `:store-get`/`:store-put` are R2-only forward declarations and `:move`
+;; is never needed by a target-register-passing walk (see the opcode-
+;; table docstring in `yin.vm.debruijn-register-code`); this asserts that
+;; claim directly over every emitted instruction in the full register-
+;; lowerable corpus plus B2's fixtures, rather than leaving it a silent
+;; absence.
+
+(deftest move-and-store-mnemonics-are-never-emitted
+  (doseq [[name ast _] register-corpus]
+    (testing name
+      (doseq [t (:instructions (:image (adapted ast)))]
+        (is (not (contains? #{:move :store-get :store-put} (nth t 0)))))))
+  (doseq [[label ast] {:duplicate-param duplicate-param,
+                       :free-variable free-variable,
+                       :nested-closure nested-closure,
+                       :if-program if-program,
+                       :shared-variable shared-variable-under-two-contexts,
+                       :shared-lambda shared-lambda-under-two-contexts}]
+    (testing label
+      (doseq [t (:instructions (:image (adapted ast)))]
+        (is (not (contains? #{:move :store-get :store-put} (nth t 0))))))))
+
+
+;; =============================================================================
 ;; 5. The validator rejects hand-built out-of-range images
 ;; =============================================================================
 
@@ -248,6 +275,29 @@
   (let [last-pc (dec (count (:instructions simple-image)))
         bad (update-in simple-image [:instructions last-pc] (fn [_] [:const 0 42]))]
     (is (some? (rcode/register-image-defect bad)))))
+
+
+;; A hand-built `:jump` (or `:branch-false`) target that is a valid,
+;; in-range instruction-vector index but names a pc inside a DIFFERENT
+;; body than the instruction itself: `target-bounds-rule` alone cannot
+;; catch this (the target is in range), so it must be `jump-scope-rule`.
+;; `(app (lam [x] (tail x)) (if-node true 1 2))` gives two bodies: body 0
+;; (the main program, pcs 0-7, containing an in-body `:jump` at pc 4) and
+;; body 1 (the lambda, pcs 8-9). Body 1's own `:start` (8) is a valid
+;; instruction-vector index but not inside body 0.
+
+(deftest validator-rejects-cross-body-jump-target
+  (let [ast (app (lam '[x] (tail (v 'x))) (if-node (lit true) (lit 1) (lit 2)))
+        image (:image (adapted ast))
+        instructions (:instructions image)
+        other-body-start (:start (nth (:bodies image) 1))
+        bad-pc (first (keep-indexed (fn [pc t] (when (#{:jump :branch-false} (nth t 0)) pc))
+                                    instructions))
+        target-i (case (nth (nth instructions bad-pc) 0) :jump 1 :branch-false 2)
+        bad (update-in image [:instructions bad-pc] (fn [t] (assoc t target-i other-body-start)))]
+    (is (nil? (rcode/register-image-defect image))
+        "the unmodified image is a legitimate within-body jump and must still pass")
+    (is (= :jump-scope (:rule (rcode/register-image-defect bad))))))
 
 
 ;; =============================================================================
@@ -498,9 +548,10 @@
 
 ;; --- E: a tail call, confirming its live is always [] -----------------------
 ;; `(fn [x] (tail (f x)))`. The lambda body (body 1, locals 1, x = reg0):
-;; `f` loads into reg1, `x` (a bound reference) into reg2, then the tail
-;; call `[:call 1 1 2 [2] true live]`... concretely `[:call <ret-reg> 1
-;; [2] true live]` writes the body's own return register and has no
+;; temp 0 (reg1) is reserved for the body's own return register, so `f`
+;; loads into reg2, `x` (a bound reference) into reg3, then the tail
+;; call `[:call <ret-reg> 2 [3] true live]` writes the body's own return
+;; register and has no
 ;; successor at all (the successor rule gives a tail call `{}`), so its
 ;; live-out, and so its live, is `[]` regardless of what a caller might
 ;; still want -- exactly the design's own point: a tail call saves
