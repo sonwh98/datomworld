@@ -181,12 +181,19 @@ long when it is a safe integer and as a double otherwise. Integral-valued
 doubles are outside the CLJS common scalar domain, because JavaScript cannot
 distinguish them from longs; a CLJS receiver refuses such an image with
 `unsupported-value`. CLJS cannot distinguish source spellings that already
-read as the same number. Characters
-are host characters where available and strings otherwise. Ratios and host
-bigints are JVM or Dart classes unless a host provides an equivalent. Cross-
-host byte identity is required only for values present on all three hosts.
-B1 tests for `1` versus `1.0`, ratios, and chars are JVM/Dart tests; shared
-cross-host fixtures cover the common scalar domain.
+read as the same number. Characters are a distinct class only where the
+host has one and distinguishes it from a one-codepoint string: the JVM.
+ClojureDart's `char?` does not reliably tell a genuine char from a
+one-codepoint string (verified during B1), so this dimension treats
+ClojureDart the same as CLJS here: no distinct :char class, chars encode
+as strings. Ratios and host bigints are JVM classes; neither ClojureDart's
+core nor this dimension defines a project-local equivalent, so B1 refuses
+them with `:unsupported-value` on CLJS and ClojureDart alike (the ratio
+fixture's designed either/or, resolved: encoded on the JVM, refused
+elsewhere). Cross-host byte identity is required only for values present
+on all three hosts. B1 tests for `1` versus `1.0` are JVM/Dart tests;
+ratio and char tests are JVM-only; shared cross-host fixtures cover the
+common scalar domain.
 
 The scalar classes an image uses are derived from tags in its hashed `:const`
 operands. A producer can scan those tags to identify common-domain-safe images.
@@ -337,13 +344,15 @@ and store comparisons, duplicate-parameter, and all-node fixtures.
 Define and export the descriptor, derived opcode table, exact executable
 scalar encoder, code-image hash, and validator. Completion includes malformed
 rows,
-out-of-range bound operands, exact spelling preservation, distinct hashes for
-composed and decomposed e-acute, a ratio fixture that is either encoded or
-refused with `:unsupported-value`, distinct hashes for `1`/`1.0`, ratios, and
-chars on JVM and Dart, and identical bytes across hosts for the common scalar
-domain. Golden image bytes and H values for a frozen corpus are checked on all
-three host lanes. A lowering layout change must fail those fixtures rather than
-silently forking identity.
+out-of-range bound operands, exact spelling preservation, distinct hashes
+for composed and decomposed e-acute, a ratio fixture that is either
+encoded or refused with `:unsupported-value` (JVM encodes, CLJS and
+ClojureDart both refuse), distinct hashes for `1`/`1.0` on JVM and Dart,
+distinct hashes for ratios and chars on the JVM, and identical bytes
+across hosts for the common scalar domain. Golden image bytes and H
+values for a frozen corpus are checked on all three host lanes. A
+lowering layout change must fail those fixtures rather than silently
+forking identity.
 
 ### B2: named-datom lowerer adapter
 
