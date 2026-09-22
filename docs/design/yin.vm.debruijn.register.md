@@ -2,13 +2,14 @@
 
 Status: design, revised; not implemented
 
-This document specifies an optional register execution path that is a peer
-of the committed de Bruijn stack path. Both are projections of the same
-de Bruijn encoding of the named semantic tuples; neither is derived from the
-other. It does not replace the named datoms, the stack image, the stack VM,
-or the dormant projection. The first deliverable is a pure resolved-tuples-
-to-register lowerer and validator. A register VM kernel is a later gated
-phase, not an assumption of this design.
+This document specifies a register execution path that is a peer of the
+committed de Bruijn stack path. Both are projections of the same de Bruijn
+encoding of the named semantic tuples; neither is derived from the other.
+It does not replace the named datoms, the stack image, the stack VM, or the
+dormant projection. The first deliverable is a pure resolved-tuples-to-
+register lowerer and validator. The register VM kernel is a committed later
+phase, authorized by the owner without a benchmark condition (section 8,
+DECIDED 1).
 
 ## 1. Objective and invariants
 
@@ -26,12 +27,43 @@ upstream stream feeds several parallel projections, and no projection is
 compiled from another. That pattern is applied here one level down, at the
 de Bruijn layer.
 
-This proposal is worth considering on its own merits because it targets an
-alpha-invariant, content-addressed encoding rather than reintroducing a VM
-directly beside the AST walker. It is still at risk of becoming an
-unnecessary second evaluator. Therefore the lowerer and format may ship
-without a kernel, and a kernel is allowed only after the benchmark gate in
-R3 reports a material benefit over the committed stack VM.
+This path is worth building on its own merits, and the merit is not
+performance. The governing reason, in the owner's words, is that it
+demonstrates the philosophy that one universal AST can be interpreted by
+different VMs: one truth, many interpretations. The named datoms are this
+project's single source of truth. The named VM, the stack VM, and the
+register VM are not competing implementations with one canonical and the
+others alternates; they are peer witnesses to the same truth, each free to
+interpret it by its own execution model, bound only by agreement on
+observable behavior under the B0 normalizer and never on internal
+mechanism. This is not new here. It is axiom 2 of `datom.world.md`,
+"Interpretation Creates Semantics ... one truth, many perspectives", made
+concrete for evaluators the way its Streams section already makes it
+concrete for a `yin.vm` evaluator and `dao.space` reading one stream with
+no privileged reader ("one stream, many interpretations, none of them the
+stream's own"), and the way `docs/agents/architecture.md`, "COMPILATION AS
+STREAM PROCESSING", already states it for backends ("Same datoms, multiple
+interpreters ... same wave function, different measurements"). The same
+file's "AGENTS" section, under Continuation Migration, already relies on
+it: the AST datoms are the canonical payload, bytecode is a projection for
+one execution model, and a destination projects the datoms into whatever
+model it prefers. A third evaluator over the same datoms is that
+established idea with one more witness.
+
+The specific mechanism for it is the one this epic has been building
+toward: a configurable compilation pipeline with `dao.stream` as every
+stage boundary, in which several peer executable formats (named, stack,
+register) share one upstream de Bruijn encoding and each backend is an
+independent, swappable interpreter rather than a hardcoded single
+evaluator. The register path also targets an alpha-invariant, content-
+addressed encoding rather than reintroducing a VM directly beside the AST
+walker. A lowerer alone proves the register format is well defined. Only a
+running kernel proves that a second execution backend can be plugged into
+the same pipeline and run real programs through it, which is what makes
+the philosophy demonstrated rather than asserted. The owner has therefore
+authorized the kernel unconditionally; the lowerer and format still ship
+first, as their own milestones, and the R3 benchmark reports numbers
+without deciding anything.
 
 The following invariants apply:
 
@@ -235,7 +267,10 @@ The descriptor declares:
     | Scalar encoding      | Reuse B1 scalar bytes, never projection NFC   |
     | Lexical addressing   | :load-bound depth/position remains explicit   |
     | Free addressing      | :load-free name remains exact                 |
-    | Validation           | Shape, targets, body scope, register bounds   |
+    | Live sets            | In-band :call operand, hashed, recomputed by  |
+    |                      | the validator (section 4.5)                   |
+    | Validation           | Shape, targets, body scope, register bounds,  |
+    |                      | live-set shape, bounds, tail, and exactness   |
     | Lift                 | Register image to named semantics             |
     +----------------------+-----------------------------------------------+
 
@@ -249,11 +284,13 @@ The lowerer's R formula is:
 
     R = sha256(register-descriptor-hash || canonical-register-vector)
 
-Both components are canonical bytes. Received register bytes are hashed
-before decoding, as in B1's wire rule. A receiver verifies R, checks the
-descriptor, runs the receiver closure check over `:load-free` operands
-exactly as D11 and D15 define it for stack images, validates, and only then
-executes. No relation to a stack H is embedded or checked.
+Both components are canonical bytes. A receiver verifies R over the
+received image before trusting it, as B1's wire rule requires for H; the
+descriptor hash and contract version are inside R, so descriptor
+agreement is that same check. It then validates, runs the receiver
+closure check over `:load-free` operands exactly as D11 and D15 define it
+for stack images, and only then executes. No relation to a stack H is
+embedded or checked.
 
 The lift goes from the register image to the named `:yin.code/*` image, so
 that B6's rule "a fetched image may be executed by the semantic VM after
@@ -336,7 +373,7 @@ The register instruction set is a positional form of the B1 table:
     :load-free    [op rd name]
     :closure      [op rd arity body-pc]
     :move         [op rd rs]
-    :call         [op rd fn-reg arg-regs tail?]
+    :call         [op rd fn-reg arg-regs tail? live]
     :branch-false [op cond-reg target]
     :jump         [op target]
     :return       [op value-reg]
@@ -348,25 +385,147 @@ There is no `:push`: operands are named by register, so the stack path's
 push-before-each-operand convention never arises. `:call` differs most from
 its stack form: instead of an argc over an operand stack it names an
 explicit function register, an ordered argument-register vector, a
-destination register, and the tail flag copied from `:yin/tail?`.
-`:branch-false`, `:return`, and `:halt` name registers instead of reading an
-operand stack. Constants, lexical loads, free loads, closures, jumps, and
-store operations retain their semantic operands while gaining explicit
-destinations where needed.
+destination register, the tail flag copied from `:yin/tail?`, and the live
+set of section 4.5. `:branch-false`, `:return`, and `:halt` name registers
+instead of reading an operand stack. Constants, lexical loads, free loads,
+closures, jumps, and store operations retain their semantic operands while
+gaining explicit destinations where needed.
 
 Stream, gensym, FFI, park, and resume instructions use the same explicit
 destination and source-register convention in R2. Their effect descriptors
-remain stream values; no callback or hidden scheduler is introduced.
+remain stream values; no callback or hidden scheduler is introduced. R2
+must add each of them to the use/def table of section 4.5 in the same
+phase, or the liveness computation is undefined for them.
+
+### 4.5 Live sets at call sites
+
+A non-tail `:call` is the one place a register body's state is saved: the
+return frame pushed there must hold whatever the caller still needs after
+the callee returns. Some of the caller's registers are already dead at
+that point. The owner's ruling is that a saved continuation carries only
+live registers, never dead ones: not tracking liveness does not avoid the
+cost, it retains every dead value in every saved continuation as
+unaccounted state. Liveness is therefore computed at lowering time and
+recorded in the image, where it is visible, hashed, and verified.
+
+The live set is in-band: the sixth operand of `:call`, named `live`, is
+the set of registers of the current body whose values are read after the
+call returns before being written again, excluding the destination `rd`,
+which the return itself writes. It is inside R's preimage because it is a
+claim about future reads that a kernel acts on by discarding everything
+else; a wrong live set changes observable results, so it is a correctness
+operand like an argument register or a jump target, not a diagnostic like
+a binder name. A side table would leave it outside the hash and outside
+wire verification, so a receiver could never trust it and would have to
+recompute it, which collapses analysis into execution. Two lowerings that
+differ only in `live` are different programs by R, and that is correct:
+one of them is wrong, and golden R fixtures catch it. "Derive, do not
+persist" is not violated: the register image is the executable artifact,
+whose purpose is to make execution-time facts explicit so the kernel
+interprets rather than analyzes, exactly as argc, arity, and resolved pcs
+are derivable from the tree yet belong in the image. The named datoms
+remain the only authority; the live set is derived from the image and
+re-derived by every receiver.
+
+Register numbering: `live` names physical registers by the same indices
+`rd`, `fn-reg`, and `arg-regs` already use, whatever the body's numbering
+of its local and temporary banks is. It never introduces a second index
+space. Frames captured for `:load-bound` and closures are not registers
+and are outside the live set; they are carried by the return frame as B3
+carries them.
+
+The computation is one pure function of the instruction vector and the
+body ranges, `body-liveness`, exported by the register code namespace and
+used by both the lowerer, to fill the operand, and the validator, to check
+it. Per body:
+
+    use/def, from the section 4.4 table:
+      :const rd _              def {rd}
+      :load-bound rd _ _       def {rd}
+      :load-free rd _          def {rd}
+      :closure rd _ _          def {rd}
+      :store-get rd _          def {rd}
+      :move rd rs              use {rs}            def {rd}
+      :call rd f args tail? _  use {f} + args      def {rd} unless tail?
+      :branch-false c _        use {c}
+      :jump _                  none
+      :return r                use {r}
+      :halt r                  use {r}
+      :store-put _ r           use {r}
+
+    successors within the body:
+      :jump t                  {t}
+      :branch-false c t        {t, pc + 1}
+      :return, :halt, tail :call   {}
+      every other instruction  {pc + 1}
+
+    live-in(p)  = use(p) + (live-out(p) - def(p))
+    live-out(p) = union of live-in(s) over successors s of p
+
+    iterate over the body's pcs in descending order until no set changes
+
+    live(call at p) = live-out(p) - {rd}
+
+The fixpoint is unique because the transfer functions are monotone over a
+finite lattice, so the result does not depend on iteration order; the
+descending-pc order is fixed only so that every host does the same work.
+Every set is a sorted set of register indices during computation and is
+serialized as a vector of those indices in strictly ascending order. No
+host map or set iteration order can reach the output: sorted-set
+iteration is integer order on JVM, CLJS, and CLJD alike, and union and
+difference are order-independent. A tail `:call` has no successors and
+saves nothing; its `live` operand is the empty vector, always. The
+lowerer's allocator is unchanged by this: it does not feed `live` from
+its own free-list state, which is a forward approximation; `live` comes
+from the backward pass over the emitted body, so there is exactly one
+definition of liveness in the format.
+
+Encoding: `live` is a `:data` operand, a vector of longs, and goes through
+the existing scalar encoder as a `:vector` of `:long` with no new framing.
+The ascending, duplicate-free rule is what makes the encoding canonical:
+two equal live sets can never produce different bytes.
+
+The validator adds four rules, after the existing structural and
+register-bounds rules and using the same defect shape `{:rule r :pc p}`:
+
+1. `:live-shape`: `live` is a vector of nonnegative integers in strictly
+   ascending order (so it is a set and it is canonical).
+2. `:live-bounds`: every index is below the body's declared register
+   count, the register-bounds rule extended to this operand.
+3. `:live-tail`: when `tail?` is true, `live` is `[]`.
+4. `:live-exact`: `live` equals `body-liveness`'s own answer for that pc,
+   reported with `:expected` and `:actual`. A received image's live sets
+   are not trusted; they are recomputed on the receiving host before
+   execution, the same discipline as B1's scope check.
+
+This is a format-shape change: the `:call` slot vector in the opcode table
+gains `[:yin.debruijn.register/live :data]`, which changes the descriptor
+and so `register-hash` for every image. The register contract version
+goes from 1 to 2. This is R1's file box, the lowerer and the format, and
+nothing here needs a kernel: the operand is computed and validated at
+lowering time and has no consumer until R4 pushes a real return frame.
+
+The follow-up implementation phase therefore: bumps the version constant
+and the `:call` slots in `debruijn_register_code.cljc`; adds
+`body-liveness` and the four rules there; has `lower-register` fill the
+operand from `body-liveness` after emitting each body; re-pins every
+golden register vector and R value, since all of them change, recording
+that version 1 values are retired with no compatibility path, per this
+repository's no-backward-compat rule; and adds hand-derived live-set
+fixtures, at least: a call whose temporaries are all dead afterwards
+(empty set), a call inside an `if` arm with a temporary live across it
+from before the branch, a temporary live in one arm but not the other,
+nested non-tail calls, and a tail call carrying `[]`. R0's frozen contract
+test is that phase's to re-pin as a versioned change; it is not edited by
+this design.
 
 ## 5. Execution boundary
 
 R1 may produce and validate register bytecode without a register kernel. This
-is the recommended first milestone and is analogous to B1's standalone
-dimension, but the register format is not a promise that a second evaluator
-will exist.
+is the first milestone and is analogous to B1's standalone dimension; the
+kernel follows it as a committed phase, not a possibility.
 
-If the benchmark gate passes, R3 may add
-`yin.vm.debruijn.register` as a sibling kernel. It owns explicit state
+R4 adds `yin.vm.debruijn.register` as a sibling kernel. It owns explicit state
 `{:image :pc :registers :frames :free-env :continuation :store :status
 :primitives :modules}` and uses the same frame, free-name, store, stream, and
 continuation contracts as B3, including the engine seam B4 implements
@@ -375,8 +534,55 @@ engine-owned key sets). It adds no `IVM` or `IVMState` methods.
 
 The register kernel must execute only validator-approved images. It must
 preserve B3's frame direction, closure capture, nil-fill and extra-argument
-rules, and B0 normalization. Register continuations are not interchangeable
-with stack continuations unless an explicit lift is provided.
+rules, and B0 normalization. Register continuations and stack
+continuations are not interchangeable; section 5.1 states the rule.
+
+### 5.1 Continuation transport across VM models
+
+A parked continuation resumes only under the VM model, and the image
+identity, that parked it. This is a decided rule for B4 and R4, not a
+gap. Every parked record and reified continuation of either VM carries
+its model and image identity in its register payload, `{:format
+:yin.debruijn.code :hash H}` or `{:format :yin.debruijn.register :hash R}`
+beside the fields the engine seam already lists, and a restore whose VM or
+image does not match refuses with a qualified `:continuation-format`
+outcome instead of interpreting a foreign payload. The engine never reads
+those keys; they are register payload under the section 3 rule of
+`yin.vm.engine.md`.
+
+Direct cross-model resume is not possible, and a pairwise lift is the
+wrong shape. A register park site and a stack park site for the same
+program point have no pc correspondence, a register file is not an
+operand stack, and each is a positional artifact of one lowering.
+Translating one bytecode continuation into another is decompilation, and
+with a third model it becomes six lifts. This project already rules on
+the shape: `docs/agents/architecture.md`, "AGENTS", Continuation
+Migration says the AST datoms are the canonical payload, bytecode is a
+projection for one execution model, and a destination projects into
+whatever model it prefers. The cross-model form of a continuation is
+therefore a continuation over the source, not over either image: pending
+frames named by resolved-tuple occurrence, plus the values those frames
+hold. Both images carry provenance to source occurrences through their pc
+side tables, so each VM can supply a lift-out from its own continuation
+to that form and a lift-in from it, and no VM needs to know another
+exists. That form is the universal continuation format the stack design
+names as proposed and deferred. It is a shared concern of every VM, not
+either de Bruijn VM's, and belongs in its own design document; this
+document does not specify it.
+
+Two consequences hold now. First, the section 4.5 live sets lose nothing
+observable at that boundary: a register continuation carries only live
+registers, and a dead register is by definition never read again, so a
+lift-out has every value any pending frame can observe. What does not
+survive a round trip is pc identity, temporary ids, and dead values, all
+of which the stack design's section 1 already declines to promise.
+Second, until that format exists, cross-host transport of a parked
+continuation is same-model only: a register continuation travels to a
+host with a register kernel, a stack continuation to a host with the
+stack VM, and each such transfer also needs the image by R or H through
+the R5 or B6 linker. This rule is deliberate; the alternative was a pair
+of lossy lifts between two positional formats that the third VM would
+have made obsolete.
 
 ## 6. Implementation phases
 
@@ -430,42 +636,110 @@ Lower stream, gensym, FFI, park, and resume shapes with explicit registers.
 Completion compares effect descriptors and blocked outcomes with the stack
 path without executing a register VM.
 
-### R3: benchmark gate
+### R3: benchmark report
 
     New: test/yin/vm/debruijn_register_benchmark_test.cljc
     Existing edits: none
     Must not change: stack VM and its H
 
-Run identical pure-program corpora through the stack VM and a reference
-register interpreter or instrumentation harness. Report throughput,
-allocation, image size, load time, and lowering cost. A kernel is not
-authorized merely because R1 passes; the report must show a material benefit
-or the register path remains a lowerer-only artifact.
+Informational only, and sequenced after R4: it runs identical pure-program
+corpora through the stack VM and the real R4 kernel, never a stand-in
+interpreter, which the old gate needed only because the kernel was not yet
+authorized. Report throughput, allocation, image size, load time, and
+lowering cost. This is the same role the stack design gives its own B3
+report: numbers the owner reads, not a condition any phase satisfies. It
+gates nothing, and no threshold is defined for it.
 
-### R4: optional register kernel
+### R4: register kernel
 
     New: src/cljc/yin/vm/debruijn/register.cljc
     New: test/yin/vm/debruijn/register_test.cljc
     Existing edits: none
     Must not change: B0-B3, named VM, existing IVM methods
 
-Implement only if R3 justifies it. Completion requires B0-normalized parity
-against the named VM and the stack VM, all register validator fixtures,
-lexical and closure tests, store and control flow tests, and deterministic
-stream/effect behavior.
+Authorized unconditionally (section 8, DECIDED 1). Its prerequisite is R1:
+a validated register image and its R. R4 follows B3's own precedent and
+ships in two tiers. The pure-program tier depends on R1 only: frames,
+closures, loads, calls, returns, branches, constants, and store operations,
+with every opcode outside that set refused loudly with a
+`:not-yet-implemented` diagnostic, exactly as B3 does before B4. Its
+completion requires B0-normalized parity against the named VM and the stack
+VM over the pure-program corpus, all register validator fixtures, lexical
+and closure tests, and store and control flow tests. The effects tier
+depends on R2, for the register shapes of stream, gensym, FFI, park, and
+resume, and on B4's engine seam, which supplies the restore and park-entry
+conventions the kernel must share. Its completion requires parity for
+values, errors, effects, stores, stream outcomes, and blocked states, and
+deterministic stream/effect behavior. The pure-program tier may merge
+before R2 lands; R4 is complete only when both tiers are.
 
-### R5: linker integration
+The phase order runs on two parallel tracks after R1: on the register
+track, the section 4.5 live-set change, then R2 and R4's pure-program
+tier, then R4's effects tier once B4 and R2 exist, then R3 against the
+real kernel; on the linker track, R5 together with B6, depending on R1
+and B6 only and free to land before R2 or R4.
+
+### R5: linker integration over dao.jing
 
     New: src/cljc/yin/vm/debruijn_register_linker.cljc
     New: test/yin/vm/debruijn_register_linker_test.cljc
     Existing edits: none
-    Must not change: stack linker semantics or stack H
+    Depends on: B6's shared linker (`yin.vm.debruijn-linker`), dao.jing,
+    dao.jing.dht, dao.jing.remote, R1 (register-hash, the validator, the
+    descriptor)
+    Must not change: B6's linker function, stack H, dao.jing, dao.jing.dht
 
-Fetch and verify R over `dao.stream` with the same request, wire-hash,
-closure-check, and refusal shape as B6, keyed by R. A host may refuse R and
-instead request, by H, a stack image the composition has published for the
-same named root; that pairing is composition data, not linker machinery. No
-global loader or callback is introduced.
+The linker discipline is `dao.jing` over `dao.stream`, as the stack
+design's B6 box now specifies, and it is one function parameterized by a
+format record. R5 is that function's second format, not a second linker.
+It contributes the register format record
+`{:format :yin.debruijn.register :hash-fn register-hash :validate-fn ...
+:free-names-fn ...}`, the register image stored in Jing
+as its own value (the `{:bodies :instructions}` map) at its
+`segment-key`, and an R index `[R :yin.debruijn.register/address
+address]` with the same status as B6's H index: composition data, never
+Jing's. R is not the Jing address for the same reason H is not, and R5
+pins R values only, never addresses.
+
+Fetch follows B6's six steps with R in place of H: the linker verifies
+the value against its Jing address, verifies `register-hash` against R
+(the descriptor hash and contract version are inside R, so there is no
+separate descriptor check), runs the register validator including the
+section 4.5 live-set rules, runs the D11 and D15 closure check over
+`:load-free` operands of the validated image, and returns the verified
+image. No global loader or callback is introduced.
+
+A host without a register kernel may refuse R and instead resolve, by H,
+a stack image published for the same named root. That same-root pairing
+is the one relation in the linker that no hash checks: H and R have
+disjoint preimages, the receiver holds neither the named datoms nor an
+H-to-R law (section 1.1 disclaims one), so a stale or swapped pairing
+would execute a different program than the R asked for with no
+diagnostic. The rule is therefore explicit. The pairing is recorded at
+mint time beside the named root as datoms, `[root
+:yin.debruijn.code/hash H]` and `[root :yin.debruijn.register/hash R]`,
+never as a bare H-to-R entry. Trusting it is composition trust, on the
+same footing as the H and R indexes, and its ledger, authority, and
+provenance are B7's name-environment work; until B7, a receiver that
+follows the fallback is executing under that trust and must say so in its
+outcome. A receiver that requires verification does not trust the
+pairing: it fetches the named datoms by the root the pairing names,
+re-lowers them locally through `adapt` and `lower-register`, and accepts
+the fallback only when the recomputed H and R both equal the pair it was
+given; otherwise it refuses with a qualified `:pairing-mismatch`. That
+re-lowering is the only check strong enough, because the datoms are the
+one artifact both hashes are functions of.
+
+New work is the format record, the R index, the same-root pairing
+datoms and their verification path, and tests; everything else is B6's
+function and Jing's guarantees. R5 depends on R1 and on B6's shared
+function, not on B4, R2, or R4, and is built together with B6 as one
+unit, since the shared function's first two formats are best written
+against each other. Completion requires the B6 completion list with R in
+place of H, a live-set defect in a fetched image refused by the validator
+before load, and both fallback outcomes: a trusted fallback that names
+its trust, and a verifying fallback that refuses a swapped pairing with
+`:pairing-mismatch`.
 
 ## 7. Non-goals and protected surfaces
 
@@ -491,13 +765,23 @@ not persisted, and is not a fetch key; its inverse exists for tests only.
 
 Risks include register-allocation drift, spill policy becoming observable,
 effect ordering, register continuation shape, drift between B2's fused
-resolution and the resolver if B2 is not refactored, and building a kernel
-with no measured benefit.
+resolution and the resolver if B2 is not refactored, and the permanent
+second-evaluator maintenance surface accepted in DECIDED 1.
 
 DECIDED:
 
-1. R0-R2 are lowerer and format work; R4 is gated by R3. This keeps a
-   second evaluator from becoming an unmeasured architectural commitment.
+1. R0-R2 are lowerer and format work. R4, the register kernel, is
+   authorized to proceed as soon as its prerequisites exist (R1 for the
+   pure-program tier, R2 and B4's engine seam for the effects tier) and is
+   not contingent on R3's report or any benchmark. This is a deliberate
+   architectural commitment to a second evaluator, made by the owner on
+   2026-09-23 after the tradeoff was explained: every future opcode, effect,
+   or contract change is implemented and tested twice, in the stack kernel
+   and the register kernel, across JVM, CLJS, and CLJD, permanently. The
+   owner accepted that cost because the kernel is the end-to-end proof that
+   the `dao.stream` compilation pipeline is genuinely configurable with
+   swappable peer backends (section 1). The commitment is not informational
+   and is not revisited by R3's numbers.
 2. The stack image and the register image are peer projections of the
    resolved tuples. H and R are peer executable-format identities; neither
    preimage includes the other, and neither is a replacement semantic
@@ -511,25 +795,30 @@ DECIDED:
    disjoint register banks.
 6. Allocation and any move order are canonicalized by evaluation and
    virtual-id order, with a versioned descriptor and golden fixtures.
-7. A register kernel, if built, is a sibling and cannot silently replace the
-   stack VM or alter its protocols.
+7. The register kernel is a sibling and cannot silently replace the stack
+   VM or alter its protocols.
 8. B2 is the resolver-and-stack-lowerer split (section 2.2); the address
    law over the parity corpus remains a cross-check, not the coupling.
+9. Live sets are in-band: the sixth `:call` operand, a strictly ascending
+   vector of register indices, computed by one exported backward-dataflow
+   function, inside R's preimage, and recomputed by the validator on every
+   receiving host. Register contract version 2. Owner ruling, 2026-09-23:
+   a saved continuation carries only live registers (section 4.5).
 
 DEFERRED:
 
 - Owner approval to start R1 and the exact register descriptor publication.
-- The R3 threshold for a material performance or footprint benefit.
 - Spill representation and register-file limits, if a target requires them.
 - Register continuation lifting and cross-model park/resume transport.
-- Whether R4 and R5 are ever commissioned after R3.
+- The B7 name-environment ledger and provenance that the R5 same-root
+  pairing's trust rests on; R4 and R5 are both decided phases.
 
 ## 9. End condition
 
 The lowerer-only end condition is a validated, deterministic register image
 whose R is reproducible on all three hosts, whose address law with the stack
 image holds over the parity corpus, and whose named-VM normalized fixtures
-agree. The full register-VM end condition adds a measured R3 benefit, a
-validator-approved kernel, and cross-stream R fetch and verification. If R3
-shows no material benefit, the project stops at R2 and keeps the lowerer as
-an optional derived format only.
+agree. The full register-VM end condition adds a validator-approved kernel
+with both R4 tiers complete, the R3 report published for the owner to read,
+and, if R5 is commissioned, cross-stream R fetch and verification. The
+project does not stop at R2: R3's numbers inform, they do not decide.
