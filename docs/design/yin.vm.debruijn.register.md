@@ -2,13 +2,14 @@
 
 Status: design, revised; not implemented
 
-This document specifies an optional register execution path that is a peer
-of the committed de Bruijn stack path. Both are projections of the same
-de Bruijn encoding of the named semantic tuples; neither is derived from the
-other. It does not replace the named datoms, the stack image, the stack VM,
-or the dormant projection. The first deliverable is a pure resolved-tuples-
-to-register lowerer and validator. A register VM kernel is a later gated
-phase, not an assumption of this design.
+This document specifies a register execution path that is a peer of the
+committed de Bruijn stack path. Both are projections of the same de Bruijn
+encoding of the named semantic tuples; neither is derived from the other.
+It does not replace the named datoms, the stack image, the stack VM, or the
+dormant projection. The first deliverable is a pure resolved-tuples-to-
+register lowerer and validator. The register VM kernel is a committed later
+phase, authorized by the owner without a benchmark condition (section 8,
+DECIDED 1).
 
 ## 1. Objective and invariants
 
@@ -26,12 +27,43 @@ upstream stream feeds several parallel projections, and no projection is
 compiled from another. That pattern is applied here one level down, at the
 de Bruijn layer.
 
-This proposal is worth considering on its own merits because it targets an
-alpha-invariant, content-addressed encoding rather than reintroducing a VM
-directly beside the AST walker. It is still at risk of becoming an
-unnecessary second evaluator. Therefore the lowerer and format may ship
-without a kernel, and a kernel is allowed only after the benchmark gate in
-R3 reports a material benefit over the committed stack VM.
+This path is worth building on its own merits, and the merit is not
+performance. The governing reason, in the owner's words, is that it
+demonstrates the philosophy that one universal AST can be interpreted by
+different VMs: one truth, many interpretations. The named datoms are this
+project's single source of truth. The named VM, the stack VM, and the
+register VM are not competing implementations with one canonical and the
+others alternates; they are peer witnesses to the same truth, each free to
+interpret it by its own execution model, bound only by agreement on
+observable behavior under the B0 normalizer and never on internal
+mechanism. This is not new here. It is axiom 2 of `datom.world.md`,
+"Interpretation Creates Semantics ... one truth, many perspectives", made
+concrete for evaluators the way its Streams section already makes it
+concrete for a `yin.vm` evaluator and `dao.space` reading one stream with
+no privileged reader ("one stream, many interpretations, none of them the
+stream's own"), and the way `docs/agents/architecture.md`, "COMPILATION AS
+STREAM PROCESSING", already states it for backends ("Same datoms, multiple
+interpreters ... same wave function, different measurements"). The same
+file's "AGENTS" section, under Continuation Migration, already relies on
+it: the AST datoms are the canonical payload, bytecode is a projection for
+one execution model, and a destination projects the datoms into whatever
+model it prefers. A third evaluator over the same datoms is that
+established idea with one more witness.
+
+The specific mechanism for it is the one this epic has been building
+toward: a configurable compilation pipeline with `dao.stream` as every
+stage boundary, in which several peer executable formats (named, stack,
+register) share one upstream de Bruijn encoding and each backend is an
+independent, swappable interpreter rather than a hardcoded single
+evaluator. The register path also targets an alpha-invariant, content-
+addressed encoding rather than reintroducing a VM directly beside the AST
+walker. A lowerer alone proves the register format is well defined. Only a
+running kernel proves that a second execution backend can be plugged into
+the same pipeline and run real programs through it, which is what makes
+the philosophy demonstrated rather than asserted. The owner has therefore
+authorized the kernel unconditionally; the lowerer and format still ship
+first, as their own milestones, and the R3 benchmark reports numbers
+without deciding anything.
 
 The following invariants apply:
 
@@ -361,12 +393,10 @@ remain stream values; no callback or hidden scheduler is introduced.
 ## 5. Execution boundary
 
 R1 may produce and validate register bytecode without a register kernel. This
-is the recommended first milestone and is analogous to B1's standalone
-dimension, but the register format is not a promise that a second evaluator
-will exist.
+is the first milestone and is analogous to B1's standalone dimension; the
+kernel follows it as a committed phase, not a possibility.
 
-If the benchmark gate passes, R3 may add
-`yin.vm.debruijn.register` as a sibling kernel. It owns explicit state
+R4 adds `yin.vm.debruijn.register` as a sibling kernel. It owns explicit state
 `{:image :pc :registers :frames :free-env :continuation :store :status
 :primitives :modules}` and uses the same frame, free-name, store, stream, and
 continuation contracts as B3, including the engine seam B4 implements
@@ -430,29 +460,45 @@ Lower stream, gensym, FFI, park, and resume shapes with explicit registers.
 Completion compares effect descriptors and blocked outcomes with the stack
 path without executing a register VM.
 
-### R3: benchmark gate
+### R3: benchmark report
 
     New: test/yin/vm/debruijn_register_benchmark_test.cljc
     Existing edits: none
     Must not change: stack VM and its H
 
-Run identical pure-program corpora through the stack VM and a reference
-register interpreter or instrumentation harness. Report throughput,
-allocation, image size, load time, and lowering cost. A kernel is not
-authorized merely because R1 passes; the report must show a material benefit
-or the register path remains a lowerer-only artifact.
+Informational only, and sequenced after R4: it runs identical pure-program
+corpora through the stack VM and the real R4 kernel, never a stand-in
+interpreter, which the old gate needed only because the kernel was not yet
+authorized. Report throughput, allocation, image size, load time, and
+lowering cost. This is the same role the stack design gives its own B3
+report: numbers the owner reads, not a condition any phase satisfies. It
+gates nothing, and no threshold is defined for it.
 
-### R4: optional register kernel
+### R4: register kernel
 
     New: src/cljc/yin/vm/debruijn/register.cljc
     New: test/yin/vm/debruijn/register_test.cljc
     Existing edits: none
     Must not change: B0-B3, named VM, existing IVM methods
 
-Implement only if R3 justifies it. Completion requires B0-normalized parity
-against the named VM and the stack VM, all register validator fixtures,
-lexical and closure tests, store and control flow tests, and deterministic
-stream/effect behavior.
+Authorized unconditionally (section 8, DECIDED 1). Its prerequisite is R1:
+a validated register image and its R. R4 follows B3's own precedent and
+ships in two tiers. The pure-program tier depends on R1 only: frames,
+closures, loads, calls, returns, branches, constants, and store operations,
+with every opcode outside that set refused loudly with a
+`:not-yet-implemented` diagnostic, exactly as B3 does before B4. Its
+completion requires B0-normalized parity against the named VM and the stack
+VM over the pure-program corpus, all register validator fixtures, lexical
+and closure tests, and store and control flow tests. The effects tier
+depends on R2, for the register shapes of stream, gensym, FFI, park, and
+resume, and on B4's engine seam, which supplies the restore and park-entry
+conventions the kernel must share. Its completion requires parity for
+values, errors, effects, stores, stream outcomes, and blocked states, and
+deterministic stream/effect behavior. The pure-program tier may merge
+before R2 lands; R4 is complete only when both tiers are.
+
+The phase order is therefore R0, R1, R2, R4, R3, R5, with R4's pure-program
+tier free to precede R2.
 
 ### R5: linker integration
 
@@ -491,13 +537,23 @@ not persisted, and is not a fetch key; its inverse exists for tests only.
 
 Risks include register-allocation drift, spill policy becoming observable,
 effect ordering, register continuation shape, drift between B2's fused
-resolution and the resolver if B2 is not refactored, and building a kernel
-with no measured benefit.
+resolution and the resolver if B2 is not refactored, and the permanent
+second-evaluator maintenance surface accepted in DECIDED 1.
 
 DECIDED:
 
-1. R0-R2 are lowerer and format work; R4 is gated by R3. This keeps a
-   second evaluator from becoming an unmeasured architectural commitment.
+1. R0-R2 are lowerer and format work. R4, the register kernel, is
+   authorized to proceed as soon as its prerequisites exist (R1 for the
+   pure-program tier, R2 and B4's engine seam for the effects tier) and is
+   not contingent on R3's report or any benchmark. This is a deliberate
+   architectural commitment to a second evaluator, made by the owner on
+   2026-09-23 after the tradeoff was explained: every future opcode, effect,
+   or contract change is implemented and tested twice, in the stack kernel
+   and the register kernel, across JVM, CLJS, and CLJD, permanently. The
+   owner accepted that cost because the kernel is the end-to-end proof that
+   the `dao.stream` compilation pipeline is genuinely configurable with
+   swappable peer backends (section 1). The commitment is not informational
+   and is not revisited by R3's numbers.
 2. The stack image and the register image are peer projections of the
    resolved tuples. H and R are peer executable-format identities; neither
    preimage includes the other, and neither is a replacement semantic
@@ -511,25 +567,24 @@ DECIDED:
    disjoint register banks.
 6. Allocation and any move order are canonicalized by evaluation and
    virtual-id order, with a versioned descriptor and golden fixtures.
-7. A register kernel, if built, is a sibling and cannot silently replace the
-   stack VM or alter its protocols.
+7. The register kernel is a sibling and cannot silently replace the stack
+   VM or alter its protocols.
 8. B2 is the resolver-and-stack-lowerer split (section 2.2); the address
    law over the parity corpus remains a cross-check, not the coupling.
 
 DEFERRED:
 
 - Owner approval to start R1 and the exact register descriptor publication.
-- The R3 threshold for a material performance or footprint benefit.
 - Spill representation and register-file limits, if a target requires them.
 - Register continuation lifting and cross-model park/resume transport.
-- Whether R4 and R5 are ever commissioned after R3.
+- Whether R5 is ever commissioned; R4 is decided (DECIDED 1).
 
 ## 9. End condition
 
 The lowerer-only end condition is a validated, deterministic register image
 whose R is reproducible on all three hosts, whose address law with the stack
 image holds over the parity corpus, and whose named-VM normalized fixtures
-agree. The full register-VM end condition adds a measured R3 benefit, a
-validator-approved kernel, and cross-stream R fetch and verification. If R3
-shows no material benefit, the project stops at R2 and keeps the lowerer as
-an optional derived format only.
+agree. The full register-VM end condition adds a validator-approved kernel
+with both R4 tiers complete, the R3 report published for the owner to read,
+and, if R5 is commissioned, cross-stream R fetch and verification. The
+project does not stop at R2: R3's numbers inform, they do not decide.
