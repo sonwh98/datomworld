@@ -6078,3 +6078,14 @@ Decisions: This resolves comparator-gate decision (b) from the 2026-09-22 11:52 
 Verification: read the full diff; grepped for stale "left open"/"host-arbitrary"/"not pin a tie-break" phrasing across the whole doc, none remained; git show confirmed a clean 1-file commit with no trailers.
 Delegates: none (direct owner instruction, applied by the orchestrator).
 Next: (a) rebuild-readiness preflight (whether deployed/retained values fit the new narrower Jing domain) is the last open item before dao.space.index/query implementation can be dispatched; (b) with both comparator-gate decisions now ruled, the dao.space.index/query implementation itself can be scoped and dispatched once the owner says so; (c) B1 of the de Bruijn VM epic remains available in parallel; (d) push this commit and the prior one (d74bbae6).
+
+## 2026-09-22 12:28:00 +07 — min/max tie-break refined: shorter encoding wins over lexicographic byte order
+Completed-GMT: 2026-09-22 05:28:00 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@ba0fcbc7 (unpushed)
+Done: The owner refined the fallback half of the just-ruled min/max tie-break (2026-09-22 12:20 entry): for two operands that tie and are both float64, or both exact but distinct, the shorter canonical CBOR encoding wins (the more compact representation), not lexicographic canonical-byte order. Worked example confirmed against actual CBOR bytes: decimal 1.0 (exponent -1, mantissa 10, one-byte shortest head) beats decimal 1.00 (exponent -2, mantissa 100, two-byte shortest head) because 10 fits CBOR's under-24 single-byte form while 100 needs the extra byte. Canonical byte order now applies only as a third, rarely-reached tiebreak when the two encodings are the same length too. The float64-always-loses-to-any-exact-operand rule from the prior entry is unchanged. Edited docs/design/dao.jing.cbor.md's Owner ruling paragraph in Numeric identity to a three-part rule: (1) exact beats float64 unconditionally, (2) shorter encoding wins among remaining ties, (3) canonical byte order as the final tiebreak on equal length. Committed ba0fcbc7, no trailers, hook changed nothing.
+Decisions: Both parts of the dao.space comparator gate (query equality kind-strict, and the full three-part min/max tie-break) are now ruled and pinned in the design doc.
+Verification: read the full diff; confirmed no stale "byte order" wording remained describing case (2) alone; git show confirmed a clean 1-file commit with no trailers.
+Delegates: none (direct owner refinement, applied by the orchestrator).
+Next: (a) rebuild-readiness preflight remains the only open item before dao.space.index/query implementation can be dispatched; (b) once the owner says so, scope and dispatch that implementation, or proceed to B1 of the de Bruijn VM epic in parallel; (c) push this commit and the two prior ones (d74bbae6, 83c494b6 already pushed at bc1d87c1; this entry's ba0fcbc7 is the next push).
