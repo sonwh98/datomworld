@@ -815,6 +815,86 @@
 
 
 ;; ==========================================================================
+;; Kind-strict content equality
+;; ==========================================================================
+
+(defn numeric-kind
+  "The content kind of numeric x: :integer, :float64, :decimal or :rational.
+   Host integer width is not a kind: a long and a big integer of one value
+   are both :integer."
+  [x]
+  (cond
+    (host-integer? x) :integer
+    (float64? x) :float64
+    (decimal? x) :decimal
+    (ratio? x) :rational
+    :else (refuse :unsupported-value (str "not a portable number: " (type-name x)))))
+
+
+(defn- numeric-content-key
+  "The kind-strict identity of numeric x, the same distinctions content
+   addressing makes: kind, then within float64 the exact bits (so the zero
+   sign counts, and every NaN is the one canonical NaN), within decimal the
+   exponent (scale) and mantissa, within rational the reduced numerator and
+   denominator. Integer width is not identity. Built from strings and
+   keywords, so equal content gives equal keys on every host."
+  [x]
+  (case (numeric-kind x)
+    :integer (do #?(:cljs (when (and (number? x) (not (js/Number.isSafeInteger x)))
+                            (refuse :unsupported-value
+                                    "unsafe integral JavaScript number: its value is already rounded")))
+                 [::integer (str (big x))])
+    :float64 (let [[neg e f] (float-fields (float-value x))]
+               (if (and (= e 0x7ff) (pos? (bsign f)))
+                 [::float64 :nan]
+                 [::float64 neg e (str f)]))
+    :decimal [::decimal (str (decimal-exponent x)) (str (big (decimal-mantissa x)))]
+    :rational (let [[_ n d] (exact x)]
+                [::rational (str n) (str d)])))
+
+
+(defn content-key
+  "A host value whose host `=` and `hash` agree with content=: numbers by
+   their kind-strict identity, byte strings by content, identifiers by their
+   namespace and name fields, lists and vectors alike (README ruling A6)
+   element by element, maps and sets by members, metadata ignored, any other
+   value as itself. A caller keys a host map or set by it to get
+   kind-strict content identity from host collections (JVM `=` merges
+   0.0 with -0.0 and 1.0M with 1.00M; ClojureScript merges slash-crossed
+   identifiers). The same traversal as equiv, with the kind-strict numeric
+   key in place of num=."
+  [x]
+  (cond
+    (numeric? x) (numeric-content-key x)
+    (wire/byte-payload? x) [::bytes (bytes-hex x)]
+    (or (keyword? x) (symbol? x)) [::identifier (identifier-key x)]
+    (sequential-value? x) (mapv content-key x)
+    (map? x) (into {} (map (fn [[k v]] [(content-key k) (content-key v)])) x)
+    (set? x) (into #{} (map content-key) x)
+    :else x))
+
+
+(defn content=
+  "Portable kind-strict decoded equality: two values are content= exactly
+   when content addressing would give them the same identity. Numbers must
+   share kind (integer, float64, decimal, rational), and within kind the
+   float zero sign, the decimal scale and the exact value; host integer
+   width is not significant, and canonical NaNs are equal (every NaN has
+   the one canonical encoding). Collections recurse the way equiv does,
+   metadata ignored. Unlike equiv, (content= 1 1.0) is false."
+  [a b]
+  (or (identical? a b)
+      (= (content-key a) (content-key b))))
+
+
+(defn content-hash
+  "A hash consistent with content=. Host-specific like num-hash: never
+   compare hash values across hosts."
+  [x]
+  (hash (content-key x)))
+
+
+;; ==========================================================================
 ;; Encode: normalize a value into a wire tree, then Boring writes it
 ;; ==========================================================================
 
@@ -1027,6 +1107,24 @@
    members collide after normalization."
   [value]
   (wire/encode (wire-of value 1)))
+
+
+(defn encoded-compare
+  "Order two supported values by their canonical encodings: the shorter
+   encoding first, then unsigned bytewise (the order this profile already
+   uses for map keys and set elements). Returns -1, 0 or 1. It encodes both
+   values, so callers reserve it for the rare case that needs it (the
+   min/max tie-break after numeric order has already tied)."
+  [a b]
+  (let [ea (encode a)
+        eb (encode b)
+        la (blen ea)
+        lb (blen eb)]
+    (cond
+      (< la lb) -1
+      (> la lb) 1
+      :else (let [c (compare (bytes-hex ea) (bytes-hex eb))]
+              (cond (neg? c) -1 (pos? c) 1 :else 0)))))
 
 
 ;; ==========================================================================

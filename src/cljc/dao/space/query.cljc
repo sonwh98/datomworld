@@ -19,6 +19,7 @@
    never a tuple slot."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.jing.coordinate :as jing-coordinate]
             [dao.space.index :as index]
             [dao.stream :as stream]
@@ -75,14 +76,18 @@
 
 (defn current-state-seq
   "Takes a sequence of canonical d5 datoms and returns the sequence of
-   currently-asserted datoms. Facts are keyed by local [e a v]: the greatest
-   t wins within each key, and two rows sharing [e a v t] but differing in m
-   are conflicting transaction history and are rejected (metadata is not an
+   currently-asserted datoms. Facts are keyed by local [e a v] under
+   kind-strict content identity (dao.jing.cbor/content-key), so a fact about
+   1.0M is never superseded or retracted by one about 1.00M, nor 0.0 by
+   -0.0, though host = merges both on the JVM: the greatest t wins within
+   each key, and two rows sharing [e a v t] but differing in m are
+   conflicting transaction history and are rejected (metadata is not an
    implicit tie-break). Retractions are removed; the result is EAVT-ordered."
   [s]
   (->> (reduce
          (fn [acc d]
-           (let [key [(index/datom-e d) (index/datom-a d) (index/datom-v d)]]
+           (let [key (cbor/content-key
+                       [(index/datom-e d) (index/datom-a d) (index/datom-v d)])]
              (update
                acc
                key
@@ -445,35 +450,68 @@
   [parsed tuple]
   (and (tuple-shape-matches? parsed tuple)
        (every? (fn [[expected actual]]
-                 (or (wildcard? expected) (= expected actual)))
+                 (or (wildcard? expected) (cbor/content= expected actual)))
                (map vector (:fixed parsed) tuple))))
 
 
+(defn- same-slot?
+  "True while a range scan is still inside the slot value's index range:
+   compare-vals ties, not host =. The index orders by value, so 1 and 1.0
+   (or 1.0M and 1.00M) tie and interleave by the later slots; a scan that
+   stopped at the first kind-distinct row would miss the rows after it.
+   Kind-strict matching is the caller's filter, applied after the scan."
+  [expected actual]
+  (zero? (index/compare-vals expected actual)))
+
+
+(defn- range-scannable?
+  "True for a bound slot value whose index range is exactly its kind-loose
+   equals: the scalar buckets of dao.space.index/compare-vals. A collection
+   or other value orders by host compare with a string fallback, which need
+   not agree with content= (a vector holding 1 and one holding the big
+   integer 1 are content= but print differently), so its matches are found
+   by scanning the other slots' range instead."
+  [x]
+  (or (nil? x) (boolean? x) (cbor/numeric? x) (string? x) (keyword? x) (symbol? x)))
+
+
 (defn- select-by-index
+  "The current-state datoms whose bound slots are content= the pattern's.
+   The index range of the bound scalar slots is scanned by index order
+   (numerically equal values of different kinds included), then every bound
+   slot is matched kind-strictly."
   [idx e a v]
-  (let [candidates (cond (not (wildcard? e))
-                         (take-while #(= e (index/datom-e %))
+  (let [e? (and (not (wildcard? e)) (range-scannable? e))
+        a? (and (not (wildcard? a)) (range-scannable? a))
+        v? (and (not (wildcard? v)) (range-scannable? v))
+        candidates (cond e?
+                         (take-while #(same-slot? e (index/datom-e %))
                                      (index/subseq-from (:eavt idx)
                                                         index/eavt-cmp
                                                         [e nil nil nil nil]))
-                         (and (not (wildcard? a)) (not (wildcard? v)))
-                         (take-while #(and (= a (index/datom-a %))
-                                           (= v (index/datom-v %)))
+                         (and a? v?)
+                         (take-while #(and (same-slot? a (index/datom-a %))
+                                           (same-slot? v (index/datom-v %)))
                                      (index/subseq-from (:avet idx)
                                                         index/avet-cmp
                                                         [nil a v nil nil]))
-                         (not (wildcard? v))
-                         (take-while #(= v (index/datom-v %))
+                         v?
+                         (take-while #(same-slot? v (index/datom-v %))
                                      (index/subseq-from (:vaet idx)
                                                         index/vaet-cmp
                                                         [nil nil v nil nil]))
-                         (not (wildcard? a))
-                         (take-while #(= a (index/datom-a %))
+                         a?
+                         (take-while #(same-slot? a (index/datom-a %))
                                      (index/subseq-from (:aevt idx)
                                                         index/aevt-cmp
                                                         [nil a nil nil nil]))
                          :else (seq (:eavt idx)))]
-    (current-state-seq candidates)))
+    (current-state-seq
+      (filter (fn [d]
+                (and (or (wildcard? e) (cbor/content= e (index/datom-e d)))
+                     (or (wildcard? a) (cbor/content= a (index/datom-a d)))
+                     (or (wildcard? v) (cbor/content= v (index/datom-v d)))))
+              candidates))))
 
 
 (defn datoms
@@ -486,9 +524,9 @@
   [idx e a v]
   (let [candidates (select-by-index idx e a v)]
     (filter (fn [d]
-              (and (or (wildcard? e) (= e (index/datom-e d)))
-                   (or (wildcard? a) (= a (index/datom-a d)))
-                   (or (wildcard? v) (= v (index/datom-v d)))))
+              (and (or (wildcard? e) (cbor/content= e (index/datom-e d)))
+                   (or (wildcard? a) (cbor/content= a (index/datom-a d)))
+                   (or (wildcard? v) (cbor/content= v (index/datom-v d)))))
             candidates)))
 
 
@@ -747,25 +785,131 @@
 ;; q: Datalog (:find / :in / :where over bounded db streams)
 ;; =============================================================================
 
+(defn- type-label
+  [x]
+  #?(:cljd (str (.-runtimeType x))
+     :default (str (type x))))
+
+
+(defn- content-eq
+  "The query `=`: kind-strict content equality (dao.jing.cbor/content=),
+   variadic like clojure.core/=. (= 1 1.0), (= 0.0 -0.0) and
+   (= 1.0M 1.00M) are all false."
+  ([_] true)
+  ([a b] (cbor/content= a b))
+  ([a b & more] (and (cbor/content= a b) (every? #(cbor/content= a %) more))))
+
+
+(defn- content-not-eq
+  [& args]
+  (not (apply content-eq args)))
+
+
+(defn- require-numeric!
+  [op x]
+  (when-not (cbor/numeric? x)
+    (throw (ex-info (str "query builtin " op " requires numeric operands")
+                    {:fn op, :operand x, :type (type-label x)})))
+  x)
+
+
+(defn- numeric-chain
+  "A variadic ordering builtin over dao.jing.cbor/num-compare: exact across
+   every numeric kind and carrier, in either operand order. A non-numeric
+   operand is an explicit refusal, never a coercion."
+  [op ok?]
+  (fn [x & more]
+    (require-numeric! op x)
+    (loop [a x
+           [b & bs :as rest-args] more]
+      (if (empty? rest-args)
+        true
+        (do (require-numeric! op b)
+            (if (ok? (cbor/num-compare a b))
+              (recur b bs)
+              ;; keep validating the rest, then answer false
+              (do (run! #(require-numeric! op %) bs) false)))))))
+
+
+(defn- preferred-tie
+  "The owner's min/max tie-break for two numerically equal operands
+   (docs/design/dao.jing.cbor.md, Numeric identity): content-identical
+   operands are the same value; otherwise (1) an exact operand (integer,
+   decimal, rational) beats a float64 one, (2) else the shorter canonical
+   CBOR encoding wins, (3) else the first by canonical bytes. Encoding is
+   paid only here, after numeric order has tied, so an ordinary min/max
+   fold never encodes."
+  [a b]
+  (if (cbor/content= a b)
+    a
+    (let [fa (cbor/float64? a)
+          fb (cbor/float64? b)]
+      (cond
+        (and fb (not fa)) a
+        (and fa (not fb)) b
+        :else (if (pos? (cbor/encoded-compare a b)) b a)))))
+
+
+(defn- portable-min
+  "min over two numbers: the lesser by portable numeric order, the tie-break
+   on a numeric tie. Independent of argument order and host."
+  [a b]
+  (let [c (cbor/num-compare (require-numeric! 'min a) (require-numeric! 'min b))]
+    (cond (neg? c) a
+          (pos? c) b
+          :else (preferred-tie a b))))
+
+
+(defn- portable-max
+  [a b]
+  (let [c (cbor/num-compare (require-numeric! 'max a) (require-numeric! 'max b))]
+    (cond (pos? c) a
+          (neg? c) b
+          :else (preferred-tie a b))))
+
+
+(defn- variadic
+  "The variadic builtin of a binary fold. The aggregate reducers use the
+   same binary fold, so the builtin and the aggregate always agree."
+  [f]
+  (fn [x & more] (reduce f x more)))
+
+
+(defn- host-arithmetic
+  "A host-native arithmetic builtin that refuses numeric carriers loudly:
+   a value dao.jing.cbor treats as a number but the host does not (the JVM
+   Rational carrier; the JavaScript and Dart float64, decimal and rational
+   carriers and big integers) would otherwise fail with an opaque host
+   error or, on JavaScript, silently concatenate strings."
+  [op f]
+  (fn [& args]
+    (doseq [x args]
+      (when (and (cbor/numeric? x) (not (number? x)))
+        (throw (ex-info (str "query arithmetic builtin " op
+                             " does not accept a numeric carrier")
+                        {:fn op, :operand x, :type (type-label x)}))))
+    (apply f args)))
+
+
 (def ^:private builtins
-  {'= =,
-   'not= not=,
-   '< <,
-   '> >,
-   '<= <=,
-   '>= >=,
-   '+ +,
-   '- -,
-   '* *,
-   '/ /,
-   'quot quot,
-   'rem rem,
-   'mod mod,
-   'inc inc,
-   'dec dec,
-   'min min,
-   'max max,
-   'abs abs,
+  {'= content-eq,
+   'not= content-not-eq,
+   '< (numeric-chain '< neg?),
+   '> (numeric-chain '> pos?),
+   '<= (numeric-chain '<= (complement pos?)),
+   '>= (numeric-chain '>= (complement neg?)),
+   '+ (host-arithmetic '+ +),
+   '- (host-arithmetic '- -),
+   '* (host-arithmetic '* *),
+   '/ (host-arithmetic '/ /),
+   'quot (host-arithmetic 'quot quot),
+   'rem (host-arithmetic 'rem rem),
+   'mod (host-arithmetic 'mod mod),
+   'inc (host-arithmetic 'inc inc),
+   'dec (host-arithmetic 'dec dec),
+   'min (variadic portable-min),
+   'max (variadic portable-max),
+   'abs (host-arithmetic 'abs abs),
    'str str,
    'subs subs,
    'count count,
@@ -788,11 +932,51 @@
   (if (symbol? sym) (get binding sym FREE) sym))
 
 
+(defn- binding-key
+  "The kind-strict identity of one query element: a binding map compares
+   its variables' values by dao.jing.cbor/content-key and keeps the ::dbs
+   and rule-set entries as themselves (they are the query's inputs, not
+   values, and content-key would walk every database in them); anything
+   else, a projected tuple or a bare value, is its content-key."
+  [x]
+  (if (map? x)
+    (into {}
+          (map (fn [[k v]] [k (if (or (= k ::dbs) (= k '%)) v (cbor/content-key v))]))
+          x)
+    (cbor/content-key x)))
+
+
+(defn- content-distinct
+  "Like clojure.core/distinct, lazy, first occurrence kept, order
+   preserved, but two elements are duplicates only when binding-key gives
+   them the same key: never merely because host = merges 1.0M with 1.00M
+   or 0.0 with -0.0."
+  [coll]
+  (let [step (fn step
+               [xs seen]
+               (lazy-seq
+                 ((fn [xs seen]
+                    (when-let [s (seq xs)]
+                      (let [x (first s)
+                            k (binding-key x)]
+                        (if (contains? seen k)
+                          (recur (rest s) seen)
+                          (cons x (step (rest s) (conj seen k)))))))
+                  xs
+                  seen)))]
+    (step coll #{})))
+
+
 (defn- unify
+  "Bind sym to val, or check a constant or an already-bound variable against
+   it kind-strictly (dao.jing.cbor/content=): per the owner ruling in
+   docs/design/dao.jing.cbor.md (Numeric identity) a value unifies only with
+   a value of the same numeric kind, scale and zero sign, as content
+   addressing identifies it."
   [binding sym val]
   (cond (or (= sym FREE) (= sym '_)) binding
-        (not (symbol? sym)) (when (= sym val) binding)
-        (contains? binding sym) (when (= (get binding sym) val) binding)
+        (not (symbol? sym)) (when (cbor/content= sym val) binding)
+        (contains? binding sym) (when (cbor/content= (get binding sym) val) binding)
         :else (assoc binding sym val)))
 
 
@@ -967,9 +1151,9 @@
   [clause bindings ctx]
   (let [branches (rest clause)]
     (check-same-var-rule branches)
-    (distinct (mapcat (fn [branch]
-                        (eval-where (branch-clauses branch) bindings ctx))
-                      branches))))
+    (content-distinct (mapcat (fn [branch]
+                                (eval-where (branch-clauses branch) bindings ctx))
+                              branches))))
 
 
 (defn- eval-or-join
@@ -1001,7 +1185,7 @@
                      (mapcat #(eval-where (branch-clauses %) [seed] ctx))
                      (map #(augment b %))
                      (remove nil?)
-                     distinct)))
+                     content-distinct)))
             bindings)))
 
 
@@ -1028,8 +1212,8 @@
   [idx e a v]
   (when idx
     (let [matches (filter (fn [d]
-                            (and (or (wildcard? a) (= a (index/datom-a d)))
-                                 (or (wildcard? v) (= v (index/datom-v d)))))
+                            (and (or (wildcard? a) (cbor/content= a (index/datom-a d)))
+                                 (or (wildcard? v) (cbor/content= v (index/datom-v d)))))
                           (select-datoms idx e '_ '_))]
       (if (seq matches)
         (let [vs (mapv #(nth % 2) matches)] {:v vs, :missing false})
@@ -1148,12 +1332,14 @@
                         {:rule rule-name,
                          :known (vec (distinct (map ffirst rules)))})))
       (let [arg-vals (mapv #(resolve-binding binding %) call-args)
-            call-key [rule-name arg-vals]
+            ;; keyed by content, so a call on 1.00M is not taken for a
+            ;; repeat of the call on 1.0M
+            call-key [rule-name (binding-key arg-vals)]
             active (::active-rules ctx #{})]
         (if (contains? active call-key)
           []
           (let [ctx (assoc ctx ::active-rules (conj active call-key))]
-            (distinct
+            (content-distinct
               (mapcat
                 (fn [[head & body]]
                   (let [head-vars (vec (rest head))]
@@ -1270,11 +1456,11 @@
 
 (def ^:private aggregate-fns
   {'count count,
-   'count-distinct (fn [xs] (count (distinct xs))),
-   'sum (fn [xs] (reduce + 0 xs)),
-   'min (fn [xs] (reduce min xs)),
-   'max (fn [xs] (reduce max xs)),
-   'avg (fn [xs] (double (/ (reduce + 0 xs) (count xs))))})
+   'count-distinct (fn [xs] (count (content-distinct xs))),
+   'sum (fn [xs] (reduce (host-arithmetic 'sum +) 0 xs)),
+   'min (fn [xs] (reduce portable-min xs)),
+   'max (fn [xs] (reduce portable-max xs)),
+   'avg (fn [xs] (double (/ (reduce (host-arithmetic 'avg +) 0 xs) (count xs))))})
 
 
 (defn- parse-find-element
@@ -1342,30 +1528,41 @@
 
 
 (defn- relation-result
+  "The q result: a host set of find tuples. Rows, groups and tuples are
+   deduplicated kind-strictly (content-distinct, content-key) before the
+   set is built. The set itself still compares members with host =, so on
+   a host where two content-distinct tuples are host = and hash alike (the
+   JVM for 1.0M/1.00M and 0.0/-0.0, Dart for 0.0/-0.0) they remain one
+   member of the returned set."
   [find with bindings]
   (let [elements (mapv parse-find-element find)]
     (if (not-any? :agg elements)
-      (into #{} (map (fn [b] (mapv #(project-element % b) elements))) bindings)
+      (into #{}
+            (content-distinct (map (fn [b] (mapv #(project-element % b) elements))
+                                   bindings)))
       (let [grouping-vars (filterv some?
                                    (mapv #(or (:var %) (:pull-var %)) elements))
+            ;; proj-vars are query variable symbols, which host distinct
+            ;; already compares correctly
             proj-vars (-> grouping-vars
                           (into with)
                           (into (keep :arg elements))
                           distinct)
-            rows (into #{}
-                       (map #(select-keys % (conj (vec proj-vars) ::dbs)))
-                       bindings)
-            groups (vals (group-by (fn [row] (mapv #(get row %) grouping-vars))
+            rows (content-distinct
+                   (map #(select-keys % (conj (vec proj-vars) ::dbs)) bindings))
+            groups (vals (group-by (fn [row]
+                                     (cbor/content-key (mapv #(get row %) grouping-vars)))
                                    rows))]
         (into #{}
-              (map (fn [group]
-                     (mapv (fn [element]
-                             (let [{:keys [agg arg]} element]
-                               (if agg
-                                 (agg (map #(get % arg) group))
-                                 (project-element element (first group)))))
-                           elements)))
-              groups)))))
+              (content-distinct
+                (map (fn [group]
+                       (mapv (fn [element]
+                               (let [{:keys [agg arg]} element]
+                                 (if agg
+                                   (agg (map #(get % arg) group))
+                                   (project-element element (first group)))))
+                             elements))
+                     groups)))))))
 
 
 (defn- apply-spec
