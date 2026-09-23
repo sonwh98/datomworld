@@ -93,7 +93,7 @@ default-hash-algorithm ; => :blake3
 
 The default controls implicit minting only. It is never consulted to verify an existing address.
 
-Algorithm address identifiers must be unambiguous under the parser's registered-prefix matching rule. Adding an identifier that makes parsing ambiguous is rejected at development time.
+Algorithm address identifiers are lowercase ASCII alphanumeric strings matching `[a-z0-9]+`. The parser splits the keyword name on the first `-` to extract the algorithm identifier and digest, then performs an exact registry lookup. There is no ambiguous prefix matching.
 
 ### Public digest primitives
 
@@ -210,13 +210,14 @@ All accessors delegate to it:
 The parser:
 
 1. requires a keyword in the `segment` namespace;
-2. matches a registered algorithm identifier followed by `-`;
-3. validates digest length from that algorithm's registry entry;
-4. requires lowercase hexadecimal text;
-5. reconstructs the canonical address; and
-6. rejects unknown algorithms and alternative spellings.
+2. splits the keyword name on the first `-` into algorithm identifier and digest strings;
+3. looks up the algorithm identifier in the registered algorithms table;
+4. validates digest length from that algorithm's registry entry;
+5. requires lowercase hexadecimal text;
+6. reconstructs the canonical address; and
+7. rejects unknown algorithms and alternative spellings.
 
-The parser matches registered identifiers rather than accepting an arbitrary identifier-shaped prefix. A syntactically plausible but unregistered algorithm is invalid.
+The parser matches registered identifiers rather than accepting arbitrary prefixes. A syntactically plausible but unregistered algorithm is invalid.
 
 ### `segment-matches?`
 
@@ -237,7 +238,7 @@ It:
 
 This dispatch is the core multihash behavior. A store may contain an explicitly minted SHA-256 object and a default-minted BLAKE3 object at the same time, and each verifies under its own algorithm.
 
-Malformed, unsupported, noncanonical, or mismatched addresses return false. Canonical-encoder refusal also returns false unless an established caller contract requires the refusal exception to remain visible; this behavior must be chosen once and tested consistently.
+Malformed, unsupported, noncanonical, or mismatched addresses return false. Canonical-encoder refusal also returns false, making `segment-matches?` a total verification predicate. Minting operations such as `materialize!` and `segment-key` continue to throw on encoder refusal.
 
 Outside `dao.jing`, this is the normal operation for validating an address/payload pair. Callers do not manually compare `segment-hash` with `content-hash`, nor re-mint under the default with `segment-key`.
 
@@ -414,18 +415,21 @@ Generation-only calls to `segment-key` remain one-argument calls when BLAKE3 is 
 
 ### Address-directed mint sites
 
-Three copy paths receive content under an existing address and materialize it into a local cache:
+Four copy paths receive content under an existing address and materialize or flush it into a local cache or remote store:
 
 - `dao.jing.dht/make-get`
 - `dao.data.btree.storage/hydrate!`, synchronous `pull!`
 - `dao.data.btree.storage/hydrate-async`, asynchronous `fetched!`
+- `dao.data.btree.storage/store-tree-async`, cache-minted blob flush to remote
 
-After verifying the payload, these paths materialize using the address-carried algorithm:
+After verifying the payload, local cache paths materialize using the address-carried algorithm:
 
 ```clojure
 (materialize! local payload
   {:algorithm (segment-algorithm address)})
 ```
+
+In `store-tree-async`, the flush must supply the source address (and its algorithm) to the remote store via `put-content` or an explicit address-supplying operation rather than calling un-parameterized `materialize-async-fn` / `request-materialize`, which would incorrectly re-mint under the remote's ambient default.
 
 Using one-argument `materialize!` would incorrectly convert an intentionally SHA-addressed object into a BLAKE3-addressed cache entry.
 
@@ -540,11 +544,12 @@ Complete when:
 - BLAKE3 is declared the initial default;
 - official BLAKE3-256 fixtures and representative canonical-value fixtures are recorded;
 - the portability spike's cross-provider digest table is committed;
-- every source use of Jing hash/address operations and every `sha256` literal is classified as frozen contract, new-content mint, existing-address validation, or address-preserving copy;
+- every source use of Jing hash/address operations and every `sha256` literal is classified as frozen contract, new-content mint, existing-address validation, or address-preserving copy (with `request-materialize` and `materialize-async-fn` classified as default-only remote mint entry points, and `store-tree-async` classified as an address-preserving copy flush);
 - the classification records `yin.vm.debruijn/dimension-hash` accurately as a `def`;
 - the absent register implementation is recorded as future integration;
-- malformed, unknown-algorithm, noncanonical-spelling, wrong-length, uppercase, and EDN round-trip cases are specified; and
-- an architectural lint/test is specified to reject default `content-hash` or `segment-key` in equality-based validation positions outside `dao.jing`, subject only to narrow reviewed mint assertions.
+- malformed, unknown-algorithm, noncanonical-spelling, wrong-length, uppercase, encoder-refusal (returning false for `segment-matches?`), and EDN round-trip cases are specified;
+- an architectural lint/test is specified to reject default `dao.jing/content-hash` or `dao.jing/segment-key` in equality-based validation positions outside `dao.jing`, subject only to narrow reviewed mint assertions; and
+- `docs/design/dao.jing.cbor.md` is updated in H0 to replace its SHA-only address examples and pipeline diagram text with multihash addresses.
 
 ### H1: registry and whole-system cutover
 
@@ -559,17 +564,17 @@ Complete when:
 
 - `digest-bytes` and `digest-string` support both algorithms on all three hosts;
 - one-argument `content-hash`, `segment-key`, and `materialize!` use BLAKE3;
-- explicit `{:algorithm :sha256}` minting works everywhere;
+- explicit `{:algorithm :sha256}` minting works across public minting APIs (with `request-materialize` and `materialize-async-fn` documented as default-only remote helpers);
 - parser and accessor tests pass for both canonical forms;
 - all validation sites in the complete audit use `segment-matches?`;
-- all three address-preserving copy sites derive their minting algorithm from the source address;
+- all four address-preserving copy sites derive their minting algorithm from the source address (including `store-tree-async` flushes supplying the source address to the remote store);
 - file codec round-trip validation uses the selected algorithm on both sides;
 - `dao.space.index` emits only `:schema-address` and restore accepts only that shape;
 - `yin.vm/primitive-profile` computes its digest explicitly with SHA-256, keeping its label truthful;
 - every committed development fixture containing segment addresses is regenerated;
 - existing development file stores are discarded rather than upgraded;
 - SHA-only storage docstrings and errors are generalized;
-- the CBOR design's future addressing text is reconciled with the permanent algorithm registry;
+- the CBOR design's future addressing text alignment completed in H0 is verified active;
 - the architectural lint/test preventing default-following verification is active;
 - CLJ, optimized CLJS, and CLJD builds resolve and execute their providers; and
 - the full repository test suite passes under the new address contract.
@@ -585,7 +590,7 @@ Complete when:
 - each address verifies only under the algorithm it carries;
 - malformed and algorithm-mismatched payloads are rejected;
 - memory, file replay, remote, stepped remote, DHT, ordinary B-tree reads, synchronous hydration, asynchronous hydration, DaoSpace manifests, `yin.vm.content`, `yin.vm.macro`, `yin.vm.semantic`, `yin.vm.completion`, `yin.vm.ledger`, and semantic-bytecode row validation operate correctly with both algorithm selections;
-- DHT caching and both hydration paths preserve an explicitly SHA-256 address rather than reminting it under BLAKE3;
+- DHT caching, both hydration paths, and `store-tree-async` flushes preserve an explicitly SHA-256 address rather than reminting it under BLAKE3;
 - a store can contain both address forms through ordinary post-registry use;
 - remote and DHT peers exchange and validate both forms;
 - official vectors cover empty input, non-ASCII UTF-8, 1023/1024/1025-byte boundaries, and multi-chunk input;
@@ -593,7 +598,7 @@ Complete when:
 - optimized CLJS and release CLJD builds are exercised;
 - dependency versions and licenses are recorded;
 - errors name the relevant algorithm without embedding whole sensitive payloads;
-- changing the minting default in a test seam cannot change verification of an already parsed address;
+- addresses minted under explicit `{:algorithm :sha256}` continue to verify correctly via `segment-matches?` without depending on or altering `default-hash-algorithm`;
 - `dao.jing.md` distinguishes algorithm, digest, address, minting, verification, and copying;
 - `dao.jing.md` states: "Verification must be address-directed; minting primitives are not validators";
 - `dao.jing.md` states that copying addressed content preserves the address-carried algorithm;
@@ -620,7 +625,7 @@ The minimum acceptance matrix is:
 - File replay of a store created under the registry contract containing both algorithms.
 - Remote and DHT exchange of both algorithms.
 - DHT caching of SHA-256 content under its SHA-256 address while BLAKE3 remains the default.
-- Synchronous and asynchronous B-tree hydration preserving the fetched address's algorithm.
+- Synchronous hydration, asynchronous hydration, and `store-tree-async` flushing preserving the fetched or flushed address's algorithm.
 - DaoSpace candidates containing only `:schema-address`.
 - Direct coverage or an integration path for every validation and copy site in the committed classification.
 - A source-level guard against reintroducing default-following verification.

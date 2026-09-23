@@ -6207,3 +6207,45 @@ Decisions: format.md's frontmatter description now reads "File and content forma
 Verification: grepped the whole docs/ tree for `file-format` after the edits; only `orchestrator-log.md`'s own historical entries remain (correct, append-only). Grepped for `commit format above` and `commit-message format` to confirm both stale in-file cross-references in orchestrator.md were updated, not just the primary one.
 Delegates: none (direct, low-risk documentation reorganization at explicit owner instruction).
 Next: none pending from this unit specifically; this and the other uncommitted docs/agents edits from this stretch (team.md roster links, orchestrator.md Scope of judgment, delegate-invocation-reference.md split, this rename) are all still uncommitted, awaiting the owner's word.
+
+## 2026-09-23 12:47:00 +07 — seat handoff: interactive (claude sonnet-5) orchestrator to agy
+Completed-GMT: 2026-09-23 05:47:00 GMT
+Coding-Agent: agy
+Session-ID: b71a7066-b2ee-4d2f-a87c-c62b0d73a28a
+Tree: master@2a3a3cd1 (up to date with origin/master, clean); worktree-register-r0@0e497a44 (branch register-r0, unmerged)
+Done: Established the Lead Engineering Orchestrator seat as agy taking over from sonnet-5. Read docs/agents/roles/orchestrator.md (including Scope of judgment and the restored review-before-commit contract), docs/agents/team.md, docs/agents/routing-status.md, the handoff brief collab/1790135862395-orchestrator-seat-handoff-to-agy.md, and governing design docs (dao.jing.hash-registry.md, yin.vm.debruijn.stack.md, yin.vm.debruijn.register.md, dao.jing.cbor.md). Verified local test harness, linters, and delegate CLI availability on PATH. Re-derived repository and worktree state from git log, status, and diffs.
+Decisions: Retain standing routing constraints per docs/agents/routing-status.md (cmd excluded; deepseek model catalog failures noted; glm paced at ~27%; codex reserved for architectural turns; claude and agy primary). Hold merge of register-r0 and dispatch of B4 or H0 until owner instruction.
+Verification: Local seat capabilities established: clj -M:kondo on src/cljc/dao/jing.cljc and test/dao/jing_test.cljc passed (0 errors, 0 warnings); focused JVM tests via clojure -M:test -n dao.jing-test ran 39 tests / 229 assertions with 0 failures / 0 errors. Verified bb, clojure, claude, codex, agy, glm, deepseek, cmd all executable on PATH. Checked master git status (clean) and commit log (HEAD 2a3a3cd1).
+Delegates: none (seat handoff and verification)
+Next: Await owner direction on next coherent unit: (1) independent review of dao.jing.hash-registry.md's pure-multihash revision b7a765eb to close the design gap before H0; (2) merge decision for register-r0 (R0/R1 + live-set) branch; (3) dispatch of de Bruijn stack VM B4 (effects and continuations, the longest pole); or (4) dispatch of hash registry H0 implementation.
+
+## 2026-09-23 12:55:00 +07 — dao.jing.hash-registry.md pure-multihash revision independently reviewed (claude-fable-5-1, READY to proceed to H0)
+Completed-GMT: 2026-09-23 05:55:00 GMT
+Coding-Agent: agy
+Session-ID: b71a7066-b2ee-4d2f-a87c-c62b0d73a28a
+Tree: master@2a3a3cd1, clean; worktree-register-r0@0e497a44 (branch register-r0, unmerged)
+Done: Dispatched independent architectural review of docs/design/dao.jing.hash-registry.md (pure-multihash revision b7a765eb) to claude-fable-5-1 in read-only plan mode (session 4de80508-4e9d-41e6-a131-409d06ee6520, artifacts collab/1790142588167-reviewer-hash-registry-pure-multihash.{prompt.md,claude-fable-5-1.stdout.log,claude-fable-5-1.findings.md}). Reviewer returned READY to proceed to H0, confirming that the pure-multihash simplification is sound, dropping the encoding-profile axis introduces no parsing ambiguity, canonical-bytes precedes algorithm selection, clean break with CBOR holds, and yin.vm format hashes (H and R) remain decoupled and pinned to explicit SHA-256.
+Decisions: Promoted findings to .findings.md. Verified the reviewer's findings against the actual repository source code:
+- P2 (real gap): dao.data.btree.storage/store-tree-async (storage.cljc:340) flushes cache-minted blobs to remote via materialize-async-fn (step.cljc:244 request-materialize), sending only the payload without the source address/algorithm. This is a fourth address-preserving copy path that must be classified in class 4 and updated to send the source address/algorithm to avoid silent default-coupling.
+- Six P3s (all verified): split-then-lookup parsing simplifies registered-prefix matching; segment-matches? total on encoder refusal (returns false); request-materialize and materialize-async-fn mint options classified; drop default-changing test seam in favor of explicit sha256 minting verification; update dao.jing.cbor.md SHA-only wording as an H0 item; qualify lint target as dao.jing/content-hash to avoid collision with dao.jing.cbor/content-hash.
+Verification: Inspected reviewer artifact and verified all cited lines and call sites against actual source (storage.cljc:340, step.cljc:244, cbor.cljc:890, psset_fixtures.cljc, etc.).
+Delegates: claude-fable-5-1 (reviewer, session 4de80508-4e9d-41e6-a131-409d06ee6520)
+Next: Fold the P2 finding and P3s into docs/design/dao.jing.hash-registry.md (and H0 contract/evidence tasks), then dispatch H0 when authorized.
+
+## 2026-09-23 14:07:30 +07 — review findings reconciled into dao.jing.hash-registry.md
+Completed-GMT: 2026-09-23 07:07:30 GMT
+Coding-Agent: agy
+Session-ID: b71a7066-b2ee-4d2f-a87c-c62b0d73a28a
+Tree: master@2a3a3cd1, uncommitted: docs/design/dao.jing.hash-registry.md; worktree-register-r0@0e497a44 (branch register-r0, unmerged)
+Done: Reconciled claude-fable-5-1's review findings into docs/design/dao.jing.hash-registry.md (+24/-19):
+- P2 copy path: Added dao.data.btree.storage/store-tree-async (cache-minted blob flush to remote) as the fourth address-preserving copy site; specified that flushes must supply the source address/algorithm to the remote store rather than calling un-parameterized request-materialize / materialize-async-fn. Added to H1 and H2 completion criteria and test obligations.
+- Parser simplification: Specified lowercase alphanumeric charset [a-z0-9]+; parser splits on first '-' and performs exact table lookup rather than prefix-matching machinery.
+- Total segment-matches?: Specified that segment-matches? returns false on encoder refusal, while materialize! throws.
+- Remote mint classification: Classified request-materialize and materialize-async-fn as default-only remote helpers, with explicit {:algorithm} minting scoped across public minting APIs.
+- Multi-algorithm proof: Replaced the default-changing test seam with explicit sha256 minting verification while default remains BLAKE3.
+- CBOR document alignment: Made reconciling SHA-only address phrasing in dao.jing.cbor.md an explicit H0 completion criterion.
+- Lint qualification: Specified dao.jing/content-hash explicitly to prevent collision with dao.jing.cbor/content-hash.
+Decisions: Applied findings directly as mechanical contract clarifications per orchestrator role scope. Uncommitted pending owner authorization to commit.
+Verification: diffstat +24/-19; confirmed all line-length and formatting rules; no broken references.
+Delegates: none this unit (orchestrator reconciliation of reviewed findings)
+Next: Await owner authorization to commit the updated design doc (docs(dao.jing): fold review findings into hash-registry design), then proceed to H0 dispatch when authorized.
