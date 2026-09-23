@@ -6265,3 +6265,21 @@ Decisions: Promoted sign-off report to .findings.md. Phase H0 implementation is 
 Verification: Evaluated architect deliverable against datom.world invariants and prior review findings.
 Delegates: gpt-5.6-sol (Lead System Architect, resumed thread 01a0cad7-2f30-7b82-ae67-288922310f75)
 Next: Dispatch Phase H0 (contract and evidence: flat address grammar, BLAKE3 vectors, cross-provider digest table, call-site classification, CBOR doc multihash alignment).
+
+## 2026-09-23 14:56:00 +07 — dao.jing Phase H0: contracts, fixtures, and call-site classification frozen
+Completed-GMT: 2026-09-23 07:56:00 GMT
+Coding-Agent: agy
+Session-ID: b71a7066-b2ee-4d2f-a87c-c62b0d73a28a
+Tree: master@ba88f769 (2 ahead of origin); worktree-debruijn-b4@ba88f769 (branch debruijn-b4, B4 implemented); worktree-register-r0@0e497a44 (branch register-r0, unmerged)
+Done: Implemented, reviewed, reconciled, and verified Phase H0 (Contract and Evidence) of the DaoJing multihash content-addressing rollout (docs/design/dao.jing.hash-registry.md):
+- docs/design/dao.jing.cbor.md (+38/-21): Aligned address specification with the multihash design (:segment/<algorithm-id>-<lowercase-hex-digest>), default BLAKE3 with first-class selectable SHA-256, and updated file frame parsing descriptions.
+- docs/design/dao.jing.call-site-classification.md (new, 172 lines): Complete audit classifying every mint and verification call site in src/ into the 4 architectural classes (Class 1: default minting; Class 2: multi-algorithm minting; Class 3: equality-based verification converted to segment-matches?; Class 4: address/algorithm-directed copy paths).
+- test/resources/dao/jing/blake3-vectors.edn (new): Official BLAKE3 test vectors (10 official byte-length vectors, 5 UTF-8/non-ASCII vectors).
+- test/resources/dao/jing/digest-table.edn (new): 11 canonical cross-provider test vectors frozen against dao.jing/canonical-bytes.
+- test/dao/jing/hash_registry_contract_test.cljc (new, 461 lines): Authoritative contract tests covering Section 1 flat address grammar and parsing, Section 2 total segment-matches? predicate, Section 3 EDN round-trip, Section 4 architectural AST lint/guard (var resolution and aliased symbols jing/content-hash, jing/segment-key), and Section 5 fixture self-consistency.
+- Independent adversarial review by glm-5.3 (thread 95116c74-2f68-4276-99a8-56291df8587e): READY WITH CHANGES (1 P1, 2 P2s, 3 P3s).
+- All review findings reconciled: P1 (var resolution and alias support in AST lint), P2 (accurate semantic.cljc line numbers, added 4 direct mint sites in pipeline.cljc, yin/vm.cljc, storage.cljc), P3 (removed dead set element in equality-form?, documented canonical encoder exception narrowing in segment-matches?).
+Decisions: Committed to master upon explicit owner instruction ("Approved for 1-4, proceed autonomously"). No production src/ edits or dependency changes in H0 per charter.
+Verification: clojure -M:test -n dao.jing.hash-registry-contract-test passed (13 tests, 66 assertions, 0 failures, 0 errors); clj -M:kondo --lint test/dao/jing/hash_registry_contract_test.cljc passed (0 errors, 0 warnings).
+Delegates: claude-sonnet-5 (storage-engineer, H0 implementer, session a00ad15a-2e8b-4319-a92f-b6ef5b3990b8); glm-5.3 (reviewer, H0 review, session 95116c74-2f68-4276-99a8-56291df8587e)
+Next: Proceed to Phase H1 (runtime implementation & host BLAKE3 providers in isolated worktree).

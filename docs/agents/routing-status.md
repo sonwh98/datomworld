@@ -37,6 +37,12 @@ remaining, resets 2026-09-27 23:00. Not unavailable, but pace further
 dispatches — prefer resuming an existing session (cheaper, and keeps that
 reviewer's established context) over starting a fresh one.
 
+**2026-09-23 14:41 (owner instruction):** "codex has 14% usage left and resets
+in 6hrs 45mins. see if you can squeeze useful work from it before it expires"
+(resets ~2026-09-23 21:26 +07). Actively route high-value architectural, design,
+and execution-playbook tasks to Codex (`gpt-5.6-sol`, `gpt-6-astra`) to maximize
+utility before the weekly quota resets.
+
 **2026-09-22:** `gpt` (codex/OpenAI seats) reported at ~19% of weekly budget
 remaining as of 2026-09-22, resets ~2026-09-23 20:50. Reserve for
 architectural review, batch questions per turn rather than many small

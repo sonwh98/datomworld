@@ -40,11 +40,18 @@ that `dao.jing.file` parses its own frame with Jing's shared codec, never a
 divergent per-backend codec or value interpretation.
 
 ```text
-write: value -> canonical CBOR bytes -> SHA-256 address -> backend
+write: value -> canonical CBOR bytes -> multihash address -> backend
 read:  address -> backend bytes -> integrity verification -> decoded value
 
 backend: memory | file | PostgreSQL | S3 | remote | DHT | ...
 ```
+
+The multihash address is `:segment/<algorithm-id>-<lowercase-hex-digest>`,
+per [`dao.jing.hash-registry.md`](dao.jing.hash-registry.md). BLAKE3 is the
+default minting algorithm; SHA-256 remains an equally supported, explicitly
+selectable peer. Both algorithms hash the same canonical CBOR bytes for a
+given value; this document's byte contract is unaffected by which algorithm
+names the resulting address.
 
 PostgreSQL and S3 illustrate the required interchangeability; implementing
 new PostgreSQL or S3 backends is outside this codec migration.
@@ -412,20 +419,25 @@ Objective's carve-out, and *Memory and files* below).
 The memory backend stores byte snapshots under content addresses. The file
 backend retains its append-only length framing, durability rules, duplicate
 validation, and torn-tail recovery. Each frame contains a CBOR
-`[digest payload-bytes]` record: digest is a raw 32-byte SHA-256 byte string
-and payload-bytes contains the exact canonical payload. **`dao.jing.file`
-itself owns parsing and constructing this two-element frame**, with Jing's
-own shared codec — the exception the Objective names above, needed because
-`dao.jing.file`'s frame shape is itself a CBOR structure, unlike
-`dao.jing.mem`'s unframed map or `dao.jing.remote`/`dao.jing.dht`'s
-Base64-inside-Transit framing. The wrapper owns keyword↔digest
-conversion, so file framing has no identifier-codec
-dependency. Replay checks the digest length and compares it byte-for-byte
-with the payload's SHA-256. The outer record is backend framing and does
-not contribute to the content hash. It is exactly one definite two-element
-CBOR array of byte strings, with shortest lengths and no trailing data,
-inside the existing four-byte big-endian signed length prefix; reject a
-frame exceeding that prefix's positive range before append.
+`[digest payload-bytes]` record: digest is the raw digest byte string for
+the address's carried algorithm (both initial registry algorithms are 32
+bytes) and payload-bytes contains the exact canonical payload.
+**`dao.jing.file` itself owns parsing and constructing this two-element
+frame**, with Jing's own shared codec — the exception the Objective names
+above, needed because `dao.jing.file`'s frame shape is itself a CBOR
+structure, unlike `dao.jing.mem`'s unframed map or
+`dao.jing.remote`/`dao.jing.dht`'s Base64-inside-Transit framing. The
+wrapper owns keyword↔digest conversion, so file framing has no
+identifier-codec dependency, and the algorithm identifier itself is not
+carried in the frame — it round-trips through the address keyword the
+digest is paired with at the wrapper boundary. Replay checks the digest
+length against the address-carried algorithm's registry entry and compares
+it byte-for-byte with the payload's digest under that same algorithm. The
+outer record is backend framing and does not contribute to the content
+hash. It is exactly one definite two-element CBOR array of byte strings,
+with shortest lengths and no trailing data, inside the existing four-byte
+big-endian signed length prefix; reject a frame exceeding that prefix's
+positive range before append.
 
 The byte-string payload is intentional: a file backend delegates payload
 canonicality acceptance at replay to the shared Jing validator, then stores
@@ -483,9 +495,13 @@ with different bytes. Neither backend needs CBOR value handlers.
 
 ## Addressing and clean break
 
-Hash canonical payload bytes directly with SHA-256. Preserve the address
-shape `:segment/sha256-<64 lowercase hex>`. Keep the existing string-based
-`sha256` helper for its other callers and add a separate byte-hashing function.
+Hash canonical payload bytes directly with the selected registry algorithm,
+per [`dao.jing.hash-registry.md`](dao.jing.hash-registry.md): BLAKE3 by
+default, SHA-256 by explicit selection. Preserve the address shape
+`:segment/<algorithm-id>-<64 lowercase hex>`, with canonical forms
+`:segment/blake3-<64 lowercase hex>` and `:segment/sha256-<64 lowercase
+hex>`. Keep the existing string-based `sha256` helper for its other callers
+and add separate byte-hashing functions for each registered algorithm.
 
 Every newly encoded value receives its CBOR-derived address. No legacy
 reader, old-address alias, or graph migration is included. Reject old
@@ -646,9 +662,10 @@ fixture addresses. Identity here is after the explicitly declared
 normalizations (integer width, sortedness, sequence realization, stripped or
 empty metadata, reduced ratios, NaN payloads, and float32 widening); it
 retains numeric kind,
-decimal scale, signed zero, and retained metadata. SHA-256 collision
-resistance is the addressing assumption, not a mathematical injectivity
-claim about a finite digest. Acceptance includes every scenario above,
+decimal scale, signed zero, and retained metadata. Collision resistance of
+the address-carried algorithm (BLAKE3 or SHA-256) is the addressing
+assumption, not a mathematical injectivity claim about a finite digest.
+Acceptance includes every scenario above,
 specifically surrogate rejection, float32 widening, empty-metadata omission,
 carrier equality/hash/ordering and query matching, and identifier separation.
 No implementation is accepted on byte fixtures alone while these consumer

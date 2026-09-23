@@ -1,0 +1,38 @@
+;; Frozen BLAKE3-256 (unkeyed, 32-byte output) official known-answer
+;; vectors for Phase H0 of the DaoJing multihash content-addressing
+;; rollout (docs/design/dao.jing.hash-registry.md). EDN, per the
+;; directive's "blake3-vectors.json (or .edn)" latitude, to share one
+;; portable clojure.edn reader with digest-table.edn across JVM,
+;; ClojureScript, and ClojureDart test lanes.
+;;
+;; official-vectors uses the standard official BLAKE3 test-vector input
+;; sequence input[i] = i mod 251, at the listed byte lengths: empty,
+;; sub-block, single-block, chunk-boundary-adjacent (1023/1024/1025
+;; straddle BLAKE3's 1024-byte chunk length), and multi-chunk (2048 = 2
+;; chunks, 16384 = 16 chunks).
+;;
+;; non-ascii-utf8-vectors hash the UTF-8 encoding of each string;
+;; :utf8-len is the encoded byte length, not the character count.
+;;
+;; Every hash is lowercase hex, 64 characters (32 bytes).
+
+{:input-rule "input[i] = i % 251"
+
+ :official-vectors
+ [{:input-len 0,     :hash "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"}
+  {:input-len 1,     :hash "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213"}
+  {:input-len 2,     :hash "7b7015bb92cf0b318037702a6cdd81dee41224f734684c2c122cd6359cb1ee63"}
+  {:input-len 3,     :hash "e1be4d7a8ab5560aa4199eea339849ba8e293d55ca0a81006726d184519e647f"}
+  {:input-len 64,    :hash "4eed7141ea4a5cd4b788606bd23f46e212af9cacebacdc7d1f4c6dc7f2511b98"}
+  {:input-len 1023,  :hash "10108970eeda3eb932baac1428c7a2163b0e924c9a9e25b35bba72b28f70bd11"}
+  {:input-len 1024,  :hash "42214739f095a406f3fc83deb889744ac00df831c10daa55189b5d121c855af7"}
+  {:input-len 1025,  :hash "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444"}
+  {:input-len 2048,  :hash "e776b6028c7cd22a4d0ba182a8bf62205d2ef576467e838ed6f2529b85fba24a"}
+  {:input-len 16384, :hash "f875d6646de28985646f34ee13be9a576fd515f76b5b0a26bb324735041ddde4"}]
+
+ :non-ascii-utf8-vectors
+ [{:string "datom.world",            :utf8-len 11, :hash "86a59a1c881ff0b031a6507901256be8141ebb7d257f0311a4dbc9f20e663f0d"}
+  {:string "Hello, world!",          :utf8-len 13, :hash "ede5c0b10f2ec4979c69b52f61e42ff5b413519ce09be0f14d098dcfe5f6f98d"}
+  {:string "Hello 👋 世界 🎉", :utf8-len 22, :hash "6804113b0b5dd765d792ec043de166c0d741dea4872216a58f9a19069703b0fc"}
+  {:string "héllo wörld — café",        :utf8-len 23, :hash "ec684a701755bcf13aaf067dcf556da6aa70c82296d2bbb0916e70472decdc92"}
+  {:string "こんにちは世界",    :utf8-len 21, :hash "d0c2795def0cb493358a07929e730e3c140ae4fd9fc7be2fea69a12167e54917"}]}
