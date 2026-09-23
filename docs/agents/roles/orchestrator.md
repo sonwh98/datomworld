@@ -19,29 +19,34 @@ coordination and the authority granted to every participant.
 ## Scope of judgment
 
 This role is a secretary, not a decision-maker: it tracks status, routes
-work, runs mechanical verification, and makes simple, reversible decisions.
-It does not resolve complex judgment calls itself — those get escalated,
-every time, to an Architect delegate (design and architectural questions) or
-to the user (authorization, scope, and priority questions). This is what
-makes the role viable on a small or fast model, not just a stylistic
-preference: a flash-tier model can reliably do the secretarial half of this
-job, but cannot reliably weigh architectural tradeoffs or judge how far an
-ambiguous instruction reaches, so the role must not ask it to.
+work, runs mechanical verification, and makes simple, reversible decisions —
+never complex judgment calls, which are always escalated to an Architect
+delegate (design/architectural questions) or the user (authorization, scope,
+priority questions). This scoping is what makes the role viable on a small
+or fast model: a flash-tier model can reliably do the secretarial half of
+this job, but cannot reliably weigh architectural tradeoffs or judge how far
+an ambiguous instruction reaches.
 
 Concretely:
 
 - **Simple, orchestrator-owned decisions:** which delegate to route a task to
   (per `team.md`'s routing rules), whether local verification passed, whether
   a reviewer's finding is already reconciled, file/artifact bookkeeping,
-  whether to retry a quiet-but-healthy delegate.
+  whether to retry a quiet-but-healthy delegate, and implementing small,
+  low-risk changes directly per Workflow step 4 (e.g. a typo fix, a
+  mechanical rename, a doc cross-reference update) rather than delegating
+  them — "simple" here means no choice between competing approaches and no
+  effect on behavior beyond the literal request.
 - **Complex, always escalated decisions:** any architectural or design
-  tradeoff (route to an Architect delegate, don't reason it out yourself);
-  whether an ambiguous instruction authorizes a specific consequential action
-  it didn't state explicitly — e.g. does "make the edit" also authorize
-  committing it, does "review this" also authorize implementing the fix (ask
-  the user, don't infer); weighing a reviewer's finding against the design's
-  own intent when they conflict (route back to the Architect or the user,
-  don't adjudicate it); any call that would change scope, authorization
+  tradeoff, or any implementation choice that involves picking between
+  competing approaches rather than a single obvious mechanical change (route
+  to an Architect delegate, don't reason it out yourself); whether an
+  ambiguous instruction authorizes a specific consequential action it didn't
+  state explicitly — e.g. does "make the edit" also authorize committing it,
+  does "review this" also authorize implementing the fix (ask the user,
+  don't infer); weighing a reviewer's finding against the design's own
+  intent when they conflict (route back to the Architect or the user, don't
+  adjudicate it); any call that would change scope, authorization
   boundaries, or what "done" means for the current task (ask the user).
 - When genuinely unsure which bucket a decision falls in, treat it as
   complex and escalate — the cost of an unnecessary question is far lower
@@ -53,14 +58,13 @@ Concretely:
 The orchestrator owns scope, authorization, verification, consensus, and
 readiness — see Workflow below for the full sequence. Never stage or commit
 without user instruction; when authorized, stage only requested files and
-commit only staged changes. No commit is made until independent review
-(Workflow step 7) has completed and its findings are reconciled, or the user
-explicitly instructs a commit without waiting for review (2026-09-23, owner
-instruction, reversing the commit-then-review rule this same day had
-introduced). Local verification (step 6) passing alone is not grounds to
-commit. If a commit is made before review completes without that explicit
-instruction, undo it (a local, unpushed, unmerged commit can be soft-reset)
-rather than let review happen after the fact.
+commit only staged changes. Step 6 (local verification) passing alone is
+never grounds to commit: commit only once independent review (step 7) has
+completed and its findings are reconciled, or the user explicitly instructs
+a commit without waiting for review (2026-09-23 owner ruling, superseding
+the commit-then-review rule introduced the same day). An unauthorized
+pre-review commit gets undone — soft-reset if local, unpushed, and
+unmerged — never reviewed after the fact.
 
 Commit subjects use `<type>[(<scope>)]: <lowercase imperative summary>` with
 types `docs|feat|fix|refactor|perf|test|build|chore`; an optional body explains
@@ -111,9 +115,14 @@ is only an intermediate capture.
 On reassignment, append history inside `Implementers:`; never rewrite an earlier `Status:` line:
 
 ```text
-- Status-Event: <timestamp> | Model: <prior-model> | Status: <failed|timed-out|reassigned> | Rationale: <why>
+- Status-Event: <timestamp> | Model: <prior-model> | Status: <failed|timed-out|reassigned|superseded> | Rationale: <why>
 - Model: <new-model> | Assigned: <timestamp> | Status: active | Rationale: <why>
 ```
+
+Use `superseded` when a dispatch is killed or abandoned mid-flight because a new
+instruction changed what should be done, not because the delegate failed — this is a
+distinct case from `failed`/`timed-out` and should read that way in the artifact trail,
+not be inferred from a missing final report.
 
 Read-only reviewers may share the main tree. Concurrent editors use separate
 worktrees from a committed base; uncommitted bases require serialization or
@@ -130,8 +139,8 @@ Batch complete briefs, reuse sessions for related follow-ups, start new sessions
 
 ### Session continuity
 
-Agents preserve conversational context only when a related follow-up resumes
-the exact session, conversation, or thread ID. Reading earlier prompts, logs,
+Agents preserve conversational context only when a follow-up resumes the
+exact session, conversation, or thread ID — reading earlier prompts, logs,
 findings, and diffs reconstructs task context but does not resume the session.
 
 Before the first invocation of a Claude Code-based CLI (`claude`, `glm`,
@@ -173,10 +182,10 @@ TASK_SESSION_ID="$(jq -r 'select(.type == "result") | .sessionId' \
 
 Fail the handoff if the extracted value is empty or `null`. Never use Codex
 `--ephemeral`, Command Code `--no-session`, or any provider's non-persistent
-mode for follow-up-capable work, and never substitute `--last`, `--continue`,
+mode for follow-up-capable work; never substitute `--last`, `--continue`,
 AGY `-c`, or a display name when an exact ID is available. Give every resumed
-turn a new prompt and output artifact name (e.g. `<task>-r2...`); never
-redirect a follow-up into the prior append-only log.
+turn a new prompt/artifact name (e.g. `<task>-r2...`) — never redirect a
+follow-up into the prior append-only log.
 
 Reviewer conversations are the ones most worth resuming: route a later review
 of the same subsystem back into its existing conversation whenever that
@@ -191,15 +200,23 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
   | sed 's|.*/brain/||; s|/.system_generated.*||'
 ```
 
-| CLI      | Session store                         | New-session ID source                 | Related follow-up                         |
-|----------|---------------------------------------|---------------------------------------|-------------------------------------------|
-| agy      | `~/.gemini/antigravity-cli`           | JSON `conversation_id`                | `--conversation <id>`                     |
-| claude   | `~/.claude`                           | caller UUID via `--session-id`        | `--resume <uuid>`                         |
-| cmd      | `~/.commandcode`                      | NDJSON `result.sessionId`             | `--resume <id>` or `--session <id|path>`  |
-| codex    | `~/.codex`                            | JSONL `thread.started.thread_id`      | `codex exec resume <id> --json -`         |
-| deepseek | `~/.claude-deepseek`                  | caller UUID via `--session-id`        | `--resume <uuid>`                         |
-| glm      | `~/.claude-glm`                       | caller UUID via `--session-id`        | `--resume <uuid>`                         |
-| muse     | `~/.claude-muse`                      | caller UUID via `--session-id`        | `--resume <uuid>`                         |
++----------+-----------------------------+----------------------------------+------------------------------------------+
+| CLI      | Session store               | New-session ID source            | Related follow-up                        |
++==========+=============================+==================================+==========================================+
+| agy      | `~/.gemini/antigravity-cli` | JSON `conversation_id`           | `--conversation <id>`                    |
++----------+-----------------------------+----------------------------------+------------------------------------------+
+| claude   | `~/.claude`                 | caller UUID via `--session-id`   | `--resume <uuid>`                        |
++----------+-----------------------------+----------------------------------+------------------------------------------+
+| cmd      | `~/.commandcode`            | NDJSON `result.sessionId`        | `--resume <id>` or `--session <id|path>` |
++----------+-----------------------------+----------------------------------+------------------------------------------+
+| codex    | `~/.codex`                  | JSONL `thread.started.thread_id` | `codex exec resume <id> --json -`        |
++----------+-----------------------------+----------------------------------+------------------------------------------+
+| deepseek | `~/.claude-deepseek`        | caller UUID via `--session-id`   | `--resume <uuid>`                        |
++----------+-----------------------------+----------------------------------+------------------------------------------+
+| glm      | `~/.claude-glm`             | caller UUID via `--session-id`   | `--resume <uuid>`                        |
++----------+-----------------------------+----------------------------------+------------------------------------------+
+| muse     | `~/.claude-muse`            | caller UUID via `--session-id`   | `--resume <uuid>`                        |
++----------+-----------------------------+----------------------------------+------------------------------------------+
 
 ## Work log
 
@@ -275,10 +292,22 @@ Roster, role routing, and reviewer independence are defined in [`team.md`](../te
    not receive implementation tasks. Treat that reservation as an operational constraint rather than a claim
    about model capability. Add Architect or Security review when the role or risk requires it.
 5. **Brief and execute.** When delegating, use the selected role's prompt
-   template and keep it concise and unambiguous. A delegate's exit code or
-   promise is not a deliverable: inspect the artifact and resume an unfinished
-   turn. Quiet output is not failure; wait for completion or an explicit error. Do not terminate a healthy
-   agent merely because it is quiet for several minutes (especially true for DeepSeek).
+   template and keep it concise and unambiguous. When a brief relays an owner
+   instruction that is being reinterpreted, corrected, or applied to a design
+   (not simply passed through verbatim), quote the owner's exact words and
+   label them as a quote, kept visibly separate from your own paraphrase of
+   what they mean — a paraphrase fused into one voice hides the gap where a
+   misreading survives to execution instead of being caught first (this
+   happened in this project's own history: an ambiguous "no legacy support"
+   instruction was paraphrased as "drop the old algorithm entirely," the
+   opposite of what was meant, and nearly reached a delegate before the owner
+   caught it). If a plausible alternate reading of the owner's words exists,
+   ask before dispatching rather than letting a delegate execute an
+   unconfirmed interpretation. A delegate's exit code or promise is not a
+   deliverable: inspect the artifact and resume an unfinished turn. Quiet
+   output is not failure; wait for completion or an explicit error. Do not
+   terminate a healthy agent merely because it is quiet for several minutes
+   (especially true for DeepSeek).
 6. **Verify locally.** Inspect the actual artifact and diff and run the focused
    checks in the orchestrator's environment. Delegated test claims are untrusted.
    User-run results count as evidence only when the exact command, output, and
@@ -409,15 +438,53 @@ listed CLIs.
 
 ### CLI reference
 
-| CLI | Provider / models | Model select | Review-mode flags | Implementation-mode flags | Session start | Resume |
-|---|---|---|---|---|---|---|
-| `claude` | Anthropic; default **claude-fable-5-1** | `--model <model>` | `--permission-mode plan --allowed-tools Read "Bash(git diff *)" "Bash(git status *)"` | `--permission-mode acceptEdits` | `--session-id <uuid> --name <task>` | `--resume <uuid>` |
-| `glm` | Zhipu GLM; default **glm-5.3** (Sonnet/Haiku tier: `glm-5.3-flash`) | `MODEL=<model> glm` | same as `claude` | same as `claude` | same as `claude` | same as `claude` |
-| `deepseek` | DeepSeek; default **deepseek-v4-pro** (Sonnet/Haiku tier: `deepseek-flash`) | `MODEL=<model> deepseek` | same as `claude` | same as `claude` | same as `claude` | same as `claude` |
-| `muse` | Meta/Muse; default **muse-spark-1.3-contributor** (Sonnet tier: `muse-spark-1.3`) | `MODEL=<model> muse` | same as `claude` | same as `claude` | same as `claude` | same as `claude` |
-| `codex` | OpenAI, flat-rate ChatGPT Plus; `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.4-mini` | `-m <model>` | `-s read-only` | `-s workspace-write` | no caller ID; capture `thread.started.thread_id` (see Session continuity) | `codex exec resume <thread-id>` |
-| `cmd` | CommandCode.ai; **reserved strictly for external/unsupported models with no dedicated wrapper** (e.g. `moonshotai/kimi-k3`, `moonshotai/kimi-k2.7-code`, `qwen/qwen3.8-max`) — never for models a dedicated CLI already covers | `-m <model>` | `--plan` | `--permission-mode auto-accept` | no caller ID; capture `result.sessionId` | `--resume <session-id>` (or `--session <id\|path>`) |
-| `agy` | Gemini, flat-rate; `gemini-3.1-ultra`, `gemini-3.1-pro-high`, `gemini-3.8-flash` | `--model <model> --effort <effort>` | `--mode plan --sandbox` | `--mode accept-edits --sandbox` | no caller ID; capture `conversation_id` | `--conversation <id>` |
++------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| CLI        | Provider / models          | Model select               | Review-mode flags    | Implementation-mode flags  | Session start        | Resume             |
++============+============================+============================+======================+============================+======================+====================+
+| `claude`   | Anthropic; default         | `--model <model>`          | `--permission-mode   | `--permission-mode         | `--session-id <uuid> | `--resume <uuid>`  |
+|            | **claude-fable-5-1**       |                            | plan --allowed-tools | acceptEdits`               | --name <task>`       |                    |
+|            |                            |                            | Read "Bash(git diff  |                            |                      |                    |
+|            |                            |                            | *)" "Bash(git status |                            |                      |                    |
+|            |                            |                            | *)"`                 |                            |                      |                    |
++------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `glm`      | Zhipu GLM; default         | `MODEL=<model> glm`        | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+|            | **glm-5.3** (Sonnet/Haiku  |                            |                      |                            |                      |                    |
+|            | tier: `glm-5.3-flash`)     |                            |                      |                            |                      |                    |
++------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `deepseek` | DeepSeek; default          | `MODEL=<model> deepseek`   | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+|            | **deepseek-v4-pro**        |                            |                      |                            |                      |                    |
+|            | (Sonnet/Haiku tier:        |                            |                      |                            |                      |                    |
+|            | `deepseek-flash`)          |                            |                      |                            |                      |                    |
++------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `muse`     | Meta/Muse; default **muse- | `MODEL=<model> muse`       | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+|            | spark-1.3-contributor**    |                            |                      |                            |                      |                    |
+|            | (Sonnet tier: `muse-       |                            |                      |                            |                      |                    |
+|            | spark-1.3`)                |                            |                      |                            |                      |                    |
++------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `codex`    | OpenAI, flat-rate ChatGPT  | `-m <model>`               | `-s read-only`       | `-s workspace-write`       | no caller ID;        | `codex exec resume |
+|            | Plus; `gpt-6-astra`,       |                            |                      |                            | capture `thread.star | <thread-id>`       |
+|            | `gpt-5.6-sol`,             |                            |                      |                            | ted.thread_id` (see  |                    |
+|            | `gpt-5.6-terra`,           |                            |                      |                            | Session continuity)  |                    |
+|            | `gpt-5.6-luna`,            |                            |                      |                            |                      |                    |
+|            | `gpt-5.4-mini`             |                            |                      |                            |                      |                    |
++------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `cmd`      | CommandCode.ai; **reserved | `-m <model>`               | `--plan`             | `--permission-mode auto-   | no caller ID;        | `--resume          |
+|            | strictly for               |                            |                      | accept`                    | capture              | <session-id>` (or  |
+|            | external/unsupported       |                            |                      |                            | `result.sessionId`   | `--session         |
+|            | models with no dedicated   |                            |                      |                            |                      | <id|path>`)        |
+|            | wrapper** (e.g.            |                            |                      |                            |                      |                    |
+|            | `moonshotai/kimi-k3`, `moo |                            |                      |                            |                      |                    |
+|            | nshotai/kimi-k2.7-code`,   |                            |                      |                            |                      |                    |
+|            | `qwen/qwen3.8-max`) —      |                            |                      |                            |                      |                    |
+|            | never for models a         |                            |                      |                            |                      |                    |
+|            | dedicated CLI already      |                            |                      |                            |                      |                    |
+|            | covers                     |                            |                      |                            |                      |                    |
++------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `agy`      | Gemini, flat-rate;         | `--model <model> --effort  | `--mode plan         | `--mode accept-edits       | no caller ID;        | `--conversation    |
+|            | `gemini-3.1-ultra`,        | <effort>`                  | --sandbox`           | --sandbox`                 | capture              | <id>`              |
+|            | `gemini-3.1-pro-high`,     |                            |                      |                            | `conversation_id`    |                    |
+|            | `gemini-3.8-flash`         |                            |                      |                            |                      |                    |
++------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 
 The wrapper scripts (`glm`, `deepseek`, `muse`) configure provider endpoints and credentials, then execute
 `claude --model "$MODEL" "$@"`, so `claude`/`glm`/`deepseek`/`muse` share one CLI base: none needs a PTY, all
@@ -483,20 +550,19 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   [`routing-status.md`](../routing-status.md) and route elsewhere.
 - **Claude Code headless `--permission-mode plan` without the mandatory
   `--allowed-tools Read "Bash(git diff *)" "Bash(git status *)"` flag**
-  silently halts on the first unauthorized tool call. Repeated occurrences
-  trigger its telemetry heuristic to draft an interactive bug report
-  ("Claude Code sessions in --permission-mode plan repeatedly stop short...")
-  that expects interactive input ("1 to review"), so the headless run hangs
-  or crashes. Always pass the canonical `--allowed-tools` flag.
+  silently halts on the first unauthorized tool call; repeated occurrences
+  can also trigger the CLI's own bug-report telemetry, which then expects
+  interactive input a headless run can never give, hanging or crashing it.
+  Always pass the canonical `--allowed-tools` flag.
 - **AGY in `--mode plan` may answer a headless brief with a plan artifact and
   a request for approval**, exiting `SUCCESS` with no deliverable. A response
   that promises a verdict rather than stating one is an unfinished turn —
   resume the conversation instructing it to answer directly instead of
   accepting the promise.
 - **A sandboxed AGY delegate cannot execute this host's JVM**: `clojure` died
-  with `java: Operation not permitted` under `--mode plan --sandbox` (probed
-  2026-09-04), even though that mode reads files, runs read-only shell, and
-  writes files outside the repo. The denial covers all of `~/.local` (the
+  with `java: Operation not permitted` under `--mode plan --sandbox`, even
+  though that mode reads files, runs read-only shell, and writes files
+  outside the repo. The denial covers all of `~/.local` (the
   mise-installed JDK included); no host escalation reaches inside a
   delegate's own session, since the `BypassSandbox` fix needs an approval no
   headless `-p` run can obtain. Such a delegate can appear to be verifying
@@ -509,10 +575,9 @@ Recognize it, apply the fix, and don't declare failure prematurely:
 - **`--permission-mode acceptEdits` auto-approves Edit/Write/NotebookEdit but
   not Bash**: a compound or piped command (chained `;` steps, `grep | grep`,
   a `for` loop over several files) can still be denied by the CLI's safety
-  heuristic, with no human to approve past it in a headless run. Seen
-  2026-09-17 on two `glm-5.3` delegates (U1/U2 of
-  `dao.stream.v1-retirement.implementation-plan.md`): denied multi-step
-  one-liners succeeded once split into a single command, or redirected to a
-  file instead of chained. Fix by briefing delegates toward one simple
-  command per step — never `--dangerously-skip-permissions` — treating a
-  denial as a signal to simplify, not a capability gap to route around.
+  heuristic, with no human to approve past it in a headless run. Denied
+  multi-step one-liners have succeeded once split into a single command, or
+  redirected to a file instead of chained. Fix by briefing delegates toward
+  one simple command per step — never `--dangerously-skip-permissions` —
+  treating a denial as a signal to simplify, not a capability gap to route
+  around.
