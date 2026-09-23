@@ -73,7 +73,7 @@
 (defn- validate-address-payload!
   [address payload]
   (if (and (jing/segment-address? address)
-           (= (jing/segment-hash address) (jing/content-hash payload)))
+           (jing/segment-matches? address payload))
     [address payload]
     (throw (ex-info "Segment address does not match payload"
                     {:address address, :payload payload}))))

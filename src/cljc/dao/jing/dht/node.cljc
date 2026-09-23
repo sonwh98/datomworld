@@ -111,7 +111,7 @@
        (let [{:keys [address v]} msg]
          (try
            (if (and (jing/segment-address? address)
-                    (= (jing/segment-hash address) (jing/content-hash v)))
+                    (jing/segment-matches? address v))
              (let [result ((:put-content-fn local) address v)]
                (if (#{:inserted :present} result) {:ok true} {:ok false}))
              {:ok false})

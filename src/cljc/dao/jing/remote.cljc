@@ -38,10 +38,9 @@
   (when-not (jing/segment-address? address)
     (throw (ex-info "content address must be a segment address"
                     {:address address, :payload payload})))
-  (when-not (= (jing/segment-hash address) (jing/content-hash payload))
+  (when-not (jing/segment-matches? address payload)
     (throw (ex-info "content address does not match payload hash"
-                    {:address address,
-                     :content-hash (jing/content-hash payload)}))))
+                    {:address address, :payload payload}))))
 
 
 #_{:clj-kondo/ignore [:unused-binding]}

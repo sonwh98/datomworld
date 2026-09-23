@@ -360,8 +360,10 @@
         (let [{:keys [root count elements blobs]} (get-in fx [bf profile])
               store (mem/create-content-mem)
               _ (doseq [[addr blob] blobs]
-                  (is (= addr (jing/materialize! store blob))
-                      "fixture address is the content hash of its blob"))
+                  (let [algo (jing/segment-algorithm addr)]
+                    (is (= addr
+                           (jing/materialize! store blob {:algorithm algo}))
+                        "fixture address is the content hash of its blob")))
               storage (bts/kv-storage store {:branching-factor bf})
               r (bt/restore-tree compare root storage count)]
           (is (== count (clojure.core/count r)))

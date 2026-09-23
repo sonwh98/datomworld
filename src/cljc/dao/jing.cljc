@@ -19,8 +19,14 @@
   (:require [clojure.string :as str]
             [dao.stream :as stream]
             [dao.stream.observe :as observe]
-            #?@(:cljs [[goog.crypt :as crypt] goog.crypt.Sha256])
-            #?@(:cljd [["dart:convert" :as convert]])))
+            #?@(:cljs [[goog.crypt :as crypt]
+                       goog.crypt.Sha256
+                       ["@noble/hashes/blake3.js" :as noble-blake3]
+                       ["@noble/hashes/utils.js" :as noble-utils]])
+            #?@(:cljd [["dart:convert" :as convert]
+                       ["package:blake3_dart/blake3_dart.dart"
+                        :as blake3-dart]]))
+  #?@(:cljd [(:import ["dart:typed_data" Uint8List])]))
 
 
 (def ^:private content-missing
@@ -303,29 +309,85 @@
              (bytes->hex final-h))))
 
 
-(defn content-hash
-  "SHA-256 of the order-normalized print of v. Total over any value.
+(def default-hash-algorithm
+  "The default algorithm used for implicit minting (content-hash, segment-key,
+   materialize!). Never consulted when verifying an existing address."
+  :blake3)
 
-   Transitional: order-normalized pr-str is the current encoder, NOT the
-   pinned cross-platform canonical byte encoding the spec calls for
-   (docs/design/dao.jing.md, Canonical encoding), which is still an open
-   migration item. Content addresses are portable only between
-   implementations sharing this exact print rule; when the canonical
-   encoding lands, content-hash, segment-key, and every minted address
-   change together."
-  [v]
-  (sha256 (order-normalized-print v)))
+
+(def registry
+  "The closed, immutable algorithm registry. Both initial entries produce
+   32-byte (64 lowercase hex character) digests."
+  {:blake3 {:address-id "blake3", :digest-bytes 32}
+   :sha256 {:address-id "sha256", :digest-bytes 32}})
+
+
+(def ^:private registry-by-address-id
+  (into {} (map (fn [[k v]] [(:address-id v) k])) registry))
+
+
+(def ^:private algorithm-id-pattern
+  "Algorithm address identifiers are lowercase ASCII alphanumeric strings."
+  #"[a-z0-9]+")
+
+
+(def ^:private hex-digit-pattern
+  #"[0-9a-f]+")
+
+
+(defn blake3-bytes
+  "BLAKE3 lowercase hex digest of host bytes bs (byte[] on the JVM,
+   Uint8Array on ClojureScript, Uint8List on Dart)."
+  [bs]
+  #?(:clj (let [b (io.github.rctcwyvrn.blake3.Blake3/newInstance)]
+            (.update b ^bytes bs)
+            (.hexdigest b))
+     :cljs (noble-utils/bytesToHex (noble-blake3/blake3 bs))
+     :cljd (let [^Uint8List u8 (if (instance? Uint8List bs)
+                                 bs
+                                 (Uint8List.fromList bs))]
+             (blake3-dart/blake3Hex u8))))
+
+
+(defn blake3
+  "BLAKE3 lowercase hex digest of the UTF-8 bytes of string s."
+  [s]
+  #?(:clj (let [b (io.github.rctcwyvrn.blake3.Blake3/newInstance)]
+            (.update b (.getBytes ^String s "UTF-8"))
+            (.hexdigest b))
+     :cljs (blake3-bytes (crypt/stringToUtf8ByteArray s))
+     :cljd (blake3-bytes (convert/utf8.encode s))))
+
+
+(defn digest-bytes
+  "Digest host bytes bs with the specified algorithm keyword (:blake3, :sha256).
+   Returns lowercase hexadecimal string. Unknown algorithms throw."
+  [algorithm bs]
+  (case algorithm
+    :blake3 (blake3-bytes bs)
+    :sha256 (sha256-bytes bs)
+    (throw (ex-info (str "unsupported hash algorithm: " algorithm)
+                    {:algorithm algorithm}))))
+
+
+(defn digest-string
+  "Digest string s as UTF-8 bytes with the specified algorithm keyword.
+   Returns lowercase hexadecimal string. Unknown algorithms throw."
+  [algorithm s]
+  (case algorithm
+    :blake3 (blake3 s)
+    :sha256 (sha256 s)
+    (throw (ex-info (str "unsupported hash algorithm: " algorithm)
+                    {:algorithm algorithm}))))
 
 
 (defn canonical-bytes
   "Host UTF-8 bytes (byte[] / Uint8Array / Uint8List) of the
-   order-normalized print of v — the exact bytes `content-hash` digests, so
-   `(sha256-bytes (canonical-bytes v))` is `(content-hash v)`. This is the
-   byte form Jing content travels in across a `dao.stream` boundary: the
-   Jing boundary adapter (`dao.jing.stream`) wraps these per codec profile,
-   so a payload crosses any transport as its addressed bytes and no
-   transport's value domain ever re-encodes — or silently normalizes — the
-   content itself."
+   order-normalized print of v -- the exact bytes content hashing digests, so
+   `(digest-bytes algo (canonical-bytes v))` is
+   `(content-hash v {:algorithm algo})`.
+   This is the byte form Jing content travels in across a `dao.stream`
+   boundary."
   [v]
   (let [text (order-normalized-print v)]
     #?(:clj (.getBytes ^String text "UTF-8")
@@ -333,42 +395,119 @@
        :cljd (utf8-bytes text))))
 
 
+(defn content-hash
+  "Hash the canonical-bytes of v using the specified algorithm (defaulting to
+   default-hash-algorithm, i.e. :blake3). Returns lowercase hexadecimal string.
+   Arities: [v] and [v {:keys [algorithm]}]."
+  ([v]
+   (content-hash v {:algorithm default-hash-algorithm}))
+  ([v opts]
+   (let [algo (clojure.core/get opts :algorithm default-hash-algorithm)]
+     (digest-bytes algo (canonical-bytes v)))))
+
+
 (defn segment-key
   "Mint the content-addressed key for an opaque payload, derived solely from
-   the payload: :segment/sha256-<hash(payload)>. The algorithm prefix is
-   load-bearing twice over: it names the hash function, and it keeps the
-   keyword readable EDN — a name starting with a bare hex digit cannot
-   survive print -> read, which poisons every EDN boundary content
-   addresses cross."
-  [v]
-  (keyword "segment" (str "sha256-" (content-hash v))))
+   the payload: :segment/<algorithm-id>-<digest>.
+   The 1-arg form defaults to default-hash-algorithm (:blake3).
+   The 2-arg form accepts {:algorithm :sha256} (or any registered algorithm)."
+  ([v]
+   (segment-key v {:algorithm default-hash-algorithm}))
+  ([v opts]
+   (let [algo (clojure.core/get opts :algorithm default-hash-algorithm)
+         reg (clojure.core/get registry algo)]
+     (when-not reg
+       (throw (ex-info (str "unsupported hash algorithm: " algo)
+                       {:algorithm algo})))
+     (let [algo-id (:address-id reg)
+           digest (content-hash v {:algorithm algo})]
+       (keyword "segment" (str algo-id "-" digest))))))
+
+
+(defn parse-segment-address
+  "The authoritative address parser: requires a `segment` namespace keyword,
+   splits the name on the first `-` into algorithm identifier and digest,
+   looks the identifier up by exact match (no prefix matching), validates
+   digest length from the registry entry and lowercase-hex text, and
+   reconstructs the canonical address to reject alternative spellings.
+   Returns {:algorithm :<algo>, :digest \"<hex>\", :canonical :segment/...}
+   or nil on any rejection (never throws)."
+  [address]
+  (when (keyword? address)
+    (when (= "segment" (namespace address))
+      (let [n (name address)
+            i (str/index-of n "-")]
+        (when (and i (pos? i))
+          (let [algo-id (subs n 0 i)
+                digest (subs n (inc i))]
+            (when (re-matches algorithm-id-pattern algo-id)
+              (when-let [algo (clojure.core/get registry-by-address-id algo-id)]
+                (let [{:keys [digest-bytes]}
+                      (clojure.core/get registry algo)]
+                  (when (and (= (* 2 digest-bytes) (count digest))
+                             (re-matches hex-digit-pattern digest))
+                    (let [canonical (keyword "segment"
+                                             (str algo-id "-" digest))]
+                      (when (= canonical address)
+                        {:algorithm algo,
+                         :digest digest,
+                         :canonical canonical}))))))))))))
 
 
 (defn segment-address?
-  "True when x is a content address of the form :segment/sha256-<64 hex>.
-   This is the only address class DaoJing reads or writes: arbitrary keys
-   and mutable roots are outside DaoJing."
+  "True when x is a valid content address in the closed registry:
+   :segment/<algorithm>-<digest-hex>."
   [x]
-  (and (keyword? x)
-       (= "segment" (namespace x))
-       (let [n (name x)]
-         (and (str/starts-with? n "sha256-")
-              (let [h (subs n 7)]
-                (and (= 64 (count h)) (every? hex-digits-set h)))))))
+  (boolean (parse-segment-address x)))
+
+
+(defn segment-algorithm
+  "The algorithm keyword (:blake3, :sha256) carried by a segment address.
+   Throws on invalid input."
+  [address]
+  (if-let [parsed (parse-segment-address address)]
+    (:algorithm parsed)
+    (throw (ex-info "not a segment content address" {:address address}))))
+
+
+(defn segment-digest
+  "The lowercase hex digest carried by a segment address.
+   Throws on invalid input."
+  [address]
+  (if-let [parsed (parse-segment-address address)]
+    (:digest parsed)
+    (throw (ex-info "not a segment content address" {:address address}))))
 
 
 (defn segment-hash
-  "The content hash carried by a segment address. Total only over valid
-   :segment/sha256-<64 lowercase hex> addresses; foreign namespaces,
-   malformed hashes, non-hex characters, and wrong lengths throw."
+  "The content hash carried by a segment address. Equivalent to segment-digest.
+   Total only over valid segment addresses; throws on invalid input."
   [k]
-  (when-not (segment-address? k)
-    (throw (ex-info "not a sha256 segment key" {:k k})))
-  (subs (name k) 7))
+  (segment-digest k))
+
+
+(defn segment-matches?
+  "Total verification predicate: true when address is a valid segment address
+   and its digest matches the hash of canonical-bytes of payload under the
+   address-carried algorithm.
+   Never throws: malformed addresses, unknown algorithms, digest mismatches,
+   and canonical-encoder refusal all return false."
+  [address payload]
+  (if-let [{:keys [algorithm digest]} (parse-segment-address address)]
+    (try
+      (let [bs (canonical-bytes payload)
+            actual (digest-bytes algorithm bs)]
+        (= digest actual))
+      (catch #?(:cljd Object :clj Throwable :cljs :default) _
+        false))
+    false))
 
 
 (defn materialize!
   "Content-address payload and store it through the handle's backend.
+
+   Supports [handle payload] (defaulting to default-hash-algorithm, :blake3)
+   and [handle payload {:keys [algorithm]}].
 
    The address is derived solely from the payload via segment-key, and the
    backend effect :put-content-fn is invoked as (put-content-fn address
@@ -382,55 +521,55 @@
    backend reports success.
 
    On :present the stored value is read back through :get-content-fn and
-   verified to hash to the address — with metadata, which is part of the
-   address, not just with =, which ignores it. Equal content is idempotent
-   and returns the same address. Content that does not hash to its own
-   address is an integrity failure and throws loudly. Nothing is ever
+   verified to hash to the address with segment-matches?. Equal content is
+   idempotent and returns the same address. Content that does not hash to its
+   own address is an integrity failure and throws loudly. Nothing is ever
    overwritten."
-  [handle payload]
-  (let [put (:put-content-fn handle)
-        get-fn (:get-content-fn handle)]
-    (when-not (fn? put)
-      (throw (ex-info "dao.jing handle requires :put-content-fn"
-                      {:handle handle})))
-    (when-not (fn? get-fn)
-      (throw (ex-info "dao.jing handle requires :get-content-fn"
-                      {:handle handle})))
-    (let [address (segment-key payload)
-          result (put address payload)]
-      (case result
-        :inserted address
-        :present
-        (let [stored (get-fn address content-missing)]
-          (cond
-            (identical? stored content-missing)
-            (throw
-              (ex-info
-                "backend reported :present but the content address is absent"
-                {:address address, :payload payload}))
-            ;; the read-back must hash to the address it sits at: = alone
-            ;; would pass a metadata-only mismatch, which the address
-            ;; already distinguishes
-            (= (content-hash stored) (segment-hash address)) address
-            :else
-            (throw
-              (ex-info
-                "content collision: the stored value does not hash to its content address"
-                {:address address, :stored stored, :payload payload}))))
-        (throw (ex-info
-                 "invalid backend put result"
-                 {:result result, :address address, :payload payload}))))))
+  ([handle payload]
+   (materialize! handle payload {:algorithm default-hash-algorithm}))
+  ([handle payload opts]
+   (let [put (:put-content-fn handle)
+         get-fn (:get-content-fn handle)]
+     (when-not (fn? put)
+       (throw (ex-info "dao.jing handle requires :put-content-fn"
+                       {:handle handle})))
+     (when-not (fn? get-fn)
+       (throw (ex-info "dao.jing handle requires :get-content-fn"
+                       {:handle handle})))
+     (let [address (segment-key payload opts)
+           result (put address payload)]
+       (case result
+         :inserted address
+         :present
+         (let [stored (get-fn address content-missing)]
+           (cond
+             (identical? stored content-missing)
+             (throw
+               (ex-info
+                 "backend reported :present but the content address is absent"
+                 {:address address, :payload payload}))
+             ;; the read-back must hash to the address it sits at
+             (segment-matches? address stored) address
+             :else
+             (throw
+               (ex-info
+                 (str "content collision: the stored value does not hash to "
+                      "its content address")
+                 {:address address, :stored stored, :payload payload}))))
+         (throw (ex-info
+                  "invalid backend put result"
+                  {:result result, :address address, :payload payload})))))))
 
 
 (defn get
   "Retrieve the opaque value stored at a content address.
 
-   Only :segment/sha256-<64 hex> content addresses are valid DaoJing reads;
+   Only valid registered content addresses are valid DaoJing reads;
    arbitrary keys and mutable roots are outside DaoJing and throw before the
    backend is consulted. Returns not-found when the address is absent."
   [handle address not-found]
   (when-not (segment-address? address)
-    (throw (ex-info "dao.jing reads only :segment/sha256-... content addresses"
+    (throw (ex-info "dao.jing reads only valid segment content addresses"
                     {:address address})))
   (let [get-fn (:get-content-fn handle)]
     (when-not (fn? get-fn)

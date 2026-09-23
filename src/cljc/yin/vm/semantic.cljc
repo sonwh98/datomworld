@@ -614,13 +614,14 @@
           ;; UCF §7.3.4 checks an address whenever one is claimed, so a
           ;; false claim fails the load here and never reaches the alias
           ;; column.
-          actual (when claimed
-                   (jing/segment-key (mapv canonical instructions)))]
-      (if (and claimed (not= claimed actual))
+          canonical-vec (when claimed
+                          (mapv canonical instructions))]
+      (if (and claimed (not (jing/segment-matches? claimed canonical-vec)))
         (throw (ex-info (str "Cannot load segment: hash-mismatch (entity "
                              seg ")")
                         {:defect {:rule :hash-mismatch, :entity seg},
-                         :claimed claimed, :actual actual}))
+                         :claimed claimed,
+                         :actual (jing/segment-key canonical-vec)}))
         (cond-> {:segment seg,
                  :length (get-in attrs [seg :yin.code/length]),
                  :code (mapv decode instructions)}

@@ -312,12 +312,11 @@
     (when-not (valid-manifest? manifest)
       (throw (ex-info "invalid index manifest"
                       {:address manifest-address, :manifest manifest})))
-    (let [actual-address (jing/segment-key manifest)]
-      (when-not (= manifest-address actual-address)
-        (throw (ex-info "index manifest content address mismatch"
-                        {:expected manifest-address,
-                         :actual actual-address,
-                         :manifest manifest}))))
+    (when-not (jing/segment-matches? manifest-address manifest)
+      (throw (ex-info "index manifest content address mismatch"
+                      {:expected manifest-address,
+                       :actual (jing/segment-key manifest),
+                       :manifest manifest})))
     manifest))
 
 
@@ -1291,7 +1290,7 @@
      :ingress-gaps (:ingress-gaps observer),
      :rejected (:rejected consumer),
      :mode (:mode consumer),
-     :schema-hash (jing/content-hash (:schema consumer))}))
+     :schema-address (jing/segment-key (:schema consumer))}))
 
 
 (defn verify-candidate
@@ -1367,9 +1366,9 @@
     (throw (ex-info "checkpoint candidate mode does not match the session being constructed"
                     {:candidate-mode (:mode candidate), :session-mode mode})))
   (validate-schema! schema)
-  (when-not (= (jing/content-hash schema) (:schema-hash candidate))
+  (when-not (jing/segment-matches? (:schema-address candidate) schema)
     (throw (ex-info "checkpoint candidate schema does not match the session being constructed"
-                    {:candidate-schema-hash (:schema-hash candidate)})))
+                    {:candidate-schema-address (:schema-address candidate)})))
   (when (= :shared (get-in candidate [:ids :ownership]))
     (throw (ex-info
              "restore refuses a :shared allocator: a session-local snapshot of it is stale the moment any sibling allocates; coordinated recovery is a composition-level checkpoint over every sharing session"

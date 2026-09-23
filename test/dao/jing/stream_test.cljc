@@ -21,9 +21,12 @@
 
 
 (deftest canonical-bytes-are-the-addressed-bytes
-  (testing "sha256-bytes over canonical-bytes is content-hash, on every payload"
+  (testing
+    "digest-bytes over canonical-bytes matches content-hash, on every payload"
     (doseq [v payloads]
       (is (= (jing/content-hash v)
+             (jing/blake3-bytes (jing/canonical-bytes v))))
+      (is (= (jing/content-hash v {:algorithm :sha256})
              (jing/sha256-bytes (jing/canonical-bytes v)))))))
 
 

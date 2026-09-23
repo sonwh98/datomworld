@@ -15,7 +15,8 @@
    The handle is plain data, like a dao.jing content handle:
 
      {:get-content-async-fn (fn [address callback])
-      :materialize-async-fn (fn [payload callback])}
+      :materialize-async-fn (fn [payload callback])
+      :put-content-async-fn (fn [address payload callback])}
 
    Each callback is invoked exactly once, on the pump, with the stepped
    client's published completion for that request — `{:found? b :value v}`
@@ -62,10 +63,11 @@
    `[:busy]` when an unsent envelope is owed (nothing submitted),
    `[:registered state' id]`, or `[:refused state' completion]` for an
    outcome that carries no id."
-  [state [kind arg]]
+  [state [kind arg opts]]
   (let [r (case kind
             :get (step/request-get state arg)
-            :materialize (step/request-materialize state arg))]
+            :materialize (step/request-materialize state arg (or opts {}))
+            :put (step/request-put state (first arg) (second arg)))]
     (cond
       (= :busy (:outcome r)) [:busy]
       (some? (:id r)) [:registered (:state r) (:id r)]
@@ -95,13 +97,15 @@
          ;; shared with enqueuers
          ctl (atom {:inbox [], :scheduled? false})
          pump!
-         (fn pump! []
+         (fn pump!
+           []
            (let [inbox (:inbox (first (swap-vals! ctl assoc :inbox [])))
                  fire (volatile! [])]
              (try
                (loop [requests (seq inbox)]
                  (when requests
-                   (let [[_ _ callback :as request] (first requests)
+                   (let [request (first requests)
+                         callback (peek request)
                          [tag state' x] (submit @client request)]
                      (case tag
                        :busy (swap! ctl update :inbox #(into (vec requests) %))
@@ -156,8 +160,20 @@
         ;; C1 before the queue, so a bad address throws at the caller
         ;; rather than inside the pump
         (when-not (jing/segment-address? address)
-          (throw (ex-info "an async content request names a non-segment address"
-                          {:address address})))
+          (throw (ex-info
+                   "an async content request names a non-segment address"
+                   {:address address})))
         (enqueue! [:get address callback]))
       :materialize-async-fn
-      (fn [payload callback] (enqueue! [:materialize payload callback]))})))
+      (fn
+        ([payload callback]
+         (enqueue! [:materialize payload {} callback]))
+        ([payload opts callback]
+         (enqueue! [:materialize payload opts callback])))
+      :put-content-async-fn
+      (fn [address payload callback]
+        (when-not (jing/segment-address? address)
+          (throw (ex-info
+                   "an async content request names a non-segment address"
+                   {:address address})))
+        (enqueue! [:put [address payload] nil callback]))})))

@@ -183,16 +183,16 @@
    (when (not= :derive (:yin.ledger/op record))
      (throw (ex-info "verify-derivation takes a :derive record"
                      {:op (:yin.ledger/op record)})))
-   (let [row-address (fn [id]
-                       (jing/segment-key (subvec (get rows id) 1)))
+   (let [row-matches? (fn [id]
+                        (jing/segment-matches? id (subvec (get rows id) 1)))
          hash-mismatch (fn [value] {:kind :yin.k/hash-mismatch :value value})]
      (or (vm/validate-rows tree)
-         (when-not (= root (row-address root)) (hash-mismatch root))
-         (some (fn [id] (when-not (= id (row-address id)) (hash-mismatch id)))
+         (when-not (row-matches? root) (hash-mismatch root))
+         (some (fn [id] (when-not (row-matches? id) (hash-mismatch id)))
                (keys rows))
          (code/well-formed-vector? vector)
          (let [output (:yin.ledger/output record)]
-           (when-not (= output (jing/segment-key vector))
+           (when-not (jing/segment-matches? output vector)
              (hash-mismatch output)))
          (let [profile (:yin.ledger/profile record)]
            (when-not (= profile implemented)
@@ -200,12 +200,18 @@
               :record profile
               :implemented implemented}))
          (let [output (:yin.ledger/output record)
-               actual (jing/segment-key
-                        (:vector (linearize/lower-rows tree)))]
-           (when-not (= output actual)
+               lowered (:vector (linearize/lower-rows tree))]
+           (when-not (jing/segment-matches? output lowered)
              {:kind :yin.k/derivation-mismatch
               :output output
-              :actual actual}))))))
+              :actual (let [algo (try
+                                   (jing/segment-algorithm output)
+                                   (catch #?(:cljd Object
+                                             :clj Throwable
+                                             :cljs :default)
+                                          _
+                                     jing/default-hash-algorithm))]
+                        (jing/segment-key lowered {:algorithm algo}))}))))))
 
 
 (defn resolve-name

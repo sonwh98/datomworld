@@ -102,6 +102,6 @@
    print is not invertible here, and reconstruction is the receiver's read
    of the bytes (`clojure.edn` over the text, as the file backend replays
    frames); what crosses the stream is the addressed byte stream, verified
-   by `(jing/sha256-bytes …)` against the claimed address."
+   by `(jing/segment-matches? ...)` against the claimed address."
   [profile v]
   (wrap-bytes profile (jing/canonical-bytes v)))

@@ -98,7 +98,7 @@
               (throw (ex-info "dao.jing content address resolves to no payload"
                               {:id id}))
 
-              (not= id (jing/segment-key body))
+              (not (jing/segment-matches? id body))
               (throw (ex-info "dao.jing content does not hash to its address"
                               {:id id, :body body}))
 
@@ -134,7 +134,7 @@
     (when (identical? v absent)
       (throw (ex-info "dao.jing content address resolves to no payload"
                       {:address address})))
-    (when-not (= address (jing/segment-key v))
+    (when-not (jing/segment-matches? address v)
       (throw (ex-info "dao.jing content does not hash to its address"
                       {:address address, :value v})))
     (when-let [{:keys [rule pc]} (code/well-formed-vector? v)]

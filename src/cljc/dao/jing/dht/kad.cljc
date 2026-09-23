@@ -2,7 +2,7 @@
   "Pure Kademlia routing primitives: XOR distance over hex node ids and a
   k-bucket routing table. No IO lives here; the table is a plain value the
   node threads through an atom. Ids are equal-length lowercase hex strings
-  (SHA-256, 64 chars) sharing one key space with content hashes, so peers
+  (32 bytes, 64 chars) sharing one key space with content digests, so peers
   and keys route uniformly.")
 
 

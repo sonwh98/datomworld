@@ -69,6 +69,12 @@
          (is (nil? (meta (second decoded))))
          (is (= (jing/content-hash '(2 3))
                 (jing/content-hash (second decoded))))
-         (is (= "e5bab3450d860af30befedbf9a650a761af5b35663e00cc1a126d15cf9199cb5"
-                (jing/content-hash decoded)))))
+         (is (= (jing/content-hash '[1 (2 3) #{4}])
+                (jing/content-hash decoded)))
+         (is
+           (= "738db3e930f478ee4212ad3dfa2434723e298adb05b19450d4f61ad4fbcf0e8c"
+              (jing/content-hash decoded)))
+         (is
+           (= "e5bab3450d860af30befedbf9a650a761af5b35663e00cc1a126d15cf9199cb5"
+              (jing/content-hash decoded {:algorithm :sha256})))))
      :default (is true)))

@@ -10,7 +10,7 @@
    stream carried a value, so equal payloads converge on exactly one entry.
 
    :put-content-fn is an atomic insert-if-absent over the state atom. The
-   caller-supplied address must be a :segment/sha256-... content address
+   caller-supplied address must be a :segment/<algo>-... content address
    whose hash matches the payload; otherwise it throws. An address already
    holding the same payload reports :present and is never overwritten; an
    address already holding an unequal payload is an integrity-failure
@@ -21,13 +21,13 @@
 
 (defn- validate-address-payload!
   "Reject a put before any write: the address must be a valid
-   :segment/sha256-... content address and must hash to the exact payload."
+   segment content address and must match the exact payload."
   [address payload]
   (when-not (jing/segment-address? address)
-    (throw (ex-info "dao.jing.mem: not a sha256 segment content address"
+    (throw (ex-info "dao.jing.mem: not a segment content address"
                     {:address address, :payload payload})))
-  (when-not (= (jing/segment-hash address) (jing/content-hash payload))
-    (throw (ex-info "dao.jing.mem: content address does not hash to the payload"
+  (when-not (jing/segment-matches? address payload)
+    (throw (ex-info "dao.jing.mem: content address does not match the payload"
                     {:address address, :payload payload}))))
 
 
