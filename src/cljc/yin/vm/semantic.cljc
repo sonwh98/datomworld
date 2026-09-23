@@ -621,7 +621,15 @@
                              seg ")")
                         {:defect {:rule :hash-mismatch, :entity seg},
                          :claimed claimed,
-                         :actual (jing/segment-key canonical-vec)}))
+                         :actual (let [algo (try
+                                              (jing/segment-algorithm claimed)
+                                              (catch #?(:cljd Object
+                                                        :clj Throwable
+                                                        :cljs :default)
+                                                     _
+                                                jing/default-hash-algorithm))]
+                                   (jing/segment-key canonical-vec
+                                                     {:algorithm algo}))}))
         (cond-> {:segment seg,
                  :length (get-in attrs [seg :yin.code/length]),
                  :code (mapv decode instructions)}

@@ -280,9 +280,9 @@
    equivalent); :closed-atom is the store's explicit private state and close
    lock.
 
-   The DHT routes only :segment/sha256-... content addresses and records no
-   source identity: there are no roots, CAS records, deletes, or intake
-   streams."
+   The DHT routes only registered :segment/<algorithm>-... content addresses
+   and records no source identity: there are no roots, CAS records, deletes,
+   or intake streams."
   [{:keys [net local]}]
   (when-not (and net local)
     (throw (ex-info "dao.jing.dht requires :net and :local"

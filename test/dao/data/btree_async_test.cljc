@@ -240,6 +240,72 @@
     (is (= [:ok s] @(:result hydrated)))))
 
 
+(deftest hydrate-async-preserves-sha256-algorithm-test
+  (let [store (mem/create-content-mem)
+        storage (bts/kv-storage store
+                                {:branching-factor 32, :algorithm :sha256})
+        s (into (bt/restore-tree compare nil storage 0) (range 300))
+        root (bt/store-tree s storage)
+        r (rig (remote/default-handlers store))
+        cache (mem/create-content-mem)
+        hs (bts/hydration-storage (:source r) cache {:branching-factor 32})
+        s-restored (bt/restore-tree compare root hs 300)
+        {:keys [result on-ok on-err]} (outcome)]
+    (is (= :sha256 (jing/segment-algorithm root)))
+    (is (= "unhydrated segment" (ex-msg #(doall (seq s-restored)))))
+    (bts/hydrate-async s-restored on-ok on-err)
+    (drain! r)
+    (is (= [:ok s-restored] @result))
+    (is (= (range 300) (seq s-restored)))
+    (let [cached-addrs (keys (:content @(:state cache)))]
+      (is (pos? (count cached-addrs)))
+      (is (every? #(= :sha256 (jing/segment-algorithm %)) cached-addrs)
+          "all cached segment addresses preserve the sha256 algorithm"))))
+
+
+(deftest store-tree-async-flushes-preserve-sha256-algorithm-test
+  (let [store (mem/create-content-mem)
+        r (rig (remote/default-handlers store))
+        raw-cache (mem/create-content-mem)
+        hs (bts/hydration-storage (:source r)
+                                  raw-cache
+                                  {:branching-factor 32, :algorithm :sha256})
+        s (into (bt/restore-tree compare nil hs 0) (range 300))
+        {:keys [result on-ok on-err]} (outcome)]
+    (bts/store-tree-async s hs on-ok on-err)
+    (drain! r)
+    (let [[tag root] @result]
+      (is (= :ok tag))
+      (is (= :sha256 (jing/segment-algorithm root)))
+      (let [source-content (:content @(:state store))]
+        (is (pos? (count source-content)))
+        (is (every? #(= :sha256 (jing/segment-algorithm %))
+                    (keys source-content))
+            "all flushed segments to source preserve sha256 addresses")))))
+
+
+(deftest store-tree-async-materialize-fallback-preserves-sha256-test
+  (let [store (mem/create-content-mem)
+        r (rig (remote/default-handlers store))
+        source-without-put (dissoc (:source r) :put-content-async-fn)
+        raw-cache (mem/create-content-mem)
+        hs (bts/hydration-storage source-without-put
+                                  raw-cache
+                                  {:branching-factor 32, :algorithm :sha256})
+        s (into (bt/restore-tree compare nil hs 0) (range 100))
+        {:keys [result on-ok on-err]} (outcome)]
+    (bts/store-tree-async s hs on-ok on-err)
+    (drain! r)
+    (let [[tag root] @result]
+      (is (= :ok tag))
+      (is (= :sha256 (jing/segment-algorithm root)))
+      (let [source-content (:content @(:state store))]
+        (is (pos? (count source-content)))
+        (is (every? #(= :sha256 (jing/segment-algorithm %))
+                    (keys source-content))
+            "materialize-async fallback preserves sha256 addresses")))))
+
+
 (deftest host-deferred-resolves
   #?(:cljd nil
      ;; the real reschedule path: pumps run on the JVM delayed executor

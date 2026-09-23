@@ -349,6 +349,27 @@
     (is (= (range 100) (seq (bt/restore-tree compare addr hstorage 100))))))
 
 
+(deftest synchronous-hydration-preserves-sha256-algorithm-test
+  ;; Hydrating a tree composed of SHA-256 addresses must populate the cache
+  ;; with SHA-256 addresses rather than reminting them to the default BLAKE3.
+  (let [source (mem/create-content-mem)
+        seed-storage (bts/kv-storage source
+                                     {:branching-factor 16, :algorithm :sha256})
+        s (into (bt/restore-tree compare nil seed-storage 0) (range 200))
+        root (bt/store-tree s seed-storage)
+        cache (mem/create-content-mem)
+        hstorage (bts/hydration-storage source cache {:branching-factor 16})
+        r (bt/restore-tree compare root hstorage 200)]
+    (is (= :sha256 (jing/segment-algorithm root)))
+    (is (= "unhydrated segment" (ex-msg #(doall (seq r)))))
+    (bts/hydrate! r)
+    (is (= (range 200) (seq r)))
+    (let [cached-addrs (keys (:content @(:state cache)))]
+      (is (pos? (count cached-addrs)))
+      (is (every? #(= :sha256 (jing/segment-algorithm %)) cached-addrs)
+          "all cached segment addresses preserve the sha256 algorithm"))))
+
+
 (deftest fixture-blobs-restore-through-storage-test
   ;; the psset fixture blobs (§5.2) read through the real IStorage path:
   ;; materialize every blob under its recorded content address, restore

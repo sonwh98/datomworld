@@ -25,7 +25,7 @@
 
    dao.data.btree itself stays storage-agnostic; this namespace is the one
    place the tree meets dao.jing (Decision 1: no new storage protocol —
-   everything below is materialize!/get, plus segment-key for §5.2
+   everything below is materialize!/get, plus segment-matches? for §5.2
    verification)."
   (:require #?@(:cljd [["dart:async" :as async]])
             [dao.data.btree :as bt]
@@ -41,11 +41,16 @@
 
 
 (deftype KVStorage
-  [store settings verify?]
+  [store settings verify? algorithm]
 
   bt/IStorage
 
-  (-store [_ node] (jing/materialize! store (bt/node->blob node)))
+  (-store
+    [_ node]
+    (let [blob (bt/node->blob node)]
+      (if algorithm
+        (jing/materialize! store blob {:algorithm algorithm})
+        (jing/materialize! store blob))))
 
 
   (-restore
@@ -69,7 +74,8 @@
 (defn kv-storage
   "A sync IStorage over a dao.jing content-store handle. opts:
    {:branching-factor n (default 512) :ref-type k (default per host, §5.3)
-   :verify? bool (default false, §5.2 — same-host mint+read only)}. The
+   :verify? bool (default false, §5.2 — same-host mint+read only)
+   :algorithm keyword (default nil, mints with default-hash-algorithm)}. The
    returned storage owns the Settings every tree restored through it shares
    (§5.1 threading rule); pass the manifest's :branching-factor here."
   ([store] (kv-storage store nil))
@@ -79,7 +85,10 @@
                              (or (:ref-type opts) (bt/default-ref-type*))
                              nil
                              box)
-         storage (KVStorage. store sett (boolean (:verify? opts)))]
+         storage (KVStorage. store
+                             sett
+                             (boolean (:verify? opts))
+                             (:algorithm opts))]
      (vreset! box storage)
      storage)))
 
@@ -94,7 +103,7 @@
 
 
 (deftype HydrationStorage
-  [source cache settings outbox]
+  [source cache settings outbox algorithm]
   ;; outbox: atom {:writing? bool, :unacked [[addr blob] ...]} — used
   ;; only over an async source. :writing? is true only inside
   ;; store-tree-async; :unacked holds every blob stored to the cache whose
@@ -105,21 +114,28 @@
 
   (-store
     [_ node]
-    (let [blob (bt/node->blob node)]
+    (let [blob (bt/node->blob node)
+          opts (when algorithm {:algorithm algorithm})]
       (if (async-source? source)
         (do
           ;; the sync store-tree cannot wait for acknowledgments (§5.4)
           (when-not (:writing? @outbox)
             (throw (ex-info "sync store-tree against an async backend" {})))
-          (let [addr (jing/materialize! cache blob)]
+          (let [addr (if opts
+                       (jing/materialize! cache blob opts)
+                       (jing/materialize! cache blob))]
             (swap! outbox update :unacked
                    (fn [u]
                      (if (some #(= addr (first %)) u) u (conj u [addr blob]))))
             addr))
         ;; writes land in the durable source AND the read cache; both are
         ;; content-addressed, so both must answer with the same address
-        (let [source-addr (jing/materialize! source blob)
-              cache-addr (jing/materialize! cache blob)]
+        (let [source-addr (if opts
+                            (jing/materialize! source blob opts)
+                            (jing/materialize! source blob))
+              cache-addr (if opts
+                           (jing/materialize! cache blob opts)
+                           (jing/materialize! cache blob))]
           (when-not (= source-addr cache-addr)
             (throw (ex-info "hydration source and cache diverged"
                             {:source source-addr, :cache cache-addr})))
@@ -156,7 +172,8 @@
          storage (HydrationStorage. source
                                     cache
                                     sett
-                                    (atom {:writing? false, :unacked []}))]
+                                    (atom {:writing? false, :unacked []})
+                                    (:algorithm opts))]
      (vreset! box storage)
      storage)))
 
@@ -325,7 +342,11 @@
            source (.-source hs)
            put-content-async (or (:put-content-async-fn source)
                                  (when-let [m (:materialize-async-fn source)]
-                                   (fn [_addr blob cb] (m blob cb))))
+                                   (fn [addr blob cb]
+                                     (m blob
+                                        {:algorithm
+                                         (jing/segment-algorithm addr)}
+                                        cb))))
            stored (attempt (fn []
                              (swap! outbox assoc :writing? true)
                              (try (bt/store-tree s storage)
