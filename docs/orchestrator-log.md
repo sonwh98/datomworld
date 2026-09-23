@@ -6419,3 +6419,57 @@ Verification: Full tri-host test matrix executed and 100% green on master:
 - Independent adversarial audit by Gemini Pro (thread 79c71dd8...): APPROVED.
 Delegates: Gemini Pro (research subagent, adversarial reviewer)
 Next: Proceed to next prioritized epic: Register VM Phase R1/R2 or DaoSpace.
+
+---
+
+## 2026-09-23 21:50:00 +07 — feat(yin.vm): implement register debruijn phase r2
+Completed-GMT: 2026-09-23 14:50:00 GMT
+Coding-Agent: agy
+Session-ID: b71a7066-b2ee-4d2f-a87c-c62b0d73a28a
+Tree: master@ba6947de, clean
+Done: Fully implemented, tested, adversarially reviewed, hardened, and
+  integrated Register VM Phase R2 (effects, stream lowering, engine seam, and
+  continuation contracts):
+- Instruction Set & Validator (debruijn_register_code.cljc):
+  * Extended opcode-table to 22 mnemonics under contract-version 3.
+  * Defined boundary-opcodes (#{ :call :stream-put :stream-next :ffi-call
+    :current-continuation :park }) and live-slot-index mapping.
+  * Added :resume to terminators and wired control flow in successors-of.
+  * Extended use-of and def-of for all 12 R2 opcodes and :resume.
+  * Generalized body-liveness and live-* rules across all boundary opcodes.
+- Compiler Lowering & Lift (debruijn_register_compile.cljc):
+  * Lowered all 12 R2 resolver AST node types in lower-node!.
+  * Deterministic child temp allocation and release order.
+  * Generalized fill-live using live-slot-index.
+  * Extended parse-range in lift pass to invert all 12 R2 opcodes back to
+    named canonical vector tuples.
+- Pure Effects & Continuation Contracts (debruijn_register_effects.cljc):
+  * Pure effect-descriptor mapping matching engine/handle-effect expectations.
+  * Canonical sparse continuation-payload constructor for boundary opcodes.
+  * Deterministic continuation-defect and wait-entry-defect validators.
+  * Hardened against non-throwing contract on malformed regs and enforced
+    :reason validation (:put for ffi-writer, :next for ffi-reader).
+- Hardened FFI Engine Seam (ffi.cljc):
+  * response-wait-entry strips all 10 stale response keys.
+- Comprehensive Test Suites:
+  * test/yin/vm/debruijn_register_contract_test.cljc: 22 mnemonics, pinned
+    descriptor hash
+    2621ded6caa3bbcb6ccd948b74876dd4eeb88c29c157dda75a97b4e8e77c2db0.
+  * test/yin/vm/debruijn_register_effects_test.cljc: payload capture across
+    all 6 boundary opcodes, defect mutation matrix, wait entry tests,
+    EDN round trip, engine seam equivalence.
+  * test/yin/vm/debruijn_register_compile_test.cljc: exact lowering tests,
+    golden image hashes, lift law exactness tests across all 12 R2 opcodes.
+Decisions: Committed on worktree branch debruijn-register-r2 (ba6947de) and
+  merged fast-forward into master. Worktree cleanly removed and local branch
+  deleted. Commits strictly local (no remote push).
+Verification: Full tri-host test matrix executed and 100% green on master:
+- JVM (bb test:clj): 1,910 tests, 179,092 assertions, 0 failures, 0 errors.
+- Node/CLJS (bb test:cljs): 1,827 tests, 46,322 assertions, 0 fail, 0 err.
+- ClojureDart (bb test:cljd): 1,789 tests passed, 0 failures, 0 errors.
+- Formatting & Quality: 100% cljstyle clean, all diff and touched source lines
+  <= 80 columns, strictly pure ASCII, zero linter errors/warnings (clj-kondo).
+- Independent adversarial audit conducted, findings addressed and re-verified.
+Delegates: Adversarial Code Reviewer (research subagent 216ca367)
+Next: Proceed to Phase R3 (Register VM execution kernel) or next prioritized
+  architecture epic.
