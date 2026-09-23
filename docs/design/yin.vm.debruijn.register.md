@@ -267,8 +267,8 @@ The descriptor declares:
     | Scalar encoding      | Reuse B1 scalar bytes, never projection NFC   |
     | Lexical addressing   | :load-bound depth/position remains explicit   |
     | Free addressing      | :load-free name remains exact                 |
-    | Live sets            | In-band :call operand, hashed, recomputed by  |
-    |                      | the validator (section 4.5)                   |
+    | Live sets            | In-band boundary operands, hashed and        |
+    |                      | recomputed by the validator (section 4.5)     |
     | Validation           | Shape, targets, body scope, register bounds,  |
     |                      | live-set shape, bounds, tail, and exactness   |
     | Lift                 | Register image to named semantics             |
@@ -379,7 +379,54 @@ The register instruction set is a positional form of the B1 table:
     :return       [op value-reg]
     :halt         [op value-reg]
     :store-get    [op rd key]
-    :store-put    [op key value-reg]
+    :store-put    [op rd key value]
+    :gensym       [op rd prefix]
+    :stream-make  [op rd capacity]
+    :stream-put   [op rd stream-reg value-reg live]
+    :stream-cursor [op rd stream-reg]
+    :stream-next  [op rd cursor-reg live]
+    :stream-close [op rd stream-reg]
+    :ffi-call     [op rd ffi-op arg-regs live]
+    :current-continuation [op rd live]
+    :park         [op rd live]
+    :resume       [op parked-id value-reg]
+
+The R2 descriptor slots and operand kinds are exactly:
+
+    :store-get
+      [[:rd :reg] [:key :data]]
+    :store-put
+      [[:rd :reg] [:key :data] [:value :data]]
+    :gensym
+      [[:rd :reg] [:prefix :str]]
+    :stream-make
+      [[:rd :reg] [:capacity :uint]]
+    :stream-put
+      [[:rd :reg] [:stream-reg :reg] [:value-reg :reg] [:live :data]]
+    :stream-cursor
+      [[:rd :reg] [:stream-reg :reg]]
+    :stream-next
+      [[:rd :reg] [:cursor-reg :reg] [:live :data]]
+    :stream-close
+      [[:rd :reg] [:stream-reg :reg]]
+    :ffi-call
+      [[:rd :reg] [:ffi-op :kw] [:arg-regs :regs] [:live :data]]
+    :current-continuation
+      [[:rd :reg] [:live :data]]
+    :park
+      [[:rd :reg] [:live :data]]
+    :resume
+      [[:parked-id :kw] [:value-reg :reg]]
+
+Each short slot name above is published under the
+`:yin.debruijn.register/*` namespace. R2 adds `:str` and `:kw` operand-kind
+checks to the existing `:reg`, `:regs`, `:uint`, `:sym`, `:data`, and
+`:bool` vocabulary. `:data` still passes through the exact scalar encoder;
+it is not an unchecked host-value escape.
+
+The named AST permits an omitted gensym prefix only before defaults are
+applied. Resolution supplies the existing default `"id"`, so the canonical
+instruction always has one string prefix and never has a second arity.
 
 There is no `:push`: operands are named by register, so the stack path's
 push-before-each-operand convention never arises. `:call` differs most from
@@ -391,41 +438,38 @@ instead of reading an operand stack. Constants, lexical loads, free loads,
 closures, jumps, and store operations retain their semantic operands while
 gaining explicit destinations where needed.
 
-Stream, gensym, FFI, park, and resume instructions use the same explicit
-destination and source-register convention in R2. Their effect descriptors
-remain stream values; no callback or hidden scheduler is introduced. R2
-must add each of them to the use/def table of section 4.5 in the same
-phase, or the liveness computation is undefined for them.
+These are the canonical names. `:stream-open`, `:stream-take`, and
+`:stream-write` are not aliases in the image. Stream and FFI instructions
+name their input registers explicitly. Every value-producing instruction
+names `rd`. `:store-put` preserves the named operation's exact scalar value
+and writes that value to `rd`. `:resume` is the exception: it transfers
+control to an existing parked continuation and never returns to its own
+successor, so it has no destination register.
 
-### 4.5 Live sets at call sites
+Effect descriptors remain ordinary data passed to `yin.vm.engine`; no
+instruction contains a callback, timer, handle, or scheduler. The `live`
+operands are the section 4.5 continuation boundary. They are present only
+where an instruction can suspend or reify the continuation. A normal
+`:call` already has one because a dynamically resolved primitive may return
+an effect descriptor.
 
-A non-tail `:call` is the one place a register body's state is saved: the
-return frame pushed there must hold whatever the caller still needs after
-the callee returns. Some of the caller's registers are already dead at
-that point. The owner's ruling is that a saved continuation carries only
-live registers, never dead ones: not tracking liveness does not avoid the
-cost, it retains every dead value in every saved continuation as
-unaccounted state. Liveness is therefore computed at lowering time and
-recorded in the image, where it is visible, hashed, and verified.
+### 4.5 Live sets at continuation boundaries
 
-The live set is in-band: the sixth operand of `:call`, named `live`, is
-the set of registers of the current body whose values are read after the
-call returns before being written again, excluding the destination `rd`,
-which the return itself writes. It is inside R's preimage because it is a
-claim about future reads that a kernel acts on by discarding everything
-else; a wrong live set changes observable results, so it is a correctness
-operand like an argument register or a jump target, not a diagnostic like
-a binder name. A side table would leave it outside the hash and outside
-wire verification, so a receiver could never trust it and would have to
-recompute it, which collapses analysis into execution. Two lowerings that
-differ only in `live` are different programs by R, and that is correct:
-one of them is wrong, and golden R fixtures catch it. "Derive, do not
-persist" is not violated: the register image is the executable artifact,
-whose purpose is to make execution-time facts explicit so the kernel
-interprets rather than analyzes, exactly as argc, arity, and resolved pcs
-are derivable from the tree yet belong in the image. The named datoms
-remain the only authority; the live set is derived from the image and
-re-derived by every receiver.
+A non-tail `:call`, a blocking stream operation, an FFI call, `:park`, and
+`:current-continuation` can save a register body's state. Some registers
+are already dead at each boundary. A saved continuation carries only live
+registers, never dead ones: retaining the whole file would retain dead
+values in long-running stream pipelines and actor loops as unaccounted
+state. Liveness is computed at lowering time and recorded in the image,
+where it is visible, hashed, and verified.
+
+The in-band `live` operand is the set of registers of the current body
+whose values are read after the operation completes before being written
+again. It excludes `rd`, which completion writes. It is inside R's
+preimage because the kernel discards everything else; a wrong live set
+changes observable results. A side table would be outside wire
+verification. The named datoms remain the authority, and every receiver
+recomputes `live` from the validated image before execution.
 
 Register numbering: `live` names physical registers by the same indices
 `rd`, `fn-reg`, and `arg-regs` already use, whatever the body's numbering
@@ -445,18 +489,28 @@ it. Per body:
       :load-free rd _          def {rd}
       :closure rd _ _          def {rd}
       :store-get rd _          def {rd}
+      :store-put rd _ _        def {rd}
+      :gensym rd _             def {rd}
+      :stream-make rd _        def {rd}
+      :stream-put rd s v _     use {s v}           def {rd}
+      :stream-cursor rd s      use {s}             def {rd}
+      :stream-next rd c _      use {c}             def {rd}
+      :stream-close rd s       use {s}             def {rd}
+      :ffi-call rd _ args _    use args            def {rd}
+      :current-continuation rd _                   def {rd}
+      :park rd _                                  def {rd}
+      :resume _ v               use {v}
       :move rd rs              use {rs}            def {rd}
       :call rd f args tail? _  use {f} + args      def {rd} unless tail?
       :branch-false c _        use {c}
       :jump _                  none
       :return r                use {r}
       :halt r                  use {r}
-      :store-put _ r           use {r}
 
     successors within the body:
       :jump t                  {t}
       :branch-false c t        {t, pc + 1}
-      :return, :halt, tail :call   {}
+      :return, :halt, :resume, tail :call   {}
       every other instruction  {pc + 1}
 
     live-in(p)  = use(p) + (live-out(p) - def(p))
@@ -464,7 +518,7 @@ it. Per body:
 
     iterate over the body's pcs in descending order until no set changes
 
-    live(call at p) = live-out(p) - {rd}
+    live(boundary at p) = live-out(p) - defs(p)
 
 The fixpoint is unique because the transfer functions are monotone over a
 finite lattice, so the result does not depend on iteration order; the
@@ -485,39 +539,74 @@ the existing scalar encoder as a `:vector` of `:long` with no new framing.
 The ascending, duplicate-free rule is what makes the encoding canonical:
 two equal live sets can never produce different bytes.
 
-The validator adds four rules, after the existing structural and
-register-bounds rules and using the same defect shape `{:rule r :pc p}`:
+The validator applies four rules to every opcode with a `live` slot, after
+the existing structural and register-bounds rules and using the defect
+shape `{:rule r :pc p}`:
 
 1. `:live-shape`: `live` is a vector of nonnegative integers in strictly
    ascending order (so it is a set and it is canonical).
 2. `:live-bounds`: every index is below the body's declared register
    count, the register-bounds rule extended to this operand.
-3. `:live-tail`: when `tail?` is true, `live` is `[]`.
+3. `:live-tail`: when a `:call` is tail, `live` is `[]`.
 4. `:live-exact`: `live` equals `body-liveness`'s own answer for that pc,
    reported with `:expected` and `:actual`. A received image's live sets
    are not trusted; they are recomputed on the receiving host before
    execution, the same discipline as B1's scope check.
 
-This is a format-shape change: the `:call` slot vector in the opcode table
-gains `[:yin.debruijn.register/live :data]`, which changes the descriptor
-and so `register-hash` for every image. The register contract version
-goes from 1 to 2. This is R1's file box, the lowerer and the format, and
-nothing here needs a kernel: the operand is computed and validated at
-lowering time and has no consumer until R4 pushes a real return frame.
+R1 introduced `live` on `:call` and contract version 2. R2 extends the same
+analysis to suspension and capture opcodes and changes the descriptor to
+contract version 3. Every R changes because the descriptor hash is in its
+preimage, including pure images. Version 2 has no compatibility path.
 
-The follow-up implementation phase therefore: bumps the version constant
-and the `:call` slots in `debruijn_register_code.cljc`; adds
-`body-liveness` and the four rules there; has `lower-register` fill the
-operand from `body-liveness` after emitting each body; re-pins every
-golden register vector and R value, since all of them change, recording
-that version 1 values are retired with no compatibility path, per this
-repository's no-backward-compat rule; and adds hand-derived live-set
-fixtures, at least: a call whose temporaries are all dead afterwards
-(empty set), a call inside an `if` arm with a temporary live across it
-from before the branch, a temporary live in one arm but not the other,
-nested non-tail calls, and a tail call carrying `[]`. R0's frozen contract
-test is that phase's to re-pin as a versioned change; it is not edited by
-this design.
+R1 implemented version 2, the `:call` live slot, `body-liveness`, the four
+rules, and the required golden fixtures. R2 changes that same descriptor
+and analysis in one phase; it does not introduce a second liveness pass.
+
+### 4.6 R2 lowering rules
+
+R2 completes every node type R1 deferred. It extends the existing
+target-register-passing walk; it does not introduce an effect AST or a
+second allocator.
+
+    resolved node                 lowering
+    :vm/store-get                 [:store-get rd key]
+    :vm/store-put                 [:store-put rd key value]
+    :vm/gensym                    [:gensym rd prefix]
+    :stream/make                  [:stream-make rd buffer]
+    :stream/put                   lower target, then value;
+                                  [:stream-put rd rt rv live]
+    :stream/cursor                lower source;
+                                  [:stream-cursor rd rs]
+    :stream/next                  lower source;
+                                  [:stream-next rd rc live]
+    :stream/close                 lower source;
+                                  [:stream-close rd rs]
+    :dao.stream.apply/call        lower operands left to right;
+                                  [:ffi-call rd op arg-regs live]
+    :vm/current-continuation      [:current-continuation rd live]
+    :vm/park                      [:park rd live]
+    :vm/resume                    lower value;
+                                  [:resume parked-id rv]
+
+`key`, `value`, `prefix`, `buffer`, `op`, and `parked-id` are exact scalar
+facts from the resolved record. They are never looked up in the register
+file. Child expressions are assigned temporary registers in fixed child
+order. After the parent instruction is emitted, their temporaries are
+freed in that same order. `rd` is the target supplied by the parent.
+
+`:resume` ignores that supplied target because successful resume abandons
+the current control path. Code emitted after it may be structurally present
+but is unreachable under the successor rule. The validator treats
+`:resume` as a terminator. Missing parked ids and format mismatches are
+runtime outcomes, not lowering-time guesses.
+
+The `live` operands are filled in one post-pass after every body and pc is
+final, using the one exported `body-liveness` definition. The pass covers
+`:call`, `:stream-put`, `:stream-next`, `:ffi-call`,
+`:current-continuation`, and `:park`. No allocator free-list state enters
+the result. Effect lowering is therefore alpha-invariant and byte-stable
+for the same reasons as R1: fixed traversal, lowest-register allocation,
+sorted live vectors, exact scalar bytes, and no host iteration order.
 
 ## 5. Execution boundary
 
@@ -584,6 +673,195 @@ the R5 or B6 linker. This rule is deliberate; the alternative was a pair
 of lossy lifts between two positional formats that the third VM would
 have made obsolete.
 
+### 5.2 R2 effect and suspension contract
+
+R2 defines the data contract R4 will interpret. It does not execute an
+instruction. Pure constructors and validators live in
+`yin.vm.debruijn-register-effects`; R4 must reuse them rather than invent
+another payload shape.
+
+Its public, pure surface is:
+
+    effect-descriptor  instruction registers -> effect | nil
+    continuation-payload runtime instruction -> payload
+    continuation-defect payload -> defect | nil
+    wait-entry-defect entry -> defect | nil
+
+`runtime` is an explicit map containing the validated image, R, pc,
+lexical frames, register vector, and return frames. These functions read no
+host clock, stream, namespace registry, or mutable global.
+
+#### 5.2.1 Effect dispatch
+
+The register kernel will interpret the R2 instructions as follows:
+
+    instruction       engine action or value action
+    :store-get         read state store; write rd
+    :store-put         write exact scalar to store and rd
+    :gensym            engine/gensym; write rd
+    :stream-make       {:effect :stream/make, :capacity capacity}
+    :stream-put        {:effect :stream/put,
+                        :stream regs[stream-reg],
+                        :val regs[value-reg]}
+    :stream-cursor     {:effect :stream/cursor,
+                        :stream regs[stream-reg]}
+    :stream-next       {:effect :stream/next,
+                        :cursor regs[cursor-reg]}
+    :stream-close      {:effect :stream/close,
+                        :stream regs[stream-reg]}
+    :ffi-call          park-and-call with ffi-op and arg-regs
+    :current-continuation  produce a reified continuation value
+    :park              engine/park-continuation
+    :resume            engine/resume-continuation
+
+`:stream-make`, `:stream-cursor`, and `:stream-close` are nonblocking under
+the engine contract. `:stream-put` parks only on `:dao.stream/full`, and
+`:stream-next` parks only on `:dao.stream/blocked`. Every other declared
+stream outcome is returned or raised exactly as the shared engine defines;
+R2 adds no interpretation.
+
+A normal `:call` whose resolved host primitive returns a
+`module/effect?` value sends that value through `engine/handle-effect`.
+The call's existing `rd` and `live` operands are its suspension contract.
+A plain primitive result is written directly to `rd`. For a tail primitive
+effect, the payload uses `:resume-mode :return-result`; it preserves no
+current-body registers and delivers the resumed value through the normal
+return transition. A non-tail primitive effect uses
+`:resume-mode :write-result` and its call destination.
+
+`:ffi-call` first requires the call pair, before parking or minting an id.
+Its arguments are read from `arg-regs` in vector order. It creates the same
+request envelope as the stack VM. An immediate append waits on call-out; a
+full append parks the identical request as a writer. Response correlation
+and error envelopes are interpreted only by `ffi/call-result`. There is no
+error register and no raw exception in serialized continuation data.
+
+#### 5.2.2 Sparse continuation representation
+
+The runtime register file is a vector indexed by the physical register
+numbers in the image. A saved continuation contains only live values. Its
+canonical payload is:
+
+    {:segment <validated register image>
+     :site-pc <suspending instruction pc>
+     :pc <next pc>
+     :frames <outermost-first lexical frames>
+     :regs [[register-index value] ...]
+     :live [register-index ...]
+     :continuation [<return frame> ...]
+     :dest <register-index or nil>
+     :resume-mode :write-result | :return-result
+     :format :yin.debruijn.register
+     :hash <R>}
+
+`:live` is copied from the instruction's verified operand. `:regs` is a
+vector in the same strictly ascending index order and has exactly the same
+indices. A saved value is read from the running register file at snapshot
+time. Maps are not used because their iteration order is not an encoding
+contract. `:dest` is `rd` for `:write-result` and nil for
+`:return-result`. The destination is not in `live`; restoration writes it.
+
+Each non-tail register call pushes a return frame of the same sparse form:
+
+    {:segment <validated register image>
+     :hash <R>
+     :site-pc <call pc>
+     :return-pc <pc after call>
+     :frames <caller lexical frames>
+     :regs [[register-index value] ...]
+     :live [register-index ...]
+     :dest <call rd>}
+
+The outer payload's `:continuation` is a vector of these frames. An image
+and hash on each frame permit later cross-image calls without guessing
+which register layout owns a frame. R4 may share persistent image values in
+memory; their presence in the data shape does not require byte copying.
+
+`:current-continuation` constructs
+`{:type :reified-continuation ...payload}` for the point after itself,
+then writes that value to its own `rd`. If resumed later, the supplied
+resume value is written to the same `rd`. `:park` supplies the same payload
+to `engine/park-continuation`; the engine adds
+`:type :parked-continuation` and `:id`, writes that record to the VM value,
+and halts. Successful resume writes the supplied value to `rd`.
+
+Discarding dead registers is required, not an optimization option. Stream
+pipelines and actor loops can park indefinitely; retaining dead values at
+every boundary would retain obsolete messages, closures, and collections.
+The verified live set proves those values cannot be observed again. Lexical
+frames are not registers and are retained until a separate frame-liveness
+design exists.
+
+The pure payload validator checks `:format`, recomputes R from `:segment`,
+checks image validity, site pc and continuation pc ownership, destination
+bounds, ascending `live`, exact `regs`/`live` index agreement, return-frame
+shape, and that the live vector equals the image operand at `:site-pc`. It
+refuses with qualified rules including
+`:continuation-format`, `:continuation-hash`, `:continuation-pc`,
+`:continuation-live`, `:continuation-registers`, and
+`:continuation-destination`.
+
+#### 5.2.3 Engine restoration and wait entries
+
+The future register restore has the shared signature:
+
+    register-restore : base entry val -> state
+
+`base` is authoritative for engine bookkeeping. The engine has already
+popped the ready entry, merged `:store-updates`, and cleared the blocked and
+halted flags. Restore never merges the entry wholesale. It reads only the
+validated register payload and the documented FFI keys.
+
+For `:resume-mode :write-result`, restore creates a register vector of the
+declared body size, fills the saved pairs, writes `val` to `dest`, restores
+the image, pc, frames, and return frames, and continues. Dead slots are nil
+and may not be read because the image was liveness-validated. For
+`:return-result`, restore applies the normal return transition to `val`.
+
+Terminal stream outcomes are handled by `engine/resume-from-run-queue`
+before restore and fail as their immediate forms do. An FFI response is
+unwrapped by `ffi/call-result`; its qualified error is raised at that point.
+The correlated call id is removed from `base :parked` only on the response
+reader path, never when a full request writer is re-parked.
+An arbitrary value passed to `:resume`, including an error-shaped value, is
+ordinary program data unless it is an explicit outcome envelope governed
+by an existing contract. A host exception or other non-plain value is not a
+resume value: restore refuses it with `:resume-value` before changing the
+register file. Raw host exceptions never enter a serialized continuation.
+
+The wait-set forms are:
+
+    stream writer  payload + {:reason :put, :stream-id id,
+                              :datom value}
+    stream reader  payload + {:reason :next, :stream-id id,
+                              :cursor-ref ref}
+    FFI writer     payload + {:request-sent true, :call-id id,
+                              :op ffi-op, :reason :put,
+                              :stream-id :yin.vm/call-in,
+                              :datom request}
+    FFI reader     payload + {:call-id id, :reason :next,
+                              :stream-id :yin.vm/call-out,
+                              :cursor-ref <call-out cursor ref>}
+
+The actual reserved stream ids are the constants in `yin.vm`, not copied
+literals. `:yin/blocked` is the VM state's blocked value. `stream-blocked`
+and `ffi-wait` name the two categories above; they are not new `:type`
+tags. Explicit `:park` records alone use `:type :parked-continuation`.
+
+A newly parked entry contains no prior wake disposition. In particular,
+conversion of a woken FFI writer into a response reader removes
+`:value`, `:status`, `:cursor`, `:store-updates`, `:stream`, `:datom`,
+`:type`, `:id`, `:request-sent`, and `:op` before adding the response
+reader keys. `ffi/response-wait-entry` must satisfy this rule before R4
+uses it. This closes the stale-wake defect recorded against the earlier
+engine design; a store transition from the writer wake must never be
+applied again when the response wakes.
+
+R4 uses `engine/scheduler-round` and the three-argument restore directly.
+It supplies instruction-site park-entry builders containing only the pure
+payload plus engine transport keys. No restore closure, stream handle,
+timer, or callback is stored. Host cadence remains outside the VM.
+
 ## 6. Implementation phases
 
 Each phase has a bounded file box, must-not-change list, completion criteria,
@@ -628,13 +906,62 @@ stack design's B2 box.
 ### R2: effects and stream forms
 
     Existing source: src/cljc/yin/vm/debruijn_register_compile.cljc
+    Existing source: src/cljc/yin/vm/debruijn_register_code.cljc
+    New: src/cljc/yin/vm/debruijn_register_effects.cljc
     New: test/yin/vm/debruijn_register_effects_test.cljc
-    Existing edits: none
-    Must not change: dao.stream, lease, waitset, B0-B3 semantics
+    Existing edits: test/yin/vm/debruijn_register_compile_test.cljc
+    Must not change: dao.stream, lease, waitset, engine effect rules,
+      B0-B4 semantics, stack H, named or stack instruction dimensions
 
-Lower stream, gensym, FFI, park, and resume shapes with explicit registers.
-Completion compares effect descriptors and blocked outcomes with the stack
-path without executing a register VM.
+Implement sections 4.4 through 4.6 and 5.2. Extend the descriptor and
+validator with the R2 opcodes, extend `body-liveness` to every continuation
+boundary, lower every node R1 deferred, and add the pure effect, snapshot,
+and wait-entry constructors and validators. Contract version 3 retires
+version 2. Re-pin the descriptor hash, every golden register vector, and
+every R fixture because the descriptor hash is part of every R.
+
+R2 has no execution kernel dependency. Its completion criteria are:
+
+1. Every R2 node lowers to the exact tuple in section 4.6. Child evaluation
+   order, register allocation, side-table provenance, and effect argument
+   order match the named and stack paths.
+2. The descriptor declares every operand and kind. The validator refuses
+   wrong arity, wrong scalar kind, negative or out-of-body registers,
+   malformed argument vectors, invalid capacities, invalid FFI operations,
+   cross-body targets, and a nonterminal `:resume`, with named diagnostics.
+3. `body-liveness` has complete use/def and successor coverage for every
+   mnemonic. All live operands are ascending, bounded, exact, and hashed.
+   Hand-built omissions, additions, duplicates, and dead-register captures
+   are refused.
+4. The pure effect constructor produces the same normalized descriptors as
+   the stack B4 path for stream make, put, cursor, next, close, and dynamic
+   primitive effects. Store and gensym value/state transitions match too.
+5. Sparse snapshots contain exactly the verified live register pairs,
+   destination, image identity, lexical frames, and return frames. Tests
+   cover current-continuation, explicit park/resume, non-tail and tail
+   primitive effects, immediate stream success, blocked put and next, and
+   both FFI wait stages.
+6. Wait-entry validation refuses missing resource ids, a reason/shape
+   mismatch, an out-of-bounds destination, a foreign format or R, an
+   ill-formed live set, every stale wake key named in section 5.2.3, and a
+   raw host exception or other non-plain resume value.
+7. FFI tests require the call pair before parking, preserve request bytes
+   across a full writer retry, correlate the response id, and classify a
+   response error without inventing an error register.
+8. Repeated lowering is byte-identical. Effect-bearing golden images and R
+   values agree on JVM, CLJS, and CLJD for the common scalar domain. Host-
+   unsupported scalar classes refuse before hashing under the existing
+   qualified rule.
+9. The section 5.2 constructors and validators are pure data functions.
+   EDN round trips preserve snapshots and wait entries. No fixture stores a
+   function, stream handle, callback, timer, or namespace-global state.
+10. R2 tests do not instantiate a register VM. R4 must later prove that its
+    interpreter consumes these constructors and produces the same values,
+    errors, stores, blocked states, and stream outcomes as stack B4 under
+    the B0 normalizer.
+
+Verification runs the focused R0-R2 tests, full JVM, full Node/CLJS, full
+ClojureDart, kondo, cljstyle, and an 80-column design check.
 
 ### R3: benchmark report
 
@@ -674,10 +1001,10 @@ deterministic stream/effect behavior. The pure-program tier may merge
 before R2 lands; R4 is complete only when both tiers are.
 
 The phase order runs on two parallel tracks after R1: on the register
-track, the section 4.5 live-set change, then R2 and R4's pure-program
-tier, then R4's effects tier once B4 and R2 exist, then R3 against the
-real kernel; on the linker track, R5 together with B6, depending on R1
-and B6 only and free to land before R2 or R4.
+track, R2's descriptor and liveness extension and R4's pure-program tier,
+then R4's effects tier once B4 and R2 exist, then R3 against the real
+kernel; on the linker track, R5 together with B6, depending on R1 and B6
+only and free to land before R2 or R4.
 
 ### R5: linker integration over dao.jing
 
@@ -747,9 +1074,8 @@ This design does not alter any B0-B7 phase's semantics, the stack VM, named
 datoms, the dormant projection, or the AST-walker. It does not change B1's
 H, its scalar bytes, its validator, or its wire protocol. It does not add
 equality saturation, a JIT, lambda lifting, ANF, global distribution, or a
-new continuation interchange format. Its one proposed edit to the stack
-design, B2's adoption of the resolver, is recorded in section 2.2 and is the
-owner's decision.
+new continuation interchange format. B2's adoption of the resolver is the
+decided shared upstream recorded in section 2.2.
 
 The register lowerer consumes the resolved tuples, never the stack image and
 never named datoms directly. It is not a second stack lowerer: it emits only
@@ -764,9 +1090,9 @@ not persisted, and is not a fetch key; its inverse exists for tests only.
 ## 8. Risks and decisions
 
 Risks include register-allocation drift, spill policy becoming observable,
-effect ordering, register continuation shape, drift between B2's fused
-resolution and the resolver if B2 is not refactored, and the permanent
-second-evaluator maintenance surface accepted in DECIDED 1.
+effect ordering, register continuation shape, drift between the stack and
+register lowerers, and the permanent second-evaluator maintenance surface
+accepted in DECIDED 1.
 
 DECIDED:
 
@@ -799,15 +1125,16 @@ DECIDED:
    VM or alter its protocols.
 8. B2 is the resolver-and-stack-lowerer split (section 2.2); the address
    law over the parity corpus remains a cross-check, not the coupling.
-9. Live sets are in-band: the sixth `:call` operand, a strictly ascending
-   vector of register indices, computed by one exported backward-dataflow
-   function, inside R's preimage, and recomputed by the validator on every
-   receiving host. Register contract version 2. Owner ruling, 2026-09-23:
-   a saved continuation carries only live registers (section 4.5).
+9. Live sets are in-band on every continuation boundary, as strictly
+   ascending vectors computed by one exported backward-dataflow function,
+   inside R's preimage, and recomputed by every receiver. R2 is register
+   contract version 3. A saved continuation carries only live registers.
+10. R2 defines effect opcodes, sparse continuation payloads, wait-entry
+    shapes, and validation as pure data before R4 interprets them. The
+    shared engine remains the sole owner of scheduling and wake disposition.
 
 DEFERRED:
 
-- Owner approval to start R1 and the exact register descriptor publication.
 - Spill representation and register-file limits, if a target requires them.
 - Register continuation lifting and cross-model park/resume transport.
 - The B7 name-environment ledger and provenance that the R5 same-root
