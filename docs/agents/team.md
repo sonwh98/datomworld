@@ -5,40 +5,41 @@ description: Team roster, role routing, and reviewer-independence rules for dato
 # DATOM.WORLD SOFTWARE ENGINEERING TEAM
 
 Canonical guide for the shared roster, role routing, and reviewer independence.
-The Lead Engineering Orchestrator owns coordination, authorization, artifact and
-session protocol, verification, and operational CLI recipes in
-[`orchestrator.md`](./roles/orchestrator.md).
+The Lead Engineering Orchestrator owns coordination, authorization, artifact
+protocol, and verification in [`orchestrator.md`](./roles/orchestrator.md);
+delegate session protocol and CLI recipes live in
+[`delegate-invocation-reference.md`](./delegate-invocation-reference.md).
 
 ## Roster
 
 The Orchestrator is deliberately absent from this table; it is the user-facing
-agent that centrally routes tasks to these roles.
+agent that centrally routes tasks to these roles. Each role name links to its
+delegation prompt template under `docs/agents/roles/`. Review is one role
+backed by one file, `roles/reviewer.md`, covering adversarial, routine, and
+security-sign-off review via its Adversarial Review and Consensus Follow-up
+templates — adjust scope and rigor in the brief per flavor, not the file.
 
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
-| Role                   | Responsibility                                                                                                                                |
-+========================+===============================================================================================================================================+
-| Adversarial Review     | Independent defect discovery, cross-host challenge                                                                                            |
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
-| Architect              | Axioms, invariants, boundaries, architecture                                                                                                  |
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
-| Compiler & AST         | AST, lowering, compile-time macros                                                                                                            |
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
-| Frontend & Graphics    | Events, WebGL/WebGPU, canvas, terminal                                                                                                        |
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
-| QA & Verification      | TDD, parity, lint, regression                                                                                                                 |
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
-| Routine Review         | Correctness, invariants, portability                                                                                                          |
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
-| Scoped / Subagent      | Bounded searches, edits, docs, lint                                                                                                           |
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
-| Security Sign-off      | Capability boundaries, high-risk review                                                                                                       |
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
-| Storage & Indexing     | B-trees, indexing, DHT, storage, query                                                                                                        |
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
-| Stream & Network       | Streams, framing, concurrency, transports, codecs, RPC                                                                                        |
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
-| VM Runtime             | CESK, VMs, continuations, macros, loops                                                                                                       |
-+------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------+
++---------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| Role                                              | Responsibility                                                                                         |
++===================================================+========================================================================================================+
+| [Architect](roles/architect.md)                   | Axioms, invariants, boundaries, architecture                                                           |
++---------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| [Compiler & AST](roles/compiler-engineer.md)      | AST, lowering, compile-time macros                                                                     |
++---------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| [Frontend & Graphics](roles/graphics-engineer.md) | Events, WebGL/WebGPU, canvas, terminal                                                                 |
++---------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| [QA & Verification](roles/qa-engineer.md)         | TDD, parity, lint, regression                                                                          |
++---------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| [Review](roles/reviewer.md)                       | Adversarial defect discovery, routine correctness/portability checks, and security capability sign-off |
++---------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| [Scoped / Subagent](roles/subagent.md)            | Bounded searches, edits, docs, lint                                                                    |
++---------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| [Storage & Indexing](roles/storage-engineer.md)   | B-trees, indexing, DHT, storage, query                                                                 |
++---------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| [Stream & Network](roles/stream-engineer.md)      | Streams, framing, concurrency, transports, codecs, RPC                                                 |
++---------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| [VM Runtime](roles/vm-engineer.md)                | CESK, VMs, continuations, macros, loops                                                                |
++---------------------------------------------------+--------------------------------------------------------------------------------------------------------+
 
 
 ## Available Subscriptions & Cost Constraints
@@ -77,9 +78,9 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | strict boundaries, and managing vast context (efficient caching).  | watermarking. **Avoid for:** Routine fast-loop tasks; precise       |
 |                             | **Best for:** Architecture definition, security sign-offs.         | one-shot implementations where strict rigor is overkill.            |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `claude-opus-5`             | Enterprise flagship; exceptional at complex agentic coding, multi- | Higher latency and cost than Sonnet; falls short of Fable on the    |
-|                             | step problem-solving, and compilers. **Best for:** AST             | most extreme long-horizon tasks. **Avoid for:** Fast QA loops or    |
-|                             | manipulation, complex stream codecs, network transports.           | simple code generation.                                             |
+| `claude-opus-5.5`           | Performs at Fable 5.1 levels for most work at markedly lower cost  | Still higher latency/cost than Sonnet 5. **Avoid for:** Fast QA     |
+|                             | than the prior Opus generation. **Best for:** Code migration,      | loops or simple code generation where Sonnet 5 suffices.            |
+|                             | software optimization, and complex agentic coding.                 |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `claude-sonnet-5`           | Optimal blend of speed, intelligence, and price. **Best for:**     | Less rigorous for security or capability bounds. **Avoid for:**     |
 |                             | Everyday coding, QA, verification, and general-purpose tasks.      | Deep architectural security design; extremely complex agentic work. |
@@ -129,6 +130,14 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | security, research, coding, computer-use, and long-horizon tasks.  | under the subscription policy; that policy does not make Astra      |
 |                             | Capability includes implementation, but the current codex policy   | unsuitable for implementation.                                      |
 |                             | reserves OpenAI seats for Architectural Review.                    |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gpt-6-luna`                | Most affordable GPT-6 model; optimized for high-volume tasks and   | Low-cost does not mean suitable for unbounded design or the hardest |
+|                             | fast response times. Improved factuality and coding. **Best for:** | invariant reasoning. Escalate complex architecture/security.        |
+|                             | High-volume tasks, extraction, scoped searches, and routine QA.    |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gpt-6-sol`                 | Intelligent everyday work model; improved reasoning and 50% cheaper| More expensive than Luna. Use Astra when the task is the hardest    |
+|                             | than 5.6 promotional pricing. **Best for:** Complex implementation,| end-to-end problem.                                                 |
+|                             | advanced coding, high-stakes security, and architectural review.   |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `minimax/m3`                | 428B MoE native multimodal with 1M context. **Best for:** Coding,  | Heavy local footprint; can fall into thinking loops on difficult    |
 |                             | autonomous task decomposition, tool invocation, and subagents.     | unbounded tasks. **Avoid for:** One-shot mission critical coding.   |

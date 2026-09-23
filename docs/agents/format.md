@@ -1,8 +1,8 @@
 ---
-description: File format specifications and rules for .chp and .blog files (EDN with Hiccup markup)
+description: File and content format rules for datom.world — .chp/.blog EDN+Hiccup files, tables in .md files, and git commit message format
 ---
 
-# FILE FORMATS
+# FORMATS
 
 `.chp` and `.blog` files are EDN files with Hiccup markup.
 
@@ -52,3 +52,23 @@ never markdown pipe tables:
 
 The example table above is itself in the format: `docs/agents/team.md` and
 `docs/design/yin.vm.semantic.md` are the reference instances.
+
+## Git commit messages
+
+This is a repository-wide convention, not specific to any one role. Commit
+subjects use:
+
+```text
+<type>[(<scope>)]: <lowercase imperative summary>
+```
+
+`type` is one of `docs|feat|fix|refactor|perf|test|build|chore`. An optional
+body explains non-obvious behavior or invariants; omit it when the subject
+line is self-explanatory. Use no trailing period on the subject line. Merge
+commits are exempt from this format. Never add `Co-Authored-By`, including
+LLM attribution, to any commit in this repository.
+
+Whether and when a commit is *allowed* to happen (review requirements,
+authorization, undoing an unauthorized commit) is role-specific policy, not
+format — see [`roles/orchestrator.md`](roles/orchestrator.md)'s Coordination
+contract for the orchestrator's own gating rules.

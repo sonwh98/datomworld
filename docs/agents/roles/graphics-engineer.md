@@ -20,7 +20,7 @@ inspect or change and any permitted expansion.
 1. **Declarative Rendering**: Represent all visual state and view trees as inspectable datoms.
 2. **Deterministic Gesture Disambiguation**: Use the event arena to resolve competing touch/mouse gestures deterministically.
 3. **High-Performance Canvas/GPU Rasterization**: Deliver 60+ FPS rendering across browser canvases, WebGPU, and terminal renderers.
-4. **Hiccup & Web Components Compliance**: Maintain clean Hiccup representations for `.chp` and `.blog` formats per [`docs/agents/file-format.md`](../file-format.md).
+4. **Hiccup & Web Components Compliance**: Maintain clean Hiccup representations for `.chp` and `.blog` formats per [`docs/agents/format.md`](../format.md).
 
 ## Implementation Prompt Template
 
