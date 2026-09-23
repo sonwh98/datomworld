@@ -687,99 +687,14 @@ lanes must agree under the normalizer.
     Must not change: merged projection namespace, image-hash, dao.stream,
     dao.jing, dao.jing.dht, dao.jing.remote, named VM semantics
 
-The linker is an application of `dao.jing` over `dao.stream`, per the
-owner's ruling: `dao.jing.dht` already does fetch-by-content-address with
-verify-before-trust (local read first, peer lookup nearest the hash, fetch,
-`segment-key` of the payload compared to the requested address before it
-is accepted, re-materialized locally, mismatch thrown), and
-`dao.jing.remote` already carries that DHT over DaoStream with a server
-side. B6 reuses all of it wholesale and writes no transport, no peer
-lookup, no cache, and no responder of its own. The earlier responder
-namespace is dropped from this box; D16's "explicit H-to-bytes value or
-H-to-address datom" is the H index below, and the bytes come from the DHT.
-
-H is not the `dao.jing` address, and no translation makes it one.
-`segment-key` is sha256 over the order-normalized print of a value, a
-transitional encoder that changes with every minted address when the
-DaoJing CBOR encoding lands; H is sha256 over B1's own exact byte
-encoding and the descriptor hash, and must not fork when the storage
-encoder does. D9 already states it: Jing addresses are storage locations,
-not H. The payload stored in Jing is the canonical instruction vector
-value itself, exactly as `yin.vm.content/materialize-vector!` already
-stores `:yin.code/*` vectors, at its own `segment-key`. The relation is:
-
-    address = (jing/segment-key image-vector)
-    H       = (image-hash image-vector)
-
-with the pairing `[H address]` recorded by whoever publishes the image.
-That pairing is the H index, and it is not Jing's job: Jing has no roots
-and no names by design. B6 takes the H index as composition data, a plain
-map or a set of datoms `[H :yin.debruijn.code/address address]` read
-through the composition's own store. B7 later makes the index a name
-environment with ledger, trust, and provenance; B6 needs only a value.
-
-Fetch is one function of a Jing handle, an H index, and a format record:
-
-    1. address  <- (index H); absent is a qualified :absent outcome
-    2. value    <- (jing/get handle address absent); then the linker
-                   itself refuses :address-mismatch unless
-                   (= address (jing/segment-key value))
-    3. refuse :hash-mismatch unless (= H ((:hash-fn format) value))
-    4. refuse on any (:validate-fn format) defect
-    5. refuse :unresolved-free or :shadowed-free per D11 and D15, using
-                   (:free-names-fn format) over the validated image
-    6. return the verified image
-
-Step 2's own check is what `yin.vm.content/fetch-vector` already does,
-and it is the linker's, not the handle's: a `create-content-dht` handle
-verifies address against payload before returning it, but a
-`content-client` handle, the RPC path over `dao.jing.remote` and the only
-cross-host path today, returns the value as received. The linker checks
-it on every topology so the guarantee never depends on which handle a
-composition wired. Steps 2 and 3 are different checks with different
-preimages and both run: step 2 proves the value is the content at that
-address; step 3 proves that content is the program the caller asked for,
-which the address alone cannot, because the address is not H. There is
-no separate descriptor check: the descriptor hash, including the
-lowering-contract version, is inside H's preimage (D9, D14), so a
-descriptor or version disagreement is a `:hash-mismatch` at step 3, and
-the stored payload carries no descriptor field. Validation runs before
-the closure check so that `:free-names-fn` only ever sees a well-formed
-image; it is not required to be total over malformed values. Neither
-layer is weakened or duplicated: Jing never learns what an image is, and
-the linker adds no second address computation beyond step 2. The format
-record is `{:format :yin.debruijn.code :hash-fn image-hash :validate-fn
-image-defect :free-names-fn ...}`; the register design's R5 supplies its
-own record and shares this function, so there is one linker
-parameterized by format, not two mirrors.
-
-What is new, precisely: the format record shape, the fetch function
-above, the H index as a value or datom query, the qualified refusal
-vocabulary, and the tests. What is inherited: addressing, peer lookup,
-transport over DaoStream, hash-before-trust, local caching, the server
-side, and closed-store, unreachable-peer, and malformed-envelope
-handling. A parked request for an H the index cannot resolve remains an
-explicit stream event (section 7.2), not a callback.
-
-One dependency risk is real and named: the transitional `content-hash`.
-Every Jing address changes when the CBOR encoding lands. H does not, and
-B6 code does not either, but every H index must be re-minted then. B6
-tests therefore pin H values only and never a Jing address as a golden.
-Until then, Jing addresses are portable only between hosts whose print
-of the value agrees, so the JVM to Dart corpus is restricted to
-print-stable scalars; a print divergence fails closed as `:absent` or
-`:address-mismatch`, never as a wrong program.
-
-B6 tests use an explicit fetch; the `:call-hash` instruction is emitted
-only by the later dependency linker. Completion requires JVM to Dart
-transfer over `dao.jing.remote`'s DaoStream transport, where the receiver
-initially knows only H and an H index, which includes the Dart-side
-client harness for that path; `:address-mismatch`, `:hash-mismatch`,
-validator, `:unresolved-free`, and `:shadowed-free` refusals each
-exercised with a deliberately wrong payload or index entry; an `:absent`
-outcome for an unresolvable H; a peer serving the wrong content for an
-address rejected before load on both a DHT handle and a client handle;
-and equal normalized results using the existing semantic VM via lift.
+B6 is specified in `docs/design/yin.vm.debruijn.linker.md`, the
+standalone linker design for Phase B6, used by both the stack and register
+VM for linking code over `dao.stream`. That document specifies the format-
+parameterized fetch function over `dao.stream` / `dao.jing`, the address and
+identity distinction, the six-step fetch protocol, the qualified refusal
+vocabulary, the H and R indexes, the transitional content-hash risk, and the
+completion list. Section 7.2 below remains the topology summary and D8, D9,
+D11, D13, D14, D15, and D16 remain the governing decisions.
 
 ### B7: dependency closure linker
 

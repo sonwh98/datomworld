@@ -671,7 +671,7 @@ Second, until that format exists, cross-host transport of a parked
 continuation is same-model only: a register continuation travels to a
 host with a register kernel, a stack continuation to a host with the
 stack VM, and each such transfer also needs the image by R or H through
-the R5 or B6 linker. This rule is deliberate; the alternative was a pair
+the B6 linker. This rule is deliberate; the alternative was a pair
 of lossy lifts between two positional formats that the third VM would
 have made obsolete.
 
@@ -1005,70 +1005,25 @@ before R2 lands; R4 is complete only when both tiers are.
 The phase order runs on two parallel tracks after R1: on the register
 track, R2's descriptor and liveness extension and R4's pure-program tier,
 then R4's effects tier once B4 and R2 exist, then R3 against the real
-kernel; on the linker track, R5 together with B6, depending on R1 and B6
-only and free to land before R2 or R4.
+kernel; on the linker track, Phase B6 provides both stack and register
+linking over dao.stream, depending on R1 and B1/B2 only and free to land
+before R2 or R4.
 
-### R5: linker integration over dao.jing
+### R5: linker integration over dao.stream
 
-    New: src/cljc/yin/vm/debruijn_register_linker.cljc
-    New: test/yin/vm/debruijn_register_linker_test.cljc
-    Existing edits: none
-    Depends on: B6's shared linker (`yin.vm.debruijn-linker`), dao.jing,
-    dao.jing.dht, dao.jing.remote, R1 (register-hash, the validator, the
-    descriptor)
-    Must not change: B6's linker function, stack H, dao.jing, dao.jing.dht
+    Fulfilled by: Phase B6 (src/cljc/yin/vm/debruijn_linker.cljc,
+    test/yin/vm/debruijn_linker_test.cljc)
+    Specification: docs/design/yin.vm.debruijn.linker.md
+    Must not change: stack H, dao.stream, dao.jing, dao.jing.dht
 
-The linker discipline is `dao.jing` over `dao.stream`, as the stack
-design's B6 box now specifies, and it is one function parameterized by a
-format record. R5 is that function's second format, not a second linker.
-It contributes the register format record
-`{:format :yin.debruijn.register :hash-fn register-hash :validate-fn ...
-:free-names-fn ...}`, the register image stored in Jing
-as its own value (the `{:bodies :instructions}` map) at its
-`segment-key`, and an R index `[R :yin.debruijn.register/address
-address]` with the same status as B6's H index: composition data, never
-Jing's. R is not the Jing address for the same reason H is not, and R5
-pins R values only, never addresses.
-
-Fetch follows B6's six steps with R in place of H: the linker verifies
-the value against its Jing address, verifies `register-hash` against R
-(the descriptor hash and contract version are inside R, so there is no
-separate descriptor check), runs the register validator including the
-section 4.5 live-set rules, runs the D11 and D15 closure check over
-`:load-free` operands of the validated image, and returns the verified
-image. No global loader or callback is introduced.
-
-A host without a register kernel may refuse R and instead resolve, by H,
-a stack image published for the same named root. That same-root pairing
-is the one relation in the linker that no hash checks: H and R have
-disjoint preimages, the receiver holds neither the named datoms nor an
-H-to-R law (section 1.1 disclaims one), so a stale or swapped pairing
-would execute a different program than the R asked for with no
-diagnostic. The rule is therefore explicit. The pairing is recorded at
-mint time beside the named root as datoms, `[root
-:yin.debruijn.code/hash H]` and `[root :yin.debruijn.register/hash R]`,
-never as a bare H-to-R entry. Trusting it is composition trust, on the
-same footing as the H and R indexes, and its ledger, authority, and
-provenance are B7's name-environment work; until B7, a receiver that
-follows the fallback is executing under that trust and must say so in its
-outcome. A receiver that requires verification does not trust the
-pairing: it fetches the named datoms by the root the pairing names,
-re-lowers them locally through `adapt` and `lower-register`, and accepts
-the fallback only when the recomputed H and R both equal the pair it was
-given; otherwise it refuses with a qualified `:pairing-mismatch`. That
-re-lowering is the only check strong enough, because the datoms are the
-one artifact both hashes are functions of.
-
-New work is the format record, the R index, the same-root pairing
-datoms and their verification path, and tests; everything else is B6's
-function and Jing's guarantees. R5 depends on R1 and on B6's shared
-function, not on B4, R2, or R4, and is built together with B6 as one
-unit, since the shared function's first two formats are best written
-against each other. Completion requires the B6 completion list with R in
-place of H, a live-set defect in a fetched image refused by the validator
-before load, and both fallback outcomes: a trusted fallback that names
-its trust, and a verifying fallback that refuses a swapped pairing with
-`:pairing-mismatch`.
+Per the owner's directive ("B6 should be used by both the stack and register
+vm for linking code over dao.stream"), the register format linking capabilities
+are fulfilled directly within the unified B6 linker phase. Phase B6 delivers
+`src/cljc/yin/vm/debruijn_linker.cljc`, providing the parameterized `fetch`
+function, the register format record (`:yin.debruijn.register`), the R index,
+and same-root pairing datoms (`[root :yin.debruijn.register/hash R]`) with
+both trusted and verifying fallback paths. Full specification, file box,
+and completion criteria are defined in `docs/design/yin.vm.debruijn.linker.md`.
 
 ## 7. Non-goals and protected surfaces
 
@@ -1139,8 +1094,8 @@ DEFERRED:
 
 - Spill representation and register-file limits, if a target requires them.
 - Register continuation lifting and cross-model park/resume transport.
-- The B7 name-environment ledger and provenance that the R5 same-root
-  pairing's trust rests on; R4 and R5 are both decided phases.
+- The B7 name-environment ledger and provenance that the B6 same-root
+  pairing's trust rests on; R4 and B6 are both decided phases.
 
 ## 9. End condition
 
@@ -1149,5 +1104,5 @@ whose R is reproducible on all three hosts, whose address law with the stack
 image holds over the parity corpus, and whose named-VM normalized fixtures
 agree. The full register-VM end condition adds a validator-approved kernel
 with both R4 tiers complete, the R3 report published for the owner to read,
-and, if R5 is commissioned, cross-stream R fetch and verification. The
+and cross-stream R fetch and verification via the B6 linker. The
 project does not stop at R2: R3's numbers inform, they do not decide.
