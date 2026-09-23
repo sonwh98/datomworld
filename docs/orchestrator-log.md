@@ -6345,3 +6345,21 @@ Verification: Clean across all 3 hosts:
 - Adversarial review by both Gemini Pro subagent and glm-5.3; P1 finding resolved and confirmed.
 Delegates: research subagents (Storage Dependency Researcher, Multihash Specialist, Adversarial Reviewer), glm-5.3 (reviewer)
 Next: Merge hash-registry-h1 into master and proceed to Phase H2.
+
+## 2026-09-23 17:07:36 +07 — merge: debruijn-b4 and hash-registry-h1 integrated into master; tri-host green
+Completed-GMT: 2026-09-23 10:07:36 GMT
+Coding-Agent: agy
+Session-ID: b71a7066-b2ee-4d2f-a87c-c62b0d73a28a
+Tree: master@218d2fb7, clean
+Done: Integrated both completed epics into master upon explicit user authority:
+- Merged branch debruijn-b4 (commit 5158d154): Stack VM Phase B4 (effects, continuations, engine seam).
+- Merged branch hash-registry-h1 (commit 218d2fb7): DaoJing Phase H1 (multihash content-addressing, BLAKE3 host dependencies, and whole-system cutover).
+- Zero file conflict between both branches; preserved all collab prompt and review records.
+- Installed npm dependency @noble/hashes 2.4.0 in main workspace.
+Decisions: Committed local non-fast-forward merge commits to master; no remote push per invariant.
+Verification: Full tri-host test matrix executed and 100% green on master:
+- JVM (bb test:clj): 1,844 tests, 175,728 assertions, 0 failures, 0 errors.
+- Node/CLJS (bb test:cljs): 1,761 tests, 45,585 assertions, 0 failures, 0 errors.
+- ClojureDart (bb test:cljd): 1,723 tests passed, 0 failures, 0 errors.
+Delegates: none (orchestrator integration and verification)
+Next: Dispatch DaoJing Phase H2 (multi-algorithm verification and hardening).
