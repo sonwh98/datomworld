@@ -6283,3 +6283,65 @@ Decisions: Committed to master upon explicit owner instruction ("Approved for 1-
 Verification: clojure -M:test -n dao.jing.hash-registry-contract-test passed (13 tests, 66 assertions, 0 failures, 0 errors); clj -M:kondo --lint test/dao/jing/hash_registry_contract_test.cljc passed (0 errors, 0 warnings).
 Delegates: claude-sonnet-5 (storage-engineer, H0 implementer, session a00ad15a-2e8b-4319-a92f-b6ef5b3990b8); glm-5.3 (reviewer, H0 review, session 95116c74-2f68-4276-99a8-56291df8587e)
 Next: Proceed to Phase H1 (runtime implementation & host BLAKE3 providers in isolated worktree).
+
+## 2026-09-23 15:11:21 +07 — docs(yin.vm): specify register debruijn phase r2 (effects and stream lowering)
+Completed-GMT: 2026-09-23 08:11:21 GMT
+Coding-Agent: codex (gpt-5.6-sol) + agy
+Session-ID: 01a0cb0c-a960-7a03-912f-681b49987824
+Tree: master@026684dd, committed
+Done: Specified normative Phase R2 contract in docs/design/yin.vm.debruijn.register.md:
+- Instruction set extended with register effects: store access, gensym, stream ops, FFI, continuations, park, and resume.
+- Monotonic live-set tracking across all suspension boundaries in-band within R descriptor preimage.
+- Saved continuation frame layout with verified live registers and sparse file reconstruction.
+- Engine seam protocol: waitset records, 3-arity register-restore, and stale-wake defect resolution.
+- Acceptance criteria bumping register descriptor to contract version 3.
+Decisions: Committed to master under owner autonomous mandate ("Approved for 1-4, proceed autonomously").
+Verification: Checked diff, ASCII-clean, line widths <= 80 columns.
+Delegates: gpt-5.6-sol via codex (Lead System Architect)
+Next: Proceed with Register VM Phase R2 implementation when prioritized.
+
+## 2026-09-23 15:21:07 +07 — feat(yin.vm): implement de bruijn stack effects and engine seam (B4)
+Completed-GMT: 2026-09-23 08:21:07 GMT
+Coding-Agent: claude (claude-fable-5-1) + glm-5.3 + agy
+Session-ID: c5fc12d1-e5fa-42f0-9ee7-767bc7d35dc6
+Tree: worktree-debruijn-b4@ff6d9b98 (branch debruijn-b4), committed
+Done: Implemented Phase B4 for De Bruijn Stack VM:
+- Added store access, gensym, stream operations, FFI, park, and resume opcodes to DebruijnVM.
+- Generalized engine seam with 3-arity restore protocol (restore-fn base entry val) and scheduler-round.
+- Implemented single-image refusal on hash mismatch, response-wait-entry for FFI continuation transport.
+- Preserved 2-arity compatibility for semantic and AST walker VMs.
+- Added comprehensive effects test suite (30 tests, 201 assertions).
+Decisions: Committed locally on branch debruijn-b4.
+Verification: Verified clean across all 3 hosts:
+- JVM: 1,831 tests, 0 failures.
+- Node/CLJS: 1,748 tests, 0 failures.
+- ClojureDart: 1,710 tests, 0 failures.
+- Adversarially reviewed by glm-5.3 (0 P1, 0 P2). Formatting cljstyle-clean.
+Delegates: claude-fable-5-1 (yin-vm-engineer), glm-5.3 (reviewer)
+Next: Merge debruijn-b4 into master when authorized.
+
+## 2026-09-23 16:50:31 +07 — feat(dao.jing): implement multihash content-addressing and algorithm registry (H1)
+Completed-GMT: 2026-09-23 09:50:31 GMT
+Coding-Agent: agy + glm-5.3
+Session-ID: b71a7066-b2ee-4d2f-a87c-c62b0d73a28a
+Tree: worktree-hash-registry-h1@0aa710e7 (branch hash-registry-h1), committed
+Done: Implemented Phase H1 multihash content-addressing rollout across all 3 hosts:
+- Implemented closed immutable algorithm registry in dao.jing: :blake3 default, :sha256 backward compatibility.
+- Installed and verified pinned BLAKE3 host implementations:
+  * JVM: io.github.rctcwyvrn/blake3 1.3
+  * Node/CLJS: @noble/hashes 2.4.0
+  * ClojureDart: blake3_dart 1.0.0 (with Uint8List safety conversion)
+- Implemented parse-segment-address, segment-address?, segment-algorithm, segment-digest, segment-hash.
+- Implemented total verification predicate segment-matches? (never throws).
+- Migrated all 20 Class-3 validation call sites to (jing/segment-matches? address payload).
+- Migrated all 4 Class-4 copy sites to algorithm-preserving operations, including resolving P1 finding by routing store-tree-async through explicit-address supplying put-content-async-fn.
+- Updated Class-1 yin.vm/primitive-profile to explicit {:algorithm :sha256}.
+- Migrated Class-2 dao.space.index/checkpoint-candidate and restore to :schema-address.
+Decisions: Committed locally on branch hash-registry-h1.
+Verification: Clean across all 3 hosts:
+- JVM: 1,811 tests, 175,507 assertions, 0 failures, 0 errors.
+- Node/CLJS: 1,728 tests, 45,364 assertions, 0 failures, 0 errors.
+- ClojureDart: 1,690 tests, 0 failures, 0 errors.
+- Adversarial review by both Gemini Pro subagent and glm-5.3; P1 finding resolved and confirmed.
+Delegates: research subagents (Storage Dependency Researcher, Multihash Specialist, Adversarial Reviewer), glm-5.3 (reviewer)
+Next: Merge hash-registry-h1 into master and proceed to Phase H2.
