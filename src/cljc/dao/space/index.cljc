@@ -286,8 +286,9 @@
 (defn- valid-manifest?
   "A conforming manifest is exactly {:indexes {:eavt ... :aevt ... :avet
    ... :vaet ...} :count n :branching-factor n}, each index address either
-   nil when count is zero or a :segment/sha256-... content address when
-   count is positive. The B-tree branching factor is at least two."
+   nil when count is zero or a registered :segment/<algorithm>-... content
+   address when count is positive. The B-tree branching factor is at least
+   two."
   [manifest]
   (and (map? manifest)
        (= #{:indexes :count :branching-factor} (set (keys manifest)))
@@ -315,7 +316,15 @@
     (when-not (jing/segment-matches? manifest-address manifest)
       (throw (ex-info "index manifest content address mismatch"
                       {:expected manifest-address,
-                       :actual (jing/segment-key manifest),
+                       :actual (let [algo (try
+                                            (jing/segment-algorithm
+                                              manifest-address)
+                                            (catch #?(:cljd Object
+                                                      :clj Throwable
+                                                      :cljs :default)
+                                                   _
+                                              jing/default-hash-algorithm))]
+                                 (jing/segment-key manifest {:algorithm algo})),
                        :manifest manifest})))
     manifest))
 
@@ -1331,7 +1340,7 @@
   "Rebuild the consumer half of a session from a *verified* checkpoint
    candidate (§4.2; verify-candidate is the gate — restore re-reads the
    manifest from the durable store and throws on absence). Refuses — throws
-   — when the candidate's :mode or :schema-hash differ from the session
+   — when the candidate's :mode or :schema-address differ from the session
    being constructed, or when its :ids was :shared: a session-local snapshot
    of a shared allocator is stale the moment any sibling allocates after
    it, and restoring it would re-mint ids siblings already hold. For
@@ -1351,7 +1360,7 @@
       :intake w          the new session's intake writer
       :mode m            of the session being constructed; must equal the
                          candidate's
-      :schema s          ditto; its content hash must equal the candidate's
+      :schema s          ditto; its schema address must match candidate's
       :ref-type k        the restored trees' ref-type, default :strong (the
                          btree :test seam pins the F2 hazard deterministically)
       :verify? b         kv-storage integrity option (default false)}"

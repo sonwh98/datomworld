@@ -213,7 +213,10 @@ No cache is specified by B0 through B5; any later cache is an explicit value
 keyed by H. A receiver hashes the received canonical wire bytes before
 decoding; those bytes are H's preimage. `jing/segment-key` is only the storage
 address for the same bytes and is not H; `yin.vm.content` stores and fetches
-bytes, while verification recomputes `image-hash`.
+bytes, while verification recomputes `image-hash`. H is computed using explicit
+SHA-256 and is pinned by the VM format contract version; it is completely
+independent of DaoJing's `default-hash-algorithm` and does not change when
+DaoJing defaults to BLAKE3.
 
 ## 3. Lowering and scope
 

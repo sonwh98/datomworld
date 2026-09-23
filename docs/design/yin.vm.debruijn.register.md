@@ -284,7 +284,9 @@ The lowerer's R formula is:
 
     R = sha256(register-descriptor-hash || canonical-register-vector)
 
-Both components are canonical bytes. A receiver verifies R over the
+Both components are canonical bytes. R is an executable-format identity
+pinned to explicit SHA-256 by VM contract freeze, completely decoupled from
+DaoJing's `default-hash-algorithm`. A receiver verifies R over the
 received image before trusting it, as B1's wire rule requires for H; the
 descriptor hash and contract version are inside R, so descriptor
 agreement is that same check. It then validates, runs the receiver

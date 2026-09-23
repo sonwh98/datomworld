@@ -90,11 +90,18 @@
    codec does not hash back to its address is refused here, before any
    byte is written. Reader positions round-trip fine (the address ignores
    them), so they are not refused."
-  [payload]
-  (let [replayed (edn/read-string (pr-str payload))]
-    (when-not (= (jing/content-hash payload) (jing/content-hash replayed))
-      (throw (ex-info "Payload does not survive this backend's text codec: its round trip would not hash to its content address"
-                      {:payload payload, :replayed replayed})))))
+  ([payload]
+   (validate-codec-round-trip! payload jing/default-hash-algorithm))
+  ([payload algorithm]
+   (let [replayed (edn/read-string (pr-str payload))
+         opts     {:algorithm algorithm}]
+     (when-not (= (jing/content-hash payload opts)
+                  (jing/content-hash replayed opts))
+       (throw
+         (ex-info
+           (str "Payload does not survive this backend's text codec: "
+                "its round trip would not hash to its content address")
+           {:payload payload, :replayed replayed}))))))
 
 
 (defn- validate-frame!
@@ -250,7 +257,7 @@
    That arm is unreachable twice over: `validate-frame!` has already enforced
    that a frame's address hashes its payload, so two validated frames at one
    address carry equal payloads; and reaching it otherwise would take a
-   SHA-256 collision, which is not a case to design for. It is retained not as
+   hash collision, which is not a case to design for. It is retained not as
    defence but because F2's tolerate-equal rule forces the comparison, and the
    only alternatives to throwing here are to overwrite silently or to ignore
    silently — both of which break `materialize!`'s promise that nothing is
@@ -291,7 +298,7 @@
   (fn content-put!
     [address payload]
     (validate-address-payload! address payload)
-    (validate-codec-round-trip! payload)
+    (validate-codec-round-trip! payload (jing/segment-algorithm address))
     (with-lock
       lock
       (fn []

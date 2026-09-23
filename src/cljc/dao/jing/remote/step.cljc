@@ -53,14 +53,13 @@
    that equal content sits at the address, and a remote server is not
    trusted to have kept that promise.  So `:present` publishes nothing;
    the record moves to `:verify-unissued`, a correlated `:jing/get-content`
-   is issued by order 4, and only a read-back that hashes to the address —
-   `jing/materialize!`'s own rule at HEAD, `content-hash` against
-   `segment-hash`, which holds metadata the address distinguishes and `=`
-   does not — completes `:result :present`.  A mismatch is
-   `/integrity-failure`; an absent read-back is `/present-but-absent`;
-   neither ever overwrites anything.  The record's removal is the
-   exactly-once guard: one completion per materialization, carrying the
-   put id.
+   is issued by order 4, and only a read-back that verifies against the
+   address via `jing/segment-matches?` -- which holds metadata the
+   address distinguishes and `=` does not -- completes `:result :present`.
+   A mismatch is `/integrity-failure`; an absent read-back is
+   `/present-but-absent`; neither ever overwrites anything.  The record's
+   removal is the exactly-once guard: one completion per materialization,
+   carrying the put id.
 
    Published completions are plain data, decoded totaly: a get's ok
    response as `{:id … :op … :found? b :value v}`, a put's as

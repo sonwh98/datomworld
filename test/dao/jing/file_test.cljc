@@ -363,3 +363,31 @@
                    (finally (jing/close! handle) (cleanup-file path))))
        :cljs (is true "JVM contention is a clj-only property")
        :cljd (is true "JVM contention is a clj-only property"))))
+
+
+(deftest multi-algorithm-file-store-and-replay-test
+  (testing "file backend stores both algorithms and replays cleanly"
+    (let [path         (temp-path "multi-algo")
+          h1           (jing-file/create-content-file path)
+          p1           {:msg "first payload", :n 1}
+          p2           {:msg "second payload", :n 2}
+          addr-b3      (jing/materialize! h1 p1)
+          addr-s256    (jing/materialize! h1 p2 {:algorithm :sha256})
+          addr-p1-s256 (jing/materialize! h1 p1 {:algorithm :sha256})]
+      (is (= :blake3 (jing/segment-algorithm addr-b3)))
+      (is (= :sha256 (jing/segment-algorithm addr-s256)))
+      (is (= :sha256 (jing/segment-algorithm addr-p1-s256)))
+      (is (not= addr-b3 addr-p1-s256))
+      (is (= p1 (jing/get h1 addr-b3 ::absent)))
+      (is (= p2 (jing/get h1 addr-s256 ::absent)))
+      (is (= p1 (jing/get h1 addr-p1-s256 ::absent)))
+      (jing/close! h1)
+      (let [h2 (jing-file/create-content-file path)]
+        (try
+          (is (= p1 (jing/get h2 addr-b3 ::absent)))
+          (is (= p2 (jing/get h2 addr-s256 ::absent)))
+          (is (= p1 (jing/get h2 addr-p1-s256 ::absent)))
+          (is (= 3 (count (jing-file/records path))))
+          (finally
+            (jing/close! h2)
+            (cleanup-file path)))))))

@@ -67,8 +67,8 @@ semantic database point within it.
 
 DaoJing maintains no membership registry, no mutable roots, no CAS records,
 and no delete operation. Its only object of discourse is the strict content
-address `:segment/sha256-<hash>`, and its only semantics are insert-if-absent
-materialization plus content reads.
+address `:segment/<algorithm>-<digest>`, and its only semantics are
+insert-if-absent materialization plus content reads.
 
 ## The intake pool
 
@@ -209,9 +209,80 @@ residual under *Open items and current limitations*). Records are not a
 supported payload: `content-hash` throws rather
 than silently addressing a record as its equal plain map, since the
 participating hosts cannot agree on how to print one. `materialize!`'s
-`:present` read-back is verified by re-hashing the stored value and comparing
-it to the claimed address, not by `=`, since `=` ignores metadata and a
-metadata-only mismatch is a real collision.
+`:present` read-back is verified by `segment-matches?`, ensuring that
+a metadata-only mismatch is caught as a real collision.
+
+## Multihash Content Addressing & Algorithm Registry
+
+DaoJing implements a closed, immutable algorithm registry providing
+multi-algorithm content-addressing across JVM, Node/CLJS, and ClojureDart.
+
+Six core concepts are strictly distinguished:
+
+1. **Algorithm:** A registered cryptographic hash function identified by a
+   keyword (`:blake3` or `:sha256`). The registry is closed and immutable:
+   - `:blake3`: default minting algorithm; produces 32-byte (256-bit) digests.
+   - `:sha256`: permanent first-class selectable algorithm; produces 32-byte
+     digests.
+2. **Digest:** The lowercase hexadecimal representation of the raw digest
+   bytes computed over `canonical-bytes(payload)`.
+3. **Address:** The namespace-qualified keyword
+   `:segment/<algorithm-id>-<digest-hex>` (81-character keyword
+   beginning with `:segment/blake3-` or `:segment/sha256-`).
+   Validated by `dao.jing/segment-address?` and parsed by
+   `dao.jing/parse-segment-address`.
+4. **Minting:** Deriving a new address for content (`dao.jing/content-hash`,
+   `dao.jing/segment-key`, `dao.jing/materialize!`). Implicit minting defaults
+   to `:blake3`. Explicit minting supports `{:algorithm :sha256}` across public
+   APIs.
+5. **Verification:** Validating that an opaque payload matches an existing
+   address using `dao.jing/segment-matches?`.
+   - **Verification must be address-directed; minting primitives are not
+     validators.**
+   - The address carries its own algorithm identifier. `segment-matches?` parses
+     the address, computes canonical bytes, digests them using the algorithm
+     indicated by the address, and compares. It never consults
+     `default-hash-algorithm` and never throws on encoder refusal or
+     malformed addresses.
+6. **Copying:** Transferring or caching addressed content across layers (such as
+   DHT caching, B-tree hydration, and `store-tree-async` flushing).
+   - **Copying addressed content preserves the address-carried algorithm.** An
+     address minted under `:sha256` remains under `:sha256` when cached or
+     hydrated.
+
+### Host Dependencies and Licenses
+
+Pinned BLAKE3 provider dependencies across all three hosts:
+- **JVM:** `io.github.rctcwyvrn/blake3 1.3` (MIT License)
+- **Node/CLJS:** `@noble/hashes 2.4.0` (MIT License)
+- **ClojureDart:** `blake3_dart 1.0.0` (MIT License)
+
+SHA-256 uses native host implementations on JVM (`java.security.MessageDigest`),
+Node/CLJS (`goog.crypt.Sha256`), and pure ClojureDart.
+
+### Maintenance Obligations: Call-Site Classification & AST Lint Guard
+
+Future maintenance across the repository carries two explicit obligations
+governed by `docs/design/dao.jing.call-site-classification.md`:
+
+1. **Call-Site Classification:** Any new call site dealing with content
+   addresses must be classified into one of the four established classes:
+   - **Class 1 (Minting):** Fresh content addressing via `content-hash` or
+     `segment-key` (defaulting to `:blake3` or explicit `{:algorithm ...}`).
+   - **Class 2 (Wire / Handshake):** Protocol framing or manifest candidate
+     entries where schema addresses are stored.
+   - **Class 3 (Validation):** Must ALWAYS use `dao.jing/segment-matches?`
+     directed by the existing address. Never re-mint with default minting
+     primitives and compare with `=`.
+   - **Class 4 (Copy / Hydration):** Must ALWAYS preserve the address-carried
+     algorithm when copying, caching, or flushing content.
+2. **Architectural AST Lint Guard:** The active test
+   `architectural-lint-sweeps-production-sources` in
+   `test/dao/jing/hash_registry_contract_test.cljc` sweeps all production
+   `.cljc` sources to forbid equality validation (`=`) against
+   `dao.jing/content-hash` or `dao.jing/segment-key`. This test runs as part of
+   the standard suite (`bb test:clj`) to prevent regressions to implicit
+   mint-and-compare validation.
 
 ## Storage ignorance
 
@@ -248,7 +319,7 @@ contents.
 
 The storage read operation resolves a strict content address to the exact
 opaque value stored at that address. `dao.jing/get` accepts only
-`:segment/sha256-<64 lowercase hex>` addresses; arbitrary keys and mutable
+registered `:segment/<algorithm>-<digest>` addresses; arbitrary keys and mutable
 roots are outside DaoJing and throw before a backend is consulted.
 
 A reader may access the target locally or through a remote transport
@@ -402,11 +473,13 @@ the explicit intake-pool walk described in *Cursor tracking and recovery*,
 with no atoms, globals, registration, or discovery. The source stream never
 enters an address or a stored value.
 
-**Content addressing is implemented, transitionally.** `content-hash` hashes
-the order-normalized print of a value; `segment-key` mints
-`:segment/sha256-<hash>` addresses; `segment-address?` is the strict address
-test the backend layer enforces. As recorded in *Canonical encoding*, the
-encoder is transitional until the pinned canonical byte encoding lands.
+**Content addressing is implemented via the closed multihash registry.**
+`content-hash` digests canonical bytes under the selected algorithm (:blake3
+default, :sha256 selectable); `segment-key` mints
+`:segment/<algorithm>-<digest>` addresses; `segment-address?` is the strict
+address test the backend layer enforces; `segment-matches?` is the total
+address-directed verification predicate. As recorded in *Canonical encoding*,
+the encoder is transitional until the pinned canonical CBOR encoding lands.
 
 ## Open items and current limitations
 

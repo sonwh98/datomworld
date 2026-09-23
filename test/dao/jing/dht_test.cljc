@@ -591,3 +591,26 @@
           "subsequent close calls do nothing and return nil")
       (is (= 3 @net-closed) "no new net close attempt")
       (is (= 3 @local-closed) "no new local close attempt"))))
+
+
+(deftest dht-routes-and-caches-both-algorithms-without-reminting
+  (testing "DHT routes and caches both BLAKE3 and SHA-256 addresses"
+    (let [{:keys [stores]} (grid 3)
+          [origin reader]  stores
+          payload-b3       {:type :blake3-content, :n 100}
+          payload-s256     {:type :sha256-content, :n 200}
+          addr-b3          (jing/materialize! origin payload-b3)
+          addr-s256        (jing/materialize! origin payload-s256
+                                              {:algorithm :sha256})]
+      (is (= :blake3 (jing/segment-algorithm addr-b3)))
+      (is (= :sha256 (jing/segment-algorithm addr-s256)))
+      (is (= payload-b3 (jing/get reader addr-b3 ::not-found)))
+      (is (= payload-s256 (jing/get reader addr-s256 ::not-found)))
+      (let [local-store (:local reader)]
+        (is (= payload-b3 (jing/get local-store addr-b3 ::not-found)))
+        (is (= payload-s256 (jing/get local-store addr-s256 ::not-found)))
+        (is (jing/segment-matches? addr-b3
+                                   (jing/get local-store addr-b3 ::not-found)))
+        (is (jing/segment-matches? addr-s256
+                                   (jing/get local-store addr-s256
+                                             ::not-found)))))))

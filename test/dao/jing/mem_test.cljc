@@ -263,3 +263,32 @@
            (is (= {address payload} (mem/entries h))))))
      :cljs (is true)
      :cljd (is true)))
+
+
+(deftest multi-algorithm-memory-store-coexistence-test
+  (testing (str "same payload can be materialized and retrieved under "
+                "both algorithms")
+    (let [h           (mem/create-content-mem)
+          payload     {:entity 42, :data "multi-algorithm payload"}
+          addr-blake3 (jing/materialize! h payload)
+          addr-sha256 (jing/materialize! h payload {:algorithm :sha256})]
+      (is (= :blake3 (jing/segment-algorithm addr-blake3)))
+      (is (= :sha256 (jing/segment-algorithm addr-sha256)))
+      (is (not= addr-blake3 addr-sha256))
+      (is (= 2 (count (mem/entries h))))
+      (is (= payload (jing/get h addr-blake3 ::absent)))
+      (is (= payload (jing/get h addr-sha256 ::absent)))
+      (is (jing/segment-matches? addr-blake3
+                                 (jing/get h addr-blake3 ::absent)))
+      (is (jing/segment-matches? addr-sha256
+                                 (jing/get h addr-sha256 ::absent)))))
+  (testing "cross-algorithm mismatch fails segment-matches?"
+    (let [payload       {:hello "world"}
+          addr-blake3   (jing/segment-key payload)
+          addr-sha256   (jing/segment-key payload {:algorithm :sha256})
+          other-payload {:hello "universe"}]
+      (is (not (jing/segment-matches? addr-blake3 other-payload)))
+      (is (not (jing/segment-matches? addr-sha256 other-payload)))
+      (let [forged-b3 (keyword "segment"
+                               (str "blake3-" (subs (name addr-sha256) 7)))]
+        (is (not (jing/segment-matches? forged-b3 payload)))))))

@@ -30,7 +30,9 @@
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.cbor :as jing-cbor]
-            #?(:cljd ["dart:io" :as dart-io])))
+            #?@(:cljd [["dart:io" :as dart-io]]
+                :clj [[clojure.java.io :as io]]))
+  #?@(:cljd [(:import ["dart:typed_data" Uint8List])]))
 
 
 ;; =============================================================================
@@ -63,17 +65,6 @@
   @digest-table*)
 
 
-;; input-hex -> blake3-256 hex, built from digest-table.edn. A stand-in for a
-;; real BLAKE3 provider (H1 pins one on every host): total only over the
-;; exact byte strings the frozen fixtures cover, which is exactly the set
-;; this contract test needs to pin dispatch and total-predicate behavior
-;; without a real hash implementation.
-(def ^:private blake3-fixture-by-input-hex
-  (delay (into {}
-               (map (fn [c] [(:input-hex c) (:blake3-256 c)]))
-               (:cases (digest-table)))))
-
-
 ;; =============================================================================
 ;; §1 — Address grammar & parsing specification
 ;;
@@ -87,10 +78,6 @@
 (def ^:private algorithm-id-pattern
   "Algorithm address identifiers are lowercase ASCII alphanumeric strings."
   #"[a-z0-9]+")
-
-
-(def ^:private hex-digit-pattern
-  #"[0-9a-f]+")
 
 
 (def ^:private registry jing/registry)
@@ -185,18 +172,6 @@
 ;; here via the real dao.jing/segment-key, which is unaffected by H0)
 ;; throws instead.
 ;; =============================================================================
-
-(defn- digest-bytes-hex
-  "algorithm x host-bytes -> lowercase hex digest, or a canonical-encoder
-   refusal exception for the caller to catch. sha256 is real
-   (`dao.jing/sha256-bytes`); blake3 is fixture-backed (see the namespace
-   docstring) and only defined over the exact byte strings the frozen
-   fixtures cover."
-  [algorithm bs hex]
-  (case algorithm
-    :sha256 (jing/sha256-bytes bs)
-    :blake3 (get @blake3-fixture-by-input-hex hex ::no-fixture)))
-
 
 (defn- bytes->hex
   [bs]
@@ -403,3 +378,58 @@
       (when (and value (str/starts-with? (name label) "canonical-"))
         (is (= input-hex (bytes->hex (jing/canonical-bytes value)))
             (str label " canonical-bytes must match the frozen fixture"))))))
+
+
+(defn- make-official-input-bytes
+  [len]
+  (let [ints (mapv #(mod % 251) (range len))]
+    #?(:clj (byte-array (map unchecked-byte ints))
+       :cljs (js/Uint8Array. (clj->js ints))
+       :cljd (Uint8List.fromList ints))))
+
+
+(deftest blake3-official-and-utf8-vector-conformance
+  (testing "official BLAKE3 test vectors match host provider"
+    (let [vectors (:official-vectors (blake3-vectors))]
+      (is (= 10 (count vectors)))
+      (doseq [{:keys [input-len hash]} vectors]
+        (let [input-bytes (make-official-input-bytes input-len)]
+          (is (= hash (jing/digest-bytes :blake3 input-bytes))
+              (str "Official vector of length " input-len " must match"))))))
+  (testing "non-ASCII UTF-8 vectors match host provider"
+    (let [vectors (:non-ascii-utf8-vectors (blake3-vectors))]
+      (is (= 5 (count vectors)))
+      (doseq [{:keys [string hash]} vectors]
+        (is (= hash (jing/digest-string :blake3 string))
+            (str "UTF-8 vector for " (pr-str string) " must match"))))))
+
+
+#?(:clj
+   (deftest architectural-lint-sweeps-production-sources
+     (testing (str "source sweep: no equality comparison against "
+                   "dao.jing default minting vars")
+       (let [src-dir    (io/file "src/cljc")
+             files      (filter #(and (.isFile ^java.io.File %)
+                                      (.endsWith (.getName ^java.io.File %)
+                                                 ".cljc"))
+                                (file-seq src-dir))
+             exemptions #{"src/cljc/dao/jing.cljc"
+                          "src/cljc/dao/jing/file.cljc"}]
+         (is (pos? (count files)))
+         (doseq [f files
+                 :let [path (.getPath ^java.io.File f)]
+                 :when (not (contains? exemptions path))]
+           (with-open [rdr (java.io.PushbackReader. (io/reader f))]
+             (let [eof (Object.)]
+               (loop []
+                 (let [form (try
+                              (read {:eof eof
+                                     :read-cond :allow
+                                     :features #{:clj :cljc}}
+                                    rdr)
+                              (catch Exception _ eof))]
+                   (when-not (identical? form eof)
+                     (is (not (flags-equality-validation? form))
+                         (str "Found forbidden equality validation in "
+                              path ": " (pr-str form)))
+                     (recur)))))))))))

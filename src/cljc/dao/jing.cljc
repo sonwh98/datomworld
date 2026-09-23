@@ -5,8 +5,9 @@
    {:put-content-fn f, :get-content-fn g, :close-fn c}. The backend effects
    are explicit functions: materialize! computes the content address solely
    from the payload, inserts idempotently, and returns the address only
-   after the backend reports durability. get reads only :segment/sha256-...
-   content addresses; arbitrary keys and mutable roots are outside DaoJing.
+   after the backend reports durability. get reads only registered
+   :segment/<algorithm>-... content addresses; arbitrary keys and mutable roots
+   are outside DaoJing.
 
    The observer (observer-state / observe-step! / adopt-cursor) coordinates
    an explicit intake pool of dao.stream reader handles and materializes
@@ -38,10 +39,6 @@
   #?(:cljd (Object.)
      :clj (Object.)
      :cljs (js-obj)))
-
-
-(def ^:private hex-digits-set
-  #{\0 \1 \2 \3 \4 \5 \6 \7 \8 \9 \a \b \c \d \e \f})
 
 
 ;; =============================================================================
@@ -295,7 +292,7 @@
 (defn sha256-bytes
   "SHA-256 hex digest of host bytes bs (byte[] on the JVM, Uint8Array on
    ClojureScript, Uint8List on Dart). `(sha256-bytes (canonical-bytes v))`
-   is `(content-hash v)` — the two are one digest over one byte stream."
+   is the digest for `(content-hash v {:algorithm :sha256})`."
   [bs]
   #?(:clj (let [digest (java.security.MessageDigest/getInstance "SHA-256")
                 bytes (.digest digest ^bytes bs)]
@@ -355,7 +352,7 @@
   #?(:clj (let [b (io.github.rctcwyvrn.blake3.Blake3/newInstance)]
             (.update b (.getBytes ^String s "UTF-8"))
             (.hexdigest b))
-     :cljs (blake3-bytes (crypt/stringToUtf8ByteArray s))
+     :cljs (blake3-bytes (noble-utils/utf8ToBytes s))
      :cljd (blake3-bytes (convert/utf8.encode s))))
 
 
