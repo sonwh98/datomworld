@@ -273,7 +273,10 @@
                                  (err :marker-in-payload :address a)))
                              addresses)
                (first-defect (fn [a]
-                               (when-not (every? #(= a (jing/segment-key (subvec % 1)))
+                               (when-not (every? (fn [row]
+                                                   (jing/segment-matches?
+                                                     a
+                                                     (subvec row 1)))
                                                  (get by-addr a))
                                  (err :address-mismatch :address a)))
                              addresses)

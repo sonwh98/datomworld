@@ -131,9 +131,9 @@
                      :yin.k/class class,
                      :yin.k/arities (vec arities),
                      :yin.k/effects (set effects),
-                     :yin.k/host-state host-state}]
-    {:yin.k/profile (keyword "yin.k.pp"
-                             (str "sha256-" (jing/content-hash description))),
+                     :yin.k/host-state host-state}
+        digest (jing/content-hash description {:algorithm :sha256})]
+    {:yin.k/profile (keyword "yin.k.pp" (str "sha256-" digest)),
      :yin.k/class class,
      :yin.k/arities (vec arities),
      :yin.k/effects (set effects),
@@ -1245,7 +1245,8 @@
                        "Semantic bytecode row is not [id tag & slots]"
                        {:id id, :row row}))
                  body (subvec row 1)
-                 _ (when-not (= id (first row) (jing/segment-key body))
+                 _ (when-not (and (= id (first row))
+                                  (jing/segment-matches? id body))
                      (defect :content-address
                        "Semantic bytecode row id is not its content address"
                        {:id id, :row row}))

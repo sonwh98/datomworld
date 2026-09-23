@@ -93,60 +93,11 @@
   #"[0-9a-f]+")
 
 
-(def ^:private registry
-  "The closed, immutable algorithm registry H0 pins. Both initial entries
-   produce 32-byte (64 lowercase hex character) digests."
-  {:blake3 {:address-id "blake3", :digest-bytes 32}
-   :sha256 {:address-id "sha256", :digest-bytes 32}})
-
-
-(def ^:private registry-by-address-id
-  (into {} (map (fn [[k v]] [(:address-id v) k])) registry))
-
-
-(defn- parse-segment-address
-  "The one authoritative parser the design specifies: requires a `segment`
-   namespace keyword, splits the name on the first `-` into algorithm
-   identifier and digest, looks the identifier up by exact match (no
-   prefix matching), validates digest length from the registry entry and
-   lowercase-hex text, and reconstructs the canonical address to reject
-   alternative spellings. Returns nil, never throws, on any rejection —
-   `segment-address?` (below) is a total predicate built directly on this."
-  [address]
-  (when (keyword? address)
-    (when (= "segment" (namespace address))
-      (let [n (name address)
-            i (str/index-of n "-")]
-        (when (and i (pos? i))
-          (let [algo-id (subs n 0 i)
-                digest (subs n (inc i))]
-            (when (re-matches algorithm-id-pattern algo-id)
-              (when-let [algorithm (get registry-by-address-id algo-id)]
-                (let [{:keys [digest-bytes]} (get registry algorithm)]
-                  (when (and (= (* 2 digest-bytes) (count digest))
-                             (re-matches hex-digit-pattern digest))
-                    (let [canonical (keyword "segment" (str algo-id "-" digest))]
-                      (when (= canonical address)
-                        {:algorithm algorithm, :digest digest, :canonical canonical}))))))))))))
-
-
-(defn- segment-address?
-  [x]
-  (boolean (parse-segment-address x)))
-
-
-(defn- segment-algorithm
-  [address]
-  (if-let [parsed (parse-segment-address address)]
-    (:algorithm parsed)
-    (throw (ex-info "not a segment content address" {:address address}))))
-
-
-(defn- segment-digest
-  [address]
-  (if-let [parsed (parse-segment-address address)]
-    (:digest parsed)
-    (throw (ex-info "not a segment content address" {:address address}))))
+(def ^:private registry jing/registry)
+(def ^:private parse-segment-address jing/parse-segment-address)
+(def ^:private segment-address? jing/segment-address?)
+(def ^:private segment-algorithm jing/segment-algorithm)
+(def ^:private segment-digest jing/segment-digest)
 
 
 (deftest address-grammar-pinned-canonical-forms
@@ -259,22 +210,7 @@
                               (range (alength bs))))))
 
 
-(defn- segment-matches?
-  "Reference implementation of the design's total verification predicate.
-   Never throws: malformed/unsupported addresses, unknown algorithms,
-   digest mismatches, and canonical-encoder refusal on the payload all
-   answer false. (In H1 production implementation, catch only the canonical
-   encoder documented refusal exception class rather than catch-all)."
-  [address payload]
-  (if-let [{:keys [algorithm digest]} (parse-segment-address address)]
-    (try
-      (let [bs (jing/canonical-bytes payload)
-            hex (bytes->hex bs)
-            actual (digest-bytes-hex algorithm bs hex)]
-        (and (not= ::no-fixture actual) (= digest actual)))
-      (catch #?(:cljd Object :clj Throwable :cljs :default) _
-        false))
-    false))
+(def ^:private segment-matches? jing/segment-matches?)
 
 
 (defrecord Unsupported
@@ -287,10 +223,9 @@
     (is (segment-matches? :segment/blake3-c3a8cc55ea53e056552eab337f404b352cc9415d386d8cc399edc356f5d9b012
                           [1 2 3])))
   (testing "a genuine sha256-addressed payload matches, using the real
-            dao.jing/content-hash (already SHA-256 today)"
-    (let [address (jing/segment-key {:a 1})]
-      (is (segment-matches? (keyword "segment" (str "sha256-" (jing/segment-hash address)))
-                            {:a 1})))))
+            dao.jing/content-hash"
+    (let [address (jing/segment-key {:a 1} {:algorithm :sha256})]
+      (is (segment-matches? address {:a 1})))))
 
 
 (deftest segment-matches-total-predicate-rejections

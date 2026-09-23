@@ -17,9 +17,9 @@
    through the local backend.
 
    There are no roots, no CAS records, no deletes, and no intake streams
-   here: the DHT routes only :segment/sha256-... content addresses, derives
-   its routing target solely from the content hash, and never records which
-   stream or peer carried a payload."
+   here: the DHT routes segment content addresses (:segment/<algo>-...),
+   derives its routing target solely from the content digest, and never
+   records which stream or peer carried a payload."
   (:require [dao.jing :as jing]
             [dao.jing.dht.kad :as kad]))
 
@@ -35,12 +35,12 @@
 
 
 (defn- content-target
-  "The routing target for a strict :segment/sha256-... content address: its
-   content hash. Non-segment addresses are outside the DHT and throw; there
+  "The routing target for a strict segment content address: its
+   content digest. Non-segment addresses are outside the DHT and throw; there
    is no root class, so nothing is ever hashed by key name."
   [address]
   (when-not (jing/segment-address? address)
-    (throw (ex-info "dao.jing.dht: not a sha256 segment content address"
+    (throw (ex-info "dao.jing.dht: not a segment content address"
                     {:address address})))
   (jing/segment-hash address))
 
@@ -153,14 +153,13 @@
 
 (defn- validate-address-payload!
   "Reject a put before any local or network action: the address must be a
-   strict :segment/sha256-... content address and must hash to the exact
-   payload."
+   valid segment content address and must match the exact payload."
   [address payload]
   (when-not (jing/segment-address? address)
-    (throw (ex-info "dao.jing.dht: not a sha256 segment content address"
+    (throw (ex-info "dao.jing.dht: not a segment content address"
                     {:address address, :payload payload})))
-  (when-not (= (jing/segment-hash address) (jing/content-hash payload))
-    (throw (ex-info "dao.jing.dht: content address does not hash to the payload"
+  (when-not (jing/segment-matches? address payload)
+    (throw (ex-info "dao.jing.dht: content address does not match the payload"
                     {:address address, :payload payload}))))
 
 
@@ -220,13 +219,14 @@
                       (when (not= self-id (:id peer))
                         (when-let [res (safe-fetch-content net peer address)]
                           (when (and (:found? res)
-                                     (= address
-                                        (jing/segment-key (:value res))))
+                                     (jing/segment-matches? address
+                                                            (:value res)))
                             [(:value res)]))))
                     (lookup net (content-target address)))]
           (if fetched
             (let [value (first fetched)
-                  cached (jing/materialize! local value)]
+                  algo (jing/segment-algorithm address)
+                  cached (jing/materialize! local value {:algorithm algo})]
               (when-not (= address cached)
                 (throw
                   (ex-info

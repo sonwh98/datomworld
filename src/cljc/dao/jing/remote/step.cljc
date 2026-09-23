@@ -232,16 +232,14 @@
 
 (defn request-materialize
   "Request one remote materialization of `payload`: the address is derived
-   here (B1 — the caller never supplies it), the put is submitted, and the
-   returned `:id` is the put id the one completion will carry.  On
-   `:inserted` the completion is `{:id … :materialized? true :address a
-   :result :inserted}`; on `:present` nothing publishes until the verify
-   read (see the namespace docstring's order 4) hashes back to the
-   address, completing `:result :present`, or reports
-   `/integrity-failure` / `/present-but-absent` / the server's `:error`.
-   Any loss publishes `:lost reason`."
-  [state payload]
-  (submit state put-content-op [(jing/segment-key payload) payload] true))
+   here, the put is submitted, and the returned `:id` is the put id the one
+   completion will carry. Supports explicit algorithm via opts:
+   `{:algorithm :sha256}`."
+  ([state payload]
+   (request-materialize state payload {}))
+  ([state payload opts]
+   (let [addr (jing/segment-key payload opts)]
+     (submit state put-content-op [addr payload] true))))
 
 
 ;; =============================================================================
@@ -348,8 +346,7 @@
                                :dao.stream.apply/message
                                "the remote reported :present but the content address is absent"}})
 
-              (= (jing/content-hash (:value value))
-                 (jing/segment-hash (:address record)))
+              (jing/segment-matches? (:address record) (:value value))
               (finish {:result :present})
 
               :else

@@ -54,10 +54,9 @@
       (when (identical? blob absent)
         (throw (ex-info "missing index segment" {:address addr})))
       (when verify?
-        (let [actual (jing/segment-key blob)]
-          (when (not= addr actual)
-            (throw (ex-info "corrupt index segment"
-                            {:expected addr, :actual actual})))))
+        (when-not (jing/segment-matches? addr blob)
+          (throw (ex-info "corrupt index segment"
+                          {:expected addr, :actual (jing/segment-key blob)}))))
       (bt/blob->node blob settings)))
 
 
@@ -114,8 +113,8 @@
             (throw (ex-info "sync store-tree against an async backend" {})))
           (let [addr (jing/materialize! cache blob)]
             (swap! outbox update :unacked
-                    (fn [u]
-                      (if (some #(= addr (first %)) u) u (conj u [addr blob]))))
+                   (fn [u]
+                     (if (some #(= addr (first %)) u) u (conj u [addr blob]))))
             addr))
         ;; writes land in the durable source AND the read cache; both are
         ;; content-addressed, so both must answer with the same address
@@ -183,7 +182,9 @@
                   (let [blob (jing/get source addr absent)]
                     (when (identical? blob absent)
                       (throw (ex-info "missing index segment" {:address addr})))
-                    (let [addr' (jing/materialize! cache blob)]
+                    (let [algo (jing/segment-algorithm addr)
+                          addr' (jing/materialize! cache blob
+                                                   {:algorithm algo})]
                       (when-not (= addr addr')
                         (throw (ex-info "hydration address mismatch"
                                         {:expected addr, :actual addr'}))))
@@ -283,7 +284,9 @@
 
                    :else
                    (let [blob (:value c)
-                         addr' (jing/materialize! cache blob)]
+                         algo (jing/segment-algorithm addr)
+                         addr' (jing/materialize! cache blob
+                                                  {:algorithm algo})]
                      (if (= addr addr')
                        (do (doseq [a (:addresses blob)] (visit! a))
                            (done!))
@@ -319,7 +322,10 @@
   ([s storage on-ok on-err]
    (if-let [^HydrationStorage hs (async-hydration-storage storage)]
      (let [outbox (.-outbox hs)
-           materialize-async (:materialize-async-fn (.-source hs))
+           source (.-source hs)
+           put-content-async (or (:put-content-async-fn source)
+                                 (when-let [m (:materialize-async-fn source)]
+                                   (fn [_addr blob cb] (m blob cb))))
            stored (attempt (fn []
                              (swap! outbox assoc :writing? true)
                              (try (bt/store-tree s storage)
@@ -335,16 +341,19 @@
            (if (empty? unacked)
              (on-ok root)
              (doseq [[addr blob] unacked]
-               (materialize-async
+               (put-content-async
+                 addr
                  blob
                  (fn [c]
-                   (if (and (:materialized? c) (:result c) (= addr (:address c)))
+                   (if (and (:result c) (= addr (:address c)))
                      ;; acknowledged: the one place a segment leaves the queue
                      (swap! outbox update :unacked
                             (fn [u] (filterv #(not= addr (first %)) u)))
-                     (compare-and-set! failure nil
-                                       (ex-info "store-tree-async: segment write failed"
-                                                {:address addr, :completion c})))
+                     (compare-and-set!
+                       failure
+                       nil
+                       (ex-info "store-tree-async: segment write failed"
+                                {:address addr, :completion c})))
                    (settle!)))))))
        nil)
      (report (attempt #(bt/store-tree s storage)) on-ok on-err))))

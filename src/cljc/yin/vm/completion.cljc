@@ -289,7 +289,7 @@
                       (= op call) [:call (nth inst 1) false]
                       :else (into [(get opcode->mnemonic op)] (rest inst)))))
                 (:code image))]
-    (when (and (:address image) (= (:address image) (jing/segment-key v)))
+    (when (and (:address image) (jing/segment-matches? (:address image) v))
       v)))
 
 

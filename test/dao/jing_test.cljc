@@ -202,9 +202,12 @@
            (jing/content-hash (with-meta (apply list [2 3]) nil))
            (jing/content-hash (seq [2 3])))))
   (testing "pinned: a list inside a vector beside a set, on every host"
-    (is (= "e5bab3450d860af30befedbf9a650a761af5b35663e00cc1a126d15cf9199cb5"
+    (is (= "738db3e930f478ee4212ad3dfa2434723e298adb05b19450d4f61ad4fbcf0e8c"
            (jing/content-hash '[1 (2 3) #{4}])
-           (jing/content-hash [1 (seq [2 3]) #{4}])))))
+           (jing/content-hash [1 (seq [2 3]) #{4}])))
+    (is (= "e5bab3450d860af30befedbf9a650a761af5b35663e00cc1a126d15cf9199cb5"
+           (jing/content-hash '[1 (2 3) #{4}] {:algorithm :sha256})
+           (jing/content-hash [1 (seq [2 3]) #{4}] {:algorithm :sha256})))))
 
 
 (deftest content-hash-keeps-the-set-tag-outside-the-value-domain
@@ -306,9 +309,13 @@
           address (jing/materialize! h payload)]
       (is (= (jing/segment-key payload) address))
       (is (= "segment" (namespace address)))
-      (is (str/starts-with? (name address) "sha256-"))
+      (is (str/starts-with? (name address) "blake3-"))
       (is (= payload (jing/get h address ::missing))
-          "the stored value is exactly the payload: nothing stamped in"))))
+          "the stored value is exactly the payload: nothing stamped in")
+      (let [sha-addr (jing/materialize! h payload {:algorithm :sha256})]
+        (is (= (jing/segment-key payload {:algorithm :sha256}) sha-addr))
+        (is (str/starts-with? (name sha-addr) "sha256-"))
+        (is (= payload (jing/get h sha-addr ::missing)))))))
 
 
 (deftest put-receives-the-derived-address-and-payload
