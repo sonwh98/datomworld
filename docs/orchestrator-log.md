@@ -6473,3 +6473,52 @@ Verification: Full tri-host test matrix executed and 100% green on master:
 Delegates: Adversarial Code Reviewer (research subagent 216ca367)
 Next: Proceed to Phase R3 (Register VM execution kernel) or next prioritized
   architecture epic.
+
+## 2026-09-23 22:55:00 +07 -- Register VM Phase R4 & Typecheck Design Merged
+Completed-GMT: 2026-09-23 15:55:00 GMT
+Coding-Agent: Antigravity CLI
+Session-ID: not-applicable (interactive seat)
+Tree: master@ed7e0fda (18 commits ahead of origin, unpushed);
+  uncommitted: this log
+Done:
+(1) Typecheck Design (docs/design/yin.vm.typecheck.md):
+- Incorporated Lead System Architect review findings:
+  * Defect 1 resolved: Coordinate projection across macro expansion via
+    consuming macro-log (section 8.3) to project source claims onto
+    post-expansion occurrence paths, or identity/absent when composed upstream.
+  * Defect 2 resolved: Explicit stream linearization and memory boundedness via
+    causal watermark claims-t and waitset barrier, indexing only packet-relevant
+    claims and freeing them upon verdict emission.
+  * Minor finding resolved: Replaced claim-eids with explicit #{claim-refs}.
+  * Form and Standards: Verified 100% pure ASCII and line lengths <= 80 cols.
+- Updated public/chp/blog/yin-vm-vs-unison.blog with pure ASCII typography.
+- Committed to master (commit 0e6acdb3).
+(2) Register VM Phase R4 Execution Kernel:
+- Implemented src/cljc/yin/vm/debruijn/register.cljc:
+  * DebruijnRegisterVM record conforming to yin.vm/IVM and yin.vm/IVMState.
+  * Full execution semantics for all 22 opcodes across pure-program and effects
+    tiers, including :load-bound, :load-free, :closure, :move, :call,
+    :store-get, :store-put, :gensym, :stream-*, :current-continuation, :park,
+    :resume, :ffi-call.
+  * Continuation snapshotting and register-restore engine seam integration.
+- Independent Adversarial Code Review conducted (research subagent 2e6d8c35):
+  * Findings addressed: wired up effects/continuation-defect in register-restore
+    to strictly validate image integrity, recomputed R, site-pc, destination
+    bounds, ascending distinct live vectors, exact regs/live agreement, and
+    nested return frame validity before restoration.
+- Created test/yin/vm/debruijn/register_test.cljc:
+  * 29 tests, 115 assertions covering pure tier, B0 normalizer parity against
+    Semantic VM and Stack VM, B2 fixtures, effects, stream blocking states,
+    FFI bridge dispatch, and tampering mutation matrix.
+- Fast-forward merged into master (commit ed7e0fda).
+- Removed temporary worktree and deleted debruijn-register-r4 branch.
+Decisions: All changes kept strictly local (no git push). Strict <= 80 columns,
+  pure ASCII, and zero linter warnings enforced.
+Verification:
+- JVM (bb test:clj): 1,940 tests, 179,277 assertions, 0 fail, 0 err.
+- Node/CLJS (bb test:cljs): 1,856 tests, 46,437 assertions, 0 fail, 0 err.
+- ClojureDart (bb test:cljd): 1,818 tests passed, 0 fail, 0 err.
+- Code quality: cljstyle check clean, clj -M:kondo 0 errors / 0 warnings.
+Delegates: Lead System Architect (5936d512), Adversarial Reviewer (2e6d8c35).
+Next: Proceed to Typecheck Phase T0 (contract and fixtures) or Register VM
+  Phase R5 (stream linker / closed image distribution).
