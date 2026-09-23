@@ -1,6 +1,6 @@
 # Multihash-Style Content Addressing for DaoJing and yin.vm
 
-Status: design, reviewed and revised; not implemented
+Status: design, architect signed off; not implemented
 
 ## Decision
 

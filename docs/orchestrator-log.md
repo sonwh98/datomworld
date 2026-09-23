@@ -6249,3 +6249,19 @@ Decisions: Applied findings directly as mechanical contract clarifications per o
 Verification: diffstat +24/-19; confirmed all line-length and formatting rules; no broken references.
 Delegates: none this unit (orchestrator reconciliation of reviewed findings)
 Next: Await owner authorization to commit the updated design doc (docs(dao.jing): fold review findings into hash-registry design), then proceed to H0 dispatch when authorized.
+
+## 2026-09-23 14:14:00 +07 — architect sign-off: dao.jing.hash-registry.md GRANTED (gpt-5.6-sol)
+Completed-GMT: 2026-09-23 07:14:00 GMT
+Coding-Agent: agy
+Session-ID: b71a7066-b2ee-4d2f-a87c-c62b0d73a28a
+Tree: master@a2e64161 (1 ahead of origin), clean; worktree-register-r0@0e497a44 (branch register-r0, unmerged)
+Done: Dispatched Lead System Architect Sign-Off request to gpt-5.6-sol (resumed thread 01a0cad7-2f30-7b82-ae67-288922310f75, artifacts collab/1790147499393-architect-hash-registry-signoff.{prompt.md,gpt-5.6-sol.stdout.log,gpt-5.6-sol.findings.md}). The Architect SIGNED OFF on docs/design/dao.jing.hash-registry.md:
+- Confirmed foundational invariants and clean break: dao.jing is syntax; immutable closed registry; explicit causality; no backward-compat shims; clean break without migration.
+- Confirmed address-directed copy paths: the 4th copy path (store-tree-async flush) must supply source address/algorithm (e.g. via put-content or explicit address-supplying operation) and validate remotely via segment-matches?, never calling un-parameterized request-materialize / materialize-async-fn.
+- Confirmed total predicate contract: segment-matches? returns false on canonical encoder refusal (catching documented refusal classes), while materialize! / segment-key throw.
+- Confirmed frozen contracts: VM H/R and DHT node IDs remain pinned to SHA-256.
+- Explicitly approved Phase H0 implementation under stated boundaries and completion criteria.
+Decisions: Promoted sign-off report to .findings.md. Phase H0 implementation is now formally authorized by the Lead System Architect.
+Verification: Evaluated architect deliverable against datom.world invariants and prior review findings.
+Delegates: gpt-5.6-sol (Lead System Architect, resumed thread 01a0cad7-2f30-7b82-ae67-288922310f75)
+Next: Dispatch Phase H0 (contract and evidence: flat address grammar, BLAKE3 vectors, cross-provider digest table, call-site classification, CBOR doc multihash alignment).
