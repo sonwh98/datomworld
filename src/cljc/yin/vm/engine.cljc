@@ -409,7 +409,12 @@
    ready entry holds registers, ids, and values — never a closure. The
    terminal-outcome check runs before the restore: a woken retry that ended
    in an outcome the immediate operation raises as an error must fail the
-   same way here, not reach Yin code as a value."
+   same way here, not reach Yin code as a value.
+
+   `restore-fn` is called with three arguments, `base entry val`, where
+   `val` is the woken `:value` — the same signature `resume-continuation`
+   uses, so one restore serves both engine call sites
+   (`yin.vm.engine.md` §7, edit 2)."
   [state restore-fn]
   (let [run-queue (or (:ready-queue state) [])]
     (when (seq run-queue)
@@ -422,7 +427,21 @@
                         :halted? false)]
         (if-let [terminal (terminal-resume-outcome entry)]
           (throw-terminal-resume! entry terminal)
-          (restore-fn base entry))))))
+          (restore-fn base entry (:value entry)))))))
+
+
+(defn scheduler-round
+  "One round between continuations: poll the wait set, then resume whatever
+   woke, through `restore-fn` (`base entry val -> state`, the one restore
+   signature `yin.vm.engine.md` §2.1 states). Returns the polled state when
+   nothing woke, so a caller always gets a state back.
+
+   This is `yin.vm.semantic/scheduler-round` with its restore made a
+   parameter (`yin.vm.engine.md` §7, edit 1); every VM was writing this
+   composition by hand."
+  [state restore-fn]
+  (let [v' (check-wait-set state)]
+    (or (resume-from-run-queue v' restore-fn) v')))
 
 
 (defn park-continuation

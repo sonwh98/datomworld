@@ -62,6 +62,27 @@
    :stream-id vm/call-out-stream-key})
 
 
+(defn response-wait-entry
+  "The polling wait entry for a sent call awaiting its correlated response,
+   for an arbitrary register payload (`yin.vm.engine.md` §7, edit 3).
+
+   `entry` is a wait, ready, or parked record as the VM built it: the
+   writer entry that retried the request, or the registers of a call whose
+   request was sent at once. The FFI keys of the writer step
+   (`:request-sent`, `:op`) and its retried `:datom` are removed; the
+   call-out reader keys are added. Every other key — the VM's register
+   payload, whatever its shape — is preserved verbatim, so no VM has to
+   know this layout. `call-response-wait-entry` (the walker's frame-typed
+   shape) is unchanged."
+  [entry call-id]
+  (-> entry
+      (dissoc :request-sent :op :datom)
+      (assoc :call-id call-id
+             :reason :next
+             :cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
+             :stream-id vm/call-out-stream-key)))
+
+
 (defn call-result
   "Unwrap a response envelope for the continuation that made the call.
 

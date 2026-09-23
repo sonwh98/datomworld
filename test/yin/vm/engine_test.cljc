@@ -3,6 +3,7 @@
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
+            [yin.vm.ffi :as ffi]
             [yin.vm.module :as module]
             [yin.vm.test-utils :as tu]))
 
@@ -342,11 +343,11 @@
   (testing "An unsupported reason wakes as a diagnostic and raises on resume,
             never falling through to the restore"
     (let [restored (atom [])
-          restore-fn (fn [base entry] (swap! restored conj entry) base)
+          restore-fn (fn [base entry _val] (swap! restored conj entry) base)
           bad {:reason :stare, :k {:type :probe-frame}, :env {}}
           woken (engine/check-wait-set (assoc (state)
-                                               :blocked? true
-                                               :wait-set [bad]))
+                                              :blocked? true
+                                              :wait-set [bad]))
           entry (first (:ready-queue woken))]
       (is (empty? (:wait-set woken))
           "The malformed entry leaves the wait set instead of waiting forever")
@@ -366,13 +367,81 @@
                :k {:type :probe-frame},
                :env {}}
           woken (engine/check-wait-set (assoc (state)
-                                               :blocked? true
-                                               :wait-set [bad]))]
+                                              :blocked? true
+                                              :wait-set [bad]))]
       (is (= :dao.stream.waitset/unresolved
              (:status (first (:ready-queue woken)))))
       (is (throws? (fn []
                      (engine/resume-from-run-queue
-                       woken (fn [base _entry] base))))))))
+                       woken (fn [base _entry _val] base))))))))
+
+
+;; =============================================================================
+;; The seam: one restore arity, one composed round, one reader entry
+;; (yin.vm.engine.md §7)
+;; =============================================================================
+
+(deftest resume-from-run-queue-calls-restore-with-three-arguments-test
+  (testing "Both engine call sites pass `base entry val`; the ready entry's
+            :value arrives as the third argument, so a VM writes one restore
+            and no two-arity shim"
+    (let [seen (atom nil)
+          restore-fn (fn [base entry val] (reset! seen [entry val]) (assoc base :value val))
+          entry {:reason :next, :regs :payload, :value :woken}
+          out (engine/resume-from-run-queue (assoc (state) :ready-queue [entry])
+                                            restore-fn)]
+      (is (= :woken (:value out)))
+      (is (= [entry :woken] @seen))
+      (is (empty? (:ready-queue out))))))
+
+
+(deftest scheduler-round-test
+  (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+        [_ s1] (engine/handle-cursor s0
+                                     {:stream {:type :stream-ref, :id :stream-0}}
+                                     :cursor-0)
+        handle (get (:store s1) :stream-0)
+        parked (assoc s1 :blocked? true :wait-set [(cursor-waiter :k1)])
+        restore-fn (fn [base entry val]
+                     (assoc base :restored [(:k entry) val]))]
+    (testing "Nothing wakes: the polled state comes back, not nil, with the
+              entry still waiting and nothing restored"
+      (let [out (engine/scheduler-round parked restore-fn)]
+        (is (some? out))
+        (is (= 1 (count (:wait-set out))))
+        (is (not (contains? out :restored)))
+        (is (:blocked? out))))
+    (testing "Something wakes: the restored state comes back, through the
+              supplied three-arity restore"
+      (stream/append! handle :v)
+      (let [out (engine/scheduler-round parked restore-fn)]
+        (is (= [:k1 :v] (:restored out)))
+        (is (empty? (:wait-set out)))
+        (is (empty? (:ready-queue out)))
+        (is (not (:blocked? out)))))))
+
+
+(deftest response-wait-entry-preserves-the-payload-test
+  (let [payload {:segment [[:halt]], :pc 3, :frames [[1]], :stack [:a],
+                 :continuation [{:return-pc 9}], :format :some.model,
+                 :hash "h", :k {:type :frame}, :env {'x 1}}
+        writer (assoc payload
+                      :request-sent true, :op :op/echo, :datom {:req 1},
+                      :call-id :parked-0, :reason :put,
+                      :stream-id vm/call-in-stream-key)
+        entry (ffi/response-wait-entry writer :parked-0)]
+    (testing "An arbitrary register payload rides through verbatim"
+      (is (= payload (select-keys entry (keys payload)))))
+    (testing "The writer-step keys are gone and the reader keys are set"
+      (is (not (contains? entry :request-sent)))
+      (is (not (contains? entry :op)))
+      (is (not (contains? entry :datom)))
+      (is (= :parked-0 (:call-id entry)))
+      (is (= :next (:reason entry)))
+      (is (= {:type :cursor-ref, :id vm/call-out-cursor-key} (:cursor-ref entry)))
+      (is (= vm/call-out-stream-key (:stream-id entry))))
+    (testing "Registers alone (a request sent at once) build the same reader"
+      (is (= entry (ffi/response-wait-entry payload :parked-0))))))
 
 
 ;; =============================================================================
@@ -503,7 +572,8 @@
 
 
 (deftest run-loop-exits-emit-one-terminal-snapshot-test
-  (let [resume-fn (fn [v] (engine/resume-from-run-queue v (fn [base _entry] base)))]
+  (let [resume-fn (fn [v]
+                    (engine/resume-from-run-queue v (fn [base _entry _val] base)))]
     (testing "A blocked exit emits :blocked exactly once"
       (let [sink (tu/new-memory-log)
             [_ s0] (engine/handle-make (state {:telemetry {:stream sink}})
