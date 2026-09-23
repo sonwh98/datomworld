@@ -37,6 +37,7 @@
    -- so, unlike B1, this file defines no private hex or byte-framing
    helpers of its own at all; there is nothing left for them to do."
   (:require [dao.jing :as jing]
+            [yin.vm :as vm]
             [yin.vm.debruijn-code :as debruijn-code]))
 
 
@@ -44,34 +45,17 @@
 ;; Contract version -- the canonical source
 ;; =============================================================================
 ;; R0 (test/yin/vm/debruijn_register_contract_test.cljc) freezes its own
-;; copy of this integer, `register-contract-version` = 1, because R0 was
-;; written before this file existed and its file box forbids requiring a
-;; not-yet-built src namespace. B1's own precedent
-;; (`yin.vm.debruijn-code/lowering-contract-version`) is that the version
-;; lives in src as the canonical source and the B0 test
-;; (`debruijn_code_test.cljc`) imports and compares it, rather than
-;; hand-copying the integer into a second constant of its own. R0's file is
-;; frozen and may not be edited to add that import after the fact, so this
-;; phase follows B1's precedent one-sidedly instead: `contract-version`
-;; here is the canonical source, and R1's own test file
-;; (`debruijn_register_compile_test.cljc`) requires R0's test namespace and
-;; asserts the two integers are equal, the same cross-check B1/B0 get for
-;; free through a single import. See this phase's final report for this
-;; exact resolution, named explicitly per the task's own instruction not to
-;; improvise a new pattern silently.
+;; copy of this integer. Contract version 3 introduces the full R2
+;; register effects instruction set, suspension and boundary live sets,
+;; and sparse continuation formats.
 
 (def contract-version
   "Bumped whenever this dimension's opcode table, allocation, scalar
    framing, or control-flow rules change shape (design section 3).
-   2, as of design section 4.5: `:call` gains a sixth operand, `live`,
-   the in-band live-register set computed by `body-liveness` below. R0's
-   frozen `register-contract-version` (test/yin/vm/debruijn_register_
-   contract_test.cljc) still reads 1 -- section 4.5's own text assigns
-   re-pinning that frozen constant to a LATER phase, not this one, so
-   `contract-version-matches-r0s-frozen-constant`
-   (debruijn_register_compile_test.cljc) is updated in this phase to
-   record the expected skew rather than to assert equality."
-  2)
+   3, as of design sections 4.4-4.6 and 5.2: the complete R2 register
+   effects set, in-band live sets on all six boundary opcodes, and
+   sparse continuation integration."
+  3)
 
 
 ;; =============================================================================
@@ -79,48 +63,26 @@
 ;; =============================================================================
 ;; Every mnemonic's operand slots, in `yin.vm.debruijn-code/opcode-table`'s
 ;; own positional shape: an ordered vector of `[attribute kind]` pairs.
-;; Four kinds are new to this table, none shared with B1's: `:reg`, a
-;; single register index, shape-checked as a nonnegative integer by the
-;; generic operand-kind rule below and separately bounds-checked against
-;; its own body's declared register count (`register-bounds-rule`, which
-;; B1's format has no equivalent of, since a stack image has no register
-;; file to bound against); `:regs`, an ordered vector of register indices
-;; (`:call`'s `arg-regs`); `:uint`, a plain nonnegative integer that is NOT
-;; a register reference (`:load-bound`'s depth/position, `:closure`'s
-;; arity) and so is never checked against a register count; and `:pc`,
-;; unchanged in meaning from B1's own `:pc` kind -- a jump/branch-false
-;; target or a closure's body pc, bounds-checked against the whole
-;; instruction vector's length by `target-bounds-rule`, and additionally
-;; required to name a declared body's own `:start` where the operand is a
-;; closure's body pc (`body-scope-rule`).
-;;
-;; `:store-get`/`:store-put` are declared here for forward compatibility
-;; with R2 ONLY: R0's frozen `node-type->register-mapping` defers
-;; `:vm/store-get`/`:vm/store-put` to R2, so nothing in this phase's
-;; lowerer (`yin.vm.debruijn-register-compile`) ever emits either
-;; mnemonic. `:move` is also declared but never emitted by this phase's
-;; lowerer: every node lowers into a caller-supplied target register
-;; directly (a target-register-passing walk, not a stack-machine emit-
-;; then-move walk), so no subexpression's result ever needs copying from
-;; one register to another. Both facts are asserted by this phase's own
-;; tests, not left as a silent absence.
 
 (def opcode-table
   "Design section 4.4's register instruction set, in positional operand-
    table form."
-  {:const [[:yin.debruijn.register/rd :reg] [:yin.debruijn.register/value :data]]
+  {:const [[:yin.debruijn.register/rd :reg]
+           [:yin.debruijn.register/value :data]]
 
    :load-bound [[:yin.debruijn.register/rd :reg]
                 [:yin.debruijn.register/depth :uint]
                 [:yin.debruijn.register/position :uint]]
 
-   :load-free [[:yin.debruijn.register/rd :reg] [:yin.debruijn.register/name :sym]]
+   :load-free [[:yin.debruijn.register/rd :reg]
+               [:yin.debruijn.register/name :sym]]
 
    :closure [[:yin.debruijn.register/rd :reg]
              [:yin.debruijn.register/arity :uint]
              [:yin.debruijn.register/body-pc :pc]]
 
-   :move [[:yin.debruijn.register/rd :reg] [:yin.debruijn.register/rs :reg]]
+   :move [[:yin.debruijn.register/rd :reg]
+          [:yin.debruijn.register/rs :reg]]
 
    :call [[:yin.debruijn.register/rd :reg]
           [:yin.debruijn.register/fn-reg :reg]
@@ -137,24 +99,81 @@
 
    :halt [[:yin.debruijn.register/value-reg :reg]]
 
-   ;; Forward-compatible with R2 only -- see the docstring above. Neither
-   ;; mnemonic is ever emitted by this phase's lowerer.
-   :store-get [[:yin.debruijn.register/rd :reg] [:yin.debruijn.register/key :data]]
-   :store-put [[:yin.debruijn.register/key :data] [:yin.debruijn.register/value-reg :reg]]})
+   :store-get [[:yin.debruijn.register/rd :reg]
+               [:yin.debruijn.register/key :data]]
+
+   :store-put [[:yin.debruijn.register/rd :reg]
+               [:yin.debruijn.register/key :data]
+               [:yin.debruijn.register/value :data]]
+
+   :gensym [[:yin.debruijn.register/rd :reg]
+            [:yin.debruijn.register/prefix :str]]
+
+   :stream-make [[:yin.debruijn.register/rd :reg]
+                 [:yin.debruijn.register/capacity :uint]]
+
+   :stream-put [[:yin.debruijn.register/rd :reg]
+                [:yin.debruijn.register/stream-reg :reg]
+                [:yin.debruijn.register/value-reg :reg]
+                [:yin.debruijn.register/live :data]]
+
+   :stream-cursor [[:yin.debruijn.register/rd :reg]
+                   [:yin.debruijn.register/stream-reg :reg]]
+
+   :stream-next [[:yin.debruijn.register/rd :reg]
+                 [:yin.debruijn.register/cursor-reg :reg]
+                 [:yin.debruijn.register/live :data]]
+
+   :stream-close [[:yin.debruijn.register/rd :reg]
+                  [:yin.debruijn.register/stream-reg :reg]]
+
+   :ffi-call [[:yin.debruijn.register/rd :reg]
+              [:yin.debruijn.register/ffi-op :kw]
+              [:yin.debruijn.register/arg-regs :regs]
+              [:yin.debruijn.register/live :data]]
+
+   :current-continuation [[:yin.debruijn.register/rd :reg]
+                          [:yin.debruijn.register/live :data]]
+
+   :park [[:yin.debruijn.register/rd :reg]
+          [:yin.debruijn.register/live :data]]
+
+   :resume [[:yin.debruijn.register/parked-id :kw]
+            [:yin.debruijn.register/value-reg :reg]]})
 
 
 (def mnemonics
   (set (keys opcode-table)))
 
 
+(def boundary-opcodes
+  "Mnemonics that carry an in-band `:live` operand."
+  #{:call :stream-put :stream-next :ffi-call
+    :current-continuation :park})
+
+
+(def live-slot-indices
+  "Precomputed tuple index of the `:live` operand for each boundary opcode."
+  {:call 5
+   :stream-put 4
+   :stream-next 3
+   :ffi-call 4
+   :current-continuation 2
+   :park 2})
+
+
+(defn live-slot-index
+  "The 0-based tuple index of `:yin.debruijn.register/live` for `op`."
+  [op]
+  (get live-slot-indices op))
+
+
 (def terminators
   "Instructions after which control never reaches pc + 1 within a body,
    mirroring `yin.vm.code/terminators` over this dimension's own mnemonics.
-   `:jump` and `:branch-false` never end a body (`body-scope-rule`/
-   `terminator-rule` require a body's own end pc to be `:return`, the main
-   body's `:halt`); named here anyway so a future body-internal reachability
-   check has the same vocabulary B1's does."
-  #{:jump :return :halt})
+   `:jump`, `:branch-false`, and `:resume` never end a body; named here
+   anyway so body-internal reachability checks have the full vocabulary."
+  #{:jump :return :halt :resume})
 
 
 ;; =============================================================================
@@ -201,8 +220,12 @@
    operand kind here it does not already cover."
   [t]
   (let [kinds (tuple-kinds t)]
-    (apply str (debruijn-code/encode-scalar (mnemonic-of t))
-           (map-indexed (fn [i _kind] (debruijn-code/encode-scalar (nth t (inc i)))) kinds))))
+    (apply str
+           (debruijn-code/encode-scalar (mnemonic-of t))
+           (map-indexed
+             (fn [i _kind]
+               (debruijn-code/encode-scalar (nth t (inc i))))
+             kinds))))
 
 
 (defn encode-instructions
@@ -275,7 +298,7 @@
     (case (nth t 0)
       :jump #{(nth t 1)}
       :branch-false #{(nth t 2) (inc pc)}
-      (:return :halt) #{}
+      (:return :halt :resume) #{}
       :call (if (nth t 4) #{} #{(inc pc)})
       #{(inc pc)})))
 
@@ -287,14 +310,23 @@
     :call (into #{(nth t 2)} (nth t 3))
     :branch-false #{(nth t 1)}
     (:return :halt) #{(nth t 1)}
-    :store-put #{(nth t 2)}
+    :stream-put #{(nth t 2) (nth t 3)}
+    (:stream-cursor :stream-close) #{(nth t 2)}
+    :stream-next #{(nth t 2)}
+    :ffi-call (set (nth t 3))
+    :resume #{(nth t 2)}
     #{}))
 
 
 (defn- def-of
   [t]
   (case (nth t 0)
-    (:const :load-bound :load-free :closure :store-get :move) #{(nth t 1)}
+    (:const :load-bound :load-free :closure :move
+            :store-get :store-put :gensym :stream-make
+            :stream-put :stream-cursor :stream-next :stream-close
+            :ffi-call :current-continuation :park)
+    #{(nth t 1)}
+
     :call (if (nth t 4) #{} #{(nth t 1)})
     #{}))
 
@@ -302,9 +334,10 @@
 (defn body-liveness
   "Design section 4.5's dataflow over one body of `image`
    (`{:bodies [...], :instructions [...]}`), identified by `body-index`
-   -> `{call-pc live-vector}` for every `:call` pc in that body, each
+   -> `{boundary-pc live-vector}` for every boundary pc in that body, each
    `live-vector` the strictly ascending vector of register indices live
-   after that call returns, excluding its own destination register.
+   after that boundary instruction returns, excluding its destination
+   register if any.
    Pure: reads only `instructions` and the named body's `[start end]`."
   [{:keys [bodies instructions]} body-index]
   (let [{:keys [start end]} (nth bodies body-index)
@@ -321,15 +354,17 @@
                                       (successors-of instructions pc))
                       new-in (into (use-of t) (reduce disj new-out (def-of t)))]
                   [(assoc in pc new-in) (assoc out pc new-out)
-                   (or changed? (not= new-in (nth in pc)) (not= new-out (nth out pc)))]))
+                   (or changed? (not= new-in (nth in pc))
+                       (not= new-out (nth out pc)))]))
               [live-in live-out false]
               (rseq pcs))]
         (if changed?
           (recur live-in' live-out')
           (into {}
                 (keep (fn [pc]
-                        (let [t (nth instructions pc)]
-                          (when (= :call (nth t 0))
+                        (let [t (nth instructions pc)
+                              op (nth t 0)]
+                          (when (boundary-opcodes op)
                             [pc (vec (disj (nth live-out' pc) (nth t 1)))]))))
                 pcs))))))
 
@@ -380,7 +415,8 @@
   [{:keys [instructions]}]
   (some (fn [pc]
           (let [t (nth instructions pc)]
-            (when-not (= (inc (count (get opcode-table (mnemonic-of t)))) (count t))
+            (when-not (= (inc (count (get opcode-table (mnemonic-of t))))
+                         (count t))
               (tuple-defect :arity pc))))
         (range (count instructions))))
 
@@ -395,8 +431,10 @@
   {:reg nonneg-int?,
    :uint nonneg-int?,
    :regs (fn [x] (and (vector? x) (every? nonneg-int? x))),
+   :str string?,
+   :kw keyword?,
    :sym symbol?,
-   :data (constantly true),
+   :data vm/plain-data?,
    :bool boolean?})
 
 
@@ -455,15 +493,18 @@
               (range n))
         (when-not (= (dec length) (:end (nth bodies (dec n))))
           (body-defect :body-coverage (dec n)))
-        (let [start->body (into {} (map-indexed (fn [i b] [(:start b) i])) bodies)]
+        (let [start->body
+              (into {} (map-indexed (fn [i b] [(:start b) i])) bodies)]
           (some (fn [pc]
                   (let [t (nth instructions pc)]
                     (when (= :closure (mnemonic-of t))
                       (let [arity (nth t 2), body-pc (nth t 3)
                             bi (get start->body body-pc)]
                         (cond
-                          (nil? bi) (tuple-defect :closure-target pc)
-                          (not= arity (:locals (nth bodies bi))) (tuple-defect :closure-arity pc)
+                          (nil? bi)
+                          (tuple-defect :closure-target pc)
+                          (not= arity (:locals (nth bodies bi)))
+                          (tuple-defect :closure-arity pc)
                           :else nil)))))
                 (range length))))))
 
@@ -472,7 +513,8 @@
   "pc -> body index, for a body-scope-valid image."
   [{:keys [bodies]}]
   (into {}
-        (mapcat (fn [[i {:keys [start end]}]] (map (fn [pc] [pc i]) (range start (inc end)))))
+        (mapcat (fn [[i {:keys [start end]}]]
+                  (map (fn [pc] [pc i]) (range start (inc end)))))
         (map-indexed vector bodies)))
 
 
@@ -533,10 +575,13 @@
    'two equal live sets can never produce different bytes')."
   [{:keys [instructions]}]
   (some (fn [pc]
-          (let [t (nth instructions pc)]
-            (when (= :call (nth t 0))
-              (let [live (nth t 5)]
-                (when-not (and (vector? live) (every? nonneg-int? live) (ascending-distinct? live))
+          (let [t (nth instructions pc)
+                op (nth t 0)]
+            (when (boundary-opcodes op)
+              (let [live (nth t (live-slot-index op))]
+                (when-not (and (vector? live)
+                               (every? nonneg-int? live)
+                               (ascending-distinct? live))
                   (tuple-defect :live-shape pc))))))
         (range (count instructions))))
 
@@ -547,10 +592,12 @@
   [{:keys [bodies instructions] :as image}]
   (let [owner (owner-of image)]
     (some (fn [pc]
-            (let [t (nth instructions pc)]
-              (when (= :call (nth t 0))
-                (let [registers (:registers (nth bodies (get owner pc)))]
-                  (when (some #(not (< % registers)) (nth t 5))
+            (let [t (nth instructions pc)
+                  op (nth t 0)]
+              (when (boundary-opcodes op)
+                (let [registers (:registers (nth bodies (get owner pc)))
+                      live (nth t (live-slot-index op))]
+                  (when (some #(not (< % registers)) live)
                     (tuple-defect :live-bounds pc))))))
           (range (count instructions)))))
 
@@ -574,12 +621,15 @@
   (let [owner (owner-of image)
         live-maps (mapv #(body-liveness image %) (range (count bodies)))]
     (some (fn [pc]
-            (let [t (nth instructions pc)]
-              (when (= :call (nth t 0))
+            (let [t (nth instructions pc)
+                  op (nth t 0)]
+              (when (boundary-opcodes op)
                 (let [expected (get (nth live-maps (get owner pc)) pc)
-                      actual (nth t 5)]
+                      actual (nth t (live-slot-index op))]
                   (when (not= expected actual)
-                    (assoc (tuple-defect :live-exact pc) :expected expected :actual actual))))))
+                    (assoc (tuple-defect :live-exact pc)
+                           :expected expected
+                           :actual actual))))))
           (range (count instructions)))))
 
 

@@ -426,19 +426,30 @@
                  :continuation [{:return-pc 9}], :format :some.model,
                  :hash "h", :k {:type :frame}, :env {'x 1}}
         writer (assoc payload
-                      :request-sent true, :op :op/echo, :datom {:req 1},
+                      :value 42, :status :woken, :cursor :c-1,
+                      :store-updates {:k 1}, :stream :s-1, :datom {:req 1},
+                      :type :wait, :id :w-1, :request-sent true, :op :op/echo,
                       :call-id :parked-0, :reason :put,
                       :stream-id vm/call-in-stream-key)
         entry (ffi/response-wait-entry writer :parked-0)]
     (testing "An arbitrary register payload rides through verbatim"
       (is (= payload (select-keys entry (keys payload)))))
-    (testing "The writer-step keys are gone and the reader keys are set"
-      (is (not (contains? entry :request-sent)))
-      (is (not (contains? entry :op)))
+    (testing "All ten stale wake keys are removed on reader conversion"
+      (is (not (contains? entry :value)))
+      (is (not (contains? entry :status)))
+      (is (not (contains? entry :cursor)))
+      (is (not (contains? entry :store-updates)))
+      (is (not (contains? entry :stream)))
       (is (not (contains? entry :datom)))
+      (is (not (contains? entry :type)))
+      (is (not (contains? entry :id)))
+      (is (not (contains? entry :request-sent)))
+      (is (not (contains? entry :op))))
+    (testing "The call-out reader keys are set"
       (is (= :parked-0 (:call-id entry)))
       (is (= :next (:reason entry)))
-      (is (= {:type :cursor-ref, :id vm/call-out-cursor-key} (:cursor-ref entry)))
+      (is (= {:type :cursor-ref, :id vm/call-out-cursor-key}
+             (:cursor-ref entry)))
       (is (= vm/call-out-stream-key (:stream-id entry))))
     (testing "Registers alone (a request sent at once) build the same reader"
       (is (= entry (ffi/response-wait-entry payload :parked-0))))))

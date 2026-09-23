@@ -71,42 +71,6 @@
 
 
 ;; =============================================================================
-;; Deferred node types (design section 4.4, R0's frozen table)
-;; =============================================================================
-;; The SAME diagnostics R0's `node-type->register-mapping` names verbatim
-;; for every node type its box defers to R2 -- copied here as data rather
-;; than invented, cross-checked byte for byte against R0's frozen table by
-;; this phase's own test file (requiring a test namespace from src/ is not
-;; this codebase's convention; see `yin.vm.debruijn-register-code`'s
-;; contract-version docstring for the identical resolution applied there).
-
-(def deferred-diagnostics
-  "Resolved node type -> the qualified diagnostic keyword R1 refuses it
-   with, verbatim from R0's frozen `node-type->register-mapping`."
-  {:dao.stream.apply/call :ffi-deferred-to-r2
-   :stream/make :stream-deferred-to-r2
-   :stream/put :stream-deferred-to-r2
-   :stream/cursor :stream-deferred-to-r2
-   :stream/next :stream-deferred-to-r2
-   :stream/close :stream-deferred-to-r2
-   :vm/gensym :gensym-deferred-to-r2
-   :vm/store-get :store-deferred-to-r2
-   :vm/store-put :store-deferred-to-r2
-   :vm/park :park-deferred-to-r2
-   :vm/resume :resume-deferred-to-r2
-   :vm/current-continuation :current-continuation-deferred-to-r2})
-
-
-(defn- refuse-deferred!
-  [type e]
-  (if-let [diagnostic (get deferred-diagnostics type)]
-    (throw (ex-info (str "Cannot lower-register a node deferred to R2: " type)
-                    {:rule diagnostic, :type type, :entity e}))
-    (throw (ex-info (str "Cannot lower-register node of unknown type " type)
-                    {:type type, :entity e}))))
-
-
-;; =============================================================================
 ;; The per-body allocator
 ;; =============================================================================
 ;; `ctx` is one body's mutable lowering state (design section 4.2-4.3):
@@ -123,8 +87,13 @@
 
 (defn- fresh-body-ctx
   [locals]
-  {:code (atom []), :free (atom (sorted-set)), :next-temp (atom 0), :peak (atom 0),
-   :labels (atom {}), :label-count (atom 0), :locals locals})
+  {:code (atom []),
+   :free (atom (sorted-set)),
+   :next-temp (atom 0),
+   :peak (atom 0),
+   :labels (atom {}),
+   :label-count (atom 0),
+   :locals locals})
 
 
 (defn- allocate-temp!
@@ -192,12 +161,14 @@
         (if (some? free)
           (emit! ctx e [:load-free target-reg free])
           (emit! ctx e [:load-bound target-reg
-                        (get-attr e :yin.resolved/depth) (get-attr e :yin.resolved/position)])))
+                        (get-attr e :yin.resolved/depth)
+                        (get-attr e :yin.resolved/position)])))
 
       :lambda
       (let [arity (get-attr e :yin.resolved/arity)
             body-e (get-attr e :yin/body)
-            idx (do (swap! bodies-queue conj {:source e, :body-entity body-e, :arity arity})
+            idx (do (swap! bodies-queue conj
+                           {:source e, :body-entity body-e, :arity arity})
                     (dec (count @bodies-queue)))]
         (emit! ctx e [:closure target-reg arity idx]))
 
@@ -212,7 +183,8 @@
                                 (lower-node! get-attr bodies-queue ctx oe r)
                                 t))
                             operand-es)
-            arg-regs (mapv #(reg-of ctx %) arg-temps)]
+            arg-regs (mapv #(reg-of ctx %) arg-temps)
+            tail? (boolean (get-attr e :yin/tail?))]
         ;; `live` (design section 4.5) is filled in a separate backward
         ;; pass over the whole assembled body, not here: `[]` is a
         ;; placeholder only, giving the tuple its final six-element arity
@@ -220,23 +192,106 @@
         ;; `lower-register` overwrites every `:call` tuple's live operand
         ;; with `yin.vm.debruijn-register-code/body-liveness`'s answer
         ;; once each body's instructions and pc numbering are final.
-        (emit! ctx e [:call target-reg fn-reg arg-regs (boolean (get-attr e :yin/tail?)) []])
+        (emit! ctx e [:call target-reg fn-reg arg-regs tail? []])
         (free-temp! ctx fn-temp)
         (doseq [t arg-temps] (free-temp! ctx t)))
 
       :if
       (let [test-temp (allocate-temp! ctx), test-reg (reg-of ctx test-temp)
-            _ (lower-node! get-attr bodies-queue ctx (get-attr e :yin/test) test-reg)
+            _ (lower-node! get-attr bodies-queue ctx
+                           (get-attr e :yin/test) test-reg)
             else-l (fresh-label! ctx), end-l (fresh-label! ctx)]
         (emit! ctx e [:branch-false test-reg else-l])
         (free-temp! ctx test-temp)
-        (lower-node! get-attr bodies-queue ctx (get-attr e :yin/consequent) target-reg)
+        (lower-node! get-attr bodies-queue ctx
+                     (get-attr e :yin/consequent) target-reg)
         (emit! ctx e [:jump end-l])
         (mark-label! ctx else-l)
-        (lower-node! get-attr bodies-queue ctx (get-attr e :yin/alternate) target-reg)
+        (lower-node! get-attr bodies-queue ctx
+                     (get-attr e :yin/alternate) target-reg)
         (mark-label! ctx end-l))
 
-      (refuse-deferred! type e))))
+      :vm/store-get
+      (emit! ctx e [:store-get target-reg (get-attr e :yin/key)])
+
+      :vm/store-put
+      (emit! ctx e [:store-put target-reg (get-attr e :yin/key)
+                    (get-attr e :yin/value)])
+
+      :vm/gensym
+      (emit! ctx e [:gensym target-reg (or (get-attr e :yin/prefix) "id")])
+
+      :stream/make
+      (emit! ctx e [:stream-make target-reg (or (get-attr e :yin/buffer) 0)])
+
+      :stream/put
+      (let [target-temp (allocate-temp! ctx)
+            target-reg* (reg-of ctx target-temp)
+            _ (lower-node! get-attr bodies-queue ctx
+                           (get-attr e :yin/target) target-reg*)
+            val-temp (allocate-temp! ctx)
+            val-reg (reg-of ctx val-temp)
+            _ (lower-node! get-attr bodies-queue ctx
+                           (get-attr e :yin/val-node) val-reg)]
+        (emit! ctx e [:stream-put target-reg target-reg* val-reg []])
+        (free-temp! ctx target-temp)
+        (free-temp! ctx val-temp))
+
+      :stream/cursor
+      (let [src-temp (allocate-temp! ctx)
+            src-reg (reg-of ctx src-temp)
+            _ (lower-node! get-attr bodies-queue ctx
+                           (get-attr e :yin/source) src-reg)]
+        (emit! ctx e [:stream-cursor target-reg src-reg])
+        (free-temp! ctx src-temp))
+
+      :stream/next
+      (let [src-temp (allocate-temp! ctx)
+            src-reg (reg-of ctx src-temp)
+            _ (lower-node! get-attr bodies-queue ctx
+                           (get-attr e :yin/source) src-reg)]
+        (emit! ctx e [:stream-next target-reg src-reg []])
+        (free-temp! ctx src-temp))
+
+      :stream/close
+      (let [src-temp (allocate-temp! ctx)
+            src-reg (reg-of ctx src-temp)
+            _ (lower-node! get-attr bodies-queue ctx
+                           (get-attr e :yin/source) src-reg)]
+        (emit! ctx e [:stream-close target-reg src-reg])
+        (free-temp! ctx src-temp))
+
+      :dao.stream.apply/call
+      (let [op (get-attr e :yin/op)
+            operand-es (get-attr e :yin/operands)
+            arg-temps (mapv (fn [oe]
+                              (let [t (allocate-temp! ctx)
+                                    r (reg-of ctx t)]
+                                (lower-node! get-attr bodies-queue ctx oe r)
+                                t))
+                            operand-es)
+            arg-regs (mapv #(reg-of ctx %) arg-temps)]
+        (emit! ctx e [:ffi-call target-reg op arg-regs []])
+        (doseq [t arg-temps]
+          (free-temp! ctx t)))
+
+      :vm/current-continuation
+      (emit! ctx e [:current-continuation target-reg []])
+
+      :vm/park
+      (emit! ctx e [:park target-reg []])
+
+      :vm/resume
+      (let [parked-id (get-attr e :yin/parked-id)
+            val-temp (allocate-temp! ctx)
+            val-reg (reg-of ctx val-temp)
+            _ (lower-node! get-attr bodies-queue ctx
+                           (get-attr e :yin/val-node) val-reg)]
+        (emit! ctx e [:resume parked-id val-reg])
+        (free-temp! ctx val-temp))
+
+      (throw (ex-info (str "Cannot lower-register node of unknown type " type)
+                      {:type type, :entity e})))))
 
 
 ;; =============================================================================
@@ -265,24 +320,23 @@
                   (case (nth t 0)
                     :closure [pc {:kind :closure, :params (get params rid),
                                   :source (get source-of rid)}]
-                    (:load-bound :load-free) [pc {:kind :var, :source (get source-of rid)}]
+                    (:load-bound :load-free) [pc {:kind :var,
+                                                  :source (get source-of rid)}]
                     nil))))
         (range (count instructions))))
 
 
 (defn- fill-live
-  "Design section 4.5: overwrite every `:call` tuple's placeholder `live`
-   operand (position 5, emitted `[]` by `lower-node!`) with `yin.vm.
-   debruijn-register-code/body-liveness`'s own answer, one body at a
-   time. `body-liveness` never reads position 5, only the mnemonic, `rd`,
-   `fn-reg`, `arg-regs`, and `tail?`, so this is safe to run once over
-   the fully assembled, globally pc-numbered image -- the same image
-   `register-image-defect` later checks, so the lowerer's own output can
-   never trip its own `:live-exact` rule."
+  "Design section 4.5: overwrite every boundary tuple's placeholder `live`
+   operand with `yin.vm.debruijn-register-code/body-liveness`'s own answer,
+   one body at a time."
   [{:keys [bodies instructions] :as pre-image}]
   (reduce
     (fn [instrs bi]
-      (reduce-kv (fn [ins pc live] (assoc ins pc (assoc (nth ins pc) 5 live)))
+      (reduce-kv (fn [ins pc live]
+                   (let [t (nth ins pc)
+                         slot (rcode/live-slot-index (first t))]
+                     (assoc ins pc (assoc t slot live))))
                  instrs
                  (rcode/body-liveness pre-image bi)))
     instructions
@@ -304,7 +358,9 @@
                     {:defect defect})))
   (let [{:keys [get-attr root-id error]} (vm/index-datoms tuples)]
     (when error
-      (throw (ex-info "Cannot lower-register a program with a dangling root" error)))
+      (throw (ex-info
+               "Cannot lower-register a program with a dangling root"
+               error)))
     (when (nil? root-id)
       (throw (ex-info "Cannot lower-register a program with no root" {})))
     (let [bodies-queue (atom [])
@@ -314,37 +370,50 @@
       (lower-node! get-attr bodies-queue main-ctx root-id main-reg)
       (emit! main-ctx root-id [:halt main-reg])
       (let [descs (loop [i 0, acc [{:ctx main-ctx, :locals 0}]]
-                    (if-let [{:keys [source body-entity arity]} (get @bodies-queue i)]
+                    (if-let [{:keys [source body-entity arity]}
+                             (get @bodies-queue i)]
                       (let [ctx (fresh-body-ctx arity)
                             t (allocate-temp! ctx), r (reg-of ctx t)]
                         (lower-node! get-attr bodies-queue ctx body-entity r)
                         (emit! ctx source [:return r])
                         (recur (inc i) (conj acc {:ctx ctx, :locals arity})))
                       acc))
-            local-resolved (mapv (fn [{:keys [ctx locals]}]
-                                   {:code (resolve-local-jumps @(:code ctx) @(:labels ctx))
-                                    :locals locals, :registers (+ locals @(:peak ctx))})
-                                 descs)
+            local-resolved
+            (mapv (fn [{:keys [ctx locals]}]
+                    {:code (resolve-local-jumps @(:code ctx) @(:labels ctx)),
+                     :locals locals,
+                     :registers (+ locals @(:peak ctx))})
+                  descs)
             lengths (mapv (comp count :code) local-resolved)
             starts (vec (reductions + 0 lengths))
             offset-tuple (fn [body-i [_e t]]
                            (case (nth t 0)
                              :jump (assoc t 1 (+ (nth t 1) (nth starts body-i)))
-                             :branch-false (assoc t 2 (+ (nth t 2) (nth starts body-i)))
+                             :branch-false
+                             (assoc t 2 (+ (nth t 2) (nth starts body-i)))
                              :closure (assoc t 3 (nth starts (inc (nth t 3))))
                              t))
             indexed (map-indexed vector local-resolved)
-            instructions (into [] (mapcat (fn [[i lr]] (map #(offset-tuple i %) (:code lr)))) indexed)
-            sources (into [] (mapcat (fn [[_i lr]] (map first (:code lr)))) indexed)
+            instructions
+            (into []
+                  (mapcat (fn [[i lr]] (map #(offset-tuple i %) (:code lr))))
+                  indexed)
+            sources
+            (into []
+                  (mapcat (fn [[_i lr]] (map first (:code lr))))
+                  indexed)
             bodies (mapv (fn [i {:keys [locals registers]}]
-                           {:locals locals, :registers registers,
-                            :start (nth starts i), :end (dec (nth starts (inc i)))})
+                           {:locals locals,
+                            :registers registers,
+                            :start (nth starts i),
+                            :end (dec (nth starts (inc i)))})
                          (range (count local-resolved)) local-resolved)
             pre-image {:bodies bodies, :instructions instructions}
             live-instructions (fill-live pre-image)
             image {:bodies bodies, :instructions live-instructions}]
         {:image image,
-         :side-table (register-side-table live-instructions sources source params)}))))
+         :side-table (register-side-table live-instructions sources
+                                          source params)}))))
 
 
 (defn adapt
@@ -366,7 +435,8 @@
 (defn- owner-of-pc
   [{:keys [bodies]}]
   (into {}
-        (mapcat (fn [[i {:keys [start end]}]] (map (fn [pc] [pc i]) (range start (inc end)))))
+        (mapcat (fn [[i {:keys [start end]}]]
+                  (map (fn [pc] [pc i]) (range start (inc end)))))
         (map-indexed vector bodies)))
 
 
@@ -403,7 +473,9 @@
 
 (defn- free-names-of
   [instructions]
-  (into #{} (keep (fn [t] (when (= :load-free (nth t 0)) (nth t 2)))) instructions))
+  (into #{}
+        (keep (fn [t] (when (= :load-free (nth t 0)) (nth t 2))))
+        instructions))
 
 
 (defn- synthesize-name
@@ -427,7 +499,9 @@
   [{:keys [bodies instructions]} side-table]
   (let [free (free-names-of instructions)
         start->index (into {} (map-indexed (fn [i b] [(:start b) i])) bodies)
-        closure-pcs (keep-indexed (fn [pc t] (when (= :closure (nth t 0)) pc)) instructions)]
+        closure-pcs (keep-indexed (fn [pc t]
+                                    (when (= :closure (nth t 0)) pc))
+                                  instructions)]
     (reduce
       (fn [acc pc]
         (let [t (nth instructions pc)
@@ -458,7 +532,8 @@
                       chain (chain-of-body enclosing (get owner pc))
                       stack (mapv #(get params %) chain)
                       candidate (nth (get params (nth chain depth)) position)]
-                  (= {:bound [depth position]} (debruijn/resolve-name stack candidate)))
+                  (= {:bound [depth position]}
+                     (debruijn/resolve-name stack candidate)))
 
                 :load-free
                 (let [name (nth t 2)
@@ -559,8 +634,12 @@
       (if (>= pos end)
         (if (= 1 (count stack))
           (:tuples (first stack))
-          (throw (ex-info "Malformed register body: did not reduce to one value"
-                          {:rule :lift-shape, :start start, :end end, :stack-depth (count stack)})))
+          (throw (ex-info
+                   "Malformed register body: did not reduce to one value"
+                   {:rule :lift-shape,
+                    :start start,
+                    :end end,
+                    :stack-depth (count stack)})))
         (let [t (nth instructions pos)]
           (case (nth t 0)
             :const
@@ -568,13 +647,16 @@
               (recur (inc pos) out1 stack1))
 
             (:load-bound :load-free)
-            (let [[out1 stack1] (push-item out stack
-                                           [[:var (var-name-at image owner enclosing params pos)]])]
+            (let [[out1 stack1]
+                  (push-item
+                    out stack
+                    [[:var (var-name-at image owner enclosing params pos)]])]
               (recur (inc pos) out1 stack1))
 
             :closure
             (let [bi (get (start->body-index image) (nth t 3))
-                  [out1 stack1] (push-item out stack [[:closure (get params bi) bi]])]
+                  [out1 stack1]
+                  (push-item out stack [[:closure (get params bi) bi]])]
               (recur (inc pos) out1 stack1))
 
             :call
@@ -583,14 +665,80 @@
                   popped (subvec stack (- depth n) depth)
                   kept (subvec stack 0 (- depth n))
                   [popped1 pushed] (finalize-top popped)
-                  combined (conj (into [] (mapcat :tuples) popped1) [:call argc tail?])]
+                  combined (conj (into [] (mapcat :tuples) popped1)
+                                 [:call argc tail?])]
               (recur (inc pos) (+ out pushed 1) (conj kept {:tuples combined})))
 
+            :store-get
+            (let [[out1 stack1] (push-item out stack [[:store-get (nth t 2)]])]
+              (recur (inc pos) out1 stack1))
+
+            :store-put
+            (let [[out1 stack1] (push-item out stack
+                                           [[:store-put (nth t 2) (nth t 3)]])]
+              (recur (inc pos) out1 stack1))
+
+            :gensym
+            (let [[out1 stack1] (push-item out stack [[:gensym (nth t 2)]])]
+              (recur (inc pos) out1 stack1))
+
+            :stream-make
+            (let [[out1 stack1] (push-item out stack
+                                           [[:stream-make (nth t 2)]])]
+              (recur (inc pos) out1 stack1))
+
+            :stream-put
+            (let [depth (count stack)
+                  target (nth stack (- depth 2))
+                  val (nth stack (- depth 1))
+                  kept (subvec stack 0 (- depth 2))
+                  combined (-> (vec (:tuples target))
+                               (into (:tuples val))
+                               (conj [:stream-put]))]
+              (recur (inc pos) (+ out 1) (conj kept {:tuples combined})))
+
+            (:stream-cursor :stream-next :stream-close)
+            (let [src-item (peek stack)
+                  kept (pop stack)
+                  combined (conj (vec (:tuples src-item)) [(nth t 0)])]
+              (recur (inc pos) (+ out 1) (conj kept {:tuples combined})))
+
+            :ffi-call
+            (let [op (nth t 2), argc (count (nth t 3))]
+              (if (zero? argc)
+                (let [[out1 stack1] (push-item out stack [[:ffi-call op 0]])]
+                  (recur (inc pos) out1 stack1))
+                (let [depth (count stack)
+                      popped (subvec stack (- depth argc) depth)
+                      kept (subvec stack 0 (- depth argc))
+                      [popped1 pushed] (finalize-top popped)
+                      combined (conj (into [] (mapcat :tuples) popped1)
+                                     [:ffi-call op argc])]
+                  (recur (inc pos) (+ out pushed 1)
+                         (conj kept {:tuples combined})))))
+
+            :current-continuation
+            (let [[out1 stack1] (push-item out stack
+                                           [[:current-continuation]])]
+              (recur (inc pos) out1 stack1))
+
+            :park
+            (let [[out1 stack1] (push-item out stack [[:park]])]
+              (recur (inc pos) out1 stack1))
+
+            :resume
+            (let [val-item (peek stack)
+                  kept (pop stack)
+                  combined (conj (vec (:tuples val-item)) [:resume (nth t 1)])]
+              (recur (inc pos) (+ out 1) (conj kept {:tuples combined})))
+
             :branch-false
-            (let [else-pc (nth t 2), jump-pos (dec else-pc), jt (nth instructions jump-pos)
+            (let [else-pc (nth t 2), jump-pos (dec else-pc)
+                  jt (nth instructions jump-pos)
                   _ (when-not (= :jump (nth jt 0))
-                      (throw (ex-info "Malformed register consequent: expected :jump"
-                                      {:rule :lift-shape, :pc jump-pos})))
+                      (throw (ex-info
+                               "Malformed register consequent: expected :jump"
+                               {:rule :lift-shape, :pc jump-pos})))
                   end-pc (nth jt 1)
                   test (peek stack), kept (pop stack)
                   ;; `:branch-false`'s own target is the ALTERNATE's start
@@ -602,9 +750,11 @@
                   ;; consumed directly, exactly as `lower-node!` never
                   ;; emits one for it either.
                   cons-base (inc out)
-                  cons-tuples (parse-range image owner enclosing params cons-base (inc pos) jump-pos)
+                  cons-tuples (parse-range image owner enclosing params
+                                           cons-base (inc pos) jump-pos)
                   alt-target (+ cons-base (count cons-tuples) 1)
-                  alt-tuples (parse-range image owner enclosing params alt-target else-pc end-pc)
+                  alt-tuples (parse-range image owner enclosing params
+                                          alt-target else-pc end-pc)
                   end-target (+ alt-target (count alt-tuples))
                   combined (-> (vec (:tuples test))
                                (conj [:branch-false alt-target])
@@ -616,7 +766,8 @@
 
 (defn- lift-body
   [image owner enclosing params {:keys [start end]} terminal-mnemonic]
-  (conj (vec (parse-range image owner enclosing params 0 start end)) [terminal-mnemonic]))
+  (conj (vec (parse-range image owner enclosing params 0 start end))
+        [terminal-mnemonic]))
 
 
 (defn- lift-image-with
@@ -629,17 +780,22 @@
    `lower-register` itself uses to assign global pcs."
   [image owner enclosing params]
   (let [bodies (:bodies image)
-        per-body (mapv (fn [i body]
-                         (lift-body image owner enclosing params body (if (zero? i) :halt :return)))
-                       (range (count bodies)) bodies)
+        per-body
+        (mapv (fn [i body]
+                (lift-body image owner enclosing params body
+                           (if (zero? i) :halt :return)))
+              (range (count bodies)) bodies)
         lengths (mapv count per-body)
         starts (vec (reductions + 0 lengths))
         offset (fn [bi tup]
                  (case (nth tup 0)
-                   (:jump :branch-false) (assoc tup 1 (+ (nth tup 1) (nth starts bi)))
+                   (:jump :branch-false)
+                   (assoc tup 1 (+ (nth tup 1) (nth starts bi)))
                    :closure (assoc tup 2 (nth starts (nth tup 2)))
                    tup))]
-    (into [] (mapcat (fn [[bi tuples]] (map #(offset bi %) tuples))) (map-indexed vector per-body))))
+    (into []
+          (mapcat (fn [[bi tuples]] (map #(offset bi %) tuples)))
+          (map-indexed vector per-body))))
 
 
 (defn lift
@@ -654,10 +810,13 @@
    (let [owner (owner-of-pc image)
          enclosing (enclosing-body-of image owner)
          given-params (when side-table (register-lift-params image side-table))]
-     (if (and given-params (register-round-trips? image owner enclosing given-params))
+     (if (and given-params
+              (register-round-trips? image owner enclosing given-params))
        (lift-image-with image owner enclosing given-params)
        (let [synthesized-params (register-lift-params image nil)]
          (if (register-round-trips? image owner enclosing synthesized-params)
            (lift-image-with image owner enclosing synthesized-params)
-           (throw (ex-info "Register lift failed to round-trip even with synthesized names"
-                           {:rule :lift-round-trip}))))))))
+           (throw
+             (ex-info
+               "Register lift failed to round-trip even with synthesized names"
+               {:rule :lift-round-trip}))))))))

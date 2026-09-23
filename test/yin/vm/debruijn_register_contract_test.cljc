@@ -30,21 +30,16 @@
 ;; =============================================================================
 
 (def register-contract-version
-  "1, the first version of the `:yin.debruijn.register/*` descriptor's
-   contract -- this phase's frozen constant, read by R1 and folded into
-   the descriptor hash exactly as B1's `lowering-contract-version` is
-   (`yin.vm.debruijn_code.cljc`). Bumped only when register opcode
-   shape, allocation, scalar framing, or control-flow rules change
-   (design section 3: 'The descriptor version is incremented whenever
-   opcode shape, allocation, scalar framing, or control-flow rules
-   change')."
-  1)
+  "3, the version of the `:yin.debruijn.register/*` descriptor's
+   contract (Phase R2). Bumped only when register opcode shape,
+   allocation, scalar framing, or control-flow rules change."
+  3)
 
 
 (deftest register-contract-version-is-a-frozen-positive-integer
   (is (integer? register-contract-version))
   (is (pos? register-contract-version))
-  (is (= 1 register-contract-version) "the first version, per design section 3"))
+  (is (= 3 register-contract-version) "Phase R2 version"))
 
 
 ;; =============================================================================
@@ -69,24 +64,17 @@
    mapping below can be checked against it without hand-copying mnemonic
    spellings into each entry's assertion."
   #{:const :load-bound :load-free :closure :move :call :branch-false
-    :jump :return :halt :store-get :store-put})
+    :jump :return :halt :store-get :store-put :gensym :stream-make
+    :stream-put :stream-cursor :stream-next :stream-close :ffi-call
+    :current-continuation :park :resume})
 
 
 (def node-type->register-mapping
   "For every resolved-tuple node type in `resolver-node-type-vocabulary`,
-   which register instruction shape from section 4.4's table it maps to,
-   or that it is out of scope at R0/R1 and deferred to R2 with a named
-   diagnostic. `:variable` carries two shapes under one key because its
-   register mapping depends on the resolution it already carries (bound
-   vs free), not on its node type alone.
-
-   The in-scope entries below are exactly the node types section 6's R0
-   box names: `:literal`, a bound `:variable`, a free `:variable`,
-   `:lambda`, `:application`, `:if`. Every other entry is refused with
-   `:deferred-to :R2` and a named `:diagnostic`, per the same box's list
-   of R2-scoped node types: `:dao.stream.apply/call`, `:stream/*`,
-   `:vm/gensym`, `:vm/store-get`, `:vm/store-put`, `:vm/park`,
-   `:vm/resume`, `:vm/current-continuation`."
+   which register instruction shape from section 4.4's table it maps to.
+   `:variable` carries two shapes under one key because its register
+   mapping depends on the resolution it already carries (bound vs free),
+   not on its node type alone."
   {:literal
    {:register-instructions [:const], :shape "[op rd value]"}
 
@@ -99,7 +87,8 @@
    {:register-instructions [:closure], :shape "[op rd arity body-pc]"}
 
    :application
-   {:register-instructions [:call], :shape "[op rd fn-reg arg-regs tail?]"}
+   {:register-instructions [:call]
+    :shape "[op rd fn-reg arg-regs tail? live]"}
 
    :if
    {:register-instructions [:branch-false :jump]
@@ -107,67 +96,56 @@
              expression's one destination register (design section 4.3)"}
 
    :dao.stream.apply/call
-   {:deferred-to :R2, :diagnostic :ffi-deferred-to-r2}
+   {:register-instructions [:ffi-call]
+    :shape "[op rd ffi-op arg-regs live]"}
 
    :stream/make
-   {:deferred-to :R2, :diagnostic :stream-deferred-to-r2}
+   {:register-instructions [:stream-make], :shape "[op rd capacity]"}
 
    :stream/put
-   {:deferred-to :R2, :diagnostic :stream-deferred-to-r2}
+   {:register-instructions [:stream-put]
+    :shape "[op rd stream-reg value-reg live]"}
 
    :stream/cursor
-   {:deferred-to :R2, :diagnostic :stream-deferred-to-r2}
+   {:register-instructions [:stream-cursor], :shape "[op rd stream-reg]"}
 
    :stream/next
-   {:deferred-to :R2, :diagnostic :stream-deferred-to-r2}
+   {:register-instructions [:stream-next]
+    :shape "[op rd cursor-reg live]"}
 
    :stream/close
-   {:deferred-to :R2, :diagnostic :stream-deferred-to-r2}
+   {:register-instructions [:stream-close], :shape "[op rd stream-reg]"}
 
    :vm/gensym
-   {:deferred-to :R2, :diagnostic :gensym-deferred-to-r2}
+   {:register-instructions [:gensym], :shape "[op rd prefix]"}
 
    :vm/store-get
-   {:deferred-to :R2, :diagnostic :store-deferred-to-r2}
+   {:register-instructions [:store-get], :shape "[op rd key]"}
 
    :vm/store-put
-   {:deferred-to :R2, :diagnostic :store-deferred-to-r2}
+   {:register-instructions [:store-put], :shape "[op rd key value]"}
 
    :vm/park
-   {:deferred-to :R2, :diagnostic :park-deferred-to-r2}
+   {:register-instructions [:park], :shape "[op rd live]"}
 
    :vm/resume
-   {:deferred-to :R2, :diagnostic :resume-deferred-to-r2}
+   {:register-instructions [:resume], :shape "[op parked-id value-reg]"}
 
    :vm/current-continuation
-   {:deferred-to :R2, :diagnostic :current-continuation-deferred-to-r2}})
+   {:register-instructions [:current-continuation], :shape "[op rd live]"}})
 
 
 (deftest operand-mapping-covers-every-resolver-node-type-exactly
   (testing "no node type is silently unaccounted for"
-    (is (= resolver-node-type-vocabulary (set (keys node-type->register-mapping))))))
+    (is (= resolver-node-type-vocabulary
+           (set (keys node-type->register-mapping))))))
 
 
-(deftest in-scope-mappings-name-only-section-four-four-instructions
+(deftest all-mappings-name-only-section-four-four-instructions
   (doseq [[type mapping] node-type->register-mapping]
-    (when-not (:deferred-to mapping)
-      (testing type
-        (is (every? register-instruction-mnemonics (:register-instructions mapping)))))))
-
-
-(deftest deferred-node-types-are-named-explicitly-and-assigned-to-r2
-  (let [deferred #{:dao.stream.apply/call :stream/make :stream/put
-                   :stream/cursor :stream/next :stream/close :vm/gensym
-                   :vm/store-get :vm/store-put :vm/park :vm/resume
-                   :vm/current-continuation}]
-    (is (= deferred
-           (into #{} (keep (fn [[type mapping]] (when (:deferred-to mapping) type)))
-                 node-type->register-mapping))
-        "every R2-scoped type is deferred, and nothing in scope is silently deferred")
-    (doseq [type deferred]
-      (testing type
-        (is (= :R2 (:deferred-to (get node-type->register-mapping type))))
-        (is (keyword? (:diagnostic (get node-type->register-mapping type))))))))
+    (testing type
+      (is (every? register-instruction-mnemonics
+                  (:register-instructions mapping))))))
 
 
 ;; =============================================================================
@@ -373,7 +351,8 @@
    :scalar-encoding :b1-scalar-bytes
    :lexical-addressing :load-bound
    :free-addressing :load-free
-   :validation [:shape :targets :body-scope :register-bounds]
+   :validation [:shape :targets :body-scope :register-bounds
+                :live-shape :live-bounds :live-tail :live-exact]
    :lift :to-named-semantics})
 
 

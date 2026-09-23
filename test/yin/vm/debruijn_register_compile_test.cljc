@@ -83,6 +83,10 @@
   (if-node (app (v '<) (lit 1) (lit 2)) (lit 100) (lit 200)))
 
 
+(def ^:private fixture-b-live-across-branch
+  (app (v '+) (v 'a) (if-node (v 'test) (app (v 'f) (lit 1)) (lit 0))))
+
+
 (def ^:private shared-variable-body
   (assoc (v 'x) :eid -41))
 
@@ -132,65 +136,111 @@
 ;; exactly the section 4.5 bump, and this test is updated to record that
 ;; fact rather than to assert an equality section 4.5 itself breaks.
 
-(deftest contract-version-is-one-ahead-of-r0s-frozen-constant-per-section-4-5
-  (is (= 1 r0/register-contract-version)
-      "R0's frozen copy is untouched by this phase, per section 4.5's own deferral")
-  (is (= 2 rcode/contract-version)
-      "src's canonical version bumped 1 -> 2 for the live-set operand (section 4.5)")
-  (is (= (inc r0/register-contract-version) rcode/contract-version)
-      "the two are expected to differ by exactly this phase's version bump"))
+(deftest contract-version-matches-r0-at-version-3
+  (is (= 3 r0/register-contract-version)
+      "R0's frozen copy updated to version 3 in Phase R2")
+  (is (= 3 rcode/contract-version)
+      "src's canonical version at version 3 (Phase R2)")
+  (is (= r0/register-contract-version rcode/contract-version)))
 
 
 ;; =============================================================================
-;; 2. Deferred node types match R0's frozen diagnostics exactly
+;; 2. Exact image lowerings for every Phase R2 node
 ;; =============================================================================
 
-(deftest deferred-diagnostics-match-r0s-frozen-table-exactly
-  (let [r0-deferred (into {}
-                          (keep (fn [[type mapping]]
-                                  (when (:deferred-to mapping) [type (:diagnostic mapping)])))
-                          r0/node-type->register-mapping)]
-    (is (= r0-deferred rc/deferred-diagnostics))))
+(deftest exact-image-lowering-for-r2-nodes-test
+  (testing ":vm/store-get"
+    (let [{:keys [image]} (adapted {:type :vm/store-get, :key :my-k})]
+      (is (= [[:store-get 0 :my-k] [:halt 0]] (:instructions image)))))
+
+  (testing ":vm/store-put"
+    (let [{:keys [image]} (adapted {:type :vm/store-put, :key :my-k, :val 42})]
+      (is (= [[:store-put 0 :my-k 42] [:halt 0]] (:instructions image)))))
+
+  (testing ":vm/gensym"
+    (let [{:keys [image]} (adapted {:type :vm/gensym, :prefix "my-prefix"})]
+      (is (= [[:gensym 0 "my-prefix"] [:halt 0]] (:instructions image)))))
+
+  (testing ":stream/make"
+    (let [{:keys [image]} (adapted {:type :stream/make, :buffer 32})]
+      (is (= [[:stream-make 0 32] [:halt 0]] (:instructions image)))))
+
+  (testing ":stream/put"
+    (let [{:keys [image]} (adapted {:type :stream/put,
+                                    :target (lit :s),
+                                    :val (lit 99)})]
+      (is (= [[:const 1 :s]
+              [:const 2 99]
+              [:stream-put 0 1 2 []]
+              [:halt 0]]
+             (:instructions image)))))
+
+  (testing ":stream/cursor"
+    (let [{:keys [image]} (adapted {:type :stream/cursor,
+                                    :source (lit :s)})]
+      (is (= [[:const 1 :s]
+              [:stream-cursor 0 1]
+              [:halt 0]]
+             (:instructions image)))))
+
+  (testing ":stream/next"
+    (let [{:keys [image]} (adapted {:type :stream/next,
+                                    :source (lit :c)})]
+      (is (= [[:const 1 :c]
+              [:stream-next 0 1 []]
+              [:halt 0]]
+             (:instructions image)))))
+
+  (testing ":stream/close"
+    (let [{:keys [image]} (adapted {:type :stream/close,
+                                    :source (lit :s)})]
+      (is (= [[:const 1 :s]
+              [:stream-close 0 1]
+              [:halt 0]]
+             (:instructions image)))))
+
+  (testing ":dao.stream.apply/call"
+    (let [{:keys [image]} (adapted {:type :dao.stream.apply/call,
+                                    :op :math/add,
+                                    :operands [(lit 10) (lit 20)]})]
+      (is (= [[:const 1 10]
+              [:const 2 20]
+              [:ffi-call 0 :math/add [1 2] []]
+              [:halt 0]]
+             (:instructions image)))))
+
+  (testing ":vm/current-continuation"
+    (let [{:keys [image]} (adapted {:type :vm/current-continuation})]
+      (is (= [[:current-continuation 0 []] [:halt 0]] (:instructions image)))))
+
+  (testing ":vm/park"
+    (let [{:keys [image]} (adapted {:type :vm/park})]
+      (is (= [[:park 0 []] [:halt 0]] (:instructions image)))))
+
+  (testing ":vm/resume"
+    (let [{:keys [image]} (adapted {:type :vm/resume,
+                                    :parked-id :p1,
+                                    :val (lit "ok")})]
+      (is (= [[:const 1 "ok"]
+              [:resume :p1 1]
+              [:halt 0]]
+             (:instructions image))))))
 
 
-(deftest lower-register-refuses-every-deferred-node-type-with-r0s-diagnostic
-  (doseq [[type diagnostic] rc/deferred-diagnostics]
-    (testing type
-      (let [ast (case type
-                  :dao.stream.apply/call {:type type, :op :identity, :operands []}
-                  (:stream/put) {:type type, :target (lit 1), :val (lit 1)}
-                  (:stream/cursor :stream/next :stream/close) {:type type, :source (lit 1)}
-                  :stream/make {:type type, :buffer 8}
-                  :vm/gensym {:type type, :prefix "g"}
-                  :vm/store-get {:type type, :key :k}
-                  :vm/store-put {:type type, :key :k, :val 1}
-                  :vm/park {:type type}
-                  :vm/current-continuation {:type type}
-                  :vm/resume {:type type, :parked-id :p, :val (lit 1)})
-            caught (try (adapted ast) nil (catch #?(:cljd Object :clj Exception :cljs :default) e e))]
-        (is (some? caught))
-        (is (= diagnostic (:rule (ex-data caught))))))))
+(deftest child-allocation-and-temp-release-test
+  (let [ast (app (v '+)
+                 {:type :stream/put, :target (lit :s), :val (lit 1)}
+                 (lit 2))
+        {:keys [image]} (adapted ast)]
+    (is (nil? (rcode/register-image-defect image)))))
 
 
 ;; =============================================================================
 ;; 3. Determinism: byte-identical repeated lowerings
 ;; =============================================================================
-;; `parity/corpus` includes three R2-scoped programs ("store put then
-;; get", "gensym", "stream make"), which `lower-register` correctly
-;; refuses (already exercised above); this and the two sections below
-;; exercise the register-lowerable subset.
-
-(defn- ast-has-deferred-type?
-  [node]
-  (cond
-    (map? node) (or (contains? rc/deferred-diagnostics (:type node))
-                    (some ast-has-deferred-type? (vals node)))
-    (sequential? node) (some ast-has-deferred-type? node)
-    :else false))
-
 
 (def ^:private register-corpus
-  (remove (fn [[_name ast _expected]] (ast-has-deferred-type? ast)) parity/corpus))
+  parity/corpus)
 
 
 (deftest lowering-is-deterministic-across-repeated-runs
@@ -198,7 +248,8 @@
     (testing name
       (let [a (adapted ast), b (adapted ast)]
         (is (= (:image a) (:image b)))
-        (is (= (rcode/register-hash (:image a)) (rcode/register-hash (:image b))))))))
+        (is (= (rcode/register-hash (:image a))
+               (rcode/register-hash (:image b))))))))
 
 
 ;; =============================================================================
@@ -223,21 +274,14 @@
 
 
 ;; =============================================================================
-;; 4b. `:move`/`:store-get`/`:store-put` are never emitted (design 4.4's
-;;     docstring on `opcode-table`)
+;; 4b. `:move` is never emitted (design 4.4's docstring on `opcode-table`)
 ;; =============================================================================
-;; `:store-get`/`:store-put` are R2-only forward declarations and `:move`
-;; is never needed by a target-register-passing walk (see the opcode-
-;; table docstring in `yin.vm.debruijn-register-code`); this asserts that
-;; claim directly over every emitted instruction in the full register-
-;; lowerable corpus plus B2's fixtures, rather than leaving it a silent
-;; absence.
 
-(deftest move-and-store-mnemonics-are-never-emitted
+(deftest move-mnemonic-is-never-emitted
   (doseq [[name ast _] register-corpus]
     (testing name
       (doseq [t (:instructions (:image (adapted ast)))]
-        (is (not (contains? #{:move :store-get :store-put} (nth t 0)))))))
+        (is (not= :move (nth t 0))))))
   (doseq [[label ast] {:duplicate-param duplicate-param,
                        :free-variable free-variable,
                        :nested-closure nested-closure,
@@ -246,7 +290,7 @@
                        :shared-lambda shared-lambda-under-two-contexts}]
     (testing label
       (doseq [t (:instructions (:image (adapted ast)))]
-        (is (not (contains? #{:move :store-get :store-put} (nth t 0))))))))
+        (is (not= :move (nth t 0)))))))
 
 
 ;; =============================================================================
@@ -398,11 +442,156 @@
 ;; 9. R agreement: repeated lowerings and a golden R for a fixed program
 ;; =============================================================================
 
+(def golden-descriptor-hash
+  "2621ded6caa3bbcb6ccd948b74876dd4eeb88c29c157dda75a97b4e8e77c2db0")
+
+
+(deftest golden-descriptor-hash-test
+  (is (= golden-descriptor-hash rcode/descriptor-hash)))
+
+
 (deftest register-hash-is-stable-for-a-fixed-program
   (let [{:keys [image]} (adapted worked-example)]
     (is (= (rcode/register-hash image) (rcode/register-hash image)))
     (is (string? (rcode/register-hash image)))
     (is (= 64 (count (rcode/register-hash image))) "sha256 hex digest length")))
+
+
+(deftest golden-pure-r1-image-and-r-test
+  (let [{:keys [image]} (adapted worked-example)
+        expected-image
+        {:bodies [{:locals 0, :registers 3, :start 0, :end 3}
+                  {:locals 1, :registers 5, :start 4, :end 8}],
+         :instructions [[:closure 1 1 4]
+                        [:const 2 10]
+                        [:call 0 1 [2] false []]
+                        [:halt 0]
+                        [:load-free 2 '+]
+                        [:load-bound 3 0 0]
+                        [:const 4 1]
+                        [:call 1 2 [3 4] true []]
+                        [:return 1]]}
+        expected-r
+        "c85f9adbb70bc0297abcb2b4b0362d740b57ed3010a29cb5a98d509900cca3b7"]
+    (is (= expected-image image))
+    (is (= expected-r (rcode/register-hash image)))))
+
+
+(deftest golden-effect-bearing-images-and-r-test
+  (testing "store-put"
+    (let [{:keys [image]} (adapted {:type :vm/store-put, :key :k, :val 42})]
+      (is (= {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
+              :instructions [[:store-put 0 :k 42] [:halt 0]]}
+             image))
+      (is (= "438804bf11aaeaf549fbeb056325f8c7c47691b1e67dc98542f99890cf7bddb2"
+             (rcode/register-hash image)))))
+
+  (testing "gensym"
+    (let [{:keys [image]} (adapted {:type :vm/gensym, :prefix "g"})]
+      (is (= {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
+              :instructions [[:gensym 0 "g"] [:halt 0]]}
+             image))
+      (is (= "81226f50963186da38bf643046ccce90bab48c96ca9502f0bf40d4a7286a81c1"
+             (rcode/register-hash image)))))
+
+  (testing "stream-make"
+    (let [{:keys [image]} (adapted {:type :stream/make, :buffer 64})]
+      (is (= {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
+              :instructions [[:stream-make 0 64] [:halt 0]]}
+             image))
+      (is (= "d7d5d98c741ab674cd4d3a4607477a1198bf594fd2cc9205570ab2cab78b0857"
+             (rcode/register-hash image)))))
+
+  (testing "stream-put"
+    (let [{:keys [image]} (adapted {:type :stream/put,
+                                    :target (lit :s),
+                                    :val (lit 99)})]
+      (is (= {:bodies [{:locals 0, :registers 3, :start 0, :end 3}],
+              :instructions [[:const 1 :s]
+                             [:const 2 99]
+                             [:stream-put 0 1 2 []]
+                             [:halt 0]]}
+             image))
+      (is (= "4e7d3f3ef6ed453d2ab40ad75f6adf5c074b0361969c9e2b7e4b302cfd3b1bac"
+             (rcode/register-hash image)))))
+
+  (testing "stream-cursor"
+    (let [{:keys [image]} (adapted {:type :stream/cursor, :source (lit :s)})]
+      (is (= {:bodies [{:locals 0, :registers 2, :start 0, :end 2}],
+              :instructions [[:const 1 :s]
+                             [:stream-cursor 0 1]
+                             [:halt 0]]}
+             image))
+      (is (= "634fda35541bd3e5407f3bdcee60e979de5d662ad9219f4243da9b4cb8358a60"
+             (rcode/register-hash image)))))
+
+  (testing "stream-next"
+    (let [{:keys [image]} (adapted {:type :stream/next, :source (lit :c)})]
+      (is (= {:bodies [{:locals 0, :registers 2, :start 0, :end 2}],
+              :instructions [[:const 1 :c]
+                             [:stream-next 0 1 []]
+                             [:halt 0]]}
+             image))
+      (is (= "411124300dcf612467a6633e54a440c3873c385dea85ef21f4e84f1b9300d417"
+             (rcode/register-hash image)))))
+
+  (testing "stream-close"
+    (let [{:keys [image]} (adapted {:type :stream/close, :source (lit :s)})]
+      (is (= {:bodies [{:locals 0, :registers 2, :start 0, :end 2}],
+              :instructions [[:const 1 :s]
+                             [:stream-close 0 1]
+                             [:halt 0]]}
+             image))
+      (is (= "91876ea3afe2f8edee52b97dc27ecd2ed9957f7a056973491c60d3a5d673b01d"
+             (rcode/register-hash image))))))
+
+
+(deftest golden-nested-control-flow-with-live-boundary-test
+  (let [{:keys [image]} (adapted fixture-b-live-across-branch)
+        expected-image
+        {:bodies [{:locals 0, :registers 6, :start 0, :end 10}],
+         :instructions [[:load-free 1 '+]
+                        [:load-free 2 'a]
+                        [:load-free 4 'test]
+                        [:branch-false 4 8]
+                        [:load-free 4 'f]
+                        [:const 5 1]
+                        [:call 3 4 [5] false [1 2]]
+                        [:jump 9]
+                        [:const 3 0]
+                        [:call 0 1 [2 3] false []]
+                        [:halt 0]]}
+        expected-r
+        "086bee81730aae053fcf9028835aef271e9b035358b2acd71fd6b4e3568f2ff1"]
+    (is (= expected-image image))
+    (is (= expected-r (rcode/register-hash image)))))
+
+
+(deftest golden-ffi-and-resume-images-test
+  (testing "ffi"
+    (let [{:keys [image]} (adapted {:type :dao.stream.apply/call,
+                                    :op :math/add,
+                                    :operands [(lit 10) (lit 20)]})]
+      (is (= {:bodies [{:locals 0, :registers 3, :start 0, :end 3}],
+              :instructions [[:const 1 10]
+                             [:const 2 20]
+                             [:ffi-call 0 :math/add [1 2] []]
+                             [:halt 0]]}
+             image))
+      (is (= "f80f2aaf1d7096390bf54aa13f45d9b62dfdc7d5777cdf0d7b2472eafbb9e6ee"
+             (rcode/register-hash image)))))
+
+  (testing "resume"
+    (let [{:keys [image]} (adapted {:type :vm/resume,
+                                    :parked-id :p1,
+                                    :val (lit "ok")})]
+      (is (= {:bodies [{:locals 0, :registers 2, :start 0, :end 2}],
+              :instructions [[:const 1 "ok"]
+                             [:resume :p1 1]
+                             [:halt 0]]}
+             image))
+      (is (= "bf3e63231bf72fc9556a83a379e11bc1f4fb4e5be454b5d00ebba5dbf0b0f3cc"
+             (rcode/register-hash image))))))
 
 
 ;; =============================================================================
@@ -456,10 +645,6 @@
 ;; [2 3] false live]`. So at the inner call (pc6), reg1 and reg2 are both
 ;; still needed afterward (by pc9) and neither is written again in
 ;; between: expected live `[1 2]`.
-
-(def ^:private fixture-b-live-across-branch
-  (app (v '+) (v 'a) (if-node (v 'test) (app (v 'f) (lit 1)) (lit 0))))
-
 
 (deftest fixture-b-call-inside-if-arm-with-a-temp-live-across-it-from-before-the-branch
   (let [{:keys [image]} (adapted fixture-b-live-across-branch)
@@ -637,5 +822,165 @@
         (doseq [bi (range (count bodies))]
           (let [expected (rcode/body-liveness image bi)]
             (doseq [[pc live] expected]
-              (is (= live (nth (nth instructions pc) 5))
-                  (str name " body " bi " pc " pc)))))))))
+              (let [inst (nth instructions pc)
+                    slot (rcode/live-slot-index (first inst))]
+                (is (= live (nth inst slot))
+                    (str name " body " bi " pc " pc))))))))))
+
+
+;; =============================================================================
+;; 13. Live-set fixtures for Phase R2 boundary instructions
+;; =============================================================================
+
+(deftest r2-boundary-instructions-live-set-test
+  (testing "stream-put live set"
+    (let [ast (app (v '+) (v 'a)
+                   {:type :stream/put, :target (lit :s), :val (lit 1)})
+          {:keys [image]} (adapted ast)
+          insts (:instructions image)
+          pc (first (keep-indexed
+                      (fn [i t] (when (= :stream-put (first t)) i))
+                      insts))]
+      (is (nil? (rcode/register-image-defect image)))
+      (is (some? pc))
+      (is (= [1 2] (nth (nth insts pc) 4)))))
+
+  (testing "stream-next live set"
+    (let [ast (app (v '+) (v 'a)
+                   {:type :stream/next, :source (lit :c)})
+          {:keys [image]} (adapted ast)
+          insts (:instructions image)
+          pc (first (keep-indexed
+                      (fn [i t] (when (= :stream-next (first t)) i))
+                      insts))]
+      (is (nil? (rcode/register-image-defect image)))
+      (is (some? pc))
+      (is (= [1 2] (nth (nth insts pc) 3)))))
+
+  (testing "ffi-call live set"
+    (let [ast (app (v '+) (v 'a)
+                   {:type :dao.stream.apply/call,
+                    :op :math/add,
+                    :operands [(lit 1) (lit 2)]})
+          {:keys [image]} (adapted ast)
+          insts (:instructions image)
+          pc (first (keep-indexed
+                      (fn [i t] (when (= :ffi-call (first t)) i))
+                      insts))]
+      (is (nil? (rcode/register-image-defect image)))
+      (is (some? pc))
+      (is (= [1 2] (nth (nth insts pc) 4)))))
+
+  (testing "current-continuation live set"
+    (let [ast (app (v '+) (v 'a)
+                   {:type :vm/current-continuation})
+          {:keys [image]} (adapted ast)
+          insts (:instructions image)
+          pc (first (keep-indexed
+                      (fn [i t] (when (= :current-continuation (first t)) i))
+                      insts))]
+      (is (nil? (rcode/register-image-defect image)))
+      (is (some? pc))
+      (is (= [1 2] (nth (nth insts pc) 2)))))
+
+  (testing "park live set"
+    (let [ast (app (v '+) (v 'a)
+                   {:type :vm/park})
+          {:keys [image]} (adapted ast)
+          insts (:instructions image)
+          pc (first (keep-indexed
+                      (fn [i t] (when (= :park (first t)) i))
+                      insts))]
+      (is (nil? (rcode/register-image-defect image)))
+      (is (some? pc))
+      (is (= [1 2] (nth (nth insts pc) 2))))))
+
+
+;; =============================================================================
+;; 14. Resume CFG: control and liveness do not flow past :resume
+;; =============================================================================
+
+(deftest resume-terminates-control-flow-test
+  (let [image {:bodies [{:locals 0, :registers 3, :start 0, :end 4}],
+               :instructions [[:const 0 10]
+                              [:const 1 20]
+                              [:park 2 []]
+                              [:resume :p1 0]
+                              [:halt 1]]}
+        liveness (rcode/body-liveness image 0)]
+    ;; At pc 2 (:park), only reg 0 is live (used by :resume), NOT reg 1
+    ;; (used by :halt after :resume), proving liveness stops at :resume.
+    (is (= [0] (get liveness 2)))))
+
+
+;; =============================================================================
+;; 15. Validator tests for R2 operand kinds and shapes
+;; =============================================================================
+
+(deftest validator-rejects-invalid-r2-operand-shapes
+  (testing "negative capacity on stream-make"
+    (let [bad {:bodies [{:locals 0, :registers 2, :start 0, :end 1}],
+               :instructions [[:stream-make 0 -1] [:halt 0]]}]
+      (is (= :operand-kind (:rule (rcode/register-image-defect bad))))))
+
+  (testing "non-string prefix on gensym"
+    (let [bad {:bodies [{:locals 0, :registers 2, :start 0, :end 1}],
+               :instructions [[:gensym 0 :not-a-string] [:halt 0]]}]
+      (is (= :operand-kind (:rule (rcode/register-image-defect bad))))))
+
+  (testing "non-keyword op on ffi-call"
+    (let [bad {:bodies [{:locals 0, :registers 2, :start 0, :end 1}],
+               :instructions [[:ffi-call 0 "not-kw" [] []] [:halt 0]]}]
+      (is (= :operand-kind (:rule (rcode/register-image-defect bad))))))
+
+  (testing "non-keyword parked-id on resume"
+    (let [bad {:bodies [{:locals 0, :registers 2, :start 0, :end 1}],
+               :instructions [[:resume "not-kw" 0] [:halt 0]]}]
+      (is (= :operand-kind (:rule (rcode/register-image-defect bad))))))
+
+  (testing "non-vector arg-regs on ffi-call"
+    (let [bad {:bodies [{:locals 0, :registers 2, :start 0, :end 1}],
+               :instructions [[:ffi-call 0 :op "not-vec" []] [:halt 0]]}]
+      (is (= :operand-kind (:rule (rcode/register-image-defect bad))))))
+
+  (testing "unsorted live set on stream-put"
+    (let [bad {:bodies [{:locals 0, :registers 3, :start 0, :end 1}],
+               :instructions [[:stream-put 0 1 2 [2 1]] [:halt 0]]}]
+      (is (= :live-shape (:rule (rcode/register-image-defect bad))))))
+
+  (testing "out of bounds live register on park"
+    (let [bad {:bodies [{:locals 0, :registers 2, :start 0, :end 1}],
+               :instructions [[:park 0 [99]] [:halt 0]]}]
+      (is (= :live-bounds (:rule (rcode/register-image-defect bad)))))))
+
+
+;; =============================================================================
+;; 16. Lift law extended to Phase R2 nodes
+;; =============================================================================
+
+(def ^:private r2-lift-programs
+  {:store-get {:type :vm/store-get, :key :k}
+   :store-put {:type :vm/store-put, :key :k, :val 42}
+   :gensym {:type :vm/gensym, :prefix "g"}
+   :stream-make {:type :stream/make, :buffer 8}
+   :stream-put {:type :stream/put, :target (lit :s), :val (lit 1)}
+   :stream-cursor {:type :stream/cursor, :source (lit :s)}
+   :stream-next {:type :stream/next, :source (lit :c)}
+   :stream-close {:type :stream/close, :source (lit :s)}
+   :ffi {:type :dao.stream.apply/call,
+         :op :math/add,
+         :operands [(lit 1) (lit 2)]}
+   :park {:type :vm/park}
+   :current-continuation {:type :vm/current-continuation}
+   :resume {:type :vm/resume, :parked-id :p1, :val (lit 42)}})
+
+
+(deftest r2-lift-law-exact-test
+  (doseq [[label ast] r2-lift-programs]
+    (testing label
+      (let [nv (named-vector ast)
+            {:keys [image side-table]} (adapted ast)
+            lifted (rc/lift image side-table)]
+        (is (= nv lifted)
+            (str "lift(lower-register(resolve x), side-table) = "
+                 "canonical-vector(lower x) for " label))))))

@@ -404,7 +404,8 @@
             (str "UTF-8 vector for " (pr-str string) " must match"))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest architectural-lint-sweeps-production-sources
      (testing (str "source sweep: no equality comparison against "
                    "dao.jing default minting vars")

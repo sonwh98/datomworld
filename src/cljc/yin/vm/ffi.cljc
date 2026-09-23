@@ -64,19 +64,20 @@
 
 (defn response-wait-entry
   "The polling wait entry for a sent call awaiting its correlated response,
-   for an arbitrary register payload (`yin.vm.engine.md` §7, edit 3).
+   for an arbitrary register payload (`yin.vm.engine.md` section 7, edit 3).
 
    `entry` is a wait, ready, or parked record as the VM built it: the
    writer entry that retried the request, or the registers of a call whose
    request was sent at once. The FFI keys of the writer step
    (`:request-sent`, `:op`) and its retried `:datom` are removed; the
-   call-out reader keys are added. Every other key — the VM's register
-   payload, whatever its shape — is preserved verbatim, so no VM has to
+   call-out reader keys are added. Every other key -- the VM's register
+   payload, whatever its shape -- is preserved verbatim, so no VM has to
    know this layout. `call-response-wait-entry` (the walker's frame-typed
    shape) is unchanged."
   [entry call-id]
   (-> entry
-      (dissoc :request-sent :op :datom)
+      (dissoc :value :status :cursor :store-updates :stream
+              :datom :type :id :request-sent :op)
       (assoc :call-id call-id
              :reason :next
              :cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key}
