@@ -6185,3 +6185,14 @@ Decisions: This entry and the brief are the handoff artifact; the actual new ses
 Verification: none this entry (documentation/handoff only, no code changed).
 Delegates: none this entry.
 Next: the incoming agy seat should read this log's tail plus the handoff brief, re-derive tree state independently, and report readiness before taking any action, per the brief's own instructions.
+
+## 2026-09-23 11:00:11 +07 — correction: commit-then-review reverted back to review-before-commit
+Completed-GMT: 2026-09-23 04:00:11 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@dc2a5b95
+Done: The prior entry's "process rule change this session" claim (commit-then-review, d2593c7a) is now superseded. The owner reversed it again, this time with an explicit escape hatch: no commit until independent review (step 7) has completed and its findings are reconciled, OR the user explicitly instructs a commit without waiting for review. Local verification (step 6) alone is never sufficient by itself. Edited the Coordination Contract paragraph and Workflow steps 7/9/10 accordingly; committed directly (dc2a5b95) since the owner's message was itself the instruction to make this exact edit. Also corrected the already-prepared agy handoff brief (collab/1790135862395-orchestrator-seat-handoff-to-agy.md, not yet committed/sent) to state the settled rule rather than the now-stale commit-then-review description.
+Decisions: This is the standing rule going forward for this seat and the incoming agy seat. Prior log entries describing the commit-then-review rule as current are now superseded by this entry; do not treat them as the standing rule.
+Verification: read the full diff before committing; matches intent precisely.
+Delegates: none (direct owner instruction, applied by the orchestrator).
+Next: proceed with the agy seat handoff using the corrected brief.
