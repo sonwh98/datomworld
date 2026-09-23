@@ -6363,3 +6363,59 @@ Verification: Full tri-host test matrix executed and 100% green on master:
 - ClojureDart (bb test:cljd): 1,723 tests passed, 0 failures, 0 errors.
 Delegates: none (orchestrator integration and verification)
 Next: Dispatch DaoJing Phase H2 (multi-algorithm verification and hardening).
+
+## 2026-09-23 17:38:15 +07 — feat(dao.jing): Phase H2 verification & hardening
+Completed-GMT: 2026-09-23 10:38:15 GMT
+Coding-Agent: agy + Gemini Pro (adversarial reviewer)
+Session-ID: b71a7066-b2ee-4d2f-a87c-c62b0d73a28a
+Tree: master@5264abe9, clean
+Done: Fully executed, hardened, adversarially audited, and integrated DaoJing
+  Phase H2 (multi-algorithm verification and hardening):
+- Hardened all source storage and consumer namespaces against residual
+  implicit minting:
+  * dao.jing: removed unused hex-digits-set, clarified sha256-bytes docstring,
+    and fixed CLJS blake3 string hashing with noble-utils/utf8ToBytes.
+  * dao.jing.file: updated validate-codec-round-trip! to accept [payload algo],
+    hashing both sides with {:algorithm algo}, threaded algorithm from make-put,
+    and wrapped error messages <= 80 columns.
+  * dao.data.btree.storage: added :algorithm option to KVStorage, kv-storage,
+    HydrationStorage, and hydration-storage; preserved algorithm when delegating
+    put-content-async to materialize-async fallback.
+  * dao.space.index: generalized valid-manifest? docstring, updated
+    read-manifest mismatch diagnostic to derive algorithm from manifest-address.
+  * yin.vm.semantic: updated mismatch diagnostic to dynamically derive algorithm
+    from claimed address.
+- Contract & AST Lint Guard:
+  * Removed dead fixture vars in test/dao/jing/hash_registry_contract_test.cljc.
+  * Activated official BLAKE3 (10 vectors) and non-ASCII UTF-8 (5 vectors)
+    conformance test across JVM, CLJS, and ClojureDart.
+  * Activated source-sweeping architectural AST lint guard (0 violations across
+    all 103 production .cljc files in src/cljc).
+- Multi-Algorithm Integration Tests:
+  * test/dao/jing/mem_test.cljc: added dual-algorithm memory store coexistence.
+  * test/dao/jing/file_test.cljc: added dual-algorithm file store and replay.
+  * test/dao/jing/dht_test.cljc: added DHT routing and caching of both
+    algorithms without re-minting.
+  * test/dao/data/btree_durability_test.cljc: added synchronous hydration test
+    proving SHA-256 addresses are preserved without reminting to default BLAKE3.
+  * test/dao/data/btree_async_test.cljc: added asynchronous hydration and
+    store-tree-async flush tests verifying SHA-256 preservation and fallback.
+- Documentation Alignment:
+  * docs/design/dao.jing.md: defined the 6 core concepts (algorithm, digest,
+    address, minting, verification, copying); stated "Verification must be
+    address-directed; minting primitives are not validators"; documented pinned
+    host provider dependencies and MIT licenses; documented maintenance
+    obligations (call-site classification & AST lint guard).
+  * docs/design/yin.vm.debruijn.stack.md & register.md: clarified that H and R
+    format hashes remain SHA-256 by VM contract freeze, decoupled from DaoJing.
+Decisions: Committed on worktree branch hash-registry-h2 (f05599f7) and merged
+  non-fast-forward into master. Worktree cleanly removed and local branch
+  deleted. No remote push per invariant.
+Verification: Full tri-host test matrix executed and 100% green on master:
+- JVM (bb test:clj): 1,853 tests, 178,388 assertions, 0 failures, 0 errors.
+- Node/CLJS (bb test:cljs): 1,769 tests, 45,651 assertions, 0 fail, 0 err.
+- ClojureDart (bb test:cljd): 1,730 tests passed, 0 failures, 0 errors.
+- Formatting: 100% cljstyle clean, all diff lines <= 80 columns, 0 smells.
+- Independent adversarial audit by Gemini Pro (thread 79c71dd8...): APPROVED.
+Delegates: Gemini Pro (research subagent, adversarial reviewer)
+Next: Proceed to next prioritized epic: Register VM Phase R1/R2 or DaoSpace.
