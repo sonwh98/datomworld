@@ -41,7 +41,11 @@ force later reviewers to rerun passing suites unless security review
 requires it.
 
 For cost constraints and CLI routing caveats, see [`team.md`](../team.md)'s
-**Available Subscriptions & Cost Constraints** table.
+**Available Subscriptions & Cost Constraints** table. For current, session-
+independent owner-relayed availability and budget status (an outage, a
+narrowed authorization, a near-empty quota), see
+[`routing-status.md`](../routing-status.md) — check it before routing to a
+metered destination, and add an entry when the owner relays a new status.
 
 ## Artifact protocol
 
@@ -222,8 +226,10 @@ Roster, role routing, and reviewer independence are defined in [`team.md`](../te
 2. **Re-derive state and authority.** Read `git log`, `git status`, and the real
    diff; snapshots and phase summaries may be stale. Read the tail of
    [`docs/orchestrator-log.md`](../../orchestrator-log.md) for the previous
-   seat's record. Bound the user's authorized files, tools, payloads, and
-   external destinations.
+   seat's record and [`docs/agents/routing-status.md`](../routing-status.md)
+   for current owner-relayed delegate availability and budget constraints —
+   neither survives in any model's own memory across a fresh session. Bound
+   the user's authorized files, tools, payloads, and external destinations.
 3. **Define the contract.** Express the task as tests or equally precise
    acceptance criteria, invariants, phase-completion criteria, and bounded file
    ownership.
@@ -307,6 +313,13 @@ Read first:
 - <current-phase-status>
 - <relevant-source-and-test-files>
 - `docs/orchestrator-log.md` (tail — the previous seat's running record)
+- `docs/agents/routing-status.md` (current owner-relayed delegate availability and budget status)
+
+Every claim in this brief, in the log, and in routing-status.md is something
+the outgoing seat believed at handoff time, not verified fact — re-derive
+tree state yourself from `git log`, `git status`, and the real diff before
+acting on any of it, the same posture this role's own Work Log section
+requires of any successor.
 
 Required workflow:
 - Follow `docs/agents/roles/orchestrator.md#workflow` in order.
@@ -336,7 +349,18 @@ responding.
 > Document the exact tool call here and invoke directly, capturing output into `collab/`.
 
 > [!IMPORTANT]
-> **AGY backgrounding:** never use `&` to background a delegate task — it forces an immediate `exit 0`,
+> **Never double-background a delegate dispatch.** When the host you're operating through already tracks a
+> command to its real completion (a task queue, a `WaitMsBeforeAsync`-style parameter, a `run_in_background`
+> flag), pass the bare foreground delegate command and let that tracking do its job. Do not also append `&`,
+> `nohup`, or a manually captured PID inside the command string — that backgrounds the delegate a second
+> time from inside the shell the host is tracking, so the *tracked* process becomes the launcher shell, which
+> exits almost immediately, while the real delegate keeps running detached and orphaned. The host then
+> reports "completed" while the delegate has produced no output yet. This is not AGY-specific: it has been
+> hit with AGY's own task tracker (below) and with an unrelated host's background-task tool in the same way.
+> If a delegate ever does end up double-backgrounded, recover by polling `kill -0 <pid>` until it actually
+> exits, rather than trusting the premature completion notice.
+>
+> **AGY specifically:** never use `&` to background a delegate task — it forces an immediate `exit 0`,
 > short-circuiting Antigravity's task tracker and losing the PID/status hook. Run the CLI natively in the
 > foreground and use Antigravity's `WaitMsBeforeAsync` tool parameter to background it gracefully with a
 > completion notification.
@@ -415,6 +439,16 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   read-only/write mode.
 - **GLM/Muse `claude-code:unrecognized_model` startup warnings** are expected
   for their wrappers; verify the resulting artifact before declaring failure.
+- **The same benign startup warning can precede a real outage, not just a
+  successful fallback.** The warning alone never distinguishes them — only
+  what follows it does. If it's followed by a completed response (even after
+  falling back to a sibling model, e.g. `deepseek-v4-pro` silently routing to
+  `deepseek-flash`), that's the normal case. If it's followed by a hard error
+  instead of any response, on a destination that worked earlier in the same
+  session, that's a real provider-side outage — confirm with one trivial
+  prompt on a different destination before concluding this and before
+  retrying the same destination more than once, then record it in
+  [`routing-status.md`](../routing-status.md) and route elsewhere.
 - **Claude Code headless `--permission-mode plan` without the mandatory
   `--allowed-tools Read "Bash(git diff *)" "Bash(git status *)"` flag**
   silently halts on the first unauthorized tool call. Repeated occurrences
