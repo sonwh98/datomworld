@@ -37,9 +37,10 @@
    rightmost-wins, matching `yin.vm.engine/bind-params`. A bound
    occurrence is {:bound [frame-depth position]}; a free one {:free name}.
 
-   Canonical limits fixed in D0 (§5): NFC normalisation collisions and
-   the intentional 1/1.0 int64 collision are inherited limits of the
-   repository encoding; the Dart NFC source is the unorm_dart package
+   Canonical limits fixed in D0 (Section 5): NFC normalisation collisions
+   are an inherited limit of the repository encoding; int64 and double
+   are disjoint classes (contract version 1), so 1 and 1.0 never merge
+   on JVM/Dart; the Dart NFC source is the unorm_dart package
    (Unicode 16.0, owner-settled 2026-09-21) behind the one
    host-dispatched `normalize-nfc` seam."
   (:require [dao.datom :as datom]
@@ -53,10 +54,17 @@
 ;; D0: the published dimension and its hash domain (§4, datom.md §META-PROTOCOL)
 ;; =============================================================================
 
+(def contract-version
+  "The :yin.debruijn/* contract version. Version 1 is type-preserving:
+   :int64 and :double are disjoint, and integral doubles are never
+   folded into :int64."
+  1)
+
+
 (def canonical-value-table
   "§5's canonical value table as data: the classes a projected scalar may
    carry and the rule that fixes each one's encoding. Bounds are symbolic
-   (:signed-int64, :ieee-754-safe-integer) so the table — and therefore
+   (:signed-int64) and host-neutral, so the table — and therefore
    the descriptor that embeds it — prints identically on every host;
    `canonical-class` below pins the numbers. D3's encoder consumes this
    table; D0 consumes it for validation."
@@ -69,7 +77,7 @@
    :double {:format :ieee-754,
             :nan :one-quiet-nan,
             :signed-zero :distinct,
-            :in-range-integral :int64},
+            :integral-double-folding false},
    :string {:encoding :utf-8, :normalization :nfc, :framing :length-prefixed},
    :bytes {:framing :length-prefixed},
    :keyword {:components [:namespace :name], :encoding :nfc-utf-8},
@@ -80,11 +88,8 @@
    ;; difference, so one class would be an undeclared semantic collision
    :vector {:order :positional},
    :list {:order :positional},
-   :numbers {:javascript {:int64 :safe-integer-only,
-                          :unsafe-integer :diagnostic},
-             :out-of-domain [:bigint :ratio :char :other-numeric]},
-   :limits [:nfc-normalization-collisions
-            :int64-integral-double-collision]})
+   :numbers {:out-of-domain [:bigint :ratio :char :other-numeric]},
+   :limits [:nfc-normalization-collisions]})
 
 
 (def dimension-slots
@@ -125,7 +130,8 @@
    anchor morphisms. The content hash of this subgraph — `dimension-hash`
    below — IS the dimension's identity and the projection's hash domain
    separator: not an ad hoc text string."
-  [[:yin.debruijn/dimension :dim/arity 22]
+  [[:yin.debruijn/dimension :dim/contract-version contract-version]
+   [:yin.debruijn/dimension :dim/arity 22]
    [:yin.debruijn/dimension :dim/slots dimension-slots]
    [:yin.debruijn/dimension
     :dim/encoding
@@ -155,16 +161,6 @@
 ;; D0: the canonical value table as validation, and the NFC seam (§5)
 ;; =============================================================================
 
-(def ^:private int64-double-lower
-  "The int64 domain's double bounds: -2^63 inclusive to +2^63 exclusive.
-   Every integral double in that interval is an integer inside signed
-   int64, and +2^63 itself is the first double outside it."
-  -9223372036854775808.0)
-
-
-(def ^:private int64-double-upper 9223372036854775808.0)
-
-
 (defn- bytes-like?
   [v]
   #?(:clj (bytes? v)
@@ -172,57 +168,62 @@
      :cljd (instance? Uint8List v)))
 
 
-(defn- negative-zero?
-  "True only for -0.0: +0.0 and -0.0 compare equal, so the sign is read
-   off the reciprocal's infinity — the §5 rule that keeps them distinct."
-  [v]
-  (and (zero? v) (= (/ -1.0 0.0) (/ 1.0 v))))
+#?(:cljs
+   (defn- js-number-class
+     "The JS adapter's classification of a JS number, whose one type cannot
+      tell 1 from 1.0 (a host limit that stays here, never in the universal
+      projection): a safe integer is :int64; NaN, the infinities, -0.0, and
+      non-integral values are :double; an unsafe integral is nil, a
+      diagnostic rather than a silently misclaimed int64."
+     [v]
+     (cond
+       (not= v v) :double
+       (or (= js/Infinity v) (= js/-Infinity v)) :double
+       (and (zero? v) (= js/-Infinity (/ 1.0 v))) :double
+       (not= v (js/Math.floor v)) :double
+       (<= -9007199254740991 v 9007199254740991) :int64
+       :else nil)))
 
 
-(defn- integral-double?
-  [v]
-  #?(:clj (= v (Math/floor v))
-     :cljs (= v (js/Math.floor v))
-     :cljd (= v (.floorToDouble v))))
+#?(:cljs
+   (defn- has-integral-number?
+     "True when v is, or nests, a JS number classified :int64: a value the
+      wire may have carried as a double, whose class this host cannot
+      recover."
+     [v]
+     (cond
+       (number? v) (= :int64 (js-number-class v))
+       (map? v) (some (fn [[k x]]
+                        (or (has-integral-number? k)
+                            (has-integral-number? x)))
+                      v)
+       (coll? v) (some has-integral-number? v)
+       :else false)))
 
 
-(defn- double-class
-  "§5 numeric canonicalisation of the double v: :int64 when v is integral
-   and inside the signed int64 domain (integer 1 and integral double 1.0
-   intentionally collide, on every host), :double otherwise — all NaNs
-   are one quiet-NaN class, the infinities and the signed zeros are
-   doubles. On :cljs an unsafe integral (§5's JavaScript number) returns
-   nil: its exact integer identity is not recoverable, so it is a
-   diagnostic rather than a silently misclaimed int64."
-  [v]
-  (cond
-    (not= v v) :double
-    (or (= (/ 1.0 0.0) v) (= (/ -1.0 0.0) v)) :double
-    (negative-zero? v) :double
-    (not (integral-double? v)) :double
-    (not (and (>= v int64-double-lower) (< v int64-double-upper))) :double
-    ;; §5's JavaScript number: int64 only when a safe integer, so ±2^53-1
-    ;; bound the claim. The literals stay inside the gated branch.
-    #?(:cljs (not (and (>= v -9007199254740991) (<= v 9007199254740991)))
-       :default false) nil
-    :else :int64))
+#?(:cljs
+   (defn- refuse-unrecoverable-integral!
+     "Throw :unsupported-value when record's value nests a JS number whose
+      wire class (int64 or integral double) this host cannot recover."
+     [record h e]
+     (when (has-integral-number? (:yin.debruijn/value record))
+       (throw (ex-info "Integral number of unrecoverable class"
+                       {:rule :unsupported-value, :hash h, :entity e})))))
 
 
 (defn- numeric-class
-  "Classify a number under §5's numeric canonicalisation. Exact host
-   integers (Long on the JVM, Dart int) are int64 by construction; the
-   out-of-domain numerics — bigints, ratios, and friends — classify nil.
-   Caveat for the :cljd branch: on a JS-compiled Dart target `int?` also
-   holds for integral doubles, so §5's safe-integer rule would govern
-   there as on :cljs — the cljd lane is native today, where Dart int is
-   exactly int64."
+  "Classify a number under the type-preserving numeric rule (contract
+   version 1): int64 and double are disjoint. Host integers (Long on the
+   JVM, Dart int) are :int64 and every floating-point value is :double,
+   integral or not; bigints, ratios, and friends classify nil. Only the
+   :cljs adapter, where 1 and 1.0 are one number, classifies by value."
   [v]
   #?(:clj (cond
             (int? v) :int64
-            (float? v) (double-class (double v))
+            (float? v) :double
             :else nil)
-     :cljs (double-class v)
-     :cljd (if (int? v) :int64 (double-class v))))
+     :cljs (js-number-class v)
+     :cljd (if (int? v) :int64 :double)))
 
 
 (defn- code-unit-at
@@ -887,12 +888,11 @@
 (defn encode-value
   "Encode one canonical-domain value under its value-table class: the
    full tagged, length-delimited part, under the settled D3 byte rules —
-   int64 little-endian two's complement for integers and integral
-   doubles alike (the recorded 1 ≡ 1.0 collision), IEEE-754 bits with one
-   quiet-NaN encoding for the other doubles, UTF-8 byte lengths, NFC
-   strings and ident parts. Maps and sets sort by their encoded parts,
-   the §5 order rule; vectors and lists are the distinct classes the D0
-   ruling split. An out-of-domain value is a diagnostic."
+   int64 little-endian two's complement for integers, IEEE-754 bits with
+   one quiet-NaN encoding for doubles (1 and 1.0 stay distinct), UTF-8 byte
+   lengths, NFC strings and ident parts. Maps and sets sort by their encoded
+   parts, the Section 5 order rule; vectors and lists are the distinct classes
+   the D0 ruling split. An out-of-domain value is a diagnostic."
   [v]
   (let [class (canonical-class v)]
     (case class
@@ -954,15 +954,16 @@
 
 (defn canonical-value
   "A record's stored scalar is its canonical spelling (the carried D3
-   obligation): the long form for integral numbers — so 1 and 1.0 hold
-   one record content — the NFC form for strings and ident parts, and
-   the same recursively inside collections. One content address, one
-   record content: equal fingerprints imply equal :records maps.
-   Canonicalizing a map whose keys merge — {1 :a, 1.0 :b}, or two string
-   keys with one NFC form — is a key collision, diagnosed rather than
-   letting iteration order decide which entry survives; a set whose
-   elements merge — #{1 1.0}, or two spellings of é — is diagnosed the
-   same way, because the merge changes its count, not just a scalar's
+   obligation): the long form for integers and the double form for
+   doubles, so 1 and 1.0 hold distinct record contents on JVM/Dart; the
+   NFC form for strings and ident parts, and the same recursively inside
+   collections. One content address, one record content: equal fingerprints
+   imply equal :records maps.
+   Canonicalizing a map whose keys merge (for example, two string keys
+   with one NFC form) is a key collision, diagnosed rather than letting
+   iteration order decide which entry survives; a set whose elements
+   merge (such as two distinct spellings of one NFC string) is diagnosed
+   the same way, because the merge changes its count, not just a scalar's
    spelling."
   [v]
   (let [class (canonical-class v)]
@@ -1360,6 +1361,12 @@
                                            :attribute :yin.debruijn/hash,
                                            :entity e}))
                                  (do (when-not (= h (node-hash (slot-encodings record)))
+                                       ;; a JS number cannot say whether it
+                                       ;; was an int64 or an integral double
+                                       ;; on the wire: refuse, not mismatch
+                                       #?(:cljs
+                                          (refuse-unrecoverable-integral!
+                                            record h e))
                                        (throw (ex-info
                                                 "Projected record does not hash to its address"
                                                 {:rule :hash-mismatch,

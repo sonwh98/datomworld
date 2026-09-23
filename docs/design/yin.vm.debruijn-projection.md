@@ -158,8 +158,8 @@ Child refs contain child hashes semantically. `:operands` is an ordered vector
 of hashes and is never emitted as cardinality-many datoms. The root is an
 explicit root-hash marker. The named `:yin/name` and `:yin/params` attributes,
 `:yin/macro-name`, source eids, `:yin/tail?`, and transaction metadata are not
-projected into identity. A source-to-projected map is ephemeral by default and, if persisted
-for diagnostics, is a separate side index.
+projected into identity. A source-to-projected map is ephemeral by default
+and, if persisted for diagnostics, is a separate side index.
 
 ## 5. Merkle fingerprint and canonical encoding
 
@@ -193,16 +193,29 @@ numeric and byte content is hex, string content is the raw UTF-8 text, and
 the length counts the content's UTF-8 bytes. The hashed bytes are the
 stream's UTF-8 encoding.
 
-Numeric canonicalisation is fixed in D0: exact integers in signed int64 use
-int64 encoding, and every integral double in that range also uses int64
-encoding on every host. All other in-domain numbers use IEEE-754 doubles; all
-NaNs use one quiet-NaN encoding and `+0` and `-0` remain distinct. A
-JavaScript number is an int64 only when it is a safe integer in the int64 range;
-an unsafe integer whose exact classification is not recoverable is diagnostic.
-Consequently, integer `1` and integral double `1.0` intentionally collide in
-the canonical form. Bigints, ratios, characters, and other out-of-domain
-numeric objects are diagnostic. NFC normalisation collisions, and the
-`1`/`1.0` collision, are inherited limits of the repository encoding.
+Numeric canonicalisation (Contract Version 1, `:dim/contract-version`
+1, `:integral-double-folding false`): the classes `:int64` and `:double` are
+disjoint. Exact integers in signed int64 use int64 encoding; every
+floating-point value, integral or not, uses IEEE-754 double encoding and is
+never folded into `:int64`. All NaNs use one quiet-NaN encoding and `+0` and
+`-0` remain distinct. Consequently integer `1` and double `1.0` project to
+distinct records and fingerprints, and `{1 :a, 1.0 :b}` and `#{1 1.0}` do not
+collide. An earlier draft folded integral doubles into int64; the
+unreleased contract never shipped that rule.
+
+The boundary: JavaScript has one number type, so a JS host cannot tell `1`
+from `1.0`. That is a host quirk, and it stays in the JS adapter: on CLJS a
+safe integer classifies as `:int64`, a non-integral number as `:double`, and
+an unsafe integral is diagnostic. It does not contaminate the universal
+projection, whose bytes are type-preserving on JVM and Dart. A foreign record
+claiming a class the host cannot represent is refused at the boundary with
+`:unsupported-value`: on CLJS, a record whose address does not verify and
+whose `:yin.debruijn/value` holds an integral number (bare or nested) is
+refused, since the number may have been an integral double on the wire. The
+safe-integer policy lives only in the CLJS adapter, never in the descriptor.
+Bigints, ratios, characters, and other out-of-domain numeric objects are
+diagnostic. NFC normalisation collisions are an inherited
+limit of the repository encoding.
 The Dart NFC source is settled 2026-09-21: the pure-Dart `unorm_dart`
 package (Unicode 16.0) provides NFC on every ClojureDart target. D3 still
 proves byte identity on all three hosts against the §8 fixtures.
@@ -258,7 +271,7 @@ identity, and tree/graph emission has one semantic graph and fingerprint.
 ### D3 — canonical encoder and fingerprint
 
 Implement the descriptor-based SHA-256 encoder and numeric/string rules,
-including distinct signed zero and integral-double-to-int64 canonicalisation.
+including distinct signed zero and disjoint int64 and double classes.
 Completion means CLJ, CLJS, and CLJD produce identical bytes and all canonical
 fixtures hash identically across hosts.
 
@@ -304,8 +317,9 @@ The focused suite must include:
 * `:yin/tail?` present versus absent producing identical output;
 * maps and sets with different iteration order producing identical encoding;
 * `+0.0` and `-0.0` hashing differently;
-* an integral-double literal hashing identically to its int64 counterpart on
-  every host;
+* an integral-double literal hashing differently from its int64 counterpart
+  on JVM and Dart (a JS number cannot tell them apart; that stays in the
+  JS adapter);
 * dangling refs, duplicate facts, cycles, missing/multiple roots, unknown
   node types, unknown `:yin/*` attributes, retracts, unexpanded macros,
   unsupported values, and partial frames at end producing diagnostics;

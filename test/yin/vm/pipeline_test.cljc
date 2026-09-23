@@ -549,8 +549,11 @@
                     read-back (try (debruijn/datoms->projected stored)
                                    (catch #?(:cljd Object :clj Exception :cljs :default) e
                                      (ex-data e)))]
-                (is (or (= original read-back) (= :hash-mismatch (:rule read-back)))
-                    "stored: exact, or refused at read as :hash-mismatch"))
+                (is (or (= original read-back)
+                        (contains? #{:hash-mismatch :unsupported-value}
+                                   (:rule read-back)))
+                    "stored: exact, or refused at read as :hash-mismatch or
+                     :unsupported-value (an integral JS number)"))
               (do (is (= :diagnostic (:outcome projected)))
                   (is (= :projected-write-failed (get-in projected [:diagnostic :rule]))
                       "refused at write by the store's own codec check")

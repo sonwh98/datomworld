@@ -133,7 +133,7 @@
         "the domain separator is the descriptor encoded through the settled
          canonical encoder and hashed — D3's re-pin of datom.md's dimension
          identity, not an ad hoc string")
-    (is (= "11954e461ed58cfef109c6e426cb2eabbdc89ae7850c95ef9e4a5e59f578a2d3"
+    (is (= "1f4ec95cdfd666cf5da2be5f47fd3a7e3c942dfa2ea87e61e0062270f61a0803"
            d/dimension-hash)
         "the settled digest, pinned: descriptor drift fails here as a
          descriptor failure, not as a definition restating itself")
@@ -152,14 +152,14 @@
     :ns/k :keyword
     'sym :symbol
     7 :int64
-    7.0 :int64
+    #?@(:cljs [] :default [7.0 :double])
     1.5 :double
     (/ 0.0 0.0) :double
     (/ 1.0 0.0) :double
     (/ -1.0 0.0) :double
     -0.0 :double
-    0.0 :int64
-    9.3e18 :double
+    #?@(:cljs [0.0 :int64] :default [0.0 :double])
+    #?@(:cljs [] :default [9.3e18 :double])
     [1 2.5] :vector
     (list 1 2.5) :list
     {:a 1} :map
@@ -189,6 +189,8 @@
              (is (= :int64 (d/canonical-class 9007199254740991)))
              (is (nil? (d/canonical-class 9007199254740992)))
              (is (nil? (d/canonical-class -9007199254740992)))
+             (is (nil? (d/canonical-class 9.3e18)))
+             (is (nil? (d/canonical-class 9223372036854775808)))
              (is (= :unsupported-value
                     (:rule (throws-data #(d/encode-value 9007199254740992)))))
              (is (= "0200000010ffffffffffff1f00" (d/encode-value 9007199254740991))))))
@@ -831,12 +833,15 @@
          regex error")))
 
 
-(deftest integral-doubles-and-integers-share-one-fingerprint
-  (let [int-version (project (lam '[x] (app (v '+) (v 'x) (lit 1))))
-        double-version (project (lam '[x] (app (v '+) (v 'x) (lit 1.0))))]
-    (is (= (:fingerprint int-version) (:fingerprint double-version))
-        "the value table's intentional 1/1.0 collision holds under the
-         settled int64 byte rule, on every host")))
+(deftest integral-doubles-and-integers-are-distinct
+  ;; a JS number cannot tell 1 from 1.0; that host limit stays in the JS
+  ;; adapter, so only the JVM and Dart lanes assert the distinction
+  (when #?(:cljs false :default true)
+    (let [int-version (project (lam '[x] (app (v '+) (v 'x) (lit 1))))
+          double-version (project (lam '[x] (app (v '+) (v 'x) (lit 1.0))))]
+      (is (not= (:fingerprint int-version) (:fingerprint double-version))
+          "contract version 1: int64 and double are disjoint classes")
+      (is (not= (:records int-version) (:records double-version))))))
 
 
 ;; =============================================================================
@@ -852,7 +857,8 @@
 (deftest the-settled-scalar-bytes-are-pinned
   (are [expected v] (= expected (d/encode-value v))
     "02000000100100000000000000" 1
-    "02000000100100000000000000" 1.0
+    #?@(:cljs []
+        :default ["0300000010000000000000f03f" 1.0])
     "0200000010ffffffffffffffff" -1
     "0200000010ffffffffffff1f00" 9007199254740991
     "0300000010000000000000f87f" (/ 0.0 0.0)
@@ -898,9 +904,9 @@
 (deftest colliding-map-keys-diagnose
   ;; iteration order must never decide which entry survives a merge
   (when #?(:cljs false :default true)
-    (is (= :unsupported-value
-           (:rule (throws-data #(d/canonical-value {1 :a, 1.0 :b}))))
-        "1 and 1.0 are one int64 key under canonicalisation"))
+    (is (= 2 (count (d/canonical-value {1 :a, 1.0 :b})))
+        "1 and 1.0 are distinct keys under canonicalisation")
+    (is (not= (d/encode-value {1 :a}) (d/encode-value {1.0 :a}))))
   (is (= :unsupported-value
          (:rule (throws-data #(d/canonical-value {"é" :a, "é" :b}))))
       "two string keys with one NFC form collide")
@@ -924,16 +930,15 @@
 
 
 (deftest the-essays-fingerprint-is-stable
-  (is (= "095c83f742a83ded2cbf2318abcceb9d5663757f346f25ca48a9dfda0099a290"
+  (is (= "aed64f20d7150b6a149939f5af307eca809fd9b23000ed44e526353f7f4bfbc0"
          (:fingerprint (project worked-example))
-         (:fingerprint (project (lam '[n] (app (v '+) (v 'n) (lit 1.0)))))
          (:fingerprint (d/project-datoms
                          (vec (reverse (datoms-of worked-example)))))
          (:fingerprint (d/project-datoms
                          (vec (concat (drop 3 (datoms-of worked-example))
                                       (take 3 (datoms-of worked-example)))))))
       "the essay's (fn [count] (+ count 1)): one pinned fingerprint for the
-       renamed binder, the 1/1.0 literal, and shuffled datom input alike"))
+       renamed binder and shuffled datom input alike"))
 
 
 (deftest records-carry-canonical-scalars
@@ -943,10 +948,11 @@
                         (->> (:records p) vals
                              (some #(when (= :literal (:yin.debruijn/type %))
                                       (:yin.debruijn/value %)))))]
-    (is (= (:records int-version) (:records double-version))
-        "one content address, one record content")
-    (is (= 1 (literal-value double-version))
-        "the integral double's record carries its long spelling"))
+    (is (= 1 (literal-value int-version)))
+    (when #?(:cljs false :default true)
+      (is (= 1.0 (literal-value double-version)))
+      (is (double? (literal-value double-version))
+          "the integral double's record keeps its double spelling")))
   (let [decomposed (project (lit "e\u0301"))
         composed (project (lit "\u00e9"))]
     (is (= (:fingerprint decomposed) (:fingerprint composed)))
@@ -1231,10 +1237,11 @@
   (when #?(:cljs false :default true)
     (let [s (hash-set 1 1.0)]
       (is (= 2 (count s)) "the host keeps 1 and 1.0 apart as set members")
-      (is (= :unsupported-value (:rule (throws-data #(d/canonical-value s)))))
-      (is (= :unsupported-value (:rule (throws-data #(d/encode-value s)))))
-      (is (= :unsupported-value (:rule (defect (datoms-of (lit s)))))
-          "and a projection diagnoses it rather than sharing #{1}'s fingerprint")))
+      (is (= 2 (count (d/canonical-value s))))
+      (is (string? (d/encode-value s)))
+      (is (not= (:fingerprint (project (lit s)))
+                (:fingerprint (project (lit #{1}))))
+          "1 and 1.0 stay distinct members, never sharing #{1}'s fingerprint")))
   (let [s (hash-set "é" "é")]
     (is (= 2 (count s)))
     (is (= :unsupported-value (:rule (throws-data #(d/canonical-value s))))
@@ -1284,18 +1291,50 @@
         "a :variable carries one of :bound and :free")))
 
 
+(deftest integral-double-records-cross-hosts
+  ;; fingerprints minted on the JVM for literals holding integral doubles;
+  ;; a JS host receives those doubles as plain numbers and must refuse
+  ;; them as :unsupported-value, never diagnose :hash-mismatch
+  (let [cases
+        [[1.0
+          "3eff0da5d025906b7a668c5b52dbf29fb5df4c6b2ea0a8b1bb733c08e35241cc"]
+         [[1.0]
+          "2f9d03004e233a3d9e78eae688350aaaffd1701977097153434e9b5d36b407a2"]
+         [{:a 1.0}
+          "411b0a57a72c09a3314fec224a042159523ec7bf3864b6e7d19eb8e269cace58"]
+         [#{1.0}
+          "b3ee9e8c72e84771fcd582ec779e46954e59a3351ea0d6eaf385d650716d8394"]]]
+    (doseq [[v jvm-fingerprint] cases]
+      #?(:cljs
+         (let [wire (mapv (fn [x]
+                            (if (= :yin.debruijn/hash (nth x 1))
+                              [(nth x 0) (nth x 1) jvm-fingerprint (nth x 3)
+                               (nth x 4)]
+                              x))
+                          (d/projected->datoms (project (lit v))))]
+           (is (= :unsupported-value
+                  (:rule (throws-data #(d/datoms->projected wire))))
+               (str "a foreign integral double " (pr-str v))))
+         :default
+         (let [p (project (lit v))]
+           (is (= jvm-fingerprint (:fingerprint p)))
+           (is (= (:records p)
+                  (:records (d/datoms->projected (d/projected->datoms p))))
+               (str "fully supported and read back: " (pr-str v))))))))
+
+
 (deftest the-reader-requires-canonical-spellings
   (let [reader-rule (fn [ds] (:rule (throws-data #(d/datoms->projected ds))))
         respelled (fn [ast attr value]
                     (restated (d/projected->datoms (project ast)) attr attr (constantly value)))]
     ;; a JS number has one spelling per value, so 1.0 is 1 there
     (when #?(:cljs false :default true)
-      (is (= :noncanonical-value
+      (is (= :hash-mismatch
              (reader-rule (respelled (lit 1) :yin.debruijn/value 1.0)))
-          "a stored 1.0 under 1's address")
-      (is (= :noncanonical-value
+          "a stored 1.0 is a different value than 1 at 1's address")
+      (is (= :unsupported-value
              (reader-rule (respelled (lam '[x] (v 'x)) :yin.debruijn/arity 1.0)))
-          "an int64 slot spelled as a double"))
+          "an int64 slot holding a double"))
     (is (= :noncanonical-value
            (reader-rule (respelled (lit "é") :yin.debruijn/value "é")))
         "a decomposed string under the composed one's address")

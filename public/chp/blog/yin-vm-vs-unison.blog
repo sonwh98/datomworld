@@ -37,7 +37,25 @@
                    [:p [:code "yin.vm"] " is built on an architectural axiom: " [:em "Interpretation Creates Semantics (one truth, many perspectives)."] " Rather than one monolithic representation, it keeps one source of truth and derives other forms from it, each with its own identity or none:"]
                    [:ul
                     [:li [:strong "The Named Universal AST (implemented): "] "the canonical stored, queryable, and renderable form, with the exact names the developer wrote. It has no single hash. The AST walker evaluates it directly, and the semantic VM executes a separately linearized " [:code ":yin.code/*"] " image lowered from it."]
-                    [:li [:strong "The De Bruijn projection and its fingerprint (implemented, dormant on the sharing path): "] "an alpha-canonical Merkle encoding of the named AST. Node hashes are hash-consed over a published dimension, transaction and provenance never enter the preimage, scalars are NFC-canonicalized, and the bytes are pinned identical on JVM, JavaScript, and Dart. Its records are stored as datoms. It is lossy by design: it folds " [:code "1.0"] " into " [:code "1"] " and drops tail flags, which makes it a good identity for alpha-equivalence and unusable as an executable form. This is the closest thing yin.vm has to Unison's hash: a hash of the nameless term."]
+                    [:li
+                     [:strong
+                      "The De Bruijn projection and its fingerprint "
+                      "(implemented, dormant on the sharing path): "]
+                     "an alpha-canonical Merkle encoding of the named AST. "
+                     "Node hashes are hash-consed over a published "
+                     "dimension, transaction and provenance never enter "
+                     "the preimage, scalars are NFC-canonicalized, and the "
+                     "bytes are pinned identical on JVM, JavaScript, and "
+                     "Dart. Its records are stored as datoms. Contract "
+                     "Version 1 preserves numeric type: "
+                     [:code "1.0"] " and " [:code "1"]
+                     " project to distinct records on JVM and Dart "
+                     "(on JavaScript, their shared runtime number stays "
+                     "in the host adapter). It still drops tail "
+                     "flags, which makes it a good identity for "
+                     "alpha-equivalence and unusable as an executable "
+                     "form. This is the closest thing yin.vm has to "
+                     "Unison's hash: a hash of the nameless term."]
                     [:li [:strong "The resolved tuples (implemented, no identity): "] "the De Bruijn form of the named datoms that both executable lowerers consume. They carry exact scalars, free names, and tail flags, and they deliberately have no hash: they are a stage value, computed and discarded, under the project's \"derive, don't persist\" rule."]
                     [:li [:strong "The stack image, " [:code "H"] " (implemented): "] "a linear instruction vector with " [:code ":load-bound [depth position]"] " for bound variables, " [:code ":load-free name"] " for free ones, and arities instead of parameter names. " [:code "H"] " hashes the descriptor and the canonical vector; binder names live in a side table outside it."]
                     [:li [:strong "The register image, " [:code "R"] " (implemented through R2): "] "a peer of the stack image, lowered from the same resolved tuples, never from the stack image. " [:code "R"] " hashes its own descriptor and canonical register vector, including in-band live-register sets at every continuation boundary. Neither " [:code "H"] " nor " [:code "R"] " mentions the other."]]
