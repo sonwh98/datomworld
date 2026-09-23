@@ -1,85 +1,165 @@
 (ns yin.vm.debruijn.stack
-  "B3 (docs/design/yin.vm.debruijn.stack.md, 'B3: de Bruijn VM kernel'): the
-   sibling stack VM that interprets RAW positional instruction vectors --
+  "B3 + B4 (docs/design/yin.vm.debruijn.stack.md, 'B3: de Bruijn VM kernel'
+   and 'B4: effects and continuations'): the sibling stack VM that
+   interprets RAW positional instruction vectors --
    `[:closure arity body-pc]`, `[:load-bound depth position]`,
    `[:load-free name]`, `[:const value]`, `[:call argc tail?]`, `[:return]`,
    `[:jump target]`, `[:branch-false target]`, `[:halt]`, `[:store-get key]`,
-   `[:store-put key value]` -- whose shapes come from
+   `[:store-put key value]`, `[:gensym prefix]`, `[:stream-make buffer]`,
+   `[:stream-put]`, `[:stream-cursor]`, `[:stream-next]`, `[:stream-close]`,
+   `[:current-continuation]`, `[:park]`, `[:resume parked-id]`,
+   `[:ffi-call op argc]` -- whose shapes come from
    `yin.vm.code/vector-operand-table` and section 2 of the design doc.
 
-   This namespace never requires `yin.vm.debruijn-code`: every program used
-   here and in its own test is a hand-built instruction vector, the same
-   technique B1's own standalone validator tests use. B2 (the named-datom
-   lowerer, `yin.vm.debruijn-linearize`) produces real images against this
-   kernel from its own test namespace instead of from here.
+   B3 implemented the pure kernel: frames, closures, loads, calls, returns,
+   branches, `:const`, and the store operations. B4 puts this machine on
+   the shared scheduler seam `yin.vm.engine.md` states and section 4.1 of
+   the design decides: the engine's bookkeeping keys replace `:status`;
+   `run` is `engine/run-loop`; every blocking instruction parks a pure-data
+   entry carrying this machine's register payload; one restore function,
+   `stack-restore`, puts an entry back into the registers; and the FFI
+   two-step lives in that restore, keyed on the entry keys `:request-sent`
+   and `:call-id`, as the semantic VM places it.
 
-   The instruction set in scope is frames, closures, loads, calls, returns,
-   branches, `:const`, and `:store-get`/`:store-put` (section 4). Stream
-   operations, primitives-as-effects, FFI, gensym, current-continuation,
-   park, and resume are B4's phase; an opcode this namespace does not
-   recognize fails loudly with a `:not-yet-implemented` ex-info rather than
-   silently no-op-ing.
+   The register payload of every parked record, wait entry, and reified
+   continuation is
 
-   Applying a resolved primitive host function (via `:load-free`) is in
-   scope for `:call`, because `:load-free` (item 5, section 4) is
-   meaningless without a way to invoke what it resolves to; the pure
-   `(apply f args)` path below is the same one the named engine's
-   `apply-call` uses for a `fn?` callee, minus its effect handling, which is
-   an FFI concern this phase does not implement."
+       {:segment :pc :frames :stack :continuation :format :hash}
+
+   `:format` is `:yin.debruijn.code` and `:hash` is the loaded image's H
+   (`yin.vm.debruijn-code/image-hash`), so a continuation is never
+   interpreted by a VM or against an image other than its own:
+   `stack-restore` refuses any entry whose model or image differs with a
+   qualified `:continuation-format` outcome. That is the same-model,
+   same-image rule; cross-model transport is not a lift here and is
+   deliberately unsupported (design section 4.1, item 4).
+
+   Every program used in this namespace's own tests is a hand-built
+   instruction vector, the same technique B1's standalone validator tests
+   use; B2 (`yin.vm.debruijn-linearize`) produces real images against this
+   kernel from its own test namespace. This namespace requires
+   `yin.vm.debruijn-code` for one thing only: computing H at load time.
+
+   B3's one accumulator-free obligation carries into every B4 opcode: there
+   is no `val` register, so every value-producing instruction conjes its
+   result straight onto `:stack`, and a `:push` is a pc advance."
   (:refer-clojure :exclude [eval])
-  (:require [yin.vm :as vm]
-            [yin.vm.engine :as engine]))
+  (:require [dao.stream.apply :as apply2]
+            [yin.vm :as vm]
+            [yin.vm.debruijn-code :as dcode]
+            [yin.vm.engine :as engine]
+            [yin.vm.ffi :as ffi]
+            [yin.vm.module :as module]))
 
 
 ;; =============================================================================
 ;; State
 ;; =============================================================================
-;; The record carries the eight fields of the design's explicit VM state
-;; (:segment :pc :frames :free-env :stack :continuation :store :status)
-;; plus :primitives and :modules, which are not part of that transition
-;; state -- they are fixed composition values for this VM instance, the same
-;; role they play alongside the SemanticVM record's own :control/:env/:stack
-;; state (`yin.vm.semantic/SemanticVM`) -- but are required to give
-;; `:load-free` the same `env -> store -> primitives -> module registry`
-;; order `yin.vm.engine/resolve-var` already implements for the named VM.
+;; The record carries the design's explicit VM state (:segment :pc :frames
+;; :free-env :stack :continuation :store), the engine's bookkeeping keys
+;; (:blocked? :halted? :wait-set :ready-queue :parked :id-counter :value
+;; :make-stream -- `yin.vm.engine.md` section 1), and the fixed composition
+;; values :primitives and :modules that `:load-free` resolves through in
+;; the same `env -> store -> primitives -> module registry` order
+;; `yin.vm.engine/resolve-var` implements for the named VM. :hash is the
+;; loaded image's H, stamped on every register payload; :bridge is the
+;; explicit host-side FFI bridge state `yin.vm.ffi` attaches.
 
 (defrecord DebruijnVM
   [segment      ; vector of instructions, pc-indexed; the whole program
+   hash         ; H of `segment` (yin.vm.debruijn-code/image-hash)
    pc           ; program counter into segment
    frames       ; positional frame stack, outermost first, innermost last
    free-env     ; initial free-name environment map, fixed for this instance
    stack        ; operand stack, a vector
    continuation ; vector of return frames (innermost last); see step-call
    store        ; heap map, keyed by whatever :store-get/:store-put use
-   status       ; :running or :halted
+   blocked?     ; engine: true while parked in the wait set
+   halted?      ; engine: true when the active continuation has completed
+   wait-set     ; engine: vector of pure-data entries waiting on a transport
+   ready-queue  ; engine: vector of woken entries
+   parked       ; engine: parked continuations map
+   id-counter   ; engine: counter for gensym, stream, cursor and park ids
+   value        ; engine: last computed value
+   make-stream  ; host-supplied stream constructor, or nil
+   bridge       ; explicit host-side FFI bridge state, or nil
    primitives   ; primitive registry, for :load-free
-   modules])    ; module registry, for :load-free
+   modules])    ; module registry, for :load-free and effect dispatch
+
+
+(def format-tag
+  "The model tag every register payload carries as `:format`."
+  :yin.debruijn.code)
+
+
+(defn load-image
+  "Load `segment` (a vector of instructions) into `vm` as its one image:
+   H is recomputed, the registers are reset to pc 0 with empty frames,
+   stack, and continuation, and the machine is running unless the segment
+   is empty. The store, the parked map, the wait set, the ready queue,
+   the id counter, and the composition values survive, exactly as they
+   survive a `yin.vm.semantic/load-vector`. A continuation parked under an
+   earlier image cannot be restored against this one: `stack-restore`
+   refuses it by H."
+  [vm segment]
+  (assoc vm
+         :segment segment
+         :hash (dcode/image-hash segment)
+         :pc 0
+         :frames []
+         :stack []
+         :continuation []
+         :halted? (empty? segment)
+         :blocked? false
+         :value nil))
 
 
 (defn create-vm
   "Build a fresh `DebruijnVM` over `segment` (a vector of instructions).
 
    Options: `:free-env`, `:store`, `:primitives`, `:modules` (all default to
-   `{}`, matching the named VM's own empty defaults except `:primitives`,
-   which callers pass `yin.vm/primitives` when they want the standard
-   registry, exactly as `yin.vm/empty-state` does for the named VM).
+   `{}`, matching the named VM's empty defaults except that `:primitives`
+   defaults to `{}` here whereas `yin.vm/empty-state` populates the full
+   primitive table; callers pass `yin.vm/primitives` when they want the
+   standard registry), `:make-stream` (the host's stream constructor; no
+   for every v2 VM), `:call-in`/`:call-out`/`:call-capacity` (the FFI pair,
+   built by `yin.vm/empty-state` exactly as the semantic VM's is), and
+   `:bridge` (host FFI handlers, attached by `yin.vm.ffi/attach`).
+
+   An empty segment starts halted with an empty program, as the semantic
+   VM's `create-vm` does; `load-image` loads work into it.
 
    Always fresh: never resume or mutate a VM that has already run, per the
    design's D4 fixture restriction (the named VM's environment-leak defect
    is out of scope here and must not be reproduced by accident)."
   ([segment] (create-vm segment {}))
   ([segment opts]
-   (map->DebruijnVM
-     {:segment segment,
-      :pc 0,
-      :frames [],
-      :free-env (or (:free-env opts) {}),
-      :stack [],
-      :continuation [],
-      :store (or (:store opts) {}),
-      :status :running,
-      :primitives (or (:primitives opts) {}),
-      :modules (or (:modules opts) {})})))
+   (let [base (vm/empty-state
+                (assoc (select-keys opts [:modules :make-stream :call-in
+                                          :call-out :call-capacity])
+                       :primitives (or (:primitives opts) {})))]
+     (-> (map->DebruijnVM
+           {:segment [],
+            :hash nil,
+            :pc 0,
+            :frames [],
+            :free-env (or (:free-env opts) {}),
+            :stack [],
+            :continuation [],
+            :store (merge (:store base) (:store opts)),
+            :blocked? false,
+            :halted? true,
+            :wait-set [],
+            :ready-queue [],
+            :parked {},
+            :id-counter 0,
+            :value nil,
+            :make-stream (:make-stream base),
+            :bridge nil,
+            :primitives (:primitives base),
+            :modules (or (:modules opts) {})})
+         (load-image segment)
+         (ffi/attach (:bridge opts))))))
 
 
 ;; =============================================================================
@@ -117,12 +197,176 @@
 
 
 ;; =============================================================================
+;; The engine seam: register payload, restore, builders
+;; =============================================================================
+
+(defn- registers
+  "The register payload of the continuation after the current instruction
+   (design section 4.1, item 3): `pc'` is the advanced pc and `stack'` the
+   operand stack with the instruction's operands popped. Frames and the
+   return-frame continuation are the running ones. `:format` and `:hash`
+   stamp the model and image identity that produced it. Free environment,
+   store, primitives, and modules are not registers and stay on the state."
+  [vm pc' stack']
+  {:segment (:segment vm),
+   :pc pc',
+   :frames (:frames vm),
+   :stack stack',
+   :continuation (:continuation vm),
+   :format format-tag,
+   :hash (:hash vm)})
+
+
+(defn- refuse-continuation!
+  [base entry]
+  (throw (ex-info "Cannot restore a continuation of another model or image"
+                  {:rule :continuation-format,
+                   :format (:format entry),
+                   :hash (:hash entry),
+                   :expected-format format-tag,
+                   :expected-hash (:hash base)})))
+
+
+(defn stack-restore
+  "This machine's one restore function, `base entry val -> state`
+   (`yin.vm.engine.md` section 2.1; design section 4.1, item 4). `base` is
+   the state after the engine has done its part; `entry` is the wait, ready,
+   or parked record; `val` is the value the parked instruction receives.
+
+   It first refuses with a qualified `:continuation-format` outcome unless
+   the entry's `:format` is `:yin.debruijn.code` and its `:hash` equals the
+   loaded image's H: a continuation from the named VM, from the register
+   kernel, or from another image is never interpreted here.
+
+   Then the FFI two-step, on the entry keys the `yin.vm.ffi` convention
+   owns, in the semantic VM's placement:
+
+   - A `:request-sent` entry is a writer whose retained request has now been
+     appended. It must not resume: its registers are re-parked as the
+     call-out reader (`ffi/response-wait-entry`) and the machine stays
+     blocked.
+   - A `:call-id` entry is a response reader. The woken value is a response
+     envelope, so `ffi/call-result` unwraps it and checks correlation, and
+     the parked call leaves `:parked` rather than accumulating.
+
+   Otherwise the registers are written from the entry and `val` is conjed
+   onto the restored `:stack` -- the B3 obligation that every
+   value-producing opcode lands on the stack, since there is no
+   accumulator."
+  [base entry val]
+  (when-not (and (= format-tag (:format entry))
+                 (= (:hash base) (:hash entry)))
+    (refuse-continuation! base entry))
+  (if (:request-sent entry)
+    (-> base
+        (update :wait-set (fnil conj [])
+                (ffi/response-wait-entry entry (:call-id entry)))
+        (assoc :value :yin/blocked
+               :blocked? true
+               :halted? false))
+    (let [call-id (:call-id entry)
+          base (if call-id (update base :parked dissoc call-id) base)
+          val (if call-id (ffi/call-result val call-id) val)]
+      (assoc base
+             :segment (:segment entry)
+             :pc (:pc entry)
+             :frames (:frames entry)
+             :continuation (:continuation entry)
+             :stack (conj (vec (:stack entry)) val)
+             :value val
+             ;; Restored registers are active work: a driver resuming a
+             ;; halted machine directly through `engine/resume-continuation`
+             ;; gets a running one back, as the semantic VM's restore gives.
+             :halted? false))))
+
+
+(defn- park-entry-fns
+  "Wait-entry builders for an instruction whose effect may block (design
+   section 4.1, item 5): each closes over the post-instruction registers
+   and returns them merged with `:reason` and the resource ids from the
+   handler's result. Nothing else is attached: no handle, no closure, no
+   restore function."
+  [vm pc' stack']
+  (let [regs (registers vm pc' stack')]
+    {:stream/put (fn [_state _effect result]
+                   (assoc regs
+                          :reason :put
+                          :stream-id (:stream-id result))),
+     :stream/next (fn [_state _effect result]
+                    (assoc regs
+                           :reason :next
+                           :cursor-ref (:cursor-ref result)
+                           :stream-id (:stream-id result)))}))
+
+
+(defn- run-effect
+  "Dispatch one effect through the engine from the instruction at `(:pc vm)`
+   with `stack'` its operand stack after popping the instruction's operands.
+   On a value the machine continues at pc+1 with the value on the stack; on
+   a park the engine has already placed the pure-data entry in the wait set
+   and marked the machine blocked, and the registers mirror that entry."
+  [vm effect stack']
+  (let [pc' (inc (:pc vm))
+        {:keys [state value blocked?]}
+        (engine/handle-effect vm
+                              effect
+                              {:park-entry-fns (park-entry-fns vm pc' stack')})]
+    (if blocked?
+      (assoc state :pc pc' :stack stack')
+      (assoc state :pc pc' :stack (conj stack' value)))))
+
+
+(defn- ffi-call
+  "`[:ffi-call op argc]`: park-and-call over the FFI pair (the two-step of
+   `yin.vm.engine.md` section 4). The continuation after the call is parked,
+   its id is the call's correlation id, and the request is appended to the
+   call-in stream. An `ok` append waits on the call-out cursor for the
+   correlated response; a `full` append waits as a writer retrying the
+   identical request, and `stack-restore` turns that writer into the
+   response reader when it wakes."
+  [vm op argc]
+  (let [{:keys [pc stack store]} vm
+        total (count stack)
+        args (subvec stack (- total argc))
+        stack' (subvec stack 0 (- total argc))
+        ;; The pair is checked before parking: an error raised after
+        ;; park-continuation would strand a continuation in :parked and
+        ;; consume an id counter.
+        {:keys [call-in]} (ffi/require-call-pair! store op)
+        regs (registers vm (inc pc) stack')
+        parked (engine/park-continuation (assoc vm :pc (inc pc) :stack stack')
+                                         regs)
+        call-id (get-in parked [:value :id])
+        request (apply2/request call-id op args)
+        result (apply2/put-request! call-in request)
+        blocked (fn [entry]
+                  (-> parked
+                      (update :wait-set (fnil conj []) entry)
+                      (assoc :value :yin/blocked
+                             :blocked? true
+                             :halted? false)))]
+    (case (:dao.stream/outcome result)
+      :dao.stream/ok (blocked (ffi/response-wait-entry regs call-id))
+      :dao.stream/full (blocked (assoc regs
+                                       :request-sent true
+                                       :call-id call-id
+                                       :op op
+                                       :reason :put
+                                       :stream-id vm/call-in-stream-key
+                                       :datom request))
+      (throw (ex-info "FFI request could not be appended"
+                      {:op op,
+                       :outcome (or (:dao.stream/outcome result)
+                                    (:dao.stream.apply/outcome result))})))))
+
+
+;; =============================================================================
 ;; The step function
 ;; =============================================================================
 
 (defn- step1
   "Execute exactly one instruction and return the resulting VM. Assumes the
-   VM is not halted; callers (`step`, `run`) check that first."
+   VM's continuation is active; callers (`step`, `run`) check that first."
   [vm]
   (let [{:keys [segment pc frames free-env stack continuation store
                 primitives modules]}
@@ -159,15 +403,14 @@
       ;; The named VM (semantic.cljc) keeps a separate `val` accumulator
       ;; distinct from its operand stack `St`, so `:push` there commits
       ;; `val` onto `St` (St <- St ++ [val]). This machine has no such
-      ;; split: every value-producing case above already conjes its
-      ;; result straight onto `:stack`. By the time control reaches a
-      ;; `:push`, the value it would push is already there -- so here
-      ;; it is a no-op that only advances `pc`. B4 obligation: every future
-      ;; value-producing opcode (:stream-*, :ffi-call, :gensym,
-      ;; :current-continuation, :resume) must conj its result straight onto
-      ;; `:stack` the same way, or a `:push` immediately after it will
-      ;; silently drop the value -- there is no `val` register to recover
-      ;; it from.
+      ;; split: every value-producing case already conjes its result
+      ;; straight onto `:stack`. By the time control reaches a `:push`,
+      ;; the value it would push is already there -- so here it is a no-op
+      ;; that only advances `pc`. Every value-producing opcode below
+      ;; (:stream-*, :gensym, :current-continuation, :resume, and the
+      ;; restore after :ffi-call) honours this, or a `:push` immediately
+      ;; after it would silently drop the value -- there is no `val`
+      ;; register to recover it from.
       :push
       (assoc vm :pc (inc pc))
 
@@ -193,8 +436,17 @@
                    :stack stack'
                    :continuation continuation'))
 
+          ;; A primitive host function, resolved by :load-free. The same
+          ;; path the named engine's `apply-call` uses for a `fn?` callee:
+          ;; a plain result lands on the stack; an effect descriptor (a
+          ;; `yin/def`, a `require`, a `stream` module call) is dispatched
+          ;; through the engine and may park with the continuation after
+          ;; the call site.
           (fn? f)
-          (assoc vm :pc (inc pc) :stack (conj stack' (apply f args)))
+          (let [result (apply f args)]
+            (if (module/effect? result)
+              (run-effect vm result stack')
+              (assoc vm :pc (inc pc) :stack (conj stack' result))))
 
           :else
           (throw (ex-info "Cannot apply non-function" {:fn f}))))
@@ -208,7 +460,7 @@
                  :frames (:frames frame)
                  :stack (conj (subvec stack 0 (:stack-base frame)) val)
                  :continuation (pop continuation))
-          (assoc vm :status :halted, :stack [val])))
+          (assoc vm :halted? true, :stack [val], :value val)))
 
       :jump
       (assoc vm :pc (nth inst 1))
@@ -220,7 +472,7 @@
           (assoc vm :pc (nth inst 1) :stack stack')))
 
       :halt
-      (assoc vm :status :halted)
+      (assoc vm :halted? true, :value (peek stack))
 
       :store-get
       (let [key (nth inst 1)]
@@ -233,8 +485,84 @@
                :stack (conj stack value)
                :store (assoc store key value)))
 
-      (throw (ex-info (str "Not yet implemented in B3: " op)
-                      {:rule :not-yet-implemented, :op op})))))
+      ;; :gensym -- a fresh id; the engine's counter advances
+      :gensym
+      (let [[id vm'] (engine/gensym vm (nth inst 1))]
+        (assoc vm' :pc (inc pc) :stack (conj stack id)))
+
+      ;; :stream-make -- the composition's :make-stream, through the engine
+      :stream-make
+      (run-effect vm
+                  {:effect :stream/make,
+                   :capacity (or (nth inst 1) vm/default-stream-capacity)}
+                  stack)
+
+      ;; :stream-put -- the value on top, its target stream ref beneath
+      ;; (`lower-stack` emits target, push, value, stream-put)
+      :stream-put
+      (let [val (peek stack), stack' (pop stack), target (peek stack')]
+        (run-effect vm
+                    {:effect :stream/put, :stream target, :val val}
+                    (pop stack')))
+
+      ;; :stream-cursor -- the source stream ref on top
+      :stream-cursor
+      (run-effect vm {:effect :stream/cursor, :stream (peek stack)} (pop stack))
+
+      ;; :stream-next -- the cursor ref on top; may park as a reader
+      :stream-next
+      (run-effect vm {:effect :stream/next, :cursor (peek stack)} (pop stack))
+
+      ;; :stream-close -- the source stream ref on top; yields nil
+      :stream-close
+      (run-effect vm {:effect :stream/close, :stream (peek stack)} (pop stack))
+
+      ;; :current-continuation -- the continuation after this instruction,
+      ;; as a value: the register payload under the shared tag the B0
+      ;; normalizer compares by type
+      :current-continuation
+      (assoc vm
+             :pc (inc pc)
+             :stack (conj stack
+                          (merge {:type :reified-continuation}
+                                 (registers vm (inc pc) stack))))
+
+      ;; :park -- the engine records the payload under a fresh parked id,
+      ;; writes the record into :value, and halts the machine
+      :park
+      (engine/park-continuation (assoc vm :pc (inc pc))
+                                (registers vm (inc pc) stack))
+
+      ;; :resume -- the value on top is delivered to the parked
+      ;; continuation named by the operand, through this machine's restore
+      :resume
+      (let [val (peek stack)]
+        (engine/resume-continuation (assoc vm :stack (pop stack))
+                                    (nth inst 1)
+                                    val
+                                    stack-restore))
+
+      :ffi-call
+      (ffi-call vm (nth inst 1) (nth inst 2))
+
+      (throw (ex-info (str "Unknown opcode in segment: " op)
+                      {:rule :unknown-opcode, :op op, :pc pc})))))
+
+
+;; =============================================================================
+;; Scheduling
+;; =============================================================================
+
+(defn- run-scheduler
+  "The raw runner: already-loaded work only, through the shared scheduler
+   loop with this machine's step function and its restore bound into the
+   engine's run-queue resumption. `ffi/maybe-run` wraps this for bridge
+   dispatch."
+  [vm]
+  (engine/run-loop vm
+                   engine/active-continuation?
+                   step1
+                   #(engine/resume-from-run-queue % stack-restore)))
 
 
 ;; =============================================================================
@@ -247,26 +575,31 @@
 
 (extend-type DebruijnVM
   vm/IVM
-  (step [this] (if (= :halted (:status this)) this (step1 this)))
-  (run [this]
-    (loop [vm this]
-      (if (= :halted (:status vm)) vm (recur (step1 vm)))))
+  (step [this]
+    (cond (engine/active-continuation? this) (step1 this)
+          ;; Between continuations: one scheduler round, as the semantic
+          ;; VM's `step` runs when it has no control left.
+          (or (:blocked? this) (seq (:ready-queue this)))
+          (engine/scheduler-round this stack-restore)
+          :else this))
+  (run [this] (ffi/maybe-run this run-scheduler))
   (eval [_ ast]
     (throw (ex-info
-             "The B3 kernel executes raw instruction vectors, not AST: lower and adapt it first (yin.vm.debruijn-linearize/adapt), then load and run the resulting image"
+             "The de Bruijn kernel executes raw instruction vectors, not AST: lower and adapt it first (yin.vm.debruijn-linearize/adapt), then load and run the resulting image"
              {:ast ast})))
   (reset [this]
     (assoc this
-           :pc 0, :frames [], :stack [], :continuation [], :status :running))
-  (halted? [this] (= :halted (:status this)))
-  (blocked? [_this] false)
-  (value [this] (peek (:stack this)))
+           :pc 0, :frames [], :stack [], :continuation []
+           :halted? (empty? (:segment this)), :blocked? false, :value nil))
+  (halted? [this] (engine/halted-with-empty-queue? this))
+  (blocked? [this] (engine/vm-blocked? this))
+  (value [this] (engine/vm-value this))
 
   vm/IVMState
   (control [this] {:pc (:pc this)})
   (environment [_this]
     (throw (ex-info
-             "environment is not implemented in B3: the design defers it until a frame-to-named lift exists"
+             "environment is not implemented: the design defers it until a frame-to-named lift exists"
              {:rule :not-yet-supported})))
   (store [this] (:store this))
   (continuation [this] (:continuation this)))

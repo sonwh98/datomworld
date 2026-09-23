@@ -297,17 +297,18 @@
 
 
 ;; =============================================================================
-;; 8. Out-of-scope opcodes fail loudly
+;; 8. Unknown opcodes fail loudly
 ;; =============================================================================
 
-(deftest not-yet-implemented-opcode-test
-  (testing "an opcode outside B3's scope (stream ops, primitives/FFI as
-            effects, gensym, current-continuation, park, resume) throws a
-            clear :not-yet-implemented error instead of silently no-oping"
-    (let [segment [[:current-continuation]]]
+(deftest unknown-opcode-test
+  (testing "an opcode this dimension does not define throws a clear
+            :unknown-opcode error instead of silently no-oping (B4 made
+            every opcode of the dimension executable, so the B3-era
+            :not-yet-implemented fixture became this one)"
+    (let [segment [[:no-such-op]]]
       (is (thrown-with-msg?
             #?(:clj Exception :cljs js/Error :cljd Object)
-            #"Not yet implemented in B3"
+            #"Unknown opcode in segment"
             (v2/run (dvm/create-vm segment)))))))
 
 

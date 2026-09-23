@@ -220,7 +220,7 @@
         (is (nil? (dc/image-defect image)))
         (is (some? (dvm/create-vm image {:primitives vm/primitives})) "loads")
         (let [result (vm/run (dvm/create-vm image {:primitives vm/primitives}))]
-          (is (= :halted (:status result))))))))
+          (is (vm/halted? result)))))))
 
 
 ;; =============================================================================
