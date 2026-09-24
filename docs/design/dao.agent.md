@@ -1,33 +1,40 @@
-# Register VM as the Agent Membrane: Stigmergy via dao.space and MCP
+# dao.agent: Autonomous Agent Coordination via Stigmergy, Register VM, and MCP
 
 Status: design specification (2026-09-24)
 
 ## 1. Objective and Core Philosophy
 
-This document specifies the architectural model for wrapping autonomous coding
-agents (Claude, Codex, AGY) within the de Bruijn Register VM (`yin.vm`),
-coordinating through generative communication (stigmergy) over `dao.space`,
-and interfacing with agent runtimes via the Model Context Protocol (MCP).
+This document specifies the architectural foundation for autonomous coding
+agents (Claude, Codex, AGY) coordinating through generative communication
+(stigmergy) over `dao.space`, governed by the de Bruijn Register VM (`yin.vm`),
+and interfacing with external agent runtimes via the Model Context Protocol
+(MCP).
 
 In `datom.world`, the fundamental axiom is that **computation moves, data
 stays**. Coordination among autonomous agents must not rely on fragile,
 point-to-point message routing, shared mutable memory, or unmediated host
 access. Instead:
 
-1. **The Register VM ($R$) is the Agent Membrane**: Every coding agent
+1. **`yin.vm` as Substrate, `dao.agent` as Membrane**:
+   The namespace `yin.vm` is strictly low-level execution substrate (ISA,
+   register file, frames, memory stores, continuation packing, step budgets).
+   It has zero awareness of LLMs, prompts, roles, or agents. All agent
+   constructs, schemas, harnesses, and MCP protocol adapters belong to the
+   canonical root namespace **`dao.agent`**.
+2. **The Register VM ($R$) is the Execution Membrane**: Every coding agent
    executes inside or is strictly governed by the de Bruijn Register VM.
    The agent has zero direct host access; its only actuators are bounded
    VM instructions (`:stream-put`, `:stream-next`, `:store-write`, `:park`,
    `:resume`, `:call`, `:ffi-call`).
-2. **Stigmergy over `dao.space`**: Agents do not address one another. They
+3. **Stigmergy over `dao.space`**: Agents do not address one another. They
    perceive the environment by matching immutable datoms in `dao.space`
    (`dao.space.query/q`), deliberate, and deposit atomic traces into their
    own single-writer append-only streams (`dao.stream`).
-3. **MCP as the Wire Protocol Adapter**: The Model Context Protocol (MCP)
+4. **MCP as the Wire Protocol Adapter**: The Model Context Protocol (MCP)
    provides the standard JSON-RPC tool-calling interface through which
-   LLMs interact with the Register VM and through which the Register VM
+   LLMs interact with `dao.space` / `yin.vm` and through which the Register VM
    governs external host tools.
-4. **Continuation Parking Across Delays and Quotas**: External delays (network
+5. **Continuation Parking Across Delays and Quotas**: External delays (network
    latency, human-in-the-loop review, rate-limit quota exhaustion) cause the
    Register VM to emit a `:park` effect, capturing a sparse, content-addressed
    continuation snapshot (`register-snapshot`) in `dao.jing`. When external
@@ -35,7 +42,43 @@ access. Instead:
 
 ---
 
-## 2. Foundational Invariants
+## 2. Namespace Architecture and Layer Boundaries
+
+Autonomous agent infrastructure is organized strictly under `dao.agent.*`:
+
+```text
++-------------------------------------------------------------------------+
+|                              dao.agent                                  |
+|  (Autonomous agents, stigmergy, task coordination, agent lifecycle)     |
++------------------------------------+------------------------------------+
+|  dao.agent.mcp.server              |  dao.agent.mcp.client              |
+|  (JSON-RPC MCP server exposing     |  (FFI client bridge invoking host  |
+|   dao.space & VM tools to LLMs)    |   MCP tools from Register VM)      |
++------------------------------------+------------------------------------+
+|  dao.agent.schema                  |  dao.agent.harness                 |
+|  (Datom task, claim, artifact,     |  (Multi-agent transactor harness,  |
+|   review, and verdict schemas)     |   stigmergic loop governor)        |
++------------------------------------+------------------------------------+
+                                      |
+                                      v
++-------------------------------------------------------------------------+
+|                  Low-Level Substrates (Zero Agent Logic)                |
++------------------------------------+------------------------------------+
+|  dao.space / dao.stream / dao.jing |  yin.vm (Register & Stack VMs)     |
+|  (Datoms, streams, immutable blob) |  (Nameless bytecode, registers)    |
++------------------------------------+------------------------------------+
+```
+
+### Invariants:
+1. `yin.vm` NEVER requires `dao.agent.*`.
+2. `dao.agent.*` builds on top of `yin.vm`, `dao.space`, `dao.stream`, and
+   `dao.jing`.
+3. Agent identity, prompts, roles, and consensus policies reside exclusively in
+   `dao.agent.*`.
+
+---
+
+## 3. Foundational Invariants
 
 ### Invariant 1: Zero Naked Host Access
 An agent cannot execute naked shell commands, write raw files to the host OS
@@ -67,7 +110,7 @@ linked, verified, and fetched over `dao.stream` via the Phase B6 linker
 
 ---
 
-## 3. The Stigmergic Interaction Model
+## 4. The Stigmergic Interaction Model
 
 Agents collaborate through traces left in the shared medium (`dao.space`):
 
@@ -91,7 +134,7 @@ Agents collaborate through traces left in the shared medium (`dao.space`):
 
 The agent reasoning cycle consists of three beats:
 
-### 3.1. Perceive: Querying the Medium
+### 4.1. Perceive: Querying the Medium
 The agent inspects `dao.space` using declarative pattern matching (`q` /
 `match`):
 - "Are there tasks in `:task/status :ready` matching my capabilities?"
@@ -102,7 +145,7 @@ In bytecode, this is executed by issuing a query effect or reading from an
 ingress cursor via `:stream-next`. If no work matches, the VM yields or parks
 via `:park`.
 
-### 3.2. Decide: Suspendable Model Inference
+### 4.2. Decide: Suspendable Model Inference
 When the agent reaches an inference point, it emits a model invocation effect:
 ```clojure
 [:ffi-call :op/llm-infer $r_dest $r_prompt]
@@ -115,7 +158,7 @@ If an agent model is quota-limited (e.g. Codex quota exhausted until reset),
 the continuation remains parked in `dao.space`. Other agents continue their
 independent work without blocking or polling.
 
-### 3.3. Act: Depositing Immutable Traces
+### 4.3. Act: Depositing Immutable Traces
 The agent records its decision by appending datoms to its own single-writer
 stream via `:stream-put`:
 ```clojure
@@ -126,14 +169,14 @@ to all observing peers through `dao.space.query`.
 
 ---
 
-## 4. Model Context Protocol (MCP) Integration
+## 5. Model Context Protocol (MCP) Integration
 
 MCP (Model Context Protocol) serves as the bidirectional adapter between
-industry LLM runtimes and the Register VM substrate.
+industry LLM runtimes and the `datom.world` substrate.
 
-### 4.1. The Outward Gateway: Register VM as an MCP Server
-The Register VM exposes an MCP server over JSON-RPC (stdio or WebSocket via
-`dao.stream.ws`). The MCP server exposes bounded tools to the LLMs:
+### 5.1. The Outward Gateway: `dao.agent.mcp.server`
+`dao.agent.mcp.server` exposes a standard JSON-RPC 2.0 MCP server over stdio
+or WebSocket (`dao.stream.ws`). The MCP server exposes bounded tools to LLMs:
 
 ```text
 +---------------------+---------------------------------------------------+
@@ -151,16 +194,16 @@ Naked host access tools (`bash`, `view_file`, `write_file`) are eliminated. The
 agent interacts with the codebase entirely through datom projections and
 content-addressed images.
 
-### 4.2. The Inward Bridge: Register VM as an MCP Client
+### 5.2. The Inward Bridge: `dao.agent.mcp.client`
 When the Register VM must invoke host-level capabilities (e.g. running a test
 runner, compiling a native binary, or interacting with a Git repository), the VM
-acts as an MCP client:
+acts as an MCP client via `dao.agent.mcp.client`:
 - The VM executes `:ffi-call :mcp/invoke $r_result $r_params`.
 - The engine dispatches the call to an external host MCP server.
 - The engine records the tool invocation, inputs, timestamp, and outputs as
   provenance metadata (`m` slot in canonical d5 datoms).
 
-### 4.3. Crash-Resilient MCP Tool Execution
+### 5.3. Crash-Resilient MCP Tool Execution
 Standard MCP clients block a thread or event loop during tool calls. In this
 architecture:
 1. The tool invocation triggers a VM `:park` effect.
@@ -172,11 +215,11 @@ architecture:
 
 ---
 
-## 5. Role Specialization of the Triad
+## 6. Role Specialization of the Triad
 
 The three primary coding agents operate with specialized roles over `dao.space`:
 
-### 5.1. Claude (Opus / Sonnet): Compiler Engineer & Synthesizer
+### 6.1. Claude (Opus / Sonnet): Compiler Engineer & Synthesizer
 - **Role**: Code synthesis, algorithmic implementation, refactoring.
 - **Workflow**:
   1. Matches tasks in `dao.space` marked `[:task/phase :implement]`.
@@ -186,7 +229,7 @@ The three primary coding agents operate with specialized roles over `dao.space`:
   4. Publishes closed images to `dao.jing` and links them via B6.
   5. Deposits completion datoms updating `[:task/phase :review]`.
 
-### 5.2. Codex (`gpt-6-astra`): Adversarial Reviewer & Invariant Prover
+### 6.2. Codex (`gpt-6-astra`): Adversarial Reviewer & Invariant Prover
 - **Role**: Invariant auditing, defect detection, formal contract verification.
 - **Workflow**:
   1. Matches tasks in `dao.space` marked `[:task/phase :review]`.
@@ -195,7 +238,7 @@ The three primary coding agents operate with specialized roles over `dao.space`:
   4. Deposits review verdicts: `[:verdict/status :approved]` or
      `[:verdict/status :defect]` with qualified finding tuples.
 
-### 5.3. AGY (Antigravity): Orchestrator & Convergence Governor
+### 6.3. AGY (Antigravity): Orchestrator & Convergence Governor
 - **Role**: Liveness monitoring, worktree isolation, quota scheduling.
 - **Workflow**:
   1. Observes `dao.space` transaction cadence.
@@ -206,9 +249,9 @@ The three primary coding agents operate with specialized roles over `dao.space`:
 
 ---
 
-## 6. Stigmergic Task Schema in `dao.space`
+## 7. Stigmergic Task Schema in `dao.agent.schema`
 
-The coordination board is formalized as a datom schema in `dao.space`:
+The coordination board is formalized as a datom schema in `dao.agent.schema`:
 
 ```clojure
 ;; Task definition
@@ -240,29 +283,36 @@ same task) are resolved via transactor linearization rules over stream offsets.
 
 ---
 
-## 7. Phased Implementation Roadmap
+## 8. Phased Implementation Roadmap
 
-### Phase 1: Register VM MCP Server Adapter
-- Implement `agent.mcp.server`: a lightweight JSON-RPC MCP server
-  exposing `dao_space_query`, `dao_space_deposit`, and `debruijn_eval`.
+### Phase 1: `dao.agent.mcp.server`
+- Implement `src/cljc/dao/agent/mcp/server.cljc`: JSON-RPC 2.0 protocol handler
+  and tool dispatch table exposing `dao_space_query`, `dao_space_deposit`,
+  `debruijn_eval`, `debruijn_link_fetch`, and `task_claim`.
+- Implement `src/clj/dao/agent/mcp/main.clj`: CLI entry point (`-main`) for
+  stdio transport.
+- Implement `test/dao/agent/mcp/server_test.cljc`: comprehensive test suite
+  verifying JSON-RPC lifecycle, tool registration, parameter parsing, and tool
+  invocations against mock streams and `DebruijnRegisterVM`.
 - Validate tool calling with Claude Code and Codex CLI running against local
   `dao.space` and `dao.stream` instances.
 
-### Phase 2: Stigmergy Task Board & Transactor Harness
-- Implement the formal task schema in `dao.space.schema`.
-- Create the multi-agent transactor harness in `dao.space.agent_harness`.
+### Phase 2: `dao.agent.schema` & `dao.agent.harness`
+- Implement the formal task schema in `src/cljc/dao/agent/schema.cljc`.
+- Create the multi-agent transactor harness in
+  `src/cljc/dao/agent/harness.cljc`.
 - Verify a two-agent stigmergic loop (Claude synthesizes code image -> deposits
   in `dao.space` -> Codex queries image -> verifies in Register VM -> deposits
   verdict).
 
-### Phase 3: Continuation Parking & FFI Tool Bridge
+### Phase 3: Continuation Parking & `dao.agent.mcp.client`
 - Implement `:ffi-call :mcp/invoke` in `yin.vm.debruijn.register`.
 - Add automatic continuation parking (`:park`) during long-running tool calls
   and rate-limit delays.
 - Verify crash resilience: killing the host process during an active tool call
   and resuming from `dao.jing` without state loss.
 
-### Phase 4: Full Pure-Yin Agent Port
+### Phase 4: Full Pure-Yin Agent Port (`dao.agent.core`)
 - Port the inner prompt-assembly and decision loop into Universal AST datoms
   executed directly by `DebruijnRegisterVM`, achieving host-independent,
   tri-host (JVM/CLJS/CLJD) portable autonomous agents.
