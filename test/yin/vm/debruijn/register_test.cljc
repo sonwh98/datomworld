@@ -6,7 +6,7 @@
    Stack VM."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
-            [yin.vm :as v2]
+            [yin.vm :as vm]
             [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-register-code :as rcode]
             [yin.vm.debruijn-register-compile :as rc]
@@ -57,7 +57,7 @@
 
 (defn- ast-datoms
   [ast]
-  (second (v2/ast->datoms-with-root ast)))
+  (second (vm/ast->datoms-with-root ast)))
 
 
 (defn- adapted-register
@@ -67,7 +67,7 @@
 
 (defn- adapted-stack
   [ast]
-  (:image (dl/adapt (v2/ast->datoms ast))))
+  (:image (dl/adapt (vm/ast->datoms ast))))
 
 
 (def ^:private load-semantic-ast
@@ -78,20 +78,20 @@
   "Run `ast` on a fresh semantic VM."
   ([ast] (semantic-run ast {}))
   ([ast opts]
-   (v2/run (load-semantic-ast (semantic/create-vm
+   (vm/run (load-semantic-ast (semantic/create-vm
                                 (merge {:make-stream tu/make-stream,
-                                        :primitives v2/primitives}
+                                        :primitives vm/primitives}
                                        opts))
-                              (v2/ast->datoms ast)))))
+                              (vm/ast->datoms ast)))))
 
 
 (defn- stack-run
   "Run `ast` through stack `adapt` on a fresh de Bruijn stack VM."
   ([ast] (stack-run ast {}))
   ([ast opts]
-   (v2/run (dvm/create-vm (adapted-stack ast)
+   (vm/run (dvm/create-vm (adapted-stack ast)
                           (merge {:make-stream tu/make-stream,
-                                  :primitives v2/primitives}
+                                  :primitives vm/primitives}
                                  opts)))))
 
 
@@ -103,28 +103,28 @@
                       (contains? ast-or-image :instructions))
                ast-or-image
                (adapted-register ast-or-image))]
-     (v2/run (rvm/create-vm img
+     (vm/run (rvm/create-vm img
                             (merge {:make-stream tu/make-stream,
-                                    :primitives v2/primitives}
+                                    :primitives vm/primitives}
                                    opts))))))
 
 
 (defn- register-val
   ([ast-or-image] (register-val ast-or-image {}))
   ([ast-or-image opts]
-   (b0/normalize (v2/value (register-run ast-or-image opts)))))
+   (b0/normalize (vm/value (register-run ast-or-image opts)))))
 
 
 (defn- semantic-val
   ([ast] (semantic-val ast {}))
   ([ast opts]
-   (b0/normalize (v2/value (semantic-run ast opts)))))
+   (b0/normalize (vm/value (semantic-run ast opts)))))
 
 
 (defn- stack-val
   ([ast] (stack-val ast {}))
   ([ast opts]
-   (b0/normalize (v2/value (stack-run ast opts)))))
+   (b0/normalize (vm/value (stack-run ast opts)))))
 
 
 (defn- fill-live
@@ -232,8 +232,8 @@
                              [:store-get 1 :foo]
                              [:halt 1]])
           vm (register-run img)]
-      (is (= "hello" (v2/value vm)))
-      (is (= "hello" (get (v2/store vm) :foo))))))
+      (is (= "hello" (vm/value vm)))
+      (is (= "hello" (get (vm/store vm) :foo))))))
 
 
 ;; =============================================================================
@@ -269,7 +269,7 @@
 
 
 (deftest b2-fixtures-parity-test
-  (let [opts {:primitives (assoc v2/primitives 'list (fn [& args] (vec args)))}]
+  (let [opts {:primitives (assoc vm/primitives 'list (fn [& args] (vec args)))}]
     (doseq [[label ast] b2-fixtures]
       (testing label
         (is (= (semantic-val ast opts)
@@ -328,7 +328,7 @@
                              [:stream-next 3 1 []]
                              [:halt 3]])
           vm (register-run img)]
-      (is (= "hello-stream" (v2/value vm))))))
+      (is (= "hello-stream" (vm/value vm))))))
 
 
 (deftest stream-blocking-reader-test
@@ -338,22 +338,22 @@
                              [:stream-next 2 1 []]
                              [:halt 2]])
           parked (register-run img)]
-      (is (true? (v2/blocked? parked)))
+      (is (true? (vm/blocked? parked)))
       (is (= 1 (count (:wait-set parked))))
       (let [entry (first (:wait-set parked))
             stream-id (:stream-id entry)
-            stream-handle (get (v2/store parked) stream-id)]
+            stream-handle (get (vm/store parked) stream-id)]
         (is (= :next (:reason entry)))
         (is (= :yin.debruijn.register (:format entry)))
         (is (= (rcode/register-hash img) (:hash entry)))
         ;; Write to the stream
         (stream/append! stream-handle 99)
         ;; Stepping / running the VM resumes the reader
-        (let [resumed (v2/step parked)]
-          (is (false? (v2/blocked? resumed)))
-          (let [finished (v2/run resumed)]
-            (is (true? (v2/halted? finished)))
-            (is (= 99 (v2/value finished)))))))))
+        (let [resumed (vm/step parked)]
+          (is (false? (vm/blocked? resumed)))
+          (let [finished (vm/run resumed)]
+            (is (true? (vm/halted? finished)))
+            (is (= 99 (vm/value finished)))))))))
 
 
 (deftest stream-blocking-writer-test
@@ -367,16 +367,16 @@
                              [:halt 2]])
           vm (rvm/create-vm img {:store {:scripted (scripted-stream outcomes
                                                                     seen)}})
-          parked (nth (iterate v2/step vm) 3)
+          parked (nth (iterate vm/step vm) 3)
           entry (first (:wait-set parked))]
-      (is (v2/blocked? parked))
+      (is (vm/blocked? parked))
       (is (= 1 (count (:wait-set parked))))
       (is (= :put (:reason entry)))
       (is (= "payload" (:datom entry)))
       (is (= :yin.debruijn.register (:format entry)))
-      (let [done (v2/run parked)]
-        (is (v2/halted? done))
-        (is (= "payload" (v2/value done)))))))
+      (let [done (vm/run parked)]
+        (is (vm/halted? done))
+        (is (= "payload" (vm/value done)))))))
 
 
 ;; =============================================================================
@@ -388,7 +388,7 @@
     (let [img (hand-image 2 [[:current-continuation 0 []]
                              [:halt 0]])
           vm (register-run img)
-          val (v2/value vm)]
+          val (vm/value vm)]
       (is (= :reified-continuation (:type val)))
       (is (= :yin.debruijn.register (:format val)))
       (is (= (rcode/register-hash img) (:hash val)))
@@ -403,16 +403,16 @@
     (let [img (hand-image 2 [[:park 0 []]
                              [:halt 0]])
           parked (register-run img)]
-      (is (true? (v2/halted? parked)))
-      (let [val (v2/value parked)
+      (is (true? (vm/halted? parked)))
+      (let [val (vm/value parked)
             park-id (:id val)]
         (is (= :parked-continuation (:type val)))
         (is (some? park-id))
         (let [resumed (engine/resume-continuation parked park-id 777
                                                   rvm/register-restore)
-              finished (v2/run resumed)]
-          (is (true? (v2/halted? finished)))
-          (is (= 777 (v2/value finished))))))))
+              finished (vm/run resumed)]
+          (is (true? (vm/halted? finished)))
+          (is (= 777 (vm/value finished))))))))
 
 
 (deftest bytecode-resume-test
@@ -431,14 +431,14 @@
                                                       :instructions body0})
                                           body1))}
           vm0 (rvm/create-vm img)
-          parked (v2/run vm0)]
-      (is (true? (v2/halted? parked)))
+          parked (vm/run vm0)]
+      (is (true? (vm/halted? parked)))
       (is (= :parked-0 (get-in parked [:value :id])))
       ;; Now jump to body 1 to execute :resume :parked-0
       (let [vm-resumer (assoc parked :pc 2 :halted? false)
-            resumed (v2/run vm-resumer)]
-        (is (true? (v2/halted? resumed)))
-        (is (= 888 (v2/value resumed)))))))
+            resumed (vm/run vm-resumer)]
+        (is (true? (vm/halted? resumed)))
+        (is (= 888 (vm/value resumed)))))))
 
 
 ;; =============================================================================
@@ -453,8 +453,8 @@
                              [:halt 0]])
           bridge {:handlers {:math/divide (fn [a b] (/ a b))}}
           vm (register-run img {:bridge bridge})]
-      (is (true? (v2/halted? vm)))
-      (is (= 10 (v2/value vm))))))
+      (is (true? (vm/halted? vm)))
+      (is (= 10 (vm/value vm))))))
 
 
 (deftest ffi-call-bridge-error-test
@@ -477,30 +477,30 @@
 (deftest ivm-protocol-test
   (let [img (hand-image 1 [[:const 0 99] [:halt 0]])
         vm (rvm/create-vm img)]
-    (is (false? (v2/halted? vm)))
-    (is (false? (v2/blocked? vm)))
-    (is (nil? (v2/value vm)))
-    (let [vm' (v2/step vm)]
+    (is (false? (vm/halted? vm)))
+    (is (false? (vm/blocked? vm)))
+    (is (nil? (vm/value vm)))
+    (let [vm' (vm/step vm)]
       (is (= 1 (:pc vm')))
       (is (= 99 (nth (:registers vm') 0)))
-      (let [vm'' (v2/step vm')]
-        (is (true? (v2/halted? vm'')))
-        (is (= 99 (v2/value vm'')))
+      (let [vm'' (vm/step vm')]
+        (is (true? (vm/halted? vm'')))
+        (is (= 99 (vm/value vm'')))
         ;; Reset
-        (let [vm-reset (v2/reset vm'')]
-          (is (false? (v2/halted? vm-reset)))
-          (is (nil? (v2/value vm-reset)))
+        (let [vm-reset (vm/reset vm'')]
+          (is (false? (vm/halted? vm-reset)))
+          (is (nil? (vm/value vm-reset)))
           (is (= 0 (:pc vm-reset))))))))
 
 
 (deftest ivm-state-protocol-test
   (let [img (hand-image 1 [[:const 0 123] [:halt 0]])
         vm (rvm/create-vm img {:store {:my-key 456}})]
-    (is (= {:pc 0} (v2/control vm)))
-    (is (= 456 (get (v2/store vm) :my-key)))
-    (is (empty? (v2/continuation vm)))
+    (is (= {:pc 0} (vm/control vm)))
+    (is (= 456 (get (vm/store vm) :my-key)))
+    (is (empty? (vm/continuation vm)))
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-          (v2/environment vm)))))
+          (vm/environment vm)))))
 
 
 (deftest eval-throws-test
@@ -508,7 +508,7 @@
     (let [vm (rvm/create-vm (hand-image 1 [[:halt 0]]))]
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error :cljd Object)
                             #"executes raw instruction vectors"
-            (v2/eval vm (lit 42)))))))
+            (vm/eval vm (lit 42)))))))
 
 
 ;; =============================================================================
@@ -605,7 +605,7 @@
                    :instructions [[:bad-opcode 0]]}]
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error :cljd Object)
                             #"Unknown opcode"
-            (v2/step (rvm/map->DebruijnRegisterVM
+            (vm/step (rvm/map->DebruijnRegisterVM
                        {:segment bad-img,
                         :hash "fake",
                         :pc 0,

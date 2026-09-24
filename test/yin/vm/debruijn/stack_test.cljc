@@ -13,7 +13,7 @@
    compare under B0's normalizer (`yin.vm.debruijn-vm-contract-test/normalize`),
    reused rather than reimplemented."
   (:require [clojure.test :refer [deftest is testing]]
-            [yin.vm :as v2]
+            [yin.vm :as vm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.debruijn-vm-contract-test :as b0]
             [yin.vm.test-utils :as tu]))
@@ -26,7 +26,7 @@
 (defn- named-value
   "Run `ast` on a fresh named VM and return its normalized value."
   [ast]
-  (b0/normalize (v2/value (v2/eval (tu/create-vm) ast))))
+  (b0/normalize (vm/value (vm/eval (tu/create-vm) ast))))
 
 
 (defn- debruijn-value
@@ -36,8 +36,8 @@
   ([segment] (debruijn-value segment {}))
   ([segment opts]
    (b0/normalize
-     (v2/value (v2/run (dvm/create-vm segment
-                                      (merge {:primitives v2/primitives}
+     (vm/value (vm/run (dvm/create-vm segment
+                                      (merge {:primitives vm/primitives}
                                              opts)))))))
 
 
@@ -309,7 +309,7 @@
       (is (thrown-with-msg?
             #?(:clj Exception :cljs js/Error :cljd Object)
             #"Unknown opcode in segment"
-            (v2/run (dvm/create-vm segment)))))))
+            (vm/run (dvm/create-vm segment)))))))
 
 
 ;; =============================================================================
@@ -321,4 +321,4 @@
             this phase, rather than returning the raw positional frame
             vector"
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-          (v2/environment (dvm/create-vm [[:halt]]))))))
+          (vm/environment (dvm/create-vm [[:halt]]))))))

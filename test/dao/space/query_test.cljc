@@ -20,7 +20,7 @@
             [dao.stream :as stream]
             [dao.stream.memory-log :as memory-log]
             [dao.stream.ringbuffer :as ringbuffer]
-            [yin.vm :as v2]
+            [yin.vm :as vm]
             [yin.vm.code :as code]
             [yin.vm.linearize :as linearize]
             [yin.vm.parity-test :as parity]
@@ -1146,7 +1146,7 @@
 (defn- ast-row-db
   "A relation value over the flat rows of ast->semantic-bytecode."
   [ast]
-  (rel (vals (:rows (v2/ast->semantic-bytecode ast)))))
+  (rel (vals (:rows (vm/ast->semantic-bytecode ast)))))
 
 
 (defn- ast-row-id
@@ -1155,7 +1155,7 @@
   (some (fn [row]
           (when (and (= tag (nth row 1)) (= slot (nth row 2)))
             (nth row 0)))
-        (vals (:rows (v2/ast->semantic-bytecode ast)))))
+        (vals (:rows (vm/ast->semantic-bytecode ast)))))
 
 
 (deftest recursive-rules-compute-free-names-not-tags
@@ -1209,7 +1209,7 @@
                               [(member? ?params ?name)]
                               (depth ?lam ?v ?n)]
                             db free-name-rules v nm opts))]
-    (is (= outer (:root (v2/ast->semantic-bytecode ast)))
+    (is (= outer (:root (vm/ast->semantic-bytecode ast)))
         "sanity: the params [x y] :lambda is the projected root")
     (is (= #{['+]}
            (qq '[:find ?name :in $ %
@@ -1272,7 +1272,7 @@
              :operator {:type :lambda, :params ['x],
                         :body {:type :variable, :name 'x}},
              :operands [{:type :variable, :name 'x}]}
-        bc (v2/ast->semantic-bytecode ast)
+        bc (vm/ast->semantic-bytecode ast)
         db (ast-row-db ast)
         x (ast-row-id ast :variable 'x)
         lam (ast-row-id ast :lambda '[x])
@@ -1281,19 +1281,19 @@
         ;; position 2, the first slot after id and tag), the lambda's
         ;; body x at [2 3] (body is :lambda's row-position-3 slot), and
         ;; the operand x at [[3 0]] (first of the operands' nodes slot).
-        occ (rel (v2/occurrences bc))
-        opts {:fns v2/occurrence-fns}
+        occ (rel (vm/occurrences bc))
+        opts {:fns vm/occurrence-fns}
         free-occ-paths (qq '[:find ?path :in $ $occ % ?root
                              :where
                              [$occ ?root ?path ?v]
                              [?v :variable ?name]
                              (not (occ-bound? ?root ?path ?name))]
-                           db occ v2/occurrence-rules (:root bc) opts)
+                           db occ vm/occurrence-rules (:root bc) opts)
         bound-occ-paths (qq '[:find ?path :in $ $occ % ?root ?v ?name
                               :where
                               [$occ ?root ?path ?v]
                               (occ-bound? ?root ?path ?name)]
-                            db occ v2/occurrence-rules (:root bc) x 'x opts)]
+                            db occ vm/occurrence-rules (:root bc) x 'x opts)]
     (is (= 2 (count (filter #(= {:type :variable, :name 'x} %)
                             (tree-seq coll? seq ast))))
         "premise, map side: the fixture really has two :variable x nodes")
@@ -1305,7 +1305,7 @@
              [(:root bc) [2] lam]
              [(:root bc) [2 3] x]
              [(:root bc) [[3 0]] x]}
-           (v2/occurrences bc))
+           (vm/occurrences bc))
         "the emitter walks the same places the old hand fixture named:
           one [root path node] per place, two tuples over the one shared
           row")
@@ -1315,7 +1315,7 @@
     (is (= #{[[[3 0]]]} free-occ-paths)
         "the operand occurrence [[3 0]] is free — its walk [[3 0]] → []
           reaches only the :application, never a binding :lambda")
-    (is (= #{'x} (v2/free-names db occ (:root bc)))
+    (is (= #{'x} (vm/free-names db occ (:root bc)))
         "the §7.7 free-name extraction over the emitted relation
           conservatively includes x because at least one occurrence of it
           is free (§7.6.1)")
@@ -1336,29 +1336,29 @@
   ;; carry the SAME literal path [3] — :lambda's body slot — with x bound
   ;; in A ((fn [x] x)) and free in B ((fn [y] x)). Each tree's occurrence
   ;; must classify against its own binder.
-  (let [bcA (v2/ast->semantic-bytecode
+  (let [bcA (vm/ast->semantic-bytecode
               {:type :lambda, :params ['x],
                :body {:type :variable, :name 'x}})
-        bcB (v2/ast->semantic-bytecode
+        bcB (vm/ast->semantic-bytecode
               {:type :lambda, :params ['y],
                :body {:type :variable, :name 'x}})
         rootA (:root bcA)
         rootB (:root bcB)
         x (ast-row-id {:type :variable, :name 'x} :variable 'x)
         db (rel (concat (vals (:rows bcA)) (vals (:rows bcB))))
-        occ (rel (concat (v2/occurrences bcA) (v2/occurrences bcB)))]
+        occ (rel (concat (vm/occurrences bcA) (vm/occurrences bcB)))]
     (is (not= rootA rootB)
         "premise: the two trees differ in params, so their roots are
           distinct addresses")
     (is (= x (nth (get (:rows bcB) rootB) 3))
         "premise: B's body :variable row is the same shared x row as A's")
-    (is (contains? (v2/occurrences bcA) [rootA [3] x])
+    (is (contains? (vm/occurrences bcA) [rootA [3] x])
         "premise: path [3] in tree A names the shared x row")
-    (is (contains? (v2/occurrences bcB) [rootB [3] x])
+    (is (contains? (vm/occurrences bcB) [rootB [3] x])
         "premise: the SAME literal path [3] in tree B names it too")
-    (is (= #{} (v2/free-names db occ rootA))
+    (is (= #{} (vm/free-names db occ rootA))
         "A's x is bound by A's own [x] :lambda")
-    (is (= #{'x} (v2/free-names db occ rootB))
+    (is (= #{'x} (vm/free-names db occ rootB))
         "B's x stays free: B's own binder is the [y] :lambda, and A's
           binder — reachable only by leaving B's root — never classifies
           it, which is exactly what the ?root threading prevents")
@@ -1369,7 +1369,7 @@
                  [?v :variable ?name]
                  (not (occ-bound? ?path ?name))]
                db occ unscoped-occurrence-rules
-               {:fns v2/occurrence-fns}))
+               {:fns vm/occurrence-fns}))
         "contrast: the unscoped rule set finds A's :lambda through the
           root occurrence both trees share and calls B's free x bound —
           the cross-tree misclassification, demonstrated not narrated")))
@@ -1391,27 +1391,27 @@
                          :val {:type :stream/close,
                                :source {:type :stream/next,
                                         :source {:type :variable, :name 'k}}}}}
-        bc (v2/ast->semantic-bytecode ast)
+        bc (vm/ast->semantic-bytecode ast)
         db (ast-row-db ast)
-        occ (rel (v2/occurrences bc))
+        occ (rel (vm/occurrences bc))
         s (ast-row-id ast :variable 's)
         k (ast-row-id ast :variable 'k)
-        opts {:fns v2/occurrence-fns}
+        opts {:fns vm/occurrence-fns}
         bound-paths (fn [v nm]
                       (qq '[:find ?path :in $ $occ % ?root ?v ?name
                             :where
                             [$occ ?root ?path ?v]
                             (occ-bound? ?root ?path ?name)]
-                          db occ v2/occurrence-rules (:root bc) v nm opts))]
-    (is (= 11 (count (v2/occurrences bc)))
+                          db occ vm/occurrence-rules (:root bc) v nm opts))]
+    (is (= 11 (count (vm/occurrences bc)))
         "one tuple per place across :if, :vm/store-get, :lambda,
           :stream/put, :stream/cursor, :stream/make, :vm/resume,
           :stream/close, :stream/next, and the two :variable rows")
-    (is (contains? (v2/occurrences bc) [(:root bc) [3 3 2 2] s])
+    (is (contains? (vm/occurrences bc) [(:root bc) [3 3 2 2] s])
         "s sits four node steps deep: :if consequent [3], :lambda body
           [3 3], :stream/put target [3 3 2], :stream/cursor source
           [3 3 2 2]")
-    (is (contains? (v2/occurrences bc) [(:root bc) [4 3 2 2] k])
+    (is (contains? (vm/occurrences bc) [(:root bc) [4 3 2 2] k])
         "k sits at the same depth the other side: :if alternate [4],
           :vm/resume val [4 3], :stream/close source [4 3 2],
           :stream/next source [4 3 2 2]")
@@ -1421,7 +1421,7 @@
     (is (= #{} (bound-paths k 'k))
         "k's only ancestors are :stream/next, :stream/close, :vm/resume,
           and :if — no binder anywhere above it")
-    (is (= #{'k} (v2/free-names db occ (:root bc)))
+    (is (= #{'k} (vm/free-names db occ (:root bc)))
         "the §7.7 free-name extraction query over the emitted relation")
     (is (= #{['k] ['s]}
            (qq '[:find ?name :in $ %
@@ -1481,7 +1481,7 @@
 (defn- tree-db
   "The `$ast` relation of one tree: its flat rows."
   [ast]
-  (rel (vals (:rows (v2/ast->semantic-bytecode ast)))))
+  (rel (vals (:rows (vm/ast->semantic-bytecode ast)))))
 
 
 (defn- segment-db
@@ -1489,12 +1489,12 @@
    segment-qualified rows."
   [ast]
   (rel (code/project-segment-qualified
-         (:vector (linearize/lower-rows (v2/ast->semantic-bytecode ast))))))
+         (:vector (linearize/lower-rows (vm/ast->semantic-bytecode ast))))))
 
 
 (deftest footprint-table-has-a-row-for-every-tag-and-mnemonic
-  (let [table (get v2/footprint-table "v2")]
-    (is (= (set (keys v2/semantic-bytecode-grammar)) (set (keys (:tags table))))
+  (let [table (get vm/footprint-table "v2")]
+    (is (= (set (keys vm/semantic-bytecode-grammar)) (set (keys (:tags table))))
         "every §2.3 tag: no external effect is an explicit #{}, never an
           absence (§7.7.1)")
     (is (= code/mnemonics (set (keys (:mnemonics table))))
@@ -1513,7 +1513,7 @@
           :parked-ids #{:p1},
           :effects #{:stream/make :stream/put :stream/cursor :stream/next
                      :stream/close}}
-         (v2/ast-requirements (tree-db requirements-kitchen-sink)))
+         (vm/ast-requirements (tree-db requirements-kitchen-sink)))
       "both store directions, the FFI op, the parked id, and every
         effect-raising tag normalized by the footprint table — an FFI call
         contributes no effect identifier"))
@@ -1522,8 +1522,8 @@
 (deftest requirement-sets-from-tree-and-segment-are-equal
   (doseq [[name ast] requirements-corpus]
     (testing name
-      (is (= (v2/ast-requirements (tree-db ast))
-             (v2/segment-requirements (segment-db ast)))
+      (is (= (vm/ast-requirements (tree-db ast))
+             (vm/segment-requirements (segment-db ast)))
           "§7.7.1's conformance obligation: equal in store keys, FFI ops,
             parked ids, and normalized effects — the tree's tags and the
             segment's mnemonics normalize to the same vocabulary"))))

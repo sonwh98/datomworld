@@ -15,7 +15,7 @@
             [dao.stream.apply :as apply]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc :as rpc]
-            [yin.vm :as v2]
+            [yin.vm :as vm]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-linker :as linker]
@@ -78,7 +78,7 @@
 
 (defn- ast-datoms
   [ast]
-  (second (v2/ast->datoms-with-root ast)))
+  (second (vm/ast->datoms-with-root ast)))
 
 
 (defn- stack-image
@@ -99,7 +99,7 @@
 
 (def ^:private receiver
   "The standard receiver: the full primitive registry, nothing shadowing."
-  {:primitives v2/primitives})
+  {:primitives vm/primitives})
 
 
 (defn- publish
@@ -517,13 +517,13 @@
 
 (defn- named-value
   [ast]
-  (b0/normalize (v2/value (v2/eval (tu/create-vm) ast))))
+  (b0/normalize (vm/value (vm/eval (tu/create-vm) ast))))
 
 
 (defn- lifted-value
   [named-vector]
   (b0/normalize
-    (v2/value (v2/run (semantic/load-vector (semantic/create-vm)
+    (vm/value (vm/run (semantic/load-vector (semantic/create-vm)
                                             named-vector)))))
 
 
@@ -543,7 +543,7 @@
           "R: lifted to :yin.code/* and run on the semantic VM")
       (is (= local
              (b0/normalize
-               (v2/value (v2/run (dvm/create-vm (:value fh) receiver)))))
+               (vm/value (vm/run (dvm/create-vm (:value fh) receiver)))))
           "H: run directly on the de Bruijn stack kernel")
       (jing/close! store))))
 

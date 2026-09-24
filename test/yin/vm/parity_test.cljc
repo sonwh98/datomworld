@@ -14,7 +14,7 @@
    branch. Where v2 diverges on purpose, the case lives in
    `yin.vm.ast-walker-test` and in the divergence register, not here."
   (:require [clojure.test :refer [deftest is testing]]
-            [yin.vm :as v2]
+            [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.test-utils :as tu]))
 
@@ -146,8 +146,8 @@
    direct row load, U3) instead of a datom batch: same values pinned."
   [ast]
   (normalize
-    (v2/value (v2/run (ast-walker/vm-load-rows (tu/create-vm)
-                                               (v2/ast->semantic-bytecode ast))))))
+    (vm/value (vm/run (ast-walker/vm-load-rows (tu/create-vm)
+                                               (vm/ast->semantic-bytecode ast))))))
 
 
 (deftest ast-walker-parity-test
@@ -161,7 +161,7 @@
   (testing "A host call returns the value v1 returned (42, captured 2026-09-16)"
     (let [ast {:type :dao.stream.apply/call, :op :op/echo, :operands [(lit 42)]}
           seen (atom [])
-          v2-result (v2/value (v2/eval (tu/create-vm
+          v2-result (vm/value (vm/eval (tu/create-vm
                                          {:bridge {:op/echo (fn [x]
                                                               (swap! seen conj x)
                                                               x)}})
@@ -181,10 +181,10 @@
                                    :source {:type :variable, :name 'c}}},
                  :operands [{:type :stream/cursor,
                              :source (lit stream-ref)}]})
-          v2-vm (v2/eval (tu/create-vm) {:type :stream/make, :buffer 4})
-          blocked (v2/eval v2-vm (ast (v2/value v2-vm)))]
-      (is (v2/blocked? blocked))
-      (is (= :yin/blocked (v2/value blocked))))))
+          v2-vm (vm/eval (tu/create-vm) {:type :stream/make, :buffer 4})
+          blocked (vm/eval v2-vm (ast (vm/value v2-vm)))]
+      (is (vm/blocked? blocked))
+      (is (= :yin/blocked (vm/value blocked))))))
 
 
 (deftest stream-round-trip-parity-test
@@ -198,30 +198,30 @@
                                         :source {:type :variable, :name 'c}}},
                       :operands [{:type :stream/cursor,
                                   :source (lit stream-ref)}]})
-          v2-result (let [vm0 (v2/eval (tu/create-vm) {:type :stream/make,
+          v2-result (let [vm0 (vm/eval (tu/create-vm) {:type :stream/make,
                                                        :buffer 4})
-                          sref (v2/value vm0)
-                          vm1 (v2/eval vm0
+                          sref (vm/value vm0)
+                          vm1 (vm/eval vm0
                                        {:type :stream/put,
                                         :target (lit sref),
                                         :val (lit 99)})]
-                      [(v2/value vm1) (v2/value (v2/eval vm1 (read-ast sref)))])]
+                      [(vm/value vm1) (vm/value (vm/eval vm1 (read-ast sref)))])]
       (is (= 99 (first v2-result)) "put returns the value")
       (is (= [99 99] v2-result)))))
 
 
 (deftest stream-close-parity-test
   (testing "closing a stream (v1 returned nil, captured 2026-09-18)"
-    (let [vm0 (v2/eval (tu/create-vm) {:type :stream/make, :buffer 4})
-          sref (v2/value vm0)
-          vm1 (v2/eval vm0
+    (let [vm0 (vm/eval (tu/create-vm) {:type :stream/make, :buffer 4})
+          sref (vm/value vm0)
+          vm1 (vm/eval vm0
                        {:type :stream/close,
                         :source (lit sref)})]
-      (is (= nil (v2/value vm1)) "close returns nil")
+      (is (= nil (vm/value vm1)) "close returns nil")
       ;; `Object` on Dart as the house idiom: cljd resolves no
       ;; ExceptionInfo type for a typed catch.
       (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo :cljd Object) #"Stream append failed"
-            (v2/eval vm1 {:type :stream/put,
+            (vm/eval vm1 {:type :stream/put,
                           :target (lit sref),
                           :val (lit 99)}))
           "put is refused on closed stream"))))

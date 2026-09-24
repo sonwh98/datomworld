@@ -9,7 +9,7 @@
             ["dart:io" :as io]
             ["package:flutter/material.dart" :as m]
             [clojure.string :as str]
-            [yin.repl :as v2]
+            [yin.repl :as repl]
             [yin.repl.embed :as embed]))
 
 
@@ -64,7 +64,7 @@
   [run endpoint]
   (let [box (atom {:endpoint endpoint :stopping nil})]
     (async/Timer.periodic
-      (dart-core/Duration .milliseconds v2/tick-millis)
+      (dart-core/Duration .milliseconds repl/tick-millis)
       (fn [^async/Timer timer]
         (let [{:keys [endpoint stopping]} @box
               now (.-millisecondsSinceEpoch (dart-core/DateTime.now))
@@ -73,7 +73,7 @@
             (println line))
           (cond
             (and (nil? stopping) @(:stop-requested run))
-            (reset! box {:endpoint (embed/stop endpoint') :stopping v2/stop-ticks})
+            (reset! box {:endpoint (embed/stop endpoint') :stopping repl/stop-ticks})
 
             (nil? stopping)
             (do (reset! box {:endpoint endpoint' :stopping nil})
@@ -84,7 +84,7 @@
             (do (reset! box {:endpoint endpoint' :stopping 0})
                 (.cancel timer)
                 (when-not (embed/stopped? endpoint')
-                  (println v2/stop-timeout-text))
+                  (println repl/stop-timeout-text))
                 ;; A newer run owns the status line once it has started.
                 (when (nil? @active-run)
                   (set-status! "stopped")))

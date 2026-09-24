@@ -24,7 +24,7 @@
    assertion below still holds because the reused corpus alone already
    spans every tag."
   (:require [clojure.test :refer [deftest is testing]]
-            [yin.vm :as v2]
+            [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.completion :as completion]
             [yin.vm.parity-test :as parity]
@@ -131,9 +131,9 @@
             exercise every semantic-bytecode tag -- the same technique
             `yin.vm-test/semantic-bytecode-corpus-covers-every-tag` already
             uses to prove this of `tag-corpus` alone"
-    (is (= (set (keys v2/semantic-bytecode-grammar))
+    (is (= (set (keys vm/semantic-bytecode-grammar))
            (into #{}
-                 (comp (mapcat (comp vals :rows v2/ast->semantic-bytecode))
+                 (comp (mapcat (comp vals :rows vm/ast->semantic-bytecode))
                        (map second))
                  (concat tag-corpus (map second parity/corpus)))))))
 
@@ -154,12 +154,12 @@
             already compares"
     (doseq [[name ast _expected] parity/corpus]
       (testing name
-        (let [via-batch (normalize (v2/value (v2/eval (tu/create-vm) ast)))
+        (let [via-batch (normalize (vm/value (vm/eval (tu/create-vm) ast)))
               via-rows (normalize
-                         (v2/value
-                           (v2/run
+                         (vm/value
+                           (vm/run
                              (ast-walker/vm-load-rows
-                               (tu/create-vm) (v2/ast->semantic-bytecode ast)))))]
+                               (tu/create-vm) (vm/ast->semantic-bytecode ast)))))]
           (is (= via-batch via-rows)))))))
 
 
@@ -197,8 +197,8 @@
 
 (deftest closure-normalization-test
   (let [ast (lambda '[x] (variable 'x))
-        run1 (normalize (v2/value (v2/eval (tu/create-vm) ast)))
-        run2 (normalize (v2/value (v2/eval (tu/create-vm) ast)))]
+        run1 (normalize (vm/value (vm/eval (tu/create-vm) ast)))
+        run2 (normalize (vm/value (vm/eval (tu/create-vm) ast)))]
     (is (= {:type :closure, :arity 1} run1) "arity only, no params or body")
     (is (= run1 run2) "self-parity")))
 
@@ -206,15 +206,15 @@
 (deftest continuation-normalization-test
   (testing "a reified continuation (:vm/current-continuation)"
     (let [ast {:type :vm/current-continuation}
-          run1 (normalize (v2/value (v2/eval (tu/create-vm) ast)))
-          run2 (normalize (v2/value (v2/eval (tu/create-vm) ast)))]
+          run1 (normalize (vm/value (vm/eval (tu/create-vm) ast)))
+          run2 (normalize (vm/value (vm/eval (tu/create-vm) ast)))]
       (is (= {:type :reified-continuation} run1) "type only, no k or env")
       (is (= run1 run2) "self-parity")))
   (testing "a parked continuation (:vm/park), UCF-shaped per
             yin.vm.completion"
     (let [ast {:type :vm/park}
-          run1 (normalize (v2/value (v2/eval (tu/create-vm) ast)))
-          run2 (normalize (v2/value (v2/eval (tu/create-vm) ast)))]
+          run1 (normalize (vm/value (vm/eval (tu/create-vm) ast)))
+          run2 (normalize (vm/value (vm/eval (tu/create-vm) ast)))]
       (is (= {:type :parked-continuation} run1) "type only, no id, k or env")
       (is (= run1 run2) "self-parity"))))
 
@@ -224,7 +224,7 @@
         catch-normalized
         (fn []
           (try
-            (v2/eval (tu/create-vm) ast)
+            (vm/eval (tu/create-vm) ast)
             ::no-error
             (catch #?(:cljd Object :clj Exception :cljs :default) e
               (normalize-error e))))
@@ -237,18 +237,18 @@
 
 (deftest stream-normalization-test
   (let [ast {:type :stream/make, :buffer 4}
-        run1 (normalize (v2/value (v2/eval (tu/create-vm) ast)))
-        run2 (normalize (v2/value (v2/eval (tu/create-vm) ast)))]
+        run1 (normalize (vm/value (vm/eval (tu/create-vm) ast)))
+        run2 (normalize (vm/value (vm/eval (tu/create-vm) ast)))]
     (is (= {:type :stream-ref, :id :stream-0} run1) "by identity, as parity/normalize already reduces it")
     (is (= run1 run2) "self-parity")))
 
 
 (deftest cursor-normalization-test
   (let [make-cursor (fn []
-                      (let [vm0 (v2/eval (tu/create-vm) {:type :stream/make, :buffer 4})
-                            sref (v2/value vm0)
-                            vm1 (v2/eval vm0 {:type :stream/cursor, :source (lit sref)})]
-                        (normalize (v2/value vm1))))
+                      (let [vm0 (vm/eval (tu/create-vm) {:type :stream/make, :buffer 4})
+                            sref (vm/value vm0)
+                            vm1 (vm/eval vm0 {:type :stream/cursor, :source (lit sref)})]
+                        (normalize (vm/value vm1))))
         run1 (make-cursor)
         run2 (make-cursor)]
     (is (= :cursor-ref (:type run1)))
@@ -258,13 +258,13 @@
 (deftest store-normalization-test
   (let [ast {:type :vm/store-put, :key :b0/k, :val {:type :literal, :ignored true}}
         make-store (fn []
-                     (let [vm (v2/eval (tu/create-vm) ast)]
+                     (let [vm (vm/eval (tu/create-vm) ast)]
                        ;; host handles and telemetry are excluded (S1):
                        ;; `completion/ffi-pair-keys` already names the
                        ;; default VM's own call-in/call-out/cursor keys,
                        ;; the same set `completion-test` excludes from a
                        ;; store slice.
-                       (normalize (apply dissoc (v2/store vm) completion/ffi-pair-keys))))
+                       (normalize (apply dissoc (vm/store vm) completion/ffi-pair-keys))))
         run1 (make-store)
         run2 (make-store)]
     (is (= {:type :literal, :ignored true} (:b0/k run1))
@@ -281,13 +281,13 @@
             args into a map, so a repeated name keeps its last value), and
             the two normalized runs still agree"
     (let [ast (app (lambda '[x x] (variable 'x)) (lit 1) (lit 2))
-          run1 (normalize (v2/value (v2/eval (tu/create-vm) ast)))
-          run2 (normalize (v2/value (v2/eval (tu/create-vm) ast)))]
+          run1 (normalize (vm/value (vm/eval (tu/create-vm) ast)))
+          run2 (normalize (vm/value (vm/eval (tu/create-vm) ast)))]
       (is (= 2 run1))
       (is (= run1 run2))))
   (testing "the closure itself, unapplied, still normalizes to its arity
             with the duplicate name collapsed by nothing -- arity counts
             declared params, not distinct names"
     (let [ast (lambda '[x x] (variable 'x))
-          run1 (normalize (v2/value (v2/eval (tu/create-vm) ast)))]
+          run1 (normalize (vm/value (vm/eval (tu/create-vm) ast)))]
       (is (= {:type :closure, :arity 2} run1)))))

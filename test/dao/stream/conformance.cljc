@@ -29,7 +29,7 @@
      respecting happens-before real-time precedence and checking against an
      abstract sequential stream model."
   (:require [clojure.set :as set]
-            [dao.stream :as v2]))
+            [dao.stream :as ds]))
 
 
 ;; =============================================================================
@@ -58,11 +58,11 @@
         surfaces (:surfaces manifest)
         ops-decl (:operations manifest)]
 
-    (when-not (v2/qualified-keyword?* ttype)
+    (when-not (ds/qualified-keyword?* ttype)
       (swap! errors conj {:error :invalid-transport-type :type ttype}))
 
-    (when-not (and (set? surfaces) (set/subset? surfaces v2/surfaces))
-      (swap! errors conj {:error :invalid-surfaces :surfaces surfaces :allowed v2/surfaces}))
+    (when-not (and (set? surfaces) (set/subset? surfaces ds/surfaces))
+      (swap! errors conj {:error :invalid-surfaces :surfaces surfaces :allowed ds/surfaces}))
 
     (when-not (map? ops-decl)
       (swap! errors conj {:error :missing-operations-map :operations ops-decl}))
@@ -88,8 +88,8 @@
 
     ;; Validate each operation's produces/exclusions partition
     (doseq [[op-key decl] ops-decl]
-      (let [canon-op (v2/canonical-op op-key)
-            contract-outcomes (get v2/operation-outcomes canon-op)]
+      (let [canon-op (ds/canonical-op op-key)
+            contract-outcomes (get ds/operation-outcomes canon-op)]
         (if-not contract-outcomes
           (swap! errors conj {:error :unknown-operation :operation op-key})
           (let [produces (get decl :produces #{})
@@ -128,13 +128,13 @@
   "Asserts manifest induction:
    1. For each declared outcome in :produces, the fixture induces it.
    2. No observed outcome falls outside the declared :produces set.
-   3. Every produced result satisfies v2/valid-outcome?."
+   3. Every produced result satisfies ds/valid-outcome?."
   [manifest]
   (let [violations (atom [])
         fixtures (:fixtures manifest {})
         ops-decl (:operations manifest {})]
     (doseq [[op-key decl] ops-decl]
-      (let [canon-op (v2/canonical-op op-key)
+      (let [canon-op (ds/canonical-op op-key)
             produces (get decl :produces #{})
             op-fixtures (get fixtures op-key {})]
         (doseq [outcome produces]
@@ -155,7 +155,7 @@
                                         :outcome observed-outcome
                                         :allowed produces}))
               ;; Check 3: Result map is valid (required keys present, open map)
-              (when-let [defect (v2/validate-outcome canon-op res)]
+              (when-let [defect (ds/validate-outcome canon-op res)]
                 (swap! violations conj {:check :invalid-outcome-shape
                                         :operation canon-op
                                         :defect defect})))
@@ -173,12 +173,12 @@
    - Descriptor envelope is valid."
   [handle]
   (let [violations (atom [])]
-    (if-not (v2/descriptor? handle)
+    (if-not (ds/descriptor? handle)
       (swap! violations conj {:check :handle-missing-descriptor-protocol})
-      (let [res (v2/descriptor handle)]
+      (let [res (ds/descriptor handle)]
         (when-not (= :dao.stream/ok (:dao.stream/outcome res))
           (swap! violations conj {:check :descriptor-outcome-not-ok :result res}))
-        (when-not (v2/descriptor-identity-consistent? res)
+        (when-not (ds/descriptor-identity-consistent? res)
           (swap! violations conj {:check :descriptor-identity-inconsistent :result res}))))
     @violations))
 
@@ -191,27 +191,27 @@
    - Next returns valid outcomes and successor cursors."
   [handle]
   (let [violations (atom [])]
-    (if-not (v2/reader? handle)
+    (if-not (ds/reader? handle)
       (swap! violations conj {:check :handle-missing-reader-protocol})
       (do
         ;; Mint oldest and newest
-        (let [r-oldest (v2/cursor handle :dao.stream/oldest)]
+        (let [r-oldest (ds/cursor handle :dao.stream/oldest)]
           (when-not (and (= :dao.stream/ok (:dao.stream/outcome r-oldest))
                          (contains? r-oldest :dao.stream/cursor))
             (swap! violations conj {:check :cursor-oldest-failed :result r-oldest})))
-        (let [r-newest (v2/cursor handle :dao.stream/newest)]
+        (let [r-newest (ds/cursor handle :dao.stream/newest)]
           (when-not (and (= :dao.stream/ok (:dao.stream/outcome r-newest))
                          (contains? r-newest :dao.stream/cursor))
             (swap! violations conj {:check :cursor-newest-failed :result r-newest})))
         ;; Non-destructive read test if elements present
-        (let [invalid-anchor (v2/cursor handle ::invalid-anchor)
+        (let [invalid-anchor (ds/cursor handle ::invalid-anchor)
               _ (when-not (= :dao.stream/invalid-anchor
                              (:dao.stream/outcome invalid-anchor))
                   (swap! violations conj {:check :invalid-anchor-not-rejected
                                           :result invalid-anchor}))
-              c0 (:dao.stream/cursor (v2/cursor handle :dao.stream/oldest))
-              res1 (v2/next handle c0)
-              res2 (v2/next handle c0)]
+              c0 (:dao.stream/cursor (ds/cursor handle :dao.stream/oldest))
+              res1 (ds/next handle c0)
+              res2 (ds/next handle c0)]
           (when-not (= res1 res2)
             (swap! violations conj {:check :destructive-read-detected
                                     :first-read res1
@@ -222,8 +222,8 @@
           (when (contains? #{:dao.stream/ok :dao.stream/gap}
                            (:dao.stream/outcome res1))
             (let [successor (:dao.stream/cursor res1)
-                  follow-up (v2/next handle successor)]
-              (when-not (v2/valid-outcome? :next follow-up)
+                  follow-up (ds/next handle successor)]
+              (when-not (ds/valid-outcome? :next follow-up)
                 (swap! violations conj {:check :invalid-successor-or-recovery-cursor
                                         :source res1 :follow-up follow-up})))))))
     @violations))
@@ -235,10 +235,10 @@
    - append! returns valid outcome."
   [handle test-val]
   (let [violations (atom [])]
-    (if-not (v2/writer? handle)
+    (if-not (ds/writer? handle)
       (swap! violations conj {:check :handle-missing-writer-protocol})
-      (let [res (v2/append! handle test-val)]
-        (when-not (v2/valid-outcome? :append! res)
+      (let [res (ds/append! handle test-val)]
+        (when-not (ds/valid-outcome? :append! res)
           (swap! violations conj {:check :invalid-append-outcome :result res}))))
     @violations))
 
@@ -250,10 +250,10 @@
    - close! is idempotent: subsequent close! returns :dao.stream/ok."
   [handle]
   (let [violations (atom [])]
-    (if-not (v2/closable? handle)
+    (if-not (ds/closable? handle)
       (swap! violations conj {:check :handle-missing-closable-protocol})
-      (let [res1 (v2/close! handle)
-            res2 (v2/close! handle)]
+      (let [res1 (ds/close! handle)
+            res2 (ds/close! handle)]
         (when-not (= :dao.stream/ok (:dao.stream/outcome res1))
           (swap! violations conj {:check :close-outcome-not-ok :result res1}))
         (when-not (= :dao.stream/ok (:dao.stream/outcome res2))

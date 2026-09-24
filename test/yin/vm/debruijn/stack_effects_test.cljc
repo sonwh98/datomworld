@@ -17,7 +17,7 @@
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
-            [yin.vm :as v2]
+            [yin.vm :as vm]
             [yin.vm.debruijn-code :as dc]
             [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-vm-contract-test :as b0]
@@ -63,13 +63,13 @@
   ([segment opts]
    (dvm/create-vm segment
                   (merge {:make-stream tu/make-stream,
-                          :primitives v2/primitives}
+                          :primitives vm/primitives}
                          opts))))
 
 
 (defn- run-segment
   ([segment] (run-segment segment {}))
-  ([segment opts] (v2/run (make-vm segment opts))))
+  ([segment opts] (vm/run (make-vm segment opts))))
 
 
 (def ^:private load-ast (linearize/ast-loader semantic/vm-load-program))
@@ -78,13 +78,13 @@
 (defn- semantic-run
   "Run `ast` on a fresh semantic VM, B4's parity oracle."
   [ast]
-  (v2/run (load-ast (semantic/create-vm {:make-stream tu/make-stream})
-                    (v2/ast->datoms ast))))
+  (vm/run (load-ast (semantic/create-vm {:make-stream tu/make-stream})
+                    (vm/ast->datoms ast))))
 
 
 (defn- debruijn-image
   [ast]
-  (:image (dl/adapt (v2/ast->datoms ast))))
+  (:image (dl/adapt (vm/ast->datoms ast))))
 
 
 (defn- debruijn-run
@@ -142,7 +142,7 @@
   []
   (let [parked (run-segment read-first-segment)
         entry (first (:wait-set parked))]
-    [parked (get (v2/store parked) (:stream-id entry))]))
+    [parked (get (vm/store parked) (:stream-id entry))]))
 
 
 (def ^:private payload-keys
@@ -167,22 +167,22 @@
                    :id-counter :value :make-stream]))
       (is (= (dc/image-hash [[:const 1] [:halt]]) (:hash vm))
           ":hash is the loaded image's H")
-      (is (not (v2/halted? vm)))
-      (is (not (v2/blocked? vm)))))
+      (is (not (vm/halted? vm)))
+      (is (not (vm/blocked? vm)))))
   (testing "an empty segment starts halted with an empty program, as the
             semantic VM's create-vm does; load-image loads work into it"
     (let [vm (make-vm [])]
-      (is (v2/halted? vm))
-      (is (= vm (v2/run vm)) "nothing to run")
+      (is (vm/halted? vm))
+      (is (= vm (vm/run vm)) "nothing to run")
       (let [loaded (dvm/load-image vm [[:const 9] [:halt]])]
-        (is (not (v2/halted? loaded)))
-        (is (= 9 (v2/value (v2/run loaded)))))))
+        (is (not (vm/halted? loaded)))
+        (is (= 9 (vm/value (vm/run loaded)))))))
   (testing ":halt and a :return on an empty continuation write the stack
             top into :value, which `value` reads"
-    (is (= 3 (v2/value (run-segment [[:const 3] [:halt]]))))
-    (is (= 4 (v2/value (run-segment [[:closure 0 3] [:call 0 false] [:halt]
+    (is (= 3 (vm/value (run-segment [[:const 3] [:halt]]))))
+    (is (= 4 (vm/value (run-segment [[:closure 0 3] [:call 0 false] [:halt]
                                      [:const 4] [:return]]))))
-    (is (= 5 (v2/value (run-segment [[:const 5] [:return]]))))))
+    (is (= 5 (vm/value (run-segment [[:const 5] [:return]]))))))
 
 
 ;; =============================================================================
@@ -199,22 +199,22 @@
                                   [:const 7]            ; 5: sref 7
                                   [:stream-put]         ; 6: 7 (the appended value)
                                   [:halt]])             ; 7
-          sref (get (v2/store first-run) 's)]
-      (is (= 7 (v2/value first-run)) "put yields the appended value")
+          sref (get (vm/store first-run) 's)]
+      (is (= 7 (vm/value first-run)) "put yields the appended value")
       (is (= [7] (:stack first-run)) "the target ref and the value were popped")
       (is (= :stream-ref (:type sref)))
       ;; A second program over the same store reads it back.
-      (is (= 7 (v2/value (run-segment [[:load-free 's]     ; 0: s
+      (is (= 7 (vm/value (run-segment [[:load-free 's]     ; 0: s
                                        [:stream-cursor]    ; 1: cursor ref
                                        [:stream-next]      ; 2: 7
                                        [:halt]]            ; 3
-                                      {:store (v2/store first-run)}))))))
+                                      {:store (vm/store first-run)}))))))
   (testing "the :stream-put layout is the value on top and the target ref
             beneath it, both popped -- `lower-stack` emits target, push,
             value, stream-put"
     (let [done (run-segment [[:stream-make 4] [:push] [:const :v] [:stream-put]
                              [:halt]])]
-      (is (= :v (v2/value done)))
+      (is (= :v (vm/value done)))
       (is (= [:v] (:stack done)) "only the put's value remains"))))
 
 
@@ -222,12 +222,12 @@
   (testing "close yields nil; a read at the end of a closed stream is nil"
     (let [[parked handle] (blocked-reader)]
       (stream/close! handle)
-      (let [done (v2/run parked)]
-        (is (v2/halted? done))
-        (is (nil? (v2/value done))))))
+      (let [done (vm/run parked)]
+        (is (vm/halted? done))
+        (is (nil? (vm/value done))))))
   (testing ":stream-close consumes the ref and leaves nil on the stack"
     (let [done (run-segment [[:stream-make 4] [:stream-close] [:halt]])]
-      (is (nil? (v2/value done)))
+      (is (nil? (vm/value done)))
       (is (= [nil] (:stack done))))))
 
 
@@ -236,10 +236,10 @@
                                                    [:stream-cursor]
                                                    [:stream-next]
                                                    [:halt]])]
-                          [parked (get (v2/store parked)
+                          [parked (get (vm/store parked)
                                        (:stream-id (first (:wait-set parked))))])]
     (dotimes [n 5] (stream/append! handle n))
-    (is (= :dao.stream/gap (v2/value (v2/run parked))))))
+    (is (= :dao.stream/gap (vm/value (vm/run parked))))))
 
 
 (deftest stream-errors-name-their-outcome-test
@@ -255,7 +255,7 @@
       (is (= "Stream append failed"
              (:message (caught #(run-segment [[:const sref] [:push] [:const 1]
                                               [:stream-put] [:halt]]
-                                             {:store (v2/store parked)}))))))))
+                                             {:store (vm/store parked)}))))))))
 
 
 ;; =============================================================================
@@ -266,9 +266,9 @@
   (let [[parked _] (blocked-reader)
         entry (first (:wait-set parked))]
     (testing "the reader parks with one polling wait entry"
-      (is (v2/blocked? parked))
-      (is (not (v2/halted? parked)))
-      (is (= :yin/blocked (v2/value parked)))
+      (is (vm/blocked? parked))
+      (is (not (vm/halted? parked)))
+      (is (= :yin/blocked (vm/value parked)))
       (is (= 1 (count (:wait-set parked))))
       (is (= :next (:reason entry)))
       (is (= :cursor-ref (get-in entry [:cursor-ref :type]))))
@@ -294,12 +294,12 @@
         cursor-id (get-in (first (:wait-set parked)) [:cursor-ref :id])
         before (get-in parked [:store cursor-id :cursor])]
     (testing "polling without a value leaves the reader parked"
-      (is (v2/blocked? (v2/run parked))))
+      (is (vm/blocked? (vm/run parked))))
     (stream/append! handle :a)
-    (let [done (v2/run parked)]
+    (let [done (vm/run parked)]
       (testing "an appended value resumes after :stream-next, on the stack"
-        (is (v2/halted? done))
-        (is (= :a (v2/value done)))
+        (is (vm/halted? done))
+        (is (= :a (vm/value done)))
         (is (= [:a] (:stack done)))
         (is (empty? (:wait-set done)))
         (is (empty? (:ready-queue done))))
@@ -312,21 +312,21 @@
         revived (assoc parked
                        :wait-set (edn/read-string (pr-str (:wait-set parked))))]
     (stream/append! handle :from-edn)
-    (is (= :from-edn (v2/value (v2/run revived))))))
+    (is (= :from-edn (vm/value (vm/run revived))))))
 
 
 (deftest step-runs-one-scheduler-round-between-continuations-test
   (let [[parked handle] (blocked-reader)]
     (testing "a blocked step polls and stays blocked when nothing woke"
-      (is (v2/blocked? (v2/step parked))))
+      (is (vm/blocked? (vm/step parked))))
     (stream/append! handle :s)
     (testing "a blocked step restores the woken entry through stack-restore
               (engine/scheduler-round bound to it) and continues from pc 3"
-      (let [resumed (v2/step parked)]
-        (is (not (v2/blocked? resumed)))
+      (let [resumed (vm/step parked)]
+        (is (not (vm/blocked? resumed)))
         (is (= 3 (:pc resumed)))
         (is (= [:s] (:stack resumed)))
-        (is (= :s (v2/value (v2/step resumed))) "the :halt at pc 3")))))
+        (is (= :s (vm/value (vm/step resumed))) "the :halt at pc 3")))))
 
 
 (defn- scripted-stream
@@ -357,7 +357,7 @@
         seen (atom [])
         sref {:type :stream-ref, :id :scripted}
         ;; Stepped, not run: `run` would poll the wait set and retry at once.
-        parked (nth (iterate v2/step
+        parked (nth (iterate vm/step
                              (make-vm [[:const sref] [:push] [:const 7]
                                        [:stream-put] [:push] [:const :after]
                                        [:halt]]
@@ -366,7 +366,7 @@
                     4)
         entry (first (:wait-set parked))]
     (testing "a full append parks a writer entry carrying the datom to retry"
-      (is (v2/blocked? parked))
+      (is (vm/blocked? parked))
       (is (= :put (:reason entry)))
       (is (= :scripted (:stream-id entry)))
       (is (= 7 (:datom entry)) "handle-effect stamped the value")
@@ -376,11 +376,11 @@
       (is (= [7] @seen)))
     (testing "the wait set retries the identical append and resumes with
               the put's value on the stack, then runs on past it"
-      (let [done (v2/run parked)]
-        (is (v2/halted? done))
+      (let [done (vm/run parked)]
+        (is (vm/halted? done))
         (is (= [7 7] @seen))
         (is (= [7 :after] (:stack done)))
-        (is (= :after (v2/value done)))))))
+        (is (= :after (vm/value done)))))))
 
 
 ;; =============================================================================
@@ -392,8 +392,8 @@
             store and yields the value"
     (let [done (run-segment [[:load-free 'yin/def] [:const 'answer] [:const 42]
                              [:call 2 false] [:halt]])]
-      (is (= 42 (v2/value done)))
-      (is (= 42 (get (v2/store done) 'answer)))))
+      (is (= 42 (vm/value done)))
+      (is (= 42 (get (vm/store done) 'answer)))))
   (testing "require through the module registry value"
     (let [registry (module/register-module (module/default-registry)
                                            'my.lib
@@ -402,9 +402,9 @@
                              [:call 1 false] [:push]
                              [:load-free 'my.lib/answer] [:halt]]
                             {:modules registry})]
-      (is (= 42 (v2/value done)))))
+      (is (= 42 (vm/value done)))))
   (testing "an unknown effect is an error naming it"
-    (let [prims (assoc v2/primitives 'weird (fn [] {:effect :test/nope}))]
+    (let [prims (assoc vm/primitives 'weird (fn [] {:effect :test/nope}))]
       (is (= {:message "Unknown effect", :data {:effect :test/nope}}
              (caught #(run-segment [[:load-free 'weird] [:call 0 false] [:halt]]
                                    {:primitives prims})))))))
@@ -423,15 +423,15 @@
         entry (first (:wait-set parked))]
     (testing "the module call's effect parks with the continuation after the
               call: f and its argument popped, pc past the :call"
-      (is (v2/blocked? parked))
+      (is (vm/blocked? parked))
       (is (= :next (:reason entry)))
       (is (= 4 (:pc entry)))
       (is (= [] (:stack entry)))
       (is (not (host-value? (:wait-set parked))) "no primitive fn parked"))
-    (stream/append! (get (v2/store parked) (:stream-id entry)) :woken)
-    (let [done (v2/run parked)]
+    (stream/append! (get (vm/store parked) (:stream-id entry)) :woken)
+    (let [done (vm/run parked)]
       (is (= [:woken :tail] (:stack done)))
-      (is (= :tail (v2/value done))))))
+      (is (= :tail (vm/value done))))))
 
 
 ;; =============================================================================
@@ -441,18 +441,18 @@
 (deftest gensym-test
   (testing "a fresh id from the engine's counter, on the stack"
     (let [done (run-segment [[:gensym "id"] [:halt]])]
-      (is (= :id-0 (v2/value done)))
+      (is (= :id-0 (vm/value done)))
       (is (= 1 (:id-counter done)))))
   (testing "the counter advances per mint, and a :push after each keeps it"
-    (is (= :g-2 (v2/value (run-segment [[:gensym "g"] [:push] [:gensym "g"] [:push]
+    (is (= :g-2 (vm/value (run-segment [[:gensym "g"] [:push] [:gensym "g"] [:push]
                                         [:gensym "g"] [:halt]])))))
   (testing "deterministic across fresh instances"
     (let [segment [[:gensym "p"] [:push] [:gensym "p"] [:halt]]]
-      (is (= (v2/value (run-segment segment)) (v2/value (run-segment segment))
+      (is (= (vm/value (run-segment segment)) (vm/value (run-segment segment))
              :p-1))))
   (testing "one counter for every minted id: a stream took :stream-0, so the
             gensym after it is -1"
-    (is (= :id-1 (v2/value (run-segment [[:stream-make 4] [:push] [:gensym "id"]
+    (is (= :id-1 (vm/value (run-segment [[:stream-make 4] [:push] [:gensym "id"]
                                          [:halt]]))))))
 
 
@@ -464,15 +464,15 @@
   (testing "a host call is dispatched and its parked continuation resumes"
     (let [done (run-segment [[:const 42] [:ffi-call :op/echo 1] [:halt]]
                             {:bridge {:op/echo identity}})]
-      (is (v2/halted? done))
-      (is (= 42 (v2/value done)))
+      (is (vm/halted? done))
+      (is (= 42 (vm/value done)))
       (is (empty? (:parked done)) "the answered call left :parked")))
   (testing "arguments are taken from the stack in order"
-    (is (= [1 2 3] (v2/value (run-segment [[:const 1] [:const 2] [:const 3]
+    (is (= [1 2 3] (vm/value (run-segment [[:const 1] [:const 2] [:const 3]
                                            [:ffi-call :op/list 3] [:halt]]
                                           {:bridge {:op/list vector}})))))
   (testing "the result feeds the instructions after the call site"
-    (is (= 42 (v2/value (run-segment [[:load-free '+] [:const 1] [:const 41]
+    (is (= 42 (vm/value (run-segment [[:load-free '+] [:const 1] [:const 41]
                                       [:ffi-call :op/echo 1] [:call 2 false]
                                       [:halt]]
                                      {:bridge {:op/echo identity}}))))))
@@ -482,10 +482,10 @@
   (let [parked (run-segment [[:const 7] [:ffi-call :op/echo 1] [:halt]])
         entry (first (:wait-set parked))]
     (testing "without handlers the call parks as a call-out reader"
-      (is (v2/blocked? parked))
-      (is (= :yin/blocked (v2/value parked)))
+      (is (vm/blocked? parked))
+      (is (= :yin/blocked (vm/value parked)))
       (is (= :next (:reason entry)))
-      (is (= v2/call-out-stream-key (:stream-id entry)))
+      (is (= vm/call-out-stream-key (:stream-id entry)))
       (is (contains? (:parked parked) (:call-id entry)))
       (is (= 2 (:pc entry)))
       (is (= [] (:stack entry)) "the argument was popped")
@@ -498,9 +498,9 @@
       (let [{:keys [handled? vm]} (ffi/bridge-step
                                     (ffi/attach parked {:op/echo identity}))]
         (is (true? handled?))
-        (let [done (v2/run vm)]
-          (is (v2/halted? done))
-          (is (= 7 (v2/value done)))
+        (let [done (vm/run vm)]
+          (is (vm/halted? done))
+          (is (= 7 (vm/value done)))
           (is (empty? (:parked done))))))))
 
 
@@ -510,14 +510,14 @@
           {:keys [vm handled?]} (ffi/bridge-step
                                   (ffi/attach parked {:op/other identity}))]
       (is (true? handled?))
-      (is (throws? (fn [] (v2/run vm))))))
+      (is (throws? (fn [] (vm/run vm))))))
   (testing "a response for another call does not resume this one"
     (let [parked (run-segment [[:const 1] [:ffi-call :op/echo 1] [:halt]])
           call-id (:call-id (first (:wait-set parked)))
-          call-out (get (v2/store parked) v2/call-out-stream-key)]
+          call-out (get (vm/store parked) vm/call-out-stream-key)]
       (apply2/put-response! call-out
                             (apply2/success-response [:other call-id] 1))
-      (let [data (throws-ex-data (fn [] (v2/run parked)))]
+      (let [data (throws-ex-data (fn [] (vm/run parked)))]
         (is (= call-id (:call-id data)))
         (is (= [:other call-id] (:response-id data)))))))
 
@@ -567,12 +567,12 @@
         waiter (first (:wait-set parked))]
     (testing "a full call-in parks the call as a writer retrying its request,
               on this machine's registers"
-      (is (v2/blocked? parked))
+      (is (vm/blocked? parked))
       (is (= 1 (count (:wait-set parked))))
       (is (= :put (:reason waiter)))
       (is (true? (:request-sent waiter)))
       (is (= :op/echo (:op waiter)))
-      (is (= v2/call-in-stream-key (:stream-id waiter)))
+      (is (= vm/call-in-stream-key (:stream-id waiter)))
       (is (apply2/request? (:datom waiter)))
       (is (= (:call-id waiter) (apply2/request-id (:datom waiter))
              (first (keys (:parked parked))))
@@ -583,7 +583,7 @@
       (is (= :yin.debruijn.code (:format waiter)))
       (is (= (:hash parked) (:hash waiter))))
     (testing "the polling wait set retries the identical encoded request"
-      (is (v2/blocked? (v2/run parked)))
+      (is (vm/blocked? (vm/run parked)))
       (is (> (count @attempts) 1) "the wait set retried the append")
       (is (apply = @attempts)))))
 
@@ -597,10 +597,10 @@
     (testing "the retry sent the request, and stack-restore re-parked the
               woken writer as the response reader through
               ffi/response-wait-entry: the machine stays blocked"
-      (is (v2/blocked? parked))
+      (is (vm/blocked? parked))
       (is (= 1 (count (:wait-set parked))))
       (is (= :next (:reason reader)))
-      (is (= v2/call-out-stream-key (:stream-id reader)))
+      (is (= vm/call-out-stream-key (:stream-id reader)))
       (is (not (contains? reader :request-sent)))
       (is (not (contains? reader :op)))
       (is (not (contains? reader :datom)))
@@ -611,20 +611,20 @@
     (testing "the answered response resumes it"
       (let [{:keys [handled? request-id vm]}
             (ffi/bridge-step (ffi/attach parked {:op/echo identity}))
-            done (v2/run vm)]
+            done (vm/run vm)]
         (is (true? handled?))
         (is (= (:call-id reader) request-id))
-        (is (v2/halted? done))
-        (is (= 5 (v2/value done)))
+        (is (vm/halted? done))
+        (is (= 5 (vm/value done)))
         (is (empty? (:parked done)))))))
 
 
 (deftest no-call-pair-test
   (let [bare (dvm/create-vm [[:const 1] [:ffi-call :op/echo 1] [:halt]])]
     (testing "a VM without :make-stream or explicit streams holds no pair"
-      (is (nil? (ffi/call-pair (v2/store bare)))))
+      (is (nil? (ffi/call-pair (vm/store bare)))))
     (testing "a call fails before park-continuation, stranding nothing"
-      (is (throws? (fn [] (v2/run bare))))
+      (is (throws? (fn [] (vm/run bare))))
       (is (empty? (:parked bare))))))
 
 
@@ -635,7 +635,7 @@
 (deftest current-continuation-test
   (let [segment [[:const 1] [:push] [:current-continuation] [:halt]]
         done (run-segment segment)
-        k (v2/value done)]
+        k (vm/value done)]
     (testing "the continuation after the instruction, as a tagged payload"
       (is (= :reified-continuation (:type k)))
       (is (= 3 (:pc k)))
@@ -665,11 +665,11 @@
 
 
 (deftest park-test
-  (let [parked (v2/run (make-vm park-then-resume-segment))
-        record (v2/value parked)]
+  (let [parked (vm/run (make-vm park-then-resume-segment))
+        record (vm/value parked)]
     (testing "park halts the machine with the parked record as its value"
-      (is (v2/halted? parked))
-      (is (not (v2/blocked? parked)))
+      (is (vm/halted? parked))
+      (is (not (vm/blocked? parked)))
       (is (= :parked-continuation (:type record)))
       (is (= :parked-0 (:id record)))
       (is (= record (get (:parked parked) :parked-0)))
@@ -684,13 +684,13 @@
 
 
 (deftest resume-test
-  (let [parked (v2/run (make-vm park-then-resume-segment))]
+  (let [parked (vm/run (make-vm park-then-resume-segment))]
     (testing "a second run of the same image resumes the parked continuation:
               the resume value is conjed onto the parked stack and control
               continues after the park"
-      (let [done (v2/run (v2/reset parked))]
-        (is (v2/halted? done))
-        (is (= 42 (v2/value done)))
+      (let [done (vm/run (vm/reset parked))]
+        (is (vm/halted? done))
+        (is (= 42 (vm/value done)))
         (is (= [true 42] (:stack done)))
         (is (empty? (:parked done)) "the resumed continuation leaves :parked")))
     (testing "the same, through engine/resume-continuation with stack-restore"
@@ -698,7 +698,7 @@
                                                 dvm/stack-restore)]
         (is (= 7 (:pc resumed)))
         (is (= [true :direct] (:stack resumed)))
-        (is (= :direct (v2/value (v2/run resumed))))))
+        (is (= :direct (vm/value (vm/run resumed))))))
     (testing "resuming an unknown parked id is an error"
       (is (thrown-with-msg?
             #?(:clj Exception :cljs js/Error :cljd Object)
@@ -725,12 +725,12 @@
                    [:const 1]             ; 13
                    [:call 2 false]        ; 14: 11
                    [:return]]             ; 15
-          parked (v2/run (make-vm segment))
-          record (v2/value parked)]
+          parked (vm/run (make-vm segment))
+          record (vm/value parked)]
       (is (= [[10]] (:frames record)))
       (is (= 1 (count (:continuation record))))
-      (let [done (v2/run (v2/reset parked))]
-        (is (= 11 (v2/value done)) "the frame's positional local survived")
+      (let [done (vm/run (vm/reset parked))]
+        (is (= 11 (vm/value done)) "the frame's positional local survived")
         (is (= [true 11] (:stack done))
             "the resume value :v and the return landed on the caller's stack")))))
 
@@ -747,7 +747,7 @@
           named {:type :parked-continuation, :id :parked-0,
                  :segment -1, :pc 3, :env {}, :stack [7], :k []}
           data (throws-ex-data
-                 (fn [] (v2/run (assoc vm :parked {:parked-0 named}))))]
+                 (fn [] (vm/run (assoc vm :parked {:parked-0 named}))))]
       (is (= :continuation-format (:rule data)))
       (is (nil? (:format data)))
       (is (= :yin.debruijn.code (:expected-format data)))
@@ -755,14 +755,14 @@
 
 
 (deftest mismatched-image-hash-is-refused-test
-  (let [parked (v2/run (make-vm park-then-resume-segment))
+  (let [parked (vm/run (make-vm park-then-resume-segment))
         other [[:const :other] [:resume :parked-0] [:halt]]
         loaded (dvm/load-image parked other)]
     (testing "load-image keeps the parked record but changes H"
       (is (contains? (:parked loaded) :parked-0))
       (is (not= (:hash parked) (:hash loaded))))
     (testing "resuming a continuation parked under another image is refused"
-      (let [data (throws-ex-data (fn [] (v2/run loaded)))]
+      (let [data (throws-ex-data (fn [] (vm/run loaded)))]
         (is (= :continuation-format (:rule data)))
         (is (= (:hash parked) (:hash data)))
         (is (= (:hash loaded) (:expected-hash data)))))
@@ -815,8 +815,8 @@
                                      :target (lit {:type :stream-ref, :id :nope}),
                                      :val (lit 1)}]]]
     (testing label
-      (is (= (caught #(v2/value (semantic-run ast)))
-             (caught #(v2/value (debruijn-run ast))))))))
+      (is (= (caught #(vm/value (semantic-run ast)))
+             (caught #(vm/value (debruijn-run ast))))))))
 
 
 (deftest blocked-and-woken-parity-test
@@ -824,14 +824,14 @@
         named (semantic-run ast)
         db (debruijn-run ast)
         wake (fn [vm value]
-               (stream/append! (get (v2/store vm)
+               (stream/append! (get (vm/store vm)
                                     (:stream-id (first (:wait-set vm))))
                                value)
-               (b0/normalize (v2/value (v2/run vm))))]
+               (b0/normalize (vm/value (vm/run vm))))]
     (testing "both block on the empty stream with the same outcome"
-      (is (v2/blocked? named))
-      (is (v2/blocked? db))
-      (is (= (b0/normalize (v2/value named)) (b0/normalize (v2/value db))
+      (is (vm/blocked? named))
+      (is (vm/blocked? db))
+      (is (= (b0/normalize (vm/value named)) (b0/normalize (vm/value db))
              :yin/blocked)))
     (testing "both wake to the same value"
       (is (= (wake named :a) (wake db :a) :a)))))
@@ -841,18 +841,18 @@
   (testing "a closed stream ends with nil on both"
     (let [ast (read-first-ast 4)
           close-and-run (fn [vm]
-                          (stream/close! (get (v2/store vm)
+                          (stream/close! (get (vm/store vm)
                                               (:stream-id (first (:wait-set vm)))))
-                          (b0/normalize (v2/value (v2/run vm))))]
+                          (b0/normalize (vm/value (vm/run vm))))]
       (is (= (close-and-run (semantic-run ast)) (close-and-run (debruijn-run ast))
              nil))))
   (testing "eviction surfaces as :dao.stream/gap on both"
     (let [ast (read-first-ast 2)
           overrun (fn [vm]
-                    (let [handle (get (v2/store vm)
+                    (let [handle (get (vm/store vm)
                                       (:stream-id (first (:wait-set vm))))]
                       (dotimes [n 5] (stream/append! handle n))
-                      (b0/normalize (v2/value (v2/run vm)))))]
+                      (b0/normalize (vm/value (vm/run vm)))))]
       (is (= (overrun (semantic-run ast)) (overrun (debruijn-run ast))
              :dao.stream/gap)))))
 
@@ -861,17 +861,17 @@
   (let [ast {:type :dao.stream.apply/call,
              :op :op/echo,
              :operands [(lit 42)]}
-        named (v2/run (load-ast (semantic/create-vm {:make-stream tu/make-stream,
+        named (vm/run (load-ast (semantic/create-vm {:make-stream tu/make-stream,
                                                      :bridge {:op/echo identity}})
-                                (v2/ast->datoms ast)))
+                                (vm/ast->datoms ast)))
         db (run-segment (debruijn-image ast) {:bridge {:op/echo identity}})]
-    (is (= (b0/normalize (v2/value named)) (b0/normalize (v2/value db)) 42))
+    (is (= (b0/normalize (vm/value named)) (b0/normalize (vm/value db)) 42))
     (is (= (empty? (:parked named)) (empty? (:parked db)) true))))
 
 
 (deftest store-parity-test
   (testing "the store slice a program writes agrees, host handles excluded"
     (let [ast (app (variable 'yin/def) (lit 'k) {:type :stream/make, :buffer 4})
-          slice (fn [vm] (b0/normalize (select-keys (v2/store vm) ['k])))]
+          slice (fn [vm] (b0/normalize (select-keys (vm/store vm) ['k])))]
       (is (= (slice (semantic-run ast)) (slice (debruijn-run ast))
              {'k {:type :stream-ref, :id :stream-0}})))))
