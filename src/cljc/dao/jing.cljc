@@ -1,13 +1,20 @@
 (ns dao.jing
   "DaoJing: the content-addressed storage observer (docs/design/dao.jing.md).
 
-   A content-store handle is plain data, not a protocol:
-   {:put-content-fn f, :get-content-fn g, :close-fn c}. The backend effects
-   are explicit functions: materialize! computes the content address solely
-   from the payload, inserts idempotently, and returns the address only
-   after the backend reports durability. get reads only registered
-   :segment/<algorithm>-... content addresses; arbitrary keys and mutable roots
-   are outside DaoJing.
+   A content-store handle is a plain-data byte store, not a protocol:
+   {:put-bytes-fn f, :get-bytes-fn g, :close-fn c}
+   (docs/design/dao.jing.cbor.md, Layering and interfaces). The backend
+   effects are explicit functions over canonical CBOR bytes: put takes an
+   address and its canonical payload bytes and answers :inserted or
+   :present; get takes an address and a caller-supplied not-found sentinel
+   and answers the stored bytes or that sentinel. Backends know nothing of
+   values. The value-facing operations live here: materialize! encodes a
+   payload exactly once, derives the content address from those bytes, and
+   hands the same bytes to the backend, returning the address only after
+   the backend reports durability; get hash-verifies the bytes a backend
+   returns and decodes them. Reads accept only registered
+   :segment/<algorithm>-... content addresses; arbitrary keys and mutable
+   roots are outside DaoJing.
 
    The observer (observer-state / observe-step! / adopt-cursor) coordinates
    an explicit intake pool of dao.stream reader handles and materializes
@@ -20,7 +27,9 @@
   (:require [clojure.string :as str]
             [dao.stream :as stream]
             [dao.stream.observe :as observe]
+            [dao.jing.cbor :as cbor]
             #?@(:cljs [[goog.crypt :as crypt]
+                       [goog.crypt.base64 :as base64]
                        goog.crypt.Sha256
                        ["@noble/hashes/blake3.js" :as noble-blake3]
                        ["@noble/hashes/utils.js" :as noble-utils]])
@@ -44,117 +53,6 @@
 ;; =============================================================================
 ;; Content addressing (docs/design/dao.jing.md, Canonical encoding)
 ;; =============================================================================
-
-(defn- canonical-print
-  "Print an order-normalized value following Clojure's printing conventions
-   byte for byte — space-separated sequential elements, `, `-separated map
-   entries, metadata as a ^m prefix — instead of delegating to the host
-   printer, which drops collection metadata in at least one case (a sorted
-   set prints through its metadata-less seq on Dart). Scalars still print
-   through pr-str."
-  [n]
-  (let [prefixed (fn [body]
-                   (if (meta n)
-                     (str "^" (canonical-print (meta n)) " " body)
-                     body))]
-    (cond (map? n)
-          (prefixed
-            (str "{"
-                 (str/join ", " (map (fn [[k v]]
-                                       (str (canonical-print k) " "
-                                            (canonical-print v)))
-                                     n))
-                 "}"))
-          (set? n)
-          (prefixed
-            (str "#{" (str/join " " (map canonical-print n)) "}"))
-          (vector? n)
-          (prefixed
-            (str "[" (str/join " " (map canonical-print n)) "]"))
-          (sequential? n)
-          (prefixed
-            (str "(" (str/join " " (map canonical-print n)) ")"))
-          :else (pr-str n))))
-
-
-(defn- order-normalize
-  "Normalize a value so equal values print identically: maps and sets sort by
-   canonically-printed key/element, sequences recurse, and collection metadata is
-   normalized and reattached so it survives into the address. Reader position
-   metadata (:line/:column and friends) is not content and is dropped; every
-   other metadata difference changes the address.
-
-   A normalized set stays a (sorted) set and therefore prints with #{}
-   braces: the set-ness marker comes from the printer, never from a tag like
-   '(set ...) placed inside the ordinary value domain where a real list of
-   that shape could collide with it.
-
-   Records are not a supported payload: the hosts cannot even agree on how
-   to print one (tagged literal on the JVM and JS, plain map on Dart), so a
-   record and its equal plain map would collide somewhere. order-normalize
-   throws on records — anywhere in the value — rather than silently
-   addressing them as maps.
-
-   Transitional: this exists only to make the print-based content hash
-   deterministic and order-insensitive until the pinned, cross-platform
-   canonical byte encoding lands (docs/design/dao.jing.md, Canonical
-   encoding). It is NOT that canonical encoding."
-  [v]
-  (let [attach-meta (fn [normalized]
-                      (let [;; reader position is not content: the hosts'
-                            ;; readers stamp source coordinates onto list
-                            ;; literals, which would make an address depend
-                            ;; on where a payload was written. Everything
-                            ;; else in the metadata is address-significant.
-                            m (dissoc (meta v)
-                                      :line :column :end-line :end-column)]
-                        ;; empty metadata is dropped: = ignores metadata
-                        ;; entirely, and the hosts disagree on whether ^{}
-                        ;; prints (the JVM skips it, Dart prints it)
-                        (if (seq m)
-                          (with-meta normalized (order-normalize m))
-                          normalized)))]
-    (cond (record? v)
-          (throw (ex-info "dao.jing does not address records: hosts print them differently, so their addresses would collide across hosts"
-                          {:payload v}))
-          (map? v) (attach-meta
-                     (->> v
-                          (map (fn [[k x]]
-                                 [(order-normalize k)
-                                  (order-normalize x)]))
-                          ;; a canonically-printed-keyed sorted map prints
-                          ;; its keys in a fixed order on every platform
-                          ;; (array-map is not in ClojureDart)
-                          (into (sorted-map-by
-                                  #(compare (canonical-print %1)
-                                            (canonical-print %2))))))
-          (set? v) (attach-meta
-                     ;; a sorted set prints its elements in one fixed order
-                     ;; on every platform and keeps its #{} braces, so it can
-                     ;; never print like the list or vector of the same
-                     ;; elements
-                     (into (sorted-set-by
-                             #(compare (canonical-print %1)
-                                       (canonical-print %2)))
-                           (map order-normalize v)))
-          (vector? v) (attach-meta (mapv order-normalize v))
-          ;; lists and seqs are one canonical value: = calls them equal and
-          ;; both print (e1 e2 ...), so both normalize to a list. The
-          ;; with-meta nil is load-bearing: ClojureDart's list returns a list
-          ;; carrying cljd.core's own reader metadata (:line, :tag
-          ;; PersistentList, ...), which would otherwise print into the address
-          (sequential? v) (attach-meta
-                            (with-meta (apply list (map order-normalize v))
-                              nil))
-          :else v)))
-
-
-(defn- order-normalized-print
-  "Transitional encoder: canonical-print over the order-normalized form,
-   which prints collection metadata instead of dropping it. NOT the final
-   canonical byte encoding; see order-normalize."
-  [v]
-  (canonical-print (order-normalize v)))
 
 
 #?(:cljd (do
@@ -379,17 +277,14 @@
 
 
 (defn canonical-bytes
-  "Host UTF-8 bytes (byte[] / Uint8Array / Uint8List) of the
-   order-normalized print of v -- the exact bytes content hashing digests, so
+  "Return the deterministic CBOR bytes (byte[] / Uint8Array / Uint8List)
+   of v -- the exact bytes content hashing digests, so
    `(digest-bytes algo (canonical-bytes v))` is
    `(content-hash v {:algorithm algo})`.
    This is the byte form Jing content travels in across a `dao.stream`
    boundary."
   [v]
-  (let [text (order-normalized-print v)]
-    #?(:clj (.getBytes ^String text "UTF-8")
-       :cljs (js/Uint8Array.from (crypt/stringToUtf8ByteArray text))
-       :cljd (utf8-bytes text))))
+  (cbor/encode v))
 
 
 (defn content-hash
@@ -500,79 +395,172 @@
     false))
 
 
+(defn segment-bytes-match?
+  "Total verification predicate over bytes: true when address is a valid
+   segment address whose digest is the hash of bs under the address-carried
+   algorithm. Never throws: a malformed address, a foreign algorithm, or a
+   non-byte bs all answer false."
+  [address bs]
+  (if-let [{:keys [algorithm digest]} (parse-segment-address address)]
+    (try
+      (= digest (digest-bytes algorithm bs))
+      (catch #?(:cljd Object :clj Throwable :cljs :default) _
+        false))
+    false))
+
+
+(def ^:private base64-pattern
+  "Padded standard-alphabet Base64: no whitespace, no URL-safe alphabet."
+  #"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
+
+
+(defn bytes->base64
+  "The padded standard-alphabet Base64 text of host bytes bs: the transport
+   representation of canonical payload bytes inside Transit envelopes
+   (docs/design/dao.jing.cbor.md, Remote and DHT)."
+  [bs]
+  #?(:clj (.encodeToString (java.util.Base64/getEncoder) ^bytes bs)
+     :cljs (base64/encodeByteArray bs)
+     :cljd (convert/base64Encode bs)))
+
+
+(defn base64->bytes
+  "The host bytes of padded standard-alphabet Base64 text s, decoded
+   strictly: anything else (whitespace, the URL-safe alphabet, missing
+   padding, a non-string) throws."
+  [s]
+  (when-not (and (string? s) (re-matches base64-pattern s))
+    (throw (ex-info "not padded standard-alphabet Base64" {:text s})))
+  #?(:clj (.decode (java.util.Base64/getDecoder) ^String s)
+     :cljs (base64/decodeStringToUint8Array s)
+     :cljd (convert/base64Decode s)))
+
+
+(defn segment-bytes
+  "The canonical payload bytes of payload, which must hash to address
+   under the address-carried algorithm; the byte-level twin of
+   segment-matches? for a backend that stores bytes and needs them.
+   Throws on a malformed address, an unencodable payload, or a digest
+   mismatch."
+  [address payload]
+  (let [{:keys [algorithm digest]}
+        (or (parse-segment-address address)
+            (throw (ex-info "not a segment content address"
+                            {:address address})))
+        bs (canonical-bytes payload)]
+    (when-not (= digest (digest-bytes algorithm bs))
+      (throw (ex-info "content address does not match the payload"
+                      {:address address, :payload payload})))
+    bs))
+
+
+(defn segment-value
+  "The value of payload bytes stored at address: verifies the bytes hash to
+   the address under its carried algorithm, then decodes exactly one
+   accepted payload without re-encoding it (the canonicality check ran
+   once, at the ingress that accepted the bytes). Throws on a malformed
+   address, a digest mismatch, or bytes that do not decode."
+  [address bs]
+  (let [{:keys [algorithm digest]}
+        (or (parse-segment-address address)
+            (throw (ex-info "not a segment content address"
+                            {:address address})))]
+    (when-not (= digest (digest-bytes algorithm bs))
+      (throw (ex-info "stored bytes do not hash to their content address"
+                      {:address address})))
+    (cbor/decode-snapshot bs)))
+
+
 (defn materialize!
-  "Content-address payload and store it through the handle's backend.
+  "Content-address payload and store it through the handle's byte store.
 
    Supports [handle payload] (defaulting to default-hash-algorithm, :blake3)
    and [handle payload {:keys [algorithm]}].
 
-   The address is derived solely from the payload via segment-key, and the
-   backend effect :put-content-fn is invoked as (put-content-fn address
-   payload). The backend must answer with one of:
+   The payload is encoded exactly once. The address is derived solely from
+   those canonical bytes, and the same bytes go to the backend effect
+   :put-bytes-fn as (put-bytes-fn address bytes). The backend must answer
+   with one of:
 
-     :inserted — the value is durably stored now;
-     :present  — an equal value is already stored under that address.
+     :inserted -- the bytes are durably stored now;
+     :present  -- bytes are already stored under that address.
 
    Any other answer is an invalid backend result and throws: DaoJing does
    not accept ambiguous truthiness. The address is returned only after the
    backend reports success.
 
-   On :present the stored value is read back through :get-content-fn and
-   verified to hash to the address with segment-matches?. Equal content is
-   idempotent and returns the same address. Content that does not hash to its
-   own address is an integrity failure and throws loudly. Nothing is ever
-   overwritten."
+   On :present the stored bytes are read back through :get-bytes-fn and
+   verified both by hash against the address and byte for byte against the
+   proposed bytes. Equal content is idempotent and returns the same
+   address. Content that does not hash to its own address is an integrity
+   failure and throws loudly. Nothing is ever overwritten."
   ([handle payload]
    (materialize! handle payload {:algorithm default-hash-algorithm}))
   ([handle payload opts]
-   (let [put (:put-content-fn handle)
-         get-fn (:get-content-fn handle)]
+   (let [put (:put-bytes-fn handle)
+         get-fn (:get-bytes-fn handle)]
      (when-not (fn? put)
-       (throw (ex-info "dao.jing handle requires :put-content-fn"
+       (throw (ex-info "dao.jing handle requires :put-bytes-fn"
                        {:handle handle})))
      (when-not (fn? get-fn)
-       (throw (ex-info "dao.jing handle requires :get-content-fn"
+       (throw (ex-info "dao.jing handle requires :get-bytes-fn"
                        {:handle handle})))
-     (let [address (segment-key payload opts)
-           result (put address payload)]
-       (case result
-         :inserted address
-         :present
-         (let [stored (get-fn address content-missing)]
-           (cond
-             (identical? stored content-missing)
-             (throw
-               (ex-info
-                 "backend reported :present but the content address is absent"
-                 {:address address, :payload payload}))
-             ;; the read-back must hash to the address it sits at
-             (segment-matches? address stored) address
-             :else
-             (throw
-               (ex-info
-                 (str "content collision: the stored value does not hash to "
-                      "its content address")
-                 {:address address, :stored stored, :payload payload}))))
-         (throw (ex-info
-                  "invalid backend put result"
-                  {:result result, :address address, :payload payload})))))))
+     (let [algo (clojure.core/get opts :algorithm default-hash-algorithm)
+           reg (clojure.core/get registry algo)]
+       (when-not reg
+         (throw (ex-info (str "unsupported hash algorithm: " algo)
+                         {:algorithm algo})))
+       (let [bs (canonical-bytes payload)
+             address (keyword "segment"
+                              (str (:address-id reg) "-"
+                                   (digest-bytes algo bs)))
+             result (put address bs)]
+         (case result
+           :inserted address
+           :present
+           (let [stored (get-fn address content-missing)]
+             (cond
+               (identical? stored content-missing)
+               (throw
+                 (ex-info
+                   "backend reported :present but the content address is absent"
+                   {:address address, :payload payload}))
+               ;; the read-back must hash to the address it sits at and be
+               ;; the very bytes proposed
+               (and (segment-bytes-match? address stored)
+                    (cbor/bytes= stored bs))
+               address
+               :else
+               (throw
+                 (ex-info
+                   (str "content collision: the stored bytes do not match "
+                        "their content address")
+                   {:address address, :payload payload}))))
+           (throw (ex-info
+                    "invalid backend put result"
+                    {:result result, :address address, :payload payload}))))))))
 
 
 (defn get
-  "Retrieve the opaque value stored at a content address.
+  "Retrieve the value stored at a content address.
 
    Only valid registered content addresses are valid DaoJing reads;
    arbitrary keys and mutable roots are outside DaoJing and throw before the
-   backend is consulted. Returns not-found when the address is absent."
+   backend is consulted. The backend's bytes are hash-verified against the
+   address and decoded; bytes that do not hash to the address throw.
+   Returns not-found when the address is absent."
   [handle address not-found]
   (when-not (segment-address? address)
     (throw (ex-info "dao.jing reads only valid segment content addresses"
                     {:address address})))
-  (let [get-fn (:get-content-fn handle)]
+  (let [get-fn (:get-bytes-fn handle)]
     (when-not (fn? get-fn)
-      (throw (ex-info "dao.jing handle requires :get-content-fn"
+      (throw (ex-info "dao.jing handle requires :get-bytes-fn"
                       {:handle handle})))
-    (get-fn address not-found)))
+    (let [stored (get-fn address not-found)]
+      (if (identical? stored not-found)
+        not-found
+        (segment-value address stored)))))
 
 
 (defn close!
@@ -610,15 +598,18 @@
   {:members (mapv (fn [member]
                     (when-not (map? member)
                       (throw (ex-info
-                               "dao.jing pool members are {:stream s :cursor c} maps"
+                               (str "dao.jing pool members are "
+                                    "{:stream s :cursor c} maps")
                                {:member member})))
                     (when-not (contains? member :cursor)
                       (throw (ex-info
-                               "dao.jing pool member requires a cursor minted by its stream"
+                               (str "dao.jing pool member requires a cursor "
+                                    "minted by its stream")
                                {:member member})))
                     (when-not (stream/reader? (:stream member))
                       (throw (ex-info
-                               "dao.jing pool member requires a dao.stream reader"
+                               (str "dao.jing pool member requires a "
+                                    "dao.stream reader")
                                {:member member})))
                     {:stream (:stream member),
                      :cursor (:cursor member),
@@ -660,7 +651,7 @@
    gap and defect reports leave the member's cursor unchanged and move
    :next past the member, so the same condition is reported again on that
    member's next turn; nothing is auto-resynchronized. A defect carries the
-   raw read under :result exactly as the step classified it — a transport
+   raw read under :result exactly as the step classified it -- a transport
    that answered outside the contract is reported with its answer retained,
    never folded into a meaning nobody chose. Blocked and ended members
    never prevent later members from being checked, and a member that
@@ -700,7 +691,8 @@
                 :retry
                 (recur (mod (inc i) n)
                        (inc scanned)
-                       (assoc-in state' [:members i :status] :dao.stream/blocked))
+                       (assoc-in state' [:members i :status]
+                                 :dao.stream/blocked))
                 :ended
                 (recur (mod (inc i) n)
                        (inc scanned)

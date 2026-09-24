@@ -546,11 +546,11 @@
 (defn- counting-content-store
   [store]
   (let [gets (atom 0)
-        get-fn (:get-content-fn store)]
+        get-fn (:get-bytes-fn store)]
     {:store (assoc store
-                   :get-content-fn (fn [address not-found]
-                                     (swap! gets inc)
-                                     (get-fn address not-found))),
+                   :get-bytes-fn (fn [address not-found]
+                                   (swap! gets inc)
+                                   (get-fn address not-found))),
      :gets (fn [] @gets)}))
 
 
@@ -1090,8 +1090,8 @@
                base (:store fx)
                base-close (:close-fn base)
                store (assoc base
-                            :get-content-fn (fn [_address _not-found]
-                                              (throw boom))
+                            :get-bytes-fn (fn [_address _not-found]
+                                            (throw boom))
                             :close-fn (fn []
                                         (swap! closes inc)
                                         (base-close)))]

@@ -94,32 +94,33 @@
              local (mem/create-content-mem)
              table (atom {})
              v {:bytes [1]}
+             b64 (jing/bytes->base64 (jing/canonical-bytes v))
              hash (jing/content-hash v)
              k (jing/segment-key v)]
          (is (true? (:ok (handle local
                                  table
-                                 {:op :store-content, :address k, :v v}))))
+                                 {:op :store-content, :address k, :v b64}))))
          (is (false? (:ok (handle local
                                   table
-                                  {:op :store-content, :address hash, :v v})))
+                                  {:op :store-content, :address hash, :v b64})))
              "a bare hash string is not a content address")
          (is (false? (:ok (handle local
                                   table
                                   {:op :store-content,
                                    :address (keyword "root" hash),
-                                   :v v})))
+                                   :v b64})))
              "a :root key cannot be planted via :store-content")
          (is (false? (:ok (handle local
                                   table
                                   {:op :store-content,
                                    :address (jing/segment-key {:bytes [2]}),
-                                   :v v})))
+                                   :v b64})))
              "an address that does not hash to the payload is refused")
          (is (= v (jing/get local k ::miss))
              "only the exact-address write was stored")
-         (is (= ::miss ((:get-content-fn local) hash ::miss)))
+         (is (= ::miss ((:get-bytes-fn local) hash ::miss)))
          (is (= ::miss
-                ((:get-content-fn local) (keyword "root" hash) ::miss)))
+                ((:get-bytes-fn local) (keyword "root" hash) ::miss)))
          (is (= ::miss
                 (jing/get local (jing/segment-key {:bytes [2]}) ::miss)))))))
 

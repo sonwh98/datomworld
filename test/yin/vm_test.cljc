@@ -583,15 +583,15 @@
   (let [literal-if (fn [a b]
                      {:type :if, :test (lit true), :consequent (lit a),
                       :alternate (lit b)})]
-    (testing "retained metadata the encoder does not hash is a loud collision"
-      (is (= "Semantic bytecode address collision"
-             (error-message #(vm/ast->semantic-bytecode
+    (testing "retained symbol metadata is address-significant: two rows"
+      ;; dao.jing's canonical CBOR encoding hashes symbol metadata, so the
+      ;; two literals mint distinct addresses instead of colliding
+      (is (= 4 (count (:rows (vm/ast->semantic-bytecode
                                (literal-if (with-meta 'x {:meaning 1})
-                                           (with-meta 'x {:meaning 2}))))))
-      (is (= "Semantic bytecode address collision"
-             (error-message #(vm/ast->semantic-bytecode
+                                           (with-meta 'x {:meaning 2})))))))
+      (is (= 4 (count (:rows (vm/ast->semantic-bytecode
                                (literal-if [(with-meta 'x {:meaning 1})]
-                                           [(with-meta 'x {:meaning 2})]))))))
+                                           [(with-meta 'x {:meaning 2})])))))))
     (testing "equal metadata still shares one row and survives the round trip"
       (let [ast (literal-if (with-meta 'x {:meaning 1})
                             (with-meta 'x {:meaning 1}))
@@ -623,8 +623,13 @@
              (meta (first (slot (lit [(with-meta 'x (assoc pos :meaning 1))])
                                 2))))))
     (testing "collection types and values are unchanged"
-      (let [v (slot (lit [(list 1 2) #{3} {:a [4]}]) 2)]
-        (is (= [(list 1 2) #{3} {:a [4]}] v))
+      ;; quoted list, not (list ...): a runtime list on ClojureDart
+      ;; carries the constructor's own {:tag PersistentList} metadata,
+      ;; which the projection keeps (it strips reader positions only)
+      ;; and the strict encoder then refuses; a quote carries positions
+      ;; only, which the projection strips
+      (let [v (slot (lit ['(1 2) #{3} {:a [4]}]) 2)]
+        (is (= ['(1 2) #{3} {:a [4]}] v))
         (is (list? (first v)))
         (is (set? (second v)))))
     (testing "a map entry payload stays the vector [k v]"
@@ -641,10 +646,13 @@
                  (with-meta [] {:note (with-meta 'x {:meaning meaning})}))
         compiled-if (fn [a b] (yang/compile (list 'if true a b)))]
     (testing "(if true ^{:note ^{:meaning 1} x} [] ^{:note ^{:meaning 2} x} [])
-              is a loud collision, not a silent merge"
-      (is (= "Semantic bytecode address collision"
-             (error-message #(vm/ast->semantic-bytecode
-                               (compiled-if (branch 1) (branch 2)))))))
+              mints two distinct rows, never a silent merge"
+      ;; metadata inside metadata is hashed by the canonical encoding, so
+      ;; the branches take distinct addresses rather than colliding
+      (let [{:keys [root rows]} (vm/ast->semantic-bytecode
+                                  (compiled-if (branch 1) (branch 2)))
+            [_ _ _ consequent alternate] (get rows root)]
+        (is (not= consequent alternate))))
     (testing "equal nested metadata still shares one row and round-trips"
       (let [back (vm/semantic-bytecode->ast
                    (vm/ast->semantic-bytecode (compiled-if (branch 1) (branch 1))))]
@@ -661,18 +669,19 @@
                                                     {:line 1, :column 9})})))]
         (is (= '(helper x) (:note (meta v))))
         (is (nil? (meta (:note (meta v)))))))
-    (testing "positions on the metadata map's own metadata are stripped"
-      (let [v (value-of (lit (with-meta [] (with-meta {:note 1}
-                                             {:line 3, :k 1}))))]
-        (is (= {:note 1} (meta v)))
-        (is (= {:k 1} (meta (meta v))))))
-    (testing "an empty metadata map that carries metadata is kept"
-      (let [ast (lit (with-meta [] (with-meta {} {:meaning 1})))
-            v (value-of ast)
-            back (:value (vm/semantic-bytecode->ast
-                           (vm/ast->semantic-bytecode ast)))]
-        (is (= {:meaning 1} (meta (meta v))))
-        (is (= {:meaning 1} (meta (meta back))))))))
+    (testing "a metadata map carrying its own metadata has no address"
+      ;; dao.jing's canonical encoding refuses metadata on a metadata map
+      ;; (dao.jing.cbor.md ruling A3), so such a literal cannot be
+      ;; content-addressed: the projection fails loudly, never by
+      ;; silently dropping the inner metadata
+      (is (re-find #"metadata map carries metadata"
+                   (error-message
+                     #(value-of (lit (with-meta [] (with-meta {:note 1}
+                                                     {:line 3, :k 1})))))))
+      (is (re-find #"metadata map carries metadata"
+                   (error-message
+                     #(value-of (lit (with-meta [] (with-meta {}
+                                                     {:meaning 1}))))))))))
 
 
 #?(:cljd nil

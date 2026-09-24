@@ -5,12 +5,13 @@
    and serve-content! serves any {op fn} handler map over a v2 WebSocket
    endpoint. Client side: dao.jing.remote/content-client wraps an injected
    call function as a dao.jing content handle map {:client c :closed-atom a
-   :put-content-fn f :get-content-fn g :close-fn h} that jing/materialize!,
+   :put-bytes-fn f :get-bytes-fn g :close-fn h} that jing/materialize!,
    jing/get, and jing/close! dispatch through automatically; the synchronous
    WebSocket constructor connect-content! and its server twin serve-content!
    are JVM-only."
   (:require [clojure.string :as str]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.stream.apply :as apply]
             [dao.stream.rpc :as rpc]
             [dao.stream.ws :as ws]
@@ -31,16 +32,23 @@
   #?(:cljs (:require-macros [dao.jing])))
 
 
-(defn- validate-address-payload!
-  "Throw unless address is a strict segment address matching the payload's
-   content-derived hash."
-  [address payload]
+(defn- accept-bytes!
+  "The canonical payload bytes carried by the Base64 text b64 at address,
+   or a throw: this is the one ingress canonicality check for bytes Jing
+   did not encode itself (docs/design/dao.jing.cbor.md, Layering and
+   interfaces). The text must be strict Base64, the bytes must hash to the
+   address under its carried algorithm, and they must decode as exactly
+   one canonical payload."
+  [address b64]
   (when-not (jing/segment-address? address)
     (throw (ex-info "content address must be a segment address"
-                    {:address address, :payload payload})))
-  (when-not (jing/segment-matches? address payload)
-    (throw (ex-info "content address does not match payload hash"
-                    {:address address, :payload payload}))))
+                    {:address address})))
+  (let [bs (jing/base64->bytes b64)]
+    (when-not (jing/segment-bytes-match? address bs)
+      (throw (ex-info "content address does not match payload hash"
+                      {:address address})))
+    (cbor/decode bs)
+    bs))
 
 
 #_{:clj-kondo/ignore [:unused-binding]}
@@ -61,32 +69,50 @@
 
 
 (defn default-handlers
-  "Build the RPC handler map from a local dao.jing content handle."
+  "Build the RPC handler map from a local dao.jing byte-store handle.
+   Canonical payload bytes cross the wire as padded standard-alphabet
+   Base64 text inside the existing Transit envelopes: :jing/put-content
+   takes [address base64] and answers the backend's verdict after the
+   ingress check; :jing/get-content answers {:found? boolean, :value
+   base64-or-nil}."
   [handle]
-  (let [put (:put-content-fn handle)
+  (let [put (:put-bytes-fn handle)
+        get-fn (:get-bytes-fn handle)
         local-missing #?(:clj (Object.)
                          :cljs (js-obj)
                          :cljd (Object.))]
     (when-not (ifn? put)
-      (throw (ex-info "handle must expose a :put-content-fn" {:handle handle})))
+      (throw (ex-info "handle must expose a :put-bytes-fn" {:handle handle})))
+    (when-not (ifn? get-fn)
+      (throw (ex-info "handle must expose a :get-bytes-fn" {:handle handle})))
     {:jing/put-content
-     (fn [address payload]
-       (validate-address-payload! address payload)
-       (let [result (put address payload)]
+     (fn [address b64]
+       (let [bs (accept-bytes! address b64)
+             result (put address bs)]
          (if (#{:inserted :present} result)
            result
            (throw (ex-info
                     "backend returned an invalid put result"
-                    {:address address, :payload payload, :result result}))))),
+                    {:address address, :result result}))))),
      :jing/get-content (fn [address]
-                         (let [result (jing/get handle address local-missing)]
+                         (when-not (jing/segment-address? address)
+                           (throw (ex-info
+                                    "content address must be a segment address"
+                                    {:address address})))
+                         (let [result (get-fn address local-missing)]
                            (if (identical? result local-missing)
                              {:found? false, :value nil}
-                             {:found? true, :value result})))}))
+                             {:found? true,
+                              :value (jing/bytes->base64 result)})))}))
 
 
 (defn content-client
-  "Wrap an RPC client as a dao.jing content handle.
+  "Wrap an RPC client as a dao.jing byte-store handle: puts send the
+   canonical bytes as Base64 text, gets decode the Base64 the server
+   answers and admit each found reply as ingress before returning it
+   (the accept-bytes! check: hash-verify, then one strict canonical
+   decode; a found reply that fails either refuses); dao.jing/get
+   hash-verifies and decodes the snapshot it receives.
 
    call-fn is invoked as (call-fn client op args) and close-fn as
    (close-fn client). Close is guarded so concurrent JVM closes call the
@@ -106,18 +132,43 @@
                                         {:client client}))))]
     {:client client,
      :closed-atom closed-atom,
-     :put-content-fn (fn [address payload]
-                       (ensure-open)
-                       (call-fn client :jing/put-content [address payload])),
-     :get-content-fn
+     :put-bytes-fn (fn [address bs]
+                     (ensure-open)
+                     (call-fn client :jing/put-content
+                              [address (jing/bytes->base64 bs)])),
+     :get-bytes-fn
      (fn [address not-found]
        (ensure-open)
-       (let [resp (call-fn client :jing/get-content [address])]
-         (if (valid-presence-envelope? resp)
-           (if (:found? resp) (:value resp) not-found)
+       (let [resp (call-fn client :jing/get-content [address])
+             bs (when (and (valid-presence-envelope? resp) (:found? resp))
+                  (try (jing/base64->bytes (:value resp))
+                       (catch #?(:cljd Object :clj Throwable :cljs :default)
+                              _
+                         nil)))]
+         (cond
+           ;; A found reply is remote ingress: before its bytes leave
+           ;; this handle they must hash to the requested address and
+           ;; decode as exactly one canonical payload, mirroring
+           ;; accept-bytes! above -- jing/get's snapshot decode does
+           ;; not re-check canonicality, so a hash-valid, noncanonical
+           ;; reply served under its own address would otherwise be
+           ;; exposed (docs/design/dao.jing.cbor.md, the remote-ingress
+           ;; contract).
+           (some? bs)
+           (do (when-not (jing/segment-bytes-match? address bs)
+                 (throw (ex-info
+                          "content address does not match payload hash"
+                          {:address address})))
+               (cbor/decode bs)
+               bs)
+           (and (valid-presence-envelope? resp) (not (:found? resp)))
+           not-found
+           :else
            (throw
              (ex-info
-               "malformed RPC response: presence envelope must contain exactly :found? (boolean) and :value keys"
+               (str "malformed RPC response: presence envelope must "
+                    "contain exactly :found? (boolean) and :value "
+                    "(padded Base64 or nil) keys")
                {:operation :jing/get-content,
                 :address address,
                 :response resp}))))),

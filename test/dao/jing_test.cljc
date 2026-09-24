@@ -11,25 +11,32 @@
             #?(:clj [clojure.edn])
             [clojure.string :as str]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ringbuffer]))
 
 
 (defn mem-handle
-  "In-memory content backend for tests: a map keyed by content address. The
-   store atom is exposed as :store so tests can assert on the exact contents
-   of the backend. The seed accepts an address->payload map, used to force
-   collisions."
+  "In-memory byte store for tests: a map of content address to canonical
+   bytes. The store atom is exposed as :store so tests can assert on the
+   exact contents of the backend. The seed accepts an address->bytes map,
+   used to force collisions."
   ([] (mem-handle {}))
   ([seed]
    (let [store (atom seed)]
      {:store store,
-      :put-content-fn (fn [address payload]
-                        (if (contains? @store address)
-                          :present
-                          (do (swap! store assoc address payload) :inserted))),
-      :get-content-fn (fn [address not-found] (get @store address not-found)),
+      :put-bytes-fn (fn [address bs]
+                      (if (contains? @store address)
+                        :present
+                        (do (swap! store assoc address bs) :inserted))),
+      :get-bytes-fn (fn [address not-found] (get @store address not-found)),
       :close-fn (fn [] (swap! store assoc ::closed true))})))
+
+
+(defn- stored-value
+  "The decoded value the test store holds at address."
+  [h address]
+  (cbor/decode (get @(:store h) address)))
 
 
 (defn ring-buffer
@@ -202,10 +209,10 @@
            (jing/content-hash (with-meta (apply list [2 3]) nil))
            (jing/content-hash (seq [2 3])))))
   (testing "pinned: a list inside a vector beside a set, on every host"
-    (is (= "738db3e930f478ee4212ad3dfa2434723e298adb05b19450d4f61ad4fbcf0e8c"
+    (is (= "9445bd929aa4dbe7018a3762a42c2ac0ccafa0a4dda299e71b7abec44a5a557d"
            (jing/content-hash '[1 (2 3) #{4}])
            (jing/content-hash [1 (seq [2 3]) #{4}])))
-    (is (= "e5bab3450d860af30befedbf9a650a761af5b35663e00cc1a126d15cf9199cb5"
+    (is (= "552ee5466783e35ae00f007695e632684979d86c35487d5d9d062658f30b5994"
            (jing/content-hash '[1 (2 3) #{4}] {:algorithm :sha256})
            (jing/content-hash [1 (seq [2 3]) #{4}] {:algorithm :sha256})))))
 
@@ -215,13 +222,17 @@
     "a set is encoded inside its own #{} braces, which only a set can
             print: never as a 'set-prefixed list living in the ordinary
             value domain where real data of that shape could collide with it"
+    ;; quoted literals, not (list ...): ClojureDart's list constructor
+    ;; stamps {:tag PersistentList} metadata (a Dart Type) on every list
+    ;; it builds, and the strict encoder refuses that Type; a quote
+    ;; carries only the reader positions every host's encoder strips
     (is (not= (jing/content-hash #{1 2})
-              (jing/content-hash (list 'set (list 1 2))))
+              (jing/content-hash '(set (1 2))))
         "the exact shape the old encoder emitted: (set (1 2))")
     (is (not= (jing/content-hash #{1 2})
-              (jing/content-hash (list 'set [1 2])))
+              (jing/content-hash '(set [1 2])))
         "and its vector-tailed variant")
-    (is (not= (jing/content-hash #{}) (jing/content-hash (list 'set)))
+    (is (not= (jing/content-hash #{}) (jing/content-hash '(set)))
         "the empty set against the empty tagged list")
     (is (not= (jing/content-hash #{1 2}) (jing/content-hash [1 2]))
         "a set and the vector of its elements")
@@ -318,14 +329,21 @@
         (is (= payload (jing/get h sha-addr ::missing)))))))
 
 
-(deftest put-receives-the-derived-address-and-payload
-  (testing "the backend effect is invoked as (put-content-fn address payload)"
+(deftest put-receives-the-derived-address-and-canonical-bytes
+  (testing "the backend effect is invoked as (put-bytes-fn address bytes)
+            with the payload's canonical bytes, encoded once: the bytes
+            handed over are the very bytes the address digests"
     (let [seen (atom nil)
           payload {:v 1}
-          h {:put-content-fn (fn [a p] (reset! seen [a p]) :inserted),
-             :get-content-fn (fn [_ _] nil)}]
+          h {:put-bytes-fn (fn [a bs] (reset! seen [a bs]) :inserted),
+             :get-bytes-fn (fn [_ _] nil)}]
       (jing/materialize! h payload)
-      (is (= [(jing/segment-key payload) payload] @seen)))))
+      (let [[address bs] @seen]
+        (is (= (jing/segment-key payload) address))
+        (is (cbor/byte-payload? bs) "the backend sees bytes, never a value")
+        (is (cbor/bytes= (jing/canonical-bytes payload) bs))
+        (is (jing/segment-bytes-match? address bs)
+            "the address is derived from exactly these bytes")))))
 
 
 (deftest materialize-is-idempotent
@@ -335,13 +353,13 @@
     (let [results (atom [])
           store (atom {})
           payload {:x 42}
-          h {:put-content-fn
-             (fn [address p]
+          h {:put-bytes-fn
+             (fn [address bs]
                (let [r (if (contains? @store address) :present :inserted)]
-                 (swap! store assoc address p)
+                 (swap! store assoc address bs)
                  (swap! results conj r)
                  r)),
-             :get-content-fn (fn [address nf] (get @store address nf))}
+             :get-bytes-fn (fn [address nf] (get @store address nf))}
           a1 (jing/materialize! h payload)
           a2 (jing/materialize! h payload)]
       (is (= a1 a2))
@@ -381,8 +399,8 @@
 
 (deftest get-rejects-arbitrary-addresses-before-touching-the-backend
   (testing "validation happens before any backend call"
-    (let [h {:put-content-fn (fn [_ _] :inserted),
-             :get-content-fn
+    (let [h {:put-bytes-fn (fn [_ _] :inserted),
+             :get-bytes-fn
              (fn [_ _] (throw (ex-info "backend must not be consulted" {})))}]
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
@@ -395,13 +413,18 @@
     "a different value already seated at the address is never
             overwritten and the mismatch is reported loudly"
     (let [address (jing/segment-key {:b 1})
-          h (mem-handle {address {:a 1}})]
+          h (mem-handle {address (jing/canonical-bytes {:a 1})})]
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
             (jing/materialize! h {:b 1})))
-      (is (= {:a 1} (jing/get h address ::missing))
-          "the existing value is untouched"))))
+      (is (= {:a 1} (stored-value h address))
+          "the existing bytes are untouched")
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error
+                      :cljd Object)
+            (jing/get h address ::missing))
+          "a read of bytes that do not hash to their address is refused"))))
 
 
 (deftest present-read-back-is-verified-by-hash-not-by-equals
@@ -411,10 +434,10 @@
             metadata is part of the address"
     (let [payload (with-meta [1 2] {:a 1})
           address (jing/segment-key payload)
-          h (mem-handle {address [1 2]})]
-      (is (= [1 2] (get @(:store h) address))
-          "precondition: the stored value is = to the payload")
-      (is (= payload (get @(:store h) address))
+          h (mem-handle {address (jing/canonical-bytes [1 2])})]
+      (is (= [1 2] (stored-value h address))
+          "precondition: the stored bytes decode to a value = the payload")
+      (is (= payload (stored-value h address))
           "precondition: = cannot tell the two apart")
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
@@ -422,7 +445,8 @@
             (jing/materialize! h payload)))))
   (testing "equal content, metadata included, remains idempotent"
     (let [payload (with-meta {:a 1} {:m 1})
-          h (mem-handle {(jing/segment-key payload) payload})]
+          h (mem-handle {(jing/segment-key payload)
+                         (jing/canonical-bytes payload)})]
       (is (= (jing/segment-key payload) (jing/materialize! h payload))))))
 
 
@@ -430,8 +454,8 @@
   (testing
     "a backend that reports :present but cannot read the value back
             is inconsistent"
-    (let [h {:put-content-fn (fn [_ _] :present),
-             :get-content-fn (fn [_ _] ::missing)}]
+    (let [h {:put-bytes-fn (fn [_ _] :present),
+             :get-bytes-fn (fn [_ _] ::missing)}]
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
@@ -444,8 +468,8 @@
             opaque payload: a backend that reports :present but then returns
             not-found for the content address must throw, not fake success by
             equating its not-found with the payload"
-    (let [h {:put-content-fn (fn [_ _] :present),
-             :get-content-fn (fn [_ not-found] not-found)}]
+    (let [h {:put-bytes-fn (fn [_ _] :present),
+             :get-bytes-fn (fn [_ not-found] not-found)}]
       (is (thrown? #?(:clj Exception
                       :cljs js/Error
                       :cljd Object)
@@ -467,7 +491,7 @@
 (deftest invalid-backend-result-is-rejected
   (testing "ambiguous truthiness is not a valid result vocabulary"
     (doseq [bad [true nil :ok "inserted" 1 {:status :ok}]]
-      (let [h {:put-content-fn (fn [_ _] bad), :get-content-fn (fn [_ _] nil)}]
+      (let [h {:put-bytes-fn (fn [_ _] bad), :get-bytes-fn (fn [_ _] nil)}]
         (is (thrown? #?(:clj Exception
                         :cljs js/Error
                         :cljd Object)
@@ -486,8 +510,8 @@
       (is (= 2 @closed) "close! delegates to :close-fn on every call"))
     (is (nil? (jing/close! (assoc (mem-handle) :close-fn nil)))
         "a handle without :close-fn has nothing to release")
-    (is (nil? (jing/close! {:put-content-fn (fn [_ _] :inserted),
-                            :get-content-fn (fn [_ _] nil)})))))
+    (is (nil? (jing/close! {:put-bytes-fn (fn [_ _] :inserted),
+                            :get-bytes-fn (fn [_ _] nil)})))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -585,10 +609,11 @@
         (is (= :dao.stream/ok (:signal r)))
         (is (= address (:address r))
             "both streams converge on the same content address"))
-      (is
-        (= {address payload} @store)
-        "exactly one KV entry exists, holding exactly the payload: no
-          duplicate entries, no source identity, no provenance stamp"))))
+      (is (= [address] (keys @store))
+          "exactly one KV entry exists: no duplicate entries, no source
+          identity, no provenance stamp")
+      (is (cbor/bytes= (jing/canonical-bytes payload) (get @store address))
+          "the entry holds exactly the payload's canonical bytes"))))
 
 
 (deftest observer-blocked-before-ready-does-not-prevent-later-members
@@ -656,7 +681,8 @@
       (is (= 2 (get-in (:state r3)
                        [:members 0 :cursor :dao.stream.ringbuffer/position])))
       (is (= 1 (get-in (:state r3)
-                       [:members 1 :cursor :dao.stream.ringbuffer/position]))))))
+                       [:members 1 :cursor
+                        :dao.stream.ringbuffer/position]))))))
 
 
 (deftest observer-independent-cursors-interleave
@@ -801,12 +827,13 @@
             state untouched; the same payload is reprocessed from the same
             cursor once the backend succeeds"
     (let [good (mem-handle)
-          failing {:put-content-fn (fn [address payload]
-                                     (if (= payload :poison)
-                                       (throw (ex-info "injected failure"
-                                                       {:address address}))
-                                       :inserted)),
-                   :get-content-fn (fn [_ _] nil)}
+          poison (jing/segment-key :poison)
+          failing {:put-bytes-fn (fn [address _bytes]
+                                   (if (= address poison)
+                                     (throw (ex-info "injected failure"
+                                                     {:address address}))
+                                     :inserted)),
+                   :get-bytes-fn (fn [_ _] nil)}
           s (open-stream {:a 1} :poison {:a 2})
           r1 (jing/observe-step! good (pool s))]
       (is (= :dao.stream/ok (:signal r1)))
@@ -823,4 +850,5 @@
         (is (= :dao.stream/ok (:signal r2)))
         (is (= (jing/segment-key :poison) (:address r2)))
         (is (= 2 (get-in (:state r2)
-                         [:members 0 :cursor :dao.stream.ringbuffer/position])))))))
+                         [:members 0 :cursor
+                          :dao.stream.ringbuffer/position])))))))

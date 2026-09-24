@@ -113,19 +113,6 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 | `gpt-5.4-mini`              | Fast, lower-cost model for bounded, repetitive work with explicit  | Do not use as the sole judge of subtle invariants or broad design.  |
 |                             | acceptance criteria. **Best for:** TDD loops, simple linting,      | Escalate multi-step refactors and disputed findings to Terra, Sol,  |
 |                             | extraction, and scoped text edits.                                 | or Astra.                                                           |
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-5.6-luna`              | Cost-sensitive, high-volume work. **Best for:** Classification,    | Low-cost does not mean suitable for unbounded design or the hardest |
-|                             | extraction, scoped searches, routine QA, and bounded edits.        | invariant reasoning. Escalate complex AST, architecture, and        |
-|                             |                                                                    | security decisions.                                                 |
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-5.6-sol`               | Flagship model for difficult professional work. **Best for:**      | More expensive than Terra/Luna. Use Astra when the task is the      |
-|                             | Complex implementation, advanced coding, high-stakes security,     | hardest end-to-end problem; apply the repository's reservation      |
-|                             | and routine architectural or adversarial review.                   | policy separately from capability.                                  |
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-5.6-terra`             | Balanced intelligence and cost. **Best for:** Default production   | Use Sol or Astra for the hardest reasoning, high-risk security, or  |
-|                             | engineering, integration work, network streams, VM runtimes,       | architecture decisions. Validate compiler-lowering and other        |
-|                             | moderate-complexity implementation, and subagent fallback.         | specialist work with focused tests and independent review.          |
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `gpt-6-astra`               | Most capable end-to-end model. **Best for:** Hardest architecture, | Highest cost. Reserve for the highest-risk or most difficult work   |
 |                             | security, research, coding, computer-use, and long-horizon tasks.  | under the subscription policy; that policy does not make Astra      |
 |                             | Capability includes implementation, but the current codex policy   | unsuitable for implementation.                                      |
@@ -138,6 +125,10 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 | `gpt-6-sol`                 | Intelligent everyday work model; improved reasoning and 50% cheaper| More expensive than Luna. Use Astra when the task is the hardest    |
 |                             | than 5.6 promotional pricing. **Best for:** Complex implementation,| end-to-end problem.                                                 |
 |                             | advanced coding, high-stakes security, and architectural review.   |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gpt-6-terra`               | Balanced intelligence and cost. **Best for:** Default production   | Use Sol or Astra for the hardest reasoning, high-risk security, or  |
+|                             | engineering, integration work, network streams, VM runtimes,       | architecture decisions. Validate compiler-lowering and other        |
+|                             | moderate-complexity implementation, and subagent fallback.         | specialist work with focused tests and independent review.          |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `minimax/m3`                | 428B MoE native multimodal with 1M context. **Best for:** Coding,  | Heavy local footprint; can fall into thinking loops on difficult    |
 |                             | autonomous task decomposition, tool invocation, and subagents.     | unbounded tasks. **Avoid for:** One-shot mission critical coding.   |

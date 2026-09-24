@@ -22,14 +22,15 @@
 ;; :input-hex is the exact byte sequence hashed, independent of any
 ;; particular host's string/number representation, so JVM, CLJS, and CLJD
 ;; fixture readers agree on what bytes to feed their provider before any
-;; comparison happens.
+;; comparison happens. A hex string too long for one line is written as a
+;; vector of string chunks, concatenated by the reader.
 ;;
 ;; Canonical-Clojure-data-structure cases were produced by hashing the
-;; exact bytes `dao.jing/canonical-bytes` returns for the given value at
-;; HEAD ba88f769 (the current order-normalized print encoder; this table
-;; freezes bytes, not the encoder's mutable behavior -- a future CBOR
-;; clean break regenerates this table's canonical-value rows along with
-;; every other DaoJing fixture, per dao.jing.cbor.md's clean-break ruling).
+;; exact bytes `dao.jing/canonical-bytes` returns for the given value:
+;; the canonical CBOR payload of docs/design/dao.jing.cbor.md, as
+;; `dao.jing.cbor/encode` writes it (the clean break from the earlier
+;; order-normalized print encoder; regenerated 2026-09-24 along with every
+;; other DaoJing address fixture, per that plan's clean-break ruling).
 
 {:providers {:jvm  "io.github.rctcwyvrn/blake3 1.3"
              :cljs "@noble/hashes 2.4.0"
@@ -38,76 +39,91 @@
  :cases
  [{:label       :empty-bytes
    :input-hex   ""
-   :blake3-256  "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"}
+   :blake3-256
+   "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"}
 
   {:label       :ascii-datom-world
    :description "UTF-8 bytes of the string \"datom.world\""
    :input-hex   "6461746f6d2e776f726c64"
-   :blake3-256  "86a59a1c881ff0b031a6507901256be8141ebb7d257f0311a4dbc9f20e663f0d"}
+   :blake3-256
+   "86a59a1c881ff0b031a6507901256be8141ebb7d257f0311a4dbc9f20e663f0d"}
 
   {:label       :ascii-hello-world
    :description "UTF-8 bytes of the string \"Hello, world!\""
    :input-hex   "48656c6c6f2c20776f726c6421"
-   :blake3-256  "ede5c0b10f2ec4979c69b52f61e42ff5b413519ce09be0f14d098dcfe5f6f98d"}
+   :blake3-256
+   "ede5c0b10f2ec4979c69b52f61e42ff5b413519ce09be0f14d098dcfe5f6f98d"}
 
   ;; Canonical Clojure data structures, hashed as the exact bytes
-  ;; `dao.jing/canonical-bytes` produces (order-normalized print encoder,
-  ;; HEAD ba88f769). :input-hex is that byte string; :value is the source
-  ;; form for readability only and is not itself hashed.
+  ;; `dao.jing/canonical-bytes` produces (canonical CBOR, dao.jing.cbor.md).
+  ;; :input-hex is that byte string; :value is the source form for
+  ;; readability only and is not itself hashed.
   {:label       :canonical-nil
    :value       nil
-   :input-hex   "6e696c"
-   :blake3-256  "f2ebafc4960f3bcffbd79b2478942adcbc0846fd66f3700ecb552754ddd883c5"}
+   :input-hex   "f6"
+   :blake3-256
+   "61a9bf10f0ffedc7dc77589ae2ab4ca80b006c806e6636e41b60410cd8f0bbc4"}
 
   {:label       :canonical-true
    :value       true
-   :input-hex   "74727565"
-   :blake3-256  "acc8a7699a2bf4cbd05f69678eac4fc236572041c28dfd0ab558e5fcf2ab6540"}
+   :input-hex   "f5"
+   :blake3-256
+   "518f7263ffb8a410e4874915a1f9a3bd7f11daa2f490abcb00939cdeb002fc81"}
 
   {:label       :canonical-false
    :value       false
-   :input-hex   "66616c7365"
-   :blake3-256  "401f18ad0cca38559086c36f9e0295f1ca3a7023e5f095aeef69177a9b8f10ce"}
+   :input-hex   "f4"
+   :blake3-256
+   "c12fc7f0c31ef2d9f0fcbd2e708b7adeb8bad0e60884f89a2073a16127521641"}
 
   {:label       :canonical-int
    :value       42
-   :input-hex   "3432"
-   :blake3-256  "da136474d7575c325f702bb7aa75f1123864033cc488bf7d9c074eadaf9bd0d3"}
+   :input-hex   "182a"
+   :blake3-256
+   "b828e7bda50941d5618ae287093288dd06a229250fca262764a408defd29f91c"}
 
   {:label       :canonical-string
    :value       "datom.world"
-   :input-hex   "226461746f6d2e776f726c6422"
-   :blake3-256  "58e563d83507ae1e24c15019f3dd2db61ec3818a5f8ea8e662564a420133fe7f"}
+   :input-hex   "6b6461746f6d2e776f726c64"
+   :blake3-256
+   "a992800b8b036a740083af906933ef8786431b98f2ce95892f16d13d2f431590"}
 
   {:label       :canonical-keyword
    :value       :foo/bar
-   :input-hex   "3a666f6f2f626172"
-   :blake3-256  "29e9991e5ccc58eba37e2cc672fd027cdefb9d8b0a66e4aefd8fc33b2a41efd2"}
+   :input-hex   "d81b827064616f2e6a696e672f6b6579776f72648263666f6f63626172"
+   :blake3-256
+   "e8a08d8a9ec14cd554139cd4a07e58499901f6d9297ce936b0b2fc0261d5d698"}
 
   {:label       :canonical-symbol
    :value       sym
-   :input-hex   "73796d"
-   :blake3-256  "7c7a38437690e8d421bdc4eac95ae04560687741a203b2c7425b808b9372f57d"}
+   :input-hex   "d81b826f64616f2e6a696e672f73796d626f6c82f66373796d"
+   :blake3-256
+   "605564e14afdc03ae5342ef2e6cb5c9cffff12da1812bdeb5971facd3e556fb6"}
 
   {:label       :canonical-vector
    :value       [1 2 3]
-   :input-hex   "5b31203220335d"
-   :blake3-256  "c3a8cc55ea53e056552eab337f404b352cc9415d386d8cc399edc356f5d9b012"}
+   :input-hex   "83010203"
+   :blake3-256
+   "ae95735439e543cd063b7692a40da8df2c0a94b8d81dc190166bbeddaa8a01f4"}
 
   {:label       :canonical-set
    :value       #{1 2 3}
-   :input-hex   "237b31203220337d"
-   :blake3-256  "d7f04e71efc563f1eb156135e263015577473bc1bd6573c898bd052c6c01abc4"}
+   :input-hex   "d9010283010203"
+   :blake3-256
+   "e89bdf95d8c4b52d7761aa97560e5b3b8f307d063dc2e8a8ba00a92bc246881d"}
 
   {:label       :canonical-map
    :value       {:a 1, :b [1 2 3]}
-   :input-hex   "7b3a6120312c203a62205b31203220335d7d"
-   :blake3-256  "071b8ef1a7ed55cee6f16c9c103981783c773b21dab1222b49cba0130dcf0103"}
+   :input-hex   ["a2d81b827064616f2e6a696e672f6b6579776f726482f6616101d81b"
+                 "827064616f2e6a696e672f6b6579776f726482f6616283010203"]
+   :blake3-256
+   "3448f9a67583e234dc0869e808fb8c855daa1d937a7d90a9b1dbbfb1b5ded2fc"}
 
   {:label       :canonical-list
    :value       (1 2 3)
-   :input-hex   "28312032203329"
-   :blake3-256  "c43c8b25455f5f9e3b7c163347b3b7ee1d34738acc0d67d41c64e329effe387f"}
+   :input-hex   "d81b826d64616f2e6a696e672f6c69737483010203"
+   :blake3-256
+   "b75126a91fdda787248f8b170fd984c27c871a88ef68815d1f8ed882f7adc435"}
 
   ;; 1023/1024/1025-byte boundary buffers: BLAKE3's chunk length is 1024
   ;; bytes, so these three lengths straddle the single-chunk/two-chunk
@@ -119,14 +135,17 @@
   {:label       :boundary-1023
    :input-len   1023
    :input-rule  "input[i] = i % 251"
-   :blake3-256  "10108970eeda3eb932baac1428c7a2163b0e924c9a9e25b35bba72b28f70bd11"}
+   :blake3-256
+   "10108970eeda3eb932baac1428c7a2163b0e924c9a9e25b35bba72b28f70bd11"}
 
   {:label       :boundary-1024
    :input-len   1024
    :input-rule  "input[i] = i % 251"
-   :blake3-256  "42214739f095a406f3fc83deb889744ac00df831c10daa55189b5d121c855af7"}
+   :blake3-256
+   "42214739f095a406f3fc83deb889744ac00df831c10daa55189b5d121c855af7"}
 
   {:label       :boundary-1025
    :input-len   1025
    :input-rule  "input[i] = i % 251"
-   :blake3-256  "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444"}]}
+   :blake3-256
+   "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444"}]}

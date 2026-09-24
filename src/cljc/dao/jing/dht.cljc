@@ -6,7 +6,7 @@
    (e.g. dao.jing.mem/create-content-mem) into a content-store handle map:
 
      {:net net, :local local, :closed-atom a,
-      :put-content-fn f, :get-content-fn g, :close-fn c}
+      :put-bytes-fn f, :get-bytes-fn g, :close-fn c}
 
    consumed by dao.jing/materialize!, dao.jing/get, and dao.jing/close!.
 
@@ -21,6 +21,7 @@
    derives its routing target solely from the content digest, and never
    records which stream or peer carried a payload."
   (:require [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.jing.dht.kad :as kad]))
 
 
@@ -151,16 +152,32 @@
                     {:closed true}))))
 
 
-(defn- validate-address-payload!
+(defn- validate-address-bytes!
   "Reject a put before any local or network action: the address must be a
-   valid segment content address and must match the exact payload."
-  [address payload]
+   valid segment content address whose digest is the hash of the bytes."
+  [address bs]
   (when-not (jing/segment-address? address)
     (throw (ex-info "dao.jing.dht: not a segment content address"
-                    {:address address, :payload payload})))
-  (when-not (jing/segment-matches? address payload)
-    (throw (ex-info "dao.jing.dht: content address does not match the payload"
-                    {:address address, :payload payload}))))
+                    {:address address})))
+  (when-not (jing/segment-bytes-match? address bs)
+    (throw (ex-info "dao.jing.dht: content address does not match the bytes"
+                    {:address address}))))
+
+
+(defn- accept-bytes
+  "The canonical bytes of the Base64 text a peer answered for address, or
+   nil when the text, the digest, or the payload's canonicality fails: a
+   peer is untrusted, so this is the one ingress check before caching."
+  [address b64]
+  (try (let [bs (jing/base64->bytes b64)]
+         (when (jing/segment-bytes-match? address bs)
+           (cbor/decode bs)
+           bs))
+       (catch #?(:clj Throwable
+                 :cljs :default
+                 :cljd Object)
+              _
+         nil)))
 
 
 (defn- safe-store-content!
@@ -185,23 +202,24 @@
 
 (defn- make-put
   [{:keys [net local], :as handle}]
-  (fn [address payload]
-    (validate-address-payload! address payload)
+  (fn [address bs]
+    (validate-address-bytes! address bs)
     (ensure-open handle)
-    (let [result ((:put-content-fn local) address payload)]
+    (let [result ((:put-bytes-fn local) address bs)]
       (when-not (#{:inserted :present} result)
         (throw (ex-info "dao.jing.dht: invalid local put result"
-                        {:result result, :address address, :payload payload})))
+                        {:result result, :address address})))
       (let [self-id (:id (self-peer net))
+            b64 (jing/bytes->base64 bs)
             peers (remove #(= self-id (:id %))
                           (lookup net (content-target address)))]
         #?(:clj (run! deref
                       (mapv (fn [peer]
                               (future
-                                (safe-store-content! net peer address payload)))
+                                (safe-store-content! net peer address b64)))
                             peers))
            :default (run! (fn [peer]
-                            (safe-store-content! net peer address payload))
+                            (safe-store-content! net peer address b64))
                           peers)))
       result)))
 
@@ -210,7 +228,7 @@
   [{:keys [net local], :as handle}]
   (fn [address not-found]
     (ensure-open handle)
-    (let [v (jing/get local address content-missing)]
+    (let [v ((:get-bytes-fn local) address content-missing)]
       (if (not (identical? v content-missing))
         v
         (let [self-id (:id (self-peer net))
@@ -218,21 +236,19 @@
               (some (fn [peer]
                       (when (not= self-id (:id peer))
                         (when-let [res (safe-fetch-content net peer address)]
-                          (when (and (:found? res)
-                                     (jing/segment-matches? address
-                                                            (:value res)))
-                            [(:value res)]))))
+                          (when (:found? res)
+                            (when-let [bs (accept-bytes address (:value res))]
+                              [bs])))))
                     (lookup net (content-target address)))]
           (if fetched
-            (let [value (first fetched)
-                  algo (jing/segment-algorithm address)
-                  cached (jing/materialize! local value {:algorithm algo})]
-              (when-not (= address cached)
+            (let [bs (first fetched)
+                  result ((:put-bytes-fn local) address bs)]
+              (when-not (#{:inserted :present} result)
                 (throw
                   (ex-info
-                    "dao.jing.dht: fetched content cached under the wrong address"
-                    {:address address, :cached cached})))
-              value)
+                    "dao.jing.dht: fetched content could not be cached"
+                    {:address address, :result result})))
+              bs)
             not-found))))))
 
 
@@ -272,11 +288,11 @@
 
    The returned handle is plain data:
      {:net net, :local local, :closed-atom a,
-      :put-content-fn f, :get-content-fn g, :close-fn c}
+      :put-bytes-fn f, :get-bytes-fn g, :close-fn c}
 
    and works with dao.jing/materialize!, dao.jing/get, and dao.jing/close!.
    :net is an IDhtNet transport; :local is a content handle carrying
-   :put-content-fn and :get-content-fn (dao.jing.mem/create-content-mem or
+   :put-bytes-fn and :get-bytes-fn (dao.jing.mem/create-content-mem or
    equivalent); :closed-atom is the store's explicit private state and close
    lock.
 
@@ -287,15 +303,15 @@
   (when-not (and net local)
     (throw (ex-info "dao.jing.dht requires :net and :local"
                     {:net net, :local local})))
-  (when-not (fn? (:put-content-fn local))
-    (throw (ex-info "dao.jing.dht local requires :put-content-fn"
+  (when-not (fn? (:put-bytes-fn local))
+    (throw (ex-info "dao.jing.dht local requires :put-bytes-fn"
                     {:local local})))
-  (when-not (fn? (:get-content-fn local))
-    (throw (ex-info "dao.jing.dht local requires :get-content-fn"
+  (when-not (fn? (:get-bytes-fn local))
+    (throw (ex-info "dao.jing.dht local requires :get-bytes-fn"
                     {:local local})))
   (let [closed-atom (atom false)
         handle {:net net, :local local, :closed-atom closed-atom}]
     (assoc handle
-           :put-content-fn (make-put handle)
-           :get-content-fn (make-get handle)
+           :put-bytes-fn (make-put handle)
+           :get-bytes-fn (make-get handle)
            :close-fn (make-close handle))))

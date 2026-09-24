@@ -18,6 +18,7 @@
    or cache here, and every outcome -- success or refusal -- is a returned
    plain data map (section 4.3)."
   (:require [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [yin.vm.debruijn-code :as debruijn-code]
             [yin.vm.debruijn-linearize :as linearize]
             [yin.vm.debruijn-register-code :as debruijn-register-code]
@@ -179,14 +180,25 @@
 
 
 (defn- read-address
-  "Step 2's read: the stored value, `missing` when absent, or `missing`
-   when the handle fails (a closed client, a malformed RPC envelope, a
-   transport timeout). A failing store has no payload for this caller, so
-   it fails closed as `:absent`, never as execution."
+  "Step 2's read: the stored canonical bytes, `missing` when absent, or
+   `missing` when the handle fails (a closed client, a malformed RPC
+   envelope, a transport timeout). A failing store has no payload for this
+   caller, so it fails closed as `:absent`, never as execution. The bytes
+   are read raw through the handle's byte store, not through `jing/get`,
+   so that step 2's own address check can name the mismatch."
   [handle address]
-  (try (jing/get handle address missing)
+  (try (let [get-fn (:get-bytes-fn handle)]
+         (if (fn? get-fn) (get-fn address missing) missing))
        (catch #?(:cljd Object :clj Throwable :cljs :default) _
          missing)))
+
+
+(defn- decoded
+  "The value of canonical bytes bs, or nil when they do not decode."
+  [bs]
+  (try (cbor/decode bs)
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+         nil)))
 
 
 (defn- identity-of
@@ -231,15 +243,19 @@
    (let [address (index identity)]
      (if (nil? address)
        (refused :absent {:identity identity})
-       (let [value (if (jing/segment-address? address)
-                     (read-address handle address)
-                     missing)]
+       (let [bs (if (jing/segment-address? address)
+                  (read-address handle address)
+                  missing)
+             value (when-not (or (identical? missing bs)
+                                 (not (jing/segment-bytes-match? address bs)))
+                     (decoded bs))]
          (cond
-           (identical? missing value)
+           (identical? missing bs)
            (refused :absent {:address address})
 
-           (not (jing/segment-matches? address value))
-           (refused :address-mismatch {:address address, :value value})
+           (nil? value)
+           (refused :address-mismatch {:address address,
+                                       :value (decoded bs)})
 
            :else
            (let [actual (identity-of format value)]

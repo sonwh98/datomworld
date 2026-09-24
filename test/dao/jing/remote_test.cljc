@@ -25,6 +25,12 @@
                 :clj [[dao.stream.ws.jvm :as jvm]])))
 
 
+(defn- b64
+  "The wire form of a value: Base64 of its canonical bytes."
+  [v]
+  (jing/bytes->base64 (jing/canonical-bytes v)))
+
+
 (defn- local-client
   "Build an in-process handlers + content-client pair over a memory store.
    Returns {:store s :handlers h :client c :close-counter a}."
@@ -65,7 +71,7 @@
                     :cljd Object
                     :cljs js/Error)
           (remote/default-handlers {}))
-        "construction must throw when :put-content-fn is missing")
+        "construction must throw when :put-bytes-fn is missing")
     (jing/close! store)))
 
 
@@ -110,7 +116,8 @@
         address (jing/materialize! client payload)]
     (is (= (jing/segment-key payload) address)
         "materialize! must return the segment address")
-    (is (= :present ((:put-content-fn client) address payload))
+    (is (= :present ((:put-bytes-fn client) address
+                                            (jing/canonical-bytes payload)))
         "materializing identical content again must report :present")
     (jing/close! client)
     (jing/close! (:store fx))))
@@ -123,7 +130,7 @@
     (is (thrown? #?(:clj Exception
                     :cljd Object
                     :cljs js/Error)
-          ((:jing/put-content handlers) "not-a-keyword" payload))
+          ((:jing/put-content handlers) "not-a-keyword" (b64 payload)))
         "a non-keyword address must be rejected")
     (jing/close! (:client fx))
     (jing/close! (:store fx))))
@@ -137,19 +144,22 @@
           #?(:clj Exception
              :cljd Object
              :cljs js/Error)
-          ((:jing/put-content handlers) (jing/segment-key {:x 2}) payload))
+          ((:jing/put-content handlers) (jing/segment-key {:x 2})
+                                        (b64 payload)))
         "an address whose hash does not match the payload must be rejected")
     (jing/close! (:client fx))
     (jing/close! (:store fx))))
 
 
 (deftest backend-invalid-put-result-test
-  (let [handlers (remote/default-handlers {:put-content-fn (fn [_ _] :bogus)})]
+  (let [handlers (remote/default-handlers
+                   {:put-bytes-fn (fn [_ _] :bogus),
+                    :get-bytes-fn (fn [_ not-found] not-found)})]
     (is (thrown?
           #?(:clj Exception
              :cljd Object
              :cljs js/Error)
-          ((:jing/put-content handlers) (jing/segment-key {:x 1}) {:x 1}))
+          ((:jing/put-content handlers) (jing/segment-key {:x 1}) (b64 {:x 1})))
         "a backend result outside #{:inserted :present} must throw")))
 
 
@@ -239,8 +249,8 @@
   #?(:clj (with-server (fn [_url client]
                          (is (some? client))
                          (is (false? @(:closed-atom client)))
-                         (is (ifn? (:put-content-fn client)))
-                         (is (ifn? (:get-content-fn client)))
+                         (is (ifn? (:put-bytes-fn client)))
+                         (is (ifn? (:get-bytes-fn client)))
                          (is (ifn? (:close-fn client)))))
      :cljd (is true "network tests are JVM-only")
      :cljs (is true "network tests are JVM-only")))
@@ -254,7 +264,9 @@
                 (is (= (jing/segment-key payload) address)
                     "materialize! must return the segment address")
                 (is (= payload (jing/get client address ::miss)))
-                (is (= :present ((:put-content-fn client) address payload))
+                (is (= :present ((:put-bytes-fn client) address
+                                                        (jing/canonical-bytes
+                                                          payload)))
                     "duplicate content must report :present over the wire"))))
      :cljd (is true "network tests are JVM-only")
      :cljs (is true "network tests are JVM-only")))
@@ -326,7 +338,9 @@
                                       (fn [_] nil))
         addr (jing/segment-key {:x 1})]
     (try (doseq [val ["bogus" {:found? "yes", :value nil} {:found? true}
-                      {:value 123} {:found? true, :value 123, :extra 4}]]
+                      {:value 123} {:found? true, :value 123, :extra 4}
+                      {:found? true, :value 123}
+                      {:found? true, :value "not base64!"}]]
            (reset! malformed-response val)
            (try (jing/get client addr ::miss)
                 (is false
@@ -386,6 +400,39 @@
                 (is (identical?
                       local-sentinel
                       (jing/get client absent-addr local-sentinel))))))
+     :cljd (is true "network tests are JVM-only")
+     :cljs (is true "network tests are JVM-only")))
+
+
+(deftest a-hash-valid-noncanonical-payload-is-an-integrity-failure
+  ;; The hostile pair, the blocking client's twin of the stepped
+  ;; client's test of the same name (test/dao/jing/remote/step_test.cljc):
+  ;; an address minted over bytes that decode as one payload but are
+  ;; not its canonical encoding, served by a server holding exactly
+  ;; those bytes. The digest matches the minted address, so only the
+  ;; blocking client's own ingress check can refuse the reply.
+  #?(:clj
+     (let [bs (byte-array (mapv unchecked-byte [0x18 0x01]))
+           algo jing/default-hash-algorithm
+           reg (get jing/registry algo)
+           address (keyword "segment"
+                            (str (:address-id reg)
+                                 "-" (jing/digest-bytes algo bs)))
+           port (+ 20000 (rand-int 30000))
+           url (str "ws://127.0.0.1:" port)
+           server (remote/serve-content!
+                    (remote/default-handlers
+                      {:put-bytes-fn (fn [_address _bytes] :present)
+                       :get-bytes-fn (fn [_address _not-found] bs)})
+                    port)]
+       (try (let [client (remote/connect-content! url)]
+              (try (is (thrown-with-msg?
+                         Exception
+                         #"non-canonical"
+                         (jing/get client address ::miss))
+                       "a hash-valid, noncanonical found reply must refuse")
+                   (finally (jing/close! client))))
+            (finally ((:stop! server)))))
      :cljd (is true "network tests are JVM-only")
      :cljs (is true "network tests are JVM-only")))
 
@@ -944,7 +991,7 @@
         payload {:hello "world"}
         address (jing/segment-key payload)]
     (try
-      (is (= :inserted ((:jing/put-content handlers) address payload)))
+      (is (= :inserted ((:jing/put-content handlers) address (b64 payload))))
       (let [requested (rpc/request! (ring-client request-handle response-handle)
                                     :jing/get-content [address])
             state (:dao.stream.rpc/state requested)]
@@ -955,9 +1002,9 @@
         (serve-request! handlers request-handle response-handle)
         (let [done (remote/call-step state 0 1)]
           (is (= :done (:status done)))
-          (is (= {:found? true, :value payload}
+          (is (= {:found? true, :value (b64 payload)}
                  (remote/completion-value (:completion done)))
-              "an ok response yields the presence envelope")
+              "an ok response yields the presence envelope, Base64 inside")
           (is (= [] (:completed (:state done))))
           (is (= [] (:diagnostics (:state done))))))
       (finally (jing/close! store))))

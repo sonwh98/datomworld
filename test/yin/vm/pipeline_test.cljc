@@ -8,6 +8,7 @@
   (:require #?@(:cljd [["dart:io" :as dart-io]])
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.jing.file :as jing-file]
             [yin.vm :as vm]
             [yin.vm.debruijn :as debruijn]
@@ -79,26 +80,26 @@
    (let [store (atom {})
          note! (fn [event] (when log (swap! log conj event)))]
      (assoc {:store store}
-            :put-content-fn (fn [address payload]
-                              (let [result (if (contains? @store address)
-                                             :present
-                                             (do (swap! store assoc address payload)
-                                                 :inserted))]
-                                (note! [:put address result])
-                                result))
-            :get-content-fn (fn [address not-found]
-                              (note! [:get address])
-                              (if (contains? @store address)
-                                (get @store address)
-                                not-found))))))
+            :put-bytes-fn (fn [address bs]
+                            (let [result (if (contains? @store address)
+                                           :present
+                                           (do (swap! store assoc address bs)
+                                               :inserted))]
+                              (note! [:put address result])
+                              result))
+            :get-bytes-fn (fn [address not-found]
+                            (note! [:get address])
+                            (if (contains? @store address)
+                              (get @store address)
+                              not-found))))))
 
 
 (defn- refusing-store
   "A content store whose backend answers with an invalid result, so
    materialize! throws."
   []
-  {:put-content-fn (fn [_address _payload] :not-a-result),
-   :get-content-fn (fn [_address not-found] not-found)})
+  {:put-bytes-fn (fn [_address _bytes] :not-a-result),
+   :get-bytes-fn (fn [_address not-found] not-found)})
 
 
 (defn- persist!
@@ -112,7 +113,10 @@
      (assoc result
             :batches @(:batches writer)
             :store-contents (when-let [backing (:store store)]
-                              @backing)))))
+                              (into {}
+                                    (map (fn [[a bs]]
+                                           [a (jing/segment-value a bs)]))
+                                    @backing))))))
 
 
 ;; =============================================================================
@@ -502,11 +506,14 @@
                          addresses)]
         (jing/close! reopened)
         (is (every? jing/segment-address? addresses))
+        ;; content=: floating-point content decodes to its portable
+        ;; carrier on JavaScript, which host = cannot compare to a number
         (doseq [[ast datoms] (map vector durable-programs stored)]
-          (is (= (select-keys (debruijn/project-datoms
-                                (second (vm/ast->datoms-with-root ast)))
-                              [:fingerprint :records])
-                 (debruijn/datoms->projected datoms))
+          (is (cbor/content= (select-keys (debruijn/project-datoms
+                                            (second
+                                              (vm/ast->datoms-with-root ast)))
+                                          [:fingerprint :records])
+                             (debruijn/datoms->projected datoms))
               "the reopened envelope reads back to the original projection")))
       (finally (cleanup-file path)))))
 
@@ -549,7 +556,9 @@
                     read-back (try (debruijn/datoms->projected stored)
                                    (catch #?(:cljd Object :clj Exception :cljs :default) e
                                      (ex-data e)))]
-                (is (or (= original read-back)
+                ;; content=: a double reads back as its portable carrier
+                ;; on JavaScript, exact in content though not in host =
+                (is (or (cbor/content= original read-back)
                         (contains? #{:hash-mismatch :unsupported-value}
                                    (:rule read-back)))
                     "stored: exact, or refused at read as :hash-mismatch or
@@ -579,12 +588,16 @@
         as-list (persist! (app (v 'list) (lit (list 1 2.5))) (recording-writer) store)
         as-vector (persist! (app (v 'list) (lit [1 2.5])) (recording-writer) store)]
     (is (= :ok (:outcome (:projected as-list)) (:outcome (:projected as-vector))))
-    (is (= {:yin.debruijn/fingerprint (get-in as-list [:projected :fingerprint]),
-            :yin.debruijn/datoms (debruijn/projected->datoms
-                                   (debruijn/project-datoms
-                                     (second (vm/ast->datoms-with-root
-                                               (app (v 'list) (lit (list 1 2.5)))))))}
-           (jing/get store (get-in as-list [:projected :address]) ::absent)))
+    ;; content=: the decoded 2.5 is a portable float64 carrier on
+    ;; JavaScript, equal in content to the literal, not in host =
+    (is (cbor/content=
+          {:yin.debruijn/fingerprint (get-in as-list [:projected :fingerprint]),
+           :yin.debruijn/datoms (debruijn/projected->datoms
+                                  (debruijn/project-datoms
+                                    (second (vm/ast->datoms-with-root
+                                              (app (v 'list)
+                                                   (lit (list 1 2.5)))))))}
+          (jing/get store (get-in as-list [:projected :address]) ::absent)))
     (is (not= (get-in as-list [:projected :fingerprint])
               (get-in as-vector [:projected :fingerprint])))))
 

@@ -44,32 +44,32 @@
 
 
 (defn- content-handle
-  "In-memory content store for tests: a map keyed by content address. The
-   store atom is exposed as :store so tests can assert on the exact contents
-   of the backend."
+  "In-memory byte store for tests: a map of content address to canonical
+   bytes. The store atom is exposed as :store so tests can assert on the
+   exact contents of the backend."
   ([]
    (let [store (atom {})]
      {:store store,
-      :put-content-fn (fn [address payload]
-                        (if (contains? @store address)
-                          :present
-                          (do (swap! store assoc address payload) :inserted))),
-      :get-content-fn (fn [address not-found]
-                        (get @store address not-found))})))
+      :put-bytes-fn (fn [address bs]
+                      (if (contains? @store address)
+                        :present
+                        (do (swap! store assoc address bs) :inserted))),
+      :get-bytes-fn (fn [address not-found]
+                      (get @store address not-found))})))
 
 
 (defn- counting-content-store
-  "Wrap a content-store handle so every :get-content-fn invocation is counted.
+  "Wrap a content-store handle so every :get-bytes-fn invocation is counted.
    Returns {:store wrapped-handle, :gets (fn [] count)} — a minimal counting
    harness for fetch-count assertions (restoration faults no nodes at
    construction, a seek loads only its path)."
   [store]
   (let [gets (atom 0)
-        get-fn (:get-content-fn store)]
+        get-fn (:get-bytes-fn store)]
     {:store (assoc store
-                   :get-content-fn (fn [address not-found]
-                                     (swap! gets inc)
-                                     (get-fn address not-found))),
+                   :get-bytes-fn (fn [address not-found]
+                                   (swap! gets inc)
+                                   (get-fn address not-found))),
      :gets (fn [] @gets)}))
 
 
@@ -583,7 +583,8 @@
       (is (not (contains? manifest :pool)))
       (is (not (contains? manifest :reorder-epoch)))
       (is (not (contains? manifest :manifest-address)))
-      (doseq [[address payload] @(:store store)]
+      (doseq [[address bs] @(:store store)
+              :let [payload (jing/segment-value address bs)]]
         (is (= "segment" (namespace address))
             (str "only content addresses are stored, got " address))
         (is (or (node-blob? payload) (= payload manifest))
@@ -749,7 +750,7 @@
           forged {:indexes {:eavt nil, :aevt nil, :avet nil, :vaet nil},
                   :count 0,
                   :branching-factor 32}]
-      (swap! (:store store) assoc address forged)
+      (swap! (:store store) assoc address (jing/canonical-bytes forged))
       (is (thrown-with-msg? #?(:cljs js/Error
                                :cljd Object
                                :default Exception)

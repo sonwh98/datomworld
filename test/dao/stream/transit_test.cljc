@@ -30,7 +30,8 @@
 
 (deftest nonportable-values-rejected-test
   (testing "host objects and unsafe numbers never enter the wire"
-    (is (not (codec/portable-value? #?(:clj (Object.) :cljs (js-obj) :cljd (Object.)))))
+    (is (not (codec/portable-value?
+               #?(:clj (Object.) :cljs (js-obj) :cljd (Object.)))))
     (is (not (codec/portable-value? 9007199254740992)))
     (is (not (codec/portable-value?
                #?(:clj (Object.) :cljs (js-obj) :cljd (Object.)))))))
@@ -72,9 +73,9 @@
          (is (= (jing/content-hash '[1 (2 3) #{4}])
                 (jing/content-hash decoded)))
          (is
-           (= "738db3e930f478ee4212ad3dfa2434723e298adb05b19450d4f61ad4fbcf0e8c"
+           (= "9445bd929aa4dbe7018a3762a42c2ac0ccafa0a4dda299e71b7abec44a5a557d"
               (jing/content-hash decoded)))
          (is
-           (= "e5bab3450d860af30befedbf9a650a761af5b35663e00cc1a126d15cf9199cb5"
+           (= "552ee5466783e35ae00f007695e632684979d86c35487d5d9d062658f30b5994"
               (jing/content-hash decoded {:algorithm :sha256})))))
      :default (is true)))

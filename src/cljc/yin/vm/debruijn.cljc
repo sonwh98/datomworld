@@ -45,6 +45,7 @@
    host-dispatched `normalize-nfc` seam."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.stream :as stream]
             #?(:cljd ["package:unorm_dart/unorm_dart.dart" :as unorm]))
   #?(:cljd (:import ["dart:typed_data" ByteData Uint8List])))
@@ -216,14 +217,22 @@
    version 1): int64 and double are disjoint. Host integers (Long on the
    JVM, Dart int) are :int64 and every floating-point value is :double,
    integral or not; bigints, ratios, and friends classify nil. Only the
-   :cljs adapter, where 1 and 1.0 are one number, classifies by value."
+   :cljs adapter, where 1 and 1.0 are one number, classifies by value.
+   Floating-point content decoded by dao.jing.cbor arrives as its
+   portable carrier on JavaScript (docs/design/dao.jing.cbor.md, Numeric
+   identity); the carrier is :double on every host, seen through, never
+   redesigned around."
   [v]
-  #?(:clj (cond
-            (int? v) :int64
-            (float? v) :double
-            :else nil)
-     :cljs (js-number-class v)
-     :cljd (if (int? v) :int64 :double)))
+  (cond
+    (cbor/float64? v) :double
+    (not (number? v)) nil
+    :else
+    #?(:clj (cond
+              (int? v) :int64
+              (float? v) :double
+              :else nil)
+       :cljs (js-number-class v)
+       :cljd (if (int? v) :int64 :double))))
 
 
 (defn- code-unit-at
@@ -287,7 +296,7 @@
     (set? v) (when (every? canonical-class v) :set)
     (vector? v) (when (every? canonical-class v) :vector)
     (sequential? v) (when (every? canonical-class v) :list)
-    (number? v) (numeric-class v)))
+    (or (number? v) (cbor/float64? v)) (numeric-class v)))
 
 
 (defn canonical-value?
@@ -994,7 +1003,12 @@
                                {:rule :unsupported-value, :value v}))
                canonical))
       :vector (mapv canonical-value v)
-      :list (apply list (map canonical-value v))
+      ;; with-meta nil: ClojureDart's list constructor stamps its own
+      ;; {:tag PersistentList} metadata (a Dart Type) on every list it
+      ;; builds, and -conj preserves it. A stored scalar is content, not
+      ;; provenance: the strict cbor encoder refuses the Type, so the
+      ;; record value must carry no constructor metadata, on any host.
+      :list (with-meta (apply list (map canonical-value v)) nil)
       v)))
 
 

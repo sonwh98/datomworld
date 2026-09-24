@@ -4,11 +4,13 @@ Named for 井 (jǐng), the well: shared storage everyone draws from, holding wha
 
 Status: implemented. The observer (`observer-state` / `observe-step!`) and the
 plain-data content-store handles described here are the current
-`src/cljc/dao/jing*.cljc` code. What remains open — the final canonical
-encoding, byte-array addressing, metadata-carrying backends and transports,
-durable observer checkpoints, explicit materialization acknowledgement, the
-content write path as an effect stream, garbage collection, and async
-hydration — is listed under *Open items and current limitations*.
+`src/cljc/dao/jing*.cljc` code, over the canonical CBOR codec of
+`dao.jing.cbor.md` and the byte-store handle contract. What remains open --
+the ClojureDart constructor-metadata obligation, the intake transport's
+narrower portable domain, decoded numeric carriers on JavaScript, durable
+observer checkpoints, explicit materialization acknowledgement, the content
+write path as an effect stream, garbage collection, and async hydration --
+is listed under *Open items and current limitations*.
 
 **Related documents:**
 
@@ -162,10 +164,11 @@ different pool streams is also a no-op after the first insertion. Consequently:
 - a materialization can be reconstructed by replaying the available pool
   streams.
 
-The implemented write is `dao.jing/materialize!`: it derives the address from
-the payload alone (`segment-key`) and asks the backend's `:put-content-fn`
-for an explicit verdict. A backend validates before it writes: the address must
-be a segment address and must hash to the payload, else it throws and stores
+The implemented write is `dao.jing/materialize!`: it encodes the payload
+once, derives the address from those canonical bytes alone, and asks the
+backend's `:put-bytes-fn` for an explicit verdict over the same bytes. A
+backend validates before it writes: the address must be a segment address
+and must hash to the bytes, else it throws and stores
 nothing. `:inserted` means the value is durably stored now;
 `:present` means an equal value is already stored there, in which case the
 stored value is read back and verified. A collision in which an existing
@@ -187,30 +190,28 @@ Canonicalization may understand representation-level structure such as maps,
 sets, numbers, strings, and byte arrays. It must not understand domain concepts
 such as datoms, index orders, manifests, or any notion of a root.
 
-The target encoding is a canonical flat byte representation suitable for
-cross-platform hashing and in-place reading. The current implementation uses
-an order-normalized, metadata-aware hand printer (`dao.jing/order-normalize`
-and `canonical-print`) as a transitional encoder — deterministic and
-order-insensitive, but not yet the pinned canonical byte encoding. This is the
-first open item under *Open items and current limitations*.
+The encoding is the pinned, cross-platform canonical CBOR profile of
+[`dao.jing.cbor.md`](dao.jing.cbor.md), implemented by `dao.jing.cbor/encode`
+and `decode` and frozen by the `cbor-v1` fixture corpus:
+`dao.jing/canonical-bytes` is `dao.jing.cbor/encode`, and every address is
+the selected registry digest of exactly those bytes on every host.
 
-The transitional encoder's current contract, precisely: collection metadata
-(on maps, sets, vectors, lists, and seqs) is address-significant, except
+The contract, precisely: collection metadata (on maps, sets, vectors, lists,
+and seqs) and symbol metadata are address-significant, except
 reader-position keys (`:line`, `:column`, `:end-line`, `:end-column`), which
 are stripped before hashing, and empty metadata, which is dropped rather than
-treated as distinct from no metadata. Scalar metadata (on symbols — no
-portable host lets a keyword carry metadata) is not address-significant
-— it is silently ignored, a known
-residual pending the pinned canonical byte encoding. Lists and seqs of equal
-content share one address (`=` calls them equal and both print the same way);
+treated as distinct from no metadata; a metadata map that itself carries
+metadata is refused. Lists and seqs of equal content share one address;
 vectors, sets, and maps are each their own type and never collide with
-another, for any non-pathological scalar (see the pathological-symbol
-residual under *Open items and current limitations*). Records are not a
-supported payload: `content-hash` throws rather
-than silently addressing a record as its equal plain map, since the
-participating hosts cannot agree on how to print one. `materialize!`'s
-`:present` read-back is verified by `segment-matches?`, ensuring that
-a metadata-only mismatch is caught as a real collision.
+another. Keywords and symbols are encoded from their namespace and name
+fields, so a symbol never collides with the number or string its text
+mimics. Byte arrays are addressed by content. Numeric kind, decimal scale,
+and float zero sign are address-significant; host integer width is not.
+Anything outside the supported domain (records, functions, host objects,
+characters, `#inst`, `#uuid`) is refused loudly rather than addressed.
+`materialize!`'s `:present` read-back is verified by hash and byte for byte
+against the proposed bytes, so a metadata-only mismatch is caught as a real
+collision.
 
 ## Multihash Content Addressing & Algorithm Registry
 
@@ -384,10 +385,11 @@ policy, are open items (see below).
 The current `src/cljc/dao/jing*.cljc` code implements the architecture above
 directly.
 
-**Content-store handles are plain data.** A handle is a map
-`{:put-content-fn f, :get-content-fn g, :close-fn c?}`; the backend effects
-are explicit functions, not a protocol or hidden state. `dao.jing/materialize!`
-and `dao.jing/get` dispatch through the handle, and `close!` through its
+**Content-store handles are plain-data byte stores.** A handle is a map
+`{:put-bytes-fn f, :get-bytes-fn g, :close-fn c?}` over canonical payload
+bytes; the backend effects are explicit functions, not a protocol or hidden
+state. `dao.jing/materialize!` and `dao.jing/get` dispatch through the
+handle (encoding and decoding on this side of it), and `close!` through its
 optional `:close-fn`.
 
 **Content-store coordinates are transportable data.**
@@ -399,18 +401,28 @@ change to the coordinate interpreter.
 
 Implemented backends:
 
-- `dao.jing.mem/create-content-mem` — an ephemeral, thread-safe,
-  content-addressed in-memory store. Put is an atomic insert-if-absent; an
-  address already holding the same payload reports `:present` and is never
-  overwritten.
-- `dao.jing.file/create-content-file` — a content-addressed store backed by a
-  private framed append-only file. Each log record is `[address payload]`, written
-  through a write lock, acknowledged only after the log is flushed, and
-  replayed on open to rebuild the in-memory content map. The framing layer
-  truncates an incomplete tail before replay; Jing then fails closed on any
-  complete record that cannot be decoded, validated, or matched to its content
-  address. The store guarantees idempotent close, throws after close, and
-  serializes concurrent puts with exactly one record written.
+- `dao.jing.mem/create-content-mem` -- an ephemeral, thread-safe,
+  content-addressed in-memory byte store whose state lives only in its
+  closures. Put is an atomic insert-if-absent of a copy of the bytes; an
+  address already holding the same bytes reports `:present` and is never
+  overwritten; get answers a fresh copy, so no caller can change a stored
+  snapshot. `entries` (verified and decoded) and `entry-bytes` (raw copies)
+  are the test-facing views.
+- `dao.jing.file/create-content-file` -- a content-addressed byte store
+  backed by a private framed append-only file. Each log record is one
+  canonical CBOR array `[digest payload-bytes]` (the raw digest the address
+  carries, then the exact canonical payload bytes) behind a 4-byte
+  big-endian signed length prefix, written through a write lock,
+  acknowledged only after the log is flushed, and replayed on open to
+  rebuild the in-memory map of address to bytes. Replay parses every
+  complete frame with the shared codec and validates it -- a two-element
+  array of byte strings, a digest that is the payload's under a registered
+  algorithm (which then names the address), a canonical payload -- before
+  anything is mutated; only then is an incomplete tail truncated. A corrupt
+  complete frame, or a nonempty file with no valid first frame, fails the
+  open with the file untouched. The store guarantees idempotent close,
+  throws after close, and serializes concurrent puts with exactly one record
+  written.
 - `dao.jing.remote` — over DaoStream v2, both halves JVM-only: the
   constructor `connect-content!` returns a content handle over a live v2
   attachment, and `serve-content!` serves `default-handlers` — or any
@@ -477,79 +489,55 @@ enters an address or a stored value.
 `content-hash` digests canonical bytes under the selected algorithm (:blake3
 default, :sha256 selectable); `segment-key` mints
 `:segment/<algorithm>-<digest>` addresses; `segment-address?` is the strict
-address test the backend layer enforces; `segment-matches?` is the total
-address-directed verification predicate. As recorded in *Canonical encoding*,
-the encoder is transitional until the pinned canonical CBOR encoding lands.
+address test the backend layer enforces; `segment-matches?` (over a value)
+and `segment-bytes-match?` (over canonical bytes) are the total
+address-directed verification predicates. As recorded in *Canonical
+encoding*, the encoder is the pinned canonical CBOR profile.
+
+**Backends are byte stores.** A handle is `{:put-bytes-fn f, :get-bytes-fn
+g, :close-fn c}`: put takes an address and canonical payload bytes and
+answers `:inserted` or `:present`; get takes an address and a caller-supplied
+not-found sentinel and answers bytes or that sentinel. `materialize!` encodes
+a payload exactly once, derives the address from those bytes, and hands the
+same bytes to the backend; on `:present` it reads the bytes back and
+verifies them by hash and byte for byte. `get` hash-verifies the backend's
+bytes and decodes them. `dao.jing.remote` and `dao.jing.dht` carry the bytes
+as padded standard-alphabet Base64 text inside their existing Transit and
+datagram envelopes, and run the one ingress canonicality check (strict
+Base64, digest, canonical decode) before any received bytes are stored or
+served.
 
 ## Open items and current limitations
 
-- **Canonical encoding.** The order-normalized hand-printer encoder must be
-  replaced by a pinned, cross-platform canonical byte encoding. Until then,
-  content addresses are portable only between implementations sharing the
-  exact print rule; when the encoding lands, `content-hash`, `segment-key`,
-  and every minted address change together. Three residuals of the
-  transitional encoder are deferred to that landing: scalar (symbol)
-  metadata is not address-significant; pathological symbols whose print text
-  mimics another value's print (e.g. `(symbol "42")` vs `42`) can collide;
-  and ambient print-var bindings (`*print-readably*` and similar) still
-  reach scalar bytes, since `canonical-print` delegates scalars to `pr-str`
-  — collection structure and order are rendered by `canonical-print`
-  itself, so only scalar leaves reach the host printer.
+- **Retired by the canonical CBOR codec (2026-09-24).** The transitional
+  order-normalized printer, its three residuals (symbol metadata not
+  address-significant, pathological print collisions, ambient print-var
+  leakage), byte arrays hashed by identity, and the "backends must fail
+  closed on metadata they cannot carry" item are closed:
+  `dao.jing/canonical-bytes` is `dao.jing.cbor/encode`, every backend is a
+  byte store that carries the canonical bytes verbatim, and the file
+  backend's frame is the CBOR `[digest payload-bytes]` record. The
+  `pr-str`/EDN round-trip validator the file backend once needed is gone.
+  What remains open from that family is below.
 - **ClojureDart's `list` mints metadata.** On ClojureDart, `(list ...)` and
   `(apply list ...)` return a list carrying `cljd.core`'s own reader metadata
-  (`{:line … :column … :end-line … :end-column … :tag PersistentList}`).
-  `order-normalize`, `yin.vm`'s semantic-bytecode projection, and the
-  ClojureDart Transit decoders (`dao.stream.transit.cljd` behind
-  `dao.stream.ws`'s incoming frames, and the older `dao.stream.transit`)
-  clear metadata on the lists they mint, so neither normalization nor a list
-  decoded off the wire fabricates it. Any other Dart code that builds a
-  payload with `list` still hands `dao.jing` that metadata, and its `:tag`
-  survives the reader-position strip, so the payload addresses differently
-  from the equal list built on another host. Each such constructor must clear
-  it the same way (`(with-meta (apply list xs) nil)`) until the ClojureDart
-  defect is fixed upstream or the pinned canonical encoding decides the fate
-  of metadata.
-- **Byte arrays are hashed by identity, not content.** `dao.jing.md` lists
-  byte arrays as a supported representation-level type, but the transitional
-  encoder's scalar branch falls through to `pr-str`, which on the JVM prints
-  a byte array as an identity-bearing object literal (`#object["[B" 0x...
-  "..."]`); other hosts print their own identity-bearing form. Two
-  content-equal byte arrays currently mint different addresses. No
-  current producer emits byte-array payloads, so this is latent; it must be
-  fixed (a proper byte-array print rule, or promotion into the pinned
-  canonical byte encoding) before any producer relies on byte-array content
-  addressing.
-- **Backends and transports must fail closed on metadata they cannot carry.**
-  Metadata is now address-significant in the transitional encoder, but no
-  durable backend or wire codec in the system carries metadata today: the
-  file backend (`dao/jing/file.cljc`) writes payloads with plain `pr-str`,
-  and the transit codec (`dao/stream/transit.cljc`) states metadata is not
-  on the wire and its portable-value check admits metadata-bearing
-  collections without complaint. A metadata-bearing payload therefore passes
-  `materialize!`'s put validation, is written with its metadata silently
-  dropped, and fails loudly — the whole store becomes unopenable — on replay,
-  because the replayed frame no longer hashes to its claimed address. This is
-  not reachable today (no producer emits collection metadata yet), and the
-  failure mode is loud rather than silently corrupting, so it is not a
-  blocker for the encoder fix itself. It becomes blocking the moment any
-  producer (the code-as-tuples pipeline's row/metadata-bearing content, once
-  that work starts emitting metadata-bearing literals) begins emitting
-  metadata-bearing payloads. Every backend and transport must, before that
-  point, either carry metadata through or explicitly refuse a payload whose
-  round trip through its own codec would not hash back to its address.
-
-  **Status 2026-09-18 (U10):** the storage half is closed. The file
-  backend's put now applies exactly this rule — a payload whose
-  `pr-str`/EDN round trip does not hash back to its address (any
-  metadata-bearing payload, since `pr-str` drops collection metadata the
-  address keeps) is refused before a byte is written; the memory backend
-  carries values verbatim, so metadata round-trips there. The transport
-  half is answered differently: Jing content never crosses a transport as
-  a bare payload value. `dao.jing.stream`'s boundary adapter wraps the
-  canonical bytes (`dao.jing/canonical-bytes`, the exact bytes the address
-  digests) as a CBOR byte string on the `dao.stream.cbor` profile and as a
-  named vector of octets on `dao.stream.transit-json`, so no transport's
-  value domain — metadata-blind or not — re-encodes the content.
+  (`{:line ... :column ... :end-line ... :end-column ... :tag
+  PersistentList}`), and vector literals can carry a Dart `Type` under
+  `:tag`. The codec strips reader positions but refuses a `Type`, so a
+  Dart producer must clear constructor metadata itself
+  (`(with-meta (apply list xs) nil)`) before handing a payload to
+  `dao.jing`; decoded lists carry none. This obligation carries forward
+  unchanged from `dao.jing.cbor.md`.
+- **The intake transport's portable domain is narrower than Jing's.** The
+  `dao.stream` Transit codec carries no metadata, byte strings, or rich
+  numerics, so such payloads reach Jing only through direct `materialize!`
+  calls; the intake fail-closed rule carries forward unchanged.
+- **Decoded numeric carriers on JavaScript.** Floating-point, decimal, and
+  rational content decode to Jing's portable carriers on JavaScript, never
+  to a bare number; a consumer that reads values back from a store and
+  pattern-matches on host number types (today, `yin.vm.debruijn`'s slot
+  type check) must accept the carriers, per `dao.jing.cbor.md`'s numeric
+  identity section.
 - **Durable observer checkpoints / long-running runner.** `observer-state`
   and `observe-step!` are single-step and in-process. The checkpoint records,
   per member, the stream coordinate plus the transport-minted cursor; the

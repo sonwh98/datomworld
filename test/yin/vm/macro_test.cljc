@@ -47,7 +47,8 @@
                     (= 2 (count (nth row 3)))
                     (let [n (get index (first (nth row 3)))]
                       (and (= :literal (nth n 1)) (symbol? (nth n 2))))))]
-    (letfn [(walk [a path]
+    (letfn [(walk
+              [a path]
               (let [row (get index a)
                     kids (mapcat (fn [i [_ kind]]
                                    (let [pos (+ i 2)]
@@ -96,7 +97,11 @@
       (vec (map-indexed (fn [h [j p]] [:yin.macro/harvest h j p]) occs))])))
 
 
-(def ^:private token #uuid "00000000-0000-0000-0000-000000000016")
+;; The incarnation token is composition-supplied opaque data that travels
+;; into content-addressed event rows, so it lives in dao.jing's supported
+;; value domain: a string, not a host UUID object (dao.jing.cbor.md,
+;; Encoding contract).
+(def ^:private token "00000000-0000-0000-0000-000000000016")
 
 
 (defn- ctx
@@ -145,8 +150,9 @@
 
 (def ^:private transformers
   {'ident '(fn [x] x),
-   'wrap '(fn [x] (yin/application (yin/lambda (quote [_]) (yin/literal nil))
-                                   (conj [] x))),
+   'wrap '(fn [x]
+            (yin/application (yin/lambda (quote [_]) (yin/literal nil))
+                             (conj [] x))),
    'discard '(fn [x] (yin/literal nil)),
    'reorder '(fn [a b] (yin/sequence-body (conj (conj [] b) a))),
    'duplicate '(fn [x] (yin/sequence-body (conj (conj [] x) x))),
@@ -361,11 +367,11 @@
           streamer {:type :lambda, :params [], :body {:type :stream/make, :buffer 1}}
           base (ctx)
           cx (assoc base :store (m/seed-store base [(batch [{:type :application,
-                                                               :operator {:type :variable, :name 'yin/def},
-                                                               :operands [{:type :literal, :value 'p} parker]}])
+                                                             :operator {:type :variable, :name 'yin/def},
+                                                             :operands [{:type :literal, :value 'p} parker]}])
                                                     (batch [{:type :application,
-                                                               :operator {:type :variable, :name 'yin/def},
-                                                               :operands [{:type :literal, :value 's} streamer]}])]))]
+                                                             :operator {:type :variable, :name 'yin/def},
+                                                             :operands [{:type :literal, :value 's} streamer]}])]))]
       (is (= :suspended (:kind (error-of '(p) cx))))
       (is (= {:kind :effect-guard, :tag :stream/make}
              (dissoc (error-of '(s) cx) :macro)))))
@@ -378,8 +384,17 @@
   (let [body [:literal v]] (into [(jing/segment-key body)] body)))
 
 
+(defn- host-row
+  "A literal row carrying a host value, which has no content address
+   (dao.jing's canonical encoding refuses it): it sits under a stand-in
+   address, which admission never reaches because the `:host-value` rule
+   runs before any body is hashed."
+  [v]
+  (into [(jing/segment-key [:literal :yin.test/host-stand-in])] [:literal v]))
+
+
 (deftest admission-rejects-invalid-input
-  (let [host-row (literal-row (fn [] 1))
+  (let [host-row (host-row (fn [] 1))
         marker-row (literal-row [:yin.macro/defined 'm 0])
         err (fn [b] (:error (m/expand-batch b (ctx))))]
     (is (= :host-value (:reason (err [:yin.program/batch [[(first host-row) [host-row]]] 0 [] []]))))
@@ -399,9 +414,11 @@
              (:reason (err [:yin.program/batch
                             [(standin-packet 'm 0)] 0 [] []])))))
     (testing "trees that are each valid may not disagree on one address"
-      (let [r1 (literal-row (with-meta 'x {:tag 1}))
-            r2 (literal-row (with-meta 'x {:tag 2}))]
-        (is (= (first r1) (first r2)) "the address ignores scalar metadata")
+      ;; the canonical encoding hashes retained metadata but strips reader
+      ;; positions, so bodies differing only there share one address
+      (let [r1 (literal-row (with-meta 'x {:line 1}))
+            r2 (literal-row (with-meta 'x {:line 2}))]
+        (is (= (first r1) (first r2)) "the address strips reader positions")
         (is (nil? (m/valid-tree? [(first r2) [r2]])))
         (is (= {:kind :malformed-input, :reason :address-conflict, :tree 1,
                 :address (first r2)}
@@ -442,7 +459,7 @@
         run (fn [result input]
               (let [cx (seeded {'fab fab-form} {:eval (fabricating-eval fab-root result)})]
                 (:error (m/expand-batch (batch [(c input)]) cx))))
-        host (literal-row (fn [] 1))
+        host (host-row (fn [] 1))
         marker (literal-row [:yin.macro/defined 'm 0])]
     (is (= {:kind :invalid-output, :macro fab-root, :path [], :reason :host-value}
            (run [(first host) [host]] '(fab))))
@@ -451,10 +468,11 @@
     (let [[root rows] (m/ast->packet (c '(f 1)))]
       (is (= :dangling-child (:reason (run [root (subvec rows 0 1)] '(fab))))))
     (testing "an address already holding a metadata-distinct body"
-      (let [x1 (with-meta 'x {:tag 1})
-            x2 (with-meta 'x {:tag 2})
+      (let [x1 (with-meta 'x {:line 1})
+            x2 (with-meta 'x {:line 2})
             row (literal-row x2)]
-        (is (= (first row) (first (literal-row x1))) "the address ignores scalar metadata")
+        (is (= (first row) (first (literal-row x1)))
+            "the address strips reader positions")
         (is (= :address-conflict
                (:reason (run [(first row) [row]]
                              (list 'do (list 'quote x1) '(fab))))))))))
@@ -572,7 +590,8 @@
         queue (atom outcomes)]
     {:accepted accepted,
      :writer (reify stream/IDaoStreamWriter
-               (append! [_ v]
+               (append!
+                 [_ v]
                  (let [o (or (first @queue) :dao.stream/ok)]
                    (swap! queue rest)
                    (when (= :dao.stream/ok o) (swap! accepted conj v))
@@ -743,4 +762,3 @@
         vm (vm/run (ast-walker/vm-load-rows (tu/create-vm) (m/packet->row-set tree)))]
     (is (not (contains? (tags tree) :yin.macro/defined)))
     (is (= 42 (vm/value vm)))))
-

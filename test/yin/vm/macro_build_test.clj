@@ -5,7 +5,8 @@
    are persisted to files, and every row is stored by its content address
    in a `dao.jing.file` content file, so the evaluator reads code that
    crossed storage by address alone."
-  (:require [clojure.edn :as edn]
+  (:require [dao.jing :as jing]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
@@ -24,8 +25,12 @@
 (def ^:private sources
   "One program per input batch, in order: a macro definition, a use beside a
    frontend-lowered defn, a call the expander rejects, and a later use."
-  ['((defmacro unless [c a b] (yin/if c b a)))
-   '((defn sq [x] (* x x)) (unless false (sq 7) 0))
+  ['((defmacro unless
+       [c a b]
+       (yin/if c b a)))
+   '((defn sq
+       [x]
+       (* x x)) (unless false (sq 7) 0))
    '((unless 1 2))
    '((unless false (sq 3) 0))])
 
@@ -88,7 +93,8 @@
   [content packets]
   (doseq [[_ rows] packets
           row rows]
-    ((:put-content-fn content) (first row) (subvec row 1))))
+    ((:put-bytes-fn content) (first row)
+                             (jing/segment-bytes (first row) (subvec row 1)))))
 
 
 (defn- fetch-packet
@@ -97,7 +103,7 @@
   [content [root rows]]
   [root (mapv (fn [row]
                 (let [a (first row)]
-                  (into [a] ((:get-content-fn content) a nil))))
+                  (into [a] (jing/get content a nil))))
               rows)])
 
 

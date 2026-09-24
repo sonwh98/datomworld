@@ -83,8 +83,8 @@
 
 
 (def ^:private metadata-literal-ast
-  "A literal whose value carries non-position metadata — the payload class
-   the transitional encoder addresses and `pr-str` drops."
+  "A literal whose value carries non-position metadata -- the payload class
+   the canonical CBOR encoding carries and the old `pr-str` codec dropped."
   {:type :literal, :value (with-meta [1 2] {:meaning "retained"})})
 
 
@@ -102,20 +102,23 @@
           "the fetched literal's value carries its metadata")
       (jing/close! h)))
 
-  (testing "the file backend refuses it before the write, and stays openable"
+  (testing "the file backend carries it too: full round trip across reopen"
     (let [path (temp-path "u10-metadata")
-          h (jing-file/create-content-file path)]
+          h (jing-file/create-content-file path)
+          tree (vm/ast->semantic-bytecode metadata-literal-ast)]
       (try
-        (let [refusal (try
-                        (content/materialize-tree!
-                          h (vm/ast->semantic-bytecode metadata-literal-ast))
-                        ::no-refusal
-                        (catch #?(:cljd Object :clj Exception :cljs :default) e (ex-message e)))]
-          (is (re-find #"does not survive this backend's text codec" (str refusal))
-              "refused, loudly, naming the codec rule"))
-        (jing/close! h)
-        (is (= [] (jing-file/records path))
-            "nothing was written: the store reopens with no frames")
+        (let [root (content/materialize-tree! h tree)]
+          (jing/close! h)
+          (let [h2 (jing-file/create-content-file path)
+                loaded (content/load-rows h2 root)
+                lit-row (some (fn [row] (when (= :literal (nth row 1)) row))
+                              (vals (:rows loaded)))]
+            (try
+              (is (= tree loaded)
+                  "metadata survives the CBOR frame across close and reopen")
+              (is (= {:meaning "retained"} (meta (nth lit-row 2)))
+                  "the replayed literal's value carries its metadata")
+              (finally (jing/close! h2)))))
         (finally (cleanup-file path))))))
 
 
