@@ -4,6 +4,8 @@
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yin.repl.core :as core]
+            [yin.vm.debruijn-code :as dcode]
+            [yin.vm.debruijn-register-code :as rcode]
             [dao.stream.observer :as observer]))
 
 
@@ -78,7 +80,7 @@
 (deftest the-vm-command-offers-the-ast-walker-and-the-semantic-vm
   (let [[state result] (core/eval-input (core/create-state) "(vm :ast-walker)")
         [state' semantic] (core/eval-input state "(vm :semantic)")
-        [_ rejected] (core/eval-input state' "(vm :register)")]
+        [_ rejected] (core/eval-input state' "(vm :bytecode)")]
     (is (= "Switched to ASTWalkerVM (store cleared)" result))
     (is (= "Switched to SemanticVM (store cleared)" semantic))
     (is (= :semantic (:vm-type state')))
@@ -320,6 +322,69 @@
       (let [[state' text] (core/drain-output state)]
         (is (str/includes? text "x"))
         (is (= :dao.stream/end (get-in state' [:ledger :output])))))))
+
+
+(deftest a-gap-does-not-cost-the-drain-an-element
+  (let [output (handle core/output-capacity)
+        state (core/create-state {:output-stream output})]
+    (dotimes [_ core/output-capacity]
+      (stream/append! output {:type :repl/output :op :print :text "x"}))
+    (stream/append! output {:type :repl/result :round [:r 1] :value 7})
+    (let [[_ text results] (core/drain-output state)]
+      (is (str/includes? text "output lost"))
+      (is (= [{:type :repl/result :round [:r 1] :value 7}] results)
+          "the result behind a full ring of prints is still read"))))
+
+
+(deftest a-full-output-ring-still-yields-the-result
+  (doseq [vm-type [:ast-walker :semantic :stack :register]]
+    (testing (str vm-type)
+      (let [[state text]
+            (evaluate
+              (core/create-state {:vm-type vm-type})
+              [(str "(defn spam [n]"
+                    " (if (= n 0) :done (do (print \"x\") (spam (- n 1)))))")
+               (str "(spam " core/output-capacity ")")])]
+        (is (str/ends-with? text ":done")
+            "the round's prints fill the ring, and its result follows")
+        (is (= :done (:last-value state)))))))
+
+
+(deftest only-the-current-rounds-result-is-accepted
+  (let [output (handle 16)]
+    (stream/append! output {:type :repl/result :round ["other" 1] :value 99})
+    (let [[state text] (core/eval-input
+                         (core/create-state {:output-stream output})
+                         ":first")]
+      (is (= ":first" text)
+          "a preloaded result from another shell is not this round's")
+      (stream/close! output)
+      (let [[state' text'] (core/eval-input
+                             (assoc state :output-cursor (oldest output))
+                             "(+ 40 2)")]
+        (is (str/includes? text' core/result-loss-text)
+            "the drain re-reads round 1's result, which is not round 2's")
+        (is (str/includes? text' "(append: closed)")
+            "the refused append is surfaced, not discarded")
+        (is (not (str/ends-with? text' ":first")))
+        (is (= :first (:last-value state')))
+        (is (nil? (:last-value-2 state'))
+            "neither a stale nor a lost result enters the history")))))
+
+
+(deftest de-bruijn-hash-is-canonical-over-the-loaded-segment
+  (doseq [[vm-type canonical] [[:stack dcode/image-hash]
+                               [:register rcode/register-hash]]]
+    (testing (str vm-type)
+      (let [state (core/create-state {:vm-type vm-type})
+            [one _] (core/eval-input state "(def f (fn [x] (+ x 1)))")
+            [two text] (core/eval-input one "(f 1)")
+            [three text'] (core/eval-input two "(f 41)")]
+        (is (= ["2" "42"] [text text'])
+            "a closure from an earlier segment still resolves")
+        (doseq [vm (map :vm [one two three])]
+          (is (= (canonical (:segment vm)) (:hash vm))
+              "every load's :hash is H (or R) over the whole :segment"))))))
 
 
 (deftest the-output-cursor-is-minted-not-fabricated

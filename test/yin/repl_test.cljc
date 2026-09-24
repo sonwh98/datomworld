@@ -5,10 +5,12 @@
                 :clj [[clojure.java.io :as io]
                       [yin.repl.host :as host]]
                 :cljs [[yin.repl.connect :as connect]])
+            [dao.stream :as stream]
             [dao.stream.apply :as apply]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
             [yin.repl :as repl]
+            [yin.repl.core :as core]
             [yin.repl.driver :as driver]
             [yin.repl.host.common :as host-common]
             [yin.repl.serve :as serve]))
@@ -918,3 +920,101 @@
         (let [[_ server'' _] (repl/step-all state server' 6)]
           (is (false? (serve/moved? server''))
               "the next round owes nothing, so the endpoint may idle"))))))
+
+
+;; =============================================================================
+;; All four evaluators behind the same dao.stream boundary
+;; =============================================================================
+
+(def ^:private vm-types [:ast-walker :semantic :stack :register])
+
+
+(defn- run-lines
+  "Submit each line to the input medium and step the driver once per line,
+   returning the final driver state and the published texts in order."
+  [state lines]
+  (reduce (fn [[state texts] [tick line]]
+            (driver/submit-line! (:input state) line)
+            (let [[entries state'] (driver/take-outbox
+                                     (driver/repl-step state tick))]
+              [state' (into texts (map :yin.repl.driver/text) entries)]))
+          [state []]
+          (map-indexed vector lines)))
+
+
+(defn- output-elements
+  "Every element on a shell's output medium, read from its oldest one."
+  [repl-state]
+  (let [output (:output-stream repl-state)]
+    (loop [cursor (:dao.stream/cursor
+                    (stream/cursor output :dao.stream/oldest))
+           values []]
+      (let [result (stream/next output cursor)]
+        (if (= :dao.stream/ok (:dao.stream/outcome result))
+          (recur (:dao.stream/cursor result)
+                 (conj values (:dao.stream/value result)))
+          values)))))
+
+
+(deftest every-vm-is-selectable-and-answers-through-the-streams
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[state texts]
+            (run-lines (driver/create-state {:host (host-adapter)})
+                       [(str "(vm " vm-type ")")
+                        "(+ 1 2)"
+                        "((fn [x] (* x x)) 7)"
+                        "(let [x 2 y 3] (* x y))"
+                        "(if (< 1 2) :yes :no)"
+                        "(println \"hi\" 1)"
+                        "(def inc100 (fn [x] (+ x 100)))"
+                        "(inc100 1)"
+                        (str "(defn sum-to [n]"
+                             " (if (= n 0) 0 (+ n (sum-to (- n 1)))))")
+                        "(sum-to 10)"])]
+        (is (= [(str "Switched to " (get core/vm-labels vm-type)
+                     " (store cleared)")
+                "3" "49" "6" ":yes" "hi 1\nnil"]
+               (subvec texts 0 6)))
+        (is (= ["101" "55"] [(nth texts 7) (nth texts 9)])
+            "a function defined by one input is called by a later one")
+        (is (= vm-type (:vm-type (:repl state))))))))
+
+
+(deftest results-leave-the-vm-on-the-output-medium
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[state _] (core/eval-input (core/create-state {:vm-type vm-type})
+                                       "(do (print \"a\") (+ 20 22))")]
+        (is (= [{:type :repl/output :op :print :text "a"}
+                {:type :repl/result
+                 :round [(:shell-token state) 1]
+                 :value 42}]
+               (output-elements state))
+            "the value follows the round's prints on the same stream")))))
+
+
+(deftest value-history-commands-and-error-recovery-on-every-vm
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [texts (second
+                    (reduce (fn [[state texts] line]
+                              (let [[state' text] (core/eval-input state line)]
+                                [state' (conj texts text)]))
+                            [(core/create-state {:vm-type vm-type}) []]
+                            ["1" "2" "3"
+                             "(+ (* 100 *3) (* 10 *2) *1)"
+                             "(undefined-thing 1)"
+                             "(+ *1 1)"
+                             "(help)"
+                             "(repl-state)"
+                             "(reset)"
+                             "*1"]))]
+        (is (= "123" (nth texts 3)) "*1, *2, and *3 name the last three")
+        (is (str/starts-with? (nth texts 4) "Error: "))
+        (is (= "124" (nth texts 5))
+            "a failed input neither breaks the shell nor enters the history")
+        (is (str/includes? (nth texts 6) ":stack | :register"))
+        (is (str/includes? (nth texts 7) (str ":type " vm-type)))
+        (is (= (str (get core/vm-labels vm-type) " reset") (nth texts 8)))
+        (is (= "nil" (nth texts 9)) "(reset) clears the value history")))))
