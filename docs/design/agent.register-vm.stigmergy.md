@@ -243,7 +243,7 @@ same task) are resolved via transactor linearization rules over stream offsets.
 ## 7. Phased Implementation Roadmap
 
 ### Phase 1: Register VM MCP Server Adapter
-- Implement `yin.vm.agent.mcp_server`: a lightweight JSON-RPC MCP server
+- Implement `agent.mcp.server`: a lightweight JSON-RPC MCP server
   exposing `dao_space_query`, `dao_space_deposit`, and `debruijn_eval`.
 - Validate tool calling with Claude Code and Codex CLI running against local
   `dao.space` and `dao.stream` instances.
