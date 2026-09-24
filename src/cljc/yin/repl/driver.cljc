@@ -1,12 +1,13 @@
 (ns yin.repl.driver
-  "The one owner of Yin REPL v2 state.
+  "The one owner of Yin REPL state.
 
    A line producer appends `{:yin.repl.input/line \"…\"}` to the
    composition-owned input medium and returns.  It does not evaluate, request,
    poll, print, prompt, or touch the state held here.  `repl-step` is called
-   once per externally driven tick by exactly one ticker per host: it drains the
-   input medium, evaluates local input, forwards ordinary source through the v2
-   RPC client, publishes completions exactly once, and returns the next state.
+   once per externally driven tick by exactly one ticker per host: it drains
+   the input medium, evaluates local input, forwards ordinary source through
+   the RPC client, publishes completions exactly once, and returns the next
+   state.
 
    It never loops on `blocked`, and it owns no promise, future, callback, atom,
    or clock."
@@ -17,7 +18,7 @@
             [dao.stream.rpc :as rpc]
             [yin.repl.adapter :as adapter]
             [yin.repl.connect :as connect]
-            [yin.repl.core :as core]
+            [yin.repl :as repl]
             [yin.repl.host :as host]))
 
 
@@ -75,7 +76,7 @@
   ([] (create-state {}))
   ([{:keys [input input-cursor repl host]}]
    (let [input (or input (create-input-medium!))]
-     {:repl (or repl (core/create-state))
+     {:repl (or repl (repl/create-state))
       :input input
       :input-cursor (or input-cursor (mint-cursor input))
       :input-ledger :untried
@@ -168,7 +169,7 @@
 
 (defn- evaluate-locally
   [state line]
-  (let [[repl text] (core/eval-input (:repl state) line)]
+  (let [[repl text] (repl/eval-input (:repl state) line)]
     (-> state
         (assoc :repl repl)
         (assoc :running? (boolean (:running? repl)))
@@ -417,7 +418,7 @@
       (cond-> (evaluate-locally state line)
         (:connection state)
         (publish :yin.repl.driver/result
-                 (core/format-value (connect/summary (:connection state)))))
+                 (repl/format-value (connect/summary (:connection state)))))
 
       (and (remote-routed? state) (not command))
       (cond
@@ -450,9 +451,9 @@
   (case (:yin.repl.adapter/event event)
     :yin.repl.adapter/response
     (if (contains? event :yin.repl.adapter/error)
-      (str "Error: " (core/format-value (:yin.repl.adapter/error event)))
+      (str "Error: " (repl/format-value (:yin.repl.adapter/error event)))
       (let [value (:yin.repl.adapter/value event)]
-        (if (string? value) value (core/format-value value))))
+        (if (string? value) value (repl/format-value value))))
 
     :yin.repl.adapter/lost
     (str ";; remote request " (:yin.repl.adapter/id event) " lost: "

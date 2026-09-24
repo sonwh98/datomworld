@@ -201,5 +201,5 @@
             "an outstanding request is a pending write: it must never wait out
              a backoff ceiling")
         (is (= :dao.stream/ok (:dao.stream/outcome (stream/next requests
-                                                                 request-cursor)))
+                                                                request-cursor)))
             "the request really was sent")))))

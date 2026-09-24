@@ -1,5 +1,5 @@
 (ns yin.repl.flutter
-  "A reusable Flutter component to embed a DaoStream v2 Yin REPL server inside
+  "A reusable Flutter component to embed a DaoStream Yin REPL server inside
    any application: a thin view over `yin.repl.embed`.
 
    One `Timer.periodic` per started server is the endpoint's only state owner.
@@ -9,7 +9,7 @@
             ["dart:io" :as io]
             ["package:flutter/material.dart" :as m]
             [clojure.string :as str]
-            [yin.repl :as repl]
+            [yin.repl.main :as repl]
             [yin.repl.embed :as embed]))
 
 

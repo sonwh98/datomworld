@@ -1,5 +1,5 @@
 (ns yin.repl.serve
-  "The server side of the DaoStream v2 Yin REPL — Phase R4.
+  "The server side of the DaoStream Yin REPL — Phase R4.
 
    `serve!` composes an endpoint and returns immediately with one explicit
    value: the service-lifetime `/repl` stream created at start (D3), the
@@ -31,7 +31,7 @@
             [dao.stream.waitset :as waitset]
             [dao.stream.ws :as ws]
             [yin.repl.connect :as connect]
-            [yin.repl.core :as core]
+            [yin.repl :as repl]
             [yin.repl.host.common :as host-common]))
 
 
@@ -196,7 +196,7 @@
 
 
 (defn serve!
-  "Compose a v2 REPL endpoint and return immediately.
+  "Compose a REPL endpoint and return immediately.
 
    Every medium and every cursor exists before any binding is attempted:
    the service stream, the boundary control medium, each handoff slot's offer
@@ -235,7 +235,7 @@
               :resolution nil
               :sessions {}
               :probes (waitset/empty-waitset)
-              :repl (or repl (core/create-state))
+              :repl (or repl (repl/create-state))
               :status :new
               :stop-initiated? false
               :step-moved? false
@@ -568,7 +568,7 @@
 
       :else
       (try
-        (let [[repl' text] (core/eval-input repl (first (apply/request-args request)))]
+        (let [[repl' text] (repl/eval-input repl (first (apply/request-args request)))]
           (if (:pending-input repl')
             ;; Line continuation is a terminal concern.  One shared shell means
             ;; an unbalanced request would otherwise prefix the *next*

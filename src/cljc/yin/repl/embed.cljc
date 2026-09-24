@@ -1,12 +1,12 @@
 (ns yin.repl.embed
-  "The composition an embedding host drives to serve a v2 Yin REPL from inside
+  "The composition an embedding host drives to serve a Yin REPL from inside
    an application — the Flutter-free half of the Flutter REPL widget.
 
    No UI, no timer, no atom.  `start` composes the endpoint, `step` is the one
    state transition, and `status`/`status-text` read what a view shows.  The
    caller owns cadence and is the endpoint's only state owner; it calls `step`
    serially and only prints or displays what comes back."
-  (:require [yin.repl.core :as core]
+  (:require [yin.repl :as repl]
             [yin.repl.host :as repl-host]
             [yin.repl.serve :as serve]))
 
@@ -28,7 +28,7 @@
                  :bind-host (or bind-host default-bind-host)
                  :advertised-host advertised-host
                  :host (or host (repl-host/websocket))
-                 :repl (core/create-state {:primitives primitives})}))
+                 :repl (repl/create-state {:primitives primitives})}))
 
 
 (defn step

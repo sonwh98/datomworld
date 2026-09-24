@@ -16,7 +16,7 @@
      the driver publishes plus the serializable probes this program exposes
      for facts a printed line cannot carry.
 
-   * **Server role** (`--serve <bind-host> <port>`) — a headless v2 REPL
+   * **Server role** (`--serve <bind-host> <port>`) — a headless REPL
      endpoint composed through the real `serve!` and stepped by one ticker,
      its notices on stdout as plain lines and `{:cmd :stop}` on stdin as the
      parent's stop trigger.  This is the role the cross-host pair plays
@@ -34,7 +34,7 @@
   (:require [clojure.string :as str]
             [dao.stream :as stream]
             [dao.stream.transit :as transit]
-            [yin.repl :as repl]
+            [yin.repl.main :as repl]
             [yin.repl.connect :as connect]
             [yin.repl.driver :as driver]
             [yin.repl.host :as host]
@@ -309,7 +309,7 @@
 ;; =============================================================================
 
 (defn- serve-mode!
-  "One headless v2 REPL endpoint behind the real host listener.  `serve!`
+  "One headless REPL endpoint behind the real host listener.  `serve!`
    returns immediately; the bound fact arrives as a notice this program
    prints, which is the parent's readiness signal.  `{:cmd :stop}` on stdin
    initiates `stop!`; the ticker keeps stepping until the endpoint reports

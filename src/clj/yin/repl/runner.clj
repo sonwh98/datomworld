@@ -1,5 +1,5 @@
 (ns yin.repl.runner
-  "Compile the ClojureDart namespace `yin.repl` and run the resulting Dart
+  "Compile the ClojureDart namespace `yin.repl.main` and run the resulting Dart
    REPL.  This is the cljd host entry point named by the `:cljd-yin-repl`
    alias.  (v1's `yin.repl.runner` was deleted with v1 `yin.repl`.)"
   (:require [clojure.java.shell :as sh])

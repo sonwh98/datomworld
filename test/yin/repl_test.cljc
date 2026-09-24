@@ -1,1020 +1,551 @@
 (ns yin.repl-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            #?@(:cljd []
-                :clj [[clojure.java.io :as io]
-                      [yin.repl.host :as host]]
-                :cljs [[yin.repl.connect :as connect]])
             [dao.stream :as stream]
-            [dao.stream.apply :as apply]
-            [dao.stream.transit :as transit]
-            [dao.stream.ws :as ws]
+            [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
-            [yin.repl.core :as core]
-            [yin.repl.driver :as driver]
-            [yin.repl.host.common :as host-common]
-            [yin.repl.serve :as serve]))
+            [yin.vm.debruijn-code :as dcode]
+            [yin.vm.debruijn-register-code :as rcode]
+            [dao.stream.observer :as observer]))
 
 
-(defn- host-adapter
-  "An injected host listener: `:bind!` and `:unbind!` are ordinary functions
-   that deposit lifecycle data.  Nothing here binds a port."
-  []
-  {:bind! (fn [config]
-            ((:deposit! config) :bind-succeeded
-                                {:host (:bind-host config) :port (:bind-port config)})
-            {:listener :injected})
-   :unbind! (fn [_resources deposit!]
-              (deposit! :stopped {:reason :requested})
-              nil)})
+(defn- handle
+  [capacity]
+  (:dao.stream/handle
+    (ring/create! {:dao.stream/type ring/transport-type
+                   ring/capacity-key capacity})))
 
 
-(deftest arguments-behave-as-they-do-in-v1-except-telemetry
-  (let [opts (repl/parse-args ["--port" "8080" "--host" "0.0.0.0" "--headless"])]
-    (is (= 8080 (:port opts)))
-    (is (= "0.0.0.0" (:host opts)))
-    (is (true? (:headless? opts)))
-    (is (empty? (:rejected opts))))
-  (testing "telemetry is rejected rather than ignored"
-    (let [opts (repl/parse-args ["--telemetry-stream" "daostream:ws://x" "--telemetry"])]
-      (is (= ["--telemetry-stream" "--telemetry"] (:rejected opts)))
-      (is (str/includes? (first (repl/banner opts))
-                         "yin.vm.telemetry.implementation-plan.md"))
-      (is (not (str/includes? (first (repl/banner opts)) "yin.repl"))))))
+(defn- oldest
+  [h]
+  (:dao.stream/cursor (stream/cursor h :dao.stream/oldest)))
 
 
-(deftest booting-yields-one-shell-one-input-medium-and-one-cursor
-  (let [state (repl/boot (repl/parse-args []))]
-    (is (some? (:input state)))
-    (is (some? (:input-cursor state)))
-    (is (host-common/adapter? (:host state)))
-    (is (true? (:running? state)))
-    (is (empty? (repl/banner (repl/parse-args []))))
-    (testing "the composition is drivable without any host loop"
-      (driver/submit-line! (:input state) "(+ 40 2)")
-      (let [[entries _] (driver/take-outbox (driver/repl-step state 0))]
-        (is (= ["42"] (mapv :yin.repl.driver/text entries)))))))
-
-
-(deftest an-uncomposed-port-reports-the-missing-host
-  (let [opts (repl/parse-args ["--port" "8080"])
-        server (serve/serve! {:bind-port 8080 :host nil})]
-    (is (some? (:lifecycle server)) "serve! returns immediately with its medium")
-    (is (= :failed (:status server)))
-    (testing "and the ticker prints why, without a banner guessing at it"
-      (let [[_ server' lines] (repl/step-all (repl/boot opts) server 0)]
-        (is (str/includes? (str/join " " lines) "no host WebSocket package"))
-        (is (= :failed (:status server')))))
-    (is (nil? (repl/boot-server (repl/parse-args []))))))
-
-
-(deftest the-explicit-stop-trigger-is-a-line-producer
-  (let [state (repl/boot (repl/parse-args ["--headless"]))]
-    (repl/request-stop! state)
-    (is (true? (:running? state)) "appending stops nothing by itself")
-    (is (false? (:running? (driver/repl-step state 0)))
-        "the one step owner performs the shutdown, as it does for a typed quit")))
-
-
-(deftest a-quit-shell-stops-the-endpoint-before-the-host-exits
-  (let [server (serve/serve! {:bind-port 8080 :host (host-adapter)})
-        server (serve/step server 1)]
-    (is (= :running (:status server)))
-    (let [[server _lines stopped?] (repl/stop-tick (serve/stop! server) 2)]
-      (is (= :stopping (:status server)))
-      (is (false? stopped?)
-          "stop! initiates; only the host close completion is the stopped fact")
-      (let [[server' lines stopped?'] (repl/stop-tick server 3)]
-        (is (true? stopped?'))
-        (is (= :stopped (:status server')))
-        (is (str/includes? (str/join " " lines) "Endpoint stopped"))))))
-
-
-(deftest an-endpoint-that-never-bound-is-not-waited-on
-  (let [server (serve/serve! {:bind-port 8080 :host nil})
-        [server' lines stopped?] (repl/stop-tick (serve/stop! server) 1)]
-    (is (true? stopped?)
-        "no host close completion can arrive for a listener that never bound")
-    (is (= :failed (:status server'))
-        "and the endpoint still says what happened to it, rather than :stopped")
-    (is (str/includes? (str/join " " lines) "no host WebSocket package"))))
-
-
-#?(:cljd nil
-   :clj
-   (deftest a-typed-quit-exits-without-waiting-for-end-of-input
-     (let [state (repl/boot {})
-           exits (atom 0)]
-       (driver/submit-line! (:input state) "(quit)")
-       (repl/poll-loop! state nil false (fn [] (swap! exits inc)))
-       (is (= 1 @exits)
-           "the step owner exits; the reader is still parked in read-line"))))
-
-
-(deftest an-ephemeral-bind-is-refused-with-its-reason
-  (let [server (serve/serve! {:bind-port 0 :host (host-adapter)})
-        [_ server' lines] (repl/step-all (repl/boot {}) server 0)]
-    (is (= :failed (:status server')))
-    (is (str/includes? (str/join " " lines) "ephemeral-port-unsupported"))))
-
-
-;; =============================================================================
-;; One shared shell — `--port` serves the shell the local prompt evaluates
-;; against, as v1's atom did.  The composition is the real one: `repl/boot`
-;; beside `serve!`, both advanced only by `step-all`, with a captured socket
-;; standing in for the remote client.
-;; =============================================================================
-
-(defn- socket
-  "A captured socket: every frame the endpoint sends."
-  []
-  (let [sent (atom [])]
-    {:sent sent
-     :socket {:send! (fn [text] (swap! sent conj text) nil)}}))
-
-
-(defn- reply-values
-  "The `:ws/value` frames a captured socket received, decoded."
-  [s]
-  (->> @(:sent s)
-       (mapv transit/decode)
-       (filter #(= :ws/value (:ws/frame %)))
-       (mapv :ws/value)))
-
-
-(defn- remote-request!
-  "Deliver one `:op/eval` request through a connected socket handle."
-  [handle id source]
-  (ws/receive! handle (transit/encode
-                        {:ws/frame :ws/value
-                         :ws/value (apply/request id :op/eval [source])})))
-
-
-(deftest the-served-endpoint-shares-the-local-shells-shell
-  (let [server (serve/serve! {:bind-port 8080 :host (host-adapter)})
-        state (repl/boot {:adapter (host-adapter)})
-        [_ server _] (repl/step-all state server 0)
-        s (socket)
-        accepted (ws/accept-connection! (:ws-endpoint server)
-                                        (:path server)
-                                        (:socket s)
-                                        2)
-        ;; Adoption is observed on the step after the upgrade, as the serve
-        ;; composition's own tests drive it.
-        [_ server _] (repl/step-all state server 3)
-        [state server _] (repl/step-all state server 4)]
-    (is (some? (:ws/handle accepted)))
-    (is (contains? (:sessions server) (:ws/attachment accepted)))
-    (driver/submit-line! (:input state) "(defn twice [x] (* 2 x))")
-    (let [[state server lines] (repl/step-all state server 5)]
-      (is (str/includes? (str/join " " lines) ":closure")
-          "the local prompt defined the function against its own shell")
-      (testing "a definition typed at the local prompt answers a remote request"
-        (remote-request! (:ws/handle accepted) 0 "(twice 21)")
-        (let [[state server _] (repl/step-all state server 6)
-              response (last (reply-values s))]
-          (is (= 0 (apply/response-id response)))
-          (is (= "42" (apply/response-ok response))
-              "the endpoint must evaluate against the shell the local prompt shares, not a private one")
-          (testing "a remote definition answers the local prompt on a later tick"
-            (remote-request! (:ws/handle accepted) 1 "(def answer 7)")
-            (let [[state server _] (repl/step-all state server 7)]
-              (is (= "7" (apply/response-ok (last (reply-values s)))))
-              (driver/submit-line! (:input state) "answer")
-              (let [[_state _server lines] (repl/step-all state server 8)]
-                (is (some #(= "7" %) lines)
-                    "the local prompt must see what a remote client defined")))))))))
-
-
-;; =============================================================================
-;; Phase R5 — the slice, end to end, across two operating-system processes
-;;
-;; This namespace is process A: the headless server, composed through the real
-;; `serve!` and stepped by one ticker thread exactly as `-main --headless`
-;; steps it.  Process B is `yin.repl.slice-peer`, spawned as a real child
-;; JVM: a whole REPL client that shares nothing with A but bytes on a socket
-;; and bytes on a pipe.  Nothing B knows about A arrives except as data — the
-;; URL an operator would type.
-;;
-;; Facts 1-3 share one process A through the `:once` fixture, because fact 3
-;; is precisely that the served stream survives a connection's death: a
-;; per-test server would make survival unfalsifiable.  Fact 4 stops its
-;; endpoint, so it composes — and stops — its own.
-;; =============================================================================
-
-#?(:cljd nil
-   :clj
-   (do
-     ;; Deadlines.  A peer is a whole JVM, so its first breath is slow while
-     ;; every later exchange is a pipe round trip.
-     (def ^:private peer-ready-ms 60000)
-     (def ^:private reply-ms 15000)
-     (def ^:private event-ms 15000)
-
-
-     ;; =========================================================================
-     ;; Process A: one headless v2 REPL endpoint
-     ;; =========================================================================
-
-     (defn- free-port!
-       "One currently-free TCP port.  `serve!` fixes its descriptor at
-        composition, so an ephemeral bind cannot serve; the race between this
-        close and the fixture's bind is accepted and a collision fails the
-        fixture loudly with the endpoint's own bind-failed notice."
-       []
-       (let [socket (java.net.ServerSocket. 0)]
-         (try (.getLocalPort socket)
-              (finally (.close socket)))))
-
-
-     (def ^:private process-a (atom nil))
-
-
-     (defn- start-attempt!
-       "One bind attempt.  Answers the process map, or ::bind-failed after
-        shutting its own ticker down so a retry leaks no thread."
-       []
-       (let [port (free-port!)
-             endpoint (atom (serve/serve! {:bind-port port :host (host/websocket)}))
-             paused (atom false)
-             running (atom true)
-             notices (atom [])
-             ticker (doto (Thread.
-                            (fn []
-                              (while @running
-                                ;; `paused` is the test's stall of the one
-                                ;; server driver: host socket threads keep
-                                ;; depositing, so a request can sit accepted
-                                ;; but unanswered while the driver holds.
-                                (when-not @paused
-                                  ;; One atomic read-step-write.  A `reset!`
-                                  ;; of a value derived from an earlier
-                                  ;; `@endpoint` silently loses whatever a
-                                  ;; test wrote in between — a `stop!` from
-                                  ;; the test thread would vanish and the
-                                  ;; endpoint would stay :running.  `swap!`
-                                  ;; re-runs on contention, so the step is
-                                  ;; always applied to the value that wins.
-                                  (let [drained (volatile! nil)]
-                                    (swap! endpoint
-                                           (fn [ep]
-                                             (let [stepped (serve/step
-                                                             ep
-                                                             (System/currentTimeMillis))
-                                                   [entries next]
-                                                   (serve/take-outbox stepped)]
-                                               (vreset! drained entries)
-                                               next)))
-                                    (swap! notices
-                                           into
-                                           (keep serve/text-key @drained))))
-                                (Thread/sleep 5)))
-                            "yin-repl-slice-server")
-                      (.setDaemon true)
-                      (.start))
-             deadline (+ (System/currentTimeMillis) 10000)
-             abandon! (fn []
-                        (reset! running false)
-                        (.join ^Thread ticker 2000))]
-         (loop []
-           (let [status (:status @endpoint)]
-             (cond
-               (= :running status)
-               {:port port
-                :url (str "daostream:ws://127.0.0.1:" port "/repl")
-                :endpoint endpoint
-                :paused paused
-                :running running
-                :ticker ticker
-                :notices notices}
-
-               ;; A lost free-port! race, not a defect under test: the probe
-               ;; socket is closed before serve! binds, so another process can
-               ;; take the port in between.  Abandon this attempt and let the
-               ;; caller retry on a fresh one.
-               (= :failed status) (do (abandon!) ::bind-failed)
-
-               (< deadline (System/currentTimeMillis))
-               (do (abandon!)
-                   (throw (ex-info "the R5 endpoint never reported :running"
-                                   {:status status, :notices @notices})))
-
-               :else (do (Thread/sleep 20) (recur)))))))
-
-
-     (defn- start-process-a!
-       "Bind an endpoint, retrying a lost port race with a fresh port.  The
-        collision used to fail the fixture loudly, which made every test in
-        this namespace intermittently red for a reason that has nothing to do
-        with what they assert."
-       []
-       (loop [attempts 5]
-         (let [a (start-attempt!)]
-           (cond
-             (not= ::bind-failed a) a
-             (pos? attempts) (do (Thread/sleep 25) (recur (dec attempts)))
-             :else (throw (ex-info "no free port survived five bind attempts"
-                                   {}))))))
-
-
-     (defn- stop-process-a!
-       "Stop the ticker, then drive the endpoint to :stopped so its listening
-        socket is released before the next fixture binds a port.  The old
-        loop gave up silently after 200 steps and left the port bound, which
-        a later `free-port!` could then hand out; it now reports what it was
-        still waiting on.  Always writes the final endpoint back, so a caller
-        that inspects it after the stop sees the stopped value."
-       [a]
-       (reset! (:running a) false)
-       (.join ^Thread (:ticker a) 2000)
-       (let [deadline (+ (System/currentTimeMillis) 5000)
-             final (loop [endpoint (serve/stop! @(:endpoint a))]
-                     (let [endpoint' (serve/step endpoint
-                                                 (System/currentTimeMillis))]
-                       (cond
-                         (serve/stopped? endpoint') endpoint'
-                         (< deadline (System/currentTimeMillis))
-                         (throw (ex-info
-                                  "the endpoint never reached :stopped; its port may still be bound"
-                                  {:status (:status endpoint')
-                                   :port (:port a)
-                                   :notices @(:notices a)}))
-                         :else (do (Thread/sleep 5) (recur endpoint')))))]
-         (reset! (:endpoint a) final)
-         final))
-
-
-     (clojure.test/use-fixtures :once
-       (fn [run]
-         (reset! process-a (start-process-a!))
-         (try (run)
-              (finally
-                (stop-process-a! @process-a)
-                (reset! process-a nil)))))
-
-
-     ;; =========================================================================
-     ;; Process B: a real child process, spoken to only over pipes
-     ;; =========================================================================
-
-     (defn- pump!
-       [reader on-line]
-       (doto (Thread.
-               (fn []
-                 (try
-                   (loop []
-                     (when-let [line (.readLine ^java.io.BufferedReader reader)]
-                       (on-line line)
-                       (recur)))
-                   (catch Exception _ nil))))
-         (.setDaemon true)
-         (.start)))
-
-
-     (defn- default-peer-command
-       "Process B as a JVM on this process's own classpath, as the stream slice
-        does: the same tree A runs, one JVM boot instead of a dependency
-        resolution."
-       []
-       ["java" "-cp" (System/getProperty "java.class.path")
-        "clojure.main" "-m" "yin.repl.slice-peer"])
-
-
-     (def ^:private dart-peer-exe "build/yin-repl-peer")
-
-
-     (defn- start-peer!
-       "Spawn process B from `command`.  The command is a JVM by default; the
-        cross-host pair substitutes the compiled Dart peer, which speaks the
-        identical pipe protocol."
-       ([]
-        (start-peer! (default-peer-command)))
-       ([command]
-        (let [process (.start (ProcessBuilder. ^java.util.List command))
-              replies (atom [])
-              errors (atom [])
-              peer {:process process
-                    :in (io/writer (.getOutputStream process))
-                    :replies replies
-                    :errors errors
-                    :seen (atom [])
-                    :consumed (atom 0)}]
-          ;; Loading B's namespaces prints to B's stdout before the peer
-          ;; protocol starts, so a line that is not a Transit reply is noise
-          ;; rather than a protocol failure.
-          (pump! (io/reader (.getInputStream process))
-                 (fn [line]
-                   (let [reply (try (transit/decode line) (catch Exception _ nil))]
-                     (if (:reply reply)
-                       (swap! replies conj reply)
-                       (swap! errors conj line)))))
-          ;; stderr must be drained too: an unread pipe fills and would block
-          ;; the child mid-report.
-          (pump! (io/reader (.getErrorStream process))
-                 (fn [line] (swap! errors conj line)))
-          peer)))
-
-
-     (defn- stop-peer!
-       [peer]
-       (try (.destroy ^Process (:process peer)) (catch Exception _ nil)))
-
-
-     (defn- take-reply!
-       "Consume the first reply of `kind`, or nil at the deadline."
-       [peer kind timeout-ms]
-       (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-         (loop []
-           (let [index (first (keep-indexed (fn [i r] (when (= kind (:reply r)) i))
-                                            @(:replies peer)))]
-             (cond
-               index (let [reply (nth @(:replies peer) index)]
-                       (swap! (:replies peer)
-                              (fn [rs]
-                                (vec (concat (subvec rs 0 index)
-                                             (subvec rs (inc index))))))
-                       reply)
-               (< deadline (System/currentTimeMillis)) nil
-               :else (do (Thread/sleep 5) (recur)))))))
-
-
-     (defn- ask!
-       [peer command kind timeout-ms]
-       (let [writer ^java.io.Writer (:in peer)]
-         (.write writer (str (transit/encode command) "\n"))
-         (.flush writer))
-       (take-reply! peer kind timeout-ms))
-
-
-     (defn- poll-events!
-       "Ask B for whatever its driver has published since the last ask, and
-        remember it."
-       [peer]
-       (when-let [reply (ask! peer {:cmd :events} :events reply-ms)]
-         (swap! (:seen peer) into (:events reply)))
-       @(:seen peer))
-
-
-     (defn- fresh-events!
-       "The events a waiting helper has not yet observed.  Awaiting consumes:
-        a response seen by one `await-event` is never returned to the next."
-       [peer]
-       (let [all (poll-events! peer)
-             n @(:consumed peer)]
-         (when (> (count all) n)
-           (reset! (:consumed peer) (count all))
-           (subvec all n))))
-
-
-     (defn- seen
-       [peer pred]
-       (some pred @(:seen peer)))
-
-
-     (defn- text-starts-with
-       [prefix]
-       (fn [event] (str/starts-with? (str (:text event)) prefix)))
-
-
-     (defn- text-contains
-       [needle]
-       (fn [event] (str/includes? (str (:text event)) needle)))
-
-
-     (defn- text-is
-       "Exact equality, for assertions a substring cannot make: a served port
-        can contain any digits, so `42` matching the URL of `…:42913/repl` is
-        a false cross-talk result, not an answer."
-       [expected]
-       (fn [event] (= expected (:text event))))
-
-
-     (defn- await-event
-       "The first not-yet-consumed event satisfying `pred`, or nil at the
-        deadline.  Returns the event itself, never the predicate's value."
-       [peer pred timeout-ms]
-       (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-         (loop []
-           (or (first (filter pred (fresh-events! peer)))
-               (when-not (< deadline (System/currentTimeMillis))
-                 (Thread/sleep 20)
-                 (recur))))))
-
-
-     (defn- await-outstanding
-       "Probe until the peer's driver holds a request it has sent and not had
-        answered.  This is what makes fact 2 and fact 3's drop deterministic:
-        the kill happens while the request is provably outstanding, not a sleep
-        after the submit."
-       [peer timeout-ms]
-       (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-         (loop []
-           (or (when-let [probe-reply (ask! peer {:cmd :probe} :probe reply-ms)]
-                 (when (:outstanding probe-reply) probe-reply))
-               (when-not (< deadline (System/currentTimeMillis))
-                 (Thread/sleep 20)
-                 (recur))))))
-
-
-     (defn- await-server-notice
-       "Poll process A's own publication outbox until one notice contains
-        `needle`, or nil at the deadline."
-       [a needle timeout-ms]
-       (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-         (loop []
-           (or (some #(str/includes? % needle) @(:notices a))
-               (when-not (< deadline (System/currentTimeMillis))
-                 (Thread/sleep 20)
-                 (recur))))))
-
-
-     (defn- attach-peer!
-       "Spawn B, wait for its bootstrap, and have it `(connect …)` exactly the
-        way an operator does: as a typed line, not an API call."
-       ([a]
-        (attach-peer! a (default-peer-command)))
-       ([a command]
-        (let [peer (start-peer! command)
-              ready (take-reply! peer :ready peer-ready-ms)]
-          (is (some? ready)
-              (str "process B never reported its bootstrap; its other output was "
-                   (pr-str (take 5 @(:errors peer)))))
-          (ask! peer {:cmd :line :line (str "(connect \"" (:url a) "\")")}
-                :line reply-ms)
-          (let [established (await-event peer
-                                         #(= :yin.repl.connect/connected (:event %))
-                                         event-ms)]
-            (is (some? established)
-                (str "the peer never observed /established; its events were "
-                     (pr-str @(:seen peer)))))
-          peer)))
-
-
-     (defn- remote-value
-       "Evaluate one source line on the peer's remote shell, returning the
-        response the driver published."
-       [peer line]
-       (ask! peer {:cmd :line :line line} :line reply-ms)
-       (when-let [response (await-event peer
-                                        #(= :yin.repl.driver/response (:event %))
-                                        event-ms)]
-         (:text response)))
-
-
-     (defn- drop-with-outstanding-request!
-       "Stall A's driver, let the peer send one request it can never have
-        answered, and disconnect while it is outstanding.  Returns nil; the
-        client-side loss report is what the caller awaits."
-       [a peer]
-       (reset! (:paused a) true)
-       (ask! peer {:cmd :line :line "(+ 40 2)"} :line reply-ms)
-       (is (some? (await-outstanding peer event-ms))
-           "the request never became outstanding, so the drop would prove nothing")
-       (ask! peer {:cmd :line :line "(disconnect)"} :line reply-ms))
-
-
-     ;; =========================================================================
-     ;; The four facts
-     ;; =========================================================================
-
-     (deftest evaluation-round-trips-and-two-clients-get-their-own-answers
-       ;; Fact 1.
-       (let [a @process-a
-             peer-1 (attach-peer! a)
-             peer-2 (attach-peer! a)]
-         (try
-           (is (= "42" (remote-value peer-1 "(+ 40 2)")))
-           (is (= "23" (remote-value peer-2 "(+ 20 3)")))
-           (testing "each client's publication carries only its own answers"
-             (poll-events! peer-1)
-             (poll-events! peer-2)
-             (is (nil? (seen peer-1 (text-is "23"))))
-             (is (nil? (seen peer-2 (text-is "42")))))
-           (finally
-             (stop-peer! peer-1)
-             (stop-peer! peer-2)))))
-
-
-     (deftest killing-the-connection-is-observable-and-requests-are-lost
-       ;; Fact 2.
-       (let [a @process-a
-             peer (attach-peer! a)]
-         (try
-           (is (= "3" (remote-value peer "(+ 1 2)")))
-           (drop-with-outstanding-request! a peer)
-           (testing "the outstanding request is reported lost, not timed out"
-             (let [lost (await-event peer
-                                     (text-starts-with ";; remote request")
-                                     event-ms)]
-               (is (some? lost)
-                   (str "no loss report arrived; events were "
-                        (pr-str @(:seen peer))))))
-           (testing "the client side observes the death"
-             (let [probe-reply (ask! peer {:cmd :probe} :probe reply-ms)]
-               (is (= :detached (get-in probe-reply [:connection :status])))
-               (is (= :dao.stream/closed (:handle-outcome probe-reply))
-                   "the attachment handle answers closed")
-               (is (nil? (:outstanding probe-reply))
-                   "a reported-lost request is no longer outstanding")))
-           ;; The server driver was stalled, so its notice can only arrive now.
-           (reset! (:paused a) false)
-           (testing "the server boundary deposits the departure"
-             (is (some? (await-server-notice a "left" event-ms))))
-           (finally
-             (reset! (:paused a) false)
-             (stop-peer! peer)))))
-
-
-     (deftest reattaching-resumes-the-served-stream-and-the-deposit-medium
-       ;; Fact 3.
-       (let [a @process-a
-             peer (attach-peer! a)]
-         (try
-           (is (= "10" (remote-value peer "(def x 10)")))
-           (let [before (ask! peer {:cmd :probe} :probe reply-ms)
-                 first-attachment (get-in before [:connection :attachment])]
-             (is (some? first-attachment))
-             (drop-with-outstanding-request! a peer)
-             (is (some? (await-event peer (text-contains "lost") event-ms))
-                 "the drop never reported its outstanding request")
-             (reset! (:paused a) false)
-             (is (some? (await-server-notice a "left" event-ms)))
-             (testing "the same descriptor reattaches to the same served stream"
-               (ask! peer {:cmd :line :line (str "(connect \"" (:url a) "\")")}
-                     :line reply-ms)
-               (is (some? (await-event peer
-                                       #(= :yin.repl.connect/connected (:event %))
-                                       event-ms))
-                   "the reattachment never established")
-               (let [after (ask! peer {:cmd :probe} :probe reply-ms)]
-                 (is (true? (:traffic-retained? after))
-                     "the deposit medium did not survive the socket's death")
-                 (is (not= first-attachment
-                           (get-in after [:connection :attachment]))
-                     "a new attachment id should name the new boundary"))
-               (is (= "10" (remote-value peer "x"))
-                   "the shared shell the served stream owns did not survive")))
-           (finally
-             (reset! (:paused a) false)
-             (stop-peer! peer)))))
-
-
-     (deftest stopping-the-endpoint-ends-the-served-stream-not-closes-it
-       ;; Fact 4.  This fact stops its endpoint, so it composes its own.
-       (let [a (start-process-a!)]
-         (try
-           (let [peer (attach-peer! a)]
-             (try
-               (is (= "7" (remote-value peer "(+ 3 4)")))
-               (swap! (:endpoint a) serve/stop!)
-               (is (some? (await-server-notice a "Endpoint stopped" event-ms))
-                   "the endpoint never completed its stop")
-               (is (= :stopped (:status @(:endpoint a))))
-               (testing "the client deposits :ws/ended, not :ws/closed"
-                 (is (some? (await-event peer
-                                         #(= :yin.repl.connect/ended (:event %))
-                                         event-ms))
-                     (str "no ended event arrived; events were "
-                          (pr-str @(:seen peer))))
-                 (is (nil? (seen peer
-                                 #(= :yin.repl.connect/detached (:event %))))
-                     "a detached event would mean the socket closed without the
-                      served stream ending")
-                 (let [probe-reply (ask! peer {:cmd :probe} :probe reply-ms)]
-                   (is (= :ended (get-in probe-reply [:connection :status])))))
-               (finally
-                 (stop-peer! peer))))
-           (finally
-             (stop-process-a! a)))))
-
-
-     ;; =========================================================================
-     ;; The cross-host pairs
-     ;;
-     ;; "The descriptor crossed a codec and the wire is the same wire; if that
-     ;; fails, the contract was implemented three times rather than once."
-     ;; The Dart peer is one program in two roles (`build/yin-repl-peer`,
-     ;; from `bb build:yin-repl-peer`): the client role here, the server
-     ;; role for the Node parent in this namespace's cljs half.  A lane run
-     ;; without the exe skips loudly rather than failing or passing silently.
-     ;; =========================================================================
-
-     (deftest a-dart-client-attaches-to-this-jvm-server
-       ;; Cross-host pair 1: cljd client against a JVM server.
-       (if-not (.exists (io/file dart-peer-exe))
-         (println ";; SKIPPED a-dart-client-attaches-to-this-jvm-server:"
-                  dart-peer-exe "is absent — run bb build:yin-repl-peer (or bb test) first")
-         (let [a @process-a
-               peer (attach-peer! a [dart-peer-exe])]
-           (try
-             (is (= "42" (remote-value peer "(+ 40 2)"))
-                 "the wire round trip must not depend on the client's host")
-             (drop-with-outstanding-request! a peer)
-             (testing "the loss report crosses the wire too"
-               (is (some? (await-event peer
-                                       (text-starts-with ";; remote request")
-                                       event-ms))))
-             (let [probe-reply (ask! peer {:cmd :probe} :probe reply-ms)]
-               (is (= :detached (get-in probe-reply [:connection :status])))
-               (is (= :dao.stream/closed (:handle-outcome probe-reply))
-                   "the Dart attachment handle answers closed"))
-             (reset! (:paused a) false)
-             (is (some? (await-server-notice a "left" event-ms))
-                 "the JVM boundary deposited the Dart client's departure")
-             (finally
-               (reset! (:paused a) false)
-               (stop-peer! peer))))))))
-
-
-;; =============================================================================
-;; Cross-host pair 2: this Node process is the client; the server is the Dart
-;; peer's `--serve` role.  The client composition is the real one — `repl/boot`
-;; with one interval step owner, exactly as the Node host runs it — and the
-;; server is a real Dart process sharing nothing but bytes on a socket.
-;; =============================================================================
-
-#?(:cljs
-   (do
-     (def ^:private cross-bind-ms 30000)
-     (def ^:private cross-event-ms 20000)
-
-     (def ^:private dart-peer-exe "build/yin-repl-peer")
-
-
-     (defn- poll-until
-       "Resolve with the first truthy value `pred` returns, or reject at the
-        deadline.  Polling is the only honest wait here: no operation blocks,
-        and nothing notifies."
-       [pred timeout-ms message]
-       (js/Promise.
-         (fn [resolve reject]
-           (let [deadline (+ (js/Date.now) timeout-ms)]
-             (letfn [(tick
-                       []
-                       (let [value (try (pred) (catch :default _ nil))]
-                         (cond
-                           value (resolve value)
-                           (< deadline (js/Date.now)) (reject (js/Error. message))
-                           :else (js/setTimeout tick 20))))]
-               (tick))))))
-
-
-     (defn- line-reader
-       [readable on-line]
-       (let [pending (atom "")]
-         (.setEncoding ^js readable "utf8")
-         (.on ^js readable "data"
-              (fn [chunk]
-                (let [parts (str/split (str @pending chunk) #"\n" -1)]
-                  (reset! pending (last parts))
-                  (doseq [line (butlast parts)
-                          :when (not (str/blank? line))]
-                    (on-line line)))))))
-
-
-     (defn- free-port!
-       "One currently-free TCP port, handed to `on-port` once the probe socket
-        is closed.  `serve!` fixes its descriptor at composition, so an
-        ephemeral bind cannot serve."
-       [on-port]
-       (let [net (js/require "net")
-             server (.createServer net)]
-         (.listen server 0 "127.0.0.1"
-                  (fn []
-                    (let [port (.-port (.address server))]
-                      (.close server (fn [] (on-port port))))))))
-
-
-     (defn- boot-client!
-       "The Node client composition: one shell, one input medium, one interval
-        step owner that collects what the driver publishes.  Nothing here
-        differs from the real Node host except where the text goes."
-       []
-       (let [box (atom (repl/boot {}))
-             out (atom [])
-             timer (js/setInterval
-                     (fn []
-                       (let [stepped (driver/repl-step @box (js/Date.now))
-                             [entries next] (driver/take-outbox stepped)]
-                         (reset! box next)
-                         (doseq [entry entries]
-                           (swap! out conj {:event (get entry driver/event-key)
-                                            :text (get entry driver/text-key)}))))
-                     5)]
-         {:box box
-          :out out
-          :stop! (fn [] (js/clearInterval timer))}))
-
-
-     (defn- published
-       "Substring over published texts, for notices whose shape is fixed."
-       [client needle]
-       (some (fn [entry] (str/includes? (str (:text entry)) needle)) @(:out client)))
-
-
-     (defn- published-exactly
-       "Exact text equality, for answers a substring cannot tell apart from a
-        served port's digits."
-       [client expected]
-       (some (fn [entry] (= expected (:text entry))) @(:out client)))
-
-
-     (deftest a-node-client-attaches-to-a-dart-server
-       (cljs.test/async done
-                        (if-not (.existsSync (js/require "fs") dart-peer-exe)
-                          (do (println ";; SKIPPED a-node-client-attaches-to-a-dart-server:"
-                                       dart-peer-exe
-                                       "is absent — run bb build:yin-repl-peer (or bb test) first")
-                              (done))
-                          (free-port!
-                            (fn [port]
-                              (let [child-process (js/require "child_process")
-                                    server (.spawn child-process dart-peer-exe
-                                                   #js ["--serve" "127.0.0.1" (str port)]
-                                                   #js {:stdio #js ["pipe" "pipe" "pipe"]})
-                                    server-lines (atom [])
-                                    server-errors (atom [])
-                                    client (boot-client!)
-                                    finish! (fn []
-                                              ((:stop! client))
-                                              (.kill ^js server)
-                                              (done))]
-                                (line-reader (.-stdout server) #(swap! server-lines conj %))
-                                (line-reader (.-stderr server) #(swap! server-errors conj %))
-                                (-> (poll-until #(some (fn [line] (str/includes? line "Serving"))
-                                                       @server-lines)
-                                                cross-bind-ms
-                                                (str "the Dart server never bound; its output was "
-                                                     (pr-str @server-errors)))
-                                    (.then (fn [_]
-                                             (driver/submit-line!
-                                               (:input @(:box client))
-                                               (str "(connect \"daostream:ws://127.0.0.1:" port "/repl\")"))
-                                             (poll-until #(published client "Connected to")
-                                                         cross-event-ms
-                                                         "the Node client never observed /established")))
-                                    (.then (fn [_]
-                                             (driver/submit-line! (:input @(:box client)) "(+ 40 2)")
-                                             (poll-until #(published-exactly client "42")
-                                                         cross-event-ms
-                                                         "the cross-host evaluation never arrived")))
-                                    (.then (fn [_]
-                                             (is (published-exactly client "42")
-                                                 "the wire round trip must not depend on either host")
-                                             (.write ^js (.-stdin server)
-                                                     (str (transit/encode {:cmd :stop}) "\n"))
-                                             (poll-until (fn []
-                                                           (= :ended (:status (connect/summary
-                                                                                (:connection @(:box client))))))
-                                                         cross-event-ms
-                                                         "the client never observed the served stream ending")))
-                                    (.then (fn [_]
-                                             (is (= :ended
-                                                    (:status (connect/summary (:connection @(:box client)))))
-                                                 ":ws/ended, not :ws/closed, is what stop! deposits")
-                                             (is (nil? (published client "Disconnected from"))
-                                                 "a detach would mean the socket closed without the stream ending")))
-                                    (.then (fn [_] nil)
-                                           (fn [error]
-                                             (is false (str "cross-host slice failure: "
-                                                            (pr-str error)))))
-                                    (.then (fn [_] (finish!))))))))))))
-
-
-;; =============================================================================
-;; The tick owner's cadence bit (W4): what keeps a shell off the idle curve
-;; =============================================================================
-
-
-(deftest moved?-is-true-for-lines-pending-writes-and-endpoint-movement
-  (let [state (repl/boot {})
-        idle (repl/step-all state nil 0)]
-    (is (false? (repl/moved? (first idle) (second idle) (nth idle 2)))
-        "a round that printed nothing and owes nothing may idle"))
-  (testing "lines to print move the round"
-    (let [state (repl/boot {})]
-      (driver/submit-line! (:input state) "(+ 1 2)")
-      (let [[state' server' lines] (repl/step-all state nil 0)]
-        (is (true? (repl/moved? state' server' lines))))))
-  (testing "an endpoint holding a pending response never idles"
-    (let [server (serve/serve! {:bind-port 8080 :host (host-adapter)})
-          [state server _] (repl/step-all (repl/boot {}) server 0)
-          s (socket)
-          accepted (ws/accept-connection! (:ws-endpoint server)
-                                          (:path server)
-                                          (:socket s)
-                                          2)
-          [_ server _] (repl/step-all state server 3)
-          [state server _] (repl/step-all state server 4)]
-      (is (some? (:ws/handle accepted)))
-      (remote-request! (:ws/handle accepted) 0 "(+ 1 2)")
-      ;; A step with the writer gated full leaves the response pending, and
-      ;; the endpoint's own moved? — one input to the owner's bit — holds.
-      (is (false? (serve/moved? server))
-          "an empty idle endpoint reports no movement")
-      (let [[_ server' _] (repl/step-all state server 5)]
-        (is (= "3" (apply/response-ok (last (reply-values s))))
-            "sanity: the request was served in the same step")
-        (is (true? (serve/moved? server'))
-            "the round that served moved — a probe woke and a notice printed")
-        (let [[_ server'' _] (repl/step-all state server' 6)]
-          (is (false? (serve/moved? server''))
-              "the next round owes nothing, so the endpoint may idle"))))))
-
-
-;; =============================================================================
-;; All four evaluators behind the same dao.stream boundary
-;; =============================================================================
-
-(def ^:private vm-types [:ast-walker :semantic :stack :register])
-
-
-(defn- run-lines
-  "Submit each line to the input medium and step the driver once per line,
-   returning the final driver state and the published texts in order."
+(defn- evaluate
+  "Evaluate each line in order against one state value, returning the last
+   result text.  The core is synchronous, so a test needs no driver."
   [state lines]
-  (reduce (fn [[state texts] [tick line]]
-            (driver/submit-line! (:input state) line)
-            (let [[entries state'] (driver/take-outbox
-                                     (driver/repl-step state tick))]
-              [state' (into texts (map :yin.repl.driver/text) entries)]))
+  (reduce (fn [[state _] line] (repl/eval-input state line))
+          [state nil]
+          lines))
+
+
+(deftest fresh-state-is-a-semantic-shell-with-an-untried-ledger
+  (let [state (repl/create-state)]
+    (is (= :semantic (:vm-type state))
+        "the semantic VM is the default after Phase 4 (yin.vm.semantic.md §8)")
+    (is (= :clojure (:lang state)))
+    (is (true? (:running? state)))
+    (is (= :untried (get-in state [:ledger :output]))
+        "an idle medium has no last operation, so the ledger says so")
+    (is (some? (:program-stream state))
+        "the shell owns the program medium's writer handle")
+    (is (some? (:observer state))
+        "an observer is attached beside the VM, not inside it")
+    (is (zero? (:ingress-gaps (:observer state))))
+    (is (some? (:row-stream state))
+        "the semantic session owns a row medium beside the program medium")
+    (is (some? (:row-observer state))
+        "the VM's own observer is attached to the row medium")
+    (is (zero? (:ingress-gaps (:row-observer state))))
+    (is (false? (:ingress-loss? state)))))
+
+
+(deftest ordinary-source-evaluates-locally
+  (let [[_ result] (repl/eval-input (repl/create-state) "(+ 1 2)")]
+    (is (= "3" result))))
+
+
+(deftest printed-output-precedes-the-value
+  (let [[state result] (repl/eval-input (repl/create-state) "(println \"hi\")")]
+    (is (= "hi\nnil" result))
+    (is (= :dao.stream/blocked (get-in state [:ledger :output]))
+        "the drain records the outcome that ended it")))
+
+
+(deftest value-history-is-injected-for-the-next-evaluation
+  (let [[_ result] (evaluate (repl/create-state) ["(+ 1 2)" "(+ *1 1)"])]
+    (is (= "4" result))))
+
+
+(deftest multi-line-input-accumulates-until-the-brackets-balance
+  (let [[state partial] (repl/eval-input (repl/create-state) "(+ 1")
+        [state' result] (repl/eval-input state " 2)")]
+    (is (= "" partial))
+    (is (= "(+ 1" (:pending-input state)))
+    (is (= "3" result))
+    (is (nil? (:pending-input state')))))
+
+
+(deftest the-vm-command-offers-the-ast-walker-and-the-semantic-vm
+  (let [[state result] (repl/eval-input (repl/create-state) "(vm :ast-walker)")
+        [state' semantic] (repl/eval-input state "(vm :semantic)")
+        [_ rejected] (repl/eval-input state' "(vm :bytecode)")]
+    (is (= "Switched to ASTWalkerVM (store cleared)" result))
+    (is (= "Switched to SemanticVM (store cleared)" semantic))
+    (is (= :semantic (:vm-type state')))
+    (is (str/includes? rejected "Unknown Yin REPL VM type"))
+    (is (str/includes? rejected ":semantic"))))
+
+
+(deftest host-primitives-survive-reset-and-vm-selection
+  (let [state (repl/create-state {:primitives {'answer (fn [] 42)}})
+        [state before] (repl/eval-input state "(answer)")
+        [state _] (repl/eval-input state "(reset)")
+        [state after-reset] (repl/eval-input state "(answer)")
+        [state _] (repl/eval-input state "(vm :ast-walker)")
+        [_ after-vm] (repl/eval-input state "(answer)")]
+    (is (= "42" before))
+    (is (= "42" after-reset) "(reset) rebuilds the session with the host functions")
+    (is (= "42" after-vm) "(vm …) rebuilds the session with the host functions")))
+
+
+(deftest the-semantic-vm-evaluates-through-both-observer-stages
+  ;; The program media are shared by every state threaded from one session,
+  ;; so each case starts from its own session rather than a stale state.
+  (let [semantic-state #(first (repl/eval-input (repl/create-state) "(vm :semantic)"))]
+    (testing "source loads a code segment and runs"
+      (let [[state' result] (repl/eval-input (semantic-state) "(+ 1 2)")]
+        (is (= "3" result))
+        (is (= 1 (count (:code (:vm state')))))))
+    (testing "the segment came through the row lane, not the datom lane"
+      (let [[state' _] (repl/eval-input (semantic-state) "(+ 1 2)")]
+        (is (every? :address (vals (:code (:vm state'))))
+            "only load-vector aliases a segment by its vector's address")))
+    (testing "the session composes two stages over two media"
+      (let [[state' _] (repl/eval-input (semantic-state) "(+ 1 2)")]
+        (is (not (identical? (:program-stream state') (:row-stream state')))
+            "the program medium and the row medium are distinct")
+        (is (not (identical? (:stream (:observer state'))
+                             (:stream (:row-observer state'))))
+            "the encoder and the evaluator are attached independently")))
+    (testing "a map AST travels the medium as emitted, not as datoms"
+      (is (= "7" (second (repl/eval-input (semantic-state)
+                                          "{:type :literal, :value 7}")))))
+    (testing "definitions, recursion, and history span successive programs"
+      (let [[state' result]
+            (evaluate (semantic-state)
+                      ["(defn sum-to [n] (if (= n 0) 0 (+ n (sum-to (- n 1)))))"
+                       "(sum-to 100)"
+                       "(+ *1 1)"])]
+        (is (= "5051" result))
+        (is (= 3 (count (:code (:vm state'))))
+            "each program is its own segment; earlier closures still resolve")))
+    (testing "printed output precedes the value"
+      (is (= "hi\nnil" (second (repl/eval-input (semantic-state) "(println \"hi\")")))))
+    (testing "a datom literal rides the projection adapter like compiled source"
+      (is (= "99" (second (repl/eval-input (semantic-state)
+                                           "[[-1 :yin/type :literal 0 1]
+                                             [-1 :yin/value 99 0 1]]")))))
+    (testing "reset keeps the evaluator and rebuilds its session"
+      (let [[state' message] (repl/eval-input (semantic-state) "(reset)")]
+        (is (= "SemanticVM reset" message))
+        (is (= :semantic (get-in (repl/repl-state state') [:vm :type])))
+        (is (= "7" (second (repl/eval-input state' "(+ 3 4)"))))))))
+
+
+(deftest a-failed-input-is-consumed-exactly-once
+  (doseq [vm-type [:semantic :ast-walker]]
+    (testing (str vm-type " : an evaluation error and its effects do not replay")
+      (let [state (first (repl/eval-input (repl/create-state) (str "(vm " vm-type ")")))
+            [state' failed] (repl/eval-input state "(do (println \"before\") (/ 1 0))")
+            [state'' next-result] (repl/eval-input state' "(+ 1 2)")]
+        (is (str/starts-with? failed "before\n"))
+        (is (str/includes? failed "Error: "))
+        (is (= "3" next-result) "the next input runs alone")
+        (is (= "4" (second (repl/eval-input state'' "(+ *1 1)")))
+            "observation progress and history continue past the failure"))))
+  (testing "a batch the loader rejects is consumed, not re-read"
+    (let [[state failed] (repl/eval-input (repl/create-state)
+                                          "[[1 :a 1 0 true] [1 :b 2 0 true]]")]
+      (is (str/starts-with? failed "Error: "))
+      (is (= "3" (second (repl/eval-input state "(+ 1 2)")))))))
+
+
+(deftest lexical-scope-does-not-escape-a-top-level-evaluation
+  (doseq [vm-type [:semantic :ast-walker]]
+    (testing (str vm-type)
+      (let [state (first (repl/eval-input (repl/create-state) (str "(vm " vm-type ")")))
+            [state' _] (evaluate state ["(def x 1)" "(let [x 7] x)"])
+            [_ result] (repl/eval-input state' "x")]
+        (is (= "1" result))))))
+
+
+(deftest reset-and-vm-selection-clear-the-value-history
+  (doseq [command ["(reset)" "(vm :semantic)"]]
+    (testing command
+      (let [[state _] (evaluate (repl/create-state) ["(fn [x] (+ x 1))" command])
+            [state' result] (repl/eval-input state "(*1 4)")]
+        (is (nil? (:last-value state)) "no closure outlives its code segment")
+        (is (str/starts-with? result "Error: "))
+        (is (true? (:running? state')))))))
+
+
+(deftest language-and-compile-commands-behave-as-they-do-in-v1
+  (let [[state result] (repl/eval-input (repl/create-state) "(lang :python)")
+        [_ compiled] (repl/eval-input state "(compile \"1 + 2\")")]
+    (is (= "Switched to Python" result))
+    (is (str/includes? compiled "AST:"))
+    (is (str/includes? compiled "Input rows:"))
+    (is (str/includes? compiled "Expanded rows:"))
+    (is (str/includes? compiled "Events:"))))
+
+
+(deftest reset-rebuilds-the-vm-and-its-attachment
+  (let [[state _] (evaluate (repl/create-state) ["(+ 1 2)"])
+        [state' message] (repl/eval-input state "(reset)")]
+    (is (= "SemanticVM reset" message))
+    (is (not (identical? (:vm state) (:vm state'))))
+    (is (not (identical? (:program-stream state) (:program-stream state')))
+        "the program medium is rebuilt with the VM")
+    (is (not (identical? (:observer state) (:observer state')))
+        "the observer is reattached to the new medium")
+    (is (zero? (:ingress-gaps (:observer state'))))
+    (is (not (identical? (:row-stream state) (:row-stream state')))
+        "the row medium is rebuilt with the VM")
+    (is (not (identical? (:row-observer state) (:row-observer state')))
+        "the evaluator observer is reattached to the new row medium")
+    (is (zero? (:ingress-gaps (:row-observer state'))))
+    (is (identical? (:output-stream state) (:output-stream state'))
+        "the output medium belongs to the composition, not to the VM")))
+
+
+(deftest the-program-medium-attaches-by-descriptor
+  (let [state (repl/create-state)
+        writer (:program-stream state)
+        descriptor (:dao.stream/descriptor (stream/descriptor writer))
+        attach! (ring/make-attacher {(:dao.stream/identity descriptor) writer})
+        observer (observer/attach attach! descriptor)]
+    (stream/append! writer [[:batch]])
+    (let [observed (observer/observe-next observer)]
+      (is (= :ok (:status observed)))
+      (is (= [[:batch]] (:batch observed))
+          "the resolver maps the descriptor's identity to the owner handle"))))
+
+
+(deftest quit-stops-the-shell-without-touching-the-host
+  (let [[state result] (repl/eval-input (repl/create-state) "(quit)")]
+    (is (= "Bye" result))
+    (is (false? (:running? state)))))
+
+
+(deftest telemetry-is-rejected-and-points-at-the-built-emit-path
+  (let [[state result] (repl/eval-input (repl/create-state) "(telemetry)")]
+    (is (str/includes? result "yin.vm.telemetry.implementation-plan.md"))
+    (is (not (str/includes? result "yin.repl")))
+    (is (true? (:running? state)))))
+
+
+(deftest repl-state-reports-the-ledger-rather-than-asking-a-stream
+  (let [state (repl/create-state)
+        summary (repl/repl-state state)]
+    (is (= :semantic (get-in summary [:vm :type])))
+    (is (false? (get-in summary [:telemetry :supported?])))
+    (is (= :untried (get-in summary [:output :last-outcome])))
+    (is (contains? (:output summary) :cursor))
+    (let [[_ rendered] (repl/eval-input state "(repl-state)")]
+      (is (str/includes? rendered ":semantic")))))
+
+
+(deftest datom-literal-evaluation-runs-through-the-program-medium
+  (testing "a runnable datom program evaluates to its value, as in v1"
+    (let [[state result] (repl/eval-input (repl/create-state)
+                                          "[[-1 :yin/type :literal 0 1]
+                                            [-1 :yin/value 99 0 1]]")]
+      (is (= "99" result))
+      (is (= 99 (:last-value state)))))
+  (testing "a non-program datom stream is reported, never thrown at the host"
+    (let [[state result] (repl/eval-input (repl/create-state)
+                                          "[[1 :a 1 0 true] [1 :b 2 0 true]]")]
+      (is (str/starts-with? result "Error: "))
+      (is (true? (:running? state))))))
+
+
+(deftest an-ingress-gap-is-fatal-to-evaluation-until-reset
+  (let [state (repl/create-state)
+        writer (:program-stream state)]
+    ;; Evict one batch the observer never sees: the shell is the only
+    ;; appender, so only a flood beyond the declared capacity can produce the
+    ;; gap.
+    (doseq [_ (range (inc repl/ingress-capacity))]
+      (stream/append! writer [[-1 :yin/type :literal 0 1] [-1 :yin/value 1 0 1]]))
+    (let [[state' result] (repl/eval-input state
+                                           "[[-1 :yin/type :literal 0 1]
+                                             [-1 :yin/value 2 0 1]]")]
+      (is (str/starts-with? result "Error: ") "the loss is reported")
+      (is (str/includes? result "(reset)"))
+      (is (true? (:ingress-loss? state')))
+      (testing "further evaluation is refused rather than resumed as if complete"
+        (let [[_ refused] (repl/eval-input state' "(+ 1 2)")]
+          (is (str/starts-with? refused "Error: "))))
+      (testing "commands still answer, and (reset) recovers the shell"
+        (let [[state'' message] (repl/eval-input state' "(reset)")]
+          (is (= "SemanticVM reset" message))
+          (is (false? (:ingress-loss? state'')))
+          (is (zero? (get-in (repl/repl-state state'') [:vm :in-stream :gaps])))
+          (let [[_ recovered] (repl/eval-input state'' "(+ 1 2)")]
+            (is (= "3" recovered)))
+          (let [[_ datoms] (repl/eval-input state''
+                                            "[[-1 :yin/type :literal 0 1]
+                                              [-1 :yin/value 8 0 1]]")]
+            (is (= "8" datoms)
+                "datom evaluation succeeds on the rebuilt attachment")))))))
+
+
+(deftest unknown-commands-and-reader-failures-are-reported-not-thrown
+  (testing "an unknown command"
+    (let [[state result] (repl/eval-input (repl/create-state) "(nope)")]
+      (is (str/starts-with? result "Error: "))
+      (is (true? (:running? state)))))
+  (testing "unreadable input"
+    (let [[_ result] (repl/eval-input (repl/create-state) "\"unterminated")]
+      (is (str/starts-with? result "Error: ")))))
+
+
+(deftest the-output-drain-is-total-over-next
+  (testing "a gap prints a loss notice and resumes at the recovery cursor"
+    (let [output (handle 2)
+          state (repl/create-state {:output-stream output})]
+      (doseq [n (range 5)]
+        (stream/append! output {:type :repl/output :op :print :text (str n)}))
+      (let [[state' text] (repl/drain-output state)]
+        (is (str/includes? text "output lost"))
+        (is (str/includes? text "34"))
+        (is (= :dao.stream/blocked (get-in state' [:ledger :output])))
+        (let [[_ text'] (repl/drain-output state')]
+          (is (= "" text') "the recovery cursor is retained, not re-read")))))
+  (testing "a closed medium ends the drain and is recorded once"
+    (let [output (handle 8)
+          state (repl/create-state {:output-stream output})]
+      (stream/append! output {:type :repl/output :op :print :text "x"})
+      (stream/close! output)
+      (let [[state' text] (repl/drain-output state)]
+        (is (str/includes? text "x"))
+        (is (= :dao.stream/end (get-in state' [:ledger :output])))))))
+
+
+(deftest a-gap-does-not-cost-the-drain-an-element
+  (let [output (handle repl/output-capacity)
+        state (repl/create-state {:output-stream output})]
+    (dotimes [_ repl/output-capacity]
+      (stream/append! output {:type :repl/output :op :print :text "x"}))
+    (stream/append! output {:type :repl/result :round [:r 1] :value 7})
+    (let [[_ text results] (repl/drain-output state)]
+      (is (str/includes? text "output lost"))
+      (is (= [{:type :repl/result :round [:r 1] :value 7}] results)
+          "the result behind a full ring of prints is still read"))))
+
+
+(deftest a-full-output-ring-still-yields-the-result
+  (doseq [vm-type [:ast-walker :semantic :stack :register]]
+    (testing (str vm-type)
+      (let [[state text]
+            (evaluate
+              (repl/create-state {:vm-type vm-type})
+              [(str "(defn spam [n]"
+                    " (if (= n 0) :done (do (print \"x\") (spam (- n 1)))))")
+               (str "(spam " repl/output-capacity ")")])]
+        (is (str/ends-with? text ":done")
+            "the round's prints fill the ring, and its result follows")
+        (is (= :done (:last-value state)))))))
+
+
+(deftest only-the-current-rounds-result-is-accepted
+  (let [output (handle 16)]
+    (stream/append! output {:type :repl/result :round ["other" 1] :value 99})
+    (let [[state text] (repl/eval-input
+                         (repl/create-state {:output-stream output})
+                         ":first")]
+      (is (= ":first" text)
+          "a preloaded result from another shell is not this round's")
+      (stream/close! output)
+      (let [[state' text'] (repl/eval-input
+                             (assoc state :output-cursor (oldest output))
+                             "(+ 40 2)")]
+        (is (str/includes? text' repl/result-loss-text)
+            "the drain re-reads round 1's result, which is not round 2's")
+        (is (str/includes? text' "(append: closed)")
+            "the refused append is surfaced, not discarded")
+        (is (not (str/ends-with? text' ":first")))
+        (is (= :first (:last-value state')))
+        (is (nil? (:last-value-2 state'))
+            "neither a stale nor a lost result enters the history")))))
+
+
+(deftest de-bruijn-hash-is-canonical-over-the-loaded-segment
+  (doseq [[vm-type canonical] [[:stack dcode/image-hash]
+                               [:register rcode/register-hash]]]
+    (testing (str vm-type)
+      (let [state (repl/create-state {:vm-type vm-type})
+            [one _] (repl/eval-input state "(def f (fn [x] (+ x 1)))")
+            [two text] (repl/eval-input one "(f 1)")
+            [three text'] (repl/eval-input two "(f 41)")]
+        (is (= ["2" "42"] [text text'])
+            "a closure from an earlier segment still resolves")
+        (doseq [vm (map :vm [one two three])]
+          (is (= (canonical (:segment vm)) (:hash vm))
+              "every load's :hash is H (or R) over the whole :segment"))))))
+
+
+(deftest the-output-cursor-is-minted-not-fabricated
+  (let [output (handle 8)
+        state (repl/create-state {:output-stream output})]
+    (is (= (oldest output) (:output-cursor state)))))
+
+
+;; =============================================================================
+;; Macro expansion between program-in and program-out (yin.vm.macro.md §10.1)
+;; =============================================================================
+
+(def ^:private unless-source
+  "(defmacro unless [c a b] (yin/if c b a))")
+
+
+(def ^:private twice-source
+  "(defmacro twice [x] (yin/application (yin/variable (quote +)) (conj [] x x)))")
+
+
+(defn- vm-state
+  [vm-type]
+  (first (repl/eval-input (repl/create-state) (str "(vm " vm-type ")"))))
+
+
+(defn- results
+  "Evaluate `lines` in order against one threaded state; `[state texts]`.
+   The program media are shared by every state threaded from one session,
+   so a state is never evaluated against twice."
+  [state lines]
+  (reduce (fn [[state texts] line]
+            (let [[state' text] (repl/eval-input state line)]
+              [state' (conj texts text)]))
           [state []]
-          (map-indexed vector lines)))
+          lines))
 
 
-(defn- output-elements
-  "Every element on a shell's output medium, read from its oldest one."
-  [repl-state]
-  (let [output (:output-stream repl-state)]
-    (loop [cursor (:dao.stream/cursor
-                    (stream/cursor output :dao.stream/oldest))
-           values []]
-      (let [result (stream/next output cursor)]
-        (if (= :dao.stream/ok (:dao.stream/outcome result))
-          (recur (:dao.stream/cursor result)
-                 (conj values (:dao.stream/value result)))
-          values)))))
-
-
-(deftest every-vm-is-selectable-and-answers-through-the-streams
-  (doseq [vm-type vm-types]
+(deftest a-defmacro-expands-later-inputs-on-both-evaluators
+  (doseq [vm-type [:semantic :ast-walker]]
     (testing (str vm-type)
-      (let [[state texts]
-            (run-lines (driver/create-state {:host (host-adapter)})
-                       [(str "(vm " vm-type ")")
-                        "(+ 1 2)"
-                        "((fn [x] (* x x)) 7)"
-                        "(let [x 2 y 3] (* x y))"
-                        "(if (< 1 2) :yes :no)"
-                        "(println \"hi\" 1)"
-                        "(def inc100 (fn [x] (+ x 100)))"
-                        "(inc100 1)"
-                        (str "(defn sum-to [n]"
-                             " (if (= n 0) 0 (+ n (sum-to (- n 1)))))")
-                        "(sum-to 10)"])]
-        (is (= [(str "Switched to " (get core/vm-labels vm-type)
-                     " (store cleared)")
-                "3" "49" "6" ":yes" "hi 1\nnil"]
-               (subvec texts 0 6)))
-        (is (= ["101" "55"] [(nth texts 7) (nth texts 9)])
-            "a function defined by one input is called by a later one")
-        (is (= vm-type (:vm-type (:repl state))))))))
+      (let [[state [defined & texts]]
+            (results (vm-state vm-type)
+                     [unless-source
+                      "(unless false 1 2)"
+                      "(unless true 1 2)"
+                      ;; a lambda parameter shadows the macro name
+                      "((fn [unless] (unless 7)) (fn [x] x))"])]
+        (is (str/includes? defined "unless")
+            "the definition reaches the evaluator as the literal naming it")
+        (is (= ["1" "2" "7"] texts))
+        (is (= 7 (:last-value state)))))))
 
 
-(deftest results-leave-the-vm-on-the-output-medium
-  (doseq [vm-type vm-types]
+(deftest a-macro-defined-and-called-in-one-input-expands
+  (let [[state [result]] (results (repl/create-state)
+                                  [(str twice-source " (twice 21)")])]
+    (is (= "42" result))
+    (is (contains? (:macros (repl/repl-state state)) 'twice)
+        "the declaration persists into the next batch's store")
+    (is (= "10" (second (repl/eval-input state "(twice 5)"))))))
+
+
+(deftest the-standard-forms-are-seeded-through-the-row-native-store
+  (let [state (repl/create-state)]
+    (is (= ['defn] (keys (:macros (repl/repl-state state))))
+        "a fresh session's store holds the standard defn")
+    (testing "an ordinary defn application is rewritten by the stored defn"
+      ;; A map AST is the frontend-neutral carrier: no frontend lowering runs,
+      ;; so only the expander's store can turn this call into a definition.
+      (let [[state' _] (repl/eval-input
+                         state
+                         (str "{:type :application,"
+                              " :operator {:type :variable, :name defn},"
+                              " :operands [{:type :variable, :name sq}"
+                              "            {:type :literal, :value [x]}"
+                              "            {:type :application,"
+                              "             :operator {:type :variable, :name *},"
+                              "             :operands [{:type :variable, :name x}"
+                              "                        {:type :variable, :name x}]}]}"))]
+        (is (= "49" (second (repl/eval-input state' "(sq 7)"))))))))
+
+
+(deftest repl-state-lists-macro-names-and-root-addresses
+  (let [[state _] (evaluate (repl/create-state) [unless-source twice-source])
+        macros (:macros (repl/repl-state state))
+        store (get-in state [:expander :ctx :store])]
+    (is (= #{'defn 'unless 'twice} (set (keys macros))))
+    (doseq [[sym address] macros]
+      (is (= (first (get store sym)) address)
+          (str sym " maps to its lambda packet's root address")))
+    (is (str/includes? (second (repl/eval-input state "(repl-state)")) "unless"))))
+
+
+(deftest compile-renders-rows-expansion-and-events-without-committing
+  (let [[state _] (repl/eval-input (repl/create-state) unless-source)
+        attempt (get-in state [:expander :ctx :attempt])
+        [state' [compiled defined failed]]
+        (results state ["(compile (unless false 1 2))"
+                        (str "(compile " unless-source ")")
+                        "(compile (unless 1 2))"])]
+    (is (str/includes? compiled ":yin.program/batch"))
+    (is (str/includes? compiled "Expanded rows:"))
+    (is (str/includes? compiled ":yin.macro/expand")
+        "the expansion's event row is rendered")
+    (is (= attempt (get-in state' [:expander :ctx :attempt]))
+        "the preview commits no attempt")
+    (testing "a defmacro renders its declaration and harvest rows"
+      (is (str/includes? defined ":yin.macro/definition"))
+      (is (str/includes? defined ":yin.macro/harvest")))
+    (testing "a failing expansion renders the error and its event"
+      (is (str/includes? failed "Expansion error:"))
+      (is (str/includes? failed ":arity")))
+    (is (= "1" (second (repl/eval-input state' "(unless false 1 2)")))
+        "compiling appended nothing to program-in")))
+
+
+(deftest reset-rebuilds-the-expander-with-only-the-standard-forms
+  (let [[state _] (repl/eval-input (repl/create-state) unless-source)
+        [state' [_ unbound added]] (results state ["(reset)"
+                                                   "(unless false 1 2)"
+                                                   "(+ 1 2)"])]
+    (is (= ['defn] (keys (:macros (repl/repl-state state')))))
+    (is (not= (get-in state [:expander :ctx :incarnation])
+              (get-in state' [:expander :ctx :incarnation]))
+        "a rebuilt expander is a new incarnation")
+    (is (str/starts-with? unbound "Error: ")
+        "the reset session no longer expands the old macro")
+    (is (= "3" added) "an evaluator failure is consumed like any other")))
+
+
+(deftest evaluation-continues-after-an-expansion-failure
+  (doseq [vm-type [:semantic :ast-walker]]
     (testing (str vm-type)
-      (let [[state _] (core/eval-input (core/create-state {:vm-type vm-type})
-                                       "(do (print \"a\") (+ 20 22))")]
-        (is (= [{:type :repl/output :op :print :text "a"}
-                {:type :repl/result
-                 :round [(:shell-token state) 1]
-                 :value 42}]
-               (output-elements state))
-            "the value follows the round's prints on the same stream")))))
+      (let [[state _] (evaluate (vm-state vm-type)
+                                [unless-source
+                                 "(defmacro spin [] (yin/application (yin/variable (quote spin)) []))"
+                                 "(+ 1 1)"])
+            [state' failed] (repl/eval-input state "(unless 1 2)")
+            [state'' [guarded added unless-again]]
+            (results state' ["(spin)" "(+ 1 2)" "(unless false 1 2)"])]
+        (is (str/starts-with? failed "Error: Macro expansion failed"))
+        (is (str/includes? failed ":arity"))
+        (is (= 2 (:last-value state')) "a failed expansion records no value")
+        (is (= (get-in state [:expander :ctx :store])
+               (get-in state' [:expander :ctx :store]))
+            "a failed batch leaves the store as it was")
+        (is (str/includes? guarded ":depth-guard"))
+        (is (= "3" added))
+        (is (= "1" unless-again) "the source cursor advanced past both failures")
+        (is (= 1 (:last-value state'')))))))
 
 
-(deftest value-history-commands-and-error-recovery-on-every-vm
-  (doseq [vm-type vm-types]
-    (testing (str vm-type)
-      (let [texts (second
-                    (reduce (fn [[state texts] line]
-                              (let [[state' text] (core/eval-input state line)]
-                                [state' (conj texts text)]))
-                            [(core/create-state {:vm-type vm-type}) []]
-                            ["1" "2" "3"
-                             "(+ (* 100 *3) (* 10 *2) *1)"
-                             "(undefined-thing 1)"
-                             "(+ *1 1)"
-                             "(help)"
-                             "(repl-state)"
-                             "(reset)"
-                             "*1"]))]
-        (is (= "123" (nth texts 3)) "*1, *2, and *3 name the last three")
-        (is (str/starts-with? (nth texts 4) "Error: "))
-        (is (= "124" (nth texts 5))
-            "a failed input neither breaks the shell nor enters the history")
-        (is (str/includes? (nth texts 6) ":stack | :register"))
-        (is (str/includes? (nth texts 7) (str ":type " vm-type)))
-        (is (= (str (get core/vm-labels vm-type) " reset") (nth texts 8)))
-        (is (= "nil" (nth texts 9)) "(reset) clears the value history")))))
+(deftest a-clojure-macro-expands-calls-from-other-languages
+  (let [[state _] (evaluate (repl/create-state) [unless-source twice-source
+                                                 "(defn inc2 [x] (+ x 2))"])]
+    (testing "Python"
+      (let [[state' texts] (results state ["(lang :python)"
+                                           "unless(False, 1, 2)"
+                                           "twice(21)"
+                                           "inc2(3)"])]
+        (is (= ["1" "42" "5"] (rest texts)))
+        (testing "then PHP, on the same session"
+          (let [[_ texts] (results state' ["(lang :php)" "twice(21);" "inc2(3);"])]
+            (is (= ["42" "5"] (rest texts)))))))))
