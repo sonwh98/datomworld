@@ -8,6 +8,7 @@
    JVM, Node, and Dart."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.jing.dht :as dht]
             [dao.jing.mem :as mem]
             [dao.jing.remote :as remote]
@@ -116,14 +117,20 @@
   [:tampered value])
 
 
+(defn- tamper-bytes
+  "The canonical bytes of the tampered value the bytes decode to."
+  [bs]
+  (jing/canonical-bytes (tamper (cbor/decode bs))))
+
+
 (defn- corrupt-store
   "A local store whose reads return corrupted bytes for every address."
   [store]
   (assoc store
-         :get-content-fn
+         :get-bytes-fn
          (fn [address not-found]
-           (let [x ((:get-content-fn store) address not-found)]
-             (if (identical? x not-found) x (tamper x))))))
+           (let [x ((:get-bytes-fn store) address not-found)]
+             (if (identical? x not-found) x (tamper-bytes x))))))
 
 
 ;; =============================================================================
@@ -237,7 +244,12 @@
         (jing/close! store)))))
 
 
-(deftest corrupt-rpc-response-is-an-address-mismatch
+;; RPC-reply corruption is now refused at the client ingress boundary
+;; (remote.cljc hash-verify + strict decode on every found reply), so
+;; read-address's documented fail-closed catch classifies the handle
+;; failure :absent; store-level corruption (above) still reaches the
+;; linker's own step-2 check and remains :address-mismatch.
+(deftest corrupt-rpc-response-is-classified-absent
   (doseq [[label format mint] formats]
     (testing label
       (let [store (mem/create-content-mem)
@@ -248,9 +260,11 @@
                      ::corrupt
                      (fn [_ op args]
                        (let [resp (apply (get handlers op) args)]
-                         (update resp :value tamper)))
+                         (update resp :value
+                                 #(jing/bytes->base64
+                                    (tamper-bytes (jing/base64->bytes %))))))
                      (fn [_] nil))]
-        (is (= :address-mismatch
+        (is (= :absent
                (:reason (linker/fetch client index format identity
                                       receiver))))
         (jing/close! client)
@@ -281,7 +295,8 @@
   (fetch-content
     [_ peer _address]
     (if-let [pair (find served (:id peer))]
-      {:found? true, :value (val pair)}
+      {:found? true,
+       :value (jing/bytes->base64 (jing/canonical-bytes (val pair)))}
       {:found? false, :value nil}))
 
 

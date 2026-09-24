@@ -1,17 +1,18 @@
 (ns dao.jing.file-test
   "The file backend, written from the plan's invariants F1-F6 and D1-D5
-   (docs/design/dao.jing.implementation-plan.md, P1) — not ported from the
+   (docs/design/dao.jing.implementation-plan.md, P1) -- not ported from the
    v1 tests. records is the file-side view (D4/F5); the handle view is
-   materialize!/get through :put-content-fn/:get-content-fn (D1). No
+   materialize!/get through :put-bytes-fn/:get-bytes-fn (D1). No
    observer or pool appears here: the pool drains in file_test are P2's."
   (:require #?@(:cljd [["dart:io" :as dart-io] ["dart:typed_data" :as typed]])
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.jing.file :as jing-file]))
 
 
 ;; =============================================================================
-;; Host helpers — raw bytes into the file, per host, for torn tails and
+;; Host helpers -- raw bytes into the file, per host, for torn tails and
 ;; hand-written frames. These are the only host-aware lines in the suite.
 ;; =============================================================================
 
@@ -61,16 +62,78 @@
 (defn- frame-of
   "A complete frame around record bytes: the big-endian length prefix the
    backend writes, then the bytes. encode-record produces record bytes only
-   — the prefix is the frame layer's, so a raw append must go through here
+   -- the prefix is the frame layer's, so a raw append must go through here
    to produce what the scanner treats as a frame rather than a torn tail."
   [record-bytes]
   (host-bytes (concat (int32-be (byte-count record-bytes))
                       (bytes->ints record-bytes))))
 
 
+(defn- set-byte!
+  "Overwrite index i of host byte array bs with b, in place."
+  [bs i b]
+  #?(:clj (aset ^bytes bs i (unchecked-byte b))
+     :cljs (aset bs i b)
+     :cljd (. bs "[]=" i b)))
+
+
+(defn- bytes-of
+  "The canonical bytes of a value."
+  [v]
+  (jing/canonical-bytes v))
+
+
+(def ^:private hex-digits "0123456789abcdef")
+
+
+(defn- hex->ints
+  [hex]
+  (mapv (fn [i]
+          (+ (* 16 (.indexOf hex-digits (subs hex i (inc i))))
+             (.indexOf hex-digits (subs hex (inc i) (+ i 2)))))
+        (range 0 (count hex) 2)))
+
+
+(defn- digest-of
+  "The raw blake3 digest bytes of payload bytes, as the frame carries it."
+  [payload-bytes]
+  (host-bytes (hex->ints (jing/digest-bytes :blake3 payload-bytes))))
+
+
+(defn- cbor-frame
+  "A genuine [digest payload-bytes] record, as the backend writes it."
+  [digest-bytes payload-bytes]
+  (cbor/encode [digest-bytes payload-bytes]))
+
+
+(defn- file-length
+  [path]
+  #?(:clj (.length (java.io.File. path))
+     :cljs (.-size (.statSync (js/require "fs") path))
+     :cljd (.lengthSync (dart-io/File. path))))
+
+
+(defn- overwrite-byte!
+  "Replace the byte at offset in the file at path with b."
+  [path offset b]
+  #?(:clj (with-open [raf (java.io.RandomAccessFile.
+                            (java.io.File. path) "rw")]
+            (.seek raf offset)
+            (.write raf (int b)))
+     :cljs (let [fs (js/require "fs")
+                 fd (.openSync fs path "r+")]
+             (try (.writeSync fs fd (js/Buffer.from (clj->js [b])) 0 1 offset)
+                  (finally (.closeSync fs fd))))
+     :cljd (let [raf (.openSync (dart-io/File. path)
+                                .mode dart-io/FileMode.append)]
+             (try (.setPositionSync raf offset)
+                  (.writeFromSync raf (typed/Uint8List.fromList [b]))
+                  (finally (.closeSync raf))))))
+
+
 (defn- append-raw-bytes!
   "Append raw host bytes at the end of the file at path, bypassing the
-   backend — the torn-tail and fail-closed cases must reach the framing
+   backend -- the torn-tail and fail-closed cases must reach the framing
    layer from outside it. Takes a byte object: encode-record output, or
    (host-bytes (int32-be n)) composed with payload ints."
   [path bs]
@@ -89,13 +152,13 @@
 
 
 ;; =============================================================================
-;; F1, F2, B5, B7 — storage and retrieval
+;; F1, F2, B5, B7 -- storage and retrieval
 ;; =============================================================================
 
 (deftest round-trip-of-every-payload-kind
   (testing
     "F1/F2/B5: materialize! derives the address, the backend stores exactly
-            the payload, and every payload kind round-trips — including nil,
+            the payload, and every payload kind round-trips -- including nil,
             distinct from absence, and the keyword that was once a sentinel"
     (let [path (temp-path "roundtrip")
           ;; B7: keyword payloads, the former sentinel value among them, so
@@ -130,17 +193,17 @@
   (testing
     "F1/F5: the first put is acknowledged :inserted after its flush, an
             equal put is :present and writes no record, and records is the
-            file itself — every frame, in order"
+            file itself -- every frame, in order"
     (let [path (temp-path "verdicts")
           a1 (jing/segment-key "one")
           a2 (jing/segment-key {:two 2})
           handle (jing-file/create-content-file path)]
       (try
-        (is (= :inserted ((:put-content-fn handle) a1 "one")))
-        (is (= :present ((:put-content-fn handle) a1 "one")))
+        (is (= :inserted ((:put-bytes-fn handle) a1 (bytes-of "one"))))
+        (is (= :present ((:put-bytes-fn handle) a1 (bytes-of "one"))))
         (is (= 1 (count (jing-file/records path)))
             "an equal put writes no record")
-        (is (= :inserted ((:put-content-fn handle) a2 {:two 2})))
+        (is (= :inserted ((:put-bytes-fn handle) a2 (bytes-of {:two 2}))))
         (is (= [[a1 "one"] [a2 {:two 2}]] (jing-file/records path))
             "records preserves frame order, duplicates included")
         (finally (jing/close! handle) (cleanup-file path))))))
@@ -148,22 +211,72 @@
 
 (deftest invalid-put-writes-nothing
   (testing
-    "B6: the backend validates at its own door — a non-segment address or an
+    "B6: the backend validates at its own door -- a non-segment address or an
             address that does not hash to the payload throws and stores
             nothing"
     (let [path (temp-path "invalid-put")
           handle (jing-file/create-content-file path)]
       (try
         (is (thrown? #?(:clj Exception :cljs :default :cljd Object)
-              ((:put-content-fn handle) :root/not-content "x")))
+              ((:put-bytes-fn handle) :root/not-content (bytes-of "x"))))
         (is (thrown? #?(:clj Exception :cljs :default :cljd Object)
-              ((:put-content-fn handle) (jing/segment-key "y") "x")))
+              ((:put-bytes-fn handle) (jing/segment-key "y") (bytes-of "x"))))
         (is (= [] (jing-file/records path)) "nothing was written")
         (finally (jing/close! handle) (cleanup-file path))))))
 
 
+(deftest a-caller-cannot-mutate-a-file-snapshot-through-its-input-array
+  (testing
+    "changing the byte array handed to put after the put changes nothing
+            the store holds or wrote, across a reopen"
+    (let [path (temp-path "isolate-input")
+          payload {:isolated "input"}
+          address (jing/segment-key payload)
+          bs (bytes-of payload)
+          handle (jing-file/create-content-file path)]
+      (try
+        (is (= :inserted ((:put-bytes-fn handle) address bs)))
+        (set-byte! bs (dec (byte-count bs)) 0)
+        (is (= payload (jing/get handle address ::absent))
+            "the in-memory snapshot still decodes to the payload")
+        (is (cbor/bytes= (bytes-of payload)
+                         ((:get-bytes-fn handle) address ::absent))
+            "the stored bytes are the original canonical bytes")
+        (jing/close! handle)
+        (let [h2 (jing-file/create-content-file path)]
+          (try (is (= payload (jing/get h2 address ::absent))
+                   "the frame on disk carries the original bytes")
+               (is (= [[address payload]] (jing-file/records path)))
+               (finally (jing/close! h2))))
+        (finally (jing/close! handle) (cleanup-file path))))))
+
+
+(deftest a-caller-cannot-mutate-a-file-snapshot-through-an-output-array
+  (testing
+    "changing the byte array a get answered changes nothing the store
+            holds or wrote, across a reopen"
+    (let [path (temp-path "isolate-output")
+          payload {:isolated "output"}
+          handle (jing-file/create-content-file path)
+          address (jing/materialize! handle payload)]
+      (try
+        (let [out ((:get-bytes-fn handle) address ::absent)]
+          (set-byte! out 0 0)
+          (is (= payload (jing/get handle address ::absent))
+              "a later read still verifies and decodes")
+          (is (cbor/bytes= (bytes-of payload)
+                           ((:get-bytes-fn handle) address ::absent))
+              "a later read answers the original bytes"))
+        (jing/close! handle)
+        (let [h2 (jing-file/create-content-file path)]
+          (try (is (= payload (jing/get h2 address ::absent))
+                   "the frame on disk is untouched")
+               (finally (jing/close! h2))))
+        (finally (jing/close! handle) (cleanup-file path))))))
+
+
 ;; =============================================================================
-;; F2, F4 — replay, duplicates, and failing the open
+;; F2, F4 -- replay, duplicates, and failing the open
 ;; =============================================================================
 
 (deftest durability-across-close-and-reopen
@@ -208,12 +321,13 @@
       (jing/materialize! handle payload)
       (jing/close! handle)
       ;; Hand-write the identical frame again, bypassing the backend.
-      (append-raw-bytes! path (frame-of (jing-file/encode-record address payload)))
+      (append-raw-bytes! path
+                         (frame-of (jing-file/encode-record address payload)))
       (is (= 2 (count (jing-file/records path)))
           "records sees both frames, equal duplicates included")
       (let [h2 (jing-file/create-content-file path)]
         (try (is (= payload (jing/get h2 address ::absent)))
-             (is (= :present ((:put-content-fn h2) address payload)))
+             (is (= :present ((:put-bytes-fn h2) address (bytes-of payload))))
              (is (= 2 (count (jing-file/records path)))
                  "a :present put writes no record")
              (finally (jing/close! h2) (cleanup-file path)))))))
@@ -221,31 +335,92 @@
 
 (deftest fail-closed-categories-fail-the-open
   (testing
-    "F4: a complete frame that cannot be decoded, is not a two-element
-            vector, carries a non-segment address, or does not hash to its
-            payload fails the open, loudly"
-    (let [good (jing/segment-key "ok")]
-      (doseq [[name frame-bytes]
-              [["malformed EDN" (frame-of (jing-file/->bytes "[[[not edn"))]
-               ["wrong shape"
-                (frame-of (jing-file/->bytes (pr-str [good "ok" :extra])))]
-               ["invalid address"
-                (frame-of (jing-file/->bytes (pr-str [:root/not-content "ok"])))]
-               ["hash mismatch"
-                (frame-of (jing-file/->bytes (pr-str [good "different"])))]]]
-        (let [path (temp-path "corrupt")]
+    "F4: a complete frame that is not one canonical two-element CBOR array
+            of byte strings, whose digest is not its payload's under a
+            registered algorithm, or whose payload bytes are not one
+            canonical Jing payload fails the open, loudly and without
+            mutating the file"
+    (let [p (bytes-of "ok")
+          d (digest-of p)
+          ;; int 1 in a non-shortest head: valid CBOR, refused as
+          ;; non-canonical; its digest still matches
+          noncanonical (host-bytes [0x18 0x01])
+          ;; the array head promises two items, one follows
+          truncated (host-bytes [0x82 0x01])
+          ;; two complete items where exactly one is allowed
+          trailing (host-bytes [0x01 0x02])
+          ;; a well-formed frame written with an indefinite-length array
+          indefinite (host-bytes (concat [0x9f]
+                                         (bytes->ints (cbor/encode d))
+                                         (bytes->ints (cbor/encode p))
+                                         [0xff]))]
+      (doseq [[name record]
+              [["not CBOR at all" (jing-file/->bytes "[[[not cbor")]
+               ["three-element array" (cbor/encode [d p (host-bytes [1])])]
+               ["text payload, not bytes" (cbor/encode [d "ok"])]
+               ["a map, not an array" (cbor/encode {:digest d, :payload p})]
+               ["digest of the wrong length"
+                (cbor-frame (host-bytes (take 16 (bytes->ints d))) p)]
+               ["digest of another payload"
+                (cbor-frame (digest-of (bytes-of "different")) p)]
+               ["non-canonical payload bytes"
+                (cbor-frame (digest-of noncanonical) noncanonical)]
+               ["truncated payload bytes"
+                (cbor-frame (digest-of truncated) truncated)]
+               ["payload with trailing data"
+                (cbor-frame (digest-of trailing) trailing)]
+               ["non-canonical frame encoding" indefinite]]]
+        (let [path (temp-path "corrupt")
+              frame-bytes (frame-of record)]
           (append-raw-bytes! path frame-bytes)
           (try (is (thrown? #?(:clj Exception :cljs :default :cljd Object)
                      (jing-file/create-content-file path))
                    name)
+               (is (= (byte-count frame-bytes) (file-length path))
+                   (str name ": the refused file is not mutated"))
                (finally (cleanup-file path))))))))
+
+
+(deftest a-mutated-byte-fails-the-open-without-mutation
+  (testing
+    "a stored frame whose payload bytes change on disk no longer hashes to
+            its digest: the open and records both refuse, and neither
+            truncates or rewrites anything"
+    (let [path (temp-path "mutated")
+          payload {:mutation "target"}
+          handle (jing-file/create-content-file path)]
+      (jing/materialize! handle payload)
+      (jing/close! handle)
+      (let [len (file-length path)
+            last-offset (dec len)
+            original (last (bytes->ints
+                             (jing-file/encode-record
+                               (jing/segment-key payload) payload)))]
+        (try
+          ;; the payload is the frame's tail, so its last byte is the
+          ;; file's last byte; flip it
+          (overwrite-byte! path last-offset (bit-xor original 0xff))
+          (is (thrown? #?(:clj Exception :cljs :default :cljd Object)
+                (jing-file/create-content-file path))
+              "the open refuses the mutated frame")
+          (is (thrown? #?(:clj Exception :cljs :default :cljd Object)
+                (jing-file/records path))
+              "records refuses it too")
+          (is (= len (file-length path)) "nothing was truncated")
+          ;; restoring the byte restores the store
+          (overwrite-byte! path last-offset original)
+          (let [h2 (jing-file/create-content-file path)]
+            (try (is (= payload (jing/get h2 (jing/segment-key payload)
+                                          ::absent)))
+                 (finally (jing/close! h2))))
+          (finally (cleanup-file path)))))))
 
 
 (deftest unequal-duplicate-at-one-address-fails-the-open
   (testing
     "F2's collision case. Two individually valid frames at one address must
             be equal (B6: the address hashes the payload), so an unequal
-            duplicate necessarily fails the second frame's own hash check —
+            duplicate necessarily fails the second frame's own hash check --
             the open fails on F4's ground before the accumulation's
             defensive collision branch, which is unreachable by
             construction, is ever reached"
@@ -253,14 +428,15 @@
           good (jing/segment-key "ok")]
       (append-raw-bytes! path (frame-of (jing-file/encode-record good "ok")))
       (append-raw-bytes!
-        path (frame-of (jing-file/->bytes (pr-str [good "other"]))))
+        path (frame-of (cbor-frame (digest-of (bytes-of "ok"))
+                                   (bytes-of "other"))))
       (try (is (thrown? #?(:clj Exception :cljs :default :cljd Object)
                  (jing-file/create-content-file path)))
            (finally (cleanup-file path))))))
 
 
 ;; =============================================================================
-;; F3 — torn-tail truncation, each category hand-written per host
+;; F3 -- torn-tail truncation, each category hand-written per host
 ;; =============================================================================
 
 (defn- torn-tail-recovers
@@ -297,7 +473,7 @@
 
 (deftest torn-tail-overlong-length-is-truncated
   (testing
-    "F3: a length reaching past end of file is torn — int32 999 with only
+    "F3: a length reaching past end of file is torn -- int32 999 with only
             two payload bytes (hand-written, not the v1 fixture: the torn
             bytes must follow a valid record)"
     (torn-tail-recovers "torn-overlong"
@@ -315,7 +491,7 @@
 
 
 ;; =============================================================================
-;; D2, D3, F6 — handle lifecycle
+;; D2, D3, F6 -- handle lifecycle
 ;; =============================================================================
 
 (deftest close-semantics
@@ -335,7 +511,7 @@
       (is (thrown? #?(:clj Exception :cljs :default :cljd Object)
             (jing/get handle address ::absent)))
       (is (thrown? #?(:clj Exception :cljs :default :cljd Object)
-            ((:put-content-fn handle) address payload)))
+            ((:put-bytes-fn handle) address (bytes-of payload))))
       (is (= [[address payload]] (jing-file/records path))
           "closing does not clear or rewrite the file")
       (cleanup-file path))))
@@ -354,8 +530,9 @@
                                                 16
                                                 (fn []
                                                   (future
-                                                    ((:put-content-fn handle)
-                                                     address payload))))))]
+                                                    ((:put-bytes-fn handle)
+                                                     address
+                                                     (bytes-of payload)))))))]
                      (is (not-any? #{::timeout} results))
                      (is (= 1 (count (filter #{:inserted} results))))
                      (is (= 15 (count (filter #{:present} results))))

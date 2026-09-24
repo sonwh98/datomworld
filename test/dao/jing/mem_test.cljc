@@ -1,19 +1,23 @@
 (ns dao.jing.mem-test
   "Contract tests for dao.jing.mem/create-content-mem: the ephemeral
-   content-addressed in-memory DaoJing content store
-   (docs/design/dao.jing.md, Materialization rule and Reads).
+   content-addressed in-memory DaoJing byte store
+   (docs/design/dao.jing.md, Materialization rule and Reads;
+   docs/design/dao.jing.cbor.md, Memory and files).
 
-   The handle is plain data carrying explicit private state plus
-   :put-content-fn, :get-content-fn, and :close-fn, and is consumed by
+   The handle is plain data carrying :put-bytes-fn, :get-bytes-fn,
+   :close-fn and the test-facing :entries-fn, and is consumed by
    dao.jing/materialize!, dao.jing/get, and dao.jing/close!. It embeds no
-   intake stream and no source identity: addresses are derived solely from
-   payloads, equal payloads from a pool of dao.stream intake streams
-   converge on exactly one entry, and an unequal payload at an existing
-   address is an integrity failure, never an overwrite. The store's content
-   is observed through mem/entries, the backend's test-facing view — the
-   private state's shape is pinned nowhere."
+   intake stream, no source identity, and no reachable mutable state:
+   addresses are derived solely from payloads, equal payloads from a pool
+   of dao.stream intake streams converge on exactly one entry, unequal
+   bytes at an existing address are an integrity failure, never an
+   overwrite, and every byte array crossing the handle is copied so no
+   caller can change a stored snapshot. The store's content is observed
+   through mem/entries and mem/entry-bytes -- the private state's shape is
+   pinned nowhere."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.jing.mem :as mem]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ringbuffer]))
@@ -41,18 +45,35 @@
     handle))
 
 
+(defn- bytes-of
+  [v]
+  (jing/canonical-bytes v))
+
+
+(defn- set-byte!
+  "Overwrite index i of host byte array bs with b, in place."
+  [bs i b]
+  #?(:clj (aset ^bytes bs i (unchecked-byte b))
+     :cljs (aset bs i b)
+     :cljd (. bs "[]=" i b)))
+
+
 ;; ---------------------------------------------------------------------------
 ;; Handle shape
 ;; ---------------------------------------------------------------------------
 
-(deftest create-content-mem-returns-a-stream-free-content-handle
+(deftest create-content-mem-returns-a-stream-free-byte-store-handle
   (testing
-    "the handle is plain data carrying the three backend effects"
+    "the handle is plain data carrying the three backend effects and the
+            test-facing snapshot, and nothing mutable"
     (let [h (mem/create-content-mem)]
       (is (map? h))
-      (is (fn? (:put-content-fn h)))
-      (is (fn? (:get-content-fn h)))
-      (is (fn? (:close-fn h)))))
+      (is (fn? (:put-bytes-fn h)))
+      (is (fn? (:get-bytes-fn h)))
+      (is (fn? (:close-fn h)))
+      (is (fn? (:entries-fn h)))
+      (is (every? fn? (vals h))
+          "no atom, array or state reaches a caller through the handle")))
   (testing "a fresh store holds nothing and identifies no source"
     (let [h (mem/create-content-mem)]
       (is (empty? (mem/entries h))
@@ -73,9 +94,11 @@
       (is (= (jing/segment-key payload) address))
       (is (= "segment" (namespace address)))
       (is (= payload (jing/get h address ::missing)))
-      (is
-        (= {address payload} (mem/entries h))
-        "exactly the payload is stored: no provenance stamp, no source identity"))))
+      (is (= {address payload} (mem/entries h))
+          "exactly the payload is stored: no provenance, no source identity")
+      (is (cbor/bytes= (bytes-of payload)
+                       (get (mem/entry-bytes h) address))
+          "what the store holds is the payload's canonical bytes"))))
 
 
 (deftest opaque-payloads-round-trip-including-nil
@@ -92,13 +115,13 @@
 
 (deftest insert-is-idempotent
   (testing
-    "the first put reports :inserted; an equal payload reports
-            :present and is never overwritten"
+    "the first put reports :inserted; equal bytes report :present and
+            are never overwritten"
     (let [h (mem/create-content-mem)
           payload {:x 42}
           address (jing/segment-key payload)]
-      (is (= :inserted ((:put-content-fn h) address payload)))
-      (is (= :present ((:put-content-fn h) address payload)))
+      (is (= :inserted ((:put-bytes-fn h) address (bytes-of payload))))
+      (is (= :present ((:put-bytes-fn h) address (bytes-of payload))))
       (is (= payload (jing/get h address ::missing)))
       (is (= {address payload} (mem/entries h)))))
   (testing "materialize! is idempotent end to end"
@@ -110,51 +133,54 @@
 
 (deftest put-rejects-invalid-content-addresses
   (testing
-    "only :segment/sha256-... content addresses are insertable;
+    "only :segment/<algorithm>-... content addresses are insertable;
             arbitrary keys, roots, and malformed hashes throw before any
             write"
     (let [h (mem/create-content-mem)]
       (doseq [bad [:root/pointer :plain :segment/not-a-hash :segment/sha256-xyz
                    42 "abc" nil [1 2] {:k :v}]]
-        (is (throws? #((:put-content-fn h) bad {:x 1}))
+        (is (throws? #((:put-bytes-fn h) bad (bytes-of {:x 1})))
             (str "must reject " (pr-str bad))))
       (is (empty? (mem/entries h))))))
 
 
-(deftest put-rejects-address-payload-hash-mismatch
+(deftest put-rejects-address-bytes-hash-mismatch
   (testing
-    "a well-formed address whose hash does not match the payload is
-            rejected before any write"
+    "a well-formed address whose digest is not the hash of the bytes is
+            rejected before any write, as is a non-byte payload"
     (let [h (mem/create-content-mem)
           address (jing/segment-key {:a 1})]
-      (is (throws? #((:put-content-fn h) address {:a 2})))
+      (is (throws? #((:put-bytes-fn h) address (bytes-of {:a 2}))))
+      (is (throws? #((:put-bytes-fn h) address {:a 1}))
+          "a value is not bytes: the backend takes canonical bytes only")
       (is (empty? (mem/entries h)))))
-  (testing "an address that does hash to the payload is accepted"
+  (testing "an address that does hash to the bytes is accepted"
     (let [h (mem/create-content-mem)]
       (is (= :inserted
-             ((:put-content-fn h) (jing/segment-key {:a 1}) {:a 1}))))))
+             ((:put-bytes-fn h) (jing/segment-key {:a 1})
+                                (bytes-of {:a 1})))))))
 
 
-(deftest collision-preserves-the-existing-value
+(deftest collision-preserves-the-existing-bytes
   (testing
-    "an unequal payload already seated at an address is never
-            overwritten and the mismatch is reported loudly"
-    (let [h (mem/create-content-mem)
-          payload {:b 1}
-          address (jing/segment-key payload)]
-      (swap! (:state h) assoc-in [:content address] {:a 1})
-      (is (throws? #((:put-content-fn h) address payload)))
-      (is (= {:a 1} (get (mem/entries h) address))
-          "the existing value is untouched")))
+    "unequal bytes already seated at an address are never overwritten
+            and the mismatch is reported loudly"
+    (let [payload {:b 1}
+          address (jing/segment-key payload)
+          h (mem/create-content-mem {address (bytes-of {:a 1})})]
+      (is (throws? #((:put-bytes-fn h) address (bytes-of payload))))
+      (is (cbor/bytes= (bytes-of {:a 1}) (get (mem/entry-bytes h) address))
+          "the existing bytes are untouched")
+      (is (throws? #(jing/get h address ::missing))
+          "a read of bytes that do not hash to their address is refused")))
   (testing
     "the collision is visible through materialize! as an integrity
             failure"
-    (let [h (mem/create-content-mem)
-          payload {:b 1}
-          address (jing/segment-key payload)]
-      (swap! (:state h) assoc-in [:content address] {:a 1})
+    (let [payload {:b 1}
+          address (jing/segment-key payload)
+          h (mem/create-content-mem {address (bytes-of {:a 1})})]
       (is (throws? #(jing/materialize! h payload)))
-      (is (= {:a 1} (get (mem/entries h) address))
+      (is (cbor/bytes= (bytes-of {:a 1}) (get (mem/entry-bytes h) address))
           "materialize! never overwrites"))))
 
 
@@ -164,9 +190,9 @@
       (is (nil? (jing/close! h)))
       (is (nil? (jing/close! h)))
       (is (nil? ((:close-fn h))))
-      (is (throws? #((:put-content-fn h)
+      (is (throws? #((:put-bytes-fn h)
                      (jing/segment-key {:probe 1})
-                     {:probe 1}))
+                     (bytes-of {:probe 1})))
           "a closed store accepts no puts")))
   (testing
     "get/put through every entry point throw after close and never
@@ -178,8 +204,8 @@
       (jing/close! h)
       (is (throws? #(jing/materialize! h payload)))
       (is (throws? #(jing/get h address ::missing)))
-      (is (throws? #((:put-content-fn h) address payload)))
-      (is (throws? #((:get-content-fn h) address ::missing)))
+      (is (throws? #((:put-bytes-fn h) address (bytes-of payload))))
+      (is (throws? #((:get-bytes-fn h) address ::missing)))
       (is (= content-before (mem/entries h))
           "close neither clears nor rewrites stored content"))))
 
@@ -196,8 +222,61 @@
           "stored nil round-trips as nil")
       (is (= ::missing (jing/get h absent-address ::missing))
           "absence returns the caller-supplied not-found")
-      (is (nil? ((:get-content-fn h) nil-address ::missing)))
-      (is (= ::missing ((:get-content-fn h) absent-address ::missing))))))
+      (is (cbor/bytes= (bytes-of nil) ((:get-bytes-fn h) nil-address ::missing))
+          "the backend answers the bytes of CBOR nil, not the sentinel")
+      (is (= ::missing ((:get-bytes-fn h) absent-address ::missing))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Mutation isolation: bytes are copied on the way in and on the way out
+;; ---------------------------------------------------------------------------
+
+(deftest a-caller-cannot-mutate-a-snapshot-through-its-input-array
+  (testing
+    "changing the byte array handed to put after the put changes nothing
+            the store holds"
+    (let [h (mem/create-content-mem)
+          payload {:isolated "input"}
+          address (jing/segment-key payload)
+          bs (bytes-of payload)]
+      (is (= :inserted ((:put-bytes-fn h) address bs)))
+      (set-byte! bs (dec (count (vec bs))) 0)
+      (is (= payload (jing/get h address ::missing))
+          "the stored snapshot still decodes to the payload")
+      (is (cbor/bytes= (bytes-of payload) ((:get-bytes-fn h) address ::missing))
+          "the stored bytes are the original canonical bytes"))))
+
+
+(deftest a-caller-cannot-mutate-a-snapshot-through-an-output-array
+  (testing
+    "changing the byte array a get answered, or one the snapshot view
+            answered, changes nothing the store holds"
+    (let [h (mem/create-content-mem)
+          payload {:isolated "output"}
+          address (jing/materialize! h payload)
+          out ((:get-bytes-fn h) address ::missing)
+          view (get (mem/entry-bytes h) address)]
+      (set-byte! out 0 0)
+      (set-byte! view 0 0)
+      (is (= payload (jing/get h address ::missing))
+          "a later read still verifies and decodes")
+      (is (cbor/bytes= (bytes-of payload) ((:get-bytes-fn h) address ::missing))
+          "a later read answers the original bytes")
+      (is (= {address payload} (mem/entries h))
+          "the snapshot view is unaffected by mutation of an earlier view"))))
+
+
+(deftest entries-verify-before-decoding
+  (testing
+    "the test-facing entries view hash-verifies every snapshot against its
+            address, so seeded forged bytes surface as a refusal, never as
+            a value"
+    (let [address (jing/segment-key {:claimed 1})
+          h (mem/create-content-mem {address (bytes-of {:forged true})})]
+      (is (throws? #(mem/entries h)))
+      (is (cbor/bytes= (bytes-of {:forged true})
+                       (get (mem/entry-bytes h) address))
+          "the raw snapshot view still shows what was planted"))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -225,9 +304,8 @@
       (is (= address (:address r1)))
       (is (= address (:address r2))
           "both intake streams converge on the same content address")
-      (is
-        (= {address payload} (mem/entries h))
-        "exactly one entry: no duplicates, no provenance, no source identity"))))
+      (is (= {address payload} (mem/entries h))
+          "exactly one entry: no duplicates, no provenance, no source"))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -250,9 +328,9 @@
                                (Thread. (fn []
                                           (.await barrier)
                                           (.add results
-                                                ((:put-content-fn h)
+                                                ((:put-bytes-fn h)
                                                  address
-                                                 payload)))))
+                                                 (bytes-of payload))))))
                              (range n))]
            (doseq [t threads] (.start t))
            (doseq [t threads] (.join t)))

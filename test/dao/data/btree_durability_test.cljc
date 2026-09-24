@@ -59,13 +59,13 @@
 
 (defn- counting-store
   "Wrap a content handle, counting segment fetches via a wrapped
-   :get-content-fn (the layer every fault crosses)."
+   :get-bytes-fn (the layer every fault crosses)."
   [handle counter]
-  (let [get-fn (:get-content-fn handle)]
+  (let [get-fn (:get-bytes-fn handle)]
     (assoc handle
-           :get-content-fn (fn [address not-found]
-                             (swap! counter inc)
-                             (get-fn address not-found)))))
+           :get-bytes-fn (fn [address not-found]
+                           (swap! counter inc)
+                           (get-fn address not-found)))))
 
 
 (defn- forged-read-handle
@@ -73,10 +73,12 @@
    other read to `store`, with writes throwing: presents a corrupt segment
    to -restore without mutating (or even touching) the store."
   [store address blob]
-  {:put-content-fn (fn [_address _payload]
-                     (throw (ex-info "forged read handle does not write" {}))),
-   :get-content-fn (fn [a not-found]
-                     (if (= a address) blob (jing/get store a not-found)))})
+  {:put-bytes-fn (fn [_address _bytes]
+                   (throw (ex-info "forged read handle does not write" {}))),
+   :get-bytes-fn (fn [a not-found]
+                   (if (= a address)
+                     (jing/canonical-bytes blob)
+                     ((:get-bytes-fn store) a not-found)))})
 
 
 (defn- stored-fixture
@@ -185,15 +187,22 @@
         blob (jing/get store address nil)
         evil (update blob :keys (fn [ks] (assoc (vec ks) 0 :tampered)))
         forged (forged-read-handle store address evil)]
-    (testing "verification off (default): tampering goes unnoticed"
+    ;; dao.jing/get hash-verifies every byte snapshot against its address
+    ;; before decoding (docs/design/dao.jing.cbor.md, the stable canonical
+    ;; encoding that dao.data.btree.md section 5.2's default flip waited
+    ;; for), so tampering is refused whether or not the adapter's own
+    ;; re-hash check is on
+    (testing "verification off (default): tampering is still refused"
       (let [storage (bts/kv-storage forged {:branching-factor 16})
             r (bt/restore-tree compare address storage 200)]
-        (is (some? (seq r)))))
-    (testing "verification on: corrupt index segment"
+        (is (re-find #"do not hash to their content address"
+                     (ex-msg #(doall (seq r)))))))
+    (testing "verification on: tampering is refused before the re-hash"
       (let [vstorage (bts/kv-storage forged
                                      {:branching-factor 16, :verify? true})
             r (bt/restore-tree compare address vstorage 200)]
-        (is (= "corrupt index segment" (ex-msg #(doall (seq r)))))))))
+        (is (re-find #"do not hash to their content address"
+                     (ex-msg #(doall (seq r)))))))))
 
 
 (deftest missing-segment-test
@@ -344,7 +353,7 @@
         "root segment missing from source")
     (is (= addr (jing/segment-key (jing/get cache addr nil)))
         "root segment missing from cache")
-    (is (= (:content @(:state source)) (:content @(:state cache)))
+    (is (= (mem/entries source) (mem/entries cache))
         "source and cache hold identical segment maps")
     (is (= (range 100) (seq (bt/restore-tree compare addr hstorage 100))))))
 
@@ -364,7 +373,7 @@
     (is (= "unhydrated segment" (ex-msg #(doall (seq r)))))
     (bts/hydrate! r)
     (is (= (range 200) (seq r)))
-    (let [cached-addrs (keys (:content @(:state cache)))]
+    (let [cached-addrs (keys (mem/entry-bytes cache))]
       (is (pos? (count cached-addrs)))
       (is (every? #(= :sha256 (jing/segment-algorithm %)) cached-addrs)
           "all cached segment addresses preserve the sha256 algorithm"))))
@@ -481,7 +490,7 @@
                  _ (bt/walk-addresses storage
                                       (first addrs)
                                       (fn [a] (swap! segments conj a) true))]
-             (is (= (count @segments) (count (:content @(:state store))))
+             (is (= (count @segments) (count (mem/entry-bytes store)))
                  "every segment stored exactly once, no duplicates")))))
      :cljs (is true)
      :cljd (is true)))

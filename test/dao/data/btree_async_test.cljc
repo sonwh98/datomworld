@@ -257,7 +257,7 @@
     (drain! r)
     (is (= [:ok s-restored] @result))
     (is (= (range 300) (seq s-restored)))
-    (let [cached-addrs (keys (:content @(:state cache)))]
+    (let [cached-addrs (keys (mem/entry-bytes cache))]
       (is (pos? (count cached-addrs)))
       (is (every? #(= :sha256 (jing/segment-algorithm %)) cached-addrs)
           "all cached segment addresses preserve the sha256 algorithm"))))
@@ -277,7 +277,7 @@
     (let [[tag root] @result]
       (is (= :ok tag))
       (is (= :sha256 (jing/segment-algorithm root)))
-      (let [source-content (:content @(:state store))]
+      (let [source-content (mem/entry-bytes store)]
         (is (pos? (count source-content)))
         (is (every? #(= :sha256 (jing/segment-algorithm %))
                     (keys source-content))
@@ -299,7 +299,7 @@
     (let [[tag root] @result]
       (is (= :ok tag))
       (is (= :sha256 (jing/segment-algorithm root)))
-      (let [source-content (:content @(:state store))]
+      (let [source-content (mem/entry-bytes store)]
         (is (pos? (count source-content)))
         (is (every? #(= :sha256 (jing/segment-algorithm %))
                     (keys source-content))

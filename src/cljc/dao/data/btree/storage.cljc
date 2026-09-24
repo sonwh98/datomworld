@@ -1,7 +1,7 @@
 (ns dao.data.btree.storage
   "IStorage adapters over dao.jing content-store handles (docs/design/dao.data.btree.md
-   §5.1, §5.4). A handle is the plain-data content store carrying
-   :put-content-fn, :get-content-fn, and :close-fn (docs/design/dao.jing.md,
+   sections 5.1, 5.4). A handle is the plain-data byte store carrying
+   :put-bytes-fn, :get-bytes-fn, and :close-fn (docs/design/dao.jing.md,
    Materialization rule); addresses are derived from payloads by
    dao.jing/materialize!, never supplied by this layer. Two adapters, one
    error taxonomy:

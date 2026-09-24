@@ -78,6 +78,7 @@
    one request whose delivery this binding still owes — and leaves
    outstanding requests to their completions."
   (:require [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.stream.apply :as apply]
             [dao.stream.rpc :as rpc]))
 
@@ -226,7 +227,9 @@
    read: the read-back is materialize!'s obligation, not put's."
   [state address payload]
   (segment-address! address)
-  (submit state put-content-op [address payload] false))
+  (submit state put-content-op
+          [address (jing/bytes->base64 (jing/canonical-bytes payload))]
+          false))
 
 
 (defn request-materialize
@@ -237,8 +240,39 @@
   ([state payload]
    (request-materialize state payload {}))
   ([state payload opts]
-   (let [addr (jing/segment-key payload opts)]
-     (submit state put-content-op [addr payload] true))))
+   (let [bs (jing/canonical-bytes payload)
+         algo (get opts :algorithm jing/default-hash-algorithm)
+         reg (or (get jing/registry algo)
+                 (throw (ex-info (str "unsupported hash algorithm: " algo)
+                                 {:algorithm algo})))
+         addr (keyword "segment"
+                       (str (:address-id reg) "-" (jing/digest-bytes algo bs)))]
+     (submit state put-content-op [addr (jing/bytes->base64 bs)] true))))
+
+
+(defn- accepted-bytes
+  "The canonical bytes a `:jing/get-content` envelope carries for address
+   as Base64 text, or nil when the text is not strict Base64 or the bytes
+   do not hash to the address."
+  [address b64]
+  (try (let [bs (jing/base64->bytes b64)]
+         (when (jing/segment-bytes-match? address bs) bs))
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+         nil)))
+
+
+(def ^:private refused
+  "The decode-refusal sentinel for the strict receipt decode below: one
+   opaque host object held by this single var, so every reference to it
+   is the same instance on every host. A keyword literal cannot serve:
+   on cljs each literal site compiles to a fresh Keyword object, so
+   `identical?` across two sites misses (the hazard
+   `dao.data.btree.storage`'s `absent` sentinel already records), and a
+   refused decode escaped into the value arm. The closed CBOR profile
+   never decodes a host object, so no decoded value can be this."
+  #?(:cljd (Object.)
+     :clj (Object.)
+     :cljs (js-obj)))
 
 
 ;; =============================================================================
@@ -273,9 +307,29 @@
                :result value}
               {:id id :op op :error (malformed-response op)})
 
+            ;; a found value arrives as Base64 of its canonical bytes; the
+            ;; bytes must hash to the requested address and decode as one
+            ;; canonical payload before a value is published
             (= get-content-op op)
             (if (presence-envelope? value)
-              {:id id :op op :found? (:found? value) :value (:value value)}
+              (if (:found? value)
+                (let [address (first (:dao.stream.rpc/args completion))
+                      bs (accepted-bytes address (:value value))
+                      decoded (when bs
+                                (try (cbor/decode bs)
+                                     (catch #?(:cljd Object
+                                               :clj Throwable
+                                               :cljs :default)
+                                            _
+                                       refused)))]
+                  (if (or (nil? bs) (identical? refused decoded))
+                    {:id id :op op
+                     :error {:dao.stream.apply/code integrity-failure-code
+                             :dao.stream.apply/message
+                             (str "the remote content does not hash to "
+                                  "its content address")}}
+                    {:id id :op op :found? true :value decoded}))
+                {:id id :op op :found? false :value nil})
               {:id id :op op :error (malformed-response op)})
 
             :else
@@ -345,7 +399,7 @@
                                :dao.stream.apply/message
                                "the remote reported :present but the content address is absent"}})
 
-              (jing/segment-matches? (:address record) (:value value))
+              (some? (accepted-bytes (:address record) (:value value)))
               (finish {:result :present})
 
               :else

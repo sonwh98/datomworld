@@ -43,7 +43,7 @@ handle map:
 
 ```clojure
 {:net net, :local local, :closed-atom a,
- :put-content-fn f, :get-content-fn g, :close-fn c}
+ :put-bytes-fn f, :get-bytes-fn g, :close-fn c}
 ```
 
 It is consumed by `dao.jing/materialize!`, `dao.jing/get`, and

@@ -2,11 +2,12 @@
   "Phase H0 ('contract and evidence') of the DaoJing multihash
    content-addressing rollout (docs/design/dao.jing.hash-registry.md,
    architect signed off:
-   archive/1790147499393-architect-hash-registry-signoff.gpt-5.6-sol.findings.md).
+   archive/1790147499393-architect-hash-registry-signoff
+   .gpt-5.6-sol.findings.md).
 
    H0 freezes the address grammar, the total-predicate contract for
    `segment-matches?`, EDN round-tripping, and the architectural lint
-   target — before any of it exists in `dao.jing` (reserved for H1). This
+   target -- before any of it exists in `dao.jing` (reserved for H1). This
    namespace is therefore self-contained: it defines a *reference*
    implementation of the frozen grammar/parser/predicate rules as local,
    private functions, and pins their behavior against:
@@ -48,11 +49,13 @@
 
 
 (def ^:private blake3-vectors*
-  (delay (edn/read-string (read-text "test/resources/dao/jing/blake3-vectors.edn"))))
+  (delay (edn/read-string
+           (read-text "test/resources/dao/jing/blake3-vectors.edn"))))
 
 
 (def ^:private digest-table*
-  (delay (edn/read-string (read-text "test/resources/dao/jing/digest-table.edn"))))
+  (delay (edn/read-string
+           (read-text "test/resources/dao/jing/digest-table.edn"))))
 
 
 (defn- blake3-vectors
@@ -65,8 +68,45 @@
   @digest-table*)
 
 
+;; The pinned addresses, built from their digests so no literal exceeds a
+;; line: [1 2 3] under blake3 (the digest-table fixture), the empty input
+;; under sha256, and a blake3 digest one nibble off.
+(def ^:private blake3-digest
+  "ae95735439e543cd063b7692a40da8df2c0a94b8d81dc190166bbeddaa8a01f4")
+
+
+(def ^:private sha256-digest
+  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+
+
+(def ^:private mismatch-digest
+  "ae95735439e543cd063b7692a40da8df2c0a94b8d81dc190166bbeddaa8a01f5")
+
+
+(def ^:private blake3-address
+  (keyword "segment" (str "blake3-" blake3-digest)))
+
+
+(def ^:private sha256-address
+  (keyword "segment" (str "sha256-" sha256-digest)))
+
+
+(def ^:private mismatch-address
+  (keyword "segment" (str "blake3-" mismatch-digest)))
+
+
+(def ^:private sixty-four-a
+  (apply str (repeat 64 "a")))
+
+
+(defn- segment
+  "A :segment keyword from algorithm id text and digest text."
+  [algo digest]
+  (keyword "segment" (str algo "-" digest)))
+
+
 ;; =============================================================================
-;; §1 — Address grammar & parsing specification
+;; section1 -- Address grammar & parsing specification
 ;;
 ;; Reference implementation of docs/design/dao.jing.hash-registry.md's
 ;; closed algorithm registry and address parser. `algorithm-id-pattern` and
@@ -90,25 +130,21 @@
 (deftest address-grammar-pinned-canonical-forms
   (testing "blake3 and sha256 are the two pinned canonical forms"
     (is (= {:algorithm :blake3
-            :digest "c3a8cc55ea53e056552eab337f404b352cc9415d386d8cc399edc356f5d9b012"
-            :canonical :segment/blake3-c3a8cc55ea53e056552eab337f404b352cc9415d386d8cc399edc356f5d9b012}
-           (parse-segment-address
-             :segment/blake3-c3a8cc55ea53e056552eab337f404b352cc9415d386d8cc399edc356f5d9b012)))
+            :digest blake3-digest
+            :canonical blake3-address}
+           (parse-segment-address blake3-address)))
     (is (= {:algorithm :sha256
-            :digest "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-            :canonical :segment/sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
-           (parse-segment-address
-             :segment/sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)))))
+            :digest sha256-digest
+            :canonical sha256-address}
+           (parse-segment-address sha256-address)))))
 
 
 (deftest address-grammar-accessors-throw-on-invalid-input
   (testing "segment-algorithm and segment-hash are total only over valid
             addresses; every accessor throws, never returns nil, on
             invalid input (segment-address? remains the total predicate)"
-    (is (= :blake3
-           (segment-algorithm :segment/blake3-c3a8cc55ea53e056552eab337f404b352cc9415d386d8cc399edc356f5d9b012)))
-    (is (= "c3a8cc55ea53e056552eab337f404b352cc9415d386d8cc399edc356f5d9b012"
-           (segment-digest :segment/blake3-c3a8cc55ea53e056552eab337f404b352cc9415d386d8cc399edc356f5d9b012)))
+    (is (= :blake3 (segment-algorithm blake3-address)))
+    (is (= blake3-digest (segment-digest blake3-address)))
     (is (thrown? #?(:cljd Object :clj Throwable :cljs :default)
           (segment-algorithm :not/a-segment-address)))
     (is (thrown? #?(:cljd Object :clj Throwable :cljs :default)
@@ -128,29 +164,34 @@
 (deftest address-grammar-parsing-splits-on-first-hyphen
   (testing "the digest is everything after the first hyphen, verbatim"
     (let [digest (apply str (repeat 64 "a"))]
-      (is (= digest (:digest (parse-segment-address (keyword "segment" (str "sha256-" digest)))))))))
+      (is (= digest
+             (:digest (parse-segment-address (segment "sha256" digest))))))))
 
 
 (deftest address-grammar-rejection-cases
   (testing "malformed prefixes"
     (is (nil? (parse-segment-address (keyword "segment" ""))))
-    (is (nil? (parse-segment-address (keyword "invalid" (str "sha256-" (apply str (repeat 64 "a")))))))
+    (is (nil? (parse-segment-address
+                (keyword "invalid" (str "sha256-" sixty-four-a)))))
     (is (nil? (parse-segment-address :segment/sha256)))
     (is (nil? (parse-segment-address "not-a-keyword")))
     (is (nil? (parse-segment-address nil))))
   (testing "unknown algorithm"
-    (is (nil? (parse-segment-address (keyword "segment" (str "sha512-" (apply str (repeat 64 "a")))))))
-    (is (nil? (parse-segment-address (keyword "segment" (str "md5-" (apply str (repeat 32 "a"))))))))
+    (is (nil? (parse-segment-address (segment "sha512" sixty-four-a))))
+    (is (nil? (parse-segment-address
+                (segment "md5" (apply str (repeat 32 "a")))))))
   (testing "uppercase hex"
     (is (nil? (parse-segment-address
-                (keyword "segment" (str "sha256-" (str/upper-case (apply str (repeat 64 "a")))))))))
+                (segment "sha256" (str/upper-case sixty-four-a))))))
   (testing "wrong length"
-    (is (nil? (parse-segment-address (keyword "segment" (str "sha256-" (apply str (repeat 63 "a")))))))
-    (is (nil? (parse-segment-address (keyword "segment" (str "sha256-" (apply str (repeat 65 "a")))))))
+    (is (nil? (parse-segment-address
+                (segment "sha256" (apply str (repeat 63 "a"))))))
+    (is (nil? (parse-segment-address
+                (segment "sha256" (apply str (repeat 65 "a"))))))
     (is (nil? (parse-segment-address :segment/sha256-1234))))
   (testing "non-hex characters"
     (is (nil? (parse-segment-address
-                (keyword "segment" (str "sha256-" (apply str (repeat 63 "a")) "g"))))))
+                (segment "sha256" (str (apply str (repeat 63 "a")) "g"))))))
   (testing "alternative spelling of an otherwise-valid address is rejected by
             the canonical-reconstruction check"
     ;; A digest with a stray uppercase letter fails the hex check above
@@ -159,14 +200,15 @@
     ;; check enforces directly.
     (let [digest (apply str (repeat 64 "a"))]
       (is (= (keyword "segment" (str "sha256-" digest))
-             (:canonical (parse-segment-address (keyword "segment" (str "sha256-" digest)))))))))
+             (:canonical (parse-segment-address
+                           (segment "sha256" digest))))))))
 
 
 ;; =============================================================================
-;; §2 — Total predicate contract for segment-matches?
+;; section2 -- Total predicate contract for segment-matches?
 ;;
 ;; segment-matches? parses the address, computes canonical-bytes for the
-;; payload, hashes them under the address-carried algorithm, and compares —
+;; payload, hashes them under the address-carried algorithm, and compares --
 ;; returning false (never throwing) for every rejection class, including
 ;; canonical-encoder refusal. Minting (segment-key/materialize!, exercised
 ;; here via the real dao.jing/segment-key, which is unaffected by H0)
@@ -177,7 +219,8 @@
   [bs]
   #?(:cljd (apply str (map #(.padLeft (.toRadixString ^int % 16) 2 "0") bs))
      :default (apply str (map (fn [i]
-                                (let [b #?(:clj (bit-and (aget ^bytes bs i) 0xff)
+                                (let [b #?(:clj (bit-and (aget ^bytes bs i)
+                                                         0xff)
                                            :cljs (aget bs i))]
                                   (str (when (< b 16) "0")
                                        #?(:clj (Integer/toHexString b)
@@ -195,8 +238,7 @@
 (deftest segment-matches-total-predicate-blake3-and-sha256
   (testing "a genuine blake3-addressed payload matches, using the frozen
             digest-table fixture for [1 2 3]"
-    (is (segment-matches? :segment/blake3-c3a8cc55ea53e056552eab337f404b352cc9415d386d8cc399edc356f5d9b012
-                          [1 2 3])))
+    (is (segment-matches? blake3-address [1 2 3])))
   (testing "a genuine sha256-addressed payload matches, using the real
             dao.jing/content-hash"
     (let [address (jing/segment-key {:a 1} {:algorithm :sha256})]
@@ -208,17 +250,16 @@
     (is (false? (segment-matches? :not/a-segment-address [1 2 3])))
     (is (false? (segment-matches? "nope" [1 2 3]))))
   (testing "unknown algorithm"
-    (is (false? (segment-matches?
-                  (keyword "segment" (str "sha512-" (apply str (repeat 64 "a"))))
-                  [1 2 3]))))
+    (is (false? (segment-matches? (segment "sha512" sixty-four-a)
+                                  [1 2 3]))))
   (testing "mismatched digest"
-    (is (false? (segment-matches? :segment/blake3-c3a8cc55ea53e056552eab337f404b352cc9415d386d8cc399edc356f5d9b013
-                                  [1 2 3])))
+    (is (false? (segment-matches? mismatch-address [1 2 3])))
     (is (false? (segment-matches?
-                  (keyword "segment" (str "sha256-" (jing/segment-hash (jing/segment-key {:a 1}))))
+                  (segment "sha256"
+                           (jing/segment-hash (jing/segment-key {:a 1})))
                   {:a 2}))))
   (testing "canonical-encoder refusal returns false, never throws"
-    (let [address (keyword "segment" (str "sha256-" (apply str (repeat 64 "a"))))]
+    (let [address (segment "sha256" sixty-four-a)]
       (is (false? (segment-matches? address (->Unsupported 1)))))))
 
 
@@ -232,20 +273,19 @@
 
 
 ;; =============================================================================
-;; §3 — EDN print/read round-trip
+;; section3 -- EDN print/read round-trip
 ;; =============================================================================
 
 (deftest segment-addresses-round-trip-through-edn
   (testing "both canonical forms survive pr-str -> clojure.edn/read-string
             unchanged, on every host (JVM, JS, and Dart)"
-    (doseq [address [:segment/blake3-c3a8cc55ea53e056552eab337f404b352cc9415d386d8cc399edc356f5d9b012
-                     :segment/sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]]
+    (doseq [address [blake3-address sha256-address]]
       (is (= address (edn/read-string (pr-str address))))
       (is (segment-address? (edn/read-string (pr-str address)))))))
 
 
 ;; =============================================================================
-;; §4 — Architectural lint / guard specification
+;; section4 -- Architectural lint / guard specification
 ;;
 ;; The frozen lint target: reject `dao.jing/content-hash` and
 ;; `dao.jing/segment-key` used in *equality-based validation position*
@@ -254,7 +294,7 @@
 ;; distinct function with unrelated (CBOR value-domain) semantics.
 ;;
 ;; This is a specification of the lint's decision procedure over an
-;; s-expression, pinned by representative forms — not a repository-wide
+;; s-expression, pinned by representative forms -- not a repository-wide
 ;; sweep. H1's actual source pass (converting every Class-3 site in
 ;; docs/design/dao.jing.call-site-classification.md to segment-matches?)
 ;; is what makes a repository-wide run of this lint pass; that pass is an
@@ -263,7 +303,7 @@
 
 (def ^:private validation-target-symbols
   "Target symbols the lint identifies, both fully-qualified and under the
-   standard `jing` alias. Namespace-qualified symbols, never bare names —
+   standard `jing` alias. Namespace-qualified symbols, never bare names --
    this keeps `dao.jing.cbor/content-hash` and `jing-cbor/content-hash` out
    of scope: they are different symbols pointing to unrelated semantics."
   #{'dao.jing/content-hash 'dao.jing/segment-key
@@ -305,7 +345,9 @@
   (letfn [(walk
             [f]
             (cond
-              (and (equality-form? f) (some validation-target-call? (rest f))) true
+              (and (equality-form? f)
+                   (some validation-target-call? (rest f)))
+              true
               (seq? f) (some walk f)
               (coll? f) (some walk f)
               :else false))]
@@ -313,11 +355,12 @@
 
 
 (deftest architectural-lint-flags-equality-based-validation
-  (testing "a direct equality comparison against dao.jing/content-hash is flagged"
+  (testing "a direct equality comparison against content-hash is flagged"
     (is (flags-equality-validation?
-          '(when-not (= (jing/segment-hash address) (dao.jing/content-hash payload))
+          '(when-not (= (jing/segment-hash address)
+                        (dao.jing/content-hash payload))
              (throw (ex-info "mismatch" {}))))))
-  (testing "a direct equality comparison against dao.jing/segment-key is flagged"
+  (testing "a direct equality comparison against segment-key is flagged"
     (is (flags-equality-validation?
           '(when-not (= address (dao.jing/segment-key body))
              (throw (ex-info "mismatch" {}))))))
@@ -328,7 +371,7 @@
           '(= address (jing/segment-key body)))))
   (testing "an equality form nested inside other forms (let/when-not/etc.)
             is still found, as long as the target call is a direct operand
-            of the equality form itself — this lint is a syntactic walk,
+            of the equality form itself -- this lint is a syntactic walk,
             not a data-flow analysis, so it does not resolve a target call
             through an intermediate let-bound alias"
     (is (flags-equality-validation?
@@ -340,7 +383,8 @@
 (deftest architectural-lint-does-not-flag-mint-only-calls
   (testing "a bare mint call with no equality comparison is not flagged"
     (is (not (flags-equality-validation? '(dao.jing/segment-key payload))))
-    (is (not (flags-equality-validation? '(jing/materialize! handle (dao.jing/segment-key payload))))))
+    (is (not (flags-equality-validation?
+               '(jing/materialize! handle (dao.jing/segment-key payload))))))
   (testing "an equality form whose operands do not call the target vars is
             not flagged"
     (is (not (flags-equality-validation? '(= address other-address))))))
@@ -352,7 +396,8 @@
     (is (not (validation-target-call? '(dao.jing.cbor/content-hash payload))))
     (is (not (validation-target-call? '(jing-cbor/content-hash payload))))
     (is (not (flags-equality-validation?
-               '(= (dao.jing.cbor/content-hash a) (dao.jing.cbor/content-hash b)))))
+               '(= (dao.jing.cbor/content-hash a)
+                   (dao.jing.cbor/content-hash b)))))
     (is (not (flags-equality-validation?
                '(= (jing-cbor/content-hash a) (jing-cbor/content-hash b)))))
     ;; dao.jing.cbor/content-hash is real; confirm the two symbols are
@@ -376,7 +421,8 @@
             about which encoder it was generated against"
     (doseq [{:keys [label value input-hex]} (:cases (digest-table))]
       (when (and value (str/starts-with? (name label) "canonical-"))
-        (is (= input-hex (bytes->hex (jing/canonical-bytes value)))
+        (is (= (if (string? input-hex) input-hex (apply str input-hex))
+               (bytes->hex (jing/canonical-bytes value)))
             (str label " canonical-bytes must match the frozen fixture"))))))
 
 

@@ -6700,3 +6700,322 @@ Delegates:
   * collab/1790237091-reviewer-repl-vm-stream-r2.prompt.md
   * collab/1790237411-reviewer-repl-vm-stream-r3.prompt.md
 Next: Merge branch yin-repl-vm-stream to master upon user authorization, then implement test suite for yang.clojure stream programs on yin.vm.
+
+
+
+## 2026-09-24 21:55:00 +07 — yin.vm.linker design spec authored, reviewed & consensus reached (r11)
+Completed-GMT: 2026-09-24 14:55:00 GMT
+Coding-Agent: Antigravity CLI (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: dao-jing-cbor-swap@d1709c15, uncommitted changes: docs/design/yin.vm.linker.md, docs/agents/routing-status.md
+Done:
+- Authored master architectural specification docs/design/yin.vm.linker.md
+  (2,678 lines) unifying all 4 VMs (:ast-walker, :semantic, :stack, :register)
+  behind a stream-based linker over dao.stream and making (require ...)
+  lower to the universal linker.
+- Reached unanimous consensus across 11 adversarial review rounds between
+  Lead System Architect (claude-fable-5-1, later resumed with glm-5.3 per
+  quota routing) and Adversarial Reviewer (gpt-6-sol via codex).
+- Key reconciled architectural contracts:
+  * Wire request purity: Mutual exclusion of :yin.link/name vs identity;
+    fail-closed :invalid-request at admission.
+  * Dependency obligations: Scanner returns position records with dominance-
+    based discharge; conditional/uncertain definitions conservatively retain
+    obligations.
+  * Task correlation: [task-origin-tag counter] minted in shared scheduler scope.
+  * Code attachment & grow-only returns: Non-destructive attach-image
+    preserving registers, stack, and restore identities; return transitions
+    drop saved code-space segments to allow attachments during calls.
+  * Isolated module stores: Each receiving task lowers an isolated
+    :module-stores entry; direct store instructions route to active module
+    store without ambient fallback.
+  * Sealed capability references: Resources are bound to unguessable
+    task-scoped secrets; effect dispatch and export lift verify reference
+    seals, preventing capability laundering or forgery.
+  * Multi-pass dynamic authority: Deduplicates exact content IDs first,
+    detects distinct equal-sequence equivocation, and enforces strictly
+    rising sequence numbers with cryptographic proofs.
+Decisions:
+- Preserved strict session continuity: codex thread 01a0d340-f8e7-7e30-9b74-c0a0e6b636fb
+  resumed across rounds 2 through 11; claude session f9328487-72e9-44e8-a216-0fbb81bf6a2e
+  resumed for r1-r5; glm session a2749e73-2e44-4716-8a1f-6ad0cc1d82d9 resumed for r6-r11.
+- Conserved Claude quota upon reaching 93% usage, routing architect follow-ups
+  to glm-5.3 without losing conversational grounding.
+Verification:
+- docs/design/yin.vm.linker.md: 2,678 lines, 100% pure ASCII, 0 lines > 80 cols.
+- Adversarial Reviewer final verdict: READY (consensus reached).
+Delegates:
+- Lead System Architect:
+  * claude-fable-5-1: collab/1790249897887-architect-universal-linker.prompt.md (f9328487-72e9-44e8-a216-0fbb81bf6a2e)
+  * glm-5.3: collab/1790253701965-architect-universal-linker-reconciliation-r6.prompt.md (a2749e73-2e44-4716-8a1f-6ad0cc1d82d9)
+- Adversarial Code Reviewer & Security Auditor:
+  * gpt-6-sol: collab/1790251711027-reviewer-universal-linker-consensus.prompt.md (01a0d340-f8e7-7e30-9b74-c0a0e6b636fb)
+Next: Await user authorization to stage and commit docs/design/yin.vm.linker.md,
+  then proceed with UCF Phase 2 or DaoJing CBOR merge.
+
+
+
+## 2026-09-24 22:31:00 +07 — Handoff of Lead Engineering Orchestrator seat
+Completed-GMT: 2026-09-24 15:31:00 GMT
+Coding-Agent: Antigravity CLI (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: dao-jing-cbor-swap@b4ff6e0d, uncommitted changes:
+  docs/design/yin.vm.linker.md, docs/agents/routing-status.md,
+  docs/orchestrator-log.md, docs/agents/team.md,
+  docs/agents/delegate-invocation-reference.md, src/cljc/dao/jing/cbor.cljc
+  and DaoJing test suites
+Done:
+- Successfully authored and drove master design specification
+  docs/design/yin.vm.linker.md to unanimous consensus (Revision r11, READY).
+- Unlocked UCF Phase 2 and universal module loading over dao.stream.
+- Logged all 11 adversarial review rounds and preserved full artifact trails.
+- Preserved delegate session continuity across all tracks.
+- Conserved Claude quota per owner directive, recording active status in
+  docs/agents/routing-status.md.
+Decisions:
+- Handing off Orchestrator seat per user instruction.
+- Worktrees and active branches:
+  * Main: /Users/sto/workspace/datomworld (branch dao-jing-cbor-swap)
+  * Universal Linker: /Users/sto/workspace/datomworld-universal-linker
+    (branch universal-linker)
+  * UCF: /Users/sto/workspace/datomworld-ucf (branch ucf-phase1)
+  * Yang Stream: /Users/sto/workspace/datomworld-yang-stream
+    (branch yang-clojure-stream)
+Verification:
+- docs/design/yin.vm.linker.md: 2,678 lines, 100% pure ASCII, 0 lines > 80 cols.
+- Reviewer sign-off: READY on r11 (see collab artifact:
+  1790261502229-reviewer-universal-linker-consensus-r11.gpt-6-sol.findings.md).
+- Prior test evidence:
+  * UCF Phase 1 passes all JVM (18 tests, 109 assertions) and CLJS/Node tests.
+  * Yang Clojure Stream passes all JVM (13 tests, 309 assertions),
+    CLJS (309 assertions), and CLJD (1,879 tests passed).
+  * DaoJing CBOR fixes passed JVM (1,992 tests, 0 failures).
+Delegates:
+- Lead System Architect:
+  * f9328487-72e9-44e8-a216-0fbb81bf6a2e (claude-fable-5-1)
+  * a2749e73-2e44-4716-8a1f-6ad0cc1d82d9 (glm-5.3)
+- Adversarial Reviewer:
+  * 01a0d340-f8e7-7e30-9b74-c0a0e6b636fb (gpt-6-sol)
+- Storage Engineer (DaoJing):
+  * 0905c1a1-ff26-4582-9cb5-ec25468e7593 (claude-sonnet-5)
+Next: Successor orchestrator should:
+  1. Await user authorization to stage and commit docs/design/yin.vm.linker.md.
+  2. Finalize and commit DaoJing CBOR swap after follow-up consensus review.
+  3. Merge yang-clojure-stream and ucf-phase1 branches upon user instruction.
+  4. Begin UCF Phase 2 / yin.vm.linker implementation on dao.stream.
+
+
+## 2026-09-24 22:52:05 +07 — Orchestrator seat resumed: state re-derivation, fresh verification, CBOR consensus review dispatched
+Completed-GMT: 2026-09-24 15:52:05 GMT
+Coding-Agent: ZCode (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: dao-jing-cbor-swap@b4ff6e0d, unchanged commit; uncommitted CBOR swap
+  diff re-verified (40 files, +4485/-3671) plus untracked
+  docs/design/yin.vm.linker.md (2,678 lines, pure ASCII, 0 lines > 80 cols,
+  byte-identical to the universal-linker worktree copy)
+Done:
+- Re-derived tree state per handoff posture. Key correction: ucf-phase1,
+  universal-linker, and yang-clojure-stream all sit at b4ff6e0d with their
+  work still uncommitted in their worktrees (ucf: ucf.cljc + ucf_test.cljc +
+  semantic.cljc edit; yang: stream_eval_test.cljc) — "merge upon
+  authorization" requires committing on each branch first.
+- Re-ran verification suites, all green:
+  * Main tree full JVM: 1,992 tests, 180,190 assertions, 0 failures/errors.
+  * ucf worktree yin.vm.ucf-test: 18 tests, 109 assertions, 0 failures.
+  * yang worktree yang.clojure.stream-eval-test: 13 tests, 309 assertions,
+    0 failures.
+- Verified r11 READY verdict and spec metrics; main-tree and worktree spec
+  copies byte-identical.
+- Spot-verified prior CBOR fix claims locally: hygiene gate now clean
+  (non-ASCII and >80-col counts are 0) on psset_fixtures.cljc,
+  hash_registry_contract_test.cljc, digest-table.edn;
+  :put-bytes-fn/:get-bytes-fn encode-once boundary present in dao/jing.cljc;
+  mem.cljc `:state` exposure no longer present.
+- Dispatched consensus follow-up review of the CBOR fixes to the original
+  reviewer conversation (codex exec resume, gpt-6-sol):
+  collab/1790264589986-reviewer-daojing-cbor-swap-fixes-r2.prompt.md
+Findings/Discrepancies:
+- The storage-engineer fixes log ends mid-run before its final report; its
+  interim status reported a Node run of 1,908 tests with 1 failure + 1 error
+  attributed to a "documented JavaScript float64 carrier limitation" —
+  unverified; adjudication assigned to the r2 consensus review.
+- `codex exec resume` accepts no `-m`/`-s` flags (first dispatch attempt
+  exited 2); the canonical bare resume succeeded and inherited gpt-6-sol.
+Next: Await r2 verdict, then the user authorization gates: commit
+  docs/design/yin.vm.linker.md; commit and merge yang-clojure-stream and
+  ucf-phase1; commit the CBOR swap after a READY verdict; then commence
+  UCF Phase 2 / yin.vm.linker implementation over dao.stream.
+
+
+## 2026-09-24 23:50:00 +07 — r2 consensus verdict, fix round complete, routing directive adopted
+Completed-GMT: 2026-09-24 16:50:00 GMT
+Coding-Agent: ZCode (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: dao-jing-cbor-swap@b4ff6e0d, working tree only
+Done:
+- r2 consensus follow-up review of the CBOR fixes (codex resume of the
+  original gpt-5.6-sol reviewer conversation, inherited gpt-6-sol) returned
+  REQUEST CHANGES: prior P1x3 CLOSED, file-test item PARTIALLY CLOSED, plus
+  new P1 (Node failures are real consumer defects, not a documented
+  limitation), P2x3, P3x2. Artifact:
+  collab/1790264589986-reviewer-daojing-cbor-swap-fixes-r2.gpt-6-sol.*.{prompt.md,stdout.log,findings.md}
+- Dispatched the fix round to the storage engineer session (claude-sonnet-5,
+  resume 0905c1a1) after the 23:10 Claude quota reset:
+  collab/1790265839115-storage-engineer-daojing-cbor-fixes-r2.prompt.md
+  Report: COMPLETE on all six items.
+- Independently re-verified both suites in the main tree:
+  * JVM (clojure -M:test): 1,994 tests, 180,199 assertions, 0 failures.
+  * Node (clj -M:cljs -m shadow.cljs.devtools.cli compile slice-peer test
+    under mise JDK 21): 1,910 tests, 47,300 assertions, 0 failures.
+  Node evidence confirms the r2 P1 (float64 carrier rejection in
+  yin.vm debruijn classifier) is fixed.
+Owner decisions this seat:
+- yin.vm.linker.md commit: user answered "Not yet" — spec stays uncommitted
+  despite r11 READY. Do not re-ask without new instruction.
+- New routing directive (recorded in docs/agents/routing-status.md): all
+  coding routes through ZCode subagents (GLM-5.3-Flash); only Architect-role
+  reviews (roles/architect.md) route to external delegates per team.md.
+Environment findings:
+- Bare `npx shadow-cljs` and the canonical `clj -M:cljs` both fail to load
+  shadow-cljs when the shell resolves Homebrew JDK 17; the project requires
+  the mise-managed JDK 21 — invoke JVM tooling as `mise exec -- <cmd>`
+  (recorded for successor seats).
+In flight:
+- Round-3 consensus verification dispatched as a ZCode subagent (per the
+  new directive; GLM reviewer vs Claude-authored delta preserves family
+  independence): collab/1790267002049-reviewer-daojing-cbor-swap-fixes-r3.glm-flash.prompt.md
+Next: On r3 READY, return to the user for authorization to commit the CBOR
+  swap, the linker spec, and the two worktree branches (commit-first, then
+  merge). If r3 returns findings under the new directive, GLM-authored fix
+  rounds would need a non-GLM reviewer — surface to the owner before
+  routing.
+
+
+## 2026-09-25 02:19:58 +0700 — r3 cycle: two defect rounds fixed, branch reviews READY, three lanes green, r4 in flight
+Completed-GMT: 2026-09-24 19:19:58 GMT
+Coding-Agent: ZCode (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: dao-jing-cbor-swap@b4ff6e0d, uncommitted
+Done:
+- r3 consensus verification (ZCode GLM subagent, findings
+  collab/1790267002049-reviewer-daojing-cbor-swap-fixes-r3.glm-flash.findings.md)
+  returned REQUEST CHANGES: r2 findings 1,2,4,5,6 CLOSED, 3 PARTIALLY
+  CLOSED, plus P1 (the r2 delta regressed remote/step.cljc:304 — the
+  get-content client receipt lost strict canonicality), P3 (81-col line in
+  file.cljc), P3 (no Dart-lane evidence).
+- r3 fix: strict cbor/decode at the receipt + integrity-failure pinning
+  test + reflow. Applied orchestrator-direct (ZCode subagent was rejected
+  by the host's 2-agent concurrency limit); the user then directed that
+  delegation is the default going forward ("you're the orchestrator.md so
+  you should delegate unless its something that is simple").
+- The new pinning test exposed a REAL Node-only defect: the
+  (identical? ::refused decoded) guard published the refusal sentinel as a
+  value. Root-caused and fixed by a ZCode GLM subagent
+  (collab/1790270038861-stream-engineer-step-cljs-refused-guard.prompt.md):
+  shadow-cljs does not intern literal keywords — each ::refused site
+  compiles to a fresh Keyword, so identical? (===) fails on Node while the
+  JVM reader interns. Fix: one def'd opaque host-object sentinel var
+  (step.cljc:268-279), the codebase's own pattern; an = comparison was
+  explicitly rejected because frame->value decodes dao.jing/keyword frames
+  and a hostile payload could impersonate the sentinel.
+- Dart lane failed 1,900/3 (first Dart evidence for the whole delta — the
+  r3 P3 was right to demand it). Diagnosis: cljd.core/list stamps
+  {:tag PersistentList} (a Dart Type) onto every constructed list; the
+  strict encoder refuses it via meta-wire. Diagnosed by gpt-6-sol in the
+  codex reviewer thread (collab/1790274832538-architect-cbor-dart-diagnosis.gpt-6-sol.prompt.md,
+  owner-authorized collaboration), corroborated independently by the GLM
+  implementer, fixed by that implementer
+  (collab/1790271642213-storage-engineer-cbor-swap-dart-lane.prompt.md):
+  production fix at debruijn.cljc:1006-1012 (:list branch now with-meta nil
+  — a genuine defect: projected records were unencodable on Dart), two
+  host-wrong fixtures switched to quoted literals, NO cljd bump (newer
+  upstream retains the bug; owner's cljd-bump option assessed and
+  rejected), no :tag discarding in the codec (design requires preserving
+  user metadata).
+- Branch reviews dispatched as ZCode GLM subagents (concurrent, read-only):
+  * UCF Phase 1: READY, 7 P3s
+    (collab/1790268690622-reviewer-ucf-phase1.glm-flash.findings.md).
+  * yang-clojure-stream: READY, 4 P3s
+    (collab/1790268690622-reviewer-yang-clojure-stream.glm-flash.findings.md).
+  Both branches were previously unreviewed.
+Verification (orchestrator-run on the final tree):
+- Dart (mise exec -- bb test:cljd): 1,903 passed, 0 failed.
+- JVM (mise exec -- clojure -M:test): 1,995 tests, 180,202 assertions,
+  0 failures, 0 errors.
+- Node (mise exec -- clj -M:cljs -m shadow.cljs.devtools.cli compile
+  slice-peer test): 1,911 tests, 47,302 assertions, 0 failures, 0 errors.
+Decisions:
+- Owner rulings recorded: coding -> ZCode GLM-5.3-Flash subagents;
+  reviews may route via external CLIs per team.md (routing-status.md
+  entries 23:30 +0700 and 00:15 +0700); r4 verification routed to the
+  codex thread per that ruling; cljd-bump authorized as a fallback and
+  rejected on evidence.
+- Residual debt (not suite-visible, vm.cljc owner): strip-reader-positions
+  re-attaches the cljd constructor :tag for runtime-minted lists on Dart.
+- Design doc debt: dao.jing.cbor.md:147 supported-values claim too broad
+  for Dart; :179 constructor-metadata warning should cover internal
+  producers. To fold into the r4 reconciliation or a doc pass.
+- mise worktree trust + JDK note: bare shells resolve Homebrew JDK 17;
+  the project needs mise JDK 21 — invoke JVM tooling as `mise exec --`;
+  worktrees need `mise trust` (ucf, yang-stream trusted this seat).
+Next: r4 consensus verification dispatched to the codex thread
+  (collab/1790271252483-reviewer-daojing-cbor-swap-fixes-r4.gpt-6-sol.prompt.md).
+  On READY: batched owner authorization ask (commit+merge CBOR swap;
+  commit+merge ucf-phase1 and yang-clojure-stream; linker spec commit
+  remains "Not yet" per owner).
+
+
+## 2026-09-25 03:01:04 +0700 — DaoJing CBOR swap reaches consensus READY (r6)
+Completed-GMT: 2026-09-24 20:01:04 GMT
+Coding-Agent: ZCode (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: dao-jing-cbor-swap@b4ff6e0d, uncommitted (46 changed/untracked paths
+  excluding collab/ and target/)
+Done:
+- r4 (codex thread, collab/1790271252483-reviewer-daojing-cbor-swap-fixes-r4.gpt-6-sol.*)
+  returned REQUEST CHANGES with one P1: the blocking content-client's
+  :get-bytes-fn (remote.cljc:136-160) returned found replies after Base64
+  decoding alone — hash-valid noncanonical bytes could reach jing/get's
+  snapshot decoder.
+- Fix by ZCode GLM subagent
+  (collab/1790277864529-storage-engineer-remote-blocking-ingress.prompt.md):
+  found replies now hash-verify (segment-bytes-match?) then strict
+  cbor/decode before bytes leave the handle (remote.cljc:148-163),
+  mirroring accept-bytes! and the stepped receipt; hostile-pair wire test
+  added at remote_test.cljc:407-437 (verified red pre-fix, green post-fix).
+- The fix reclassified one linker diagnostic; reconciled with owner-
+  authorized scope extension: corrupt-rpc-response test now expects
+  :absent (RPC corruption is refused at the client ingress boundary;
+  read-address's documented fail-closed catch applies), store-level
+  corruption still expects :address-mismatch.
+- r5 (collab/1790279787648-reviewer-daojing-cbor-swap-fixes-r5.gpt-6-sol.*):
+  P1 CLOSED, reconciliation judged correct, one P3 (stale test name).
+- P3 fixed orchestrator-direct (mechanical rename):
+  corrupt-rpc-response-is-an-address-mismatch ->
+  corrupt-rpc-response-is-classified-absent; focused namespace green.
+- r6 confirmation (collab/1790279991314-reviewer-daojing-cbor-swap-confirm-r6.gpt-6-sol.*):
+  "No actionable findings." Verdict: READY.
+Verification (all lanes orchestrator-run on the final tree):
+- Dart (mise exec -- bb test:cljd): 1,904 passed, 0 failed.
+- JVM (mise exec -- clojure -M:test): 1,996 tests, 180,203 assertions,
+  0 failures, 0 errors.
+- Node (mise exec -- clj -M:cljs -m shadow.cljs.devtools.cli compile
+  slice-peer test): 1,912 tests, 47,303 assertions, 0 failures, 0 errors.
+- Post-rename focused: yin.vm.debruijn-linker-test 20 tests, 106
+  assertions, 0 failures.
+Consensus trail (reviewer conversation 01a0d2f3-1ddd-75e2-840f-a3dda37d3b8e
+  via codex, plus the independent GLM r3 subagent round):
+  r1 gpt-5.6-sol request-changes (5 findings) -> r2 gpt-6-sol
+  request-changes (6) -> r3 GLM request-changes (P1+2P3) -> r4 gpt-6-sol
+  request-changes (1 P1) -> r5 READY with 1 P3 -> r6 READY, no findings.
+Debt recorded (not blocking):
+- vm.cljc strip-reader-positions re-attaches the cljd constructor :tag for
+  runtime-minted lists on Dart (not suite-exercised).
+- dao.jing.cbor.md:147 supported-values claim too broad for Dart; :179
+  constructor-metadata warning should cover internal producers.
+- Repo-wide hygiene pass (pre-existing non-ASCII/80-col lines) and collab/
+  archiving remain outstanding.
+Next: Owner authorization decisions pending: (1) commit the CBOR swap on
+  dao-jing-cbor-swap and merge to master; (2) commit + merge ucf-phase1;
+  (3) commit + merge yang-clojure-stream; (4) linker spec commit remains
+  parked ("Not yet"). Then UCF Phase 2 / yin.vm.linker implementation.

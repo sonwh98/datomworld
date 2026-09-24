@@ -491,27 +491,29 @@
 
 
 (defn- recording-content-handle
-  "Temporary in-memory content store for the publish build. :put-content-fn
-   records each unique node blob on first insertion (answering :present for
-   duplicates, so the recorded order is first-insertion order, deduplicated);
-   :get-content-fn reads recorded blobs back. Addresses are minted by
-   jing/materialize! through dao.data.btree.storage/kv-storage, so the
-   recorded order is exactly the store-tree children-before-parent traversal.
-   The handle is a build-time value: no global state is introduced."
+  "Temporary in-memory byte store for the publish build. :put-bytes-fn
+   records each unique node blob's canonical bytes on first insertion
+   (answering :present for duplicates, so the recorded order is
+   first-insertion order, deduplicated); :get-bytes-fn reads recorded bytes
+   back. Addresses are minted by jing/materialize! through
+   dao.data.btree.storage/kv-storage, so the recorded order is exactly the
+   store-tree children-before-parent traversal. The handle is a build-time
+   value: no global state is introduced; :state is its own private atom,
+   holding bytes only."
   []
   (let [state (atom {:content {}, :order []})]
     {:state state,
-     :put-content-fn (fn [address payload]
-                       (if (contains? (:content @state) address)
-                         :present
-                         (do (swap! state
-                                    (fn [s]
-                                      (-> s
-                                          (assoc-in [:content address] payload)
-                                          (update :order conj [address payload]))))
-                             :inserted))),
-     :get-content-fn (fn [address not-found]
-                       (get-in @state [:content address] not-found))}))
+     :put-bytes-fn (fn [address bs]
+                     (if (contains? (:content @state) address)
+                       :present
+                       (do (swap! state
+                                  (fn [s]
+                                    (-> s
+                                        (assoc-in [:content address] bs)
+                                        (update :order conj [address bs]))))
+                           :inserted))),
+     :get-bytes-fn (fn [address not-found]
+                     (get-in @state [:content address] not-found))}))
 
 
 (defn- validate-branching!
@@ -623,7 +625,8 @@
                    ;; occurrences in the source stream.
                    :count (bt/count (:eavt trees)),
                    :branching-factor branching}]
-     (doseq [[_ payload] (:order @(:state handle))] (append-ok! intake payload))
+     (doseq [[address bs] (:order @(:state handle))]
+       (append-ok! intake (jing/segment-value address bs)))
      (append-ok! intake manifest)
      {:manifest-address (jing/segment-key manifest), :manifest manifest})))
 
@@ -1174,7 +1177,9 @@
                   ;; distinct tuples actually stored
                   :count (bt/count (:eavt trees)),
                   :branching-factor (:branching-factor index-state)}
-        payloads (conj (mapv second (:order @(:state (:recorder index-state))))
+        payloads (conj (mapv (fn [[address bs]]
+                               (jing/segment-value address bs))
+                             (:order @(:state (:recorder index-state))))
                        manifest)]
     (attempt-publication
       (-> index-state

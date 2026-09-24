@@ -172,7 +172,8 @@
   [a b]
   ;; Dart's BigInt.compareTo returns any negative or positive int, not
   ;; just -1 or 1; every host answers exactly -1, 0 or 1.
-  #?(:cljd (let [c (.compareTo ^BigInt a b)] (cond (neg? c) -1 (pos? c) 1 :else 0))
+  #?(:cljd (let [c (.compareTo ^BigInt a b)]
+             (cond (neg? c) -1 (pos? c) 1 :else 0))
      :clj (.compareTo ^BigInteger a ^BigInteger b)
      :cljs (cond (js* "(~{} < ~{})" a b) -1
                  (js* "(~{} > ~{})" a b) 1
@@ -238,7 +239,8 @@
              (loop [b b acc ()]
                (if (zero? (bsign b))
                  (Uint8List.fromList (vec acc))
-                 (recur (. ^BigInt b ">>" 8) (conj acc (.toInt ^BigInt (. ^BigInt b "&" ff)))))))
+                 (recur (. ^BigInt b ">>" 8)
+                        (conj acc (.toInt ^BigInt (. ^BigInt b "&" ff)))))))
      :clj (let [raw (.toByteArray ^BigInteger b)]
             (if (and (pos? (alength raw)) (zero? (aget raw 0)))
               (java.util.Arrays/copyOfRange raw 1 (alength raw))
@@ -303,7 +305,8 @@
   (span-key bs 0 (blen bs)))
 
 
-(defn- bytes=
+(defn bytes=
+  "True when two host byte arrays hold the same bytes."
   [a b]
   (let [n (blen a)]
     (and (= n (blen b))
@@ -647,7 +650,9 @@
 (defn- reduced-fraction
   [n d]
   (let [g (bgcd n d)]
-    (if (zero? (bsign g)) [:finite zero one] [:finite (bquot n g) (bquot d g)])))
+    (if (zero? (bsign g))
+      [:finite zero one]
+      [:finite (bquot n g) (bquot d g)])))
 
 
 (defn- exact
@@ -658,7 +663,8 @@
     (host-integer? x)
     (do #?(:cljs (when (and (number? x) (not (js/Number.isSafeInteger x)))
                    (refuse :unsupported-value
-                           "unsafe integral JavaScript number: its value is already rounded")))
+                           (str "unsafe integral JavaScript number: "
+                                "its value is already rounded"))))
         [:finite (big x) one])
     (float64? x) (let [[neg e f] (float-fields (float-value x))]
                    (cond
@@ -684,7 +690,8 @@
                  (if (neg? (bsign d))
                    (reduced-fraction (b- zero n) (b- zero d))
                    (reduced-fraction n d)))
-    :else (refuse :unsupported-value (str "not a portable number: " (type-name x)))))
+    :else (refuse :unsupported-value
+                  (str "not a portable number: " (type-name x)))))
 
 
 (defn- exact-key
@@ -782,8 +789,9 @@
     (or (numeric? a) (numeric? b)) (and (numeric? a) (numeric? b) (num= a b))
     (or (wire/byte-payload? a) (wire/byte-payload? b))
     (and (wire/byte-payload? a) (wire/byte-payload? b) (bytes= a b))
-    (or (keyword? a) (symbol? a)) (and (or (keyword? b) (symbol? b))
-                                       (= (identifier-key a) (identifier-key b)))
+    (or (keyword? a) (symbol? a))
+    (and (or (keyword? b) (symbol? b))
+         (= (identifier-key a) (identifier-key b)))
     (sequential-value? a) (and (sequential-value? b)
                                (loop [xs (seq a) ys (seq b)]
                                  (cond (and (nil? xs) (nil? ys)) true
@@ -794,7 +802,9 @@
     (map? a) (and (map? b)
                   (= (count a) (count b))
                   (every? (fn [[k v]]
-                            (some (fn [[k2 v2]] (and (equiv k k2) (equiv v v2))) b))
+                            (some (fn [[k2 v2]]
+                                    (and (equiv k k2) (equiv v v2)))
+                                  b))
                           a))
     (set? a) (and (set? b)
                   (= (count a) (count b))
@@ -828,7 +838,8 @@
     (float64? x) :float64
     (decimal? x) :decimal
     (ratio? x) :rational
-    :else (refuse :unsupported-value (str "not a portable number: " (type-name x)))))
+    :else (refuse :unsupported-value
+                  (str "not a portable number: " (type-name x)))))
 
 
 (defn- numeric-content-key
@@ -840,15 +851,19 @@
    keywords, so equal content gives equal keys on every host."
   [x]
   (case (numeric-kind x)
-    :integer (do #?(:cljs (when (and (number? x) (not (js/Number.isSafeInteger x)))
+    :integer (do #?(:cljs (when (and (number? x)
+                                     (not (js/Number.isSafeInteger x)))
                             (refuse :unsupported-value
-                                    "unsafe integral JavaScript number: its value is already rounded")))
+                                    (str "unsafe integral JavaScript number: "
+                                         "its value is already rounded"))))
                  [::integer (str (big x))])
     :float64 (let [[neg e f] (float-fields (float-value x))]
                (if (and (= e 0x7ff) (pos? (bsign f)))
                  [::float64 :nan]
                  [::float64 neg e (str f)]))
-    :decimal [::decimal (str (decimal-exponent x)) (str (big (decimal-mantissa x)))]
+    :decimal [::decimal
+              (str (decimal-exponent x))
+              (str (big (decimal-mantissa x)))]
     :rational (let [[_ n d] (exact x)]
                 [::rational (str n) (str d)])))
 
@@ -920,7 +935,8 @@
             (<= 0xD800 c 0xDBFF)
             (if (and (< (inc i) n) (<= 0xDC00 (char-code s (inc i)) 0xDFFF))
               (recur (+ i 2))
-              (refuse :unpaired-surrogate (str "unpaired high surrogate at " i)))
+              (refuse :unpaired-surrogate
+                      (str "unpaired high surrogate at " i)))
             (<= 0xDC00 c 0xDFFF)
             (refuse :unpaired-surrogate (str "unpaired low surrogate at " i))
             :else (recur (inc i)))))))
@@ -977,7 +993,8 @@
               :cljs (let [out (js/Uint8Array. 8)
                           view (js/DataView. (.-buffer out))]
                       (if (js/isNaN f)
-                        (do (.setUint32 view 0 0x7ff80000) (.setUint32 view 4 0))
+                        (do (.setUint32 view 0 0x7ff80000)
+                            (.setUint32 view 4 0))
                         (.setFloat64 view 0 f))
                       out))]
     (wire/frame 'dao.jing/float64 bs)))
@@ -989,12 +1006,16 @@
     (host-integer? x)
     (do #?(:cljs (when (and (number? x) (not (js/Number.isSafeInteger x)))
                    (refuse :unsupported-value
-                           "unsafe integral JavaScript number; pass a BigInt or float64")))
+                           (str "unsafe integral JavaScript number; "
+                                "pass a BigInt or float64"))))
         (int-wire (big x) d))
     (float64? x) (float-wire x d)
     (decimal? x) (do (deep! (inc d) :unsupported-value)
-                     (wire/tagged 4 [(int-wire (big (decimal-exponent x)) (+ d 2))
-                                     (int-wire (big (decimal-mantissa x)) (+ d 2))]))
+                     (wire/tagged 4
+                                  [(int-wire (big (decimal-exponent x))
+                                             (+ d 2))
+                                   (int-wire (big (decimal-mantissa x))
+                                             (+ d 2))]))
     :else (let [[_ n den] (exact x)]
             (deep! (inc d) :unsupported-value)
             (wire/tagged 30 [(int-wire n (+ d 2)) (int-wire den (+ d 2))]))))
@@ -1030,7 +1051,10 @@
   "Tag 258 at depth d over an array at d+1; elements at d+2."
   [s d]
   (deep! (inc d) :unsupported-value)
-  (let [wired (members-wire (map (fn [x] [x nil]) s) true :duplicate-element (+ d 2))]
+  (let [wired (members-wire (map (fn [x] [x nil]) s)
+                            true
+                            :duplicate-element
+                            (+ d 2))]
     (wire/tagged 258 (mapv second (sort-by first wired)))))
 
 
@@ -1094,7 +1118,8 @@
     (map? x) (meta-wire x d #(map-wire x %))
     (vector? x) (meta-wire x d (fn [d]
                                  (deep! d :unsupported-value)
-                                 (wire/array-node (mapv #(wire-of % (inc d)) x))))
+                                 (wire/array-node
+                                   (mapv #(wire-of % (inc d)) x))))
     (set? x) (meta-wire x d #(set-wire x %))
     (or (list? x) (seq? x)) (meta-wire x d #(list-wire x %))
     :else (refuse :unsupported-value (type-name x))))
@@ -1102,11 +1127,25 @@
 
 (defn encode
   "The canonical CBOR payload bytes of one supported value (byte[] on the
-   JVM, Uint8Array on JavaScript, Uint8List on Dart). Refuses unsupported values, unpaired
-   surrogates, nesting deeper than max-depth, and collections whose
-   members collide after normalization."
+   JVM, Uint8Array on JavaScript, Uint8List on Dart). Refuses unsupported
+   values, unpaired surrogates, nesting deeper than max-depth, and
+   collections whose members collide after normalization."
   [value]
   (wire/encode (wire-of value 1)))
+
+
+(defn byte-payload?
+  "True for the host byte array `encode` returns and `decode` accepts:
+   byte[] on the JVM, Uint8Array on JavaScript, Uint8List on Dart."
+  [x]
+  (wire/byte-payload? x))
+
+
+(defn copy-bytes
+  "A fresh copy of host byte array bs, so a holder's snapshot cannot be
+   changed through the array a caller keeps."
+  [bs]
+  (copy-range bs 0 (blen bs)))
 
 
 (defn encoded-compare
@@ -1160,7 +1199,8 @@
       (= ai 27) (do (need bs pos 8)
                     [major ai (span-big bs pos (+ pos 8)) (+ pos 8)])
       (= ai 31) [major ai nil pos]
-      :else (refuse :malformed-cbor (str "reserved additional information " ai)))))
+      :else (refuse :malformed-cbor
+                    (str "reserved additional information " ai)))))
 
 
 (defn- host-big?
@@ -1212,7 +1252,8 @@
             (catch CharacterCodingException e
               (refuse :invalid-utf8 (.getMessage e))))
      :cljs (try
-             (.decode (js/TextDecoder. "utf-8" #js {:fatal true :ignoreBOM true})
+             (.decode (js/TextDecoder. "utf-8"
+                                       #js {:fatal true :ignoreBOM true})
                       (.subarray bs start (+ start len)))
              (catch :default e
                (refuse :invalid-utf8 (str e))))))
@@ -1233,7 +1274,8 @@
   (deep! d :malformed-cbor)
   (let [start pos
         [major ai arg pos] (read-head bs pos)
-        item (fn [kind value end] [{:kind kind :value value :start start :end end} end])]
+        item (fn [kind value end]
+               [{:kind kind :value value :start start :end end} end])]
     (case (int major)
       (0 1)
       (if (nil? arg)
@@ -1256,8 +1298,10 @@
                                    :clj (byte-array n)
                                    :cljs (js/Uint8Array. n))]
                         (reduce (fn [off c]
-                                  #?(:cljd (.setRange ^Uint8List out off (+ off (blen c)) c)
-                                     :clj (System/arraycopy c 0 out off (alength ^bytes c))
+                                  #?(:cljd (.setRange ^Uint8List out
+                                                      off (+ off (blen c)) c)
+                                     :clj (System/arraycopy
+                                            c 0 out off (alength ^bytes c))
                                      :cljs (.set out c off))
                                   (+ off (blen c)))
                                 0 chunks)
@@ -1307,7 +1351,8 @@
 
       7
       (cond
-        (= ai 31) (refuse :malformed-cbor "break outside an indefinite-length item")
+        (= ai 31) (refuse :malformed-cbor
+                          "break outside an indefinite-length item")
         (< ai 24) (item :simple ai pos)
         (= ai 24) (if (< arg 32)
                     (refuse :malformed-cbor "two-byte simple value below 32")
@@ -1375,9 +1420,9 @@
       (refuse :malformed-frame "list payload is not an array"))
 
     ("dao.jing/keyword" "dao.jing/symbol")
-    (let [[ns-item name-item] (or (pair-items p)
-                                  (refuse :malformed-frame
-                                          "identifier payload is not [ns name]"))]
+    (let [[ns-item name-item]
+          (or (pair-items p)
+              (refuse :malformed-frame "identifier payload is not [ns name]"))]
       (when-not (or (and (= :simple (:kind ns-item)) (= 22 (:value ns-item)))
                     (= :text (:kind ns-item)))
         (refuse :malformed-frame "namespace is neither nil nor text"))
@@ -1406,7 +1451,8 @@
         (refuse :malformed-frame "metadata map carries metadata"))
       (when-not (and (or (vector? v) (map? v) (set? v) (list? v) (symbol? v))
                      (nil? (meta v)))
-        (refuse :malformed-frame "metadata target is not a bare collection or symbol"))
+        (refuse :malformed-frame
+                "metadata target is not a bare collection or symbol"))
       (with-meta v m))
 
     (refuse :unknown-frame-name frame-name)))
@@ -1426,7 +1472,9 @@
       :bytes v
       :text v
       :array (mapv #(item->value bs %) v)
-      :map (let [pairs (mapv (fn [[k w]] [(item->value bs k) (item->value bs w)]) v)]
+      :map (let [pairs (mapv (fn [[k w]]
+                               [(item->value bs k) (item->value bs w)])
+                             v)]
              (check-members bs (map first v) (map first pairs) :duplicate-key)
              (built (into {} pairs) (count pairs)))
       :tag
@@ -1435,22 +1483,28 @@
           (2 3) (if (= :bytes (:kind p))
                   (let [mag (span-big (:value p) 0 (blen (:value p)))]
                     (b->int (if (= 2 tag) mag (b- (b- zero mag) one))))
-                  (refuse :malformed-number "bignum payload is not a byte string"))
+                  (refuse :malformed-number
+                          "bignum payload is not a byte string"))
           4 (let [[e m] (or (pair-items p)
-                            (refuse :malformed-number
-                                    "decimal payload is not [exponent mantissa]"))
+                            (refuse
+                              :malformed-number
+                              "decimal payload is not [exponent mantissa]"))
                   e (int-item bs e false)
                   m (int-item bs m true)]
               (when (or (nil? e) (nil? m))
-                (refuse :malformed-number "decimal component is not an integer"))
+                (refuse :malformed-number
+                        "decimal component is not an integer"))
               (decimal (b->int e) m))
           30 (let [[n d] (or (pair-items p)
-                             (refuse :malformed-number
-                                     "rational payload is not [numerator denominator]"))
+                             (refuse
+                               :malformed-number
+                               (str "rational payload is not "
+                                    "[numerator denominator]")))
                    n (int-item bs n true)
                    d (int-item bs d true)]
                (when (or (nil? n) (nil? d) (not (pos? (bsign d))))
-                 (refuse :malformed-number "rational components out of grammar"))
+                 (refuse :malformed-number
+                         "rational components out of grammar"))
                (ratio n d))
           258 (if (= :array (:kind p))
                 (let [items (:value p)
@@ -1461,24 +1515,36 @@
           39 (refuse :identifier-tag-39)
           27 (let [[n payload] (pair-items p)]
                (when-not (= :text (:kind n))
-                 (refuse :malformed-frame "tag 27 payload is not [name-string payload]"))
+                 (refuse :malformed-frame
+                         "tag 27 payload is not [name-string payload]"))
                (frame->value bs (:value n) payload))
           (refuse :unknown-tag (str "tag " raw)))))))
 
 
-(defn decode
-  "The value of one canonical Jing payload (byte[], Uint8Array or
-   Uint8List).
-   Refuses malformed CBOR, trailing data, anything outside the closed
-   profile, and any payload whose value does not re-encode to exactly
-   these bytes. Returned byte strings are fresh copies."
+(defn decode-snapshot
+  "The value of one accepted Jing payload (byte[], Uint8Array or
+   Uint8List) that already passed ingress: bytes a backend stored after
+   `decode` accepted them, or bytes this codec encoded itself. Refuses
+   malformed CBOR, trailing data and anything outside the closed profile,
+   but does not re-encode the value to prove canonicality -- that check
+   ran once at ingress (docs/design/dao.jing.cbor.md, Layering and
+   interfaces). Returned byte strings are fresh copies."
   [bs]
   (when (zero? (blen bs))
     (refuse :malformed-cbor "empty input"))
   (let [[item pos] (read-item bs 0 1)]
     (when (not= pos (blen bs))
       (refuse :trailing-data (str (- (blen bs) pos) " bytes after the item")))
-    (let [value (item->value bs item)]
-      (when-not (bytes= bs (encode value))
-        (refuse :non-canonical))
-      value)))
+    (item->value bs item)))
+
+
+(defn decode
+  "The value of one canonical Jing payload (byte[], Uint8Array or
+   Uint8List): the ingress check. Refuses everything `decode-snapshot`
+   refuses and also any payload whose value does not re-encode to exactly
+   these bytes. Returned byte strings are fresh copies."
+  [bs]
+  (let [value (decode-snapshot bs)]
+    (when-not (bytes= bs (encode value))
+      (refuse :non-canonical))
+    value))

@@ -24,6 +24,7 @@
     validation or rate limiting yet (Operational reality, UDP
     amplification)."
   #?(:clj (:require [dao.jing :as jing]
+                    [dao.jing.cbor :as cbor]
                     [dao.jing.mem :as mem]
                     [dao.jing.dht :as dht]
                     [dao.jing.dht.kad :as kad]
@@ -107,20 +108,32 @@
        ;; segment address for the payload, never a bare hash, a
        ;; foreign namespace, or a mismatched value, and the local
        ;; backend's verdict must be an explicit :inserted/:present
+       ;; :v is the canonical payload bytes as padded standard Base64;
+       ;; the bytes must decode as one canonical payload (the ingress
+       ;; check) before the local byte store sees them
        :store-content
        (let [{:keys [address v]} msg]
          (try
-           (if (and (jing/segment-address? address)
-                    (jing/segment-matches? address v))
-             (let [result ((:put-content-fn local) address v)]
-               (if (#{:inserted :present} result) {:ok true} {:ok false}))
+           (if (jing/segment-address? address)
+             (let [bs (jing/base64->bytes v)]
+               (if (jing/segment-bytes-match? address bs)
+                 (do (cbor/decode bs)
+                     (let [result ((:put-bytes-fn local) address bs)]
+                       (if (#{:inserted :present} result)
+                         {:ok true}
+                         {:ok false})))
+                 {:ok false}))
              {:ok false})
            (catch Exception _ {:ok false})))
-       ;; :found travels explicitly on both reads: values are opaque
-       ;; and nil is a legal one, so it cannot be inferred from :v
+       ;; :found travels explicitly on both reads: nil is a legal stored
+       ;; value, so presence cannot be inferred from :v
        :fetch-content
-       (let [v (jing/get local (:address msg) missing)]
-         (if (identical? v missing) {:found false} {:found true, :v v}))
+       (let [bs (if (jing/segment-address? (:address msg))
+                  ((:get-bytes-fn local) (:address msg) missing)
+                  missing)]
+         (if (identical? bs missing)
+           {:found false}
+           {:found true, :v (jing/bytes->base64 bs)}))
        ;; no root or CAS op exists on this wire; unknown ops are
        ;; thrown and answered as {:error ...} by the receiver
        (throw (ex-info "dao.jing.dht.node: unknown op" {:op (:op msg)})))))

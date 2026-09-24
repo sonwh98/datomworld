@@ -125,11 +125,16 @@ The signature remains:
 (canonical-bytes value)
 ```
 
-It continues to return the UTF-8 bytes of the current order-normalized, metadata-aware print encoding.
+It returns the canonical CBOR payload bytes of the value: `canonical-bytes`
+delegates to `dao.jing.cbor/encode`, the pinned profile of
+`dao.jing.cbor.md`, and every digest input is those bytes. The
+order-normalized print encoder that once stood here is gone (clean break,
+2026-09-24).
 
 No algorithm-specific canonicalization is permitted. BLAKE3 and SHA-256 receive identical bytes for the same value.
 
-The future CBOR epic will replace this implementation outright. It will not add a second coexisting encoder or alter this function's public role.
+There is exactly one encoder; the CBOR codec did not add a second
+coexisting encoder and did not alter this function's public role.
 
 ### `content-hash`
 
@@ -502,9 +507,11 @@ Any provider version or replacement that changes a pinned digest is rejected as 
 
 ## Sequencing with canonical CBOR
 
-The algorithm-registry epic lands first over the current order-normalized print encoder.
+The algorithm-registry epic landed first, over the order-normalized print
+encoder of the time; the canonical CBOR clean break then replaced that
+encoder on 2026-09-24. Both are complete.
 
-It establishes:
+The registry epic established:
 
 - the flat multihash address grammar;
 - permanent BLAKE3 and SHA-256 entries;
@@ -513,20 +520,29 @@ It establishes:
 - algorithm-directed verification; and
 - algorithm-preserving copy paths.
 
-Canonical CBOR remains a separate clean-break epic. A canonical codec already exists in `dao.jing.cbor`; its byte contract is frozen by `test/resources/dao/jing/cbor-v1.json` and is currently used for encoded comparison rather than addressing.
-
-When CBOR lands, it replaces the implementation of `canonical-bytes` outright. The algorithm registry remains unchanged:
+Canonical CBOR was a separate clean-break epic, now landed. The codec in
+`dao.jing.cbor`, whose byte contract is frozen by
+`test/resources/dao/jing/cbor-v1.json`, is the addressing encoder:
+`canonical-bytes` is `dao.jing.cbor/encode`. The algorithm registry was
+unchanged by that landing:
 
 - BLAKE3 remains the default;
 - SHA-256 remains explicitly selectable;
 - the address grammar remains `:segment/<algorithm-id>-<digest>`;
-- every digest and every DaoJing address is regenerated from CBOR bytes;
-- development stores, fixtures, manifests, ASTs, and continuations are rebuilt together; and
-- no printer-address reader, alias, graph migration, or encoding negotiation is introduced.
+- every digest and every DaoJing address was regenerated from CBOR bytes
+  (`digest-table.edn`'s canonical rows, the psset fixtures, and every
+  pinned test hash);
+- development stores, fixtures, manifests, ASTs, and continuations were
+  rebuilt together; and
+- no printer-address reader, alias, graph migration, or encoding
+  negotiation was introduced.
 
 The existing `dao.jing.cbor.md` "Addressing and clean break" ruling remains authoritative. This document changes its SHA-only algorithm assumption but does not alter its clean-break policy.
 
-The print and CBOR value domains must not be assumed identical. The current encoder refuses records and has documented residual limitations. CBOR has its own explicit refusal classes, including `:non-canonical` and `:unpaired-surrogate`. The CBOR epic owns the final value-domain contract.
+The print and CBOR value domains were not identical: the CBOR profile
+refuses records, functions, host objects, characters, `#inst` and
+`#uuid`, with explicit refusal classes including `:non-canonical` and
+`:unpaired-surrogate`. `dao.jing.cbor.md` owns the value-domain contract.
 
 ## Phased rollout
 

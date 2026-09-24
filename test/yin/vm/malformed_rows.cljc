@@ -31,7 +31,13 @@
      :slot-kind-str [{:rule :slot-kind, :path [1]} (one-row-bc [:vm/gensym :not-a-string])]
      :slot-kind-node [{:rule :slot-kind, :path [1]} (one-row-bc [:stream/next 123])]
      :slot-kind-nodes [{:rule :slot-kind, :path [2]} (one-row-bc [:application fake-address-a :not-a-vector false])]
-     :slot-kind-data [{:rule :slot-kind, :path [2]} (one-row-bc [:vm/store-put :key-ok (fn [])])]
+     ;; a host function has no content address (dao.jing's canonical
+     ;; encoding refuses it), so this row sits at a fake one: `:slot-kind`
+     ;; is structural and never consults the address
+     :slot-kind-data [{:rule :slot-kind, :path [2]}
+                      {:root fake-address-a,
+                       :rows {fake-address-a
+                              [fake-address-a :vm/store-put :key-ok (fn [])]}}]
      :slot-kind-sym [{:rule :slot-kind, :path [1]} (one-row-bc [:variable "not-a-sym"])]
      :slot-kind-kw [{:rule :slot-kind, :path [1]} (one-row-bc [:vm/resume "not-a-kw" fake-address-a])]
      :slot-kind-int [{:rule :slot-kind, :path [1]} (one-row-bc [:stream/make :not-int])]

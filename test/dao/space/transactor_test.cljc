@@ -166,12 +166,12 @@
   ([]
    (let [store (atom {})]
      {:store store,
-      :put-content-fn (fn [address payload]
-                        (if (contains? @store address)
-                          :present
-                          (do (swap! store assoc address payload) :inserted))),
-      :get-content-fn (fn [address not-found]
-                        (get @store address not-found))})))
+      :put-bytes-fn (fn [address bs]
+                      (if (contains? @store address)
+                        :present
+                        (do (swap! store assoc address bs) :inserted))),
+      :get-bytes-fn (fn [address not-found]
+                      (get @store address not-found))})))
 
 
 (defn- materialize-through-observer

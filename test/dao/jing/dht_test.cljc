@@ -74,11 +74,12 @@
 
 
   (store-content!
-    [_ to address payload]
+    [_ to address b64]
     (cond (:store-throws? (get @registry (:id to)))
           (throw (ex-info "Simulated store transport error" {:peer to}))
           (:store-fails? (get @registry (:id to))) false
-          :else (do ((:put-content-fn (local-of registry to)) address payload)
+          :else (do ((:put-bytes-fn (local-of registry to))
+                     address (jing/base64->bytes b64))
                     true)))
 
 
@@ -87,9 +88,10 @@
     (cond (:fetch-throws? (get @registry (:id to)))
           (throw (ex-info "Simulated fetch transport error" {:peer to}))
           :else
-          (let [v (jing/get (local-of registry to) address fake-missing)]
+          (let [v ((:get-bytes-fn (local-of registry to)) address fake-missing)]
             {:found? (not (identical? fake-missing v)),
-             :value (when (not (identical? fake-missing v)) v)})))
+             :value (when (not (identical? fake-missing v))
+                      (jing/bytes->base64 v))})))
 
 
   (close-net! [_] (swap! closes inc) nil))
@@ -112,19 +114,27 @@
 
 
 (defn- raw-handle
-  "A non-validating in-memory content handle for test doubles. The state
-   atom is exposed as :state so tests can plant forged payloads that bypass
-   the address-payload contract."
+  "A non-validating in-memory byte store for test doubles. The state atom
+   is exposed as :state so tests can plant forged bytes that bypass the
+   address-bytes contract; the seed maps addresses to values, encoded here."
   ([] (raw-handle {}))
   ([seed]
-   (let [store (atom seed)]
+   (let [store (atom (into {}
+                           (map (fn [[a v]] [a (jing/canonical-bytes v)]))
+                           seed))]
      {:state store,
-      :put-content-fn (fn [address payload]
-                        (if (contains? @store address)
-                          :present
-                          (do (swap! store assoc address payload) :inserted))),
-      :get-content-fn (fn [address not-found] (get @store address not-found)),
+      :put-bytes-fn (fn [address bs]
+                      (if (contains? @store address)
+                        :present
+                        (do (swap! store assoc address bs) :inserted))),
+      :get-bytes-fn (fn [address not-found] (get @store address not-found)),
       :close-fn (fn [] (swap! store assoc ::closed true))})))
+
+
+(defn- b64
+  "The wire form of a value: Base64 of its canonical bytes."
+  [v]
+  (jing/bytes->base64 (jing/canonical-bytes v)))
 
 
 (defn- open-stream
@@ -147,11 +157,11 @@
             effects, with no stream surface"
     (let [{:keys [stores]} (grid 2)
           [a] stores]
-      (is (= #{:net :local :closed-atom :put-content-fn :get-content-fn
+      (is (= #{:net :local :closed-atom :put-bytes-fn :get-bytes-fn
                :close-fn}
              (set (keys a))))
-      (is (fn? (:put-content-fn a)))
-      (is (fn? (:get-content-fn a)))
+      (is (fn? (:put-bytes-fn a)))
+      (is (fn? (:get-bytes-fn a)))
       (is (fn? (:close-fn a)))
       (is (false? @(:closed-atom a)))))
   (testing "FakeNet honors the six IDhtNet methods exactly"
@@ -171,17 +181,20 @@
              (map :id (dht/find-closer net (dht/self-peer net) id-b)))
           "find-closer excludes the requester, nearest first")
       (is (true?
-            (dht/store-content! net (dht/self-peer (:net b)) address payload)))
+            (dht/store-content! net (dht/self-peer (:net b)) address
+                                (b64 payload))))
       (is (= payload (jing/get (:local b) address ::miss))
           "store-content! writes the peer local")
-      (is (= {:found? true, :value payload}
-             (dht/fetch-content net (dht/self-peer (:net b)) address)))
-      (is (= {:found? true, :value nil}
+      (is (= {:found? true, :value (b64 payload)}
+             (dht/fetch-content net (dht/self-peer (:net b)) address))
+          "content travels as Base64 of its canonical bytes")
+      (is (= {:found? true, :value (b64 nil)}
              (dht/fetch-content net (dht/self-peer (:net c)) nil-address))
-          "fetch reports found for a stored nil")
+          "fetch reports found for a stored nil, carried as CBOR nil")
       (swap! registry assoc-in [id-b :store-fails?] true)
       (is (false?
-            (dht/store-content! net (dht/self-peer (:net b)) address payload))
+            (dht/store-content! net (dht/self-peer (:net b)) address
+                                (b64 payload)))
           "a refusing peer reports false without storing")
       (dht/close-net! net)
       (is (= 1 @(:closes net)) "close-net! bumps the close counter"))))
@@ -275,8 +288,9 @@
   (testing "a second direct put of an already-stored address returns :present"
     (let [{[a] :stores} (grid 1)
           address (jing/segment-key {:bytes [4]})]
-      (is (= :inserted ((:put-content-fn a) address {:bytes [4]})))
-      (is (= :present ((:put-content-fn a) address {:bytes [4]}))))))
+      (let [bs (jing/canonical-bytes {:bytes [4]})]
+        (is (= :inserted ((:put-bytes-fn a) address bs)))
+        (is (= :present ((:put-bytes-fn a) address bs)))))))
 
 
 (deftest invalid-direct-puts-touch-no-store
@@ -286,9 +300,10 @@
     (let [{:keys [stores]} (grid 2)
           [a b] stores
           k (jing/segment-key {:x 1})]
-      (is (throws? #((:put-content-fn a) :plain {:x 1})))
-      (is (throws? #((:put-content-fn a) k {:y 2})))
-      (is (throws? #((:put-content-fn a) :segment/sha256-short {:x 1})))
+      (is (throws? #((:put-bytes-fn a) :plain (jing/canonical-bytes {:x 1}))))
+      (is (throws? #((:put-bytes-fn a) k (jing/canonical-bytes {:y 2}))))
+      (is (throws? #((:put-bytes-fn a) :segment/sha256-short
+                                       (jing/canonical-bytes {:x 1}))))
       (is (= ::miss (jing/get (:local a) k ::miss)) "no local write happened")
       (is (= ::miss (jing/get (:local b) k ::miss))
           "no network store call reached a peer"))))
@@ -301,15 +316,15 @@
     (let [registry (atom {})
           peer-a {:id (dht/node-id "fake" 0), :host "fake", :port 0}
           peer-b {:id (dht/node-id "fake" 1), :host "fake", :port 1}
-          bad-local {:put-content-fn (fn [_ _] :bogus),
-                     :get-content-fn (fn [_ not-found] not-found)}
+          bad-local {:put-bytes-fn (fn [_ _] :bogus),
+                     :get-bytes-fn (fn [_ not-found] not-found)}
           local-b (mem/create-content-mem)]
       (swap! registry assoc (:id peer-a) {:peer peer-a, :local bad-local})
       (swap! registry assoc (:id peer-b) {:peer peer-b, :local local-b})
       (let [a (dht/create-content-dht
                 {:net (->FakeNet peer-a registry (atom 0)), :local bad-local})
             k (jing/segment-key {:x 1})]
-        (is (throws? #((:put-content-fn a) k {:x 1})))
+        (is (throws? #((:put-bytes-fn a) k (jing/canonical-bytes {:x 1}))))
         (is (= ::miss (jing/get local-b k ::miss))
             "no replication reached the peer")))))
 
@@ -325,7 +340,8 @@
           payload {:bytes [1]}
           address (jing/segment-key payload)]
       (swap! registry assoc-in [id-b :store-fails?] true)
-      (is (= :inserted ((:put-content-fn a) address payload))
+      (is (= :inserted ((:put-bytes-fn a) address
+                                          (jing/canonical-bytes payload)))
           "the local result is returned after all replication attempts")
       (is (= payload (jing/get (:local a) address ::miss))
           "local durability is intact")
@@ -434,9 +450,9 @@
       (is (nil? ((:close-fn a))))
       (is (nil? ((:close-fn a))))
       (is (= 1 @closes) "close-net! ran exactly once")
-      (is (true? (:closed? @(:state (:local a))))
+      (is (throws? #(jing/get (:local a) address ::miss))
           "the local backend was closed")
-      (is (throws? #((:put-content-fn a) address {:x 1})))
+      (is (throws? #((:put-bytes-fn a) address (jing/canonical-bytes {:x 1}))))
       (is (throws? #(jing/get a address ::miss)))))
   (testing "net-close failure and local-close failure/retry behavior"
            ;; Covered by detailed test:
@@ -497,7 +513,7 @@
           address (jing/segment-key payload)]
       (swap! registry assoc-in [id-b :store-throws?] true)
       (is
-        (= :inserted ((:put-content-fn a) address payload))
+        (= :inserted ((:put-bytes-fn a) address (jing/canonical-bytes payload)))
         "the local result is returned after all replication attempts, even if a peer store throws")
       (is (= payload (jing/get (:local a) address ::miss))
           "local durability is intact")
@@ -551,8 +567,8 @@
               (swap! net-closed inc)
               (when @net-should-throw
                 (throw (ex-info "Simulated net close failure" {})))))
-          local {:put-content-fn (fn [_ _] :inserted),
-                 :get-content-fn (fn [_ nf] nf),
+          local {:put-bytes-fn (fn [_ _] :inserted),
+                 :get-bytes-fn (fn [_ nf] nf),
                  :close-fn (fn []
                              (swap! local-closed inc)
                              (when @local-should-throw

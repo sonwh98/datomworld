@@ -20,7 +20,7 @@
             ;; :cljd first, as in remote_test: dao.stream.ws.jvm has no Dart
             ;; twin, so a :clj-first spelling would become a Dart import.
             ;; Used only inside the :clj wire-test branch.
-            #?@(:cljd []
+            #?@(:cljd [["dart:typed_data" :as typed]]
                 :clj [[dao.stream.rpc.ws :as rpc.ws]
                       [dao.stream.ws :as ws]
                       [dao.stream.ws.jvm :as jvm]])))
@@ -81,14 +81,30 @@
      :server (make-server (remote/default-handlers store))}))
 
 
+(defn- b64
+  "The wire form of a value: Base64 of its canonical bytes."
+  [v]
+  (jing/bytes->base64 (jing/canonical-bytes v)))
+
+
+(defn- host-bytes
+  "A host byte object from a seq of ints 0-255."
+  [ints]
+  #?(:clj (byte-array (mapv unchecked-byte ints))
+     :cljs (js/Buffer.from (clj->js (vec ints)))
+     :cljd (typed/Uint8List.fromList ints)))
+
+
 (defn- lying-store
   "A backend handle that answers every put :present and every get with
    `answer` (::absent reports absence) — the hostile server the verify
    hop exists for."
   [answer]
-  {:put-content-fn (fn [_address _payload] :present)
-   :get-content-fn (fn [_address not-found]
-                     (if (= ::absent answer) not-found answer))})
+  {:put-bytes-fn (fn [_address _bytes] :present)
+   :get-bytes-fn (fn [_address not-found]
+                   (if (= ::absent answer)
+                     not-found
+                     (jing/canonical-bytes answer)))})
 
 
 (deftest request-get-round-trips-and-decodes-totally
@@ -256,6 +272,33 @@
       (finally (jing/close! store)))))
 
 
+(deftest a-hash-valid-noncanonical-payload-is-an-integrity-failure
+  ;; The hostile pair: an address minted over bytes that decode as one
+  ;; payload but are not its canonical encoding, served by a server
+  ;; holding exactly those bytes. The digest matches the minted address,
+  ;; so only the ingress canonicality check can refuse the reply.
+  (let [bs (host-bytes [0x18 0x01])
+        algo jing/default-hash-algorithm
+        reg (get jing/registry algo)
+        address (keyword "segment"
+                         (str (:address-id reg)
+                              "-" (jing/digest-bytes algo bs)))
+        server (make-server
+                 (remote/default-handlers
+                   {:put-bytes-fn (fn [_address _bytes] :present)
+                    :get-bytes-fn (fn [_address _not-found] bs)}))]
+    (let [r (step/request-get (stepped-over server) address)]
+      (is (= :dao.stream.rpc/requested (:outcome r)))
+      ((:serve! server))
+      (let [stepped (step/step (:state r) 4)]
+        (is (= [{:id 0 :op :jing/get-content
+                 :error {:dao.stream.apply/code step/integrity-failure-code
+                         :dao.stream.apply/message
+                         (str "the remote content does not hash to "
+                              "its content address")}}]
+               (:completions stepped)))))))
+
+
 (deftest a-verify-mismatch-is-an-integrity-failure
   ;; The hostile server: :present, then different content at the address.
   (let [server (make-server (remote/default-handlers
@@ -364,10 +407,11 @@
         (is (= :dao.stream.rpc/requested (:outcome third)))
         (is (= 1 (:id third)))
         (stream/append! response-handle
-                        (apply/success-response 0 {:found? true :value :first}))
+                        (apply/success-response 0 {:found? true
+                                                   :value (b64 {:x 1})}))
         (stream/append! response-handle
                         (apply/success-response 1 {:found? false :value nil}))
-        (is (= [{:id 0 :op :jing/get-content :found? true :value :first}
+        (is (= [{:id 0 :op :jing/get-content :found? true :value {:x 1}}
                 {:id 1 :op :jing/get-content :found? false :value nil}]
                (:completions (step/step (:state third) 4))))))))
 
@@ -440,7 +484,8 @@
           (is (= :dao.stream.rpc/requested (:outcome g)))
           (stream/append! (:response server)
                           (apply/success-response 1
-                                                  {:found? true :value payload}))
+                                                  {:found? true
+                                                   :value (b64 payload)}))
           (is (= [{:id 1 :op :jing/get-content :found? true :value payload}]
                  (:completions (step/step (:state g) 4))))))
       (finally (jing/close! store)))))
@@ -509,11 +554,12 @@
     ;; awaited read's response follows it in the same medium.
     (stream/append! (:response server) (apply/success-response 7 :foreign))
     (stream/append! (:response server)
-                    (apply/success-response 0 {:found? true :value :mine}))
+                    (apply/success-response 0 {:found? true
+                                               :value (b64 {:x 1})}))
     (let [stepped (step/step (:state r) 4)]
       (is (= [{:dao.stream.rpc/code :dao.stream.rpc/unsolicited-response}]
              (mapv #(dissoc % :dao.stream.rpc/value) (:diagnostics stepped))))
-      (is (= [{:id 0 :op :jing/get-content :found? true :value :mine}]
+      (is (= [{:id 0 :op :jing/get-content :found? true :value {:x 1}}]
              (:completions stepped)))
       (let [again (step/step (:state stepped) 4)]
         (is (= [] (:diagnostics again)) "taken exactly once")
