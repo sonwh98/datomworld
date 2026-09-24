@@ -249,7 +249,7 @@
       (is (= 3 (apply/response-id response)))
       (is (= :yin.repl.serve/unknown-operation
              (:dao.stream.apply/code (apply/response-error response)))
-          "the v2 server evaluates locally or says it does not proxy"))))
+          "the server evaluates locally or says it does not proxy"))))
 
 
 (deftest incomplete-input-is-answered-and-never-crosses-an-attachment-boundary

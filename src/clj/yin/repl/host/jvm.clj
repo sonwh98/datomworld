@@ -1,5 +1,5 @@
 (ns yin.repl.host.jvm
-  "JVM composition of the real WebSocket package into the Yin REPL v2 seam."
+  "JVM composition of the real WebSocket package into the Yin REPL seam."
   (:require [dao.stream.ws.jvm :as jvm]))
 
 

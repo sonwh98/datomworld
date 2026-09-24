@@ -15,12 +15,12 @@
 (def missing-code
   "Qualified to `yin.repl.host`, not to this namespace: the code names the
    seam that is unmet rather than the file the constant sits in, and
-   `yin.repl.serve` renders it into text that `v2_serve_test` asserts."
+   `yin.repl.serve` renders it into text that `serve_test` asserts."
   :yin.repl.host/no-websocket-package)
 
 
 (def missing-text
-  (str "no host WebSocket package is composed for this build: the v2 REPL "
+  (str "no host WebSocket package is composed for this build: the REPL "
        "boundary needs {:connect! …} for (connect …) and {:bind! … :unbind! …} "
        "for --port"))
 

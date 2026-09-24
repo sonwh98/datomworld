@@ -1,8 +1,8 @@
 (ns yin.repl.host
-  "The one seam between the v2 Yin REPL and a real host WebSocket package.
+  "The one seam between the Yin REPL and a real host WebSocket package.
 
    `yin.repl.connect` and `yin.repl.serve` are complete compositions over
-   the DaoStream v2 WebSocket boundary, which deliberately knows no socket
+   the DaoStream WebSocket boundary, which deliberately knows no socket
    library: `dao.stream.ws/make-attacher` asks a host for `:connect!`, and a
    listener is likewise host policy.  Each supported build composes that host
    policy behind the same `{:connect! :bind! :unbind!}` value: this portable

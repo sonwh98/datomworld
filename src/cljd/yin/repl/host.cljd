@@ -1,5 +1,5 @@
 (ns yin.repl.host
-  "ClojureDart composition of the Yin REPL v2 host seam.
+  "ClojureDart composition of the Yin REPL host seam.
 
    Shadows the `.cljc` namespace, so it carries only `websocket`; the portable
    contract is `yin.repl.host.common`."

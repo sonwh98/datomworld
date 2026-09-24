@@ -1,23 +1,22 @@
-# Yin REPL v2 Usage Guide
+# Yin REPL Usage Guide
 
-The DaoStream v2 Yin REPL: a local shell, a `connect` that reaches a remote
-one over v2 WebSockets, a `serve!` that answers, and nothing else. It runs on
-`yin.vm` and requires no v1 namespace. `yin.repl.md` describes the v1 REPL;
-this document describes only what differs.
+The DaoStream Yin REPL: a local shell, a `connect` that reaches a remote
+one over WebSockets, a `serve!` that answers, and nothing else. It runs on
+`yin.vm` and requires no legacy namespaces.
 
 ## Starting and connecting
 
-The entry points are the v2 aliases; the flags behave as they do in v1:
+The entry points are the REPL aliases:
 
 ```bash
 clj -M:clj-yin-repl --port 8080 --headless
 ```
 
-For ClojureDart (`cljd`), use the `v2-build` alias to compile the Dart source, and then run the generated executable natively via `dart run`:
+For ClojureDart (`cljd`), use the `cljd-yin-repl-build` alias to compile the Dart source, and then run the generated executable natively via `dart run`:
 
 ```bash
 clj -M:cljd-yin-repl-build compile
-dart run lib/cljd-out/yin/repl.dart --port 8080 --headless
+dart run bin/yin_repl_main.dart --port 8080 --headless
 ```
 
 For ClojureScript (`cljs` on Node), you can run it directly using the shadow-cljs alias:
@@ -41,16 +40,14 @@ Connected to daostream:ws://localhost:8080/repl
 
 An absent URL path means `/repl`; an explicit `/` remains `/`.
 
-## What differs from v1
+## Protocol and Architecture
 
 **`connect` returns immediately and reports its outcome when known.**
-v1's `connect` resolved over a promise (JVM) or future (Dart) and printed
-`Connected to …` only once the round trip completed. v2's `connect` composes
-the client boundary, attaches, and answers at once with `Attaching to …`; the
-driver prints `Connected to …` when the boundary reports `/established`, and
-reports `/not-found` (an authoritative disclaimer, not retried) or a
-reachability failure (which may succeed on retry) when that is what happened.
-No evaluation blocks on a promise, on any host.
+`connect` composes the client boundary, attaches, and answers at once with
+`Attaching to …`; the driver prints `Connected to …` when the boundary
+reports `/established`, and reports `/not-found` (an authoritative disclaimer,
+not retried) or a reachability failure (which may succeed on retry) when that
+is what happened. No evaluation blocks on a promise, on any host.
 
 **`(vm :type)` offers four evaluators; the default is `:semantic`.**
 The shell supports `:ast-walker` (the tree walker), `:semantic` (the linear
@@ -64,12 +61,12 @@ halted evaluation's value is appended to the output `dao.stream` medium as
 a `:repl/result` token, after the round's prints, and the shell reads it
 from there exactly as it reads printed output.
 
-**There is no `(telemetry)` command.** Telemetry is not part of the v2 slice
-in any form. `(telemetry)` is answered with a message naming the v1 REPL, and
-`--telemetry` / `--telemetry-stream` are rejected rather than ignored. There
-is no `ws://` telemetry sink.
+**There is no `(telemetry)` command.** Telemetry is not part of this
+REPL architecture in any form. `(telemetry)` is answered with an unsupported
+notice, and `--telemetry` / `--telemetry-stream` are rejected rather than
+ignored. There is no `ws://` telemetry sink.
 
-**Evaluation runs on session-owned v2 program media.** The REPL session
+**Evaluation runs on session-owned program media.** The REPL session
 (`make-session`), not any one VM, owns the program media for all four VMs.
 Every program, including a datom program typed at the prompt, is appended
 to the session's ingress ring buffer (declared capacity 4096); the expander
@@ -106,7 +103,7 @@ detach instead, which does reattach.
 These follow from the VM plan's divergence register:
 
 - **User-defined macros evaluate correctly.** The REPL is wired through the `yin.vm.macro` stream topology. `yang.clojure` translates macros into native function calls which are intercepted by the expander on `program-in` before reaching the evaluator.
-- **`stream/take!` is gone.** Programs use `cursor` and `next!` on the v2
+- **`stream/take!` is gone.** Programs use `cursor` and `next!` on the
   `stream` module, which this REPL registers.
 - **Park-on-full backpressure is absent under this composition.** The media
   this REPL supplies are ring buffers that evict rather than answering `full`,
@@ -114,22 +111,14 @@ These follow from the VM plan's divergence register:
 
 ## Server behavior
 
-`--port` serves one shared shell (as v1 does): every connected client
+`--port` serves one shared shell: every connected client
 evaluates against one serially threaded REPL state, and two clients each get
 their own answers. That shell is the server's own local prompt's shell — the
 one step owner threads the same value through both, so a definition typed at
 the server's `yin>` prompt answers a remote request in the same tick, and a
 definition a remote client makes is visible at the local prompt on the next
-tick. The endpoint evaluates locally or reports that it does not
-proxy — v1's chain-forwarding through a server's own remote connection is not
-part of this slice. `--host 127.0.0.1` remains the only boundary, as in v1.
-
-## Coexistence
-
-Both REPLs ship and both alias sets work: `yin.repl` and its aliases are
-untouched, and `dao.stream.rpc.*` keeps serving its existing consumers.
-Deleting v1 is the stream plan's end condition, once its last consumer has
-migrated.
+tick. The endpoint evaluates locally or reports that it does not proxy.
+`--host 127.0.0.1` remains the default boundary.
 
 See [`docs/design/yin.repl.implementation-plan.md`](../../../../docs/design/yin.repl.implementation-plan.md)
 for the plan this REPL implements and the contract documents it is subordinate

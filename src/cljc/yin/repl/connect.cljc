@@ -1,5 +1,5 @@
 (ns yin.repl.connect
-  "The client side of the DaoStream v2 Yin REPL — Phase R3.
+  "The client side of the DaoStream Yin REPL — Phase R3.
 
    One connection is one explicit value.  `open` canonicalizes the URL to the
    request-target form `dao.stream.ws.md` defines, creates the boundary's single
@@ -59,7 +59,7 @@
 
 
 (def service-identity
-  "The logical identity of the stream a v2 REPL endpoint serves.  A descriptor
+  "The logical identity of the stream a REPL endpoint serves.  A descriptor
    names a served stream, so a client that only typed a URL still needs one;
    a stable service name keeps `attach!` honest across endpoint restarts."
   "yin.repl/repl")

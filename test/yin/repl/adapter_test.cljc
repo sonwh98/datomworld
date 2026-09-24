@@ -45,7 +45,7 @@
 
 
 (deftest telemetry-is-rejected-rather-than-evaluated-anywhere
-  ;; The v2 slice has no (telemetry) command in any form, so the adapter names
+  ;; The REPL has no (telemetry) command in any form, so the adapter names
   ;; the rejection instead of running it locally or sending it to the remote.
   (let [request-handle (handle)
         response-handle (handle)
@@ -75,7 +75,7 @@
   (is (= 'help (adapter/local-command "(help)"))))
 
 
-(deftest ordinary-input-becomes-a-correlated-v2-eval-request
+(deftest ordinary-input-becomes-a-correlated-eval-request
   (let [request-handle (handle)
         response-handle (handle)
         submitted (adapter/submit-input (adapter-state request-handle response-handle)

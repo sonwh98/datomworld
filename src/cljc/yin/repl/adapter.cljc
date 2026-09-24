@@ -1,12 +1,12 @@
 (ns yin.repl.adapter
   "A small, host-neutral bridge between a line-oriented Yin REPL and the
-   DaoStream v2 RPC state machine.
+   DaoStream RPC state machine.
 
    This is deliberately not a replacement for `yin.repl`: it does not create a
    socket, evaluate a form, print, own an atom, or invoke a callback.  A driver
    owns the state returned here.  Local shell commands are emitted as data for
    that driver to evaluate locally; every other input string becomes one
-   `:op/eval` request through the explicit v2 RPC client state."
+   `:op/eval` request through the explicit RPC client state."
   (:require #?(:cljd [clojure.edn :as edn]
                :clj [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
@@ -25,7 +25,7 @@
 
 
 (def rejected-command-heads
-  "Commands the v2 slice does not have.  `(telemetry)` is out in every form, so
+  "Commands the REPL does not have.  `(telemetry)` is out in every form, so
    the adapter names the rejection as an event rather than doing nothing locally
    or sending the line to a remote evaluator that would report it as a missing
    var."
@@ -33,7 +33,7 @@
 
 
 (defn state
-  "Create adapter state around explicit, caller-owned v2 RPC client state.
+  "Create adapter state around explicit, caller-owned RPC client state.
    `:events` is an unpublished outbox; use `take-events` to consume it once."
   [rpc-state]
   {:yin.repl.adapter/rpc rpc-state
@@ -44,7 +44,7 @@
 
 
 (defn eval-request
-  "Construct the v2 apply value used for a non-local input.  Normal callers use
+  "Construct the apply value used for a non-local input.  Normal callers use
    `submit-input`, which delegates id allocation and append handling to RPC."
   [id input]
   (apply/request id eval-operation [input]))
