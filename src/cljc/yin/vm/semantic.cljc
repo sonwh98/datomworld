@@ -37,7 +37,8 @@
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
             [yin.vm.module :as module]
-            [yin.vm.telemetry :as telemetry]))
+            [yin.vm.telemetry :as telemetry]
+            [yin.vm.ucf :as ucf]))
 
 
 ;; =============================================================================
@@ -599,23 +600,16 @@
                        :push [opcode]
                        (throw (ex-info "Unknown mnemonic"
                                        {:op mnem, :entity e})))))
-          canonical (fn [e]
-                      (let [ia (get attrs e)
-                            mnem (:yin.code/op ia)]
-                        (into [mnem]
-                              (map (fn [[a kind]]
-                                     (if (= :pc kind)
-                                       (resolve-ref e (get ia a))
-                                       (get ia a)))
-                                   (get code/vector-operand-table mnem)))))
           claimed (get-in attrs [seg :yin.code/hash])
           ;; A claimed address is earned, never trusted: the batch must
           ;; reconstruct to the canonical vector that hashes to it.
           ;; UCF §7.3.4 checks an address whenever one is claimed, so a
           ;; false claim fails the load here and never reaches the alias
-          ;; column.
+          ;; column. The vector is the one `yin.vm.ucf` mints, saturated,
+          ;; so a batch omitting a defaulted operand earns the same
+          ;; address as one stating it.
           canonical-vec (when claimed
-                          (mapv canonical instructions))]
+                          (ucf/batch->canonical-instruction-vector datoms))]
       (if (and claimed (not (jing/segment-matches? claimed canonical-vec)))
         (throw (ex-info (str "Cannot load segment: hash-mismatch (entity "
                              seg ")")
