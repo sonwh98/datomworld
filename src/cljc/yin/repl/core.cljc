@@ -23,6 +23,12 @@
             [yang.python :as yang.python]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.debruijn-code :as dcode]
+            [yin.vm.debruijn-linearize :as debruijn-linearize]
+            [yin.vm.debruijn-register-code :as rcode]
+            [yin.vm.debruijn-register-compile :as register-compile]
+            [yin.vm.debruijn.register :as register]
+            [yin.vm.debruijn.stack :as stack]
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
@@ -47,19 +53,88 @@
 
 
 (def drain-budget
-  "Maximum reads one output drain performs, so the drain is total even against
-   a transport that could answer `gap` repeatedly."
+  "Maximum elements one output drain reads.  It equals the output capacity,
+   so one drain reaches every element the medium still holds, the round's
+   result included."
+  output-capacity)
+
+
+(def gap-budget
+  "Maximum `gap` answers one output drain accepts.  A gap is not an element,
+   so it is counted apart from `drain-budget`: a gap never costs the drain
+   an element, and the drain stays total against a transport that could
+   answer `gap` repeatedly."
   4096)
 
 
 (def vm-constructors
-  "The evaluators on `yin.vm`: the ast-walker and the linear semantic VM
-   (`docs/design/yin.vm.semantic.md`)."
+  "The evaluators on `yin.vm`: the ast-walker, the linear semantic VM
+   (`docs/design/yin.vm.semantic.md`), and the nameless de Bruijn stack
+   and register kernels, each starting with an empty image."
   {:ast-walker ast-walker/create-vm
-   :semantic semantic/create-vm})
+   :semantic semantic/create-vm
+   :stack #(stack/create-vm [] %)
+   :register #(register/create-vm nil %)})
 
 
-(def vm-labels {:ast-walker "ASTWalkerVM" :semantic "SemanticVM"})
+(def vm-labels
+  {:ast-walker "ASTWalkerVM"
+   :semantic "SemanticVM"
+   :stack "DebruijnStackVM"
+   :register "DebruijnRegisterVM"})
+
+
+(defn- packet->named-datoms
+  "The named `:yin/*` datoms of one expanded tree packet, the input the de
+   Bruijn resolver reads."
+  [packet]
+  (vm/ast->datoms
+    (vm/semantic-bytecode->ast (macro/packet->row-set packet))))
+
+
+(defn- relocate
+  "Shift every `:pc`-kind operand of `inst`, per `opcode-table`, by
+   `offset`."
+  [opcode-table offset inst]
+  (reduce (fn [inst [i [_ kind]]]
+            (if (= :pc kind) (update inst (inc i) + offset) inst))
+          inst
+          (map-indexed vector (get opcode-table (nth inst 0)))))
+
+
+(defn- append-stack-image
+  "Load `image` after the stack image `vm` already holds and start at its
+   first instruction.  A closure a previous input stored (a `def`) names a
+   body pc in the earlier image, so that image is kept, not replaced.
+   `:hash` stays the canonical H of the whole loaded `:segment`
+   (yin.vm.debruijn.stack.md), so each load hashes the concatenation."
+  [vm image]
+  (let [held (:segment vm)
+        offset (count held)
+        shift #(relocate dcode/opcode-table offset %)]
+    (assoc (stack/load-image vm (into held (map shift) image))
+           :pc offset)))
+
+
+(defn- append-register-image
+  "The register image counterpart of `append-stack-image`.  The incoming
+   image is validated alone by `load-image`, which also sizes the register
+   file for its main body; the image it runs in is the concatenation, whose
+   later main bodies end in `:halt` as the first does.  `:hash` is the
+   canonical R of that concatenation (yin.vm.debruijn.register.md)."
+  [vm {:keys [bodies instructions] :as image}]
+  (let [held (:segment vm)
+        offset (count (:instructions held))
+        shift-body #(-> % (update :start + offset) (update :end + offset))
+        shift #(relocate rcode/opcode-table offset %)
+        combined {:bodies (into (:bodies held) (map shift-body) bodies)
+                  :instructions (into (:instructions held)
+                                      (map shift)
+                                      instructions)}]
+    (assoc (register/load-image vm image)
+           :segment combined
+           :hash (rcode/register-hash combined)
+           :pc offset)))
 
 
 (def program-loaders
@@ -67,13 +142,24 @@
    evaluator.  Every value there is one expanded canonical tree packet
    `[root rows]` (yin.vm.macro.md §2.4); each loader takes its row set — the
    ast-walker through `vm-load-rows`, the semantic VM through
-   `linearize/rows-loader` over `semantic/load-vector`.  Neither evaluator
-   learns that an expander ran."
+   `linearize/rows-loader` over `semantic/load-vector`, and the de Bruijn
+   kernels through their lowerings to a stack image (H) or a register
+   image (R).  No evaluator learns that an expander ran."
   {:ast-walker (fn [vm packet]
                  (ast-walker/vm-load-rows vm (macro/packet->row-set packet)))
    :semantic (let [load-rows (linearize/rows-loader semantic/load-vector)]
                (fn [vm packet]
-                 (load-rows vm (macro/packet->row-set packet))))})
+                 (load-rows vm (macro/packet->row-set packet))))
+   :stack (fn [vm packet]
+            (append-stack-image
+              vm
+              (:image (debruijn-linearize/adapt
+                        (packet->named-datoms packet)))))
+   :register (fn [vm packet]
+               (append-register-image
+                 vm
+                 (:image (register-compile/adapt
+                           (packet->named-datoms packet)))))})
 
 
 (def lang-labels {:clojure "Clojure" :python "Python" :php "PHP"})
@@ -88,7 +174,7 @@
 
 (def help-text
   (str "Commands:\n"
-       "  (vm :ast-walker | :semantic)\n"
+       "  (vm :ast-walker | :semantic | :stack | :register)\n"
        "  (lang :clojure | :python | :php)\n"
        "  (compile expr)\n"
        "  (reset)\n"
@@ -97,7 +183,8 @@
        "  (repl-state)\n"
        "  (help)\n"
        "  (quit)\n"
-       "  *1, *2, *3  - last, second-to-last, and third-to-last evaluated values"))
+       "  *1, *2, *3  - last, second-to-last, and third-to-last evaluated"
+       " values"))
 
 
 (def telemetry-text
@@ -109,7 +196,12 @@
 
 
 (def ingress-loss-text
-  "One or more program batches were never observed from the program medium; (reset) is required before more evaluation")
+  (str "One or more program batches were never observed from the program "
+       "medium; (reset) is required before more evaluation"))
+
+
+(def result-loss-text
+  "the evaluation halted but its result never reached the output medium")
 
 
 ;; =============================================================================
@@ -169,10 +261,25 @@
   nil)
 
 
+(defn- emit-result!
+  "Answer a halted evaluation's value on the output medium, after the
+   output it printed, so the shell reads results from the stream exactly as
+   it reads prints.  The token carries `round`, so the shell accepts only
+   this round's result.  Returns the append outcome, or `:untried` when
+   there is no medium."
+  [output-stream round value]
+  (if output-stream
+    (:dao.stream/outcome
+      (stream/append! output-stream
+                      {:type :repl/result :round round :value value}))
+    :untried))
+
+
 (defn- make-repl-primitives
   [output-stream]
   (merge vm/primitives
-         {'print (fn [& args] (emit-output! output-stream :print (print-text args)))
+         {'print (fn [& args]
+                   (emit-output! output-stream :print (print-text args)))
           'println (fn [& args]
                      (emit-output! output-stream :println
                                    (str (print-text args) "\n")))
@@ -186,58 +293,87 @@
   (if (map? value) (str (:text value)) (str value)))
 
 
+(defn- result-chunk?
+  [value]
+  (and (map? value) (= :repl/result (:type value))))
+
+
 (defn- ledger
   [state medium outcome]
   (assoc-in state [:ledger medium] outcome))
 
 
 (defn drain-output
-  "Drain the output medium into text, total over every `next` outcome.
+  "Drain the output medium into `[state text results]`, total over every
+   `next` outcome.  `results` holds, in order, every `:repl/result` token
+   read, unchanged; every other element is printed text.
 
-   `ok` advances to the exact successor the handle returned.  `gap` prints a
-   loss notice and resumes at the recovery cursor.  `end`, `cursor-mismatch`,
-   `invalid-cursor`, and `transport-error` print a notice, leave the cursor
-   unchanged, and end the drain.  Whatever ended the drain is recorded in the
-   ledger, so `repl-state` never has to ask a stream how it is."
+   `ok` advances to the exact successor the handle returned and spends one
+   of `drain-budget` element reads.  `gap` prints a loss notice, resumes at
+   the recovery cursor, and spends one of `gap-budget` instead, so a gap
+   never starves the drain of an element it must still reach.  `end`,
+   `cursor-mismatch`, `invalid-cursor`, and `transport-error` print a
+   notice, leave the cursor unchanged, and end the drain.  Whatever ended the
+   drain is recorded in the ledger, so `repl-state` never has to ask a stream
+   how it is."
   [state]
   (let [output (:output-stream state)
         cursor (:output-cursor state)]
     (cond
-      (nil? output) [(ledger state :output :untried) ""]
+      (nil? output) [(ledger state :output :untried) "" []]
       (nil? cursor) [(ledger state :output :dao.stream/invalid-cursor)
-                     ";; output unreadable: no cursor was minted\n"]
+                     ";; output unreadable: no cursor was minted\n"
+                     []]
       :else
       (loop [remaining drain-budget
+             gaps gap-budget
              cursor cursor
-             chunks []]
-        (if (zero? remaining)
+             chunks []
+             results []]
+        (if (or (zero? remaining) (zero? gaps))
           [(-> state
                (assoc :output-cursor cursor)
                (ledger :output :dao.stream/blocked))
-           (apply str chunks)]
+           (apply str chunks)
+           results]
           (let [result (stream/next output cursor)
-                outcome (:dao.stream/outcome result)]
+                outcome (:dao.stream/outcome result)
+                value (:dao.stream/value result)]
             (case outcome
               :dao.stream/ok
-              (recur (dec remaining)
-                     (:dao.stream/cursor result)
-                     (conj chunks (chunk-text (:dao.stream/value result))))
+              (if (result-chunk? value)
+                (recur (dec remaining)
+                       gaps
+                       (:dao.stream/cursor result)
+                       chunks
+                       (conj results value))
+                (recur (dec remaining)
+                       gaps
+                       (:dao.stream/cursor result)
+                       (conj chunks (chunk-text value))
+                       results))
 
               :dao.stream/gap
-              (recur (dec remaining)
+              (recur remaining
+                     (dec gaps)
                      (:dao.stream/cursor result)
-                     (conj chunks ";; output lost: resumed at the recovery cursor\n"))
+                     (conj chunks
+                           (str ";; output lost: resumed at the recovery"
+                                " cursor\n"))
+                     results)
 
               :dao.stream/blocked
               [(-> state
                    (assoc :output-cursor cursor)
                    (ledger :output outcome))
-               (apply str chunks)]
+               (apply str chunks)
+               results]
 
               [(-> state
                    (assoc :output-cursor cursor)
                    (ledger :output outcome))
-               (apply str (conj chunks (str ";; output " (name outcome) "\n")))])))))))
+               (apply str (conj chunks (str ";; output " (name outcome) "\n")))
+               results])))))))
 
 
 (defn- make-output-medium!
@@ -288,6 +424,24 @@
     {:primitives (merge (make-repl-primitives output-stream) extra-primitives)
      :modules (module/register-stream-module (module/default-registry))
      :make-stream make-ring-stream})))
+
+
+(defn- make-runner
+  "The run step the evaluator observer hands each loaded program: run the
+   VM through its protocol entry point, as a plain function so it can be
+   handed to observer coordination on every host, and answer a halted
+   run's value on `output-stream` under `round`.  The shell reads the value
+   from that stream, never from the VM record; the append outcome rides
+   back on the VM as `::result-append`, so a refused append is reported
+   rather than silently lost."
+  [output-stream round]
+  (fn [vm]
+    (let [vm' (vm/run vm)]
+      (if (vm/halted? vm')
+        (assoc vm'
+               ::result-append
+               (emit-result! output-stream round (vm/value vm')))
+        vm'))))
 
 
 (defn- make-attachment
@@ -359,13 +513,6 @@
      :row-observer (:observer program-out)}))
 
 
-(defn- run-vm
-  "Run the VM through its protocol entry point, as a plain function so it can
-   be handed to observer coordination on every host."
-  [vm]
-  (vm/run vm))
-
-
 (defn create-state
   "Create the shell value.  `:primitives` is a host-supplied map merged over
    the REPL primitives; it is kept as `:extra-primitives` so every session
@@ -383,6 +530,8 @@
         :output-stream output-stream
         :output-cursor output-cursor
         :ledger {:output :untried}
+        :shell-token (str (random-uuid))
+        :round 0
         :ingress-loss? false
         :last-value nil
         :last-value-2 nil
@@ -465,12 +614,35 @@
          :last-value-3 (:last-value-2 state)))
 
 
+(defn- round-id
+  "The identity of the state's current round: the shell's token, minted
+   once per shell value, with its round count.  A medium the caller
+   supplies may already hold results from another shell or an earlier
+   round; none of them carries this identity."
+  [state]
+  [(:shell-token state) (:round state)])
+
+
 (defn- finalize-eval
+  "Drain the round's output and its result from the output medium.  Only a
+   result stamped with this round's identity is this round's value; the
+   evaluator answers once per halted program, after its prints.  A missing
+   or foreign-round result is loss, reported with the append outcome the
+   runner recorded."
   [state state' vm']
-  (let [value (vm/value vm')
-        [state'' output-text] (drain-output (assoc state' :vm vm'))]
-    [(record-last-value state state'' value)
-     (str output-text (format-value value))]))
+  (let [append (::result-append vm')
+        [state'' output-text results]
+        (drain-output (assoc state' :vm (dissoc vm' ::result-append)))
+        round (round-id state')
+        current (filterv #(= round (:round %)) results)]
+    (if (seq current)
+      (let [value (:value (peek current))]
+        [(record-last-value state state'' value)
+         (str output-text (format-value value))])
+      [state''
+       (str output-text "Error: " result-loss-text
+            (when (and append (not= :dao.stream/ok append))
+              (str " (append: " (name append) ")")))])))
 
 
 (defn- drain-observer
@@ -480,7 +652,8 @@
   [observer]
   (when observer
     (loop [observer observer]
-      (let [{:keys [status] observer' :observer} (observer/observe-next observer)]
+      (let [{:keys [status] observer' :observer}
+            (observer/observe-next observer)]
         (if (#{:ok :gap} status) (recur observer') observer')))))
 
 
@@ -499,7 +672,9 @@
   [state error]
   (let [carried (get-in (ex-data error) [:session :observer])
         resume (fn [observer]
-                 (if (and observer carried (= (:stream carried) (:stream observer)))
+                 (if (and observer
+                          carried
+                          (= (:stream carried) (:stream observer)))
                    carried
                    observer))
         program (drain-observer (resume (:observer state)))
@@ -536,15 +711,16 @@
 
 (defn- run-evaluator-stage
   "Drive the evaluator's observer over `program-out`: it loads each
-   expanded tree packet into the VM and runs it.  The two stages meet only
-   at `program-out`; neither calls the other."
-  [{:keys [load-program] :as state}]
+   expanded tree packet into the VM, runs it, and answers its value on the
+   output medium.  The two stages meet only at `program-out`; neither calls
+   the other."
+  [{:keys [load-program output-stream] :as state}]
   (let [{:keys [observer] vm :consumer}
         (observer/run-on-stream {:observer (:row-observer state),
                                  :consumer (:vm state)}
                                 engine/ready-for-ingress?
                                 load-program
-                                run-vm)]
+                                (make-runner output-stream (round-id state)))]
     (assoc state :row-observer observer :vm vm)))
 
 
@@ -606,7 +782,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   [state program]
   (if (:ingress-loss? state)
     [state (str "Error: " ingress-loss-text)]
-    (let [state' (inject-last-value state)
+    (let [state' (update (inject-last-value state) :round inc)
           batch (encoder/program-batch program)
           append (stream/append! (:program-stream state') batch)]
       (if-not (= :dao.stream/ok (:dao.stream/outcome append))
@@ -614,7 +790,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                     (name (:dao.stream/outcome append)))]
         (let [expanded (try
                          (run-expander-stage state')
-                         (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+                         (catch #?(:cljd Object
+                                   :clj Exception
+                                   :cljs js/Error) error
                            {:failed (consume-failed-round state error)}))]
           (if-let [failed (:failed expanded)]
             failed
@@ -665,8 +843,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    preview; its context is discarded, so nothing is committed."
   [state ast]
   (let [batch (encoder/program-batch ast)
-        {:keys [tree error log]} (macro/expand-batch batch
-                                                     (get-in state [:expander :ctx]))]
+        {:keys [tree error log]}
+        (macro/expand-batch batch (get-in state [:expander :ctx]))]
     (str "AST:\n" (format-value ast)
          "\n\nInput rows:\n" (format-value batch)
          (if tree
@@ -704,13 +882,17 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
              [(rebuild-session state vm-type)
               (str "Switched to " (get vm-labels vm-type) " (store cleared)")]
              [state (str "Error: Unknown Yin REPL VM type " (pr-str vm-type)
-                         "; supported: " (pr-str (vec (keys vm-constructors))))]))
+                         "; supported: "
+                         (pr-str (vec (keys vm-constructors))))]))
       lang (let [lang (first args)]
              (if (contains? lang-labels lang)
-               [(assoc state :lang lang) (str "Switched to " (get lang-labels lang))]
+               [(assoc state :lang lang)
+                (str "Switched to " (get lang-labels lang))]
                [state (str "Error: Unknown Yin REPL language " (pr-str lang)
                            "; supported: " (pr-str (vec (keys lang-labels))))]))
-      compile [state (render-compile-output state (compile-command-ast state (first args)))]
+      compile [state (render-compile-output
+                       state
+                       (compile-command-ast state (first args)))]
       reset [(rebuild-session state (:vm-type state))
              (str (get vm-labels (:vm-type state)) " reset")]
       help [state help-text]
@@ -754,7 +936,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       [(assoc state :pending-input combined) ""]
       (let [state' (assoc state :pending-input nil)
             parsed (try {:forms (read-forms combined)}
-                        (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+                        (catch #?(:cljd Object
+                                  :clj Exception
+                                  :cljs js/Error) error
                           {:error error}))]
         (eval-parsed state' combined parsed)))))
 

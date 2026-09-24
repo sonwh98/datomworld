@@ -52,21 +52,30 @@ reports `/not-found` (an authoritative disclaimer, not retried) or a
 reachability failure (which may succeed on retry) when that is what happened.
 No evaluation blocks on a promise, on any host.
 
-**`(vm :type)` offers `:ast-walker` only, and the default changed.**
-v1 defaulted to `:semantic`, until `yin.vm-consumers.implementation-plan.md`
-deleted `:semantic`, `:register`, `:stack` and `:space` and migrated v1's
-default to `:ast-walker` too. `:ast-walker` is now the only evaluator on
-either REPL; asking for another is an error naming what is supported.
+**`(vm :type)` offers four evaluators; the default is `:semantic`.**
+The shell supports `:ast-walker` (the tree walker), `:semantic` (the linear
+semantic VM), `:stack` (the de Bruijn stack kernel), and `:register` (the de
+Bruijn register kernel). `:semantic` is the default when no `:vm-type` is
+given. Asking for any other type is an error naming what is supported.
+Switching rebuilds the session and clears the value history.
+
+Whichever VM runs, the shell never reads a value from the VM record: a
+halted evaluation's value is appended to the output `dao.stream` medium as
+a `:repl/result` token, after the round's prints, and the shell reads it
+from there exactly as it reads printed output.
 
 **There is no `(telemetry)` command.** Telemetry is not part of the v2 slice
 in any form. `(telemetry)` is answered with a message naming the v1 REPL, and
 `--telemetry` / `--telemetry-stream` are rejected rather than ignored. There
 is no `ws://` telemetry sink.
 
-**Datom-literal evaluation runs on a VM-owned v2 ingress medium.** A datom
-program typed at the prompt is appended to the ast-walker's ingress ring
-buffer (declared capacity 4096) and the VM ingests it between batches. A gap —
-batches evicted before the VM saw them — is fatal to the current evaluation:
+**Evaluation runs on session-owned v2 program media.** The REPL session
+(`make-session`), not any one VM, owns the program media for all four VMs.
+Every program, including a datom program typed at the prompt, is appended
+to the session's ingress ring buffer (declared capacity 4096); the expander
+forwards it to the session's program medium, from which the selected VM
+ingests it between batches. A gap (batches evicted before the VM saw them)
+is fatal to the current evaluation:
 the loss is reported and the shell refuses further evaluation until `(reset)`,
 rather than resuming as if execution were complete.
 
