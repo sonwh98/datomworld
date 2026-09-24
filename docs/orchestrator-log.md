@@ -6522,3 +6522,181 @@ Verification:
 Delegates: Lead System Architect (5936d512), Adversarial Reviewer (2e6d8c35).
 Next: Proceed to Typecheck Phase T0 (contract and fixtures) or Register VM
   Phase R5 (stream linker / closed image distribution).
+
+## 2026-09-24 00:25:00 +07 — De Bruijn Type Preservation Migration (Contract Version 1)
+Completed-GMT: 2026-09-23 17:25:00 GMT
+Coding-Agent: Antigravity CLI + Claude Sonnet 5 + GPT-5.6-Sol (Codex)
+Session-ID: not-applicable (interactive seat)
+Tree: worktree-debruijn-type-preservation@1275a5df (branch debruijn-type-preservation), uncommitted: docs/design/yin.vm.debruijn-projection.md, public/chp/blog/yin-vm-vs-unison.blog, src/cljc/yin/vm/debruijn.cljc, test/yin/vm/debruijn_test.cljc
+Done:
+- Type-preserving de Bruijn projection: Eliminated the lossy 1.0 -> 1 fold in
+  :yin.debruijn/* Universal AST projection, ensuring mathematical rigor and
+  preserving numeric distinction without contaminating universal representations.
+- Maintained :contract-version 1 per owner directive ("since this is not
+  released yet, keep it at contract-version 1"), formalizing type preservation
+  as the normative baseline specification.
+- Disjoint :int64 and :double classes in canonical-value-table:
+  :integral-double-folding false, removed :int64-integral-double-collision from
+  declared limits.
+- Confined JS IEEE-754 numbers to CLJS host boundary via js-number-class:
+  safe integers classify as :int64, non-integers as :double, and unsafe
+  integers return nil (diagnostic per value table).
+- Re-pinned descriptor hash (90a5235794c9eac968490d343633e30c68d1a96093125df7ad1ac3c7398a43d4)
+  and essay root fingerprint (dca760e0b5e2416fbb8e88f41539f6bdcb8708c19079e26f5cbec3fd1c93c3ad).
+- Ensured {1 :a, 1.0 :b} and #{1 1.0} maintain distinct keys and elements
+  without collision on JVM and Dart.
+- Synchronized documentation and blog with qualified claims for JVM/Dart vs JS
+  host adapter.
+Decisions:
+- Preserved contract version at 1 per owner ruling.
+- Isolated JS host quirks strictly to JS transforms; no host quirk contaminates
+  the universal de Bruijn projection.
+- Reconciled all findings from Adversarial Reviewer (P1 CLJS unsafe integers,
+  P3 line length, P3 documentation qualifications).
+Verification:
+- Full tri-host test matrix clean:
+  * bb test:clj: 1,940 tests, 179,276 assertions, 0 fail, 0 err.
+  * bb test:cljs: 1,856 tests, 46,434 assertions, 0 fail, 0 err.
+  * bb test:cljd: 1,818 tests passed, 0 fail, 0 err.
+- Code quality & standards:
+  * clj -M:kondo: 0 errors, 0 warnings.
+  * cljstyle check: 100% clean.
+  * Diff additions: 0 lines > 80 columns, 100% pure ASCII.
+- Independent adversarial review:
+  * Conducted by gpt-5.6-sol via Codex. All findings reconciled and verified.
+    Final verdict: APPROVED — ready to commit.
+Delegates:
+- Implementer: Yang Compiler & Universal AST Engineer (claude-sonnet-5),
+  session 1ff9efa8-f088-467a-8507-c94697603dc5.
+- Reviewer: Adversarial Code Reviewer & Security Auditor (gpt-5.6-sol),
+  session 01a0cf32-a8cc-7643-bfd1-c42014bf18e7.
+Next: Await user authorization to commit and merge debruijn-type-preservation
+  into master.
+
+## 2026-09-24 02:30:00 +07 — De Bruijn Type Preservation & Linker B6 Design
+Completed-GMT: 2026-09-23 19:30:00 GMT
+Coding-Agent: Antigravity CLI (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@ef53f8df
+Done:
+- Merged debruijn-type-preservation branch into master (commit ef53f8df)
+  following explicit owner authorization:
+  * Eliminates lossy 1.0 -> 1 fold in Universal AST projection under
+    contract version 1.
+  * Disjoint :int64 and :double classes in canonical-value-table.
+  * Preserves full type distinction across JVM, Dart, and CLJS host boundary.
+  * Full tri-host test matrix clean: JVM 1941 tests (179284 assertions),
+    CLJS 1857 tests (46438 assertions), CLJD 1819 tests, 0 failures.
+  * cljstyle clean, clj-kondo clean, <= 80 columns, pure ASCII.
+  * Lead System Architect review (gpt-6-astra via Codex) confirmed APPROVED.
+  * Removed auxiliary worktree and cleaned up branch.
+- Completed standalone B6 Linker design (docs/design/yin.vm.debruijn.linker.md):
+  * Unified de Bruijn code linker over dao.stream backed by dao.jing storage.
+  * Serves both stack VM (H via :yin.debruijn.code) and register VM (R via
+    :yin.debruijn.register) over dao.stream.
+  * Reconciled all architect review rounds (algorithm-aware segment-matches?,
+    free-name scanners owned by linker module, R5 phase box unified into B6).
+  * Lead System Architect review (gpt-6-astra via Codex, session 01a0cfa1)
+    issued final sign-off: APPROVED.
+- Completed Yang ANTLR design document (docs/design/yang.antlr.md):
+  * 1686 lines, 13 sections, open SPI, dao.stream composition, 4-layer
+    standard library architecture, <= 80 columns, pure ASCII.
+Decisions:
+- B6 is implemented as its own standalone milestone (delivering
+  yin.vm.debruijn-linker for both formats).
+- Foundational principle strictly maintained: the linker fetches code over
+  dao.stream, but the code itself is stored in dao.jing.
+- Zero commits without explicit user authorization; merge authorized by owner.
+Verification:
+- master@ef53f8df clean; tri-host test suites verified.
+- Lead System Architect (gpt-6-astra): APPROVED on de Bruijn type preservation
+  and APPROVED on linker design doc.
+Delegates:
+- Compiler Engineer (claude-fable-5-1): yang.antlr.md drafting, linker
+  extraction (sessions d5692e97, 53d6f7ea).
+- Lead System Architect (gpt-6-astra via Codex): final sign-off on
+  type preservation and linker design (thread 01a0cfa1).
+Next: Proceed with implementation of Phase B6 (yin.vm.debruijn-linker) in a
+  fresh worktree.
+
+## 2026-09-24 13:45:00 +07 — dao.agent Specs & Untrack Routing Status
+Completed-GMT: 2026-09-24 06:45:00 GMT
+Coding-Agent: Antigravity CLI (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@d1709c15
+Done:
+- Established dao.agent as canonical root namespace for autonomous agents.
+- Renamed agent.register-vm.stigmergy.md to docs/design/dao.agent.md.
+- Authored four dedicated subsystem specifications via Lead System Architect
+  (claude-fable-5-1, session 39c82503-e332-4931-a960-19916506d8cf):
+  * docs/design/dao.agent.mcp.server.md (611 lines): JSON-RPC 2.0 framing,
+    tool catalog, step budgets, error envelopes.
+  * docs/design/dao.agent.schema.md (556 lines): Datom schema for tasks,
+    claims, artifacts, and reviews; lifecycle state machine.
+  * docs/design/dao.agent.harness.md (493 lines): Multi-agent stigmergy loop,
+    stream cursors, triad consensus (dual sign-off).
+  * docs/design/dao.agent.mcp.client.md (516 lines): Register VM :ffi-call
+    :mcp/invoke bridge, continuation parking in dao.jing, crash resilience.
+- Untracked docs/agents/routing-status.md from git and added to .gitignore.
+Decisions:
+- dao.agent is separate from yin.vm substrate (yin.vm has zero agent logic).
+- dao.stream is the public interface to interact with all yin.vm VMs (per
+  docs/design/yin.vm.streams-all-the-way-down.md), alongside in-memory
+  execution interfaces.
+Verification:
+- Invariants checked: <= 80 columns, 100% pure ASCII, valid markdown tags.
+Delegates:
+- Lead System Architect (claude-fable-5-1 via claude): prompt
+  collab/1790230391672-architect-dao-agent-design-docs.prompt.md,
+  session 39c82503-e332-4931-a960-19916506d8cf.
+Next: Create worktree worktree-yin-repl-stream on branch yin-repl-stream
+  and brief Yin.VM Runtime Engineer to wire all 4 VMs to yin.repl via
+  dao.stream.
+
+
+
+## 2026-09-24 15:30:00 +07 — yin.repl universal dao.stream boundary & 4-VM wiring
+Completed-GMT: 2026-09-24 08:30:00 GMT
+Coding-Agent: Antigravity CLI (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: yin-repl-vm-stream@d1709c15, uncommitted changes: src/cljc/yin/repl/core.cljc, src/cljc/yin/vm/docs/yin.repl.md, test/yin/repl/core_test.cljc, test/yin/repl_test.cljc
+Done:
+- Made dao.stream the universal public boundary where yin.repl calls into VMs
+  and VMs respond via dao.stream.
+- Wired all four VMs (:ast-walker, :semantic, :stack, :register) into yin.repl
+  with runtime switching via (vm :type).
+- Lowers :stack via debruijn-linearize/adapt and :register via
+  register-compile/adapt, with incremental body appending and jump-target
+  relocation preserving cross-input function definitions.
+- Halted evaluations emit {:type :repl/result :round [shell-token n] :value v}
+  to the output medium; drain-output separates result tokens from prints;
+  finalize-eval extracts round-matched results from stream, never reading from
+  VM record directly.
+- Addressed adversarial review findings:
+  * P1 gap budget starvation fixed: separate gap-budget ensures results are
+    never starved by evicted gaps.
+  * P1 stale result ambiguity fixed: round ID prevents prior-result capture.
+  * P1 canonical image identity fixed: VM record :hash strictly preserves
+    canonical H (stack) and R (register) over the loaded :segment.
+  * P3 doc-sync fixed: src/cljc/yin/vm/docs/yin.repl.md updated to describe
+    all four VMs and session-owned program media.
+Decisions:
+- Preserved canonical H/R in VM record :hash per stack and register designs.
+- Reclaimed 4 merged worktrees and archived 101 completed collab artifacts.
+Verification:
+- clj -M:kondo --lint: 0 errors, 0 warnings.
+- cljstyle check: clean.
+- Line length <= 80 columns, 100% pure ASCII across all modified lines.
+- JVM tests: clj -M:test -n yin.repl-test -n yin.repl.core-test (52 tests, 312 assertions, 0 failures, 0 errors).
+- CLJS/Node tests: bb test:cljs (1904 tests, 47248 assertions, 0 failures, 0 errors).
+- CLJD/Dart tests: bb test:cljd (1866 tests, 0 failures, 0 errors).
+Delegates:
+- Yin.VM Runtime Engineer (claude-opus-5-5 via claude):
+  * collab/1790232406683-vm-engineer-repl-vm-stream.prompt.md (session a8c92f1b-569d-48de-9e90-826c7ef6e9f9)
+  * collab/1790235634-vm-engineer-repl-vm-stream-fixes.prompt.md (session feb934cf-3962-4aed-b4bc-f7cbc2d1605d)
+  * collab/1790237262-vm-engineer-repl-canonical-identity-fixes.prompt.md (session feb934cf-3962-4aed-b4bc-f7cbc2d1605d)
+- Adversarial Code Reviewer (gpt-6-sol via codex exec):
+  * collab/1790234868-reviewer-repl-vm-stream.prompt.md (session 01a0d255-1830-7f30-ab85-0840da6aed72)
+  * collab/1790237091-reviewer-repl-vm-stream-r2.prompt.md
+  * collab/1790237411-reviewer-repl-vm-stream-r3.prompt.md
+Next: Merge branch yin-repl-vm-stream to master upon user authorization, then implement test suite for yang.clojure stream programs on yin.vm.

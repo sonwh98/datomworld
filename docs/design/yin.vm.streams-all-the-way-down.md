@@ -1,38 +1,25 @@
-# Streams All the Way Down — Calibrating the Stream Principle for yin.vm
+# Streams All the Way Down -- Calibrating the Stream Principle for yin.vm
 
-Status: exploratory design note (2026-08-18). Nothing here is implemented as a
-coherent tier. What is here: a calibrated statement of the "everything is a
-stream" rule the codebase already practices selectively, an audit of where
-`yin.vm` applies it today, the end-state it implies (a log-structured CESK
-machine over ring buffers), the two performance tiers that make that end-state
-affordable (coarse boundaries, then stream fusion), and the storage invariant
-that bounds its memory cost (store the irreducible, derive the rest). Cost
-claims cite the measured figures in `docs/cesk-space-optimization.md`;
-proposed machinery names the existing seam it would land in.
+> [!WARNING]
+> **HISTORICAL / DEPRECATED (2026-09-24)**:
+> This exploratory design note was written against **DaoStream v1** (retired
+> 2026-09-17) and predates the modern de Bruijn VM architecture. Its concrete
+> implementation anchors (stream_driver, yin.vm.space, open!, v1 cursor maps)
+> are obsolete. The claims that Register and Stack VMs were deleted are
+> superseded by their complete reimplementation.
+>
+> **Canonical Current Specifications:**
+> - DaoStream v2: `docs/design/dao.stream.md`
+> - Register VM ($R$): `docs/design/yin.vm.debruijn.register.md`
+> - Stack VM ($H$): `docs/design/yin.vm.debruijn.stack.md`
+> - Agent Stigmergy: `docs/design/dao.agent.md`
+>
+> The philosophical axiom in Section 1 ("Data in motion is a stream. Data at
+> rest is a tuple. Put a boundary wherever you need decoupling -- and nowhere
+> else") and the storage invariant in Section 6 remain timeless foundations.
 
-**`yin.vm.space`, `register`, `stack` and their `clj -M:bench` harness are
-deleted** (`yin.vm-consumers.implementation-plan.md`, 2026-09-10); every
-reference to them below is historical, including the register-baseline
-fusion prototype in §5.3.
+Status: historical exploratory design note (2026-08-18).
 
-**Written against dao.stream v1; read with the v2 contract in mind**
-(annotated 2026-09-03, after the `dao.stream.md` redesign; v1 was deleted 2026-09-17). The core theses
-survive v2 — cursor-as-program-counter (opaque cursors make it stronger),
-boundaries as declared and sized data, the no-waiter conclusion (v2 deletes
-the waiter machinery outright), and §6's storage invariant, which is
-transport-agnostic. The mechanics that changed: cursors are opaque values
-minted by the stream, not `{:position n}` maps; the v2 reference ring-buffer
-realization is bounded evict-oldest, so internal rings in the current migration
-slice become bounded evict-oldest, whose `append!` also never
-blocks but reports loss as `gap`; `open!` and its registry are gone
-(`create!`/`attach!` plus a host-owned dispatch map); the read protocol's
-shapes are outcome maps under `:dao.stream/…` (§5's
-`{:ok v :cursor c'} | :blocked | :end | :daostream/gap` line is v1
-vocabulary, `strict-vec` included); and §2's audit rows describe v1 code.
-A substantive v2-grounded revision is owed only when these tiers are
-pursued.
-
-**Related documents:**
 
 - `docs/design/yin.vm-in-dao.space.md` — the CESK-in-tuple-space premise this
   note extends; its *Ephemeral State Projection* section is the ancestor of
