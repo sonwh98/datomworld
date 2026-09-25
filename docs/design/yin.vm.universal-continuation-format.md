@@ -1313,16 +1313,17 @@ the review's named architectural obligations; they are blockers to
   item for `dao.space.transactor.md`. Until it lands, `:yin.k/exclusive`
   custody is at-least-once and must say so.
 - **Canonical byte encoding.** `:yin.code/hash` and `:yin.k/id` are exactly
-  as portable as `dao.jing/segment-key`, which is transitional. Closing this
-  is `dao.jing`'s open item, not UCF's, but UCF cannot be declared
-  cross-host stable before it lands.
-- **Contract revision publication.** `:yin.code/contract "v2"` needs a
+  as portable as `dao.jing/segment-key`. Canonical CBOR landed in
+  3ddaa21b (recorded in `yin.vm.ucf-revisions.md` section 5); the
+  cross-host address checks below still must pass.
+- **Contract revision publication.** `:yin.code/contract "v2"` has a
   published revision history naming the complete execution contract
   (§7.3.3): the tuple grammar — mnemonic set, per-mnemonic arity and operand
   kinds, saturation/defaults table — the opcode table and transitions, the
   resolution and last-value-wins rules, the effect outcome map, and the
-  scheduler semantics, written into `yin.vm.semantic.md` §2.4 beside the
-  opcode table.
+  scheduler semantics. The index is in `yin.vm.semantic.md` 2.4 and the
+  history landed in dbae125b (`yin.vm.ucf-revisions.md`); runtime profile
+  checks below remain open.
 - **Primitive profile publication.** The standard `yin.vm/primitives`
   map published with profiles (§7.5.2), including the `:effectful`
   declarations for `yin/def` and `require`; reverse-lookup uniqueness
@@ -1345,3 +1346,164 @@ the review's named architectural obligations; they are blockers to
 - **Exporting-state integration.** The lift driver's exporting transition
   and its failure/retry paths, tested specifically against the
   poll-a-blocked-writer-appends hazard of §7.7.4.
+
+### 7.11.1 Blocker-closure acceptance matrix
+
+These are observable test contracts, not a declaration that the blockers
+are closed. M3 and M4 tests run on JVM, CLJS (Node), and CLJD. A named
+refusal must be a data outcome before a code image is loaded, a machine is
+restored, or an effect is committed, as applicable. The M4 lift driver
+must consume the UCF table amendments in linker section 11 item 12 before
+its round-trip tests run. Full UCF acceptance waits for every row,
+including the post-M5 gates; passing a linker milestone alone is not a
+claim that all five blockers have closed.
+
+**Code identity (7.3; blocker 5).**
+
+- Invariant: A resumer executes the instruction stream named by the
+  continuation's address and contract stamp, or refuses before loading it.
+- Setup: On each host, make equal resolved vectors from batches with
+  different entity ids, order, provenance, and omitted defaults; make
+  unequal vectors by reversing repeated single-valued operands. Include
+  both direct and projected loads, an index hit, carried code, and a
+  `dao.jing` miss/hit path. Use a valid vector under a wrong index entry,
+  a correctly addressed malformed vector, a missing address, an old
+  stamp, and two valid images claiming one live local id.
+- Action and expected outcome: M3 `step`/`fetch` transfers and verifies
+  each format over ring buffers; the two equal vectors address equally,
+  the unequal vectors do not, and a `:sha256` address still verifies under
+  its named algorithm. M3 also passes linker section 9's full refusal
+  matrix, staged-response, invalid-request, and traffic-equivalence
+  tests without a function or handle on the link stream. M4 lower selects
+  by stamp then address, verifies hash and grammar, and gives B0-equal
+  execution on all three hosts.
+  Wrong index content is linker `:hash-mismatch` at M3 or
+  `:yin.k/hash-mismatch` at UCF lower; malformed code is
+  `:yin.k/undecodable` naming the pc; a miss is `:yin.k/unsatisfied`;
+  an incompatible stamp is `:yin.k/profile-mismatch`. No check may
+  redirect an existing local id or bypass the common validator.
+- Landing and order: M3 lands the stream and format-identity gate;
+  M4 closes UCF identity after M3 and before any lifted image is run.
+  The already landed `v2` history (dbae125b), canonical CBOR
+  (3ddaa21b), and Phase 1 vector/stamp (f51077f2) supply the names and
+  bytes, not the cross-host lowering proof. Landed linker design
+  (1f7990d5, sections 5 and 9) specifies M2's four format records and
+  refusal tests; the records must pass those tests before M3 starts.
+
+**Safepoint reconstruction (7.4; blocker 1).**
+
+- Invariant: At every declared parking transition, lifting and lowering
+  preserve the next observable step and its wait, while other pcs refuse.
+- Setup: Run the corpus to every 7.4.1 row: explicit park, blocked
+  stream read, blocked write, sent FFI, retained FFI, ordinary and tail
+  effectful calls, and halt; also exercise M4's `:link-request`,
+  `:link-response`, and `:install` pending variants (linker section 11
+  item 12). Exercise distinct activation depths and captured environments
+  at one pc, a nonempty ready queue, a nonsafepoint pc, and a kept response
+  cursor shared by two waiters. Omit the portable cursor profile for the
+  refusal case; use a transport that publishes one for the eventual
+  cross-host positive case.
+- Action and expected outcome: On each host, lift a parked task and lower
+  into a fresh VM, then compare its result and effect trace with the
+  reference machine. For a transport with a portable cursor profile,
+  repeat with the receiver on another host. Static `:yin.safepoint/kinds`,
+  stack effect, and lexical reads agree with the reference trace; the
+  observed parked record, wait entry, and effect outcome determine
+  `:yin.k/reason` and `:yin.k/pending`, never the static kind alone.
+  Test both FFI states and each call effect. `lift(lower(frame))` must
+  reproduce the canonical frame. An undeclared pc gives
+  `:yin.k/not-at-safepoint`; queued work gives `:yin.k/not-quiescent`.
+  Insufficient pending evidence refuses before publication, as does a
+  missing portable cursor profile. Halt yields a result, not a frame.
+- Landing and order: M4 covers the table and reference-machine parity,
+  after code identity; cross-host kept-cursor parity closes in post-M5
+  hardening if no transport profile lands by M4.
+  Before export, specify the no-wait explicit-park representation and any
+  `:call-effect` pending shape; test them or remove that reason from the
+  wire contract. The `:reasons` Option B ruling in
+  `yin.vm.ucf-revisions.md` section 8 is landed design, not a runtime
+  fix: M4 replaces it with static `:kinds` and tests dynamic reasons.
+  A foreign engine claiming conformance runs the same frame parity harness.
+
+**Recursive portable encoding (7.5; blocker 2).**
+
+- Invariant: Every reachable portable value returns with its meaning and
+  aliasing intact, and every unsupported or malformed value refuses as a
+  whole with a precise path before execution.
+- Setup: Park frames with nested literal maps that look like UCF tags,
+  map keys containing values, closures, reified and parked continuations,
+  profiled primitives, shared subvalues, stream refs, and two cursor refs
+  that share a cell beside two independent cells at the same position.
+  Add a host object, unnamed or ambiguous function, host-state primitive,
+  cyclic value, forged resource ref, missing table ref, cyclic ref data,
+  extra table entry, and a correctly hashed malformed marker.
+- Action and expected outcome: Lift, transfer, and lower on each host;
+  literals remain literals, repeated refs share one value, independent
+  cursor cells advance independently, and shared cells advance in wait
+  order. The lift refuses unsupported leaves as `:yin.k/non-portable`
+  with path and kind and publishes no partial value; decode refuses
+  malformed markers and refs as `:yin.k/undecodable` with path before
+  restoring state. A same-named primitive with a different profile is
+  `:yin.k/unsatisfied`, never substituted by name alone.
+- Landing and order: M4 supplies the recursive codec, published standard
+  primitive profiles (including effectful `yin/def` and `require`), and
+  linker section 11 item 12's `:yin.k/binding`, `:yin.k/store-of`,
+  private-resource, and sealed-reference variants before lift uses them.
+  Cross-host kept-cursor round trips require the transport's portable
+  cursor profile; if none exists at M4, that part closes in post-M5
+  hardening; the lift refuses it meanwhile. Phase 1 canonicalization and
+  M2 format records do not encode frames or values.
+
+**Ownership arbitration (7.7; blocker 4).**
+
+- Invariant: One occurrence has at most one admitted holder and each
+  protected effect commits at most once across retries and lease changes.
+- Setup: Copy one checkpoint, including two valid encodings with one
+  occurrence id, to two readers and leave the source's blocked writer
+  wakeable. Use a transactable arbitration space, a grantor ledger,
+  epoch-checking consumer, and durable op-id results. Inject publication
+  failure, retry, stale lease, consumer partition, and crashes after the
+  successor append, resumed report, and release, respectively.
+- Action and expected outcome: M4's exporting transition detaches waits
+  before publication; polling or direct resume of the exporting source
+  cannot append, and retry preserves the occurrence. With arbitration,
+  only a granted holder runs; competitors get `:yin.k/not-holder` or
+  `:yin.k/awaiting-grant`. Reclaim advances the epoch; stale effects fail
+  at commitment, duplicate op-ids return the stored result without a
+  second commit, and the grantor's ledger alone completes the occurrence.
+  A partitioned protected consumer suspends admission. Without a durable
+  transactable authority the composition offers `:yin.k/fork` only.
+- Landing and order: M4 must land and test exporting before any lift
+  publishes. Exclusive custody, epoch admission, crash recovery, and the
+  `yin.repl.core` handoff composition close in post-M5 hardening, after
+  code, state, and pending waits can round-trip. Until then an unfenced
+  stream declares at-least-once delivery, not exclusive custody.
+
+**Dependency closure (7.6; blocker 3).**
+
+- Invariant: A resumer runs only when every reachable dependency is
+  declared and satisfied, using an isolated store that cannot inherit a
+  receiver task's bindings.
+- Setup: Make code that reaches names through `:store-get` and
+  `:store-put`, a dynamically called closure, two activations of one
+  address with different captured environments, a transitive module
+  closure, and a parked-id reference. Give the receiver a conflicting
+  store binding and a different FFI pair. Omit in turn a segment, module
+  footprint, primitive profile, stream attachment, and parked record.
+- Action and expected outcome: Lift computes the fixed point over
+  address-context pairs and the reachable store slice; lowering checks
+  every requirement before restoring. The resumed task reads the carried
+  binding, uses the receiver's pair only for future calls, routes pending
+  calls to their carried endpoints, and shares no task-local module store.
+  A missing segment reports `:blocked`; an undeclared footprint reports
+  `:incomplete`; missing requirements yield `:yin.k/unsatisfied` with
+  the computed discovery state and missing set. A missing active-value
+  parked ref refuses lift as `:yin.k/non-portable` with
+  `:yin.k/kind :foreign-parked-ref`. No partial lower occurs.
+- Landing and order: M4 must test linker obligations, manifest store
+  footprints, transitive child-install slices, and isolated lowering
+  after encoding and code identity; linker section 11 criteria 15 and 23
+  are the minimum module cases. The full UCF fixed point, scheduler
+  parked records and fresh-name state, and all missing-dependency modes
+  close in post-M5 hardening. M2 format records verify link payloads;
+  they do not prove the task's transitive runtime closure.
