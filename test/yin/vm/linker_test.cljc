@@ -1,6 +1,6 @@
-(ns yin.vm.debruijn-linker-test
-  "B6 (docs/design/yin.vm.debruijn.linker.md S11): completion tests for
-   `yin.vm.debruijn-linker`. Every refusal and success is exercised for
+(ns yin.vm.linker-test
+  "B6 (docs/design/yin.vm.linker.md S11): completion tests for
+   `yin.vm.linker`. Every refusal and success is exercised for
    both the stack format (H) and the register format (R) through the one
    `fetch` function. Jing addresses are always computed, never pinned;
    only H and R are pinned as goldens (S8). The corpus holds only
@@ -19,7 +19,7 @@
             [yin.vm :as vm]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-linker :as linker]
+            [yin.vm.linker :as linker]
             [yin.vm.debruijn-register-code :as rcode]
             [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn-vm-contract-test :as b0]

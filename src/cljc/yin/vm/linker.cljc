@@ -1,5 +1,5 @@
-(ns yin.vm.debruijn-linker
-  "B6 (docs/design/yin.vm.debruijn.linker.md): the closed-image code
+(ns yin.vm.linker
+  "B6 (docs/design/yin.vm.linker.md): the closed-image code
    linker, used by both the stack VM and the register VM for linking code
    over `dao.stream`. The code itself is stored in `dao.jing`; the linker
    only fetches it through a DaoJing handle -- a local store, a
