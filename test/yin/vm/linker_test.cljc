@@ -139,11 +139,11 @@
 
 (deftest pinned-identities-are-host-independent
   (testing "the receiver computes the same H and R on every host"
-    (is (= (str "784ec567b17d91a9bde4f23bd180d09b"
-                "ebf69e8da0e57503659c95f1ef2a7b50")
+    (is (= (str "52791d4a2d0f4649b6d90e0c7e0a9067"
+                "c96008ed4ecdc6b77f08a15644893d0c")
            (dcode/image-hash (stack-image worked-example))))
-    (is (= (str "c85f9adbb70bc0297abcb2b4b0362d74"
-                "0b57ed3010a29cb5a98d509900cca3b7")
+    (is (= (str "c0aefe2fa287cbc702e6680b4c783516"
+                "7cb6458b05680e9271b331dd8c42bb21")
            (rcode/register-hash (register-image worked-example))))))
 
 
@@ -539,7 +539,8 @@
   [named-vector]
   (b0/normalize
     (vm/value (vm/run (semantic/load-vector (semantic/create-vm)
-                                            named-vector)))))
+                                            named-vector
+                                            vm/semantic-contract)))))
 
 
 (deftest fetched-images-execute-like-local-code
@@ -558,7 +559,10 @@
           "R: lifted to :yin.code/* and run on the semantic VM")
       (is (= local
              (b0/normalize
-               (vm/value (vm/run (dvm/create-vm (:value fh) receiver)))))
+               (vm/value (vm/run (dvm/create-vm (:value fh)
+                                                (assoc receiver
+                                                       :contract
+                                                       vm/stack-contract))))))
           "H: run directly on the de Bruijn stack kernel")
       (jing/close! store))))
 

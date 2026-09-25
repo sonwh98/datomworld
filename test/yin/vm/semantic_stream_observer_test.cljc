@@ -89,10 +89,16 @@
            (set (:yin/entity-occurrences projected))))))
 
 
-(def ^:private load-rows (linearize/rows-loader semantic/load-vector))
+;; the suite's media carry only code it produced: the trusted fresh path
+(def ^:private load-rows
+  (vm/fresh-code-loader (linearize/rows-loader semantic/load-vector)
+                        vm/ast-contract))
 
 
-(def ^:private load-ast (linearize/ast-loader semantic/vm-load-program))
+(def ^:private load-ast
+  (vm/fresh-code-loader
+    (linearize/ast-loader semantic/vm-load-program)
+    vm/ast-contract))
 
 
 (defn- run-vm
@@ -317,5 +323,9 @@
     (let [session (make-session)]
       (stream/append! (:stream (:observer session))
                       (linearize/lower-ast (binop '* (lit 6) (lit 7))))
-      (is (= 42 (vm/value (:consumer (run-session session
-                                                  semantic/vm-load-program))))))))
+      ;; the medium's one producer is the linearizer above, fresh code, so
+      ;; the composition supplies the current stamp
+      (is (= 42 (vm/value (:consumer
+                            (run-session session
+                                         #(semantic/vm-load-program
+                                            %1 %2 vm/semantic-contract)))))))))

@@ -158,6 +158,8 @@
 
       :variable
       (let [free (get-attr e :yin.resolved/free)]
+        (when (vm/reserved-name? free)
+          (vm/refuse-reserved! :variable free {:entity e}))
         (if (some? free)
           (emit! ctx e [:load-free target-reg free])
           (emit! ctx e [:load-bound target-reg
@@ -173,28 +175,38 @@
         (emit! ctx e [:closure target-reg arity idx]))
 
       :application
-      (let [op-e (get-attr e :yin/operator)
-            operand-es (get-attr e :yin/operands)
-            fn-temp (allocate-temp! ctx)
-            fn-reg (reg-of ctx fn-temp)
-            _ (lower-node! get-attr bodies-queue ctx op-e fn-reg)
-            arg-temps (mapv (fn [oe]
-                              (let [t (allocate-temp! ctx), r (reg-of ctx t)]
-                                (lower-node! get-attr bodies-queue ctx oe r)
-                                t))
-                            operand-es)
-            arg-regs (mapv #(reg-of ctx %) arg-temps)
-            tail? (boolean (get-attr e :yin/tail?))]
-        ;; `live` (design section 4.5) is filled in a separate backward
-        ;; pass over the whole assembled body, not here: `[]` is a
-        ;; placeholder only, giving the tuple its final six-element arity
-        ;; immediately so nothing downstream has to special-case it.
-        ;; `lower-register` overwrites every `:call` tuple's live operand
-        ;; with `yin.vm.debruijn-register-code/body-liveness`'s answer
-        ;; once each body's instructions and pc numbering are final.
-        (emit! ctx e [:call target-reg fn-reg arg-regs tail? []])
-        (free-temp! ctx fn-temp)
-        (doseq [t arg-temps] (free-temp! ctx t)))
+      (if (resolve/definition-operator? get-attr (get-attr e :yin/operator))
+        ;; Rule R: the value into a temporary, then `:define`; the operator
+        ;; is never loaded.
+        (let [operand-es (get-attr e :yin/operands)
+              n (resolve/definition-key get-attr operand-es)
+              val-temp (allocate-temp! ctx)
+              val-reg (reg-of ctx val-temp)]
+          (lower-node! get-attr bodies-queue ctx (second operand-es) val-reg)
+          (emit! ctx e [:define target-reg n val-reg])
+          (free-temp! ctx val-temp))
+        (let [op-e (get-attr e :yin/operator)
+              operand-es (get-attr e :yin/operands)
+              fn-temp (allocate-temp! ctx)
+              fn-reg (reg-of ctx fn-temp)
+              _ (lower-node! get-attr bodies-queue ctx op-e fn-reg)
+              arg-temps (mapv (fn [oe]
+                                (let [t (allocate-temp! ctx), r (reg-of ctx t)]
+                                  (lower-node! get-attr bodies-queue ctx oe r)
+                                  t))
+                              operand-es)
+              arg-regs (mapv #(reg-of ctx %) arg-temps)
+              tail? (boolean (get-attr e :yin/tail?))]
+          ;; `live` (design section 4.5) is filled in a separate backward
+          ;; pass over the whole assembled body, not here: `[]` is a
+          ;; placeholder only, giving the tuple its final six-element arity
+          ;; immediately so nothing downstream has to special-case it.
+          ;; `lower-register` overwrites every `:call` tuple's live operand
+          ;; with `yin.vm.debruijn-register-code/body-liveness`'s answer
+          ;; once each body's instructions and pc numbering are final.
+          (emit! ctx e [:call target-reg fn-reg arg-regs tail? []])
+          (free-temp! ctx fn-temp)
+          (doseq [t arg-temps] (free-temp! ctx t))))
 
       :if
       (let [test-temp (allocate-temp! ctx), test-reg (reg-of ctx test-temp)
@@ -677,6 +689,12 @@
             (let [[out1 stack1] (push-item out stack
                                            [[:store-put (nth t 2) (nth t 3)]])]
               (recur (inc pos) out1 stack1))
+
+            :define
+            (let [val-item (peek stack)
+                  kept (pop stack)
+                  combined (conj (vec (:tuples val-item)) [:define (nth t 2)])]
+              (recur (inc pos) (+ out 1) (conj kept {:tuples combined})))
 
             :gensym
             (let [[out1 stack1] (push-item out stack [[:gensym (nth t 2)]])]

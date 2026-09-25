@@ -96,6 +96,25 @@
 (declare visit! validate-resolved)
 
 
+(defn definition-operator?
+  "True when resolved record `e` is the free variable naming the
+   definition operator (Rule R)."
+  [get-attr e]
+  (and (= :variable (get-attr e :yin/type))
+       (= vm/definition-operator (get-attr e :yin.resolved/free))))
+
+
+(defn definition-key
+  "The literal key of a resolved definition's operand records, or a
+   thrown Rule R refusal when they are not a legal definition."
+  [get-attr operand-es]
+  (vm/definition-name
+    {:operands (mapv (fn [o]
+                       {:type (get-attr o :yin/type),
+                        :value (get-attr o :yin/value)})
+                     operand-es)}))
+
+
 (defn- put!
   [ctx rid source-e a v]
   (let [[t m] (get (:tm ctx) source-e [0 :db/add])]
@@ -111,7 +130,7 @@
    `visit!` so a child gets its own occurrence identity under this node's
    extended `stack`/`active`/`path`. `rid` is `e`'s already-minted resolved
    id for this occurrence."
-  [ctx e stack rid active path]
+  [ctx e stack rid active path op?]
   (let [get-attr (:get-attr ctx)
         type (get-attr e :yin/type)
         emit! (fn [a v] (put! ctx rid e a v))
@@ -133,6 +152,9 @@
       :variable
       (let [name (get-attr e :yin/name)]
         (reject-host-value! e :yin/name name)
+        ;; Rule R: legal only as a definition's operator (`op?`)
+        (when (and (vm/reserved-name? name) (not op?))
+          (vm/refuse-reserved! :variable name {:entity e}))
         (emit! :yin/type :variable)
         (let [resolution (debruijn/resolve-name stack name)]
           (if-let [bound (:bound resolution)]
@@ -144,6 +166,8 @@
       (let [params (get-attr e :yin/params)
             macro? (get-attr e :yin/macro?)]
         (reject-host-value! e :yin/params params)
+        (when-let [p (some #(when (vm/reserved-name? %) %) params)]
+          (vm/refuse-reserved! :binder p {:entity e}))
         (emit! :yin/type :lambda)
         (when macro? (emit! :yin/macro? macro?))
         (emit! :yin.resolved/arity (count params))
@@ -153,7 +177,16 @@
 
       :application
       (do (emit! :yin/type :application)
-          (let [op-rid (child! (get-attr e :yin/operator) stack)
+          (let [op-e (get-attr e :yin/operator)
+                op? (and (= :variable (get-attr op-e :yin/type))
+                         (= vm/definition-operator (get-attr op-e :yin/name)))
+                _ (when op?
+                    (vm/definition-name
+                      {:operands (mapv (fn [o]
+                                         {:type (get-attr o :yin/type),
+                                          :value (get-attr o :yin/value)})
+                                       (get-attr e :yin/operands))}))
+                op-rid (visit! ctx op-e stack active path op?)
                 operand-rids (mapv #(child! % stack) (get-attr e :yin/operands))]
             (emit! :yin/operator op-rid)
             (emit! :yin/operands operand-rids)))
@@ -183,6 +216,8 @@
       :vm/store-get
       (let [key (get-attr e :yin/key)]
         (reject-host-value! e :yin/key key)
+        (when (vm/reserved-name? key)
+          (vm/refuse-reserved! :store-key key {:entity e}))
         (emit! :yin/type :vm/store-get)
         (emit! :yin/key key))
 
@@ -191,6 +226,8 @@
             val (get-attr e :yin/value)]
         (reject-host-value! e :yin/key key)
         (reject-host-value! e :yin/value val)
+        (when (vm/reserved-name? key)
+          (vm/refuse-reserved! :store-key key {:entity e}))
         (emit! :yin/type :vm/store-put)
         (emit! :yin/key key)
         (emit! :yin/value val))
@@ -236,19 +273,22 @@
    `active` (source entities on the current DFS path) is checked before
    the memo, matching the dormant projection's own `project-node`: an
    entity revisited before its own resolution has completed is a cycle
-   even if some other occurrence of it was already memoized."
-  [ctx e stack active path]
-  (when (contains? active e)
-    (throw (ex-info "Cyclic AST reference"
-                    {:rule :cycle, :entity e, :path path})))
-  (let [occ [e stack]]
-    (if-let [existing (find @(:memo ctx) occ)]
-      (val existing)
-      (let [rid ((:next-id! ctx))]
-        (swap! (:memo ctx) assoc occ rid)
-        (swap! (:source ctx) assoc rid e)
-        (emit-node! ctx e stack rid (conj active e) (conj path e))
-        rid))))
+   even if some other occurrence of it was already memoized. `op?` marks
+   the one occurrence role a reserved name may have, a definition's
+   operator (Rule R); it is part of the occurrence identity."
+  ([ctx e stack active path] (visit! ctx e stack active path false))
+  ([ctx e stack active path op?]
+   (when (contains? active e)
+     (throw (ex-info "Cyclic AST reference"
+                     {:rule :cycle, :entity e, :path path})))
+   (let [occ (if op? [e stack :definition-operator] [e stack])]
+     (if-let [existing (find @(:memo ctx) occ)]
+       (val existing)
+       (let [rid ((:next-id! ctx))]
+         (swap! (:memo ctx) assoc occ rid)
+         (swap! (:source ctx) assoc rid e)
+         (emit-node! ctx e stack rid (conj active e) (conj path e) op?)
+         rid)))))
 
 
 (defn resolve

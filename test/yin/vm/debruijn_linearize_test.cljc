@@ -84,8 +84,11 @@
    once: :const :var :closure :push :call :return :jump :branch-false
    :halt :gensym :store-get :store-put :stream-make :stream-put
    :stream-cursor :stream-next :stream-close :park :resume
-   :current-continuation :ffi-call."
+   :current-continuation :ffi-call :define."
   {:worked-example worked-example,
+   ;; Rule R: a definition lowers to `:define`, its operator never loaded
+   :definition (app (lam '[x] (tail (app (v 'yin/def) (lit 'k) (v 'x))))
+                    (lit 5)),
    :duplicate-param duplicate-param,
    :free-variable free-variable,
    :nested-closure nested-closure,
@@ -218,8 +221,12 @@
     (testing label
       (let [{:keys [image]} (adapted ast)]
         (is (nil? (dc/image-defect image)))
-        (is (some? (dvm/create-vm image {:primitives vm/primitives})) "loads")
-        (let [result (vm/run (dvm/create-vm image {:primitives vm/primitives}))]
+        (is (some? (dvm/create-vm image {:primitives vm/primitives,
+                                         :contract vm/stack-contract}))
+            "loads")
+        (let [result (vm/run (dvm/create-vm image
+                                            {:primitives vm/primitives,
+                                             :contract vm/stack-contract}))]
           (is (vm/halted? result)))))))
 
 

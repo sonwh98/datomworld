@@ -44,7 +44,7 @@
   (testing "A loaded program executes one step"
     (let [vm (ast-walker/vm-load-program
                (:consumer (tu/make-observer-session))
-               (vm/ast->datoms {:type :literal, :value 42}))
+               (vm/ast->datoms {:type :literal, :value 42}) vm/ast-contract)
           vm' (vm/step vm)]
       (is (vm/halted? vm'))
       (is (= 42 (vm/value vm')))))
@@ -83,7 +83,7 @@
   (testing "A loaded literal completes in one step"
     (let [vm (ast-walker/vm-load-program
                (:consumer (tu/make-observer-session))
-               (vm/ast->datoms {:type :literal, :value 42}))
+               (vm/ast->datoms {:type :literal, :value 42}) vm/ast-contract)
           vm' (vm/step vm)]
       (is (= 42 (vm/value vm')))
       (is (vm/halted? vm'))

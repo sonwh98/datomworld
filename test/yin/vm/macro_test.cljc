@@ -138,9 +138,10 @@
 
 
 (defn- macro-root
-  "The lambda root the store holds for `nm`."
+  "The lambda root the store holds for `nm`: each store value is a
+   stamped `m/macro-entry`."
   [store nm]
-  (first (get store nm)))
+  (first (:yin.macro/tree (get store nm))))
 
 
 (defn- lambda-root
@@ -715,7 +716,10 @@
 
 (deftest prelude-and-invoke
   (let [cx (ctx)
-        lam (fn [form] (m/ast->packet (c form)))
+        ;; this test produces its macro packets fresh, so it stamps them
+        lam (fn [form]
+              (m/macro-entry (m/ast->packet (c form))
+                             vm/ast-contract))
         v (m/ast->packet (c 'x))]
     (is (= :variable (m/invoke (lam '(fn [t] (yin/tag t))) [v] cx))
         "invoke returns the body's value, unvalidated")
@@ -759,6 +763,8 @@
                  :operands [(call 'defn {:type :variable, :name 'inc1}
                                   (c '[x]) (c '(+ x 1)))]}
         tree (m/expand (batch [program]) (seeded))
-        vm (vm/run (ast-walker/vm-load-rows (tu/create-vm) (m/packet->row-set tree)))]
+        vm (vm/run (ast-walker/vm-load-rows (tu/create-vm)
+                                            (m/packet->row-set tree)
+                                            vm/ast-contract))]
     (is (not (contains? (tags tree) :yin.macro/defined)))
     (is (= 42 (vm/value vm)))))

@@ -148,7 +148,13 @@
   "Drive both stages of `make-encoder-session`'s composition in order: the
    encoder projects and forwards every program batch, then the evaluator
    observer loads and runs what arrived on the row medium."
-  ([session] (run-encoder-session session (linearize/rows-loader semantic/load-vector)))
+  ([session]
+   (run-encoder-session session
+                        ;; the row medium's only producer is the encoder
+                        ;; observer: trusted fresh code
+                        (vm/fresh-code-loader
+                          (linearize/rows-loader semantic/load-vector)
+                          vm/ast-contract)))
   ([session load-program]
    (assoc session
           :encoder (encoder/forward-on-stream (:encoder session))
@@ -158,13 +164,20 @@
                                              run-vm))))
 
 
+(def ^:private load-fresh-program
+  "The ast-walker's datom loader for a medium whose only producer is
+   `queue-ast!`: fresh code, so the composition takes the trusted
+   fresh-producer path."
+  (vm/fresh-code-loader ast-walker/vm-load-program vm/ast-contract))
+
+
 (defn run-session
   "Drive one session through observer coordination with the ast-walker's own
    readiness predicate, loader, and runner."
   [session]
   (observer/run-on-stream session
                           engine/ready-for-ingress?
-                          ast-walker/vm-load-program
+                          load-fresh-program
                           run-vm))
 
 

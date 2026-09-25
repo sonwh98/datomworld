@@ -30,16 +30,17 @@
 ;; =============================================================================
 
 (def register-contract-version
-  "3, the version of the `:yin.debruijn.register/*` descriptor's
-   contract (Phase R2). Bumped only when register opcode shape,
-   allocation, scalar framing, or control-flow rules change."
-  3)
+  "4, the version of the `:yin.debruijn.register/*` descriptor's
+   contract (the \"r2\" contract, Rule R's `:define`). Bumped only when
+   register opcode shape, allocation, scalar framing, or control-flow
+   rules change."
+  4)
 
 
 (deftest register-contract-version-is-a-frozen-positive-integer
   (is (integer? register-contract-version))
   (is (pos? register-contract-version))
-  (is (= 3 register-contract-version) "Phase R2 version"))
+  (is (= 4 register-contract-version) "Rule R version"))
 
 
 ;; =============================================================================

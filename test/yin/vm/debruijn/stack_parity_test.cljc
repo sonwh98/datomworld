@@ -109,7 +109,11 @@
          {:error (b0/normalize-error e)})))
 
 
-(def ^:private load-ast (linearize/ast-loader semantic/vm-load-program))
+;; this suite is the AST's only producer: the trusted fresh path
+(def ^:private load-ast
+  (vm/fresh-code-loader
+    (linearize/ast-loader semantic/vm-load-program)
+    vm/ast-contract))
 
 
 (defn- named-outcome
@@ -126,7 +130,8 @@
   [image]
   (outcome #(vm/run (dvm/create-vm image
                                    {:make-stream tu/make-stream,
-                                    :primitives vm/primitives}))))
+                                    :primitives vm/primitives,
+                                    :contract vm/stack-contract}))))
 
 
 (defn- debruijn-outcome
@@ -309,35 +314,35 @@
   {:identity
    [(lam '[x] (v 'x))
     '[[:closure 1 2] [:halt] [:load-bound 0 0] [:return]]
-    (str "0201000000000000000200000000000000070900000000000000000000"
-         "0000000000000e")
-    "fd6b85020a903d79e580830722593a8b8fd1952c9ea3057fcf86ed7f3eb4db4e"],
+    (str "0201000000000000000200000000000000080a00000000000000000000"
+         "0000000000000f")
+    "1139b238ade426e60ef7827043f13abd9a456b19606382877bd8f6de899a0d22"],
    :applied
    [(app (lam '[x] (tail (app (v '+) (v 'x) (lit 1)))) (lit 10))
     '[[:closure 1 6] [:push] [:const 10] [:push] [:call 1 false] [:halt]
       [:load-free +] [:push] [:load-bound 0 0] [:push] [:const 1] [:push]
       [:call 2 true] [:return]]
-    (str "02010000000000000006000000000000000c0302000000100a000000000000"
-         "000c010100000000000000010000000200070a09000000150000000000070000"
-         "0001+0c09000000000000000000000000000000000c03020000001001000000"
-         "000000000c0102000000000000000100000002010e")
-    "784ec567b17d91a9bde4f23bd180d09bebf69e8da0e57503659c95f1ef2a7b50"],
+    (str "02010000000000000006000000000000000d0302000000100a000000000000"
+         "000d010100000000000000010000000200080b09000000150000000000070000"
+         "0001+0d0a000000000000000000000000000000000d03020000001001000000"
+         "000000000d0102000000000000000100000002010f")
+    "52791d4a2d0f4649b6d90e0c7e0a9067c96008ed4ecdc6b77f08a15644893d0c"],
    :two-deep
    [(lam '[a] (lam '[b] (app (v '-) (v 'a) (v 'b))))
     '[[:closure 1 2] [:halt] [:closure 1 4] [:return] [:load-free -]
       [:push] [:load-bound 1 0] [:push] [:load-bound 0 0] [:push]
       [:call 2 false] [:return]]
-    (str "02010000000000000002000000000000000702010000000000000004000000"
-         "000000000e0a090000001500000000000700000001-0c090100000000000000"
-         "00000000000000000c09000000000000000000000000000000000c01020000"
-         "00000000000100000002000e")
-    "63de575e609bac6e81a17eb190768d825c28301d60e8627b7587aa78db0f3125"],
+    (str "02010000000000000002000000000000000802010000000000000004000000"
+         "000000000f0b090000001500000000000700000001-0d0a0100000000000000"
+         "00000000000000000d0a000000000000000000000000000000000d01020000"
+         "00000000000100000002000f")
+    "188d78a7a966fc7b2f3ef64327febad1658256f4469c0ce1f6c30e090b59af8d"],
    :duplicate
    [(lam '[x x] (v 'x))
     '[[:closure 2 2] [:halt] [:load-bound 0 1] [:return]]
-    (str "0202000000000000000200000000000000070900000000000000000100000000"
-         "0000000e")
-    "83bda4ee2b491febab564c3ccb8ea87a1329b28b962d5e64eba5f188b7676720"]})
+    (str "0202000000000000000200000000000000080a00000000000000000100000000"
+         "0000000f")
+    "64ebe1570b00b27fdb47208861002113a830a31bc5e54935a41cfbcd0f202fe5"]})
 
 
 (deftest golden-images-bytes-and-h

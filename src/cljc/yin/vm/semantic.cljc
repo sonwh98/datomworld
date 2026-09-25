@@ -300,10 +300,17 @@
               10 (recur seg (inc pc) (get (:store vm) (nth inst 1))
                         St E K vm image (and fuel (dec fuel)))
               ;; :store-put — S[key] ← v; val ← v (11, :store-put)
-              11 (let [vm' (assoc vm :store (assoc (:store vm)
-                                                   (nth inst 1)
-                                                   (nth inst 2)))]
+              11 (let [vm' (assoc vm :store (engine/store-put (:store vm)
+                                                              (nth inst 1)
+                                                              (nth inst 2)))]
                    (recur seg (inc pc) (nth inst 2) St E K vm' image
+                          (and fuel (dec fuel))))
+              ;; :define -- S[name] <- val; val unchanged (24). The
+              ;; definition transition: the operator is never resolved.
+              24 (let [vm' (assoc vm :store (engine/store-put (:store vm)
+                                                              (nth inst 1)
+                                                              val))]
+                   (recur seg (inc pc) val St E K vm' image
                           (and fuel (dec fuel))))
               ;; :current-continuation — val ← {seg, pc+1, E, St, K} (19)
               19 (recur seg (inc pc)
@@ -586,6 +593,7 @@
                        :store-get [opcode (:yin.code/key ia)]
                        :store-put [opcode (:yin.code/key ia)
                                    (:yin.code/value ia)]
+                       :define [opcode (:yin.code/name ia)]
                        :stream-make [opcode (or (:yin.code/buffer ia)
                                                 vm/default-stream-capacity)]
                        :stream-put [opcode]
@@ -678,8 +686,13 @@
    composition whose program stream carries `:yin/*` AST datoms composes the
    Phase 2 linearizer in front of it. Parked continuations survive a load, so
    one segment can resume another's. A segment id already holding different
-   code is a load error; loading the same image again is accepted."
-  [vm datoms]
+   code is a load error; loading the same image again is accepted.
+
+   `contract` is required and compared with `vm/semantic-contract` before
+   the batch is judged (`:contract-missing`, `:contract-mismatch`); S2.6
+   well-formedness then includes Rule R's reserved-operand rule."
+  [vm datoms contract]
+  (vm/check-contract! vm/semantic-contract contract)
   (let [image (load-image datoms)]
     (assoc vm
            :program (:segment image)
@@ -724,9 +737,13 @@
      :id claim this local segment id instead of minting one. The §3.1 rule
           applies: an id already holding a different image is a load error,
           an identical reload is accepted. Ignored when the address is
-          already aliased."
-  ([vm v] (load-vector vm v {}))
-  ([vm v opts]
+          already aliased.
+
+   `contract` is required and compared with `vm/semantic-contract` before
+   S7.5 validation."
+  ([vm v contract] (load-vector vm v contract {}))
+  ([vm v contract opts]
+   (vm/check-contract! vm/semantic-contract contract)
    (when-let [defect (code/well-formed-vector? v)]
      (throw (ex-info (str "Cannot load vector: " (name (:rule defect))
                           " (pc " (:pc defect) ")")
@@ -826,7 +843,7 @@
      (throw (ex-info
               "Program observation moved to dao.stream.observer: a VM no longer accepts :in-stream"
               {:in-stream (:in-stream opts)})))
-   (let [env (or (:env opts) {})
+   (let [env (vm/check-bindings! :env (or (:env opts) {}))
          base (vm/empty-state
                 (assoc (select-keys opts
                                     [:primitives :primitive-profiles

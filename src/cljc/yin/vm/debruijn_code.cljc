@@ -106,8 +106,9 @@
 (def lowering-contract-version
   "Bumped whenever this dimension's opcode table, scalar table, or byte
    rules change shape -- the version the descriptor hash folds in, so an
-   incompatible lowering never collides with an old image's H."
-  1)
+   incompatible lowering never collides with an old image's H. 2 (the
+   `\"b2\"` contract, `yin.vm/stack-contract`): Rule R's `:define`."
+  2)
 
 
 (def descriptor
@@ -843,10 +844,25 @@
             (range (count v))))))
 
 
+(defn reserved-defect
+  "Rule R over a shape-valid image: the first pc whose `:load-free`,
+   `:define`, `:store-get`, or `:store-put` names a reserved name, as
+   `{:rule :reserved-name :pc p}`, or nil. A lowered image carrying the
+   old `[:load-free yin/def]` call shape is refused here."
+  [v]
+  (some (fn [pc]
+          (let [t (nth v pc)]
+            (when (and (contains? #{:load-free :define :store-get :store-put}
+                                  (nth t 0))
+                       (vm/reserved-name? (nth t 1)))
+              (tuple-defect :reserved-name pc))))
+        (range (count v))))
+
+
 (defn image-defect
   "The B1 image validator (S2, S3): the first defect in `v`, checking
-   generic shape first, then the scope rule S3 adds. nil when `v` is a
-   valid executable image on this path -- the only admitter of one; no
-   projected reader participates."
+   generic shape first, then Rule R's reserved operands, then the scope
+   rule S3 adds. nil when `v` is a valid executable image on this path --
+   the only admitter of one; no projected reader participates."
   [v]
-  (or (well-formed-image? v) (scope-defect v)))
+  (or (well-formed-image? v) (reserved-defect v) (scope-defect v)))

@@ -124,7 +124,8 @@
    {:create (fn [opts]
               (ast-walker/create-vm (merge {:make-stream tu/make-stream} opts)))
     :load (fn [vm ast]
-            (ast-walker/vm-load-program vm (vm/ast->datoms ast)))
+            (ast-walker/vm-load-program vm (vm/ast->datoms ast)
+                                        vm/ast-contract))
     :run (fn [vm ast] (vm/eval vm ast))}
 
    :semantic
@@ -132,10 +133,10 @@
               (semantic/create-vm (merge {:make-stream tu/make-stream} opts)))
     :load (fn [vm ast]
             ((linearize/ast-loader semantic/vm-load-program)
-             vm (vm/ast->datoms ast)))
+             vm (vm/ast->datoms ast) vm/ast-contract))
     :run (fn [vm ast]
            (vm/run ((linearize/ast-loader semantic/vm-load-program)
-                    vm (vm/ast->datoms ast))))}})
+                    vm (vm/ast->datoms ast) vm/ast-contract)))}})
 
 
 (def ^:private tiny-ast {:type :literal, :value 42})
@@ -292,7 +293,8 @@
   (let [sink (tu/new-memory-log)
         done (-> (ast-walker/create-vm {:make-stream tu/make-stream
                                         :telemetry {:stream sink}})
-                 (ast-walker/vm-load-program (vm/ast->datoms tiny-ast))
+                 (ast-walker/vm-load-program (vm/ast->datoms tiny-ast)
+                                             vm/ast-contract)
                  vm/step
                  vm/run)
         phases (phase-seq (tu/drain sink))]
@@ -309,7 +311,8 @@
         done (-> (semantic/create-vm {:make-stream tu/make-stream
                                       :telemetry {:stream sink}})
                  ((linearize/ast-loader semantic/vm-load-program)
-                  (vm/ast->datoms tiny-ast))
+                  (vm/ast->datoms tiny-ast)
+                  vm/ast-contract)
                  step-to-halt
                  vm/run)
         phases (phase-seq (tu/drain sink))]

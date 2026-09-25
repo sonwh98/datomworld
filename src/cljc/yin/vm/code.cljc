@@ -20,7 +20,7 @@
   "The instruction vocabulary of §2.4."
   #{:const :var :closure :push :call :return :jump :branch-false :halt :gensym
     :store-get :store-put :stream-make :stream-put :stream-cursor :stream-next
-    :stream-close :park :resume :current-continuation :ffi-call})
+    :stream-close :park :resume :current-continuation :ffi-call :define})
 
 
 (def terminators
@@ -154,9 +154,32 @@
         instructions))
 
 
+(defn- reserved-operand
+  "Rule 8, Rule R: the definition operator is syntax, never a name. A
+   `:var` naming a reserved name, a `:closure` binding one, a store key
+   naming one, and a `:define` whose name is not a non-reserved symbol are
+   refused, so a lowered image carrying the old `yin/def` call shape never
+   loads."
+  [{:keys [attrs instructions]}]
+  (some (fn [e]
+          (let [ia (get attrs e)
+                params (:yin.code/params ia)]
+            (when (case (:yin.code/op ia)
+                    :var (vm/reserved-name? (:yin.code/name ia))
+                    :define (let [n (:yin.code/name ia)]
+                              (or (not (symbol? n)) (vm/reserved-name? n)))
+                    :closure (and (sequential? params)
+                                  (some vm/reserved-name? params))
+                    (:store-get :store-put) (vm/reserved-name?
+                                              (:yin.code/key ia))
+                    false)
+              (defect :reserved-name e))))
+        instructions))
+
+
 (def ^:private rules
   [one-segment instruction-shape dense-pcs sorted-by-pc dangling-target
-   missing-terminator negative-argc])
+   missing-terminator negative-argc reserved-operand])
 
 
 (defn well-formed?
@@ -165,7 +188,8 @@
    Returns nil when the batch is well formed, else the first defect as
    `{:rule r :entity e}`, where r is one of `:one-segment`,
    `:instruction-shape`, `:dense-pcs`, `:sorted-by-pc`, `:dangling-target`,
-   `:missing-terminator`, `:negative-argc`, and e is the offending entity
+   `:missing-terminator`, `:negative-argc`, `:reserved-name` (Rule R), and
+   e is the offending entity
    (nil when the defect is an absent segment).
 
    An instruction is any non-segment entity carrying `:yin.code/segment`,
@@ -219,7 +243,8 @@
    :park [],
    :resume [[:yin.code/parked-id :kw]],
    :current-continuation [],
-   :ffi-call [[:yin.code/ffi-op :kw] [:yin.code/argc :uint]]})
+   :ffi-call [[:yin.code/ffi-op :kw] [:yin.code/argc :uint]],
+   :define [[:yin.code/name :sym]]})
 
 
 (def ^:private operand-kind-checks
@@ -362,9 +387,24 @@
         (range (count v))))
 
 
+(defn- reserved-name
+  "Rule 9, Rule R: no `:var`, `:define`, `:closure` binder, or store key
+   names a reserved name."
+  [v]
+  (some (fn [pc]
+          (let [t (nth v pc)]
+            (when (case (nth t 0)
+                    (:var :define :store-get :store-put) (vm/reserved-name?
+                                                           (nth t 1))
+                    :closure (some vm/reserved-name? (nth t 1))
+                    false)
+              (tuple-defect :reserved-name pc))))
+        (range (count v))))
+
+
 (def ^:private vector-rules
   [nonempty mnemonic arity operand-kind saturation target-bounds terminator
-   argc])
+   argc reserved-name])
 
 
 (defn well-formed-vector?
@@ -373,8 +413,9 @@
 
    Returns nil when the vector is well formed, else the first defect as
    `{:rule r :pc p}` — `:nonempty`, `:mnemonic`, `:arity`,
-   `:operand-kind`, `:saturation`, `:target-bounds`, `:terminator`, or
-   `:argc` — with p the offending pc (`:nonempty` names pc 0, where the
+   `:operand-kind`, `:saturation`, `:target-bounds`, `:terminator`,
+   `:argc`, or `:reserved-name` (Rule R), with p the offending pc
+   (`:nonempty` names pc 0, where the
    missing first instruction belongs). Rules run in §7.5's order, each
    assuming the earlier ones held. §2.6 rules 1–4 are satisfied by the
    vector form by construction (pc is the index); rules 5–6 and the UCF

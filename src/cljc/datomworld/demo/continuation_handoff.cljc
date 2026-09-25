@@ -157,7 +157,8 @@
 
 
 (defn semantic-registers
-  "The plain-data registers of a shippable semantic VM. A primitive the
+  "The plain-data registers of a shippable semantic VM, stamped with the
+   semantic contract its segment was admitted under. A primitive the
    program resolved (a `+` pushed before its call) travels by name; any other
    host function throws, as does a VM holding stream handles, which would
    arrive as references to nothing."
@@ -167,7 +168,8 @@
                     {:resource-keys (vec ks)})))
   (encode-primitives
     (:primitives vm-state)
-    {:segment (get-in vm-state [:control :segment]),
+    {:contract vm/semantic-contract,
+     :segment (get-in vm-state [:control :segment]),
      :pc (get-in vm-state [:control :pc]),
      :value (:value vm-state),
      :stack (:stack vm-state),
@@ -197,15 +199,16 @@
         _ (when-not registers-datom
             (throw (ex-info "Handoff batch carries no registers" {:batch-size (count batch)})))
         base (make-vm)
-        {:keys [segment pc value stack env k id-counter defs]}
+        {:keys [contract segment pc value stack env k id-counter defs]}
         (decode-primitives (:primitives base)
                            (edn/read-string (nth registers-datom 2)))
-        loaded (semantic/vm-load-program base code)]
+        ;; the batch carries its own stamp; the receiver never assigns one
+        loaded (semantic/vm-load-program base code contract)]
     (when-not (= segment (:program loaded))
       (throw (ex-info "Handoff registers name a segment the batch does not carry"
                       {:segment segment, :shipped (:program loaded)})))
     (-> loaded
-        (update :store merge defs)
+        (update :store merge (vm/check-bindings! :store defs))
         (assoc :control {:segment segment, :pc pc}
                :value value
                :stack stack

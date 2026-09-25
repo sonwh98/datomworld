@@ -195,7 +195,8 @@
           vector (:vector (linearize/lower-rows tree))
           address (content/materialize-vector! h vector)
           fetched (content/fetch-vector h address)
-          loaded (semantic/load-vector (semantic/create-vm) (:vector fetched))
+          loaded (semantic/load-vector (semantic/create-vm) (:vector fetched)
+                                       vm/semantic-contract)
           seg (get-in loaded [:code-aliases address])]
       (is (= address (:address fetched)))
       (is (number? seg) "the address is aliased to a local segment id")

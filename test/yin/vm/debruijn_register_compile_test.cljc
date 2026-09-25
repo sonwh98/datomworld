@@ -136,11 +136,11 @@
 ;; exactly the section 4.5 bump, and this test is updated to record that
 ;; fact rather than to assert an equality section 4.5 itself breaks.
 
-(deftest contract-version-matches-r0-at-version-3
-  (is (= 3 r0/register-contract-version)
-      "R0's frozen copy updated to version 3 in Phase R2")
-  (is (= 3 rcode/contract-version)
-      "src's canonical version at version 3 (Phase R2)")
+(deftest contract-version-matches-r0-at-version-4
+  (is (= 4 r0/register-contract-version)
+      "R0's frozen copy updated to version 4 by Rule R")
+  (is (= 4 rcode/contract-version)
+      "src's canonical version at version 4 (Rule R's :define)")
   (is (= r0/register-contract-version rcode/contract-version)))
 
 
@@ -443,7 +443,7 @@
 ;; =============================================================================
 
 (def golden-descriptor-hash
-  "2621ded6caa3bbcb6ccd948b74876dd4eeb88c29c157dda75a97b4e8e77c2db0")
+  "7eacba41f9f1548d18b724cbd2db87945f09ec7b4ab2f303399e9b6497007632")
 
 
 (deftest golden-descriptor-hash-test
@@ -472,7 +472,7 @@
                         [:call 1 2 [3 4] true []]
                         [:return 1]]}
         expected-r
-        "c85f9adbb70bc0297abcb2b4b0362d740b57ed3010a29cb5a98d509900cca3b7"]
+        "c0aefe2fa287cbc702e6680b4c7835167cb6458b05680e9271b331dd8c42bb21"]
     (is (= expected-image image))
     (is (= expected-r (rcode/register-hash image)))))
 
@@ -483,7 +483,7 @@
       (is (= {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
               :instructions [[:store-put 0 :k 42] [:halt 0]]}
              image))
-      (is (= "438804bf11aaeaf549fbeb056325f8c7c47691b1e67dc98542f99890cf7bddb2"
+      (is (= "e780fb5067cedad63476224d01127ac0abcfaf60c0c210aa0b3a9eb34377c180"
              (rcode/register-hash image)))))
 
   (testing "gensym"
@@ -491,7 +491,7 @@
       (is (= {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
               :instructions [[:gensym 0 "g"] [:halt 0]]}
              image))
-      (is (= "81226f50963186da38bf643046ccce90bab48c96ca9502f0bf40d4a7286a81c1"
+      (is (= "7a97c0d6bed15a1e5865780e16bceb4ff378c09963146ba8e9694bdc99800130"
              (rcode/register-hash image)))))
 
   (testing "stream-make"
@@ -499,7 +499,7 @@
       (is (= {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
               :instructions [[:stream-make 0 64] [:halt 0]]}
              image))
-      (is (= "d7d5d98c741ab674cd4d3a4607477a1198bf594fd2cc9205570ab2cab78b0857"
+      (is (= "a9cfdb6d6cbc9d5f3eb54ecb3c3584e0199f0b6d1d9d8fc498f63e5d769f9f14"
              (rcode/register-hash image)))))
 
   (testing "stream-put"
@@ -512,7 +512,7 @@
                              [:stream-put 0 1 2 []]
                              [:halt 0]]}
              image))
-      (is (= "4e7d3f3ef6ed453d2ab40ad75f6adf5c074b0361969c9e2b7e4b302cfd3b1bac"
+      (is (= "685a0c512ae6531d9814c03c536336f64e51e365050c130f33db938601396988"
              (rcode/register-hash image)))))
 
   (testing "stream-cursor"
@@ -522,7 +522,7 @@
                              [:stream-cursor 0 1]
                              [:halt 0]]}
              image))
-      (is (= "634fda35541bd3e5407f3bdcee60e979de5d662ad9219f4243da9b4cb8358a60"
+      (is (= "1c4a5286b6032c64b6356b5c261d3b842bfecd4d9f9c3f951f5050c8a2419cdb"
              (rcode/register-hash image)))))
 
   (testing "stream-next"
@@ -532,7 +532,7 @@
                              [:stream-next 0 1 []]
                              [:halt 0]]}
              image))
-      (is (= "411124300dcf612467a6633e54a440c3873c385dea85ef21f4e84f1b9300d417"
+      (is (= "74f3617eef6eabcad7b27a36dda3b75af18fb1b3e17cf18df88b8a8c2cfcbe33"
              (rcode/register-hash image)))))
 
   (testing "stream-close"
@@ -542,7 +542,7 @@
                              [:stream-close 0 1]
                              [:halt 0]]}
              image))
-      (is (= "91876ea3afe2f8edee52b97dc27ecd2ed9957f7a056973491c60d3a5d673b01d"
+      (is (= "91eee5759eec08799e98b70f0eecc26255dec4f2def3c8be2dec4595312a625f"
              (rcode/register-hash image))))))
 
 
@@ -562,7 +562,7 @@
                         [:call 0 1 [2 3] false []]
                         [:halt 0]]}
         expected-r
-        "086bee81730aae053fcf9028835aef271e9b035358b2acd71fd6b4e3568f2ff1"]
+        "fb7626101d5ef04222467e6eee820a73694e1045ecb07d1f4c568b3516758852"]
     (is (= expected-image image))
     (is (= expected-r (rcode/register-hash image)))))
 
@@ -578,7 +578,7 @@
                              [:ffi-call 0 :math/add [1 2] []]
                              [:halt 0]]}
              image))
-      (is (= "f80f2aaf1d7096390bf54aa13f45d9b62dfdc7d5777cdf0d7b2472eafbb9e6ee"
+      (is (= "f86f480ae243b7dbd2666431f8b946be63069e4c4bf6ccd2f6c756d55aba0bc5"
              (rcode/register-hash image)))))
 
   (testing "resume"
@@ -590,7 +590,7 @@
                              [:resume :p1 1]
                              [:halt 0]]}
              image))
-      (is (= "bf3e63231bf72fc9556a83a379e11bc1f4fb4e5be454b5d00ebba5dbf0b0f3cc"
+      (is (= "8ea2568a409a1e551e7bdf63f811bc80cca0a50f8793bbe77385ac1524e11bcd"
              (rcode/register-hash image))))))
 
 

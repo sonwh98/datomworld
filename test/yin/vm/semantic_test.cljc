@@ -61,7 +61,7 @@
   "Load one batch into a fresh VM and run it to its stop point."
   ([datoms] (run-segment (make-vm) datoms))
   ([vm datoms]
-   (-> vm (semantic/vm-load-program datoms) vm/run)))
+   (-> vm (semantic/vm-load-program datoms vm/semantic-contract) vm/run)))
 
 
 (defn- worked-segment
@@ -134,7 +134,7 @@
       (is (thrown-with-msg?
             #?(:clj Exception :cljs js/Error :cljd Object)
             #"missing-terminator"
-            (semantic/vm-load-program (make-vm) bad))))))
+            (semantic/vm-load-program (make-vm) bad vm/semantic-contract))))))
 
 
 (deftest load-image-verifies-a-claimed-address-test
@@ -161,7 +161,8 @@
         (is (= {:rule :hash-mismatch, :entity seg}
                (refuse #(semantic/load-image tampered))))
         (is (= {:rule :hash-mismatch, :entity seg}
-               (refuse #(semantic/vm-load-program (make-vm) tampered))))))))
+               (refuse #(semantic/vm-load-program (make-vm) tampered
+                                                  vm/semantic-contract))))))))
 
 
 ;; =============================================================================
@@ -177,7 +178,7 @@
 
 
 (deftest load-vector-decodes-and-aliases-test
-  (let [vm (semantic/load-vector (make-vm) worked-vector)
+  (let [vm (semantic/load-vector (make-vm) worked-vector vm/semantic-contract)
         image (get-in vm [:code (:program vm)])]
     (testing "A fresh local id below the empty floor; the address aliases it"
       (is (= -1 (:program vm)))
@@ -194,13 +195,14 @@
 
 (deftest load-vector-mints-below-the-loaded-floor-test
   (let [vm (-> (make-vm)
-               (semantic/load-vector worked-vector)
-               (semantic/load-vector [[:const 7] [:halt]]))]
+               (semantic/load-vector worked-vector vm/semantic-contract)
+               (semantic/load-vector [[:const 7] [:halt]]
+                                     vm/semantic-contract))]
     (is (= #{-1 -16} (set (keys (:code vm)))))
     (is (= -16 (:program vm)))
     (is (= 7 (vm/value (vm/run vm))))
     (testing "The same address reloads under its aliased id"
-      (let [vm' (semantic/load-vector vm worked-vector)]
+      (let [vm' (semantic/load-vector vm worked-vector vm/semantic-contract)]
         (is (= 2 (count (:code vm'))))
         (is (= -1 (:program vm')))))))
 
@@ -208,7 +210,7 @@
 (deftest load-vector-refuses-malformed-vectors-test
   (doseq [[name [expected v]] malformed/malformed-vectors]
     (testing name
-      (let [e (try (semantic/load-vector (make-vm) v)
+      (let [e (try (semantic/load-vector (make-vm) v vm/semantic-contract)
                    nil
                    (catch #?(:clj Exception :cljs js/Error :cljd Object) e
                      e))]
@@ -220,15 +222,19 @@
     (testing "An :id claim over a live id is a load error"
       (is (= {:segment -9}
              (try (-> (make-vm)
-                      (semantic/load-vector worked-vector {:id -9})
-                      (semantic/load-vector other {:id -9}))
+                      (semantic/load-vector worked-vector
+                                            vm/semantic-contract {:id -9})
+                      (semantic/load-vector other
+                                            vm/semantic-contract {:id -9}))
                   nil
                   (catch #?(:clj Exception :cljs js/Error :cljd Object) e
                     (select-keys (ex-data e) [:segment]))))))
     (testing "An identical reload is accepted"
       (let [vm (-> (make-vm)
-                   (semantic/load-vector worked-vector {:id -9})
-                   (semantic/load-vector worked-vector {:id -9}))]
+                   (semantic/load-vector worked-vector
+                                         vm/semantic-contract {:id -9})
+                   (semantic/load-vector worked-vector
+                                         vm/semantic-contract {:id -9}))]
         (is (= 1 (count (:code vm))))))))
 
 
@@ -576,14 +582,15 @@
       (is (thrown-with-msg?
             #?(:clj Exception :cljs js/Error :cljd Object)
             #"already holds different code"
-            (semantic/vm-load-program vm b))))
+            (semantic/vm-load-program vm b vm/semantic-contract))))
     (testing "The rejected load leaves the image and parked continuation intact"
       (is (= seg (:segment (vm/value vm))))
       (is (= 1 (count (:parked vm))))
       (is (= :resumed (vm/value (run-segment vm (resume-segment :parked-0 :resumed))))
           "the parked continuation still resumes into A's code, not B's"))
     (testing "An identical reload is accepted and keeps the parked continuation"
-      (let [vm' (-> vm (semantic/vm-load-program a) vm/run)]
+      (let [vm' (-> vm (semantic/vm-load-program a
+                                                 vm/semantic-contract) vm/run)]
         (is (= (:code vm) (:code vm')))
         (is (= 2 (count (:parked vm')))
             "the reload ran to its own park without touching the first")
@@ -639,13 +646,15 @@
   (testing "An idle VM steps to itself: queued input waits for the observer"
     (is (= (:code (make-vm)) (:code (vm/step (make-vm))))))
   (testing "One step executes exactly one instruction"
-    (let [vm (semantic/vm-load-program (make-vm) (worked-segment))
+    (let [vm (semantic/vm-load-program (make-vm) (worked-segment)
+                                       vm/semantic-contract)
           vm' (vm/step vm)]
       (is (= {:segment seg, :pc 1} (vm/control vm')))
       (is (not (vm/halted? vm')))
       (is (= {:segment seg, :pc 2} (vm/control (vm/step vm'))))))
   (testing "The same transition code path runs to completion"
-    (let [vm (semantic/vm-load-program (make-vm) (worked-segment))]
+    (let [vm (semantic/vm-load-program (make-vm) (worked-segment)
+                                       vm/semantic-contract)]
       (is (= 11 (vm/value (vm/run vm)))))))
 
 
@@ -674,7 +683,7 @@
                           (instruction 1 :stream-cursor)
                           (instruction 2 :stream-next)
                           (instruction 3 :halt))
-        v (semantic/vm-load-program vm program)
+        v (semantic/vm-load-program vm program vm/semantic-contract)
         blocked (vm/run v)]
     (testing "A next on an empty stream parks in the wait set"
       (is (vm/blocked? blocked))
@@ -775,7 +784,8 @@
   "A VM parked on the second append of the writer program."
   []
   (vm/run (semantic/vm-load-program (make-vm {:make-stream one-slot-stream})
-                                    (blocked-writer-program))))
+                                    (blocked-writer-program)
+                                    vm/semantic-contract)))
 
 
 (defn- pure-entry?
@@ -789,7 +799,8 @@
 (deftest blocked-entries-are-pure-data-test
   (testing "A blocked reader entry carries registers and ids, nothing live"
     (let [blocked (vm/run (semantic/vm-load-program (make-vm)
-                                                    (blocked-reader-program)))
+                                                    (blocked-reader-program)
+                                                    vm/semantic-contract))
           entry (first (:wait-set blocked))]
       (is (vm/blocked? blocked))
       (is (= {:segment seg, :pc 3, :env {}, :stack [], :k [],

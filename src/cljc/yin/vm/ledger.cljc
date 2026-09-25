@@ -40,12 +40,13 @@
 (def lowering-profile
   "The lowering profile this repository implements, exactly as published
    in §5.2.1: `\"ast-to-bytecode\"` over the UCF §7.3.3 stamp
-   `{:yin.code/contract \"v2\", :yin.k/version 0}`. A `:derive` record
+   `{:yin.code/contract \"v3\", :yin.k/version 0}`
+   (`vm/semantic-contract`). A `:derive` record
    carries this map verbatim, and `verify-derivation` recomputes a
    derivation only when the record's profile is `=` to the profile the
    consumer implements (§5.2.2 step 2)."
   {:yin.lower/profile "ast-to-bytecode"
-   :yin.code/contract "v2"
+   :yin.code/contract vm/semantic-contract
    :yin.k/version 0})
 
 

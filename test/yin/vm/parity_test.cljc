@@ -147,7 +147,8 @@
   [ast]
   (normalize
     (vm/value (vm/run (ast-walker/vm-load-rows (tu/create-vm)
-                                               (vm/ast->semantic-bytecode ast))))))
+                                               (vm/ast->semantic-bytecode ast)
+                                               vm/ast-contract)))))
 
 
 (deftest ast-walker-parity-test

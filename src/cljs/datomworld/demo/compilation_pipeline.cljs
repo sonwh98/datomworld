@@ -91,7 +91,7 @@
 (defn- load-program!
   "Load one canonical datom batch onto a fresh VM."
   [datoms]
-  (ast-walker/vm-load-program (make-vm) (vec datoms)))
+  (ast-walker/vm-load-program (make-vm) (vec datoms) vm/ast-contract))
 
 
 (defonce app-state

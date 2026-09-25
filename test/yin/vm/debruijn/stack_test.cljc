@@ -37,7 +37,8 @@
   ([segment opts]
    (b0/normalize
      (vm/value (vm/run (dvm/create-vm segment
-                                      (merge {:primitives vm/primitives}
+                                      (merge {:primitives vm/primitives,
+                                              :contract vm/stack-contract}
                                              opts)))))))
 
 
@@ -301,15 +302,14 @@
 ;; =============================================================================
 
 (deftest unknown-opcode-test
-  (testing "an opcode this dimension does not define throws a clear
-            :unknown-opcode error instead of silently no-oping (B4 made
-            every opcode of the dimension executable, so the B3-era
-            :not-yet-implemented fixture became this one)"
+  (testing "an opcode this dimension does not define is refused when the
+            image loads: the stack loader validates (Rule R commit), so an
+            undefined opcode never reaches a step"
     (let [segment [[:no-such-op]]]
       (is (thrown-with-msg?
             #?(:clj Exception :cljs js/Error :cljd Object)
-            #"Unknown opcode in segment"
-            (vm/run (dvm/create-vm segment)))))))
+            #"Invalid stack image: :mnemonic"
+            (dvm/create-vm segment {:contract vm/stack-contract}))))))
 
 
 ;; =============================================================================
@@ -321,4 +321,5 @@
             this phase, rather than returning the raw positional frame
             vector"
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-          (vm/environment (dvm/create-vm [[:halt]]))))))
+          (vm/environment (dvm/create-vm [[:halt]]
+                                         {:contract vm/stack-contract}))))))

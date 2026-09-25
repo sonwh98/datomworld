@@ -60,7 +60,7 @@
   "Load `ast` by the direct path, leaving it un-run: a quiescent machine
    whose frame is the program's pc 0."
   [machine ast]
-  (semantic/load-vector machine (lower ast)))
+  (semantic/load-vector machine (lower ast) vm/semantic-contract))
 
 
 (defn- new-vm
@@ -68,13 +68,21 @@
   ([opts] (semantic/create-vm (merge {:make-stream tu/make-stream} opts))))
 
 
+(def ^:private maker-uses
+  "`a` captures a stream, `b` a number: two closures of the maker segment,
+   two envs. Loaded as its own segment: a definition key is a store-slice
+   requirement of the segment that writes it (Rule R, like a `:store-put`
+   key), so defining `a` and `b` inside the maker segment would put both
+   keys in every slice that reaches `mk`'s code."
+  (in-order
+    (define 'a (app (variable 'mk) {:type :stream/make, :buffer 8}))
+    (define 'b (app (variable 'mk) (lit 1)))))
+
+
 (def ^:private maker-program
-  "`mk` closes over its argument; `a` captures a stream, `b` a number —
-   two closures, one segment, two envs. `fact` recurs through the store."
+  "`mk` closes over its argument; `fact` recurs through the store."
   (in-order
     (define 'mk (lambda ['s] (lambda [] (variable 's))))
-    (define 'a (app (variable 'mk) {:type :stream/make, :buffer 8}))
-    (define 'b (app (variable 'mk) (lit 1)))
     (define 'fact
       (lambda ['n]
               {:type :if,
@@ -89,7 +97,11 @@
 
 (defn- maker-vm
   []
-  (vm/run (load-ast (new-vm) maker-program)))
+  (-> (new-vm)
+      (load-ast maker-program)
+      vm/run
+      (load-ast maker-uses)
+      vm/run))
 
 
 (def ^:private maker-address (jing/segment-key (lower maker-program)))
@@ -186,7 +198,7 @@
   (doseq [[name ast] conformance-corpus]
     (testing name
       (let [v (lower ast)
-            machine (semantic/load-vector (new-vm) v)
+            machine (semantic/load-vector (new-vm) v vm/semantic-contract)
             image (get (:code machine) (:program machine))]
         (is (= v (completion/image->vector image))
             "the image decodes back to the vector that hashes to its address")))))
@@ -236,9 +248,10 @@
     (is (contains? (:yin.k/segments requires) maker-address))
     (is (= (vm/profile-of vm/primitives '*)
            (get-in requires [:yin.k/primitives '*])))
-    (is (contains? (:yin.k/primitives requires) 'yin/def))
-    (is (contains? (:yin.k/effects requires) :vm/store-put)
-        "a call's effects enter through the callee's profile")
+    (is (not (contains? (:yin.k/primitives requires) 'yin/def))
+        "Rule R: a definition is syntax, never a free name to discharge")
+    (is (not (contains? (:yin.k/effects requires) :vm/store-put))
+        "a definition's store write is machine state, as :store-put's is")
     (is (contains? (:yin.k/store result) 'fact)
         "fact is a free name of the segment, discharged by the store")
     (is (= :complete (:yin.k/discovery requires)))
@@ -372,7 +385,7 @@
 (deftest early-refusals
   (testing "an image without an address has nothing portable to name"
     (let [machine (semantic/vm-load-program
-                    (new-vm) (linearize/lower-ast (lit 1)))
+                    (new-vm) (linearize/lower-ast (lit 1)) vm/semantic-contract)
           result (completion/complete {:vm machine})]
       (is (= [:unaddressed-segment] (map :kind (:yin.k/refusals result))))))
   (testing "a non-empty ready queue is not quiescent"

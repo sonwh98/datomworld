@@ -1,9 +1,11 @@
 # yin.vm.semantic on dao.stream — linear executable datoms
 
-Revision: 1 (2026-09-18) — the `"v2"` execution contract this document
-names is published in full by §2.4's "v2 contract revision history" note,
-per `yin.vm.universal-continuation-format.md` §7.11's contract-revision-
-publication blocker. Prior text carried no revision line; this is the first.
+Revision: 2 (2026-09-25), Rule R: the execution contract this document
+names is `"v3"`, published in full by the S2.4 contract note and its
+revision history, per the UCF design's S7.11 contract-revision-publication
+blocker (`yin.vm.universal-continuation-format.md`). Revision 1
+(2026-09-18) published `"v2"`; `"v3"` adds `:define` and the reserved
+name `yin/def`.
 
 Status: Phase 0 contract. Sections §1–§6 are promoted verbatim from
 `collab/1789221648668-architect-semantic-vm-v2-design.claude-fable-5-1.findings.md`.
@@ -185,6 +187,8 @@ says survives the log-structured reading; a register model would not.
 +-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
 | `:store-put`            | `:yin.code/key`, `:yin.code/value`            | `S[key] ← v; val ← v`                                                            |
 +-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
+| `:define`               | `:yin.code/name sym`                          | `S[name] <- val`; `val` unchanged; the operator is never resolved (Rule R)       |
++-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
 | `:stream-make`          | `:yin.code/buffer`                            | effect `:stream/make` via engine                                                 |
 +-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
 | `:stream-put`           | —                                             | target ref popped from `St`, value in `val`; effect `:stream/put`                |
@@ -217,7 +221,8 @@ naming the node.
 maps mnemonics onto that table (`:const`→`:literal`, `:var`→`:load-var`,
 `:closure`→`:lambda`, `:branch-false`→`:branch`, `:current-continuation`→
 `:current-cont`, `:ffi-call`→`:dao.stream.apply/call`, `:call`+`:tail? true`→
-`:tailcall`) and the table gains `:push 22` and `:halt 23`. `:move` stays
+`:tailcall`) and the table gains `:push 22` and `:halt 23`, and under
+Rule R `:define 24` (the mnemonic maps to itself). `:move` stays
 unused. Keeping the datom mnemonics semantic and the image integers
 mechanical is the point: a query asks for `:call`, the dispatch switches on
 `5` or `20`.
@@ -228,15 +233,16 @@ defaults to `"id"`; `:stream-make`'s `:yin.code/buffer` defaults to
 `yin.vm/default-stream-capacity`. Every other operand attribute in the
 §2.4 table is required by its op — the decoder does not guess at it.
 
-**The `"v2"` execution contract, published.** `yin.vm.universal-continuation-format.md`
-§7.11 names a contract-revision-publication blocker for `:yin.code/contract
-"v2"`: a revision history naming the mnemonic set, per-mnemonic arity and
+**The `"v3"` execution contract, published.** The UCF design
+(`yin.vm.universal-continuation-format.md`) S7.11 names a
+contract-revision-publication blocker for `:yin.code/contract
+"v3"`: a revision history naming the mnemonic set, per-mnemonic arity and
 operand kinds, the saturation/defaults table, the opcode table and
 transitions, resolution and last-value-wins rules, the effect outcome map,
 and scheduler semantics, all in this section. All seven are already written,
 here or by direct citation:
 
-- **Mnemonic set**: the `:yin.code/op` column of §2.4's table, 21 values,
+- **Mnemonic set**: the `:yin.code/op` column of S2.4's table, 22 values,
   matching `yin.vm.code/mnemonics`.
 - **Per-mnemonic arity and operand kinds**: §2.4's "Operand attributes"
   column; enforced by §2.6 rule 2 (`:instruction-shape`) and rule 5
@@ -244,17 +250,27 @@ here or by direct citation:
 - **Saturation/defaults**: the paragraph directly above.
 - **Opcode table and transitions**: the "Opcode integers" paragraph above
   for the mnemonic→integer mapping; §4.2 for the transition equations.
-- **Resolution rule**: §4.2's $\rho$ = `engine/resolve-var`,
-  env → store → primitives → module registry (`ast.md` Part 2 gives the
-  same order for the walker — one resolution rule, two evaluators).
+- **Resolution rule**: S4.2's $\rho$ = `engine/resolve-var`, env, then
+  store, then primitives, then module registry (`ast.md` Part 2 gives
+  the same order for the walker: one resolution rule, two evaluators),
+  preceded by Rule R: a reserved name (`yin/def`) is refused before env
+  or store is consulted.
 - **Last-value-wins rule**: a repeated single-valued instruction attribute
   keeps its last value in datom order, exactly as `code.cljc`'s
   `index-batch` and `yin.vm/index-datoms` both implement it.
 - **Effect outcome map**: §3.3's table.
 - **Scheduler semantics**: §3.5.
 
-This is the whole `"v2"` contract by reference, not a duplicate of it —
+This is the whole `"v3"` contract by reference, not a duplicate of it:
 each piece has exactly one home, and this note is that home's index.
+
+Revision history: "v2" was the contract above without `:define` and
+without the reserved-name refusal. "v3" (2026-09-25, Rule R: `yin/def`
+is syntax, never a name) adds the `:define` mnemonic and transition,
+opcode 24, well-formedness rule 8 `:reserved-name`, and the refusal of
+the reserved name before env in `resolve-var`; `yin/def` is no longer a
+primitive. The two are not compatible, and a "v2" segment is refused by
+stamp (`:contract-mismatch`) with no migration.
 
 ### 2.5 Constants and literals
 
@@ -280,11 +296,17 @@ constant entity) is reserved and not needed for the current corpus.
 6. Every basic block ends in a terminator (`:jump`, `:return`, `:halt`) or
    falls into a labelled successor; pc `length-1` is a terminator.
 7. Every `:call`/`:ffi-call` has a non-negative `:yin.code/argc`.
+8. Rule R (`:reserved-name`): no `:var` names `yin/def`, no `:closure`
+   binds it, no `:store-get`/`:store-put` key names it, and every
+   `:define` names a symbol other than `yin/def`. A lowered image with
+   the old call shape `[:var yin/def] ... [:call 2 false]` never loads.
 
 Violation is a load error naming the entity and rule. The loader is total
 over the outcomes of its inputs; it does not guess. `yin.vm.code/rules`
-runs these seven, in this order, each assuming the earlier ones held; the
-first defect wins.
+runs these eight, in this order, each assuming the earlier ones held; the
+first defect wins. Every persistent-code loader (`vm-load-program`,
+`load-vector`) takes a required contract and refuses `:contract-missing`
+or `:contract-mismatch` before these rules run.
 
 ### 2.7 A worked segment
 
@@ -506,6 +528,18 @@ $$\begin{aligned}
 \end{aligned}$$
 
 where $\rho$ is `engine/resolve-var` (env → store → primitives → modules).
+
+**define** (Rule R: `yin/def` is syntax, never a name):
+
+$$\to \langle seg,pc{+}1,\,val,\,St,E,\,S[I.name \mapsto val],\,K\rangle$$
+
+The value operand has already been evaluated into $val$; the write goes
+through `engine/store-put`, the one program store write, which refuses
+the reserved key. The definition operator is never resolved: a
+definition lowers to its value's instructions followed by
+`[:define name]`, never to a call. $\rho$ refuses `yin/def` before it
+consults $E$ or $S$ (`:reserved-name`), and a well-formed segment has no
+`:var` naming it (S2.6 rule 8).
 
 **call** with $n = I.argc$, $St = St' \Vert [f, a_1..a_n]$:
 

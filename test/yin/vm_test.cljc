@@ -222,10 +222,9 @@
       (is (= profile (get vm/primitive-profiles name)))
       (is (= :none (:yin.k/host-state profile)))
       (is (= "yin.k.pp" (namespace (:yin.k/profile profile)))))
-    (is (= :effectful (get-in vm/primitives
-                              ['yin/def :yin.k/class])))
-    (is (= #{:vm/store-put} (get-in vm/primitives
-                                    ['yin/def :yin.k/effects])))
+    (is (not (contains? vm/primitives 'yin/def))
+        "Rule R: a definition is syntax, not a primitive")
+    (is (not (contains? vm/primitive-profiles 'yin/def)))
     (is (= :effectful (get-in vm/primitives
                               ['require :yin.k/class])))
     (is (= #{:module/require} (get-in vm/primitives
@@ -333,7 +332,12 @@
    {:type :dao.stream.apply/call, :op :op/add, :operands [(lit 1) (lit 2)]}
    {:type :vm/gensym, :prefix "id"}
    {:type :vm/gensym, :prefix "g"}
-   {:type :vm/store-get, :key 'yin/def}
+   ;; Rule R: a definition is syntax; the reserved symbol is ordinary
+   ;; data as a literal
+   (app (local 'yin/def) [(lit 'x) (lit 1)] false)
+   (app (local 'yin/def) [(lit 'x) (lit 'yin/def)] true)
+   {:type :literal, :value 'yin/def}
+   {:type :vm/store-get, :key 'yin.def/x}
    {:type :vm/store-get, :key :k}
    {:type :vm/store-get, :key 3}
    {:type :vm/store-put, :key :k, :val [1 {:b 2}]}
@@ -410,13 +414,16 @@
       (doseq [[name ast] corpus]
         (testing name
           (let [vm (ast-walker/create-vm)]
-            (is (= (:program (ast-walker/vm-load-program vm (vm/ast->datoms ast)))
+            (is (= (:program (ast-walker/vm-load-program vm (vm/ast->datoms ast)
+                                                         vm/ast-contract))
                    (:program (ast-walker/vm-load-rows
-                               vm (vm/ast->semantic-bytecode ast))))))))))
+                               vm (vm/ast->semantic-bytecode ast)
+                               vm/ast-contract)))))))))
   (testing "a malformed row set is refused with its §7.4 rule before load"
     (doseq [[name [expected bc]] malformed/malformed-row-sets]
       (is (= (:rule expected)
-             (error-rule #(ast-walker/vm-load-rows (ast-walker/create-vm) bc)))
+             (error-rule #(ast-walker/vm-load-rows (ast-walker/create-vm) bc
+                                                   vm/ast-contract)))
           name))))
 
 

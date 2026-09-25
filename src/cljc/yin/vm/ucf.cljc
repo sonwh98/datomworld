@@ -43,7 +43,7 @@
    (`yin.vm.semantic.md` S2.4); `:yin.k/version` is this envelope's own
    version. A resumer on another revision answers `:yin.k/profile-mismatch`
    before lowering; a code index is keyed per stamp."
-  {:yin.code/contract "v2",
+  {:yin.code/contract vm/semantic-contract,
    :yin.k/version 0})
 
 
@@ -211,8 +211,15 @@
   "Code identity as one S7.9 outcome. On success
    `{:yin.k/status :yin.k/ok, :yin.code/vector v, :yin.code/hash address,
    :yin.k/contract contract-stamp}`; otherwise the `refusal` map the
-   vector function would have thrown."
-  [datoms]
+   vector function would have thrown.
+
+   `contract` is the batch's own semantic stamp, required and compared
+   with `vm/semantic-contract` first (`:contract-missing`,
+   `:contract-mismatch`, thrown): the outcome's stamp is the one verified,
+   never one assigned on the caller's behalf, so canonicalizing cannot
+   relabel an old or unstamped batch."
+  [datoms contract]
+  (vm/check-contract! vm/semantic-contract contract)
   (try
     (let [v (batch->canonical-instruction-vector datoms)]
       {:yin.k/status :yin.k/ok,
@@ -250,6 +257,7 @@
    :stream-cursor :step,
    :stream-close :step,
    :current-continuation :step,
+   :define :step,
    :jump :jump,
    :branch-false :branch,
    :resume :transfer,

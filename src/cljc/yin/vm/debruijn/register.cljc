@@ -1,7 +1,8 @@
 (ns yin.vm.debruijn.register
   "R4 (docs/design/yin.vm.debruijn.register.md S5, S6 R4): the register
    execution kernel that interprets positional register images
-   `{:bodies [...], :instructions [...]}` under contract version 3.
+   `{:bodies [...], :instructions [...]}` under contract version 4
+   (the \"r2\" contract).
 
    The register kernel is a sibling to `yin.vm.debruijn.stack` (B3/B4) and
    `yin.vm.semantic`. It preserves B3's frame direction, closure capture,
@@ -18,7 +19,8 @@
    are refused with qualified `:continuation-format` diagnostics. Resume
    values must be plain data, refusing host exceptions with `:resume-value`.
 
-   The kernel implements all 22 opcodes across the pure-program tier and the
+   The kernel implements all 23 opcodes, Rule R's `:define` included,
+   across the pure-program tier and the
    effects tier, connecting to `yin.vm.engine` via `register-restore` and
    per-site wait-entry builders."
   (:require [dao.stream.apply :as apply2]
@@ -103,18 +105,18 @@
 ;; Image loading & VM construction
 ;; =============================================================================
 
-(defn load-image
-  "Load `segment` (a register image `{:bodies [...], :instructions [...]}`)
-   into `vm` as its one image: R is computed, the registers are reset to
-   pc 0 with empty frames and continuation, and the machine is running
-   unless the segment is empty. A non-empty image must pass the register
-   validator. A continuation parked under an earlier image cannot be
-   restored against this one: `register-restore` refuses it by R."
+(defn- empty-segment?
+  [segment]
+  (or (nil? segment)
+      (empty? segment)
+      (and (map? segment) (empty? (:instructions segment)))))
+
+
+(defn- install-image
+  "Install `segment` as the one image. A non-empty image must pass the
+   register validator."
   [vm segment]
-  (let [empty-seg? (or (nil? segment)
-                       (empty? segment)
-                       (and (map? segment)
-                            (empty? (:instructions segment))))]
+  (let [empty-seg? (empty-segment? segment)]
     (if empty-seg?
       (assoc vm
              :segment {:bodies [], :instructions []}
@@ -143,10 +145,31 @@
                  :value nil))))))
 
 
+(defn load-image
+  "Load `segment` (a register image `{:bodies [...], :instructions [...]}`)
+   into `vm` as its one image: R is computed, the registers are reset to
+   pc 0 with empty frames and continuation, and the machine is running
+   unless the segment is empty. A continuation parked under an earlier
+   image cannot be restored against this one: `register-restore` refuses
+   it by R.
+
+   `contract` is required and compared with `vm/register-contract` first
+   (`:contract-missing`, `:contract-mismatch`); a non-empty image must then
+   pass the register validator, Rule R included. An empty segment admits
+   no code and needs neither."
+  [vm segment contract]
+  (when-not (empty-segment? segment)
+    (vm/check-contract! vm/register-contract contract))
+  (install-image vm segment))
+
+
 (defn create-vm
   "Build a fresh `DebruijnRegisterVM` over `segment`.
    Options: `:free-env`, `:store`, `:primitives`, `:modules`, `:make-stream`,
-   `:call-in`/`:call-out`/`:call-capacity`, and `:bridge`."
+   `:call-in`/`:call-out`/`:call-capacity`, `:bridge`, and `:contract`, the
+   segment's stamp, required when `segment` is non-empty (`load-image`). A
+   `:free-env`, `:store`, or `:primitives` binding a reserved name is
+   refused (Rule R)."
   ([segment] (create-vm segment {}))
   ([segment opts]
    (let [base (vm/empty-state
@@ -158,10 +181,11 @@
             :hash nil,
             :pc 0,
             :frames [],
-            :free-env (or (:free-env opts) {}),
+            :free-env (vm/check-bindings! :env (or (:free-env opts) {})),
             :registers [],
             :continuation [],
-            :store (merge (:store base) (:store opts)),
+            :store (merge (:store base)
+                          (vm/check-bindings! :store (:store opts))),
             :blocked? false,
             :halted? true,
             :wait-set [],
@@ -173,7 +197,7 @@
             :bridge nil,
             :primitives (:primitives base),
             :modules (or (:modules opts) {})})
-         (load-image segment)
+         (load-image segment (:contract opts))
          (ffi/attach (:bridge opts))))))
 
 
@@ -483,7 +507,17 @@
         (assoc vm
                :pc (inc pc)
                :registers (assoc registers (nth inst 1) val)
-               :store (assoc store key val)))
+               :store (engine/store-put store key val)))
+
+      ;; :define -- the definition transition: register `rs` is written
+      ;; under the literal name and into `rd`. The operator is never
+      ;; resolved (Rule R).
+      :define
+      (let [val (nth registers (nth inst 3))]
+        (assoc vm
+               :pc (inc pc)
+               :registers (assoc registers (nth inst 1) val)
+               :store (engine/store-put store (nth inst 2) val)))
 
       :gensym
       (let [[id vm'] (engine/gensym vm (nth inst 2))]
@@ -567,7 +601,7 @@
              "resulting image")
         {:ast ast})))
   (reset [this]
-    (load-image this (:segment this)))
+    (install-image this (:segment this)))
   (halted? [this] (engine/halted-with-empty-queue? this))
   (blocked? [this] (engine/vm-blocked? this))
   (value [this] (engine/vm-value this))

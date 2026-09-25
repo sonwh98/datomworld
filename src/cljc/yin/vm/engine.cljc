@@ -54,8 +54,15 @@
 (defn resolve-var
   "Look up a variable name: env -> store -> primitives -> module registry.
 
+   A reserved name (Rule R: `yin/def` is syntax, never a name) is refused
+   before env or store is consulted, so no binding, store entry, or
+   registry can give it a meaning. Every executing variable lookup of
+   every engine goes through here.
+
    The registry is a value supplied by the composition, not a global."
   [env store primitives registry name]
+  (when (vm/reserved-name? name)
+    (vm/refuse-reserved! :variable name))
   (if-let [pair (find env name)]
     (val pair)
     (if-let [pair (find store name)]
@@ -71,6 +78,26 @@
           resolved
           (fail (str "Unable to resolve symbol: " name " in this context")
                 {:symbol name}))))))
+
+
+(defn check-store-key!
+  "Refuse a program store access whose key is a reserved name (Rule R):
+   the definition operator is never a store key."
+  [key]
+  (when (vm/reserved-name? key)
+    (vm/refuse-reserved! :store-key key)))
+
+
+(defn store-put
+  "The one program store write: every definition transition, the
+   `:vm/store-put` effect, and the four direct store instructions write
+   through here, and a reserved key is refused. Every other store write
+   `yin.vm.store-write-audit-test` detects is state construction on its
+   allowlist; that namespace states what it detects and the residual it
+   leaves to review."
+  [store key val]
+  (check-store-key! key)
+  (assoc store key val))
 
 
 (defn- gen-id
@@ -420,9 +447,15 @@
     (when (seq run-queue)
       (let [entry (first run-queue)
             rest-queue (subvec run-queue 1)
+            updates (:store-updates entry)
+            ;; allowlisted state construction: a woken entry only ever
+            ;; carries engine-minted keyword keys (cursor ids)
+            _ (when-let [k (some #(when-not (keyword? %) %) (keys updates))]
+                (fail "Ready entry store update carries a non-minted key"
+                      {:rule :store-update-key, :key k}))
             base (assoc state
                         :ready-queue rest-queue
-                        :store (merge (:store state) (:store-updates entry))
+                        :store (merge (:store state) updates)
                         :blocked? false
                         :halted? false)]
         (if-let [terminal (terminal-resume-outcome entry)]
@@ -509,9 +542,9 @@
         result
         (case (:effect effect)
           :vm/store-put {:state (assoc state
-                                       :store (assoc (:store state)
-                                                     (:key effect)
-                                                     (:val effect))),
+                                       :store (store-put (:store state)
+                                                         (:key effect)
+                                                         (:val effect))),
                          :value (:val effect),
                          :blocked? false}
           :stream/make

@@ -116,7 +116,8 @@
       :ast-walker (vm/eval (ast-walker/create-vm opts) ast)
       :semantic (vm/run (semantic/vm-load-program
                           (semantic/create-vm opts)
-                          (linearize/lower-ast ast))))))
+                          (linearize/lower-ast ast)
+                          vm/semantic-contract)))))
 
 
 (defn- run-iterations

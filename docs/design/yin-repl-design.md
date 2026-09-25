@@ -70,6 +70,24 @@ The shell maintains a state atom:
 
 Each eval preserves `:vm` state (its `:store` accumulates `yin/def` bindings), creating a natural REPL session.
 
+Definitions are syntax (Rule R). `(def x v)` lowers to a definition
+`(yin/def x v)`, which every evaluator runs as a definition transition:
+it writes the literal key `x` and never resolves `yin/def`. `yin/def` is
+not a primitive and cannot be shadowed or rebound: a lambda parameter,
+store key, `def` target, or macro named `yin/def` is refused with
+`:reserved-name`. Redefining any other name stays allowed; the second
+`(def x ...)` wins.
+
+The REPL's program loaders (`program-loaders` in `yin.repl`) take each
+expanded tree packet from the expander. That output is fresh code, so
+each loader supplies the current contract stamp itself: the walker
+loads rows under `yin.vm/ast-contract` ("v3"), the semantic VM hands the
+linearizer's rows loader the same AST stamp, which it verifies before
+lowering and loading under "v3", and the de Bruijn kernels load
+their lowered images under `yin.vm/stack-contract` ("b2") and
+`yin.vm/register-contract` ("r2"). Externally supplied datoms or rows
+are never assigned a stamp.
+
 ---
 
 ## Input Dispatch

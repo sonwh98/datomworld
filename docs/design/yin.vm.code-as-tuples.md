@@ -483,15 +483,18 @@ primitive symbol resolved and profile-checked per UCF §7.5.2, is not
 adopted: it would re-admit a node that no persistent form carries, for a
 convenience no corpus program uses.
 
-A program that needs the behaviour writes it as an application of the
-`yin/def` primitive (`v2.cljc:128`) over a `:vm/store-get` operand:
+A program that needs the behaviour writes it as a definition (`yin/def`,
+syntax under Rule R, never a primitive) over a `:vm/store-get` operand:
 `(yin/def k (f (vm/store-get k) args…))`. That rewrite is equivalent to
 the arm **only under stated conditions**, and this document does not claim
 it as a general semantics-preserving migration:
 
-- `yin/def` and `f` resolve through `resolve-var`'s precedence, store
-  → primitives → modules (`src/cljc/yin/vm/engine.cljc:46-58`), so the
-  rewrite is equivalent only when neither `yin/def` nor `f` is shadowed by an enclosing `:lambda`'s params at the site (so both resolve as free names, through the fallthrough, rather than to a local binding);
+- `f` resolves through `resolve-var`'s precedence, store, then
+  primitives, then modules (`src/cljc/yin/vm/engine.cljc`), so the
+  rewrite is equivalent only when `f` is not shadowed by an enclosing
+  `:lambda`'s params at the site (so it resolves as a free name, through
+  the fallthrough, rather than to a local binding); `yin/def` itself is
+  never resolved and cannot be shadowed (Rule R);
 - the arm stores whatever `(apply f current args)` returns, as data
   (`ast_walker.cljc:410-415`), while an application interprets an
   effect-shaped return (`ast_walker.cljc:184-188`,
@@ -765,6 +768,15 @@ root-scoping the rules and building the indexer that emits occurrence
 tuples in the first place — both implementation work, not open design
 questions.
 
+**The definition operator is never free (Rule R).** `yin/def` is syntax,
+never a name. A `:variable` row naming it is legal only as the operator
+slot of a two-operand application whose first operand is a literal
+symbol other than `yin/def`; every other occurrence, a `:lambda` binding
+it, and a store key naming it are refused by `validate-rows` (S7.4).
+`yin.vm/free-names` never returns it, and no query over these rows
+counts it as an obligation: a definition is recognized by syntax and
+writes its literal key, it does not resolve its operator.
+
 ---
 
 ## §5 The segment level
@@ -780,7 +792,13 @@ away. Its address is `(dao.jing/segment-key vector)`, the value
 levels are uniform under this design: an AST row (§2.1) and an instruction
 tuple are both flat positional tuples, canonical and content-addressed,
 and the instruction vector was already this shape before the flat-row
-ruling clarified the AST level. To perfectly preserve program semantics across boundaries, both the Universal Map AST and the Semantic Tuples strictly retain named variables. Therefore, `"v2"` everywhere in this document means the Named Variable grammar. This design otherwise adds
+ruling clarified the AST level. To perfectly preserve program semantics
+across boundaries, both the Universal Map AST and the Semantic Tuples
+strictly retain named variables. Therefore, every contract name in this
+document means the Named Variable grammar: `"v2"` where it appears in
+historical narrative, and `"v3"`, the current revision (Rule R adds the
+`:define` instruction and reserves `yin/def`), in normative text. This
+design otherwise adds
 nothing to that form and restates none of it.
 
 ### 5.2 The hash chain is realized by derivation records
@@ -800,7 +818,7 @@ away*). The link is a **derivation record**, itself content-addressed
  :yin.ledger/output   <segment-address>
  :yin.ledger/function :yin.vm/lower
  :yin.ledger/profile  {:yin.lower/profile "ast-to-bytecode"          ; the lowering profile, §5.2.1
-                       :yin.code/contract "v2"              ; the UCF §7.3.3 execution contract it targets
+                       :yin.code/contract "v3"  ; UCF S7.3.3 contract
                        :yin.k/version     0}}
 ```
 
@@ -1128,6 +1146,9 @@ row nothing reaches.
 +-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:root-reachable` | a row of the loaded set is not reachable from the root row                                                                                        |
 +-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
+| `:reserved-name`  | a `:variable` row naming `yin/def`, judged at every parent slot and at the root, that is not the operator of a two-operand application whose      |
+|                   | first operand is a literal symbol other than `yin/def`; a `:lambda` param naming it; a `:vm/store-get` or `:vm/store-put` key naming it (Rule R)  |
++-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------+
 The three reference rules are the row counterpart of §7.5's
 `:target-bounds`: a row's child slots are references, and they must
 resolve within the loaded set and close under the root, as a jump target
@@ -1168,8 +1189,17 @@ UCF §7.3.4 checks are translated as follows.
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:argc`          | a `:call`/`:ffi-call` argc is not a non-negative integer                                                                                            |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
+| `:reserved-name` | a `:var` or a `:store-get`/`:store-put` key names `yin/def`, a `:closure` binds it, or a `:define` name is not a symbol other than `yin/def`        |
+|                  | (Rule R, rule 9); the old call shape `[:var yin/def] ... [:call 2 false]` is refused here                                                           |
++------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 
 There is no vector-level binding rule for `:var`: nesting is a property of the AST. `resolve-var`'s retained fallthrough (env → store → primitives → modules, §4.5, §7.7.2) throws if nothing resolves (`engine.cljc:46-65`) — a `:var` name is validated only as a symbol here (§7.5's `:operand-kind`), never checked for boundedness at this level.
+
+The one name the vector rules do judge is the reserved definition
+operator (Rule R, `:reserved-name` above): it is syntax, lowered to
+`[:define name]`, so no `:var` may name it. The batch checker
+`code/well-formed?` carries the same rule as its rule 8 (S2.6 of
+`yin.vm.semantic.md`), and the row checker as the last S7.4 rule.
 
 The address check (the vector hashes to the address it claims) is UCF
 §7.3.4's and runs before these rules whenever an address is claimed; a
@@ -1221,9 +1251,17 @@ trees):
 [:find ?name :in $ast $occ % ?root
  :where [$occ ?root ?path ?v] [?v :variable ?name] (not (bound? ?root ?path ?name))]
 
-;; store keys read or written by code
-[:find ?key :in $ast :where (or [$ast _ :vm/store-get ?key]
-                                [$ast _ :vm/store-put ?key _])]
+;; store keys read or written by code; a definition's key is always a
+;; literal (Rule R), so it is a store key exactly as a :vm/store-put key is
+[:find ?key :in $ast
+ :where (or-join [?key]
+                 [$ast _ :vm/store-get ?key]
+                 [$ast _ :vm/store-put ?key _]
+                 (and [$ast _ :application ?op ?operands _]
+                      [$ast ?op :variable ?name]
+                      [(reserved-name? ?name)]
+                      [(first ?operands) ?kid]
+                      [$ast ?kid :literal ?key]))]
 
 ;; FFI ops
 [:find ?op :in $ast :where [$ast _ :dao.stream.apply/call ?op _]]
@@ -1254,7 +1292,8 @@ Extraction over segments (`$code` is the union of segment-qualified rows):
 ;; than assuming it.
 [:find ?name :in $code % :where [$code _ _ :var ?name] (not (bound? ?name))]
 [:find ?key  :in $code :where (or [$code _ _ :store-get ?key]
-                                  [$code _ _ :store-put ?key _])]
+                                  [$code _ _ :store-put ?key _]
+                                  [$code _ _ :define ?key])]
 [:find ?op   :in $code :where [$code _ _ :ffi-call ?op _]]
 [:find ?pid  :in $code :where [$code _ _ :resume ?pid]]
 [:find ?mn   :in $code
@@ -1278,7 +1317,7 @@ That mapping is lifted out of the machine into a **footprint table**,
 versioned with the execution contract stamp (UCF §7.3.3) because the
 effect a mnemonic raises is part of that contract. Extraction applies the
 table **before** any union with callable-profile effects, so the union is
-over one vocabulary. The table for contract `"v2"`:
+over one vocabulary. The table for contract `"v3"`:
 
 +---------------+------------------------+--------------------+----------------------------------------------------------------------------------------------------------+
 | Syntax tag    | Mnemonic               | Effect identifiers | Other requirement contributed                                                                            |
@@ -1318,6 +1357,9 @@ over one vocabulary. The table for contract `"v2"`:
 | t k`,         | `:store-put k`         |                    |                                                                                                          |
 | `:vm/store-pu |                        |                    |                                                                                                          |
 | t k`          |                        |                    |                                                                                                          |
++---------------+------------------------+--------------------+----------------------------------------------------------------------------------------------------------+
+| a definition  | `:define k`            | `#{}`: the write   | `k` into the store-slice requirement, as a `:store-put` key: every definition key is literal             |
+| application   |                        | is machine state   | (Rule R); `yin/def` is never resolved and never an obligation                                            |
 +---------------+------------------------+--------------------+----------------------------------------------------------------------------------------------------------+
 | `:vm/current- | `:current-continuation | `#{}`              | —                                                                                                        |
 | continuation` | `                      |                    |                                                                                                          |
@@ -1375,9 +1417,11 @@ a value.
 
 Every retained obligation is a required primitive or module export, checked by
 profile (UCF §7.5.2), and the **effects of a callable are read from its
-profile** (`:yin.k/effects`), never inferred from the name: `yin/def`
-contributes `:vm/store-put` and `require` contributes `:module/require`
-because their profiles say so. Where a retained name has no profile at the
+profile** (`:yin.k/effects`), never inferred from the name: `require`
+contributes `:module/require` because its profile says so. `yin/def` is
+not a callable and has no profile (Rule R): a definition is the
+`:define` instruction, whose write is machine state (S7.7.1), and it is
+never a retained obligation. Where a retained name has no profile at the
 emitter, discovery is `:incomplete`; conservatively retaining every
 possible primitive and module requirement is always admissible and never
 makes a `:complete` result wrong.
@@ -1519,7 +1563,8 @@ fields as attributes and the record's address as one more:
  [:db/add ev :yin.ledger/input    tree-addr]
  [:db/add ev :yin.ledger/output   seg-addr]
  [:db/add ev :yin.ledger/function :yin.vm/lower]
- [:db/add ev :yin.ledger/profile  {:yin.lower/profile "ast-to-bytecode" :yin.code/contract "v2" :yin.k/version 0}]
+ [:db/add ev :yin.ledger/profile  {:yin.lower/profile "ast-to-bytecode"
+                                   :yin.code/contract "v3" :yin.k/version 0}]
  [:db/add ev :yin.ledger/record   record-addr]]     ; ev is a tempid; m defaults to :db/assert
 ```
 
@@ -1828,8 +1873,12 @@ Rules:
 - **Binding.** A declaration `[j path :yin.macro/definition]` names the
   `:application` at `path` in tree `j`, and through the catalogue the
   original definition whose group contains `[j path]`; that node must be
-  `(yin/def <literal sym> <lambda>)`, i.e., its reconstructed semantic map must have an `:operator` that is a `:variable` node naming `yin/def` (free at that site, per §4.5), its first operand a `:literal` symbol node, and its second operand a `:lambda` node. A
-  declaration whose coordinates do not resolve to such a node is an
+  `(yin/def <literal sym> <lambda>)`, i.e., its reconstructed semantic
+  map must have an `:operator` that is a `:variable` node naming
+  `yin/def` (the definition operator: syntax, never a name and never
+  free, by Rule R, S4.5; no enclosing binder can name it), its first
+  operand a `:literal` symbol node, and its second operand a `:lambda`
+  node. A declaration whose coordinates do not resolve to such a node is an
   admission failure, `{:kind :malformed-input :reason
   :stray-macro-declaration}`, the successor of §3.1 step 1's
   `:stray-macro-lambda`.

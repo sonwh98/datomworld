@@ -116,7 +116,9 @@
     (:consumer (observer/run-on-stream
                  {:observer observer, :consumer (tu/create-vm)}
                  engine/ready-for-ingress?
-                 (fn [v p] (ast-walker/vm-load-rows v (m/packet->row-set p)))
+                 (fn [v p]
+                   (ast-walker/vm-load-rows v (m/packet->row-set p)
+                                            vm/ast-contract))
                  vm/run))))
 
 

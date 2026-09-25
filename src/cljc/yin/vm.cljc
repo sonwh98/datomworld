@@ -92,6 +92,196 @@
      VM-specific: linked frames, stack vector, call-stack, etc."))
 
 
+;; =============================================================================
+;; Rule R: the definition operator is syntax, never a name
+;; =============================================================================
+
+(def definition-operator
+  "The one name that is syntax rather than a name: the operator of a
+   definition `(yin/def <literal-symbol> value)`. It is legal only as the
+   operator of a two-operand application whose first operand is a literal
+   symbol other than itself. It is never a binder, a store key, a
+   definition key, a macro name, or a primitive."
+  'yin/def)
+
+
+(def reserved-names
+  "The reserved set: a one-entry contract table. `require` is dynamic and
+   stays an ordinary primitive."
+  #{definition-operator})
+
+
+(defn reserved-name?
+  [x]
+  (contains? reserved-names x))
+
+
+(defn reserved-name-defect
+  "The data of a Rule R refusal: `role` names where the reserved name
+   appeared (`:variable`, `:binder`, `:store-key`, `:definition-key`,
+   `:definition-shape`, `:primitive`, `:env`, `:store`, `:macro`)."
+  [role name]
+  {:rule :reserved-name, :name name, :role role})
+
+
+(defn refuse-reserved!
+  "Throw the Rule R refusal for `name` in `role`, merged with `data`."
+  ([role name] (refuse-reserved! role name {}))
+  ([role name data]
+   (throw (ex-info (str "Reserved name " name " used as "
+                        (clojure.core/name role))
+                   (merge data (reserved-name-defect role name))))))
+
+
+(defn check-bindings!
+  "Refuse a supplied map (an env, a store, a registry) that binds a
+   reserved name. Returns `m`."
+  [role m]
+  (when (map? m)
+    (when-let [n (some #(when (reserved-name? %) %) (keys m))]
+      (refuse-reserved! role n)))
+  m)
+
+
+(defn definition-operator?
+  "True when a map AST node is the variable naming the definition
+   operator."
+  [node]
+  (and (= :variable (:type node)) (= definition-operator (:name node))))
+
+
+(defn definition?
+  "True when a map AST node is an application of the definition operator,
+   whatever its operands: its shape is judged by `definition-name`."
+  [node]
+  (and (= :application (:type node)) (definition-operator? (:operator node))))
+
+
+(defn definition-shape-defect
+  "nil when `operands` (map AST nodes) are a definition's legal operands,
+   two of them with the first a literal non-reserved symbol; else the
+   Rule R defect."
+  [operands]
+  (let [key-node (first operands)
+        k (:value key-node)]
+    (cond (not (and (= 2 (count operands))
+                    (= :literal (:type key-node))
+                    (symbol? k)))
+          (reserved-name-defect :definition-shape definition-operator)
+          (reserved-name? k) (reserved-name-defect :definition-key k))))
+
+
+(defn definition-name
+  "The literal key of a definition node, or a thrown Rule R refusal when
+   its operands are not a legal definition."
+  [node]
+  (let [operands (:operands node)]
+    (when-let [d (definition-shape-defect operands)]
+      (throw (ex-info "Malformed definition" d)))
+    (:value (first operands))))
+
+
+(defn- ast-child-nodes
+  "Structural child nodes of a map AST node other than a definition's
+   operator. Literal values are data, never nodes."
+  [node]
+  (case (:type node)
+    :lambda [(:body node)]
+    :application (if (definition? node)
+                   (:operands node)
+                   (cons (:operator node) (:operands node)))
+    :dao.stream.apply/call (:operands node)
+    :if [(:test node) (:consequent node) (:alternate node)]
+    :stream/put [(:target node) (:val node)]
+    (:stream/cursor :stream/next :stream/close) [(:source node)]
+    :vm/resume [(:val node)]
+    nil))
+
+
+(defn ast-reserved-defect
+  "Rule R over a whole map AST: nil when every occurrence of a reserved
+   name is a legal definition operator, else the first defect in preorder
+   (`reserved-name-defect`). A literal whose value is a reserved symbol is
+   data and always legal."
+  [ast]
+  (letfn [(own
+            [node]
+            (case (:type node)
+              :variable (when (reserved-name? (:name node))
+                          (reserved-name-defect :variable (:name node)))
+              :lambda (when-let [p (some #(when (reserved-name? %) %)
+                                         (:params node))]
+                        (reserved-name-defect :binder p))
+              (:vm/store-get :vm/store-put :vm/store-update)
+              (when (reserved-name? (:key node))
+                (reserved-name-defect :store-key (:key node)))
+              :application (when (definition? node)
+                             (definition-shape-defect (:operands node)))
+              nil))
+          (walk
+            [node]
+            (when (map? node)
+              (or (own node) (some walk (ast-child-nodes node)))))]
+    (walk ast)))
+
+
+;; =============================================================================
+;; Execution contracts (UCF S7.3.3)
+;; =============================================================================
+;; One published revision name per persistent code format. Rule R changed
+;; the resolution precedence and added the definition transition, so every
+;; format moved to a new revision. Persistent-code loaders require and
+;; compare a stamp; fresh-code producers supply these constants.
+
+(def ast-contract
+  "The contract of the Universal AST: `:yin/*` datoms and projected rows."
+  "v3")
+
+
+(def semantic-contract
+  "The contract of the linear `:yin.code/*` segment and its canonical
+   instruction vector."
+  "v3")
+
+
+(def stack-contract
+  "The contract of the de Bruijn stack image (`:yin.debruijn.code`)."
+  "b2")
+
+
+(def register-contract
+  "The contract of the de Bruijn register image (`:yin.debruijn.register`)."
+  "r2")
+
+
+(defn check-contract!
+  "Refuse a persistent-code admission whose supplied stamp is absent
+   (`:contract-missing`) or names another revision (`:contract-mismatch`).
+   Runs before validation, so an old-stamped image fails by stamp."
+  [expected supplied]
+  (cond (nil? supplied)
+        (throw (ex-info "Persistent code carries no contract stamp"
+                        {:rule :contract-missing, :expected expected}))
+        (not= expected supplied)
+        (throw (ex-info (str "Persistent code is stamped " supplied
+                             ", this loader executes " expected)
+                        {:rule :contract-mismatch,
+                         :expected expected,
+                         :actual supplied}))))
+
+
+(defn fresh-code-loader
+  "The one explicitly trusted path that supplies a stamp: adapt a stamped
+   loader `(fn [vm code contract])` into an observer loader
+   `(fn [vm code])` for a medium whose only producer, in this
+   composition, is trusted fresh code (a frontend, the expander, the
+   encoder observer, the linearizer) emitting the current `contract`.
+   Never wrap a medium that carries externally supplied or persisted
+   code: such code carries its own stamp, and its loader verifies it."
+  [load contract]
+  (fn [vm code] (load vm code contract)))
+
+
 ;; Primitive operations
 ;; Arithmetic and comparison ops are direct clojure.core references.
 ;; Wrapped only where VM semantics require it:
@@ -100,7 +290,8 @@
 ;; - /: only the JVM throws on an integral zero divisor; JS and Dart divide
 ;;   IEEE-754 and yield Infinity, so checked-divide makes the error
 ;;   host-uniform.
-;; - yin/def, require: return effect descriptors consumed by the engine.
+;; - require: returns an effect descriptor consumed by the engine.
+;; There is no `yin/def` primitive: a definition is syntax (Rule R).
 (defn- checked-divide
   "clojure.core `/` except a zero divisor throws on every host.
 
@@ -191,10 +382,6 @@
                     :cljs (fn [b] (.apply js/String.fromCharCode nil b))
                     :cljd (fn [b] (dart:core/String.fromCharCodes b)))
                  [1 2])
-           ['yin/def (primitive-entry
-                       'yin/def
-                       (fn [k v] {:effect :vm/store-put, :key k, :val v})
-                       :effectful [2] #{:vm/store-put})]
            ['require (primitive-entry
                        'require
                        (fn [spec]
@@ -389,7 +576,8 @@
    :tailcall 20,
    :dao.stream.apply/call 21,
    :push 22,
-   :halt 23})
+   :halt 23,
+   :define 24})
 
 
 #?(:clj
@@ -425,7 +613,8 @@
                     :tailcall 20,
                     :dao.stream.apply/call 21,
                     :push 22,
-                    :halt 23}
+                    :halt 23,
+                    :define 24}
            resolved (mapcat (fn [[kw body]] [(get opcodes kw) body]) pairs)]
        `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
@@ -1078,6 +1267,71 @@
             (range 1 (inc (count slots))) slots (rest body))))
 
 
+(defn- rows-reserved-defect
+  "Rule R over a row set that already passed every structural rule,
+   occurrence-aware: a row is shared by content address, so a
+   `[:variable yin/def]` row is judged at every parent slot that names
+   it (and at the root). It is legal only as the operator slot of an
+   `:application` whose two operands begin with a literal non-reserved
+   symbol. A lambda binding the name and a store key naming it are
+   refused wherever they occur. `defect-res` is `validate-rows`' own
+   defect constructor, so the defect carries the row's path."
+  [root rows defect-res]
+  (let [reserved-var? (fn [id]
+                        (let [row (get rows id)]
+                          (and (= :variable (nth row 1))
+                               (reserved-name? (nth row 2)))))
+        shape (fn [operands]
+                (let [key-row (get rows (first operands))]
+                  (cond (not (and (= 2 (count operands))
+                                  (= :literal (nth key-row 1))
+                                  (symbol? (nth key-row 2))))
+                        :definition-shape
+                        (reserved-name? (nth key-row 2)) :definition-key)))
+        own (fn [[id row]]
+              (case (nth row 1)
+                :lambda (when (some reserved-name? (nth row 2))
+                          (merge (defect-res :reserved-name id)
+                                 {:role :binder, :name definition-operator}))
+                (:vm/store-get :vm/store-put)
+                (when (reserved-name? (nth row 2))
+                  (merge (defect-res :reserved-name id)
+                         {:role :store-key, :name (nth row 2)}))
+                :application
+                (if (reserved-var? (nth row 2))
+                  (when-let [role (shape (nth row 3))]
+                    (merge (defect-res :reserved-name id)
+                           {:role role, :name definition-operator}))
+                  nil)
+                nil))
+        misplaced (fn [[id row]]
+                    (let [tag (nth row 1)
+                          slots (get semantic-bytecode-grammar tag)]
+                      (some identity
+                            (map (fn [i [_ kind] v]
+                                   (case kind
+                                     :node (when (and (reserved-var? v)
+                                                      (not (and (= :application
+                                                                   tag)
+                                                                (= 1 i))))
+                                             [id [i]])
+                                     :nodes (some (fn [[j c]]
+                                                    (when (reserved-var? c)
+                                                      [id [i j]]))
+                                                  (map-indexed vector v))
+                                     nil))
+                                 (range 1 (inc (count slots)))
+                                 slots
+                                 (drop 2 row)))))]
+    (or (when (reserved-var? root)
+          (merge (defect-res :reserved-name root)
+                 {:role :variable, :name definition-operator}))
+        (some own rows)
+        (when-let [[id suffix] (some misplaced rows)]
+          (merge (defect-res :reserved-name id suffix)
+                 {:role :variable, :name definition-operator})))))
+
+
 (defn validate-rows
   "§7.4: validate a projected row set before reconstruction. `rows` is
    `{id [id tag & slots]}`; `root` is the root row's id.
@@ -1086,9 +1340,10 @@
    `{:rule r :path p}`, or `{:rule :root-reachable :id id}` for a row of the
    loaded set nothing reaches. Rules run in §7.4's order -- `:tag`,
    `:arity`, `:slot-kind`, `:saturation`, `:id-resolves`, `:acyclic`,
-   `:root-reachable` -- discovered by descending from the root row, so a
-   path is always available except for `:root-reachable`'s unreached rows.
-   Each rule assumes the earlier ones held."
+   `:root-reachable`, then Rule R's `:reserved-name` -- discovered by
+   descending from the root row, so a path is always available except for
+   `:root-reachable`'s unreached rows. Each rule assumes the earlier ones
+   held."
   [{:keys [root rows]}]
   (let [safe-tag (fn [row] (when (and (vector? row) (<= 2 (count row))) (nth row 1)))
         safe-slots (fn [tag] (get semantic-bytecode-grammar tag))
@@ -1183,7 +1438,9 @@
                                       (when-not (contains? paths id)
                                         {:rule :root-reachable :id id}))
                                     (keys rows))]
-    (or tag-defect arity-defect slot-kind-defect saturation-defect id-resolves-defect acyclic-defect root-reachable-defect)))
+    (or tag-defect arity-defect slot-kind-defect saturation-defect
+        id-resolves-defect acyclic-defect root-reachable-defect
+        (rows-reserved-defect root rows defect-res))))
 
 
 (defn semantic-bytecode->ast
@@ -1358,17 +1615,19 @@
    are root-scoped, so only `root`'s binder classifies `root`'s
    occurrences. Conservative by construction: a name whose row is bound at
    one occurrence and free at another is included, never silently dropped
-   (§7.6.1)."
+   (S7.6.1). The definition operator is syntax, never a name
+   (Rule R), so it is never free."
   [db occ root]
-  (set (map first
-            (query/collect
-              (query/q '[:find ?name :in $ $occ % ?root
-                         :where
-                         [$occ ?root ?path ?v]
-                         [?v :variable ?name]
-                         (not (occ-bound? ?root ?path ?name))]
-                       db occ occurrence-rules root
-                       {:fns occurrence-fns})))))
+  (disj (set (map first
+                  (query/collect
+                    (query/q '[:find ?name :in $ $occ % ?root
+                               :where
+                               [$occ ?root ?path ?v]
+                               [?v :variable ?name]
+                               (not (occ-bound? ?root ?path ?name))]
+                             db occ occurrence-rules root
+                             {:fns occurrence-fns}))))
+        definition-operator))
 
 
 ;; =============================================================================
@@ -1403,7 +1662,7 @@
    profile effects (§7.7.2). A `:variable`'s name obligation is
    conditional on freeness (§4.5) — a query (`free-names`), not a
    per-tag footprint fact."
-  {"v2"
+  {semantic-contract
    {:tags {:stream/make #{:stream/make},
            :stream/put #{:stream/put},
            :stream/cursor #{:stream/cursor},
@@ -1431,14 +1690,20 @@
                 :store-get #{},
                 :store-put #{},
                 :current-continuation #{},
+                ;; a definition writes the store, machine state, like
+                ;; :store-put; its AST side is an :application
+                :define #{},
                 :const #{}, :var #{}, :closure #{}, :push #{}, :call #{},
                 :return #{}, :jump #{}, :branch-false #{}, :halt #{}}}})
 
 
 (def ^:private extraction-fns
   "The `:fns` the §7.7 queries need (§6.3: quoted-symbol keys): the
-   effect-raising tag/mnemonic sets are judged by `contains?`."
-  {'contains? contains?})
+   effect-raising tag/mnemonic sets are judged by `contains?`, and a
+   definition's key operand is the `first` of its operands."
+  {'contains? contains?,
+   'first first,
+   'reserved-name? reserved-name?})
 
 
 (defn- extract
@@ -1450,9 +1715,17 @@
 (def ^:private ast-extraction-queries
   "§7.7 over `$ast`, the union of the flat rows of the reachable trees,
    verbatim from the design."
+  ;; Rule R: a definition's key is always a literal, so it is a
+  ;; store-slice requirement exactly as a :vm/store-put key is
   {:store-keys '[:find ?key :in $ast
-                 :where (or [$ast _ :vm/store-get ?key]
-                            [$ast _ :vm/store-put ?key _])],
+                 :where (or-join [?key]
+                                 [$ast _ :vm/store-get ?key]
+                                 [$ast _ :vm/store-put ?key _]
+                                 (and [$ast _ :application ?op ?operands _]
+                                      [$ast ?op :variable ?name]
+                                      [(reserved-name? ?name)]
+                                      [(first ?operands) ?kid]
+                                      [$ast ?kid :literal ?key]))],
    :ffi-ops '[:find ?op :in $ast
               :where [$ast _ :dao.stream.apply/call ?op _]],
    :parked-ids '[:find ?pid :in $ast
@@ -1476,7 +1749,8 @@
    extraction."
   {:store-keys '[:find ?key :in $code
                  :where (or [$code _ _ :store-get ?key]
-                            [$code _ _ :store-put ?key _])],
+                            [$code _ _ :store-put ?key _]
+                            [$code _ _ :define ?key])],
    :ffi-ops '[:find ?op :in $code
               :where [$code _ _ :ffi-call ?op _]],
    :parked-ids '[:find ?pid :in $code
@@ -1489,12 +1763,13 @@
 
 
 (defn- requirements
-  "The §7.7 syntactic requirement set of one relation under contract
-   `\"v2\"`: the three value queries as extracted, and the effect-raising
+  "The S7.7 syntactic requirement set of one relation under the
+   current semantic contract: the three value queries as extracted,
+   and the effect-raising
    tags/mnemonics normalized through the footprint table's `dir` direction
    before any union, so the union is over one vocabulary (§7.7.1)."
   [db queries dir]
-  (let [table (get-in footprint-table ["v2" dir])]
+  (let [table (get-in footprint-table [semantic-contract dir])]
     {:store-keys (extract (:store-keys queries) db),
      :ffi-ops (extract (:ffi-ops queries) db),
      :parked-ids (extract (:parked-ids queries) db),
@@ -1615,12 +1890,17 @@
    composition handed it. What it cannot do is make a
    `:dao.stream.apply/call`.
 
+   A registry binding a reserved name (Rule R) is refused.
+
    This state holds no program-observation fields. The program stream handle,
    cursor, and gap count belong to `dao.stream.observer`, which a host
    composes beside the VM rather than inside it."
   ([] (empty-state {}))
   ([opts]
-   (let [installed-primitives (or (:primitives opts) primitives)
+   (let [installed-primitives (check-bindings! :primitive
+                                               (or (:primitives opts)
+                                                   primitives))
+         _ (check-bindings! :primitive (:primitive-profiles opts))
          installed-profiles (or (:primitive-profiles opts)
                                 (into {} (keep (fn [[name _]]
                                                  (when-let [profile
