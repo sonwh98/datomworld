@@ -7240,3 +7240,62 @@ Next: Successor: on VERIFIED lanes + READY/GRANTED, commit M2 on
   vm.cljc Dart residual) and M5; then the deferred items. All rulings,
   environment findings, and procedures in the 16:10 handoff brief
   (collab/1790324623000) remain in force.
+
+
+## 2026-09-25 17:53:32 +0700 — Handoff update 2: M2 gate cycle paused after fix round 3
+Completed-GMT: 2026-09-25 10:53:32 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@cfd46d35 + d3d661ff + bca32f9a (log commits); ucf-phase2 @
+  96657a4f with the M2 implementation + fix rounds 1-3 uncommitted (the
+  same four files: linker.cljc, content.cljc, linker_test.cljc,
+  content_test.cljc)
+This entry updates and pauses the M2 gate cycle recorded in the 16:10
+  handoff entry and the 17:16 handoff-update entry (both remain in
+  force for rulings, environment findings, and procedures).
+Done since the 17:16 update:
+- Round-2 confirmation gate returned REQUEST CHANGES with two new P1s,
+  both inside the freshly added yin/def recognition (bindings recorded
+  at the entry path instead of the invocation position — (yin/def 'x x)
+  wrongly discharged its own read; and every syntactic yin/def treated
+  as a store despite runtime store-shadowing). It CONFIRMED the three
+  round-2 fixes (ordering, pre-hash byte cap, zero-parts refusal) and
+  ratified that :use-before-definition is spec-specified. Findings:
+  collab/1790331800000-architect-linker-m2-fixes-r2-gate.gpt-6-sol.findings.md
+- M2 fix round 3 (ZCode GLM-5.3-Flash subagent,
+  collab/1790331801000-vm-engineer-linker-m2-fixes-r3.prompt.md, report
+  ...r3.glm-flash.report.md): both findings fixed — bindings now at the
+  invocation position (conj path [3 2]); fail-closed shadowing rule
+  (a footprint that binds yin/def drops all yin/def-derived
+  definitions, obligations retained; the M4 manifest-proof refinement
+  noted in the docstring, no new API). Implementer lanes: JVM
+  2,057/180,912/0; Node 1,973/47,939/0; Dart 1,935 passed.
+- MY independent tri-host verification of round 2 matched its counts
+  exactly (JVM 2,055/180,908/0; Node 1,971/47,935/0; Dart 1,933).
+Paused at (the successor's first action):
+- The orchestrator's independent tri-host verification of fix round 3
+  has NOT been run, and the round-3 codex confirmation gate has NOT
+  been dispatched. Resume procedure: (1) run the three lanes solo in
+  ../datomworld-ucf-phase2 (Dart: mise exec -- bb test:cljd; JVM:
+  mise exec -- clojure -M:test; Node: mise exec -- clj -M:cljs -m
+  shadow.cljs.devtools.cli compile slice-peer test) and compare against
+  the implementer counts above; (2) resume codex thread
+  01a0d340-f8e7-7e30-9b74-c0a0e6b636fb with a confirmation brief over
+  the round-3 delta (report:
+  collab/1790331801000-vm-engineer-linker-m2-fixes-r3.glm-flash.report.md;
+  the gate's prior verdicts are at ...r2-gate...findings.md and
+  ...fixes-gate...findings.md); (3) on READY + GRANTED, commit M2 on
+  ucf-phase2 (subject: "feat(yin.vm): linker M2 four format records and
+  identity-directed fetch" or per format.md) and dispatch M3 from the
+  staged, matrix-bound brief
+  collab/1790314000000-vm-engineer-linker-m3-stepped-core.prompt.md;
+  (4) if findings return, iterate — the cycle has converged each round
+  (3 P1s -> 2 P1s -> 2 P1s of narrower scope).
+Convergence assessment (this seat's observation for the successor):
+  rounds 2 and 3 findings were both one level deeper inside the same
+  yin/def feature; all older findings are confirmed closed. Expect the
+  round-3 gate to be small or clean.
+Next: Successor resumes at the pause point above; M4 (with the :reasons
+  Option B implementation, the UCF table amendments, the vm.cljc Dart
+  residual) follows M3's gate; M5 last; then the deferred items per the
+  16:10 brief. All owner rulings remain in force.
