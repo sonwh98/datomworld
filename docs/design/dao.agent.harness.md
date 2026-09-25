@@ -58,7 +58,7 @@ Existing edits: none
 Depends on: dao.agent.schema, dao.agent.mcp.client, dao.space.schema,
             dao.space.query, dao.space.transactor, dao.stream,
             dao.lease, dao.jing, yin.vm.engine,
-            yin.vm.debruijn.register (R4 kernel), yin.vm.debruijn-linker
+            yin.vm.debruijn.register (R4 kernel), yin.vm.linker
 Must not change: yin.vm.*, dao.space.*, dao.stream.*, dao.lease,
                  dao.jing.*
 ```

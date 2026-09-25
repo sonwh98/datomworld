@@ -1011,15 +1011,15 @@ before R2 or R4.
 
 ### R5: linker integration over dao.stream
 
-    Fulfilled by: Phase B6 (src/cljc/yin/vm/debruijn_linker.cljc,
-    test/yin/vm/debruijn_linker_test.cljc)
+    Fulfilled by: Phase B6 (src/cljc/yin/vm/linker.cljc,
+    test/yin/vm/linker_test.cljc)
     Specification: docs/design/yin.vm.debruijn.linker.md
     Must not change: stack H, dao.stream, dao.jing, dao.jing.dht
 
 Per the owner's directive ("B6 should be used by both the stack and register
 vm for linking code over dao.stream"), the register format linking capabilities
 are fulfilled directly within the unified B6 linker phase. Phase B6 delivers
-`src/cljc/yin/vm/debruijn_linker.cljc`, providing the parameterized `fetch`
+`src/cljc/yin/vm/linker.cljc`, providing the parameterized `fetch`
 function, the register format record (`:yin.debruijn.register`), the R index,
 and same-root pairing datoms (`[root :yin.debruijn.register/hash R]`) with
 both trusted and verifying fallback paths. Full specification, file box,

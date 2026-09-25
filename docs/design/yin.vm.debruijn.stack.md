@@ -677,8 +677,8 @@ lanes must agree under the normalizer.
 
 ### B6: committed closed-image linker over dao.jing
 
-    New: src/cljc/yin/vm/debruijn_linker.cljc
-    New: test/yin/vm/debruijn_linker_test.cljc
+    New: src/cljc/yin/vm/linker.cljc
+    New: test/yin/vm/linker_test.cljc
     Existing edits: none
     Depends on: dao.jing (segment-key, materialize!, get), dao.jing.dht
     (create-content-dht, IDhtNet), dao.jing.remote (the DaoStream
@@ -698,8 +698,8 @@ D11, D13, D14, D15, and D16 remain the governing decisions.
 
 ### B7: dependency closure linker
 
-    New: src/cljc/yin/vm/debruijn_linker.cljc
-    New: test/yin/vm/debruijn_linker_dependency_test.cljc
+    New: src/cljc/yin/vm/linker.cljc
+    New: test/yin/vm/linker_dependency_test.cljc
     Existing edits: none
     Must not change: merged projection namespace or B6 closed-image semantics
 

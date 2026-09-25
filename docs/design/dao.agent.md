@@ -106,7 +106,7 @@ Code produced by coding agents is never stored as unversioned text files. Code
 is represented as Universal AST datoms and compiled into closed, nameless de
 Bruijn images ($R$ for register format, $H$ for stack format). Images are
 linked, verified, and fetched over `dao.stream` via the Phase B6 linker
-(`yin.vm.debruijn-linker`).
+(`yin.vm.linker`).
 
 ---
 
@@ -233,7 +233,7 @@ The three primary coding agents operate with specialized roles over `dao.space`:
 - **Role**: Invariant auditing, defect detection, formal contract verification.
 - **Workflow**:
   1. Matches tasks in `dao.space` marked `[:task/phase :review]`.
-  2. Fetches candidate images via `yin.vm.debruijn-linker/fetch`.
+  2. Fetches candidate images via `yin.vm.linker/fetch`.
   3. Executes verification passes inside the Register VM sandbox.
   4. Deposits review verdicts: `[:verdict/status :approved]` or
      `[:verdict/status :defect]` with qualified finding tuples.
