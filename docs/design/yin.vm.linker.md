@@ -364,18 +364,18 @@ Step by step, for all four formats:
    the request's shape against the closed key set of section 6.3
    (`:invalid-request`), that it holds a format record for the requested
    format (`:unsupported-format`), and that the request's
-   `:yin.link/contract`, when present, equals the record's `:contract`
-   (`:contract-mismatch`). The contract check runs here, ahead of step
-   2's row-local grammar check, so no validator ever runs under the
-   wrong table; revision r2 placed it in step 4, after row-local
-   validation had already run, which was an ordering defect. For a
+   `:yin.link/contract`, which is required, equals the record's
+   `:contract` (`:contract-mismatch`). The contract check runs here,
+   ahead of step 2's row-local grammar check, so no validator ever runs
+   under the wrong table; revision r2 placed it in step 4, after
+   row-local validation had already run, which was an ordering defect.
+   For a
    manifest-delivered image the same check runs again against the
    manifest's per-format entry under `:yin.module/contracts`
    immediately after the manifest is verified and before any derivation
    or image is fetched (section 8.1). The manifest's own schema version
    is a different thing and is checked by the manifest validator.
-   Refusing a request that omits the contract as `:invalid-request`
-   lands with the M2 format records.
+   A request that omits the contract is `:invalid-request`.
 1. **Resolve identity to storage address.** The index is linker-local
    composition data: a map, or datoms `[identity attribute address]`
    read through `index-from-datoms` from a `dao.space` source the linker
@@ -830,7 +830,7 @@ already has, the portable linker is a pure function over explicit state.
 ```
 
 A `request` is plain data and nothing else. Its closed key set is
-`:yin.link/id`, `:yin.link/format`, `:yin.link/contract` (optional), and
+`:yin.link/id`, `:yin.link/format`, `:yin.link/contract`, and
 exactly one of `:yin.link/name` or `:yin.link/identity`. The two
 admissible shapes:
 
@@ -856,8 +856,8 @@ refusal is appended on the response stream under the request's id where
 the id is well formed, and under `:yin.link/id nil` otherwise; it is
 never processed further. The receiver's capabilities do not travel
 because discharge happens at the receiver (section 4.2, 5b).
-`:yin.link/contract` becomes required, with an omission refused as
-`:invalid-request`, when the M2 format records land.
+`:yin.link/contract` is required: an omission is `:invalid-request`,
+as it already is for `yin.vm.linker/fetch` since M2.
 
 `step` advances every in-flight link in a fixed order: re-attempt
 unsent content requests, poll the content response medium at most
@@ -2223,8 +2223,8 @@ Require:
     `:reserved-name`; a definition whose value is the quoted symbol
     `yin/def` links; the definition operator never appears among the
     obligations; an image or manifest stamped "v2", "b1", or "r1" is
-    `:contract-mismatch`. The request-side refusal of an omitted
-    contract lands with the M2 format records.
+    `:contract-mismatch`; a request that omits the contract is
+    `:invalid-request`.
 
 ## 12. Open decisions
 
