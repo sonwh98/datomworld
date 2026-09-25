@@ -7019,3 +7019,175 @@ Next: Owner authorization decisions pending: (1) commit the CBOR swap on
   dao-jing-cbor-swap and merge to master; (2) commit + merge ucf-phase1;
   (3) commit + merge yang-clojure-stream; (4) linker spec commit remains
   parked ("Not yet"). Then UCF Phase 2 / yin.vm.linker implementation.
+
+
+## 2026-09-25 07:04:13 +0700 — INCIDENT: working-tree wipe during merge prep; full recovery; all three branches landed on master
+Completed-GMT: 2026-09-25 00:04:13 GMT
+Coding-Agent: ZCode (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@d95f6683, clean
+Incident:
+- While executing the owner's commit-and-merge authorization, this seat
+  found commit da25f655 (docs/agents) had landed on master instead of
+  dao-jing-cbor-swap: reflog shows a ZCode implementer subagent ran
+  `git checkout master` at 2026-09-25 00:28:48 +0700 during the Node
+  sentinel-guard investigation without recording it (process finding #1:
+  implementer agents in the main tree must re-check `git branch
+  --show-current` before and after any investigation and record any HEAD
+  movement; both branches pointed at b4ff6e0d at the time, so all reviews
+  and test runs were content-unaffected).
+- Repairing the misplacement, this seat ran `git checkout master && git
+  reset --hard b4ff6e0d` while the ENTIRE uncommitted swap diff sat in the
+  working tree — the reset destroyed it (process finding #2, this seat's
+  own error: never `reset --hard` with uncommitted work in the tree; move
+  the work or use --soft/--mixed and verify `git status` before and after
+  every pointer operation).
+- Untracked files survived intact: the full collab/ trail, the linker
+  spec, routing-status.md, .zcodeignore, public/.
+Recovery:
+- The complete edit history survived on disk: the storage engineer's
+  Claude session transcript
+  (~/.claude/projects/-Users-sto-workspace-datomworld/0905c1a1-ff26-4582-9cb5-ec25468e7593.jsonl,
+  62 Edit/Write ops + 290 Bash commands including the target/ patch
+  scripts that generated the bulk of the swap), backed up with the ZCode
+  agent transcripts to /tmp/recovery-backup/.
+- A ZCode GLM subagent replayed the session ops chronologically on
+  master@b4ff6e0d (approved: lossless placement, the b4ff6e0d/1f4d1c18
+  delta is outside the swap scope), recovering byte-exact also the
+  pre-session jing.cljc base delta from the transcript's captured git diff
+  and the prior seat's r11 + handoff log entries from the Antigravity
+  transcript store — then applied this seat's byte-exact hunks for every
+  later fix round (orchestrator-hunks.md) and rewrote the two pieces no
+  transcript held (remote_test hostile-pair body, one docstring sentence).
+- Acceptance gate: the reconstruction reproduced the verified consensus
+  state EXACTLY — Dart 1,904 passed, JVM 1,996/180,203/0,
+  Node 1,912/47,303/0 — and the restored log matched the pre-wipe harness
+  snapshot byte-for-byte (lines 1-6,965 + entry 4's patch).
+Landing (owner authorization: commit and merge what has architect.md
+  sign-off; all three GRANTED, collab/1790280923{711,723,736}):
+- 1f4d1c18 docs(agents) on dao-jing-cbor-swap; 3ddaa21b feat(dao.jing)
+  swap (40 files; pre-commit hook reformatted cbor.cljc + macro_test.cljc
+  — cljstyle normalization, covered by post-merge verification);
+  f51077f2 feat(yin.vm) UCF phase 1; 2d82da49 test(yang.clojure).
+- Merges to master (--no-ff): e149aa31 (swap), c2b110a6 (ucf-phase1),
+  d95f6683 (yang-clojure-stream). No conflicts.
+Post-merge verification (orchestrator-run on merged master@d95f6683):
+- Dart: 1,935 passed, 0 failed. JVM: 2,027 tests, 180,646 assertions,
+  0 failures, 0 errors. Node: 1,943 tests, 47,721 assertions, 0 failures,
+  0 errors.
+Outstanding (unchanged debts + new):
+- yang worktree CLJD lane: run and record (architect-assigned; main-tree
+  CLJD green on the same engine paths).
+- vm.cljc strip-reader-positions :tag residual (Dart).
+- dao.jing.cbor.md:147/:179 wording; hash-registry.md:293-297 stale
+  normative read/replay text; status headers still say "not yet
+  implemented" — post-landing docs pass.
+- Repo-wide hygiene pass; collab/ archiving.
+- ucf P2 Phase-2 gate: publish the v2 contract revision history before
+  cross-host lowering.
+Next: UCF Phase 2 / yin.vm.linker implementation over dao.stream, routed
+  through ZCode GLM-5.3-Flash subagents per the owner's standing
+  directive; linker spec commit remains parked ("Not yet").
+
+
+## 2026-09-25 07:20:00 +0700 — Owner ruling: commit gate moved to review + architect sign-off
+Completed-GMT: 2026-09-25 00:20:00 GMT
+Coding-Agent: ZCode (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@d95f6683, clean; ucf-phase2 M1 and docs pass in flight
+Ruling (owner, quote): "when features/changes are implemented and have
+  been reviewed by a [team.md] and signed off by the [architect.md], you
+  can stage and commit. that way nothing can accidentally be lost with a
+  reset"
+Interpretation recorded by this seat:
+- Stage and commit on the WORKING BRANCH is authorized proactively once a
+  change has (a) been implemented, (b) passed an independent review per
+  docs/agents/team.md family-independence rules, and (c) received an
+  Architect sign-off per docs/agents/roles/architect.md — no further
+  per-commit owner ask needed.
+- Merges to master remain surfaced to the owner before execution unless
+  the owner states otherwise.
+- Cadence consequence for the linker milestones: each milestone commits
+  before the next begins, so no milestone's work sits uncommitted.
+This supersedes the "no commit without per-action instruction" posture for
+  changes meeting the three gates; it does not relax the review or
+  sign-off requirements themselves. Recorded in this log per the
+  orchestrator role's owner-ruling convention (cf. the 2026-09-23 ruling).
+Next: On M1 completion: external combined adversarial + architect round
+  (non-GLM family — the author is GLM), then commit on ucf-phase2; docs
+  pass gets the same gate before its master commit. M2 dispatch follows
+  the M1 commit.
+
+
+## 2026-09-25 12:45:00 +0700 — yin.vm.linker M1 landed (rename + documentation); M2 dispatched
+Completed-GMT: 2026-09-25 05:45:00 GMT
+Coding-Agent: ZCode (Orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@d95f6683 + 1f7990d5 (spec) + 6638e21b (docs pass) + 0588c3d1
+  (owner's handoff.md deletion); ucf-phase2 @ 96657a4f
+Done:
+- Owner unparked the linker spec: committed 1f7990d5
+  (docs/design/yin.vm.linker.md, r11 consensus) and authorized the UCF
+  Phase 2 kickoff.
+- Worktree ../datomworld-ucf-phase2 created (branch ucf-phase2 @
+  1f7990d5, mise trusted).
+- M1 rename implemented by a ZCode GLM subagent (collab/1790311414534-vm-engineer-linker-m1-rename.prompt.md):
+  debruijn_linker.cljc -> linker.cljc (+test), 6 content lines, zero
+  remaining references. Verification included a control run on the
+  unmodified base commit proving an 8-assertion suite delta
+  environmental (180,638 vs a logged 180,646), on Java 21 and 17.
+- M1 gate: combined adversarial + architect round READY/GRANTED (codex
+  resume 01a0d340, collab/1790312*-architect-linker-m1-gate.*); commit
+  f8d051b9.
+- M1 documentation half (collab/1790311414534-vm-engineer-linker-m1-docs.prompt.md):
+  five design docs' namespace/path references updated;
+  yin.vm.debruijn.linker.md status line marks it superseded. Gate
+  READY/GRANTED (collab/1790313*-architect-linker-m1-docs-gate.*);
+  commit 96657a4f.
+- Owner decisions: docs pass committed 6638e21b after codex review READY
+  (thread 01a0d6ec) — incident #2: the owner's own staged deletion of
+  docs/handoff.md was misattributed to an agent and reverted; restored
+  and committed as 0588c3d1 per the owner's correction. Owner deferred
+  DELETING yin.vm.debruijn.linker.md (with content merge into
+  yin.vm.linker.md, folding the section 6/D14 proof caveat and fixing
+  three citations into it) until the linker epic fully lands.
+- Commit-gate ruling applied end-to-end for the first time: implement ->
+  external review -> architect sign-off -> commit, per milestone.
+- yang worktree CLJD lane run and recorded (architect-assigned item):
+  1,879 tests passed, 0 failed.
+Next: M2 (four format records) dispatched to ucf-phase2; M3-M5 follow
+  under the same gates. Master merge of ucf-phase2 remains surfaced to
+  the owner.
+
+
+## 2026-09-25 16:10:00 +0700 — Handoff of the orchestrator seat (quota)
+Completed-GMT: 2026-09-25 09:10:00 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@cfd46d35; ucf-phase2 @ 96657a4f with the M2 fix round's 4
+  modified files in flight; log + ide-blog edits uncommitted on master
+Done:
+- Full seat record is in this log's entries above (the CBOR swap
+  consensus and landing, the incident and recovery, UCF Phase 1 and
+  yang landings, the linker spec and M1, the acceptance matrix, the
+  revision history, the blogs).
+- Successor-facing handoff brief written:
+  collab/1790324623000-orchestrator-seat-handoff-to-successor.md
+  (tree state, the IN-FLIGHT M2 fix subagent and its collection
+  procedure, owner rulings verbatim, environment findings, deferred
+  items, required workflow).
+Delegates:
+- codex threads: 01a0d2f3 (CBOR reviewer r1-r6 + architect sign-off),
+  01a0d340 (linker spec r11 + M1/M2 gates), 01a0d6ec (docs review),
+  01a0d77d (UCF revisions finalize), 01a0d50f-d6f8 (yang sign-off),
+  01a0d50f-d6dd (ucf sign-off); ZCode agents: this session's subagent
+  ids are in each collab brief; the IN-FLIGHT M2 fix subagent is
+  agent_4110a475-cbc9-4e1c-a47a-bc0e69daf265.
+Risks:
+- The M2 fix subagent may complete after this handoff; its diff is
+  uncommitted in ucf-phase2. Collect, verify all three lanes, re-gate
+  through codex 01a0d340, commit, then M3.
+- Owner quota note: this seat ends low on quota; the successor starts
+  fresh.
+Next: Successor: collect the M2 fix, run the gate cascade (M2 commit ->
+M3 -> M4 -> M5), then the deferred items, per the brief.
