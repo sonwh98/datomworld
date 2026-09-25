@@ -1,6 +1,6 @@
 # Multihash-Style Content Addressing for DaoJing and yin.vm
 
-Status: design, architect signed off; not implemented
+Status: landed on master (2026-09-25, merge e149aa31)
 
 ## Decision
 
@@ -292,7 +292,17 @@ It accepts every address recognized by `segment-address?`, including both initia
 
 `get` need not rehash every successful read. Existing backend insertion and replay checks, plus higher-level verified readers, retain their responsibilities. A consumer that verifies fetched content uses `segment-matches?`.
 
-### File-backend codec round-trip
+Historical, registry era: the paragraph above describes the registry-era
+read policy, written before the canonical CBOR swap. The current rule in
+`dao.jing.cbor.md` is stricter: `get` hash-verifies every read against the
+requested address before decoding.
+
+### File-backend codec round-trip (historical, registry era)
+
+This section describes the registry-era printer codec and its round-trip
+check, both removed by the canonical CBOR swap. File replay now performs
+strict CBOR validation of each frame and payload; see `dao.jing.cbor.md`
+(*Memory and files*).
 
 `dao.jing.file/validate-codec-round-trip!` is not an address/payload validator. It compares a payload's identity with its own `pr-str`/EDN round trip to ensure that the file codec does not discard address-significant information.
 

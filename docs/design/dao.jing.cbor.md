@@ -1,6 +1,6 @@
 # DaoJing: Backend-Independent CBOR Storage
 
-Status: implementation plan; not yet implemented. Architecture-reviewed
+Status: landed on master (2026-09-25, merge e149aa31). Architecture-reviewed
 2026-09-17 (`collab/1789680000000-architect-review-dao-jing-cbor.*`): no
 blocking findings, one medium-severity ambiguity (file-backend frame
 ownership, corrected below), and one cross-cutting change (the
@@ -146,10 +146,15 @@ message.
 
 Supported values are nil, booleans, strings, keywords, symbols, byte strings,
 vectors, finite lists/sequences, maps, sets, metadata, integers,
-floating-point numbers, big integers, decimals, and ratios. Reject arbitrary
-records, functions, and unsupported host objects before storage. The numeric
-carriers described below are explicitly supported exceptions to the record
-restriction; arbitrary Boring records do not become Jing values. **This is
+floating-point numbers, big integers, decimals, and ratios. "Supported" is
+qualified: it means the encoder accepts the value once its metadata is
+host-clean. On Dart, a runtime-created list can carry an unsupported
+constructor `:tag` (a Dart Type), and internal producers such as the VM's
+reader-position projection can reattach such metadata. Reject arbitrary
+records, functions, and unsupported host objects before storage. The
+numeric carriers described below are explicitly supported exceptions to
+the record restriction; arbitrary Boring records do not become Jing
+values. **This is
 a narrower domain than today's transitional `pr-str`-based encoder, which
 addresses anything printable/readable** — characters, `#inst`, `#uuid`, and
 other tagged literals are addressable today and have no slot in this
@@ -183,8 +188,10 @@ should be checked against before rebuild, not discovered during it.
   metadata as a workaround for Dart constructor metadata. This clearing
   covers only collections Jing constructs at decode: a Dart producer
   building a payload with `list` must still clear ClojureDart's constructor
-  metadata itself (`(with-meta (apply list xs) nil)`); that `dao.jing.md`
-  open item carries forward, it is not retired by this plan.
+  metadata itself (`(with-meta (apply list xs) nil)`), and so must internal
+  producers reconstructing lists in Jing-bound code, such as the de Bruijn
+  projection; that `dao.jing.md` open item carries forward, it is not
+  retired by this plan.
 - Encode **all** keywords and symbols as tag 27 with `dao.jing/keyword` or
   `dao.jing/symbol` and `[namespace name]`, where namespace is nil or a
   string and name is a string, taken directly from the identifier's fields.
