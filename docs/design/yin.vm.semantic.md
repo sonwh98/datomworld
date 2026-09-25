@@ -1,9 +1,9 @@
 # yin.vm.semantic on dao.stream — linear executable datoms
 
-Revision: 1 (2026-09-18) — the `"v2"` execution contract this document
-names is published in full by §2.4's "v2 contract revision history" note,
-per `yin.vm.universal-continuation-format.md` §7.11's contract-revision-
-publication blocker. Prior text carried no revision line; this is the first.
+Revision: 1 (2026-09-18); status corrected 2026-09-25.
+Section 2.4 indexes the `"v2"` contract. Its revision history is in
+`yin.vm.ucf-revisions.md` (2026-09-25), closing the documentation part
+of UCF 7.11's contract-revision-publication blocker.
 
 Status: Phase 0 contract. Sections §1–§6 are promoted verbatim from
 `collab/1789221648668-architect-semantic-vm-v2-design.claude-fable-5-1.findings.md`.
