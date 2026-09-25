@@ -1,0 +1,101 @@
+#:blog{:title "Why Clojure Has No Linker"
+       :date #inst "2026-09-25T05:15:00.000-00:00"
+       :abstract [:p "Module loading in a dynamic language feels like linking, but it isn't. We walk through what Clojure's require really does, what a C linker actually guarantees, and why the difference is identity versus symbol resolution, and then show the linker we're building for content-addressed VM images, which gets the C guarantee without giving up the REPL."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+
+                   [:p "Ask a C programmer what a linker is and they will describe the program that makes one runnable whole out of separately-compiled pieces: it takes each piece's promises: this function exists, that data lives at that address. It resolves every promise against the other pieces and welds the result into something that can start. Ask a Clojure programmer how code gets loaded and they will describe a REPL. Both are describing the same problem, getting somebody else's code into your runtime, but they sit at opposite ends of a spectrum the industry mostly forgot it had. This post walks that spectrum: what module loading really is, what a linker really guarantees, why Clojure has neither, and the linker we are now building for yin.vm, which tries to get the C guarantee without giving up the REPL."]
+
+                   [:h2 "Part 1: What module loading means in Clojure"]
+                   [:p "Start with the line every Clojure program begins with:"]
+
+                   [:pre
+                    [:code
+                     {:class "language-clojure"}
+                     "(require '[clojure.string :as str])\n(str/blank? \" \")  ;=> true"]]
+
+                   [:p "What actually happened? The require call found the namespace on the classpath, loaded and evaluated its forms, and interned its Vars into a registry. A Var is the central object here: a mutable box holding a value, reachable by a symbol, with the symbol resolved through a namespace map. When you call a function, the compiler emits a get on that box:"]
+
+                   [:pre
+                    [:code
+                     {:class "language-clojure"}
+                     "(def ^:dynamic *buffer-size* 1024)\n;; *buffer-size* is a Var: callers resolve through the box\n;; at call time, so this next form changes their behavior\n;; without recompiling them:\n(alter-var-root #'*buffer-size* (constantly 4096))"]]
+
+                   [:p "This indirection is the language's superpower. Redefine a function at the REPL and every existing caller picks up the new definition, because nobody bound to the old code; they bound to the box. Load order is flexible, code is data, and the running system can absorb new modules indefinitely."]
+
+                   [:p "But look closely at what resolution means. When two libraries need the same dependency, the classpath contains one copy of it: whichever jar the dependency resolver picked, or, failing that, whichever appears first on the classpath:"]
+
+                   [:pre
+                    [:code
+                     {:class "language-clojure"}
+                     ";; lib-a's deps.edn:  {lib/util {:mvn/version \"1.0\"}}\n;; lib-b's deps.edn:  {lib/util {:mvn/version \"2.0\"}}\n;; your deps.edn:     depends on both.\n;;\n;; The classpath now holds exactly one util-*.jar.\n;; lib-a and lib-b both call it. One of them is wrong,\n;; and nothing will tell you which, or when."]]
+
+                   [:p "The name resolved. The code that arrived under that name was merely whatever the classpath served. Nothing in this process proves that the bytes you loaded are the bytes the author wrote, or that the two libraries now agree on what util means. That is not an edge case; that is the normal operation of module loading in a dynamic language. It is resolution by convention (classpath order, resolver preference, downloaded artifacts) with no verification step anywhere."]
+
+                   [:h2 "Part 2: What a linker is, in C"]
+                   [:p "C solves a different problem with an unfashionable amount of machinery. A C program is compiled in pieces called translation units, each producing an object file. The object file does not pretend to be a complete program: it is a table of promises:"]
+
+                   [:pre
+                    [:code
+                     {:class "language-c"}
+                     "/* a.c */\nextern int add(int a, int b);   /* a promise: I need this */\n\nint main(void) {\n    return add(2, 3);            /* a call site: patch me later */\n}"]]
+
+                   [:pre
+                    [:code
+                     {:class "language-c"}
+                     "/* b.c */\nint add(int a, int b) { return a + b; }  /* I am the promise kept */"]]
+
+                   [:p "Each object file carries a symbol table. The nm tool prints it, and it reads like the two halves of a classifieds page:"]
+
+                   [:pre
+                    [:code
+                     {:class "language-console"}
+                     "$ gcc -c a.c b.c\n$ nm a.o\n                 U add        ; undefined: I need someone to provide this\n$ nm b.o\n0000000000000000 T add        ; exported: I provide it"]]
+
+                   [:p "The linker, ld, takes the object files and does two jobs. Symbol resolution: every undefined symbol must bind to exactly one definition (zero definitions is the famous undefined reference error, and two definitions is a multiple definition error). Relocation: the call site in a.o was emitted with a placeholder where add's address should be; the linker computes the final layout and patches it. Only when every promise is kept does an executable exist:"]
+
+                   [:pre
+                    [:code
+                     {:class "language-console"}
+                     "$ ld a.o -o prog\nld: a.o: in function 'main':\n  undefined reference to 'add'   ; the program refuses to exist"]]
+
+                   [:p "This is the property that matters: the program cannot run half-linked. Every promise is checked before main, or nothing runs at all. And when the code ships as shared libraries, the same job moves to load time (the dynamic linker resolves and relocates before main) or into the programmer's hands:"]
+
+                   [:pre
+                    [:code
+                     {:class "language-c"}
+                     "void *h = dlopen(\"./libmath.so\", RTLD_NOW);\nint (*add)(int, int) = dlsym(h, \"add\");\n/* RTLD_NOW: resolve every symbol now, or the dlopen fails.\n   Even deferred linking refuses to run half-done. */"]]
+
+                   [:p "Notice what the linker never does: it never guesses. There is no classpath order. A symbol resolves to the one definition that claims it, under rules you can state in a sentence, and anything ambiguous is an error, not a preference."]
+
+                   [:h2 "Part 3: Why Clojure has no linker"]
+                   [:p "So why doesn't Clojure (or Python, or Ruby, or JavaScript) have this? Not because the problem went away. Because dynamic languages made a choice: they never stop loading."]
+
+                   [:p "In C, resolution is a phase. Compilation ends, linking happens, the binary is sealed. In Clojure, evaluation is continuous: every form you evaluate can define new names, rebind existing ones, or load new code into the running process. There is no object-file moment, no point at which the code exists as a sealed artifact with a symbol table, because the code is data being walked and mutated in place. A Var is, structurally, a PLT/GOT slot from the dynamic-linking world: an indirection you can retarget at runtime. Clojure just made the indirection permanent and first-class, and called the result a language feature."]
+
+                   [:p "That choice buys the REPL, hot reloading, and live patching: real, enormous wins that static linking gave up. But the cost is precise, and it is the cost from Part 1:"]
+
+                   [:ul
+                    [:li [:strong "No completeness proof. "] "Nothing checks that every symbol your code touches will resolve. The failure mode is not the linker's clean undefined-reference refusal; it is a NullPointerException on Tuesday at 3am, on the code path that only production traffic reaches."]
+                    [:li [:strong "No identity. "] "A name maps to whatever the classpath served. The bytes are never checked against any claim: the author's, the resolver's, or yours."]
+                    [:li [:strong "No binding guarantee. "] "Two modules that need incompatible versions of a dependency will both successfully load, each silently half-wrong."]]
+
+                   [:p "In other words: Clojure runs forever in dlopen-and-pray mode. Every call is a dlsym that may fail, every load is a link that was never checked, and the only verification is a test suite that happens to exercise the right path."]
+
+                   [:h2 "Part 4: A linker for content-addressed code"]
+                   [:p "The reason nobody fixed this is that a linker needs something to link: sealed artifacts with identities. Dynamic languages refuse to produce them. But that refusal is no longer forced on us. If code lives as content-addressed data (the git/Unison layering, which is exactly how yin.vm stores its compiled images), then every module has what an object file had: a sealed identity. And a sealed identity is something a linker can check."]
+
+                   [:p "That is the design behind yin.vm.linker, the component we are building now. Our four virtual machines (an AST walker, a semantic vector VM, and the de Bruijn stack and register machines) all consume compiled images addressed by content hash. The linker gives them one fetch pipeline with a hard contract:"]
+
+                   [:ul
+                    [:li [:strong "Identity before execution. "] "Every image is fetched by content address and verified to be the code that address names: the multihash over its canonical bytes. A swapped, stale, or forged payload is refused before load, the way ld refuses an undefined reference."]
+                    [:li [:strong "A manifest instead of a classpath. "] "A module's name resolves to a manifest (itself content-addressed) which declares its exports, dependencies, and the derivation records proving each compiled image was lowered from the same authored tree. The name is a claim; the content is the proof, and the linker checks the manifest still claims the name it was found under."]
+                    [:li [:strong "Binding verified, not assumed. "] "Every free symbol in an image becomes a position-bearing obligation that the loading runtime must discharge by exact equality before the image runs: the C linker's every-promise-checked property, rebuilt for semantic names."]]
+
+                   [:p "And because linking is a stream exchange rather than a build phase, none of this costs the REPL. Images stream in over content-addressed storage; new modules install into the running system as they arrive; the dynamics stay dynamic. What changes is that the system can now say no: to a payload that isn't what its address claims, to a dependency that won't bind identically, to a module whose name is a lie."]
+
+                   [:p "Clojure has no linker because it never stops loading. We think the fix is not to stop; it is to finally check."]
+                  ]]]}
