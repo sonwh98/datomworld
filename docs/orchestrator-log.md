@@ -7191,3 +7191,52 @@ Risks:
   fresh.
 Next: Successor: collect the M2 fix, run the gate cascade (M2 commit ->
 M3 -> M4 -> M5), then the deferred items, per the brief.
+
+
+## 2026-09-25 17:16:30 +0700 — Handoff update: M2 gate cycle in convergence; fix round 2 complete
+Completed-GMT: 2026-09-25 10:16:30 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@05a82c9e + ide-blog edits uncommitted; ucf-phase2 @
+  96657a4f with the M2 implementation + fix rounds 1-2 uncommitted
+This entry updates the 16:10 handoff entry (which remains accurate for
+  everything else).
+Done since that handoff:
+- M2 fix round 1 collected and verified: all three P1s fixed; MY
+  independent tri-host run matched the implementer's counts exactly
+  (JVM 2,052/180,898/0; Node 1,968/47,925/0; Dart 1,930 passed).
+- Codex confirmation gate round 1: REQUEST CHANGES / Sign-off DENIED
+  with four NEW findings (P1: AST definition query missed constant-key
+  yin/def applications; P1: prefix-ordering dominance bug — an
+  application site at [] dominated definitions inside its operands;
+  P1: decode-before-byte-cap bypass on oversized mismatched payloads;
+  P2: :max-parts 0 admitted a single-part root). Ratified:
+  :use-before-definition is spec-specified (linker.md:547); the Dart
+  alias pattern is correct. Findings:
+  collab/1790322910000-architect-linker-m2-fixes-gate.gpt-6-sol.findings.md
+- M2 fix round 2 (ZCode GLM-5.3-Flash subagent,
+  collab/1790322911000-vm-engineer-linker-m2-fixes-r2.prompt.md,
+  report ...r2.glm-flash.report.md): all four findings fixed, touching
+  only linker.cljc and linker_test.cljc; implementer lanes JVM
+  2,055/180,908/0, Node 1,971/47,935/0, Dart 1,933 passed.
+- Also landed since 16:10: the UCF blocker-closure acceptance matrix
+  (49790e19) and the finalized UCF revision history + semantic.md
+  header correction (dbae125b, architect-authored, citation-verified)
+  — the M4 publication gate is cleared; the :reasons Option B ruling
+  is banked for M4.
+- Worktrees ucf, yang-stream, and universal-linker removed (verified
+  merged with zero unique artifacts); the ide-blog REPL-framing edits
+  remain uncommitted pending the owner's word.
+In flight at this handoff:
+- The orchestrator's independent tri-host verification of fix round 2
+  is running, and the codex confirmation gate round 2 is dispatched in
+  parallel (both must agree before the M2 commit).
+Next: Successor: on VERIFIED lanes + READY/GRANTED, commit M2 on
+  ucf-phase2 (message pattern in the round-1 trail) and dispatch M3
+  (brief staged and matrix-bound at
+  collab/1790314000000-vm-engineer-linker-m3-stepped-core.prompt.md).
+  Iterate the gate cycle if findings return. Then M4 (include the
+  :reasons Option B implementation, the UCF table amendments, the
+  vm.cljc Dart residual) and M5; then the deferred items. All rulings,
+  environment findings, and procedures in the 16:10 handoff brief
+  (collab/1790324623000) remain in force.
