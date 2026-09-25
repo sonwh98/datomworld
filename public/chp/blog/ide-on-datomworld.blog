@@ -5,7 +5,7 @@
         "Traditional IDEs trap their understanding in process state, and coding assistants retrieve by similarity and answer without proof. When the codebase is a "
         [:strong "Datalog fact space"]
         ", the LLM stops guessing: retrieval becomes logic, hallucination gets caged in tuples and ontologies, and the IDE becomes a "
-        [:strong "conversation between a human judge and machine reasoning"]
+        [:strong "REPL with an LLM assistant driving and a human judge holding the gate"]
         "."]
        :content
        [:section.blog-article
@@ -177,7 +177,7 @@
           [:p
            "The model queries the defects, fixes the code, resubmits. "
            [:strong "The edit-test-debug loop becomes a query loop."]
-           " The traditional loop sent the human scuttling between editor, compiler output, and issue tracker. This loop is three media, the proposed program, the claims about it, and the verdicts on it, plus a judge."]
+           " The traditional loop sent the human scuttling between editor, compiler output, and issue tracker. This loop is three media, the proposed program, the claims about it, and the verdicts on it, plus a judge. The shape is the oldest one in computing, read, evaluate, print, then loop; what changed is the driver, an LLM assistant, and the printer, rows that carry their own provenance."]
 
           [:p
            "Notice where the authority lives. Authority here is write authority on a medium, nothing more and nothing less. The LLM's power is bounded by which media it may append to, not by an honor-system permission dialog. Whoever wires the streams together decides how much authority the machine loop has by deciding which medium the evaluators read: the LLM's output directly, the output with advisory verdicts, or only what a full gate forwards. The dial is topology, and it is data."]
@@ -219,8 +219,8 @@
 
           [:p
            "Put the halves together and the picture inverts. The IDE on datom.world is "
-           [:strong "a conversation over a fact space"]
-           ": observers mint facts, the LLM writes queries and proposals, the gate adjudicates, and the human judges."]
+           [:strong "a REPL over a fact space"]
+           ": observers mint facts, the LLM assistant writes queries and proposals, the gate adjudicates, and the human judges."]
 
           [:p
            "Replay the opening question on the medium: why does the payment flow fail for EU users? Four moves, every one a query. The history query runs today; the effect, lineage, and gate moves depend on observers that are designed or planned:"]
@@ -238,9 +238,9 @@
             "The model proposes a patch. The gate refuses it with defect rows. The model reads the evidence, fixes the code, resubmits. The human reads the final verdict and judges."]]
 
           [:p
-           "The text editor still exists in this picture, and so does the REPL, and so does a block view. They are projections, views into the same store. As "
+           "The text editor still exists in this picture, and so does a block view. They are projections, views into the same store, and the old literal REPL turns out to have been the rehearsal: its loop, generalized to the whole fact space, is what this IDE is. As "
            [:a {:href "/blog/visual-ast.blog"} "Visual AST"]
-           " put it, the editor is \u201ca viewport into the database state.\u201d Nothing about the medium privileges the text view, and nothing privileges the human view either. The LLM is just another reader, and the IDE is whatever conversation the fact space supports."]
+           " put it, the editor is \u201ca viewport into the database state.\u201d Nothing about the medium privileges the text view, and nothing privileges the human view either. The LLM assistant is just another driver of the loop, and the IDE is whatever that loop reads, evaluates, and prints next."]
 
           [:p
            [:strong "The traditional IDE is an editor with a compiler attached. This IDE is a judge, a reasoner, and a fact space, having a conversation on the record."]
