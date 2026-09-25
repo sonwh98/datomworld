@@ -1,0 +1,372 @@
+#:blog{:title "An IDE on datom.world becomes a REPL with an LLM assistant"
+       :date #inst "2026-09-25T00:00:00.000-00:00"
+       :abstract
+       [:p
+        "Traditional IDEs trap their understanding in process state, and coding assistants retrieve by similarity and answer without proof. When the codebase is a "
+        [:strong "Datalog fact space"]
+        ", the LLM stops guessing: retrieval becomes logic, hallucination gets caged in tuples and ontologies, and the IDE becomes a "
+        [:strong "conversation between a human judge and machine reasoning"]
+        "."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "Ask a coding assistant today why the payment flow fails for EU users and you watch the same ritual. It greps. It embeds. It retrieves a bag of files that "
+           [:em "look"]
+           " relevant, stuffs them into a context window, and answers with confidence it has not earned. The model is not the bottleneck. "
+           [:strong "What the model can see and prove is the bottleneck."]
+           ]
+
+          [:p
+           "This post is the third panel of a triptych. "
+           [:a {:href "/blog/ide-edits-ast-not-text.blog"} "When the IDE Edits AST, Not Text"]
+           " argued that when the Universal AST is canonical code, the human editor becomes a database view. "
+           [:a {:href "/blog/yin-vm-lsp.blog"} "Beyond LSP"]
+           " argued that every IDE feature becomes a query. Both were about humans reading and editing. This one is about the machine in the loop: what an IDE becomes when the entity doing the reasoning is an LLM and the substrate under it is a fact space instead of a folder of text files. The short answer: "
+           [:strong "the LLM stops guessing."]
+           ]
+
+          [:h2 "What an IDE Actually Is"]
+
+          [:p
+           "An IDE's deep understanding of code, the thing that makes it feel intelligent, is "
+           [:strong "process state"]
+           ". IntelliJ's PSI trees are per-language object graphs living in memory. Its stub indexes are proprietary binary files tied to one editor process. Its type inference is a cache that evaporates when you quit. None of it is queryable by anyone outside the process, none of it carries provenance, and none of it survives the session. The understanding is real, but it is "
+           [:em "trapped"]
+           ": it can only be reached by writing plugin code against a host API, and it can only answer the questions JetBrains anticipated."]
+
+          [:p
+           "The LLM assistants bolted onto these IDEs inherit the trap. Copilot, Cursor, and Junie retrieve context by embeddings or by grep, both of which are "
+           [:strong "similarity"]
+           " machines. They find text that looks related, not code that is related by logic. Ask for \u201cevery caller of the function whose result is passed to the retry wrapper\u201d and similarity shrugs. Then the model answers anyway, and nothing in the toolchain can check it. Two chronic failures, one substrate: "
+           [:strong "retrieval by approximation, and unverifiable claims."]
+           ]
+
+          [:p
+           [:a {:href "/blog/yin-vm-lsp.blog"} "Beyond LSP"]
+           " made the diagnosis earlier this year: LSP treats the symptom, many IDE-language combinations, but not the disease. The disease is that code is treated as text. Adding an LLM to LSP does not cure the disease. It is still the disease, now with a stochastic patient."]
+
+          [:p
+           [:strong "The IDE's understanding is process state. Process state cannot be queried, cited, or trusted. It can only be restarted."]
+           ]
+
+          [:h2 "The Substrate: Code as Facts"]
+
+          [:p
+           "datom.world inverts the trap. The "
+           [:a {:href "/yin.chp"} "Yin VM"]
+           " executes a Universal AST stored as immutable datoms, five-element tuples "
+           [:code "[e a v t m]"]
+           ". The "
+           [:a {:href "/yang.chp"} "Yang compilers"]
+           " lower Clojure, Python, and PHP into that one semantic form. "
+           [:a {:href "/dao-space.chp"} "DaoSpace"]
+           " indexes the stream, and "
+           [:code "dao.space.query/q"]
+           " runs Datalog over it: joins, negation, disjunction, recursion, aggregates. As "
+           [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "the Chinese characters essay"]
+           " put it, languages share the semantic layer the way dialects share written characters, and the characters are datoms."]
+
+          [:p
+           "The planned type layer completes the picture, and it matters more for machines than for humans. A type is not a compiler phase here. It is a "
+           [:strong "claim row beside code"]
+           ", keyed by occurrence, whose metadata slot says who minted it: a front end declared it, an inference observer derived it, a trace observer saw it at runtime, or a checker confirmed it. "
+           [:a {:href "/blog/yin-vm-vs-unison.blog"} "The Unison comparison"]
+           " said it plainly: \u201cIn datom.world a type is a fact beside code: a datom on an occurrence, with a provenance slot saying who asserted it.\u201d A machine that reasons over code for a living needs exactly that: facts it can query, and a record of who asserted each one."]
+
+          [:h2 "Retrieval Becomes Logic"]
+
+          [:p
+           "When the codebase is a fact space, the LLM's search primitive stops being similarity and becomes a query. This is not a marginal improvement. It changes the shape of what can be asked."]
+
+          [:h3 "Argument 1: joins and recursion reach what similarity cannot"]
+
+          [:p
+           "Transitive questions are the bread and butter of program comprehension, and they are exactly what flat retrieval cannot express. Over the fact space they are one query, in any language, at any depth:"]
+
+          [:pre
+           [:code {:class "language-clojure"}
+            ";; every transitive caller of the payment refresher:\n;; one query, any language, any depth\n;; (illustrative attribute names)\n[:find  ?caller\n :in    $ %\n :where (calls* ?caller :payments/refresh)]\n\n[(calls* ?a ?b)\n [?a :ast/calls ?b]]\n[(calls* ?a ?b)\n [?a :ast/calls ?mid]\n (calls* ?mid ?b)]"]]
+
+          [:p
+           "The same query runs across the whole language family at once, because Python and Clojure code lower to the same tuples. One question, every dialect, no per-language plugin."]
+
+          [:p
+           "Recursive queries over code rows are not a hypothetical. Free-variable analysis, a recursive rule over the rows the Yin VM actually emits, runs in the test suite today:"]
+
+          [:pre
+           [:code {:class "language-clojure"}
+            ";; free names of a lambda, computed as a query, not a feature\n[:find  ?name\n :in    $ %\n :where [?v :variable ?name]\n        (not (bound? ?v ?name))]"]]
+
+          [:p
+           "In a traditional IDE, each of these questions is a bespoke algorithm someone compiled into the tool. In the fact space, each is a few lines of query, and the set of answerable questions is open."]
+
+          [:h3 "Argument 2: termination is a safety property"]
+
+          [:p
+           "An unsupervised agent issuing searches against your codebase needs a search that cannot hang. "
+           [:a {:href "/blog/what-makes-datalog-datalog.blog"} "What Makes Datalog Datalog"]
+           " made the point that Datalog is defined by its semantics, not its syntax, and that the restrictions are the point: \u201cEvery Datalog query always terminates. No infinite loops. No non-termination.\u201d That guarantee belongs to the pure fragment: once a query calls host functions, as "
+           [:code "dao.space.query"]
+           " allows for predicates and arithmetic, termination is no longer free. But it is a property the query layer can enforce, by restricting which functions an agent's queries may call. For a human at a REPL, guaranteed termination is a nicety. For an agent in a loop, it is "
+           [:strong "a safety property of the retrieval layer itself."]
+           ]
+
+          [:h3 "Argument 3: logic is the most context-efficient retrieval there is"]
+
+          [:p
+           "The LLM's scarcest resource is context. Text RAG spends it on redundant source, comment boilerplate, syntax noise. A join spends it on distilled facts: exactly the rows that match, each carrying its provenance and timestamp, with the query itself costing a few dozen tokens. And because Datalog queries are data, the model can compose them incrementally: run a broad pattern, look at the rows, add a join, add a negation. Each step spends only the tokens of the rows it returns. Exploration becomes a conversation with the store."]
+
+          [:h2 "The Hallucination Cage"]
+
+          [:p
+           "A store does not make a model honest. It does something better: "
+           [:strong "it cages what can be hallucinated."]
+           ]
+
+          [:p
+           "Today the hallucination surface is the entire programming language. The model can invent APIs, invent callers, invent the semantics of a library, invent a variable that never existed, and nothing in the toolchain distinguishes the invention from the fact. Over a fact space, the facts come from tuples. The model can only be wrong about two things: "
+           [:strong "which query it writes, and how it reads the rows back."]
+           " Both are inspectable. A wrong reading is refuted by re-running the query. A wrong query is sitting in the transcript as data, not hidden inside fluent prose."]
+
+          [:p
+           [:a {:href "/blog/why-llms-need-structured-code-the-yin-vm-approach.blog"} "Why LLMs Need Structured Code"]
+           " already made the boundary argument: invent a predicate like "
+           [:code ":account/magicField"]
+           " and the store rejects it. \u201cThe hallucination dies at the boundary.\u201d The cage is the generalization of that idea, one step earlier: "
+           [:strong "before the boundary is even reached, the space of things that can be said is finite, structured, and checkable."]
+           ]
+
+          [:p
+           "Domain ontologies shrink the cage further. A domain's concepts, payment, consent, customer record, live as ontology datoms with declared relations, not as vibes in a prompt. The LLM composes ontology-backed concepts instead of inventing attribute names, and a claim citing a concept that unifies with no fact is a "
+           [:strong "visible type error, not a silent confabulation."]
+           " The error space does not just get smaller. It becomes enumerable."]
+
+          [:p
+           "There is a philosophy behind this. "
+           [:a {:href "/blog/power-of-restriction-datom-tuple.blog"} "The Power of Restriction"]
+           " argued that \u201cwhen the form of data is fixed, the meaning of the data becomes fluid,\u201d and its later correction sharpened the claim: openness belongs to the tuple space, the fixed form belongs to the interpreter. The cage is that move applied to machine cognition. The smaller the sayable, the larger the checkable."]
+
+          [:p
+           "Provenance finishes the job. Every claim row carries its minting party in the metadata slot, so a type claim written by an LLM is distinguishable, at the storage layer, from one declared by a programmer. The medium can rank machine claims, quarantine them until checked, or demand that the checker promote them. As the structured-code post put it: \u201cHallucinations become quarantined suggestions, not silently absorbed facts.\u201d"]
+
+          [:p
+           [:strong "The cage does not make the model right. It makes the model refutable."]
+           ]
+
+          [:h2 "The Gate: The LLM Writes Through the Same Door"]
+
+          [:p
+           "Reading is half the loop. The write side is where the architecture earns the word IDE."]
+
+          [:p
+           "This half is designed, not yet built (see What Exists Today), but the design is concrete. The LLM proposes code. Yang lowers it to the Universal AST. A "
+           [:em "gate"]
+           " observer, which holds write authority on the medium evaluators read, forwards the program or refuses it, and refusal is not a compiler error string for a human to squint at. It is "
+           [:strong "verdict rows citing the exact claims consulted"]
+           ", with structured defects naming a rule and a path:"]
+
+          [:pre
+           [:code {:class "language-clojure"}
+            ";; why did the gate refuse the patch?\n;; structured evidence, not an error string\n[:find  ?rule ?path\n :where [?v :yin.typecheck/outcome :refused]\n        [?v :yin.typecheck/defects ?d]\n        [?d :rule ?rule]\n        [?d :path ?path]]"]]
+
+          [:p
+           "The model queries the defects, fixes the code, resubmits. "
+           [:strong "The edit-test-debug loop becomes a query loop."]
+           " The traditional loop sent the human scuttling between editor, compiler output, and issue tracker. This loop is three media, the proposed program, the claims about it, and the verdicts on it, plus a judge."]
+
+          [:p
+           "Notice where the authority lives. Authority here is write authority on a medium, nothing more and nothing less. The LLM's power is bounded by which media it may append to, not by an honor-system permission dialog. Whoever wires the streams together decides how much authority the machine loop has by deciding which medium the evaluators read: the LLM's output directly, the output with advisory verdicts, or only what a full gate forwards. The dial is topology, and it is data."]
+
+          [:p
+           "And because every verdict cites the exact claim rows it consulted, any verdict can be recomputed from evidence. A second observer, or a second model, can audit the first without trusting it. "
+           [:strong "Multi-agent verification stops being orchestration code and becomes stream wiring."]
+           ]
+
+          [:p
+           [:a {:href "/blog/russian-dolls-yin-vm-llm-symmetry.blog"} "Russian Dolls"]
+           " showed that the VM and the LLM are the same shape: isolated reasoning engines that only emit data effects for an outer interpreter to act on. \u201cThe agent doesn't \u2018call a function\u2019; it emits a fact about what it wants to do.\u201d One engine emits programs, the other emits claims, and both pass through the same door. (In Leibniz's vocabulary both are windowless monads, and the gate is authority as a stream position; the "
+           [:a {:href "/blog/leibnitz-datomworld.blog"} "Leibniz essay"]
+           " carries the full mapping.)"]
+
+          [:h2 "Why Traditional IDEs Cannot Follow"]
+
+          [:p
+           "Could IntelliJ bolt this on? It would first have to turn its understanding into a database, and that is a different product. The barriers are structural, not incremental:"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Process state is not a medium."]
+            " Per-language PSI graphs, in-memory caches, and proprietary index files have no append-only log, no content addresses, no provenance, no history. You cannot time-travel a cache, and you cannot cite a cache row as evidence."]
+           [:li
+            [:strong "The LLM talks to the process, not to facts."]
+            " Assistant integrations reach the IDE through tool APIs, so every answer is still mediated by a context window holding a lossy sample of the codebase."]
+           [:li
+            [:strong "No compounding."]
+            " A new class of question requires a new IDE feature. Here, every new observer, a typecheck observer, a conformance observer, a runtime ledger, immediately enlarges the LLM's queryable surface with zero new tooling."]
+           [:li
+            [:strong "The vocabulary is too large."]
+            " The fact vocabulary is small and regular: saturated code rows and a handful of reserved schema attributes, against thousands of PSI node classes. Small, regular vocabularies are precisely what LLMs write correct queries against."]]
+
+          [:p
+           "The deep IDE will always win the questions it was built to answer: per-language type inference, overload resolution, keystroke-latency analysis. The fact space wins everything else, and it wins by growing."]
+
+          [:h2 "What the IDE Becomes"]
+
+          [:p
+           "Put the halves together and the picture inverts. The IDE on datom.world is "
+           [:strong "a conversation over a fact space"]
+           ": observers mint facts, the LLM writes queries and proposals, the gate adjudicates, and the human judges."]
+
+          [:p
+           "Replay the opening question on the medium: why does the payment flow fail for EU users? Four moves, every one a query. The history query runs today; the effect, lineage, and gate moves depend on observers that are designed or planned:"]
+
+          [:ul.bulleted
+           [:li
+            "Which functions on the EU payment path declare network effects and also touch the payment object? A join over effect claims and code rows, answer in rows, not files."]
+           [:li
+            "What did those functions look like at the deploy that introduced the failure? An "
+            [:code ":as-of"]
+            " over the datom log. History is storage, not archaeology."]
+           [:li
+            "Where did the malformed object come from? Lineage over derivation rows, across languages, because the lineage does not care which dialect wrote each hop."]
+           [:li
+            "The model proposes a patch. The gate refuses it with defect rows. The model reads the evidence, fixes the code, resubmits. The human reads the final verdict and judges."]]
+
+          [:p
+           "The text editor still exists in this picture, and so does the REPL, and so does a block view. They are projections, views into the same store. As "
+           [:a {:href "/blog/visual-ast.blog"} "Visual AST"]
+           " put it, the editor is \u201ca viewport into the database state.\u201d Nothing about the medium privileges the text view, and nothing privileges the human view either. The LLM is just another reader, and the IDE is whatever conversation the fact space supports."]
+
+          [:p
+           [:strong "The traditional IDE is an editor with a compiler attached. This IDE is a judge, a reasoner, and a fact space, having a conversation on the record."]
+           ]
+
+          [:h2 "What Exists Today"]
+
+          [:p
+           "The corpus keeps itself honest, and this post should too. The architecture is ahead of the content, and the gap is the critical path:"]
+
+          [:p [:strong "Implemented:"]]
+          [:ul.bulleted
+           [:li
+            "Yang compilers lowering Clojure, Python, and PHP subsets to the Universal AST."]
+           [:li
+            [:code "dao.space.query"]
+            " with positional "
+            [:code "match"]
+            ", Datalog "
+            [:code "q"]
+            ", "
+            [:code "pull"]
+            ": joins, negation, disjunction, recursive rules with cyclic-call termination, aggregates, ranges."]
+           [:li
+            "Datalog over code rows: free-name computation and nearest-enclosing-binder resolution with shadowing run as query tests over AST tuples today."]
+           [:li
+            "Covered Merkle indexes (EAVT, AEVT, AVET, VAET) over d5 datoms, and code as content-addressed CBOR in dao.jing."]]
+
+          [:p [:strong "Designed, not yet implemented:"]]
+          [:ul.bulleted
+           [:li
+            "The typecheck observer: claim rows, the causal watermark, gate composition, verdicts citing claim-refs."]
+           [:li
+            "The conformance observer comparing declared effects against observed effects on running streams."]
+           [:li
+            "Claim authority: who may write to the claims medium, and whose provenance a checker believes."]
+           [:li
+            "Exposing "
+            [:code "q"]
+            " and "
+            [:code "match"]
+            " at the "
+            [:code "yin.repl"]
+            " surface."]
+           [:li
+            "The ANTLR plan for Yang: grammars behind a stream boundary emit portable syntax-tree packets, and a lowering interpreter turns them into the Universal AST, so adding a language means adding a grammar, not changing Yang."]]
+
+          [:p [:strong "Later:"]]
+          [:ul.bulleted
+           [:li
+            "A real type language as the checker parameter. The first checker is deliberately trivial, and must not be mistaken for a type system."]
+           [:li
+            "Domain ontologies as first-class datom layers with declared relations."]
+           [:li
+            "Cross-language lineage queries over objects that hop dialects at runtime."]]
+
+          [:p
+           "Today the fact space answers fewer questions than IntelliJ, and every question it answers, it answers with evidence. The first property is a work plan. The second is the architecture."]
+
+          [:h2 "Related Work"]
+
+          [:ul.bulleted
+           [:li
+            [:strong "IntelliJ and its AI layer."]
+            " The deepest per-language understanding in the industry, locked in process state for the reasons above."]
+           [:li
+            [:strong "Embedding-retrieval assistants."]
+            " Cursor, Copilot, and peers index text by similarity. Similarity finds neighbors. Logic finds consequences, and only logic can carry provenance."]
+           [:li
+            [:strong "CodeQL and Glean."]
+            " The closest prior art: code as a relational database with a Datalog-family language. Both are offline snapshots with per-language extractors, static only, no runtime facts, no gate, no provenance-weighted claims."]
+           [:li
+            [:strong "Datomic codeq."]
+            " The closest ancestor by lineage. "
+            [:a {:href "https://github.com/Datomic/codeq"} "codeq"]
+            " (2012) imported git history into Datomic and let Datalog ask program-level history questions, such as every version of a function across commits. But its unit of code was a top-level form kept as an opaque text string, identified by the hash of its text: no structure below the definition, so no callers, no scopes, no free variables, and no runtime facts. datom.world takes the same move all the way down, to every AST node, across languages."]
+           [:li
+            [:strong "tree-sitter and semgrep."]
+            " Structural pattern matching over syntax trees. Useful, but pattern matching is not logic: no joins across sources, no recursive rules, no time."]
+           [:li
+            [:strong "Unison."]
+            " The gate property at hash time, with the checker fused into the codebase. No gradual-by-wiring, no runtime claims, no conversation. The "
+            [:a {:href "/blog/yin-vm-vs-unison.blog"} "side-by-side comparison"]
+            " covers the trade."]]
+
+          [:p
+           "Each of these holds one piece. datom.world's claim is the composition: code as facts, queries as logic, hallucination caged, writes gated, and a human holding the last word."]
+
+          [:p [:strong "Learn more:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/ide-edits-ast-not-text.blog"} "When the IDE Edits AST, Not Text"]
+            " (the editing half of this argument, for humans)"]
+           [:li
+            [:a {:href "/blog/yin-vm-lsp.blog"} "Beyond LSP: Queryable AST as the Universal Language Server"]
+            " (every IDE feature as a query)"]
+           [:li
+            [:a {:href "/blog/why-llms-need-structured-code-the-yin-vm-approach.blog"} "Why LLMs Need Structured Code: The Yin.vm Approach"]
+            " (the boundary where hallucination dies)"]
+           [:li
+            [:a {:href "/blog/russian-dolls-yin-vm-llm-symmetry.blog"} "Russian Dolls: The Fractal Symmetry of Yin.VM and LLMs"]
+            " (why the LLM and the VM are the same shape)"]
+           [:li
+            [:a {:href "/blog/leibnitz-datomworld.blog"} "Leibniz's Monad Model and Datom.world"]
+            " (windowless agents, stigmergic harmony)"]
+           [:li
+            [:a {:href "/blog/what-makes-datalog-datalog.blog"} "What Makes Datalog Datalog: Semantics, Not Syntax"]
+            " (why every query terminates, and why agents care)"]
+           [:li
+            [:a {:href "/blog/many-syntaxes-one-ast.blog"} "Many Syntaxes, One AST"]
+            " (the AST as the semantic contract the LLM must honor)"]
+           [:li
+            [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"]
+            " (the shared semantic layer)"]
+           [:li
+            [:a {:href "/blog/yin-vm-vs-unison.blog"} "Named Source, Canonical Identity: yin.vm and Unison's Different Trade-offs"]
+            " (types as facts versus the gate at hash time)"]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM Documentation"]
+            " (the implementation)"]
+           [:li
+            [:a {:href "/yang.chp"} "Yang Compiler"]
+            " (how code becomes Universal ASTs)"]
+           [:li
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
+            " (the fact space itself)"]]
+
+          ]]]}
+
