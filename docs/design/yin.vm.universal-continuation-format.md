@@ -190,6 +190,13 @@ Rules, each replacing heavier machinery from the attributed-map record:
   `0`, `:stream-make` absent buffer becomes the default capacity — so a batch
   that omitted a defaulted operand and one that stated it canonicalize
   identically, because they execute identically.
+- **Normalization gate.** The falsy `:gensym` prefix is not yet normalized
+  alike: the loader defaults `false` to `"id"`, while canonicalization
+  refuses it (`yin.vm.ucf-revisions.md` section 7.5). Before a UCF
+  address is accepted, both paths must use one normalization rule, or
+  admissible `v2` input must exclude that case by a published contract
+  decision. The identity equivalence claim above is conditional on this
+  gate; an untested edge case cannot acquire a portable code address.
 - **Refs are resolved pcs**, exactly as the loader resolves them.
 - **The header folds away.** `:yin.code/length` is `(count vector)`,
   `:yin.code/type :segment` is implied by the form. Provenance
@@ -511,12 +518,24 @@ Three rules make these resumable somewhere other than where they were minted:
   waiters sharing a cell consume successive values — are preserved on the
   resumer exactly. A first poll that observes `gap` is the honest outcome
   the contract already promises a kept cursor (`dao.stream.md`, *Retention
-  and Gaps*). This requires the response transport to accept a kept cursor
-  from another host, which `dao.stream.md` leaves transport-owned and TBD;
-  UCF therefore declares, per stream, a **portable cursor profile** in
-  `:yin.k/requires` (`:yin.k/cursor-profiles`), and a transport that does
-  not declare one cannot be a pending-response endpoint — the lift refuses
-  it as `:yin.k/unsatisfied` before the value is ever minted.
+  and Gaps*). At migration the composition serves every carried stream
+  cell through a standard stream-over-network facade derived from the
+  `dao.stream` operation and outcome contract. This is an access path to
+  the original logical stream, not a copied stream with new positions.
+  `dao.stream` itself assumes no network. The facade serves the source's
+  declared reader and writer surface, preserving its outcome maps and
+  cursor namespace rather than assigning new positions.
+  The cell's stream descriptor carries the generated facade endpoint,
+  while the cell carries its kept cursor. The receiver attaches a proxy
+  `dao.stream` implementation through that endpoint and resumes at the
+  kept cursor. `dao.stream.rpc.ws` demonstrates the transport-neutral RPC
+  pattern over ring buffers; it does not itself supply the UCF facade.
+  `:yin.k/cursor-profiles` in `:yin.k/requires` declares what the facade
+  must honor, including cursor identity, position, and `gap` outcomes.
+  If the source cannot expose those operations, preserve the cursor, or
+  keep the endpoint reachable, lift refuses as `:yin.k/unsatisfied` before
+  minting the value. Attach failure on the receiver is also
+  `:yin.k/unsatisfied`, naming the stream identity.
 - **Outstanding calls route to the emitter's pair; the resumer's pair is its
   own.** The reference machine restores a `:request-sent` entry into a
   response wait through its fixed local store keys (`vm/call-out-stream-key`
@@ -705,14 +724,18 @@ fresh store cursor entry seeded with its carried position; every
 one entry and one ref per cell keeps its own. The FFI response cell of
 §7.4.3 is a cell like any other.
 
-A stream reference is portable iff its transport produces a descriptor whose
-`attach!` can succeed somewhere other than the emitter's host. The encoder
-cannot know that; it encodes the descriptor and lets the resumer's `attach!`
-report `not-found` as data. What the encoder *can* refuse is a handle whose
-`descriptor` call fails, which cannot happen under the contract, and a raw
-in-memory handle admitted by an in-process stream's admission declaration
-(`dao.stream.md`, *Creation and Attachment*), which it treats as a host
-object.
+A stream reference is portable when the exporter can serve its declared
+`dao.stream` surface through the facade and publish an attachable endpoint
+for the original logical stream. This applies to local implementations,
+including an in-memory or string-backed stream; they need no native
+network transport. The exporter checks the required cursor profile before
+encoding the cell, and the receiver binds a proxy on `attach!`. The facade
+preserves the source's cursor and outcome semantics, including `gap`; it
+does not turn `:oldest` or `:newest` into a kept position. A raw host handle
+still never crosses the value boundary. A stream that cannot be served or
+cannot honor the required profile refuses through the existing
+non-portable or unsatisfied outcomes; a missing remote attachment is
+`not-found` and becomes `:yin.k/unsatisfied`.
 
 ### 7.5.4 Failure is total and names its place
 
@@ -754,7 +777,7 @@ guessed from the current environment:
  :yin.k/effects         #{:stream/next :stream/put :module/require}    ; effect kinds the segments can raise
  :yin.k/ffi-ops         #{:op/add}                                     ; :yin.code/ffi-op values present
  :yin.k/streams         #{<identity> …}                                ; logical-stream identities referenced anywhere
- :yin.k/cursor-profiles #{:dao.stream/file-v1}                         ; transports that must accept kept cursors, §7.4.3
+ :yin.k/cursor-profiles #{:dao.stream/file-v1} ; required cursor profile
  :yin.k/discovery       :complete}                                     ; :complete | :incomplete | :blocked — computed, §7.6.5
 ```
 
@@ -1082,37 +1105,38 @@ instead:
 
 **Authority epochs, checked atomically with commitment.** The occurrence's
 ledger carries an epoch datom, advanced by the grantor on every reclaim
-(§7.7.3) — a monotone number the possessing boundary alone can write. A
-consumer that must be exactly-once (a `dao.space` transactor, an FFI callee
-with side effects) admits a fenced effect only in the same act that reads
-the epoch: the check and the commit are one transition against the
-admission resource, never check-then-act. An effect whose incarnation's
-epoch is not the current one is refused at commitment. This is
-`dao.lease.md`'s "fencing from the resource" for durable resources, and it
-is a composition duty that composition owes exactly once.
+(7.7.3); only the possessing boundary writes it. Exactly-once admission
+is available only at an enrolled transactional consumer. Its epoch check,
+operation-intent check, durable dedup record, and side-effect commitment
+share one atomic boundary against the admission resource, never a remote
+check followed by a local act. A stale epoch is refused at commitment.
+A consumer unable to join that boundary declares at-least-once delivery
+or fail-stop behavior; UCF does not infer exactly-once from a lease stamp.
 
-**Stable operation ids, and durable dedup.** Every fenced effect carries
-`:yin.k/op-id {:yin.k/occurrence O :yin.k/seq n}` — assigned by the fenced
-writer in emission order. Op-ids are deterministic functions of the
-checkpoint and the operation sequence: a replacement holder resuming the
-*same* occurrence replays the same op-ids, which is what makes
-across-incarnation dedup possible at all. Exactly-once consumers keep a
-durable `{op-id → committed result}` record, written in the same atomic
-transition as the epoch check; a replayed op-id returns the recorded result
-and commits nothing. Within one incarnation and across incarnations, the
-same op-id is the same logical operation — the room for exactly-once
-semantics that lease identity alone cannot provide.
+**Stable operation ids, intent, and durable dedup.** Every fenced effect
+carries `:yin.k/op-id {:yin.k/occurrence O :yin.k/seq n}`, assigned in
+emission order. Re-grant may reuse an id after a nondeterministic input
+has changed, such as a kept cursor returning `gap` after eviction. The
+same id therefore does not prove the same operation. An enrolled consumer
+compares the canonical intent (effect kind, target identity, and payload)
+with its durable `{op-id -> {intent result}}` record in the atomic
+admission transition. An equal id and intent returns the recorded result
+without a second commit; an equal id with different intent refuses and
+commits nothing. A crash re-grant must replay durably recorded inputs or
+fail-stop when a divergent intent cannot be reconciled. Without that
+input discipline and transactional enrollment, the composition declares
+at-least-once behavior rather than exactly-once effects.
 
 **Where the stamp rides.** Program values are program data; UCF never
 edits them. A resumed incarnation running under a lease emits through a
 **fenced writer** the composition wires: a writer that wraps each appended
-value in an envelope `{:yin.k/envelope … :yin.k/incarnation <lease>
-:yin.k/op-id … :yin.k/value <the program value, verbatim>}`. Exactly-once
-consumers read stamped envelopes; a stream wired bare — no fence — is
-*declared* unprotected, and a composition that needs exactly-once delivery
-through it has wired the wrong thing. Fencing is opt-in per stream, exactly
-as `dao.lease.md` places the burden: "a holder needing exclusion obtains it
-from the resource." No callback tells a lapsed holder to stop; it stops at
+value in an envelope `{:yin.k/envelope ... :yin.k/incarnation <lease>
+:yin.k/op-id ... :yin.k/value <the program value, verbatim>}`. An enrolled
+consumer derives intent from the actual effect kind, destination identity,
+and payload at admission. A bare stream is *declared* unprotected, and a
+composition that needs exactly-once delivery through it has wired the
+wrong thing. Fencing is opt-in per stream; the resource enforces it.
+No callback tells a lapsed holder to stop; it stops at
 its own lease bound (`dao.lease.md`, *The holder*), and what it did past
 the bound is distinguishable after the fact by epoch and op-id.
 
@@ -1120,15 +1144,16 @@ the bound is distinguishable after the fact by epoch and op-id.
 completion. The holder's exit sequence is: append the successor value to
 the carrier, append `:yin.k/resumed` (evidence) to the arbitration medium,
 append `:dao.lease/released`. Completion is the **grantor's ledger
-transition** — observing the release (or the `:resumed` evidence followed
-by release) and closing the occurrence's tenure. The crash windows are then
-bounded and harmless: a crash after the successor append but before the
-records leaves an orphan successor — content-addressed, idempotent,
-re-readable as evidence but granting nothing; the lease lapses by silence;
-the grantor re-grants the *last recorded* occurrence, and the orphan chain
-is queryable history (§7.7.6). A crash mid-sequence never requires the
-grantor to trust a holder's report as proof of durable completion, because
-the report is evidence and the ledger is authority.
+transition** -- observing the release (or the `:resumed` evidence followed
+by release) and closing the occurrence's tenure. A crash after successor
+publication but before the ledger transition leaves an orphan successor,
+not a grant. The lease lapses and the grantor may re-grant the last
+recorded occurrence. For enrolled consumers, durable input replay and
+atomic intent comparison prevent a divergent same-id effect from
+committing. Without those gates, the re-grant is at-least-once or
+fail-stop, not harmless exactly-once recovery. The orphan remains
+queryable history (7.7.6); a holder report is evidence, while the grantor
+ledger is authority.
 
 **Partition policy, stated honestly.** A fenced consumer that cannot reach
 the authority (epoch unreadable) must **suspend protected effect
@@ -1304,14 +1329,14 @@ the review's named architectural obligations; they are blockers to
   round-trip and resume *elsewhere*: retained writes, sent and retained FFI
   calls with both endpoints and the kept response cursor, and cursor cells
   through the aliasing scenarios of `check-wait-set`. This depends on a
-  **portable cursor profile** in at least one transport, which
-  `dao.stream.md` leaves TBD — an external dependency UCF inherits and
-  cannot close itself.
+  generated stream-over-network facade and a **portable cursor profile**
+  that preserves the source stream's kept cursor and `gap` outcomes. The
+  M4 string-backed stream test below is the required cross-host proof.
 - **Enforceable fencing.** Epoch-checked, atomic-with-commitment admission
-  and durable op-id dedup at consumers: which consumers check, and how a
-  `dao.space` transactor consults the epoch without a callback, is a design
-  item for `dao.space.transactor.md`. Until it lands, `:yin.k/exclusive`
-  custody is at-least-once and must say so.
+  and durable op-id plus intent dedup at enrolled consumers are design
+  items for `dao.space.transactor.md`. A consumer without a shared atomic
+  boundary declares at-least-once or fail-stop behavior; it cannot claim
+  exactly-once custody from the lease alone.
 - **Canonical byte encoding.** `:yin.code/hash` and `:yin.k/id` are exactly
   as portable as `dao.jing/segment-key`. Canonical CBOR landed in
   3ddaa21b (recorded in `yin.vm.ucf-revisions.md` section 5); the
@@ -1365,10 +1390,12 @@ claim that all five blockers have closed.
 - Setup: On each host, make equal resolved vectors from batches with
   different entity ids, order, provenance, and omitted defaults; make
   unequal vectors by reversing repeated single-valued operands. Include
-  both direct and projected loads, an index hit, carried code, and a
-  `dao.jing` miss/hit path. Use a valid vector under a wrong index entry,
-  a correctly addressed malformed vector, a missing address, an old
-  stamp, and two valid images claiming one live local id.
+  a `:gensym` prefix of `false` beside absent and explicit `"id"` prefixes.
+  Verify the published `v2` decision in both direct and projected loads.
+  Include an index hit, carried code, a `dao.jing` miss/hit path, a valid
+  vector under a wrong index entry, a correctly addressed malformed
+  vector, a missing address, an old stamp, and two valid images claiming
+  one live local id.
 - Action and expected outcome: M3 `step`/`fetch` transfers and verifies
   each format over ring buffers; the two equal vectors address equally,
   the unequal vectors do not, and a `:sha256` address still verifies under
@@ -1381,9 +1408,12 @@ claim that all five blockers have closed.
   `:yin.k/hash-mismatch` at UCF lower; malformed code is
   `:yin.k/undecodable` naming the pc; a miss is `:yin.k/unsatisfied`;
   an incompatible stamp is `:yin.k/profile-mismatch`. No check may
-  redirect an existing local id or bypass the common validator.
+  redirect an existing local id or bypass the common validator. The
+  falsy-prefix case either normalizes identically in both paths or is
+  refused as inadmissible before an address is minted.
 - Landing and order: M3 lands the stream and format-identity gate;
-  M4 closes UCF identity after M3 and before any lifted image is run.
+  M4 closes UCF identity after M3 and the published normalization
+  decision, before any lifted image is run.
   The already landed `v2` history (dbae125b), canonical CBOR
   (3ddaa21b), and Phase 1 vector/stamp (f51077f2) supply the names and
   bytes, not the cross-host lowering proof. Landed linker design
@@ -1401,23 +1431,39 @@ claim that all five blockers have closed.
   item 12). Exercise distinct activation depths and captured environments
   at one pc, a nonempty ready queue, a nonsafepoint pc, and a kept response
   cursor shared by two waiters. Omit the portable cursor profile for the
-  refusal case; use a transport that publishes one for the eventual
-  cross-host positive case.
+  refusal case. Separately prepare two independently implemented UCF
+  engines with a nontrivial call stack, a captured closure, and a blocked
+  effect at the handoff point.
 - Action and expected outcome: On each host, lift a parked task and lower
   into a fresh VM, then compare its result and effect trace with the
-  reference machine. For a transport with a portable cursor profile,
-  repeat with the receiver on another host. Static `:yin.safepoint/kinds`,
-  stack effect, and lexical reads agree with the reference trace; the
-  observed parked record, wait entry, and effect outcome determine
-  `:yin.k/reason` and `:yin.k/pending`, never the static kind alone.
+  reference machine. Before the full corpus, lift that handoff from one
+  engine and lower it in the other; the frame, pending wait, next result,
+  and effect trace must agree in both directions. Static
+  `:yin.safepoint/kinds`, stack effect, and lexical reads agree with the
+  reference trace. The observed parked record, wait entry, and effect
+  outcome determine `:yin.k/reason` and `:yin.k/pending`, never the
+  static kind alone.
   Test both FFI states and each call effect. `lift(lower(frame))` must
   reproduce the canonical frame. An undeclared pc gives
   `:yin.k/not-at-safepoint`; queued work gives `:yin.k/not-quiescent`.
   Insufficient pending evidence refuses before publication, as does a
   missing portable cursor profile. Halt yields a result, not a frame.
-- Landing and order: M4 covers the table and reference-machine parity,
-  after code identity; cross-host kept-cursor parity closes in post-M5
-  hardening if no transport profile lands by M4.
+- Facade acceptance: Park a continuation holding a string-backed local
+  `dao.stream` with a kept cursor, then migrate to another network node.
+  The exporter mechanically serves that stream through the standard
+  facade; the cell descriptor contains the facade endpoint and kept
+  cursor, and the receiver binds a proxy `dao.stream` to the original
+  logical stream. Reads resume at the kept position. Force retention
+  loss and verify the proxy returns `:dao.stream/gap` with the source's
+  successor cursor, without replay or silent skip. Repeat with a source
+  that cannot honor the profile: lift refuses `:yin.k/unsatisfied`; an
+  unreachable endpoint on lower is `:yin.k/unsatisfied` naming the stream.
+- Landing and order: M4 covers the early two-engine gate, the table,
+  reference-machine parity, and the cross-host facade proof after code
+  identity; the kept-cursor proof no longer waits for post-M5 hardening.
+  M3's stream exchanges and `dao.stream.rpc.ws` supply the RPC pattern,
+  but M4 must land the generic facade and proxy, not just reuse a native
+  network stream.
   Before export, specify the no-wait explicit-park representation and any
   `:call-effect` pending shape; test them or remove that reason from the
   wire contract. The `:reasons` Option B ruling in
@@ -1443,35 +1489,43 @@ claim that all five blockers have closed.
   order. The lift refuses unsupported leaves as `:yin.k/non-portable`
   with path and kind and publishes no partial value; decode refuses
   malformed markers and refs as `:yin.k/undecodable` with path before
-  restoring state. A same-named primitive with a different profile is
-  `:yin.k/unsatisfied`, never substituted by name alone.
+  restoring state. Forged resource refs refuse before lift, while valid
+  refs re-seal on lower into the receiver's private resource table. A
+  same-named primitive with a different profile is `:yin.k/unsatisfied`,
+  never substituted by name alone.
 - Landing and order: M4 supplies the recursive codec, published standard
   primitive profiles (including effectful `yin/def` and `require`), and
   linker section 11 item 12's `:yin.k/binding`, `:yin.k/store-of`,
   private-resource, and sealed-reference variants before lift uses them.
-  Cross-host kept-cursor round trips require the transport's portable
-  cursor profile; if none exists at M4, that part closes in post-M5
-  hardening; the lift refuses it meanwhile. Phase 1 canonicalization and
-  M2 format records do not encode frames or values.
+  M4 also proves the string-backed stream facade and kept-cursor case in
+  the safepoint row before cross-host values are accepted. Phase 1
+  canonicalization and M2 format records do not encode frames or values.
 
 **Ownership arbitration (7.7; blocker 4).**
 
-- Invariant: One occurrence has at most one admitted holder and each
-  protected effect commits at most once across retries and lease changes.
+- Invariant: One occurrence has at most one admitted holder, and each
+  enrolled protected effect commits at most once across re-grants.
 - Setup: Copy one checkpoint, including two valid encodings with one
   occurrence id, to two readers and leave the source's blocked writer
   wakeable. Use a transactable arbitration space, a grantor ledger,
-  epoch-checking consumer, and durable op-id results. Inject publication
-  failure, retry, stale lease, consumer partition, and crashes after the
-  successor append, resumed report, and release, respectively.
+  enrolled transactional consumer, and durable op-id intent and result
+  records. Inject publication failure, retry, stale lease, consumer
+  partition, and crashes after the successor append, resumed report, and
+  release. After a crash, evict a kept-cursor value so the re-granted run
+  observes `gap` and attempts a different effect at the same sequence.
 - Action and expected outcome: M4's exporting transition detaches waits
   before publication; polling or direct resume of the exporting source
   cannot append, and retry preserves the occurrence. With arbitration,
   only a granted holder runs; competitors get `:yin.k/not-holder` or
   `:yin.k/awaiting-grant`. Reclaim advances the epoch; stale effects fail
-  at commitment, duplicate op-ids return the stored result without a
-  second commit, and the grantor's ledger alone completes the occurrence.
-  A partitioned protected consumer suspends admission. Without a durable
+  at commitment. At the enrolled consumer, epoch check, operation-intent
+  check, dedup record, and side-effect commitment share one atomic
+  boundary: equal id and intent return the stored result without a second
+  commit; equal id with divergent intent refuses and commits nothing.
+  A re-grant either replays durable inputs or fails closed on divergence.
+  The grantor's ledger alone completes the occurrence. A partitioned
+  protected consumer suspends admission. Without enrollment, the stream
+  declares at-least-once or fail-stop behavior; without a durable
   transactable authority the composition offers `:yin.k/fork` only.
 - Landing and order: M4 must land and test exporting before any lift
   publishes. Exclusive custody, epoch admission, crash recovery, and the
