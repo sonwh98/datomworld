@@ -57,6 +57,51 @@
 
 
 ;; =============================================================================
+;; Datom ingestion (section 8.2)
+;; =============================================================================
+
+(defn events-from-datoms
+  "The section 8.2 authority event sequence, assembled from the
+   assertion datoms a composition read at its snapshot: every
+   `[ev :yin.module/envelope env]` datom yields one event whose proof is
+   the one `[ev :yin.module/proof proof]` value of the same entity. An
+   entity carrying two distinct proof values has no proof: none is
+   picked, so the event is the no-proof case, whatever the datom order.
+   An envelope datom with no proof datom is the no-proof case the policy
+   discards as :unauthenticated; a proof datom with no envelope datom
+   names no event and is ignored -- section 8.2's diagnostic kinds are a
+   closed set, and an orphan proof is no envelope at all. `carrier` is
+   the :dao.stream/identity of the one stream the composition read at
+   the snapshot, marked on every event for the attested check; nil means
+   the read names no stream, and an attested proof fails :bad-proof
+   there. Events keep the handed datoms' order, and the datoms are
+   already snapshot-bounded by the reader: nothing here reads or
+   advances a snapshot itself."
+  ([datoms] (events-from-datoms datoms nil))
+  ([datoms carrier]
+   (let [proof-of (reduce-kv
+                    (fn [acc e vs]
+                      (cond-> acc
+                        (= 1 (count vs)) (assoc e (first vs))))
+                    {}
+                    (reduce (fn [acc [e a v]]
+                              (cond-> acc
+                                (= a :yin.module/proof)
+                                (update e (fnil conj #{}) v)))
+                            {}
+                            datoms))]
+     (into []
+           (keep (fn [[e a v]]
+                   (when (= a :yin.module/envelope)
+                     (cond-> {:yin.module/envelope v}
+                       (contains? proof-of e)
+                       (assoc :yin.module/proof (get proof-of e))
+                       (some? carrier)
+                       (assoc :dao.stream/identity carrier)))))
+           datoms))))
+
+
+;; =============================================================================
 ;; Authentication: the two proof kinds (section 8.2)
 ;; =============================================================================
 
