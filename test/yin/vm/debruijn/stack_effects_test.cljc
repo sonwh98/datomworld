@@ -398,9 +398,12 @@
       (is (= 42 (vm/value done)))
       (is (= 42 (get (vm/store done) 'answer)))))
   (testing "require through the module registry value"
-    (let [registry (module/register-module (module/default-registry)
-                                           'my.lib
-                                           {'answer 42})
+    (let [registry (module/register-host-module
+                     (module/default-registry)
+                     'my.lib
+                     {'answer 42}
+                     {'answer (vm/primitive-profile 'answer :pure [0] #{}
+                                                    :none)})
           done (run-segment [[:load-free 'require] [:const 'my.lib]
                              [:call 1 false] [:push]
                              [:load-free 'my.lib/answer] [:halt]]
