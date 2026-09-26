@@ -277,6 +277,31 @@ REQUEST CHANGES / Sign-off DENIED
 2026-09-25 07:17:54 GMT) on record-scanner, Dart-typing, and
 fetch-bounds P1s -- implementation defects, not contract revisions.
 
+I-4. Rule R: the contract moves to v3 (0fc931fc, 2026-09-26 05:06:02
++0700, "make yin/def syntax, never a name"). `yin/def` stopped being a
+primitive found by name: `engine/resolve-var` refuses it before the
+environment and store, the definition transition in all four engines
+never resolves its operator, and `:define` opcodes replace the call
+shape. That changed the resolution precedence and added a transition,
+both named components of the stamp (UCF 7.3.3), so every persistent
+code format took a new revision name (`yin.vm.cljc`: `ast-contract`
+"v3", `semantic-contract` "v3", `stack-contract` "b2",
+`register-contract` "r2"). Carriers: `ucf.cljc`'s `contract-stamp` now
+carries `{:yin.code/contract "v3", :yin.k/version 0}` through
+`vm/semantic-contract`; every persistent-code loader requires and
+compares a stamp and refuses `:contract-missing` or
+`:contract-mismatch` before validation. The stamp is never assigned to
+external input.
+
+Sections amended: UCF 7.3.3 (the revision named by the stamp),
+semantic.md 2.4, and the stack, register, code-as-tuples, macro and
+engine design documents, which carry the same commit. Image validity:
+images stamped "v2", "b1" or "r1" no longer load and there is no
+migration; the repository is development-only, with no deployed stores,
+so no published image is stranded. `yin.vm.linker.md` section 8.1 makes
+the same rule for manifests: a manifest naming "v2", "b1" or "r1" is
+`:contract-mismatch`.
+
 ## 6. Pending amendments named but not landed
 
 - Contract-pinned AST and semantic identities. From the linker

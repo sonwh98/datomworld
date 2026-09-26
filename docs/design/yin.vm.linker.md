@@ -521,7 +521,9 @@ Step by step, for all four formats:
      equal profile address; a `:module` obligation only by a linked
      module of equal manifest address; a name bound in the receiver's
      free env or store is `:shadowed-free`; anything else is
-     `:unresolved-free` naming the obligation and what was found. This
+     `:unresolved-free` naming the obligation and what was found; an
+     obligation with no profile or manifest address discharges
+     nothing, even against a receiver entry that has none. This
      is UCF section 7.5.2's rule ("checked by profile, not by presence")
      at the linker's grain, and D11's refusal for an image the receiver
      cannot bind identically.
@@ -1028,7 +1030,7 @@ The steps, as rules:
    `full` the entry stays in `:link-request` with its envelope retained
    verbatim and is retried on the next poll, the `:ffi-request`
    discipline. The two states are the two UCF pending variants this
-   flow adds (section 11, item 10): `:link-request` carries everything
+   flow adds (section 11, item 12): `:link-request` carries everything
    needed to rebuild the envelope, `:link-response` carries the response
    descriptor and the kept cell.
 5. **The linker interpreter observes the request stream** with its own
@@ -1185,7 +1187,12 @@ Rules:
        computes it, and is from r6 on **never a restore key**: a
        concatenation identity changes at every attach, so an entry or
        continuation that recorded it would be refused by the first
-       later attach;
+       later attach; attaching an empty image is a no-op (no row, no
+       hash change), and an entry pc that its row does not contain
+       (`absolute-pc` is exactly the inverse of `image-pc`; one past
+       the end of the last row is the only pc allowed past a row) or
+       an entry beyond the attached image's instruction count on the
+       semantic kernel is refused `:origin-not-attached`;
      - *walker*: the verified tree's rows are added to the kernel's
        row set (`:code-segment` expansion) keyed by their ids; the
        current node, environment, and continuation are unchanged.
@@ -1239,7 +1246,12 @@ Rules:
      semantic frame's `:segment` is a local id that attach never
      renumbers. A lift that needs a frame pc's image derives the row
      from the offset table at lift time, so frames carry no identity
-     either.
+     either. A kernel `reset` starts a fresh run, not a load, so it
+     keeps the offset table (and the walker keeps its row index):
+     only the loaders and `attach-image` write those. Parked entries
+     still record `:segment` and `:hash`, but only as
+     self-consistency fields; restore checks the entry's format and
+     `:image` table membership and never assigns either field.
   4. *Each receiving task lowers the encoding* against its own
      coordinate space by the mapping below and writes the result into
      its own `:modules` entry as `:bindings`, which is what
@@ -2042,10 +2054,22 @@ Renamed:  src/cljc/yin/vm/debruijn_linker.cljc
           test/yin/vm/debruijn_linker_test.cljc
             -> test/yin/vm/linker_test.cljc           (M1)
 New:      src/cljc/yin/vm/linker/authority.cljc            (M4 entry)
+          src/cljc/yin/repl/link.cljc                      (M5)
+          test/yin/repl/require_test.cljc                  (M5)
+          test/yin/vm/linker_manifest_test.cljc            (M4)
+          test/yin/vm/linker_authority_ingestion_test.cljc (M4)
           test/yin/vm/linker_step_test.cljc           (M3)
           test/yin/vm/linker_authority_test.cljc      (M4 entry)
           test/yin/vm/linker_require_test.cljc        (M4)
 Edited:   src/cljc/yin/vm/module.cljc                 (M4)
+          src/cljc/yin/vm.cljc, yin/vm/ffi.cljc, yin/vm/completion.cljc,
+          dao/await.cljc          (the private :resources table
+                                   moves the FFI pair and the stream
+                                   and cursor cells out of :store)   (M4)
+          src/cljc/yin/vm/debruijn_register_effects.cljc
+                                  (the register frame check drops
+                                   :segment and :hash; the offset
+                                   table check)                     (M4)
           src/cljc/yin/vm/engine.cljc  (:link-request, :link-response,
                                         :install wait reasons; the
                                         install child; module-store
