@@ -1639,8 +1639,8 @@ Rules:
     the manifest's tree through the `:yin.ast/code` record (steps 2 to
     4, so the tree itself is verified), re-lowers it under the exact
     per-format profile the derivation record names (`"ast-to-bytecode"`
-    for `:yin.semantic/code`, the B2 stack lowering for
-    `:yin.debruijn.code`, the R1 register lowering for
+    for `:yin.semantic/code`, the stack lowering for
+    `:yin.debruijn.code`, the register lowering for
     `:yin.debruijn.register`, each pinned by its own
     `:yin.ledger/profile` map), and compares the recomputed identity to
     `:yin.ledger/output` (`yin.vm.code-as-tuples.md` section 5.2.2, step
