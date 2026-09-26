@@ -9,15 +9,19 @@
    nil-fill and extra-argument rules, and B0 normalization. It executes
    only validator-approved images.
 
-   State: `{:segment :hash :pc :frames :free-env :registers :continuation
-            :store :blocked? :halted? :wait-set :ready-queue :parked
-            :id-counter :value :make-stream :bridge :primitives :modules}`.
+   State: `{:segment :hash :images :pc :frames :free-env :registers
+            :continuation :store :blocked? :halted? :wait-set :ready-queue
+            :parked :id-counter :value :make-stream :bridge :primitives
+            :modules}`.
 
    Continuation transport: register continuations and stack continuations
    are not interchangeable (section 5.1). Payloads carry `:format
-   :yin.debruijn.register` and `:hash R`. Foreign format or hash mismatches
-   are refused with qualified `:continuation-format` diagnostics. Resume
-   values must be plain data, refusing host exceptions with `:resume-value`.
+   :yin.debruijn.register`, `:hash R` of the code space at the time, and
+   `:image`, the offset-table row their pc falls in (yin.vm.linker.md
+   section 7.3, r6). A foreign format or an `:image` the table does not
+   hold is refused with qualified `:continuation-format` diagnostics.
+   Resume values must be plain data, refusing host exceptions with
+   `:resume-value`.
 
    The kernel implements all 23 opcodes, Rule R's `:define` included,
    across the pure-program tier and the
@@ -39,6 +43,7 @@
 (defrecord DebruijnRegisterVM
   [segment      ; {:bodies [...], :instructions [...]}
    hash         ; R of segment (yin.vm.debruijn-register-code/register-hash)
+   images       ; offset table: [[identity offset length] ...], base first
    pc           ; program counter into :instructions
    frames       ; positional lexical frame stack, outermost first
    free-env     ; initial free-name environment map
@@ -112,15 +117,20 @@
       (and (map? segment) (empty? (:instructions segment)))))
 
 
+(def ^:private empty-image {:bodies [], :instructions []})
+
+
 (defn- install-image
   "Install `segment` as the one image. A non-empty image must pass the
-   register validator."
+   register validator. The offset table restarts at the base row
+   `[R 0 n]`."
   [vm segment]
   (let [empty-seg? (empty-segment? segment)]
     (if empty-seg?
       (assoc vm
-             :segment {:bodies [], :instructions []}
+             :segment empty-image
              :hash nil
+             :images [[(rcode/register-hash empty-image) 0 0]]
              :pc 0
              :frames []
              :registers []
@@ -132,10 +142,12 @@
         (throw (ex-info (str "Invalid register image: " (:rule defect))
                         defect))
         (let [body0 (first (:bodies segment))
-              reg-count (or (:registers body0) 0)]
+              reg-count (or (:registers body0) 0)
+              r (rcode/register-hash segment)]
           (assoc vm
                  :segment segment
-                 :hash (rcode/register-hash segment)
+                 :hash r
+                 :images [[r 0 (count (:instructions segment))]]
                  :pc 0
                  :frames []
                  :registers (vec (repeat reg-count nil))
@@ -149,9 +161,9 @@
   "Load `segment` (a register image `{:bodies [...], :instructions [...]}`)
    into `vm` as its one image: R is computed, the registers are reset to
    pc 0 with empty frames and continuation, and the machine is running
-   unless the segment is empty. A continuation parked under an earlier
-   image cannot be restored against this one: `register-restore` refuses
-   it by R.
+   unless the segment is empty. The offset table restarts at `[R 0 n]`, so
+   a continuation parked under an earlier image names no row of it and
+   `register-restore` refuses it.
 
    `contract` is required and compared with `vm/register-contract` first
    (`:contract-missing`, `:contract-mismatch`); a non-empty image must then
@@ -161,6 +173,68 @@
   (when-not (empty-segment? segment)
     (vm/check-contract! vm/register-contract contract))
   (install-image vm segment))
+
+
+(defn- relocate
+  "Shift every `:pc`-kind operand of `inst` by `offset`."
+  [offset inst]
+  (reduce (fn [inst [i [_ kind]]]
+            (if (= :pc kind) (update inst (inc i) + offset) inst))
+          inst
+          (map-indexed vector (get rcode/opcode-table (nth inst 0)))))
+
+
+(defn attach-image
+  "Extend the code space of `vm` with `image`, non-destructively
+   (yin.vm.linker.md section 7.3, act 3): `image` is admitted alone as
+   `load-image` admits it, relocated by the held instruction count, and
+   appended, `:bodies` shifted likewise; one `[identity offset length]`
+   row, identity R of `image`, is appended to the offset table; `:hash`
+   becomes R of the concatenation. `:pc`, `:registers`, `:frames`,
+   `:continuation`, and every other register are unchanged: appending
+   moves no instruction already held. An image whose identity is already
+   a row is not attached twice."
+  [vm image contract]
+  (when-not (empty-segment? image)
+    (vm/check-contract! vm/register-contract contract)
+    (when-let [defect (rcode/register-image-defect image)]
+      (throw (ex-info (str "Invalid register image: " (:rule defect))
+                      defect))))
+  (let [image (if (empty-segment? image) empty-image image)
+        ident (rcode/register-hash image)]
+    (if (some #(= ident (nth % 0)) (:images vm))
+      vm
+      (let [held (:segment vm)
+            offset (count (:instructions held))
+            shift-body #(-> % (update :start + offset) (update :end + offset))
+            combined {:bodies (into (:bodies held)
+                                    (map shift-body)
+                                    (:bodies image)),
+                      :instructions (into (:instructions held)
+                                          (map #(relocate offset %))
+                                          (:instructions image))}]
+        (assoc vm
+               :segment combined
+               :hash (rcode/register-hash combined)
+               :images (conj (:images vm)
+                             [ident offset
+                              (count (:instructions image))]))))))
+
+
+(defn image-pc
+  "Lift an absolute `pc` of `vm` to `[identity rel-pc]` by its offset
+   table, or nil when no row holds it."
+  [vm pc]
+  (when-let [[ident off] (effects/image-row (:images vm) pc)]
+    [ident (- pc off)]))
+
+
+(defn absolute-pc
+  "Lower `[identity rel-pc]` to an absolute pc of `vm` by its offset
+   table, or nil when the identity is no row of it."
+  [vm [ident rel-pc]]
+  (some (fn [[id off]] (when (= id ident) (+ off rel-pc)))
+        (:images vm)))
 
 
 (defn create-vm
@@ -179,6 +253,7 @@
      (-> (map->DebruijnRegisterVM
            {:segment {:bodies [], :instructions []},
             :hash nil,
+            :images [],
             :pc 0,
             :frames [],
             :free-env (vm/check-bindings! :env (or (:free-env opts) {})),
@@ -207,14 +282,17 @@
 
 (defn- return-transition
   "Unified return transition: restores caller frame from continuation if
-   pending, otherwise halts the VM with `val`."
+   pending, otherwise halts the VM with `val`. Only pc, frames, registers,
+   and continuation are restored (yin.vm.linker.md section 7.3, r7): a
+   frame carries no code space, so an image attached while the call was
+   in flight stays attached, and the absolute `:return-pc` still names
+   the caller's instruction in the grown code space."
   [vm val]
   (let [continuation (:continuation vm)]
     (if (seq continuation)
       (let [frame (peek continuation)
-            seg (:segment frame)
             return-pc (:return-pc frame)
-            body (body-of-pc seg return-pc)
+            body (body-of-pc (:segment vm) return-pc)
             reg-count (:registers body)
             dest (:dest frame)
             restored-regs (reduce (fn [acc [r v]] (assoc acc r v))
@@ -224,8 +302,6 @@
                          (assoc restored-regs dest val)
                          restored-regs)]
         (assoc vm
-               :segment seg
-               :hash (:hash frame)
                :pc return-pc
                :frames (:frames frame)
                :registers final-regs
@@ -241,19 +317,25 @@
                   {:rule :continuation-format,
                    :format (:format entry),
                    :hash (:hash entry),
+                   :image (:image entry),
                    :expected-format format-tag,
-                   :expected-hash (:hash base)})))
+                   :expected-hash (:hash base),
+                   :images (:images base)})))
 
 
 (defn register-restore
   "The register VM's restore function, `base entry val -> state`
-   (design section 5.2.3). Validates format identity and image hash R,
-   checks that the payload is defect-free via effects/continuation-defect,
-   checks that `val` is plain data, handles the FFI two-step, and delivers
-   `val` via `:write-result` or `:return-result`."
+   (design section 5.2.3). Validates format identity and that the entry's
+   `:image` is a row of the offset table (yin.vm.linker.md section 7.3,
+   r6; `:hash` is never a restore key, since it changes at every
+   `attach-image`), checks that the payload is defect-free via
+   effects/continuation-defect, checks that `val` is plain data, handles
+   the FFI two-step, and delivers `val` via `:write-result` or
+   `:return-result`. The entry restores registers only and never assigns
+   `:segment`: the code space is kernel state."
   [base entry val]
   (when-not (and (= format-tag (:format entry))
-                 (= (:hash base) (:hash entry)))
+                 (some #(= (:image entry) (nth % 0)) (:images base)))
     (refuse-continuation! base entry))
   (when-let [defect (effects/continuation-defect entry)]
     (throw (ex-info "Corrupt or tampered continuation payload"
@@ -274,15 +356,13 @@
           resume-mode (:resume-mode entry)]
       (if (= :return-result resume-mode)
         (return-transition (assoc base
-                                  :segment (:segment entry)
                                   :pc (:pc entry)
                                   :frames (:frames entry)
                                   :continuation (:continuation entry)
                                   :halted? false)
                            val)
-        (let [segment (:segment entry)
-              pc (:pc entry)
-              body (body-of-pc segment pc)
+        (let [pc (:pc entry)
+              body (body-of-pc (:segment base) pc)
               reg-count (:registers body)
               dest (:dest entry)
               restored-regs
@@ -293,7 +373,6 @@
                            (assoc restored-regs dest val)
                            restored-regs)]
           (assoc base
-                 :segment segment
                  :pc pc
                  :frames (:frames entry)
                  :registers final-regs
@@ -395,7 +474,7 @@
 (defn- step1
   "Execute exactly one instruction and return the resulting VM."
   [vm]
-  (let [{:keys [segment hash pc frames free-env registers continuation
+  (let [{:keys [segment pc frames free-env registers continuation
                 store primitives modules]} vm
         inst (nth (:instructions segment) pc)
         op (nth inst 0)]
@@ -452,13 +531,13 @@
                 callee-regs (into locals
                                   (repeat (- callee-reg-count callee-arity)
                                           nil))
+                ;; The frame carries no code space (r7): its absolute
+                ;; :return-pc survives every later append.
                 continuation'
                 (if tail?
                   continuation
                   (conj continuation
-                        {:segment segment,
-                         :hash hash,
-                         :site-pc pc,
+                        {:site-pc pc,
                          :return-pc (inc pc),
                          :frames frames,
                          :regs (mapv (fn [r] [r (nth registers r)]) live),
@@ -600,8 +679,11 @@
              "(yin.vm.debruijn-register-compile/adapt), then load and run the "
              "resulting image")
         {:ast ast})))
+  ;; A reset is a fresh run over the held code space, not a load: the
+  ;; offset table is kernel state only the loaders and `attach-image`
+  ;; write (yin.vm.linker.md section 7.3, r7), so it survives.
   (reset [this]
-    (install-image this (:segment this)))
+    (assoc (install-image this (:segment this)) :images (:images this)))
   (halted? [this] (engine/halted-with-empty-queue? this))
   (blocked? [this] (engine/vm-blocked? this))
   (value [this] (engine/vm-value this))

@@ -769,6 +769,34 @@
             :value nil))))
 
 
+(defn attach-image
+  "Extend the code space of `vm` with the canonical instruction vector
+   `v`, non-destructively (yin.vm.linker.md section 7.3, act 3): `v` is
+   validated as `load-vector` validates it, decoded, and added under a
+   fresh local id with its address in the alias column. `:control`,
+   `:program`, `:env`, `:stack`, `:k`, every frame's segment and pc, and
+   the store are unchanged, because existing local ids are never
+   renumbered (UCF section 7.3.4). An address already aliased is not
+   attached twice. The caller reads the id from the alias column."
+  [vm v contract]
+  (vm/check-contract! vm/semantic-contract contract)
+  (when-let [defect (code/well-formed-vector? v)]
+    (throw (ex-info (str "Cannot load vector: " (name (:rule defect))
+                         " (pc " (:pc defect) ")")
+                    {:defect defect})))
+  (let [address (jing/segment-key v)
+        aliases (:code-aliases vm)]
+    (if (contains? aliases address)
+      vm
+      (let [image {:segment (dec (vm/loaded-code-floor (:code vm))),
+                   :length (count v),
+                   :code (mapv decode-tuple v),
+                   :address address}]
+        (assoc vm
+               :code (store-image (:code vm) image)
+               :code-aliases (store-alias aliases image))))))
+
+
 ;; =============================================================================
 ;; SemanticVM Protocol Implementation
 ;; =============================================================================

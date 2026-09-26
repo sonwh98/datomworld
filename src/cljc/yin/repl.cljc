@@ -89,56 +89,49 @@
     (vm/semantic-bytecode->ast (macro/packet->row-set packet))))
 
 
-(defn- relocate
-  "Shift every `:pc`-kind operand of `inst`, per `opcode-table`, by
-   `offset`."
-  [opcode-table offset inst]
-  (reduce (fn [inst [i [_ kind]]]
-            (if (= :pc kind) (update inst (inc i) + offset) inst))
-          inst
-          (map-indexed vector (get opcode-table (nth inst 0)))))
-
-
 (defn- append-stack-image
-  "Load `image` after the stack image `vm` already holds and start at its
-   first instruction.  A closure a previous input stored (a `def`) names a
-   body pc in the earlier image, so that image is kept, not replaced.
-   The incoming image is admitted alone by `load-image` under the current
-   stamp (the expander and the lowerer are its fresh producers), as
-   `append-register-image` admits its own; the image it runs in is the
-   concatenation. `:hash` stays the canonical H of the whole loaded
-   `:segment` (yin.vm.debruijn.stack.md), so each load hashes the
-   concatenation."
+  "Attach `image` after the stack image `vm` already holds and start at
+   its first instruction.  A closure a previous input stored (a `def`)
+   names a body pc in the earlier image, so that image is kept, not
+   replaced.  `stack/attach-image` admits the incoming image alone under
+   the current stamp (the expander and the lowerer are its fresh
+   producers), relocates and appends it, records its offset-table row,
+   and keeps `:hash` the canonical H of the whole `:segment`
+   (yin.vm.linker.md section 7.3).  Attaching touches no register, so
+   starting the input is this function's: `:pc` at the image's row, the
+   registers a fresh run starts with.  An input whose image is already
+   held reruns at that row."
   [vm image]
-  (let [held (:segment vm)
-        offset (count held)
-        shift #(relocate dcode/opcode-table offset %)
-        combined (into held (map shift) image)]
-    (assoc (stack/load-image vm image vm/stack-contract)
-           :segment combined
-           :hash (dcode/image-hash combined)
-           :pc offset)))
+  (let [attached (stack/attach-image vm image vm/stack-contract)]
+    (assoc attached
+           :pc (stack/absolute-pc attached [(dcode/image-hash image) 0])
+           :frames []
+           :stack []
+           :continuation []
+           :halted? false
+           :blocked? false
+           :value nil)))
 
 
 (defn- append-register-image
-  "The register image counterpart of `append-stack-image`.  The incoming
-   image is validated alone by `load-image`, which also sizes the register
-   file for its main body; the image it runs in is the concatenation, whose
-   later main bodies end in `:halt` as the first does.  `:hash` is the
-   canonical R of that concatenation (yin.vm.debruijn.register.md)."
-  [vm {:keys [bodies instructions] :as image}]
-  (let [held (:segment vm)
-        offset (count (:instructions held))
-        shift-body #(-> % (update :start + offset) (update :end + offset))
-        shift #(relocate rcode/opcode-table offset %)
-        combined {:bodies (into (:bodies held) (map shift-body) bodies)
-                  :instructions (into (:instructions held)
-                                      (map shift)
-                                      instructions)}]
-    (assoc (register/load-image vm image vm/register-contract)
-           :segment combined
-           :hash (rcode/register-hash combined)
-           :pc offset)))
+  "The register image counterpart of `append-stack-image`.  The image it
+   runs in is the concatenation, whose later main bodies end in `:halt` as
+   the first does, and `:hash` is the canonical R of that concatenation.
+   Starting the input sizes the register file for the main body at the
+   image's row."
+  [vm image]
+  (let [attached (register/attach-image vm image vm/register-contract)
+        pc (register/absolute-pc attached [(rcode/register-hash image) 0])
+        body (some #(when (= pc (:start %)) %)
+                   (:bodies (:segment attached)))]
+    (assoc attached
+           :pc pc
+           :frames []
+           :registers (vec (repeat (or (:registers body) 0) nil))
+           :continuation []
+           :halted? false
+           :blocked? false
+           :value nil)))
 
 
 (def program-loaders
