@@ -19,7 +19,10 @@
    validator, the three position-bearing scanners of section 4.1
    (`:obligations-fn`, `:definitions-fn`, `:applications-fn`), and the
    parts worklist; the four records are `ast-format`, `semantic-format`,
-   `stack-format`, and `register-format` (section 5). Storage
+   `stack-format`, and `register-format` (section 5). The manifest and
+   derivation record formats of section 8.1 are `manifest-format` and
+   `record-format`, and `link-manifest` is the manifest-delivered image
+   link. Storage
    addresses (`jing/segment-key`) and VM identities (H, R) are separate
    preimages for the de Bruijn formats and the same preimage for the
    storage-derived ones, so step 2 checks the address and step 3 checks
@@ -43,6 +46,7 @@
             [yin.vm.debruijn-register-code :as debruijn-register-code]
             [yin.vm.debruijn-register-compile :as register-compile]
             [yin.vm.debruijn-resolve :as resolve]
+            [yin.vm.ledger :as ledger]
             [yin.vm.module :as module]))
 
 
@@ -54,7 +58,9 @@
   "Every reason a linker refusal may carry."
   #{:invalid-request :absent :address-mismatch :hash-mismatch
     :descriptor-defect :parts-limit :contract-mismatch :use-before-definition
-    :unresolved-free :shadowed-free :unsupported-format :pairing-mismatch})
+    :unresolved-free :shadowed-free :unsupported-format :pairing-mismatch
+    :undeclared-free :module-name-mismatch :derivation-mismatch
+    :unverified-derivation})
 
 
 (defn refused
@@ -726,6 +732,214 @@
 
 
 ;; =============================================================================
+;; The manifest and derivation record formats (section 8.1)
+;; =============================================================================
+
+(def manifest-schema
+  "The one module-manifest schema version this linker implements (section
+   8.1): which keys exist and what they mean. The manifest record's
+   validator implements exactly this version; a manifest of another
+   version is a `:schema` defect, never migrated."
+  1)
+
+
+(def ^:private manifest-keys
+  "The closed key set of a schema-1 manifest: every key of section 8.1's
+   example, the index alone optional."
+  #{:yin.module/name :yin.module/schema :yin.module/contracts
+    :yin.module/tree :yin.module/derivations :yin.module/index
+    :yin.module/exports :yin.module/requires :yin.module/primitives
+    :yin.module/footprint})
+
+
+(def ^:private derivation-formats
+  "The formats a manifest carries derivation records for. The tree itself
+   is the manifest's one canonical tree and needs no record."
+  #{:yin.semantic/code :yin.debruijn.code :yin.debruijn.register})
+
+
+(defn manifest-defect
+  "The schema-1 manifest validator (section 8.1): one schema version, the
+   closed key set, and each key's own shape -- the name is a symbol, the
+   contracts map formats to revision strings, the tree and every record
+   and declaration address is a Jing address, the declarations are
+   symbol-keyed, and every format named under `:yin.module/derivations`
+   is named under `:yin.module/contracts`. A declared name may never be
+   the definition operator (Rule R). Returns the defect map or nil."
+  [manifest]
+  (let [address? jing/segment-address?
+        shape (fn [k] {:rule :manifest-shape, :key k})
+        name-map? (fn [m k p]
+                    (let [v (get m k)]
+                      (and (map? v)
+                           (every? (fn [entry]
+                                     (and (symbol? (key entry))
+                                          (p (val entry))))
+                                   v))))
+        declared-names (fn [manifest]
+                         (concat (keys (:yin.module/requires manifest))
+                                 (keys (:yin.module/primitives manifest))
+                                 (:yin.module/exports manifest)))]
+    (if-not (map? manifest)
+      {:rule :manifest-shape}
+      (or (when (not= manifest-schema (:yin.module/schema manifest))
+            {:rule :schema})
+          (some (fn [k]
+                  (when-not (contains? manifest-keys k)
+                    (shape k)))
+                (keys manifest))
+          (some (fn [k]
+                  (when (or (not (contains? manifest k))
+                            (nil? (get manifest k)))
+                    (assoc (shape k) :missing true)))
+                (disj manifest-keys :yin.module/index))
+          (when-not (symbol? (:yin.module/name manifest))
+            (shape :yin.module/name))
+          (when (vm/reserved-name? (:yin.module/name manifest))
+            {:rule :reserved-name, :name (:yin.module/name manifest),
+             :role :declaration})
+          (when-not (and (map? (:yin.module/contracts manifest))
+                         (every? (fn [e]
+                                   (and (keyword? (key e))
+                                        (string? (val e))))
+                                 (:yin.module/contracts manifest)))
+            (shape :yin.module/contracts))
+          (when-not (address? (:yin.module/tree manifest))
+            (shape :yin.module/tree))
+          (when-not (and (map? (:yin.module/derivations manifest))
+                         (every? (fn [e]
+                                   (and (contains? derivation-formats (key e))
+                                        (address? (val e))))
+                                 (:yin.module/derivations manifest)))
+            (shape :yin.module/derivations))
+          (some (fn [f]
+                  (when-not (contains? (:yin.module/contracts manifest) f)
+                    {:rule :contract-missing, :format f}))
+                (keys (:yin.module/derivations manifest)))
+          (when (some (fn [v] (not (address? v)))
+                      (vals (:yin.module/index manifest)))
+            (shape :yin.module/index))
+          (when-not (and (set? (:yin.module/exports manifest))
+                         (every? (fn [n] (symbol? n))
+                                 (:yin.module/exports manifest)))
+            (shape :yin.module/exports))
+          (when-not (name-map? manifest :yin.module/requires address?)
+            (shape :yin.module/requires))
+          (when-not (name-map? manifest :yin.module/primitives keyword?)
+            (shape :yin.module/primitives))
+          (when-not (and (map? (:yin.module/footprint manifest))
+                         (set? (get-in manifest
+                                       [:yin.module/footprint :store-keys]))
+                         (set? (get-in manifest
+                                       [:yin.module/footprint :effects])))
+            (shape :yin.module/footprint))
+          (some (fn [n]
+                  (when (vm/reserved-name? n)
+                    {:rule :reserved-name, :name n,
+                     :role :declaration}))
+                (declared-names manifest))))))
+
+
+(def ^:private record-keys
+  "The closed key set of a derivation record: exactly the keys
+   `yin.vm.ledger/derive-record` mints."
+  #{:yin.ledger/op :yin.ledger/input :yin.ledger/output
+    :yin.ledger/function :yin.ledger/profile})
+
+
+(defn record-defect
+  "The derivation-record validator (section 8.1): a record is exactly
+   `yin.vm.ledger/derive-record`'s shape -- one `:derive` op, the tree's
+   Jing address as input, the lowered image's identity as output (a
+   segment address for the vector format, a contract-pinned hash for
+   the two de Bruijn formats), a function name, and the structured
+   profile map, no more and no less. Returns the defect map or nil."
+  [record]
+  (let [address? jing/segment-address?
+        shape (fn [k] {:rule :record-shape, :key k})
+        output? (fn [o] (or (string? o) (keyword? o)))]
+    (cond
+      (not (map? record)) {:rule :record-shape}
+      (not= record-keys (set (keys record))) {:rule :record-shape}
+      (not= :derive (:yin.ledger/op record))
+      {:rule :op, :op (:yin.ledger/op record)}
+      (not (address? (:yin.ledger/input record)))
+      (shape :yin.ledger/input)
+      (not (output? (:yin.ledger/output record)))
+      (shape :yin.ledger/output)
+      (not (keyword? (:yin.ledger/function record)))
+      (shape :yin.ledger/function)
+      (not (map? (:yin.ledger/profile record)))
+      (shape :yin.ledger/profile)
+      :else nil)))
+
+
+(def manifest-format
+  "The `:yin.module/manifest` format record (section 8.1): a manifest is
+   one map, content-addressed at its own segment address and identified
+   by it, its contract this record's one schema version. No parts, no
+   obligations: a manifest is a declaration, not an image."
+  {:format              :yin.module/manifest,
+   :contract            manifest-schema,
+   :identity-fn         jing/segment-key,
+   :identity-matches-fn jing/segment-matches?,
+   :row-defect-fn       manifest-defect,
+   :validate-fn         manifest-defect,
+   :obligations-fn      (constantly []),
+   :definitions-fn      (constantly []),
+   :applications-fn     (constantly []),
+   :parts-fn            (constantly nil)})
+
+
+(def record-format
+  "The `:yin.ledger/record` format record (section 8.1): a derivation
+   record minted by `yin.vm.ledger/derive-record`, fetched through the
+   pipeline so the record itself passes steps 2 to 4 before the linker
+   believes its claim."
+  {:format              :yin.ledger/record,
+   :contract            :derive,
+   :identity-fn         jing/segment-key,
+   :identity-matches-fn jing/segment-matches?,
+   :row-defect-fn       record-defect,
+   :validate-fn         record-defect,
+   :obligations-fn      (constantly []),
+   :definitions-fn      (constantly []),
+   :applications-fn     (constantly []),
+   :parts-fn            (constantly nil)})
+
+
+(def stack-lowering-profile
+  "The lowering profile this linker implements for
+   `:yin.debruijn.code` (section 8.1): the stack lowering --
+   `resolve`, then `lower-stack` -- over the datom lane, the row-lane
+   tree reconstructed first. A derivation record naming this profile
+   verbatim is one this linker recomputes; any other is never trusted
+   under `:verifying`."
+  {:yin.lower/profile "stack-lowering",
+   :yin.code/contract vm/stack-contract,
+   :yin.k/version 0})
+
+
+(def register-lowering-profile
+  "The lowering profile this linker implements for
+   `:yin.debruijn.register` (section 8.1): the register lowering --
+   `resolve`, then `lower-register` -- over the datom lane, the row-lane
+   tree reconstructed first."
+  {:yin.lower/profile "register-lowering",
+   :yin.code/contract vm/register-contract,
+   :yin.k/version 0})
+
+
+(def ^:private implemented-profiles
+  "The one profile per lowered format this linker recomputes under the
+   `:verifying` policy (section 8.1); the semantic format's is
+   `yin.vm.ledger`'s published profile."
+  {:yin.semantic/code ledger/lowering-profile,
+   :yin.debruijn.code stack-lowering-profile,
+   :yin.debruijn.register register-lowering-profile})
+
+
+;; =============================================================================
 ;; The H and R indexes (section 6)
 ;; =============================================================================
 
@@ -784,6 +998,30 @@
                       (symbol (str (namespace sym) "." (name sym)))))))))
 
 
+(defn- declared-discharge
+  "Step 5b for a manifest-declared obligation (section 4.2): a primitive
+   obligation is discharged only by a primitive of equal profile address,
+   a module obligation only by a linked module of equal manifest address.
+   Anything else the receiver holds under the name -- same name, other
+   profile; same name, other manifest -- resolves nothing."
+  [{:keys [primitives modules]} obligation]
+  (case (:kind obligation)
+    :primitive
+    (let [entry (get primitives (:name obligation))]
+      (when-not (and (map? entry)
+                     (= (:profile obligation) (:yin.k/profile entry)))
+        (refused :unresolved-free
+                 {:name (:name obligation), :kind :primitive})))
+    :module
+    (let [entry (module/resolve-module modules (:module obligation))]
+      (when-not (and (map? entry)
+                     (= (:manifest obligation) (:manifest entry)))
+        (refused :unresolved-free
+                 {:name (:name obligation), :kind :module})))
+    (refused :unresolved-free
+             {:name (:name obligation), :kind (:kind obligation)})))
+
+
 (defn discharge
   "Step 5b, pure (section 6.4): the first refusal for the obligations
    `obligations` against `receiver` (`{:free-env :store :primitives
@@ -793,15 +1031,20 @@
    The registry
    discharges an obligation under its own entry -- a composition that
    derives its registry from the same scan keys the records -- or under
-   the bare name."
+   the bare name. A manifest-declared obligation (section 8.1: a record
+   carrying `:kind` `:primitive` or `:module`) is checked first by name
+   against the free env and store, then only by equal profile address or
+   equal manifest address -- never by presence alone."
   [receiver obligations]
   (some (fn [obligation]
-          (cond (shadowed? receiver obligation)
+          (or (when (shadowed? receiver obligation)
                 (refused :shadowed-free
-                         {:name (obligation-name obligation)})
-                (not (resolvable? receiver obligation))
-                (refused :unresolved-free
-                         {:name (obligation-name obligation)})))
+                         {:name (obligation-name obligation)}))
+              (if (and (map? obligation) (contains? obligation :kind))
+                (declared-discharge receiver obligation)
+                (when (not (resolvable? receiver obligation))
+                  (refused :unresolved-free
+                           {:name (obligation-name obligation)})))))
         obligations))
 
 
@@ -1604,6 +1847,342 @@
 
 
 ;; =============================================================================
+;; Manifest-delivered images (section 8.1)
+;; =============================================================================
+
+(defn- declared-obligation
+  "The manifest's declaration of a retained free name, as the obligation
+   record that travels with the image (section 4.2 step 5a): a name
+   under `:yin.module/primitives` becomes a primitive obligation
+   carrying the profile address; a name under `:yin.module/requires` --
+   the required module itself, or a name qualified by it -- becomes a
+   module obligation carrying the required manifest's address. Nil when
+   the manifest declares the name nowhere."
+  [manifest obligation]
+  (let [sym (obligation-name obligation)
+        primitives (:yin.module/primitives manifest)
+        requires (:yin.module/requires manifest)
+        module (or (when (and (symbol? sym) (namespace sym))
+                     (let [m (symbol (namespace sym))]
+                       (when (contains? requires m) m)))
+                   (when (contains? requires sym) sym))]
+    (cond
+      (contains? primitives sym)
+      {:name sym, :kind :primitive, :profile (get primitives sym)}
+      (some? module)
+      {:name sym, :kind :module, :module module,
+       :manifest (get requires module)}
+      :else nil)))
+
+
+(defn- manifest-join
+  "Step 5a's manifest half (section 4.2): every retained occurrence is
+   joined with the manifest that delivered the image and becomes its
+   declaration's own obligation record. A name the manifest declares
+   nowhere is `:undeclared-free`: the publisher did not say what the
+   name means, so no receiver can bind it identically."
+  [manifest obligations]
+  (or (some (fn [obligation]
+              (when-not (declared-obligation manifest obligation)
+                (refused :undeclared-free
+                         {:name (obligation-name obligation)})))
+            obligations)
+      (mapv (fn [obligation]
+              (declared-obligation manifest obligation))
+            obligations)))
+
+
+(defn- with-identity-indexes
+  "Seed the linker-local indexes of the storage-derived formats a
+   manifest link reads -- the manifest, the record, the tree, the
+   vector -- with the identity function (section 3): each one's identity
+   is its own address. A composition's own entries are left alone."
+  [state]
+  (reduce (fn [state format-kw]
+            (update-in state [:indexes format-kw]
+                       (fn [index] (or index identity))))
+          state
+          [(:format manifest-format) (:format record-format)
+           (:format ast-format) (:format semantic-format)]))
+
+
+(defn- with-manifest-index
+  "Merge a verified manifest's `:yin.module/index` into the linker-local
+   index of `format` (section 8.1) for the rest of this link: the
+   manifest is verified content, so its entries are composition data
+   for this link's fetches, never read from the wire again. The merge
+   is link-local -- the caller's state is not updated. A function index
+   is composition policy and is left alone."
+  [state format-kw manifest]
+  (let [entries (:yin.module/index manifest)]
+    (if (or (empty? entries)
+            (fn? (get-in state [:indexes format-kw])))
+      state
+      (update-in state [:indexes format-kw] (fnil into {}) entries))))
+
+
+(defn- relowered
+  "The identity the verified row-lane tree mints under one of the two de
+   Bruijn lowerings (section 8.1): the tree is reconstructed to the
+   datom lane -- `semantic-bytecode->ast`, then `ast->datoms`, lossless
+   for everything the lowerings read -- resolved, and lowered. Nil when
+   the tree cannot be re-lowered at all: a lowering the linker cannot
+   run verifies nothing."
+  [format-kw tree]
+  (try
+    (case format-kw
+      :yin.debruijn.code
+      (debruijn-code/image-hash
+        (:image (linearize/adapt
+                  (vm/ast->datoms (vm/semantic-bytecode->ast tree)))))
+      :yin.debruijn.register
+      (debruijn-register-code/register-hash
+        (:image (register-compile/adapt
+                  (vm/ast->datoms (vm/semantic-bytecode->ast tree))))))
+    (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+
+
+(defn- drive-link
+  "One by-identity link over the stepped core, threading the runtime
+   state (section 6.4's host policy): admission to completion, nothing
+   discharged -- the manifest flow owns the receiver half. Returns
+   `[state completion]`, the completion carrying the verified image
+   under `:image` with its obligations beside it, or the refusal under
+   its id."
+  [state drive format-kw identity contract]
+  (let [id [::manifest (:next-fetch state)]
+        request {:yin.link/id id,
+                 :yin.link/format format-kw,
+                 :yin.link/contract contract,
+                 :yin.link/identity identity}
+        [state _] (request-link (update state :next-fetch inc) request)]
+    (loop [state state]
+      (let [r (step (drive state) fetch-budget)]
+        (if-let [c (some (fn [c] (when (= id (:yin.link/id c)) c))
+                         (:completions r))]
+          [(:state r) c]
+          (recur (:state r)))))))
+
+
+(defn- verified-policy-outcome
+  "The `:verifying` policy's checks once the record's addresses hold
+   (section 8.1): the profile the record names must be the one this
+   linker implements for the format; the manifest's tree is fetched and
+   verified through `ast-format`; and the two de Bruijn formats'
+   recomputed identity must equal the record's output. The semantic
+   format's recomputation runs in `linked-image`, against the fetched
+   image, through `yin.vm.ledger`'s own check. Returns `[state
+   outcome]`, the outcome `{:derivation r :output o :tree t :trust
+   :verified}` or a refusal."
+  [state drive format-kw derivation tree-addr]
+  (let [profile (:yin.ledger/profile derivation)
+        implemented (get implemented-profiles format-kw)]
+    (if (not= profile implemented)
+      [state (refused :unverified-derivation
+                      {:format format-kw, :profile profile,
+                       :implemented implemented, :missing :profile})]
+      (let [[state tc] (drive-link state drive :yin.ast/code tree-addr
+                                   vm/ast-contract)]
+        (if (refused? tc)
+          [state (refused :unverified-derivation
+                          {:format format-kw, :profile profile,
+                           :missing (:reason tc)})]
+          (let [tree (get-in tc [:image :value])
+                output (:yin.ledger/output derivation)]
+            (if (= :yin.semantic/code format-kw)
+              [state {:derivation derivation, :output output,
+                      :tree tree, :trust :verified}]
+              (let [actual (relowered format-kw tree)]
+                (cond
+                  (nil? actual)
+                  [state (refused :unverified-derivation
+                                  {:format format-kw, :profile profile,
+                                   :missing :relowering})]
+
+                  (not= output actual)
+                  [state (refused :derivation-mismatch
+                                  {:format format-kw, :output output,
+                                   :actual actual})]
+
+                  :else [state {:derivation derivation, :output output,
+                                :tree tree, :trust :verified}])))))))))
+
+
+(defn- checked-derivation
+  "The derivation half of a manifest link (section 8.1): fetch the
+   format's record through `record-format`, check its two addresses --
+   the record's input is the manifest's tree, its output is the identity
+   the image is then fetched at -- and apply the policy, `:trusted`
+   stopping at the addresses, `:verifying` recomputing. Returns `[state
+   outcome]`, the outcome of `verified-policy-outcome`'s shape with
+   `:trust :composition` under `:trusted`, or a refusal. A manifest
+   with no record for the format is `:unsupported-format`."
+  [state drive format-kw manifest policy]
+  (let [tree-addr (:yin.module/tree manifest)
+        derivation-addr (get (:yin.module/derivations manifest) format-kw)]
+    (if (nil? derivation-addr)
+      [state (refused :unsupported-format {:format format-kw})]
+      (let [[state c] (drive-link state drive :yin.ledger/record
+                                  derivation-addr
+                                  (:contract record-format))]
+        (if (refused? c)
+          [state (dissoc c :yin.link/id)]
+          (let [derivation (get-in c [:image :value])]
+            (if (not= tree-addr (:yin.ledger/input derivation))
+              [state (refused :derivation-mismatch
+                              {:format format-kw, :expected tree-addr,
+                               :actual (:yin.ledger/input derivation)})]
+              (if (= :trusted policy)
+                [state {:derivation derivation,
+                        :output (:yin.ledger/output derivation),
+                        :trust :composition}]
+                (verified-policy-outcome state drive format-kw derivation
+                                         tree-addr)))))))))
+
+
+(defn- linked-image
+  "The image half of a manifest link (section 8.1): fetch the image at
+   `identity` through the format record -- the six steps, obligations
+   included -- verify the semantic derivation against the fetched image
+   when the `:verifying` policy fetched the tree (`yin.vm.ledger`'s own
+   content-and-derivation check; the de Bruijn formats' recomputation
+   ran before the image, needing none), join every retained obligation
+   with the manifest's declarations, and discharge against `receiver`.
+   `derivation` is `checked-derivation`'s outcome, nil for the tree
+   format. Returns `[state outcome]`, `fetch`'s outcome shape plus
+   `:manifest` and, for a lowered format, `:derivation` and `:trust`."
+  [state drive record identity manifest derivation receiver]
+  (let [[state c] (drive-link state drive (:format record) identity
+                              (:contract record))]
+    (if (refused? c)
+      [state (dissoc c :yin.link/id)]
+      (if-let [verdict
+               (and (= :yin.semantic/code (:format record))
+                    (:tree derivation)
+                    (ledger/verify-derivation
+                      (:tree derivation)
+                      (get-in c [:image :value])
+                      (:derivation derivation)
+                      (get implemented-profiles :yin.semantic/code)))]
+        [state (refused (if (= :yin.k/profile-mismatch (:kind verdict))
+                          :unverified-derivation
+                          :derivation-mismatch)
+                        (assoc verdict :format (:format record)))]
+        (let [declared (manifest-join manifest (:obligations c))]
+          (if (refused? declared)
+            [state declared]
+            (let [outcome (merge {:status :ok}
+                                 (:image c)
+                                 {:obligations declared,
+                                  :manifest manifest})]
+              [state (or (discharge receiver declared)
+                         (merge outcome
+                                (when (:derivation derivation)
+                                  {:derivation (:derivation derivation),
+                                   :trust (:trust derivation)})))])))))))
+
+
+(defn link-manifest
+  "Link one format's image through a module manifest (section 8.1): the
+   manifest-delivered image flow of section 7.2 step 5, as host policy
+   over a link runtime. `manifest-address` is the manifest's own content
+   address -- the composition resolved the name itself, through its
+   name environment or the section 8.2 authority policy, and names the
+   resolution in `opts` as `:name`. `receiver` is `fetch`'s receiver.
+   `opts` carries the requester's `:contract` (required), the
+   `:derivation` policy (`:verifying`, the default, or `:trusted`), and
+   the resolution `:name`.
+
+   The order is fixed (sections 4.2 and 8.1):
+     0. the format record; the requester's contract    :unsupported-format,
+        against it                                     :contract-mismatch
+     1. the manifest fetch: steps 1 to 4 through        :absent,
+        `manifest-format`, so the manifest itself is   :address-mismatch,
+        verified content                              :descriptor-defect
+     2. the manifest's contract entry for the format    :contract-mismatch
+        against the format record's, before the name
+        check and before any derivation or image
+     3. `:yin.module/name` against `opts`'s `:name`     :module-name-mismatch
+     4. the derivation record fetch and its two         :unsupported-format,
+        address checks: input = the manifest's tree,   :derivation-mismatch
+        output = the identity the image is fetched at
+     5. under `:verifying`: the profile is implemented, :unverified-derivation,
+        the tree is verified content, and the          :derivation-mismatch
+        recomputed identity is the record's output;
+        under `:trusted` the addresses are everything
+     6. the image fetch: the six steps through the      fetch's refusals
+        format record
+     7. every retained obligation is declared           :undeclared-free
+     8. discharge (5b) against `receiver`               :unresolved-free,
+                                                        :shadowed-free
+
+   The manifest's `:yin.module/index` is merged into the linker-local
+   index of the requested format the moment the manifest is verified.
+   The outcome is `fetch`'s plus `:manifest`, and for a lowered format
+   `:derivation` and `:trust` (`:verified` or `:composition`: a trusted
+   link never reports a verification it did not perform). The tree
+   format needs no derivation under either policy; it is the tree,
+   verified by content. No contract stamp is ever assigned to external
+   input."
+  ([runtime manifest-address format-kw receiver]
+   (link-manifest runtime manifest-address format-kw receiver nil))
+  ([runtime manifest-address format-kw receiver opts]
+   (let [{:keys [state drive]} runtime
+         record (get (:formats state) format-kw)
+         contract (:contract opts)
+         policy (or (:derivation opts) :verifying)]
+     (cond
+       (nil? record)
+       (refused :unsupported-format {:format format-kw})
+
+       (nil? contract)
+       (refused :invalid-request {:missing :contract})
+
+       (not= contract (:contract record))
+       (refused :contract-mismatch
+                {:expected contract, :actual (:contract record)})
+
+       :else
+       (let [state (with-identity-indexes state)
+             [state mc] (drive-link state drive :yin.module/manifest
+                                    manifest-address
+                                    (:contract manifest-format))]
+         (if (refused? mc)
+           (dissoc mc :yin.link/id)
+           (let [manifest (get-in mc [:image :value])
+                 entry (get (:yin.module/contracts manifest) format-kw)]
+             (if (not= entry (:contract record))
+               (refused :contract-mismatch
+                        {:expected contract, :actual entry})
+               (let [resolved (:name opts)]
+                 (if (and (some? resolved)
+                          (not= (:yin.module/name manifest) resolved))
+                   (refused :module-name-mismatch
+                            {:name resolved,
+                             :declared (:yin.module/name manifest)})
+                   (let [state (with-manifest-index state format-kw
+                                 manifest)]
+                     (if (= :yin.ast/code format-kw)
+                       (let [[_ outcome]
+                             (linked-image
+                               state drive record
+                               (:yin.module/tree manifest)
+                               manifest nil receiver)]
+                         outcome)
+                       (let [[_ derivation]
+                             (checked-derivation state drive format-kw
+                                                 manifest policy)]
+                         (if (refused? derivation)
+                           derivation
+                           (let [[_ outcome]
+                                 (linked-image
+                                   state drive record
+                                   (:output derivation)
+                                   manifest derivation receiver)]
+                             outcome)))))))))))))))
+
+
+;; =============================================================================
 ;; Same-root pairing (section 7)
 ;; =============================================================================
 
@@ -1663,28 +2242,75 @@
       res)))
 
 
+(defn- as-pairing
+  "A `:derivation-mismatch` raised during a fallback keeps B6's name
+   `:pairing-mismatch` (section 5.5)."
+  [res]
+  (if (= :derivation-mismatch (:reason res))
+    (assoc res :reason :pairing-mismatch)
+    res))
+
+
+(defn- fallback-selection
+  "The selection a manifest fallback reports (section 5.5): the stack
+   image chosen in place of the unsupported register image, out of the
+   manifest at `address` whose tree is the root."
+  [res manifest-address]
+  {:root (get-in res [:manifest :yin.module/tree]),
+   :manifest manifest-address,
+   :from :yin.debruijn.register})
+
+
 (defn trusted-fallback
-  "R -> H fallback on composition trust (section 7, path 1): reads the
-   root's pairing and fetches its stack image by H through `runtime`,
-   whose state holds `stack-format` and its H index. The outcome names
-   its trust as `:trust :composition`. A root without a recorded pairing
-   is `:absent`."
-  [runtime root pairing-datoms receiver]
-  (if-let [pairing (root-pairing root pairing-datoms)]
-    (fallback-fetch runtime pairing receiver :composition)
-    (refused :absent {:root root})))
+  "3-arity (section 5.5, M4): the `:trusted` derivation policy applied
+   to the stack image the manifest at `manifest-address` selects in
+   place of an unsupported register image. The manifest is fetched and
+   verified through `manifest-format`, its stack derivation supplies
+   the identity, and the outcome names its trust as `:trust
+   :composition` and its selection under `:fallback`. A manifest with
+   no stack derivation is `:unsupported-format`; a derivation mismatch
+   raised here keeps B6's name `:pairing-mismatch`.
+
+   4-arity (B6, unchanged): the same fallback over mint-time pairing
+   datoms, the identities read from `root`'s pairing. A root without a
+   recorded pairing is `:absent`."
+  ([runtime manifest-address receiver]
+   (let [res (link-manifest runtime manifest-address :yin.debruijn.code
+                            receiver
+                            {:derivation :trusted,
+                             :contract vm/stack-contract})]
+     (if (ok? res)
+       (assoc res :fallback (fallback-selection res manifest-address))
+       (as-pairing res))))
+  ([runtime root pairing-datoms receiver]
+   (if-let [pairing (root-pairing root pairing-datoms)]
+     (fallback-fetch runtime pairing receiver :composition)
+     (refused :absent {:root root}))))
 
 
 (defn verifying-fallback
-  "R -> H fallback that verifies the pairing first (section 7, path 2):
-   re-lowers the root's named `source-datoms` and refuses with
-   `:pairing-mismatch` unless both recomputed identities match, then
-   fetches the stack image by H through `runtime`. The outcome names its
-   trust as `:trust :verified`."
-  [runtime root pairing-datoms source-datoms receiver]
-  (if-let [{:keys [H R], :as pairing} (root-pairing root pairing-datoms)]
-    (let [verdict (verify-same-root-pairing root H R source-datoms)]
-      (if (refused? verdict)
-        verdict
-        (fallback-fetch runtime pairing receiver :verified)))
-    (refused :absent {:root root})))
+  "3-arity (section 5.5, M4): the `:verifying` derivation policy applied
+   to the stack image the manifest at `manifest-address` selects in
+   place of an unsupported register image: the manifest is verified, the
+   derivation record's addresses are checked, the tree is fetched and
+   re-lowered, and the outcome names its trust as `:trust :verified`
+   and its selection under `:fallback`.
+
+   5-arity (B6, unchanged): the same fallback that re-lowers the root's
+   named `source-datoms` and refuses `:pairing-mismatch` unless both
+   recomputed identities match."
+  ([runtime manifest-address receiver]
+   (let [res (link-manifest runtime manifest-address :yin.debruijn.code
+                            receiver
+                            {:derivation :verifying,
+                             :contract vm/stack-contract})]
+     (if (ok? res)
+       (assoc res :fallback (fallback-selection res manifest-address))
+       (as-pairing res))))
+  ([runtime root pairing-datoms source-datoms receiver]
+   (if-let [{:keys [H R], :as pairing} (root-pairing root pairing-datoms)]
+     (let [verdict (verify-same-root-pairing root H R source-datoms)]
+       (if (refused? verdict)
+         verdict
+         (fallback-fetch runtime pairing receiver :verified)))
+     (refused :absent {:root root}))))
