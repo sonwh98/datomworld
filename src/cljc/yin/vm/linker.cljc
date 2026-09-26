@@ -1,11 +1,20 @@
 (ns yin.vm.linker
   "The code linker (docs/design/yin.vm.linker.md): fetches and verifies
-   code over a DaoJing content handle -- a local store, a
-   `dao.jing.dht/create-content-dht` handle, or a
-   `dao.jing.remote/content-client` over DaoStream.
+   code over a DaoStream content pair (section 6). The linker holds no
+   DaoJing handle: every read is a `:jing/get-content` request on a
+   `dao.stream.rpc` client, answered by whatever serves the pair -- a
+   local store, a `dao.jing.dht/create-content-dht` handle, or a remote
+   endpoint -- behind `dao.jing.remote/default-handlers`.
 
-   `fetch` is one format-neutral admission-then-six-step function
-   (sections 4.1-4.2). A format record supplies the contract, the
+   The portable interface is stepped (section 6.3): `link-state`,
+   `request-link`, `step`, and `abandon` are pure functions over explicit
+   state. `fetch` is host policy over a link runtime (section 6.4): it
+   drives one link to its completion and runs step 5b against the
+   receiver. `verify` (steps 3 to 5a) and `discharge` (step 5b) are the
+   pure checks over values already in hand.
+
+   One format-neutral admission-then-six-step pipeline serves every
+   format (sections 4.1-4.2). A format record supplies the contract, the
    identity mint and match, the row-local validator, the whole-value
    validator, the three position-bearing scanners of section 4.1
    (`:obligations-fn`, `:definitions-fn`, `:applications-fn`), and the
@@ -16,14 +25,17 @@
    storage-derived ones, so step 2 checks the address and step 3 checks
    the identity; neither subsumes the other (I5).
 
-   The handle, the index, the format record, and the receiver environment
-   are explicit arguments. There is no global loader, registry, callback,
-   or cache here, and every outcome -- success or refusal -- is a returned
+   The rpc client, the indexes, the format records, and the bounds are
+   linker-local state (section 6.2); the receiver environment is an
+   explicit argument. There is no global loader, registry, callback, or
+   cache here, and every outcome -- success or refusal -- is a returned
    plain data map (section 4.3)."
   (:require #?@(:cljd [["dart:typed_data" :as typed]])
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.space.query :as query]
+            [dao.stream.apply :as apply]
+            [dao.stream.rpc :as rpc]
             [yin.vm :as vm]
             [yin.vm.code :as code]
             [yin.vm.debruijn-code :as debruijn-code]
@@ -42,7 +54,7 @@
   "Every reason a linker refusal may carry."
   #{:invalid-request :absent :address-mismatch :hash-mismatch
     :descriptor-defect :parts-limit :contract-mismatch :use-before-definition
-    :unresolved-free :shadowed-free :pairing-mismatch})
+    :unresolved-free :shadowed-free :unsupported-format :pairing-mismatch})
 
 
 (defn refused
@@ -772,12 +784,13 @@
                       (symbol (str (namespace sym) "." (name sym)))))))))
 
 
-(defn free-name-defect
-  "The first step-5 refusal for the obligations `obligations` against
-   `receiver` (`{:free-env :store :primitives :modules}`, every key
-   optional), or nil when every obligation binds in the receiver
-   identically. An obligation is a section 4.1 record; a bare name is
-   accepted for compositions that scan names themselves. The registry
+(defn discharge
+  "Step 5b, pure (section 6.4): the first refusal for the obligations
+   `obligations` against `receiver` (`{:free-env :store :primitives
+   :modules}`, every key optional), or nil when every obligation binds in
+   the receiver identically. An obligation is a section 4.1 record; a
+   bare name is accepted for compositions that scan names themselves.
+   The registry
    discharges an obligation under its own entry -- a composition that
    derives its registry from the same scan keys the records -- or under
    the bare name."
@@ -895,27 +908,68 @@
 
 
 ;; =============================================================================
-;; fetch (section 4)
+;; Step 2's reads over the content pair (sections 4.2, 6.1)
 ;; =============================================================================
 
 (def ^:private missing
-  "Opaque per-host not-found sentinel for `jing/get`, never a keyword: a
-   keyword sentinel could collide with a genuinely stored payload."
+  "Opaque per-host sentinel for a read that carried no payload, never a
+   keyword: a keyword sentinel could collide with a genuinely stored
+   payload, and on cljs each keyword literal site is its own object."
   #?(:cljd (Object.)
      :clj (Object.)
      :cljs (js-obj)))
 
 
-(defn- read-address
-  "Step 2's read: the stored canonical bytes, `missing` when absent, or
-   `missing` when the handle fails (a closed client, a malformed RPC
-   envelope, a transport timeout). A failing store has no payload for this
-   caller, so it fails closed as `:absent`, never as execution. The bytes
-   are read raw through the handle's byte store, not through `jing/get`,
-   so that step 2's own address check can name the mismatch."
-  [handle address]
-  (try (let [get-fn (:get-bytes-fn handle)]
-         (if (fn? get-fn) (get-fn address missing) missing))
+(def ^:private get-content-op
+  "The content pair's one read operation: `dao.jing.remote`'s existing
+   wire vocabulary (section 6.1). The linker writes no protocol of its
+   own for content."
+  :jing/get-content)
+
+
+(defn- presence-envelope?
+  "True only for the exact wire envelope `{:found? boolean :value v}` that
+   `:jing/get-content` answers."
+  [x]
+  (and (map? x)
+       (= #{:found? :value} (set (keys x)))
+       (let [f (:found? x)] (or (true? f) (false? f)))))
+
+
+(defn- answered-text
+  "Step 2's read: the Base64 reply text one content-pair completion
+   carries, or `missing` when it carries none -- not found, an error
+   response, a malformed envelope, a value that is not text, or a
+   request lost by the medium. A failing read has no payload for this
+   link, so it fails closed as `:absent`, never as execution. Nothing is
+   decoded here, so that step 2's byte cap runs before the text is."
+  [completion]
+  (let [response (:dao.stream.rpc/response completion)
+        answer (when (and (some? response)
+                          (nil? (apply/response-error response)))
+                 (apply/response-ok response))]
+    (if (and (presence-envelope? answer)
+             (true? (:found? answer))
+             (string? (:value answer)))
+      (:value answer)
+      missing)))
+
+
+(defn- least-decoded-length
+  "The fewest bytes Base64 text of `text`'s length can decode to: strict
+   padded Base64 of n characters is 3n/4 bytes less at most two of
+   padding. Text over the budget by this measure is over it however it
+   decodes, so it is refused without being decoded; text within it is
+   decoded and meets the exact decoded-length cap."
+  [text]
+  (- (* 3 (quot (count text) 4)) 2))
+
+
+(defn- text-bytes
+  "The bytes strict padded Base64 `text` decodes to, or `missing` when it
+   is not strict Base64 (fails closed as `:absent`)."
+  [text]
+  (try (jing/base64->bytes text)
        (catch #?(:cljd Object :clj Throwable :cljs :default) _
          missing)))
 
@@ -973,36 +1027,50 @@
          {:rule :validator-refused})))
 
 
-(defn- fetch-one
-  "One worklist visit: read `address` raw, check its size against the
-   byte `budget` remaining before hashing or decoding anything, verify
-   it against the address it was requested at, then validate it
-   row-locally -- in that order, so an oversized row is refused before
-   its bytes are hashed or decoded, mismatched bytes are never decoded
-   for evidence, and a malformed row is refused before anything it
-   references is decoded or enqueued. Returns `{:value v :bytes n}` or
-   a refusal."
-  [handle format identity address budget]
-  (let [bs (read-address handle address)]
-    (cond
-      (identical? missing bs)
-      (refused :absent {:address address})
+(defn- checked-part
+  "One worklist visit over the Base64 reply `text` the content pair
+   answered for `address`: bound the text against the byte `budget`
+   remaining before it is decoded at all, decode it strictly, check the
+   decoded size against the budget before hashing or decoding the
+   payload, verify the bytes against the address they were requested
+   at, then validate the part row-locally -- in that order, so an
+   oversized reply is refused before its text is decoded, an oversized
+   row before its bytes are hashed or decoded, mismatched bytes are never
+   decoded for evidence, and a malformed row is refused before anything
+   it references is decoded or enqueued. The order is total: no reply
+   (`:absent`), then the text bound (`:parts-limit`), then text that is
+   not strict Base64 (`:absent`), then the decoded bound
+   (`:parts-limit`), so oversize text is `:parts-limit` whether or not it
+   is Base64. Returns `{:value v :bytes n}` or a refusal."
+  [format identity address text budget]
+  (cond
+    (identical? missing text)
+    (refused :absent {:address address})
 
-      (and budget (> (byte-count bs) budget))
-      (refused :parts-limit {:bound :max-bytes, :address address})
+    (and budget (> (least-decoded-length text) budget))
+    (refused :parts-limit {:bound :max-bytes, :address address})
 
-      (not (jing/segment-bytes-match? address bs))
-      (refused :address-mismatch {:address address})
+    :else
+    (let [bs (text-bytes text)]
+      (cond
+        (identical? missing bs)
+        (refused :absent {:address address})
 
-      :else
-      (let [value (decoded bs)]
-        (if (nil? value)
-          (refused :address-mismatch {:address address, :value nil})
-          (if-let [defect (row-defect format value)]
-            (refused :descriptor-defect
-                     {:identity identity, :address address,
-                      :defect defect})
-            {:value value, :bytes (byte-count bs)}))))))
+        (and budget (> (byte-count bs) budget))
+        (refused :parts-limit {:bound :max-bytes, :address address})
+
+        (not (jing/segment-bytes-match? address bs))
+        (refused :address-mismatch {:address address})
+
+        :else
+        (let [value (decoded bs)]
+          (if (nil? value)
+            (refused :address-mismatch {:address address, :value nil})
+            (if-let [defect (row-defect format value)]
+              (refused :descriptor-defect
+                       {:identity identity, :address address,
+                        :defect defect})
+              {:value value, :bytes (byte-count bs)})))))))
 
 
 (def default-bounds
@@ -1044,90 +1112,450 @@
       (recur more (inc n) (conj acc child)))))
 
 
-(defn- fetch-parts
-  "Step 2: the bounded breadth-first worklist from `root-address`
-   (section 4.2). `:parts-fn` names the further addresses a fetched
-   payload references; the walk enqueues them behind the current one,
-   verifies each the same way, and visits each address once. `bounds` is
-   the composition's `{:max-parts n :max-depth d :max-bytes b}`, every
-   bound finite (`bounded`); exceeding one is `:parts-limit` naming the
-   bound and the address at which it was hit. The parts budget is
-   enforced at admission and at enqueue time -- a non-positive quota
-   refuses the root before it is read, a child beyond the remaining
-   budget is refused before it is fetched -- and the byte budget is
-   checked before a payload is hashed or decoded. Returns
-   `{:parts {address body} :multi? boolean}` or a refusal. `:multi?` is
-   the record's own answer to whether the format has parts at all: a
-   single-payload format's `:parts-fn` returns nil, a multi-part
-   format's a sequence, possibly empty for a leaf row."
-  [handle format identity root-address bounds]
-  (let [{:keys [max-parts max-depth max-bytes]} (bounded bounds)]
-    (if-not (pos? max-parts)
-      (refused :parts-limit {:bound :max-parts, :address root-address})
-      (loop [queue [[root-address 0]]
-             index 0
-             parts {}
-             bytes 0
-             enqueued #{root-address}
-             multi? nil]
-        (if (= index (count queue))
-          {:parts parts, :multi? (boolean multi?)}
-          (let [[address depth] (nth queue index)]
-            (cond
-              (and max-depth (> depth max-depth))
-              (refused :parts-limit {:bound :max-depth, :address address})
+;; =============================================================================
+;; verify: steps 3 to 5a over values in hand (section 6.4)
+;; =============================================================================
 
-              :else
-              (let [res (fetch-one handle format identity address
-                                   (when max-bytes (- max-bytes bytes)))]
-                (if (refused? res)
-                  res
-                  (let [value (:value res)
-                        bytes' (+ bytes (:bytes res))
-                        child-addrs ((:parts-fn format) value)
-                        multi?' (if (nil? multi?)
-                                  (not (nil? child-addrs))
-                                  multi?)
-                        enqueued' (enqueue-children child-addrs enqueued
-                                                    depth max-parts)]
-                    (if (refused? enqueued')
-                      enqueued'
-                      (recur (into queue (:queue enqueued'))
-                             (inc index)
-                             (assoc parts address value)
-                             bytes'
-                             (into enqueued (:fresh enqueued'))
-                             multi?'))))))))))))
+(defn verify
+  "Steps 3 to 5a (section 4.2), pure, over values already in hand: the
+   check a link runs the moment step 2 completes, exported so tests and
+   compositions holding a payload can run it without a stream (section
+   6.4). `format` is a format record, `identity` the requested identity,
+   `address` the root's storage address, and `parts` `{address value}`
+   as step 2 fetched them, the root included. Returns the step-6 outcome
+   `{:status :ok :format f :identity i :address a :value v :obligations
+   [...]}`, plus `:parts` for a multi-part format, or a refusal.
+   Discharge against a receiver (5b) is `discharge`'s.
+
+   Whether the format has parts at all is the record's own answer over
+   the root (`:parts-fn` returns nil for a single payload, a sequence --
+   possibly empty -- for a multi-part format); a multi-part whole is the
+   tree assembled by prepending each part's address, the shape
+   `validate-rows` takes (section 5.1)."
+  [format identity address parts]
+  (let [root-value (get parts address)
+        multi? (some? ((:parts-fn format) root-value))
+        whole (if multi?
+                {:root identity,
+                 :rows (into {}
+                             (map (fn [[a v]] [a (into [a] v)]))
+                             parts)}
+                root-value)]
+    (if-not (matches-identity? format identity root-value)
+      (refused :hash-mismatch
+               {:expected identity, :actual (identity-of format root-value)})
+      (if-let [defect (validation-defect format whole)]
+        (refused :descriptor-defect {:identity identity, :defect defect})
+        (let [joined (undischarged
+                       ((:obligations-fn format) whole)
+                       (scanned format :definitions-fn whole)
+                       (scanned format :applications-fn whole))]
+          (or (:defect joined)
+              (merge {:status :ok,
+                      :format (:format format),
+                      :identity identity,
+                      :address address,
+                      :value whole,
+                      :obligations (:obligations joined)}
+                     (when multi? {:parts parts}))))))))
+
+
+;; =============================================================================
+;; The stepped core (sections 6.2, 6.3)
+;; =============================================================================
+
+(defn link-state
+  "The linker-local state (section 6.2), constructed once by the
+   composition. `:rpc` is a `dao.stream.rpc` client state on the content
+   pair; `:formats` maps a format keyword to its record (section 5);
+   `:indexes` maps a format keyword to its index, a map or function from
+   identity to storage address (the identity function for the two
+   storage-derived formats, section 3); `:bounds` is `{:max-parts n
+   :max-depth d :max-bytes b}`, every bound left nil taking
+   `default-bounds`. Functions live here and only here; no socket, atom,
+   handle, or scheduler does. The name environment, authority,
+   derivation, and fallback policies of section 8 are M4's."
+  [{:keys [rpc formats indexes bounds]}]
+  {:rpc rpc,
+   :formats (or formats {}),
+   :indexes (or indexes {}),
+   :bounds (bounded bounds),
+   :links {},
+   :order [],
+   :routes {},
+   :outbox [],
+   :next-fetch 0})
+
+
+(def ^:private request-keys
+  "The closed key set of a link request (section 6.3)."
+  #{:yin.link/id :yin.link/format :yin.link/contract :yin.link/name
+    :yin.link/identity})
+
+
+(defn- portable-scalar?
+  "Whether `x` is a value a link request may carry beside its id: a
+   scalar, keyword, symbol, or address -- never a function, handle,
+   collection, or host object (section 6.3)."
+  [x]
+  (or (nil? x) (true? x) (false? x) (number? x) (string? x)
+      (keyword? x) (symbol? x)))
+
+
+(defn- link-id?
+  "Whether `x` is a well-formed link id: the `[origin counter]` pair of
+   section 7.2, two non-nil portable scalars."
+  [x]
+  (and (vector? x)
+       (= 2 (count x))
+       (every? (fn [e] (and (some? e) (portable-scalar? e))) x)))
+
+
+(defn- in-flight?
+  "Whether `id` names a link whose completion is still owed."
+  [state id]
+  (or (contains? (:links state) id)
+      (some (fn [c] (= id (:yin.link/id c))) (:outbox state))))
+
+
+(defn- request-defect
+  "Step 0 (section 4.2) over a map request whose id is well formed: the
+   first admission refusal, or nil. The request's shape first -- the
+   closed key set, portability, a format, one of name or identity
+   (`:invalid-request`) -- then the format record
+   (`:unsupported-format`), then the contract, which is required
+   (`:invalid-request`) and must be the record's (`:contract-mismatch`)
+   -- so no validator ever runs under the wrong table. The evidence names
+   keys, never the offending value: a refusal travels on a stream."
+  [state request]
+  (let [format-kw (:yin.link/format request)
+        record (get (:formats state) format-kw)
+        contract (:yin.link/contract request)]
+    (cond
+      (some (fn [k] (not (contains? request-keys k))) (keys request))
+      (refused :invalid-request {:defect :closed-key-set})
+
+      (some (fn [[k v]]
+              (and (not= :yin.link/id k)
+                   (not (portable-scalar? v))))
+            request)
+      (refused :invalid-request
+               {:defect :non-portable,
+                :key (some (fn [[k v]]
+                             (when (and (not= :yin.link/id k)
+                                        (not (portable-scalar? v)))
+                               k))
+                           request)})
+
+      (nil? format-kw)
+      (refused :invalid-request {:missing :format})
+
+      (= (contains? request :yin.link/name)
+         (contains? request :yin.link/identity))
+      (refused :invalid-request {:defect :exactly-one-of})
+
+      (nil? record)
+      (refused :unsupported-format {:format format-kw})
+
+      (nil? contract)
+      (refused :invalid-request {:missing :contract})
+
+      (not= contract (:contract record))
+      (refused :contract-mismatch
+               {:expected contract, :actual (:contract record)}))))
+
+
+(defn- root-address
+  "Step 1 (section 4.2): the storage address the linker-local index holds
+   for the request's identity, or a refusal -- `:absent` for no entry or
+   an entry that is no Jing address, and `:parts-limit` when a
+   non-positive parts quota refuses the root before it is read. A
+   request by module name resolves through the name environment of
+   section 8, which is M4's; with none observed the name is `:absent`
+   now."
+  [state request]
+  (let [identity (:yin.link/identity request)
+        index (get (:indexes state) (:yin.link/format request))
+        address (when (and index (contains? request :yin.link/identity))
+                  (index identity))]
+    (cond
+      (contains? request :yin.link/name)
+      (refused :absent {:name (:yin.link/name request)})
+
+      (nil? address)
+      (refused :absent {:identity identity})
+
+      (not (jing/segment-address? address))
+      (refused :absent {:address address})
+
+      (not (pos? (:max-parts (:bounds state))))
+      (refused :parts-limit {:bound :max-parts, :address address})
+
+      :else address)))
+
+
+(defn- completion
+  "The completion of link `id` for `outcome` (section 6.3): the verified
+   image under `:image` with its obligations beside it, or the refusal
+   or loss tagged with the id."
+  [id outcome]
+  (if (ok? outcome)
+    {:yin.link/id id,
+     :status :ok,
+     :image (dissoc outcome :status :obligations),
+     :obligations (:obligations outcome)}
+    (assoc outcome :yin.link/id id)))
+
+
+(defn- finish
+  "Retire link `id`'s bookkeeping and append its one completion."
+  [state id outcome]
+  (-> state
+      (update :links dissoc id)
+      (update :order (fn [order] (filterv (fn [x] (not= id x)) order)))
+      (update :outbox conj (completion id outcome))))
+
+
+(defn request-link
+  "Admit one link request (section 6.3) and return `[state link-id]`.
+   `request` is plain data: `:yin.link/id`, `:yin.link/format`,
+   `:yin.link/contract`, and exactly one of `:yin.link/name` or
+   `:yin.link/identity`. Admission (step 0) and the index lookup (step
+   1) touch no stream, so a request they refuse completes at the next
+   `step` under its id -- or under `:yin.link/id nil` when the id is not
+   a well-formed `[origin counter]` pair or already names a link whose
+   completion is owed. Nothing is sent here: `step` issues every content
+   request."
+  [state request]
+  (let [raw-id (when (map? request) (:yin.link/id request))
+        duplicate? (and (link-id? raw-id) (in-flight? state raw-id))
+        id (when (and (link-id? raw-id) (not duplicate?)) raw-id)
+        defect (cond
+                 (not (map? request))
+                 (refused :invalid-request {:defect :not-a-map})
+
+                 duplicate?
+                 (refused :invalid-request {:defect :duplicate-id})
+
+                 (nil? id)
+                 (refused :invalid-request {:defect :id})
+
+                 :else (request-defect state request))
+        address (when-not defect (root-address state request))]
+    (cond
+      defect [(update state :outbox conj (completion id defect)) id]
+      (refused? address) [(update state :outbox conj (completion id address))
+                          id]
+      :else
+      [(-> state
+           (assoc-in [:links id]
+                     {:format (:yin.link/format request),
+                      :identity (:yin.link/identity request),
+                      :address address,
+                      :queue [[address 0]],
+                      :at 0,
+                      :parts {},
+                      :bytes 0,
+                      :enqueued #{address},
+                      :awaiting nil})
+           (update :order conj id))
+       id])))
+
+
+(defn- receive-part
+  "Route the reply `text` answered for link `id`'s current worklist entry
+   through step 2's checks; enqueue the part's children under the parts
+   budget; and, when the worklist is empty, run steps 3 to 5a at once
+   (section 6.3: they never touch a stream)."
+  [state id text]
+  (let [link (get-in state [:links id])
+        {:keys [queue at parts bytes enqueued]} link
+        record (get (:formats state) (:format link))
+        {:keys [max-parts max-bytes]} (:bounds state)
+        [address depth] (nth queue at)
+        res (checked-part record (:identity link) address text
+                          (when max-bytes (- max-bytes bytes)))]
+    (if (refused? res)
+      (finish state id res)
+      (let [value (:value res)
+            enqueued' (enqueue-children ((:parts-fn record) value)
+                                        enqueued depth max-parts)]
+        (if (refused? enqueued')
+          (finish state id enqueued')
+          (let [link' (assoc link
+                             :queue (into queue (:queue enqueued'))
+                             :at (inc at)
+                             :parts (assoc parts address value)
+                             :bytes (+ bytes (:bytes res))
+                             :enqueued (into enqueued (:fresh enqueued'))
+                             :awaiting nil)]
+            (if (= (:at link') (count (:queue link')))
+              (finish state id (verify record (:identity link)
+                                       (:address link) (:parts link')))
+              (assoc-in state [:links id] link'))))))))
+
+
+(defn- route-completion
+  "Route one raw content-pair completion to the link awaiting its id. A
+   completion no link claims -- the late answer of an abandoned link --
+   is dropped."
+  [state raw]
+  (let [rid (:dao.stream.rpc/id raw)
+        id (get (:routes state) rid)]
+    (if (and (some? id) (contains? (:links state) id))
+      (receive-part (update state :routes dissoc rid) id (answered-text raw))
+      (update state :routes dissoc rid))))
+
+
+(defn- issue-request
+  "Issue link `id`'s next content request, in worklist order, unless one
+   is already awaited. The depth bound is checked before the read; a
+   terminal client has no payload for the link (`:absent`, failing
+   closed); a writer still owing an unsent envelope issues nothing this
+   step -- `rpc` retains one envelope, retried by the next step."
+  [state id]
+  (let [link (get-in state [:links id])
+        rpc-state (:rpc state)]
+    (if (or (nil? link) (some? (:awaiting link)))
+      state
+      (let [[address depth] (nth (:queue link) (:at link))
+            max-depth (:max-depth (:bounds state))]
+        (cond
+          (and max-depth (> depth max-depth))
+          (finish state id
+                  (refused :parts-limit {:bound :max-depth, :address address}))
+
+          (:terminal rpc-state)
+          (finish state id (refused :absent {:address address}))
+
+          (rpc/unsent? rpc-state)
+          state
+
+          :else
+          (let [r (rpc/request! rpc-state get-content-op [address])
+                rid (:dao.stream.rpc/id r)
+                state (assoc state :rpc (:dao.stream.rpc/state r))]
+            (if (some? rid)
+              (-> state
+                  (assoc-in [:links id :awaiting] rid)
+                  (assoc-in [:routes rid] id))
+              (finish state id (refused :absent {:address address})))))))))
+
+
+(defn step
+  "One non-waiting advance of every in-flight link (section 6.3), in a
+   fixed order: re-attempt the unsent content request; poll the content
+   response medium at most `budget` elements; route each correlated
+   response to its link and run the verification step it enables; issue
+   the next content request each link's worklist needs; take the
+   completions. Returns `{:state s :completions [...] :diagnostics
+   [...]}`: each completion carries its `:yin.link/id` exactly once; a
+   link with none yet is `:pending`, and the caller steps again when it
+   chooses. Diagnostics are the rpc client's, taken exactly once.
+
+   This is an interpreter step -- it performs stream operations -- under
+   a single-owner precondition: one caller, one state thread."
+  [state budget]
+  (let [rpc0 (:rpc state)
+        rpc1 (if (and (rpc/unsent? rpc0) (not (:terminal rpc0)))
+               (:dao.stream.rpc/state (rpc/request! rpc0 nil nil))
+               rpc0)
+        rpc2 (:dao.stream.rpc/state (rpc/poll! rpc1 budget))
+        rpc3 (if (and (:terminal rpc2) (rpc/unsent? rpc2))
+               (rpc/abandon-unsent rpc2 (:terminal rpc2))
+               rpc2)
+        [raw rpc4] (rpc/take-completed rpc3)
+        [diagnostics rpc5] (rpc/take-diagnostics rpc4)
+        routed (reduce route-completion (assoc state :rpc rpc5) raw)
+        issued (reduce issue-request routed (:order routed))]
+    {:state (assoc issued :outbox []),
+     :completions (:outbox issued),
+     :diagnostics diagnostics}))
+
+
+(defn abandon
+  "Give up on link `link-id` with `reason` (section 6.3): its
+   bookkeeping is retired and it completes `{:status :lost :reason
+   reason}` at the next `step`, so a caller that gives up still receives
+   exactly one completion. A content request it still owed the writer is
+   abandoned with it; one already on the wire is answered into nothing.
+   An id with no link in flight leaves the state unchanged."
+  [state link-id reason]
+  (if-let [link (get-in state [:links link-id])]
+    (let [rid (:awaiting link)
+          rpc-state (:rpc state)]
+      (-> state
+          (assoc :rpc (if (and (some? rid)
+                               (= rid (get-in rpc-state [:unsent :id])))
+                        (rpc/abandon-unsent rpc-state reason)
+                        rpc-state))
+          (update :routes dissoc rid)
+          (finish link-id {:status :lost, :reason reason})))
+    state))
+
+
+;; =============================================================================
+;; fetch: host policy over a link runtime (section 6.4)
+;; =============================================================================
+
+(def ^:private fetch-budget
+  "How many response-medium elements one `fetch` advance may consume."
+  32)
+
+
+(defn- fetched
+  "The host-policy outcome of one completion: step 5b against `receiver`
+   over a verified image, flattened to the step-6 shape of section 4.2;
+   a refusal or loss as it completed, without its link id."
+  [c receiver]
+  (if (= :ok (:status c))
+    (or (discharge receiver (:obligations c))
+        (merge {:status :ok}
+               (:image c)
+               {:obligations (:obligations c)}))
+    (dissoc c :yin.link/id)))
 
 
 (defn fetch
-  "Fetches and verifies an image by its identity using handle, index, and
-   format record; one surface for all four formats. Returns the verified
-   image `{:status :ok ...}` or a qualified refusal.
+  "Fetches and verifies an image by its identity: host policy over an
+   explicit link runtime (section 6.4), one surface for all four
+   formats. Returns the verified image `{:status :ok ...}` or a
+   qualified refusal.
 
-   `handle` is any DaoJing content handle; `index` is a map or function
-   from identity to Jing address -- the identity function itself for the
-   two storage-derived formats, whose identity is its own address
-   (section 3); `format` is a format record; `identity` is H or R, a
-   root row id, or a vector address. `receiver` is the receiving VM's
-   free-name environment `{:free-env :store :primitives :modules}`; an
-   empty receiver accepts only a closed image (no retained obligations).
-   `opts` carries the requester's contract `:contract`, which is
-   required, and the step-2 bounds `:max-parts`, `:max-depth`,
-   `:max-bytes`; a bound the caller leaves nil takes `default-bounds`,
-   so every fetch path is finite. The shorter arities supply no
-   contract, so they are `:invalid-request`: every caller names the
-   contract it runs, normally the record's own `:contract`.
+   `runtime` is `{:state link-state :drive (fn [state] state')}`.
+   `:drive` is the composition's driver: it advances whatever serves the
+   content pair (`dao.stream.rpc/serve-once!` over a handle, or nothing
+   when a remote server runs elsewhere) and returns the link state; after
+   each drive `fetch` steps the linker, until the one link completes.
+   `fetch` holds no DaoJing handle and cannot call `jing/get`: the
+   content handle is reachable only from the server side of the pair.
+   The runtime's state is consumed: one runtime serves one fetch, and a
+   composition that links again builds a fresh runtime or holds the
+   stepped interface itself. Liveness is the drive's: a drive that never
+   lets the pair answer never completes, and it may `abandon` instead.
+   `fetch` takes no deadline. A composition that wants one holds a
+   `dao.lease` over the link in its drive, and the judge that lapses it
+   on silence calls `abandon` (docs/design/yin.vm.linker.md section 6.3).
+
+   `format` is a format keyword whose record the state holds; `identity`
+   is H or R, a root row id, or a vector address. `receiver` is the
+   receiving VM's free-name environment `{:free-env :store :primitives
+   :modules}`; an empty receiver accepts only a closed image. `opts`
+   carries the requester's contract `:contract`, which is required: the
+   shorter arities supply none, so they are `:invalid-request`, and
+   every caller names the contract it runs, normally the record's own.
+   No contract stamp is ever assigned here.
 
    The steps run in strict order (section 4.2), with no format-specific
    branching:
-     0. the request names a contract                  :invalid-request
+     0. the request is admissible                    :invalid-request
+        a record for the format                      :unsupported-format
         the requested contract equals the record's   :contract-mismatch
      1. address <- (index identity)                  :absent
      2. the bounded worklist of :parts-fn, each      :absent,
-        part read, sized, verified, then row-checked :address-mismatch,
-        before any child it names is hashed,         :descriptor-defect,
-        decoded, or enqueued                         :parts-limit
+        part read over the pair, sized, verified,    :address-mismatch,
+        then row-checked before any child it names   :descriptor-defect,
+        is hashed, decoded, or enqueued              :parts-limit
      3. ((:identity-matches-fn format) identity root :hash-mismatch
      4. ((:validate-fn format) whole) is nil         :descriptor-defect
      5a. the scanners' occurrences join their        :use-before-definition
@@ -1138,64 +1566,26 @@
          receiver                                    :shadowed-free
      6. the verified image
 
-   For a multi-part format the whole of steps 4 to 6 is the tree
-   assembled by prepending each fetched part's address, the shape
-   `validate-rows` takes (section 5.1), and the outcome carries
-   `:parts {address body}`."
-  ([handle index format identity]
-   (fetch handle index format identity {}))
-  ([handle index format identity receiver]
-   (fetch handle index format identity receiver nil))
-  ([handle index format identity receiver opts]
-   (let [{:keys [contract]} opts]
-     (cond
-       (nil? contract)
-       (refused :invalid-request {:missing :contract})
-
-       (not= contract (:contract format))
-       (refused :contract-mismatch
-                {:expected contract, :actual (:contract format)})
-
-       :else
-       (if-let [address (index identity)]
-         (if-not (jing/segment-address? address)
-           (refused :absent {:address address})
-           (let [worklist (fetch-parts handle format identity address
-                                       opts)]
-             (if (refused? worklist)
-               worklist
-               (let [{:keys [parts multi?]} worklist
-                     root-value (get parts address)
-                     whole (if multi?
-                             {:root identity,
-                              :rows (into {}
-                                          (map (fn [[a v]] [a (into [a] v)]))
-                                          parts)}
-                             root-value)]
-                 (if-not (matches-identity? format identity root-value)
-                   (refused :hash-mismatch
-                            {:expected identity,
-                             :actual (identity-of format root-value)})
-                   (if-let [defect (validation-defect format whole)]
-                     (refused :descriptor-defect
-                              {:identity identity, :defect defect})
-                     (let [joined (undischarged
-                                    ((:obligations-fn format) whole)
-                                    (scanned format :definitions-fn
-                                             whole)
-                                    (scanned format :applications-fn
-                                             whole))]
-                       (or (:defect joined)
-                           (free-name-defect receiver
-                                             (:obligations joined))
-                           (merge {:status :ok,
-                                   :format (:format format),
-                                   :identity identity,
-                                   :address address,
-                                   :value whole,
-                                   :obligations (:obligations joined)}
-                                  (when multi? {:parts parts}))))))))))
-         (refused :absent {:identity identity}))))))
+   For a multi-part format the outcome carries `:parts {address body}`."
+  ([runtime format identity]
+   (fetch runtime format identity {}))
+  ([runtime format identity receiver]
+   (fetch runtime format identity receiver nil))
+  ([runtime format identity receiver opts]
+   (let [{:keys [state drive]} runtime
+         id [::fetch (:next-fetch state)]
+         request (cond-> {:yin.link/id id,
+                          :yin.link/format format,
+                          :yin.link/identity identity}
+                   (contains? opts :contract)
+                   (assoc :yin.link/contract (:contract opts)))
+         [state _] (request-link (update state :next-fetch inc) request)]
+     (loop [state state]
+       (let [r (step (drive state) fetch-budget)]
+         (if-let [c (some (fn [c] (when (= id (:yin.link/id c)) c))
+                          (:completions r))]
+           (fetched c receiver)
+           (recur (:state r))))))))
 
 
 ;; =============================================================================
@@ -1263,8 +1653,8 @@
 
 
 (defn- fallback-fetch
-  [handle h-index pairing receiver trust]
-  (let [res (fetch handle h-index stack-format (:H pairing) receiver
+  [runtime pairing receiver trust]
+  (let [res (fetch runtime (:format stack-format) (:H pairing) receiver
                    {:contract (:contract stack-format)})]
     (if (ok? res)
       (assoc res
@@ -1275,12 +1665,13 @@
 
 (defn trusted-fallback
   "R -> H fallback on composition trust (section 7, path 1): reads the
-   root's pairing and fetches its stack image by H. The outcome names its
-   trust as `:trust :composition`. A root without a recorded pairing is
-   `:absent`."
-  [handle h-index root pairing-datoms receiver]
+   root's pairing and fetches its stack image by H through `runtime`,
+   whose state holds `stack-format` and its H index. The outcome names
+   its trust as `:trust :composition`. A root without a recorded pairing
+   is `:absent`."
+  [runtime root pairing-datoms receiver]
   (if-let [pairing (root-pairing root pairing-datoms)]
-    (fallback-fetch handle h-index pairing receiver :composition)
+    (fallback-fetch runtime pairing receiver :composition)
     (refused :absent {:root root})))
 
 
@@ -1288,12 +1679,12 @@
   "R -> H fallback that verifies the pairing first (section 7, path 2):
    re-lowers the root's named `source-datoms` and refuses with
    `:pairing-mismatch` unless both recomputed identities match, then
-   fetches the stack image by H. The outcome names its trust as
-   `:trust :verified`."
-  [handle h-index root pairing-datoms source-datoms receiver]
+   fetches the stack image by H through `runtime`. The outcome names its
+   trust as `:trust :verified`."
+  [runtime root pairing-datoms source-datoms receiver]
   (if-let [{:keys [H R], :as pairing} (root-pairing root pairing-datoms)]
     (let [verdict (verify-same-root-pairing root H R source-datoms)]
       (if (refused? verdict)
         verdict
-        (fallback-fetch handle h-index pairing receiver :verified)))
+        (fallback-fetch runtime pairing receiver :verified)))
     (refused :absent {:root root})))

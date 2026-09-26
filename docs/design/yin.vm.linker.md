@@ -878,6 +878,13 @@ A completion is the step-6 result or a refusal, tagged with its link id:
 A link with no completion yet is `:pending`; the caller steps again
 when it chooses. Retry cadence, deadlines, and permanent-absence policy
 are the composition's, as D6 states: streams report, they do not decide.
+`fetch` takes no deadline. A composition that wants one expresses it
+with `dao.lease` (`docs/design/dao.lease.md`): its drive holds a lease
+over the link and renews it from its own control flow whenever the link
+makes progress, and a judge in the same composition, reading a tick
+stream it wires, lapses the lease on `:silence` and calls `abandon`,
+which completes the link `:lost`. Time reaches this as data, so the
+linker stays clock-free.
 
 `abandon` retires a link's bookkeeping and completes it `:lost` with the
 given reason, so a caller that gives up still receives exactly one
@@ -893,10 +900,14 @@ The B6 signature changes in its first argument:
 ```
 
 `runtime` is `{:state link-state :drive (fn [state] state')}`. `:drive`
-is the composition's driver: it steps the linker's client side *and*
-whatever serves the content pair (`dao.stream.rpc/serve-once!` over the
-content handle, or nothing when a remote server runs elsewhere), and it
-is called in a loop until the one link completes. `fetch` therefore
+is the composition's driver: it advances whatever serves the content
+pair (`dao.stream.rpc/serve-once!` over the content handle, or nothing
+when a remote server runs elsewhere) and returns the link state. It
+does not step the linker: `fetch` calls `step` after each drive, in a
+loop until the one link completes, because `step` hands each completion
+out exactly once and a drive that stepped the linker would drop the
+completion `fetch` waits for. Liveness is the drive's: a drive whose
+server never answers never completes the link. `fetch` therefore
 holds no `dao.jing` handle and cannot call `jing/get`: the content
 handle is reachable only from the server side of the content pair. A
 test in M3 asserts this by wiring a server whose handle counts `get`
@@ -2249,8 +2260,10 @@ the first concerns material the composition supplies to a policy section
   manifests or a single image per format is undecided; section 7.4
   fixes only the response shape and the cycle refusal.
 - **Failure policy.** Retry, deadline, and permanent absence for a
-  `:pending` link are the composition's (D6). Whether `yin.repl` adopts
-  the `dao.jing.remote` timing options or its own is an M5 decision.
+  `:pending` link are the composition's (D6). `fetch` takes no
+  deadline; `dao.lease` is the mechanism a composition uses for one
+  (section 6.3). Whether `yin.repl` adopts the `dao.jing.remote` timing
+  options, `dao.lease`, or its own is an M5 decision.
 - **Contract-pinned AST and semantic identities.** Strict decoupling of
   storage address from VM identity holds for H and R only (section 3).
   Pinning `:yin.ast/code` and `:yin.semantic/code` identities to a

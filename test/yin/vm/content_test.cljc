@@ -7,7 +7,9 @@
    write (file backend, which then still opens). The read side is
    `yin.vm.linker/fetch` with the storage-derived format records: M2
    retired the `load-rows`/`fetch-vector` loaders and moved their
-   callers to `fetch` (section 9 of `docs/design/yin.vm.linker.md`)."
+   callers to `fetch` (section 9 of `docs/design/yin.vm.linker.md`),
+   which since M3 reads over a ring-buffer content pair served from the
+   store (`yin.vm.linker-test/fetch-local`)."
   (:require #?@(:cljd [["dart:io" :as dart-io]])
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
@@ -17,6 +19,7 @@
             [yin.vm.content :as content]
             [yin.vm.linearize :as linearize]
             [yin.vm.linker :as linker]
+            [yin.vm.linker-test :as lt]
             [yin.vm.parity-test :as parity]
             [yin.vm.semantic :as semantic]
             [yin.vm-test :as vm-test]))
@@ -62,8 +65,8 @@
   "The fetched tree at `root` in `handle`, through the linker's AST
    format record."
   [handle root]
-  (let [res (linker/fetch handle {root root} linker/ast-format root
-                          receiver (requested linker/ast-format))]
+  (let [res (lt/fetch-local handle {root root} linker/ast-format root
+                            receiver (requested linker/ast-format))]
     (assert (linker/ok? res) (pr-str res))
     (:value res)))
 
@@ -72,9 +75,9 @@
   "The fetched vector at `address` in `handle`, through the linker's
    semantic format record."
   [handle address]
-  (let [res (linker/fetch handle {address address}
-                          linker/semantic-format address receiver
-                          (requested linker/semantic-format))]
+  (let [res (lt/fetch-local handle {address address}
+                            linker/semantic-format address receiver
+                            (requested linker/semantic-format))]
     (assert (linker/ok? res) (pr-str res))
     (:value res)))
 
@@ -209,36 +212,38 @@
   (let [h (jing-mem/create-content-mem)]
     (testing "an absent address is refused naming it"
       (is (= :absent
-             (:reason (linker/fetch h {(jing/segment-key [:literal 1])
-                                       (jing/segment-key [:literal 1])}
-                                    linker/ast-format
-                                    (jing/segment-key [:literal 1])
-                                    receiver (requested linker/ast-format))))))
+             (:reason (lt/fetch-local h {(jing/segment-key [:literal 1])
+                                         (jing/segment-key [:literal 1])}
+                                      linker/ast-format
+                                      (jing/segment-key [:literal 1])
+                                      receiver
+                                      (requested linker/ast-format))))))
     (testing "a stored row set that fails the row-local rules is
               refused with its defect"
       ;; a body with the wrong arity for its tag, stored under its own
       ;; true address so only the validator can catch it
       (let [bad-root (jing/materialize! h [:literal 1 :extra])
-            res (linker/fetch h {bad-root bad-root} linker/ast-format
-                              bad-root receiver (requested linker/ast-format))]
+            res (lt/fetch-local h {bad-root bad-root} linker/ast-format
+                                bad-root receiver
+                                (requested linker/ast-format))]
         (is (= :descriptor-defect (:reason res)))
         (is (= :arity (:rule (:defect res))))))
     (testing "a stored row body is refused by the vector grammar, not
               reinterpreted (it hashes to its own address -- a legal
               payload, just not a vector)"
       (let [row-address (jing/materialize! h [:literal 7])
-            res (linker/fetch h {row-address row-address}
-                              linker/semantic-format row-address receiver
-                              (requested linker/semantic-format))]
+            res (lt/fetch-local h {row-address row-address}
+                                linker/semantic-format row-address receiver
+                                (requested linker/semantic-format))]
         (is (= :descriptor-defect (:reason res)))
         (is (= :mnemonic (:rule (:defect res))))))
     (testing "a correctly-hashed malformed vector is refused by the
               vector grammar"
       (let [malformed [[:jump 9]]           ; U5's own refusal case
             address (jing/materialize! h malformed)
-            res (linker/fetch h {address address} linker/semantic-format
-                              address receiver
-                              (requested linker/semantic-format))]
+            res (lt/fetch-local h {address address} linker/semantic-format
+                                address receiver
+                                (requested linker/semantic-format))]
         (is (= :descriptor-defect (:reason res)))
         (is (= :target-bounds (:rule (:defect res))))))
     (jing/close! h))
@@ -262,8 +267,9 @@
                          :operands [{:type :literal, :value 1}]}})
           vector (:vector (linearize/lower-rows tree))
           address (content/materialize-vector! h vector)
-          res (linker/fetch h {address address} linker/semantic-format
-                            address receiver (requested linker/semantic-format))
+          res (lt/fetch-local h {address address} linker/semantic-format
+                              address receiver
+                              (requested linker/semantic-format))
           loaded (semantic/load-vector (semantic/create-vm) (:value res)
                                        (:contract linker/semantic-format))
           seg (get-in loaded [:code-aliases address])]

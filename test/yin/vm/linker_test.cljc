@@ -13,7 +13,6 @@
             [dao.jing.mem :as mem]
             [dao.jing.remote :as remote]
             [dao.stream :as stream]
-            [dao.stream.apply :as apply]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc :as rpc]
             [yin.vm :as vm]
@@ -61,17 +60,17 @@
   (assoc node :tail? true))
 
 
-(def ^:private worked-example
+(def worked-example
   "`((fn [x] (+ x 1)) 10)`: one free name, `+`."
   (app (lam '[x] (tail (app (v '+) (v 'x) (lit 1)))) (lit 10)))
 
 
-(def ^:private closed-program
+(def closed-program
   "`((fn [x] x) 42)`: no free names at all."
   (app (lam '[x] (tail (v 'x))) (lit 42)))
 
 
-(def ^:private other-program
+(def other-program
   "`(* 6 7)`: a different image, for swapped index entries and pairings."
   (app (v '*) (lit 6) (lit 7)))
 
@@ -98,7 +97,7 @@
   (app (lam '[a b] (lit 0)) (store-put 'x 1) (v 'x)))
 
 
-(def ^:private use-then-def
+(def use-then-def
   "`((fn [_ _] 0) x (vm/store-put x 1))`: the read precedes every
    definition of its name."
   (app (lam '[a b] (lit 0)) (v 'x) (store-put 'x 1)))
@@ -248,7 +247,7 @@
   (second (vm/ast->datoms-with-root ast)))
 
 
-(defn- stack-image
+(defn stack-image
   [ast]
   (:image (dl/adapt (ast-datoms ast))))
 
@@ -258,7 +257,7 @@
   (:image (rc/adapt (ast-datoms ast))))
 
 
-(defn- semantic-vector
+(defn semantic-vector
   "The canonical instruction vector `ast` lowers to: the payload of the
    `:yin.semantic/code` format (section 5.2)."
   [ast]
@@ -272,7 +271,7 @@
    [:SEM linker/semantic-format semantic-vector]])
 
 
-(def ^:private formats
+(def formats
   "Each format record beside the lowering that mints its images. For the
    two storage-derived formats the mint side is `yin.vm.content`
    (section 9) and the identity is its own address, so the index maps
@@ -283,14 +282,14 @@
    [:SEM linker/semantic-format semantic-vector]])
 
 
-(defn- storage-derived?
+(defn storage-derived?
   "True for the two formats whose identity is its own Jing address
    (section 3)."
   [format]
   (contains? #{:yin.ast/code :yin.semantic/code} (:format format)))
 
 
-(defn- identity-for
+(defn identity-for
   "The identity `image` carries under `format`: the format's own mint
    for the single-payload formats, the root row id for a tree, whose
    mint is the root body (section 5.1)."
@@ -300,7 +299,7 @@
     ((:identity-fn format) image)))
 
 
-(defn- stored-payload
+(defn stored-payload
   "The payload the mint side stores for `image`: the image itself for
    the single-payload formats, the root row's body for a tree (D3)."
   [format image]
@@ -309,7 +308,7 @@
     image))
 
 
-(def ^:private receiver
+(def receiver
   "The standard receiver: the full primitive registry, nothing shadowing."
   {:primitives vm/primitives})
 
@@ -322,7 +321,7 @@
   ([format bounds] (assoc bounds :contract (:contract format))))
 
 
-(defn- publish
+(defn publish
   "Store `image` for `format`; return `{:identity id :address a :index
    idx}`. The de Bruijn formats publish through `linker/publish!` and
    read the index back from the datom; the storage-derived formats mint
@@ -339,7 +338,7 @@
        :index (linker/index-from-datoms format [datom])})))
 
 
-(defn- raw-publish
+(defn raw-publish
   "Store `image` for `format` without the mint side's validation (the
    mint refuses a malformed payload before the write): a tree's rows
    materialize individually, anything else as one payload. Return
@@ -355,7 +354,7 @@
       {:identity id, :index {id address}})))
 
 
-(defn- row-tree
+(defn row-tree
   "A one-row tree `{:root id, :rows {id row}}` whose root body
    `[tag & slots]` is stored under its own true address."
   [body]
@@ -370,7 +369,7 @@
   [:application child-id [] false])
 
 
-(defn- tamper
+(defn tamper
   [value]
   [:tampered value])
 
@@ -381,7 +380,7 @@
   (jing/canonical-bytes (tamper (cbor/decode bs))))
 
 
-(defn- corrupt-store
+(defn corrupt-store
   "A local store whose reads return corrupted bytes for every address."
   [store]
   (assoc store
@@ -403,7 +402,7 @@
                x)))))
 
 
-(defn- counting-store
+(defn counting-store
   "A local store that counts its reads per address in the atom `counts`."
   [store counts]
   (assoc store
@@ -411,6 +410,80 @@
          (fn [a not-found]
            (swap! counts update a (fnil inc 0))
            ((:get-bytes-fn store) a not-found))))
+
+
+;; =============================================================================
+;; The local link runtime (section 6.4)
+;; =============================================================================
+;; Every fetch crosses a ring-buffer content pair as RPC envelopes: the
+;; linker state holds the client end and no handle, and the drive serves
+;; the pair from the store's `default-handlers` (section 6.1, first row).
+
+(defn ring-handle
+  "One ring-buffer medium of `capacity` elements."
+  ([] (ring-handle 64))
+  ([capacity]
+   (:dao.stream/handle
+     (ring/create! {:dao.stream/type ring/transport-type
+                    ring/capacity-key capacity}))))
+
+
+(defn- oldest
+  [handle]
+  (:dao.stream/cursor (stream/cursor handle :dao.stream/oldest)))
+
+
+(defn serve-all
+  "Answer every request waiting on `requests` from `handlers`, returning
+   the successor server state."
+  [handlers requests responses server]
+  (loop [server server]
+    (let [r (rpc/serve-once! handlers requests responses server)]
+      (if (contains? #{:dao.stream.apply/idle :dao.stream.apply/terminal
+                       :dao.stream.apply/pending-response}
+                     (:dao.stream.apply/outcome r))
+        (:dao.stream.apply/state r)
+        (recur (:dao.stream.apply/state r))))))
+
+
+(defn local-runtime
+  "A single-process link runtime: `linker/link-state` of `opts` (less
+   `:rpc`) on a ring-buffer content pair of `capacity` elements, whose
+   drive answers every waiting request from `handlers`. The two media are
+   returned beside the runtime as `:requests` and `:responses`."
+  ([handlers opts] (local-runtime handlers opts 64))
+  ([handlers opts capacity]
+   (let [requests (ring-handle capacity)
+         responses (ring-handle capacity)
+         server (atom (rpc/server-state (oldest requests)))]
+     {:state (linker/link-state
+               (assoc opts
+                      :rpc (rpc/client-state requests responses
+                                             (oldest responses)))),
+      :drive (fn [state]
+               (swap! server
+                      (fn [s] (serve-all handlers requests responses s)))
+               state),
+      :requests requests,
+      :responses responses})))
+
+
+(defn fetch-local
+  "M2's call shape over the local runtime: `store` served on its own
+   content pair, `format` a record, `index` its index; the bounds in
+   `opts` become the link state's and the contract in `opts` the
+   request's."
+  ([store index format identity]
+   (fetch-local store index format identity {}))
+  ([store index format identity receiver]
+   (fetch-local store index format identity receiver nil))
+  ([store index format identity receiver opts]
+   (linker/fetch (local-runtime (remote/default-handlers store)
+                                {:formats {(:format format) format},
+                                 :indexes {(:format format) index},
+                                 :bounds (dissoc opts :contract)})
+                 (:format format) identity receiver
+                 (select-keys opts [:contract]))))
 
 
 ;; =============================================================================
@@ -551,8 +624,8 @@
       (let [store (mem/create-content-mem)
             image (mint worked-example)
             {:keys [identity index]} (publish store format image)
-            res (linker/fetch store index format identity receiver
-                              (requested format))]
+            res (fetch-local store index format identity receiver
+                             (requested format))]
         (is (linker/ok? res))
         (is (not (linker/refused? res)))
         (is (= (:format format) (:format res)))
@@ -562,8 +635,8 @@
                                    (stored-payload format image)))
         (is (contains? (set (map :name (:obligations res))) '+)
             "the free-name obligations travel with the image")
-        (is (= res (linker/fetch store index format identity receiver
-                                 (requested format)))
+        (is (= res (fetch-local store index format identity receiver
+                                (requested format)))
             "fetch is a pure read: no cache, no registry changes the answer")
         (jing/close! store)))))
 
@@ -574,10 +647,10 @@
       (let [store (mem/create-content-mem)
             {:keys [identity index]} (publish store format
                                               (mint closed-program))]
-        (is (linker/ok? (linker/fetch store index format identity
-                                      {} (requested format))))
-        (is (linker/ok? (linker/fetch store #(get index %) format identity
-                                      {} (requested format))))
+        (is (linker/ok? (fetch-local store index format identity
+                                     {} (requested format))))
+        (is (linker/ok? (fetch-local store #(get index %) format identity
+                                     {} (requested format))))
         (jing/close! store)))))
 
 
@@ -592,22 +665,22 @@
             image (mint worked-example)
             {:keys [identity index]} (publish store format image)
             counts (atom {})
-            res (linker/fetch (counting-store store counts) index format
-                              identity receiver {:contract "other"})]
+            res (fetch-local (counting-store store counts) index format
+                             identity receiver {:contract "other"})]
         (is (= {:status :refused, :reason :contract-mismatch,
                 :expected "other", :actual (:contract format)}
                res)
             "the record's contract is the one implemented")
         (is (zero? (count @counts))
             "no content is requested under the wrong contract")
-        (is (linker/ok? (linker/fetch store index format identity
-                                      receiver
-                                      {:contract (:contract format)}))
+        (is (linker/ok? (fetch-local store index format identity
+                                     receiver
+                                     {:contract (:contract format)}))
             "the record's own contract is admitted")
         (doseq [old ["v2" "b1" "r1"]]
           (is (= :contract-mismatch
-                 (:reason (linker/fetch store index format identity
-                                        receiver {:contract old})))
+                 (:reason (fetch-local store index format identity
+                                       receiver {:contract old})))
               "a requester running a pre-Rule R revision is refused"))
         (jing/close! store)))))
 
@@ -620,7 +693,7 @@
                                               (mint worked-example))
             counts (atom {})
             fetch (fn [& args]
-                    (apply linker/fetch (counting-store store counts)
+                    (apply fetch-local (counting-store store counts)
                            index format identity args))]
         (doseq [res [(fetch) (fetch receiver) (fetch receiver nil)
                      (fetch receiver {}) (fetch receiver {:max-parts 8})
@@ -646,17 +719,17 @@
             identity (identity-for format image)
             unstored (jing/segment-key [:none])]
         (is (= {:status :refused, :reason :absent, :identity identity}
-               (linker/fetch store {} format identity receiver
-                             (requested format)))
+               (fetch-local store {} format identity receiver
+                            (requested format)))
             "step 1: the index has no entry")
         (is (= {:status :refused, :reason :absent, :address unstored}
-               (linker/fetch store {identity unstored} format identity
-                             receiver (requested format)))
+               (fetch-local store {identity unstored} format identity
+                            receiver (requested format)))
             "step 2: the address has no payload in the store")
         (is (= :absent
-               (:reason (linker/fetch store {identity :segment/garbage}
-                                      format identity receiver
-                                      (requested format))))
+               (:reason (fetch-local store {identity :segment/garbage}
+                                     format identity receiver
+                                     (requested format))))
             "an index entry that is no Jing address has no payload")
         (jing/close! store)))))
 
@@ -671,8 +744,8 @@
       (let [store (mem/create-content-mem)
             image (mint worked-example)
             {:keys [identity index]} (publish store format image)
-            res (linker/fetch (corrupt-store store) index format identity
-                              receiver (requested format))]
+            res (fetch-local (corrupt-store store) index format identity
+                             receiver (requested format))]
         (is (= :address-mismatch (:reason res)))
         (is (not (contains? res :value))
             "mismatched bytes are refused undecoded")
@@ -680,30 +753,33 @@
         (jing/close! store)))))
 
 
-;; RPC-reply corruption is now refused at the client ingress boundary
-;; (remote.cljc hash-verify + strict decode on every found reply), so
-;; read-address's documented fail-closed catch classifies the handle
-;; failure :absent; store-level corruption (above) still reaches the
-;; linker's own step-2 check and remains :address-mismatch.
-(deftest corrupt-rpc-response-is-classified-absent
+;; The linker is the content pair's client (section 6.1): a corrupted RPC
+;; reply reaches its own step-2 check exactly as store-level corruption
+;; does, so the two are one refusal wherever the bytes were damaged (I3).
+(deftest corrupt-rpc-response-is-an-address-mismatch
   (doseq [[label format mint] formats]
     (testing label
       (let [store (mem/create-content-mem)
             image (mint worked-example)
             {:keys [identity index]} (publish store format image)
-            handlers (remote/default-handlers store)
-            client (remote/content-client
-                     ::corrupt
-                     (fn [_ op args]
-                       (let [resp (apply (get handlers op) args)]
-                         (update resp :value
-                                 #(jing/bytes->base64
-                                    (tamper-bytes (jing/base64->bytes %))))))
-                     (fn [_] nil))]
-        (is (= :absent
-               (:reason (linker/fetch client index format identity
-                                      receiver (requested format)))))
-        (jing/close! client)
+            handlers (update (remote/default-handlers store)
+                             :jing/get-content
+                             (fn [get-content]
+                               (fn [address]
+                                 (update (get-content address) :value
+                                         #(jing/bytes->base64
+                                            (tamper-bytes
+                                              (jing/base64->bytes %)))))))
+            res (linker/fetch (local-runtime
+                                handlers
+                                {:formats {(:format format) format},
+                                 :indexes {(:format format) index}})
+                              (:format format) identity receiver
+                              (requested format))]
+        (is (= :address-mismatch (:reason res)))
+        (is (= (index identity) (:address res)))
+        (is (not (contains? res :value))
+            "mismatched bytes are refused undecoded")
         (jing/close! store)))))
 
 
@@ -711,7 +787,7 @@
 ;; DHT: a peer serving mismatched content is rejected before load (S11.6)
 ;; =============================================================================
 
-(def ^:private any-address
+(def any-address
   "A GridNet serving key for a peer that answers every address with one
    payload -- never a real address, so a per-address map and an
    any-address payload cannot collide."
@@ -754,7 +830,7 @@
   {:id (dht/node-id "127.0.0.1" port), :host "127.0.0.1", :port port})
 
 
-(defn- grid-handle
+(defn grid-handle
   "A DHT handle over an empty local store whose peers serve `served`
    (peer port -> an address -> payload map; the `any-address` key makes a
    peer answer every address with one payload)."
@@ -787,11 +863,11 @@
             honest (grid-handle {2 {any-address (tamper payload)}
                                  3 honest-value})]
         (is (= :absent
-               (:reason (linker/fetch forged index format identity
-                                      receiver (requested format))))
+               (:reason (fetch-local forged index format identity
+                                     receiver (requested format))))
             "make-get filters the forged payload; no peer has valid data")
-        (is (linker/ok? (linker/fetch honest index format identity
-                                      receiver (requested format)))
+        (is (linker/ok? (fetch-local honest index format identity
+                                     receiver (requested format)))
             "a later honest peer is accepted")
         (is (= payload
                (jing/get (:local honest) (index identity) nil))
@@ -831,13 +907,13 @@
             foreign (foreign-identity format (mint other-program))]
         (is (= {:status :refused, :reason :hash-mismatch,
                 :expected wanted, :actual identity}
-               (linker/fetch store swapped format wanted receiver
-                             (requested format)))
+               (fetch-local store swapped format wanted receiver
+                            (requested format)))
             "a stale or swapped index entry")
         (is (= {:status :refused, :reason :hash-mismatch,
                 :expected foreign, :actual identity}
-               (linker/fetch store {foreign address} format foreign
-                             receiver (requested format)))
+               (fetch-local store {foreign address} format foreign
+                            receiver (requested format)))
             "a descriptor or contract version disagreement")
         (jing/close! store)))))
 
@@ -851,9 +927,9 @@
     (is (= {:status :refused, :reason :hash-mismatch,
             :expected (jing/segment-key wanted),
             :actual (jing/segment-key other)}
-           (linker/fetch store index linker/semantic-format
-                         (jing/segment-key wanted) receiver
-                         (requested linker/semantic-format)))
+           (fetch-local store index linker/semantic-format
+                        (jing/segment-key wanted) receiver
+                        (requested linker/semantic-format)))
         "the index pointed the identity at a different valid vector")
     (jing/close! store)))
 
@@ -862,7 +938,7 @@
 ;; Step 4: :descriptor-defect (S11.8, S11.9)
 ;; =============================================================================
 
-(defn- invalid-register-image
+(defn invalid-register-image
   "The worked example's register image with one boundary tuple rewritten
    to a hashable but validator-rejected one."
   []
@@ -880,8 +956,8 @@
     (testing label
       (let [store (mem/create-content-mem)
             {:keys [identity index]} (raw-publish store format image)
-            res (linker/fetch store index format identity receiver
-                              (requested format))]
+            res (fetch-local store index format identity receiver
+                             (requested format))]
         (is (= :descriptor-defect (:reason res)))
         (is (= identity (:identity res)))
         (is (= ((:validate-fn format) image) (:defect res)))
@@ -907,8 +983,8 @@
   (let [store (mem/create-content-mem)
         image (bad-live-image)
         {:keys [identity index]} (publish store linker/register-format image)
-        res (linker/fetch store index linker/register-format identity
-                          receiver (requested linker/register-format))]
+        res (fetch-local store index linker/register-format identity
+                         receiver (requested linker/register-format))]
     (is (= :descriptor-defect (:reason res)))
     (is (contains? #{:live-exact :live-bounds} (:rule (:defect res))))
     (jing/close! store)))
@@ -922,8 +998,8 @@
   (let [store (mem/create-content-mem)
         tree (vm/ast->semantic-bytecode worked-example)
         root (content/materialize-tree! store tree)
-        res (linker/fetch store {root root} linker/ast-format root
-                          receiver (requested linker/ast-format))]
+        res (fetch-local store {root root} linker/ast-format root
+                         receiver (requested linker/ast-format))]
     (is (linker/ok? res))
     (is (= root (:address res)) "the identity is its own address")
     (is (= tree (:value res)))
@@ -942,8 +1018,8 @@
   (let [store (mem/create-content-mem)
         image (stack-image worked-example)
         {:keys [identity index]} (publish store linker/stack-format image)
-        res (linker/fetch store index linker/stack-format identity
-                          receiver (requested linker/stack-format))]
+        res (fetch-local store index linker/stack-format identity
+                         receiver (requested linker/stack-format))]
     (is (linker/ok? res))
     (is (not (contains? res :parts)) "no parts map for one payload")
     (is (= image (:value res)))
@@ -957,8 +1033,8 @@
         root (jing/segment-key root-body)]
     (jing/materialize! store root-body)
     (is (= {:status :refused, :reason :absent, :address child-id}
-           (linker/fetch store {root root} linker/ast-format root
-                         receiver (requested linker/ast-format)))
+           (fetch-local store {root root} linker/ast-format root
+                        receiver (requested linker/ast-format)))
         "a tree with one absent child row is :absent naming that row")
     (jing/close! store)))
 
@@ -971,9 +1047,9 @@
         root (jing/segment-key root-body)]
     (jing/materialize! store root-body)
     (jing/materialize! store child-body)
-    (let [res (linker/fetch (corrupt-at store child-id)
-                            {root root} linker/ast-format root receiver
-                            (requested linker/ast-format))]
+    (let [res (fetch-local (corrupt-at store child-id)
+                           {root root} linker/ast-format root receiver
+                           (requested linker/ast-format))]
       (is (= :address-mismatch (:reason res)))
       (is (= child-id (:address res)) "the corrupt row is named")
       (is (not (contains? res :value))
@@ -991,9 +1067,9 @@
         counts (atom {})]
     (jing/materialize! store root-body)
     (jing/materialize! store child-body)
-    (let [res (linker/fetch (counting-store store counts)
-                            {root root} linker/ast-format root receiver
-                            (requested linker/ast-format))]
+    (let [res (fetch-local (counting-store store counts)
+                           {root root} linker/ast-format root receiver
+                           (requested linker/ast-format))]
       (is (= :descriptor-defect (:reason res))
           "a root well-formed but for the child's tag refuses")
       (is (= child-id (:address res)) "the malformed row is named")
@@ -1016,24 +1092,24 @@
     (doseq [body [root-body mid-body leaf-body]]
       (jing/materialize! store body))
     (testing "the :max-parts bound"
-      (let [res (linker/fetch store {root root} linker/ast-format root
-                              receiver
-                              (requested linker/ast-format {:max-parts 1}))]
+      (let [res (fetch-local store {root root} linker/ast-format root
+                             receiver
+                             (requested linker/ast-format {:max-parts 1}))]
         (is (= :parts-limit (:reason res)))
         (is (= {:bound :max-parts, :address mid-id}
                (select-keys res [:bound :address]))
             "naming the bound and the address it was hit at")))
     (testing "the :max-depth bound"
-      (let [res (linker/fetch store {root root} linker/ast-format root
-                              receiver
-                              (requested linker/ast-format {:max-depth 1}))]
+      (let [res (fetch-local store {root root} linker/ast-format root
+                             receiver
+                             (requested linker/ast-format {:max-depth 1}))]
         (is (= :parts-limit (:reason res)))
         (is (= {:bound :max-depth, :address leaf-id}
                (select-keys res [:bound :address])))))
     (testing "the :max-bytes bound"
-      (let [res (linker/fetch store {root root} linker/ast-format root
-                              receiver
-                              (requested linker/ast-format {:max-bytes 1}))]
+      (let [res (fetch-local store {root root} linker/ast-format root
+                             receiver
+                             (requested linker/ast-format {:max-bytes 1}))]
         (is (= :parts-limit (:reason res)))
         (is (= {:bound :max-bytes, :address root}
                (select-keys res [:bound :address]))
@@ -1049,16 +1125,16 @@
         root (jing/materialize! store big)]
     (is (= {:status :refused, :reason :parts-limit, :bound :max-bytes,
             :address root}
-           (select-keys (linker/fetch store {root root} linker/ast-format
-                                      root receiver
-                                      (requested linker/ast-format
-                                                 {:max-bytes 64}))
+           (select-keys (fetch-local store {root root} linker/ast-format
+                                     root receiver
+                                     (requested linker/ast-format
+                                                {:max-bytes 64}))
                         [:status :reason :bound :address]))
         "the oversized row is refused before its slots are decoded and
          judged")
     (is (= :descriptor-defect
-           (:reason (linker/fetch store {root root} linker/ast-format
-                                  root receiver (requested linker/ast-format))))
+           (:reason (fetch-local store {root root} linker/ast-format
+                                 root receiver (requested linker/ast-format))))
         "under the finite defaults the same row is judged: the refusal
          above is the budget's, not the row's")
     (jing/close! store)))
@@ -1069,16 +1145,16 @@
                 {(jing/segment-key [:literal 1])
                  (jing/canonical-bytes (into [:literal] (range 1000)))})
         address (jing/segment-key [:literal 1])
-        res (linker/fetch store {address address} linker/ast-format
-                          address receiver
-                          (requested linker/ast-format {:max-bytes 64}))]
+        res (fetch-local store {address address} linker/ast-format
+                         address receiver
+                         (requested linker/ast-format {:max-bytes 64}))]
     (is (= {:status :refused, :reason :parts-limit, :bound :max-bytes,
             :address address}
            (select-keys res [:status :reason :bound :address]))
         "the byte cap is checked before hashing or decoding, so the
          oversized payload is refused even though its address mismatches")
-    (let [res (linker/fetch store {address address} linker/ast-format
-                            address receiver (requested linker/ast-format))]
+    (let [res (fetch-local store {address address} linker/ast-format
+                           address receiver (requested linker/ast-format))]
       (is (= :address-mismatch (:reason res)))
       (is (not (contains? res :value))
           "under the defaults the mismatch is named, and its bytes are
@@ -1097,10 +1173,10 @@
     (doseq [body [root-body mid-body]]
       (jing/materialize! store body))
     (let [counts (atom {})
-          res (linker/fetch (counting-store store counts)
-                            {root root} linker/ast-format root
-                            receiver
-                            (requested linker/ast-format {:max-parts 2}))]
+          res (fetch-local (counting-store store counts)
+                           {root root} linker/ast-format root
+                           receiver
+                           (requested linker/ast-format {:max-parts 2}))]
       (is (= {:bound :max-parts, :address other-leaf}
              (select-keys res [:bound :address]))
           "the child beyond the budget is refused while its sibling is
@@ -1115,9 +1191,9 @@
   (let [store (mem/create-content-mem)
         root (jing/materialize! store [:literal 5])
         counts (atom {})
-        res (linker/fetch (counting-store store counts) {root root}
-                          linker/ast-format root receiver
-                          (requested linker/ast-format {:max-parts 0}))]
+        res (fetch-local (counting-store store counts) {root root}
+                         linker/ast-format root receiver
+                         (requested linker/ast-format {:max-parts 0}))]
     (is (= {:status :refused, :reason :parts-limit, :bound :max-parts,
             :address root}
            (select-keys res [:status :reason :bound :address]))
@@ -1135,8 +1211,8 @@
                  (let [body (app-body child)]
                    (jing/materialize! store body)
                    (recur (jing/segment-key body) (inc i)))))
-        res (linker/fetch store {root root} linker/ast-format root
-                          receiver (requested linker/ast-format))]
+        res (fetch-local store {root root} linker/ast-format root
+                         receiver (requested linker/ast-format))]
     (is (= {:reason :parts-limit, :bound :max-depth}
            (select-keys res [:reason :bound]))
         "the linker's own finite `default-bounds` end the walk")
@@ -1153,8 +1229,8 @@
       (let [store (mem/create-content-mem)
             {:keys [identity index]} (publish store format
                                               (mint def-then-use))
-            res (linker/fetch store index format identity
-                              {} (requested format))]
+            res (fetch-local store index format identity
+                             {} (requested format))]
         (is (linker/ok? res))
         (is (= [] (:obligations res))
             "the unconditional definition dominating the read discharges
@@ -1185,8 +1261,8 @@
       (let [store (mem/create-content-mem)
             {:keys [identity index]} (publish store format
                                               (mint yin-def-then-read))
-            res (linker/fetch store index format identity receiver
-                              (requested format))]
+            res (fetch-local store index format identity receiver
+                             (requested format))]
         (is (linker/ok? res))
         (is (= [] (:obligations res))
             "the read after the definition is discharged, and the
@@ -1235,8 +1311,8 @@
                                               (mint
                                                 yin-def-reads-its-own-name))]
         (is (= {:status :refused, :reason :use-before-definition, :name 'x}
-               (select-keys (linker/fetch store index format identity
-                                          receiver (requested format))
+               (select-keys (fetch-local store index format identity
+                                         receiver (requested format))
                             [:status :reason :name]))
             "every engine evaluates the value before it writes the key, so
              the read of x inside it precedes the definition and is not
@@ -1250,8 +1326,8 @@
       (let [store (mem/create-content-mem)
             {:keys [identity index]}
             (publish store format (mint yin-def-of-the-quoted-symbol))
-            res (linker/fetch store index format identity receiver
-                              (requested format))]
+            res (fetch-local store index format identity receiver
+                             (requested format))]
         (is (linker/ok? res) "the literal symbol is ordinary data")
         (is (= [] (:obligations res)))
         (is (= 'yin/def (get (vm/store (run-fetched format res)) 'x))
@@ -1265,8 +1341,8 @@
   [tree]
   (let [store (mem/create-content-mem)
         {:keys [identity index]} (raw-publish store linker/ast-format tree)
-        res (linker/fetch store index linker/ast-format identity receiver
-                          (requested linker/ast-format))]
+        res (fetch-local store index linker/ast-format identity receiver
+                         (requested linker/ast-format))]
     (jing/close! store)
     {:reason (:reason res), :rule (:rule (:defect res))}))
 
@@ -1326,8 +1402,8 @@
       (let [store (mem/create-content-mem)
             image (rekey format (mint ast) 'yin/def)
             {:keys [identity index]} (raw-publish store format image)
-            res (linker/fetch store index format identity receiver
-                              (requested format))]
+            res (fetch-local store index format identity receiver
+                             (requested format))]
         (is (= reserved-refused
                {:reason (:reason res), :rule (:rule (:defect res))}))
         (jing/close! store)))))
@@ -1339,8 +1415,8 @@
       (let [store (mem/create-content-mem)
             image (mint use-then-def)
             {:keys [identity index]} (publish store format image)
-            res (linker/fetch store index format identity
-                              {} (requested format))]
+            res (fetch-local store index format identity
+                             {} (requested format))]
         (is (= {:status :refused, :reason :use-before-definition,
                 :name 'x}
                (select-keys res [:status :reason :name])))
@@ -1356,8 +1432,8 @@
             {:keys [identity index]} (publish store format
                                               (mint branch-def))]
         (is (= {:status :refused, :reason :unresolved-free, :name 'x}
-               (select-keys (linker/fetch store index format identity
-                                          {} (requested format))
+               (select-keys (fetch-local store index format identity
+                                         {} (requested format))
                             [:status :reason :name]))
             "an occurrence whose only definitions are conditional and
              earlier retains its obligation")
@@ -1374,8 +1450,8 @@
         ;; only definition is conditional and later
         (is (= {:status :refused, :reason :use-before-definition,
                 :name 'x}
-               (select-keys (linker/fetch store index format identity
-                                          {} (requested format))
+               (select-keys (fetch-local store index format identity
+                                         {} (requested format))
                             [:status :reason :name])))
         (jing/close! store))))
   (testing "AST"
@@ -1386,9 +1462,9 @@
       ;; the tree's slot order puts the operand before the read: the
       ;; only definition is conditional and earlier
       (is (= {:status :refused, :reason :unresolved-free, :name 'x}
-             (select-keys (linker/fetch store index linker/ast-format
-                                        identity
-                                        {} (requested linker/ast-format))
+             (select-keys (fetch-local store index linker/ast-format
+                                       identity
+                                       {} (requested linker/ast-format))
                           [:status :reason :name])))
       (jing/close! store))))
 
@@ -1399,8 +1475,8 @@
       (let [store (mem/create-content-mem)
             {:keys [identity index]} (publish store format
                                               (mint define-then-apply))
-            res (linker/fetch store index format identity
-                              {} (requested format))]
+            res (fetch-local store index format identity
+                             {} (requested format))]
         (is (linker/ok? res))
         (is (= [] (:obligations res))
             "the binding executes before every application site, so the
@@ -1411,8 +1487,8 @@
           {:keys [identity index]}
           (publish store linker/ast-format
                    (vm/ast->semantic-bytecode define-then-apply))
-          res (linker/fetch store index linker/ast-format identity
-                            {} (requested linker/ast-format))]
+          res (fetch-local store index linker/ast-format identity
+                           {} (requested linker/ast-format))]
       (is (linker/ok? res))
       (is (= [] (:obligations res))
           "the binding in the operand executes before the enclosing
@@ -1428,8 +1504,8 @@
             {:keys [identity index]} (publish store format
                                               (mint apply-then-define))]
         (is (= {:status :refused, :reason :unresolved-free, :name 'x}
-               (select-keys (linker/fetch store index format identity
-                                          {} (requested format))
+               (select-keys (fetch-local store index format identity
+                                         {} (requested format))
                             [:status :reason :name]))
             "the site the definition does not dominate keeps the
              obligation; for the tree the inner application's invocation
@@ -1440,9 +1516,9 @@
 (deftest a-body-occurrence-with-no-application-site-is-discharged
   (let [store (mem/create-content-mem)
         address (content/materialize-vector! store no-site-vector)]
-    (is (linker/ok? (linker/fetch store {address address}
-                                  linker/semantic-format address
-                                  {} (requested linker/semantic-format)))
+    (is (linker/ok? (fetch-local store {address address}
+                                 linker/semantic-format address
+                                 {} (requested linker/semantic-format)))
         "nothing applies the closure before halt, so the body occurrence
          runs against every unconditional definition of its name")
     (jing/close! store)))
@@ -1461,29 +1537,29 @@
     (is (= [{:at nil}] ((:applications-fn format) unreadable-vector))
         "no application position is usable")
     (is (= {:status :refused, :reason :unresolved-free, :name 'q}
-           (select-keys (linker/fetch store {address address} format
-                                      address {} (requested format))
+           (select-keys (fetch-local store {address address} format
+                                     address {} (requested format))
                         [:status :reason :name])))
     (jing/close! store)))
 
 
 (deftest obligations-are-checked-by-name-and-record
   (let [occ {:name '+, :at 0, :in-body? false}]
-    (is (nil? (linker/free-name-defect {:primitives {'+ 0}} [occ]))
+    (is (nil? (linker/discharge {:primitives {'+ 0}} [occ]))
         "a legacy symbol-keyed registry discharges the name")
-    (is (nil? (linker/free-name-defect
+    (is (nil? (linker/discharge
                 {:primitives {{:name 'f, :at 0, :in-body? true} 0}}
                 [{:name 'f, :at 1, :in-body? false}]))
         "a registry keyed by the scanner's own records discharges by
          name: a composition that derives its receiver from the same
          scan binds every name it scanned")
     (is (= {:status :refused, :reason :unresolved-free, :name 'nope}
-           (linker/free-name-defect receiver
-                                    [{:name 'nope, :at 0,
-                                      :in-body? false}])))
+           (linker/discharge receiver
+                             [{:name 'nope, :at 0,
+                               :in-body? false}])))
     (is (= {:status :refused, :reason :shadowed-free, :name '+}
-           (linker/free-name-defect (assoc receiver :free-env {'+ 0})
-                                    [occ])))))
+           (linker/discharge (assoc receiver :free-env {'+ 0})
+                             [occ])))))
 
 
 ;; =============================================================================
@@ -1496,13 +1572,13 @@
         address (jing/materialize! store v {:algorithm :sha256})]
     (is (not= (jing/segment-key v) address) "the default is :blake3")
     (is (= :sha256 (jing/segment-algorithm address)))
-    (is (linker/ok? (linker/fetch store {address address}
+    (is (linker/ok? (fetch-local store {address address}
+                                 linker/semantic-format address
+                                 receiver (requested linker/semantic-format))))
+    (is (= v (:value (fetch-local store {address address}
                                   linker/semantic-format address
-                                  receiver (requested linker/semantic-format))))
-    (is (= v (:value (linker/fetch store {address address}
-                                   linker/semantic-format address
-                                   receiver
-                                   (requested linker/semantic-format)))))
+                                  receiver
+                                  (requested linker/semantic-format)))))
     (jing/close! store))
   (let [store (mem/create-content-mem)
         child-body [:literal 7]
@@ -1510,8 +1586,8 @@
         root-body (app-body child-id)
         root (jing/materialize! store root-body {:algorithm :sha256})]
     (is (= :sha256 (jing/segment-algorithm root)))
-    (is (linker/ok? (linker/fetch store {root root} linker/ast-format
-                                  root receiver (requested linker/ast-format)))
+    (is (linker/ok? (fetch-local store {root root} linker/ast-format
+                                 root receiver (requested linker/ast-format)))
         "the tree verifies under the algorithm its rows carry, children
          included")
     (jing/close! store)))
@@ -1528,14 +1604,14 @@
             {:keys [identity index]} (publish store format
                                               (mint unknown-free))]
         (is (= {:status :refused, :reason :unresolved-free, :name 'nope}
-               (linker/fetch store index format identity receiver
-                             (requested format))))
+               (fetch-local store index format identity receiver
+                            (requested format))))
         (jing/close! store))
       (let [store (mem/create-content-mem)
             {:keys [identity index]} (publish store format
                                               (mint worked-example))]
         (is (= {:status :refused, :reason :unresolved-free, :name '+}
-               (linker/fetch store index format identity {} (requested format)))
+               (fetch-local store index format identity {} (requested format)))
             "the empty receiver accepts only closed images")
         (jing/close! store)))))
 
@@ -1549,16 +1625,16 @@
         (doseq [shadowing [(assoc receiver :free-env {'+ 0})
                            (assoc receiver :store {'+ 0})]]
           (is (= {:status :refused, :reason :shadowed-free, :name '+}
-                 (linker/fetch store index format identity shadowing
-                               (requested format)))))
+                 (fetch-local store index format identity shadowing
+                              (requested format)))))
         (jing/close! store)))))
 
 
 (deftest module-names-resolve-through-the-registry
   (let [receiver' {:modules {:modules {'io {'print :host-print}}}}]
-    (is (nil? (linker/free-name-defect receiver' '[io/print])))
+    (is (nil? (linker/discharge receiver' '[io/print])))
     (is (= :unresolved-free
-           (:reason (linker/free-name-defect receiver' '[io/nope]))))))
+           (:reason (linker/discharge receiver' '[io/nope]))))))
 
 
 ;; =============================================================================
@@ -1573,19 +1649,29 @@
     {:H (:identity h), :h-index (:index h), :R (:identity r)}))
 
 
+(defn- h-runtime
+  "A local runtime holding `stack-format` and the H index `h-index` over
+   `store`."
+  [store h-index]
+  (local-runtime (remote/default-handlers store)
+                 {:formats {:yin.debruijn.code linker/stack-format},
+                  :indexes {:yin.debruijn.code h-index}}))
+
+
 (deftest trusted-fallback-names-its-trust
   (let [store (mem/create-content-mem)
         {:keys [H R h-index]} (mint-root store worked-example)
         pairing (linker/pairing-datoms 'root H R)
-        res (linker/trusted-fallback store h-index 'root pairing receiver)]
+        res (linker/trusted-fallback (h-runtime store h-index) 'root pairing
+                                     receiver)]
     (is (linker/ok? res))
     (is (= :composition (:trust res)))
     (is (= {:root 'root, :from R} (:fallback res)))
     (is (= H (:identity res)))
     (is (= :yin.debruijn.code (:format res)))
     (is (= {:status :refused, :reason :absent, :root 'elsewhere}
-           (linker/trusted-fallback store h-index 'elsewhere pairing
-                                    receiver)))
+           (linker/trusted-fallback (h-runtime store h-index) 'elsewhere
+                                    pairing receiver)))
     (jing/close! store)))
 
 
@@ -1598,8 +1684,8 @@
       (is (= {:status :ok, :root 'root, :H H, :R R}
              (linker/verify-same-root-pairing 'root H R source)))
       (let [res (linker/verifying-fallback
-                  store h-index 'root (linker/pairing-datoms 'root H R)
-                  source receiver)]
+                  (h-runtime store h-index) 'root
+                  (linker/pairing-datoms 'root H R) source receiver)]
         (is (linker/ok? res))
         (is (= :verified (:trust res)))
         (is (= (stack-image worked-example) (:value res)))))
@@ -1609,8 +1695,8 @@
              (linker/verify-same-root-pairing 'root (:H other) R source)))
       (is (= :pairing-mismatch
              (:reason (linker/verifying-fallback
-                        store (merge h-index (:h-index other)) 'root
-                        (linker/pairing-datoms 'root (:H other) R)
+                        (h-runtime store (merge h-index (:h-index other)))
+                        'root (linker/pairing-datoms 'root (:H other) R)
                         source receiver)))))
     (jing/close! store)))
 
@@ -1641,17 +1727,17 @@
           t (publish store linker/ast-format
                      (vm/ast->semantic-bytecode ast))
           s (publish store linker/semantic-format (semantic-vector ast))
-          fh (linker/fetch store (:index h) linker/stack-format
-                           (:identity h) receiver
-                           (requested linker/stack-format))
-          fr (linker/fetch store (:index r) linker/register-format
-                           (:identity r) receiver
-                           (requested linker/register-format))
-          ft (linker/fetch store (:index t) linker/ast-format
-                           (:identity t) receiver (requested linker/ast-format))
-          fs (linker/fetch store (:index s) linker/semantic-format
-                           (:identity s) receiver
-                           (requested linker/semantic-format))]
+          fh (fetch-local store (:index h) linker/stack-format
+                          (:identity h) receiver
+                          (requested linker/stack-format))
+          fr (fetch-local store (:index r) linker/register-format
+                          (:identity r) receiver
+                          (requested linker/register-format))
+          ft (fetch-local store (:index t) linker/ast-format
+                          (:identity t) receiver (requested linker/ast-format))
+          fs (fetch-local store (:index s) linker/semantic-format
+                          (:identity s) receiver
+                          (requested linker/semantic-format))]
       (is (= local (lifted-value (dl/lift (:value fh))))
           "H: lifted to :yin.code/* and run on the semantic VM")
       (is (= local (lifted-value (rc/lift (:value fr))))
@@ -1673,45 +1759,11 @@
 ;; =============================================================================
 ;; Transfer over dao.stream (S11.1, S11.3)
 ;; =============================================================================
-;; The receiver knows only the identity and an index. Its content handle is
-;; `dao.jing.remote/content-client`; every request and response crosses a
-;; pair of `dao.stream` ring buffers as RPC envelopes, served by
-;; `default-handlers` over the publisher's store. This path is portable, so
-;; every host runs it; the JVM additionally runs the WebSocket transport.
-
-(defn- ring-handle
-  []
-  (:dao.stream/handle
-    (ring/create! {:dao.stream/type ring/transport-type
-                   ring/capacity-key 64})))
-
-
-(defn- stream-client
-  "A content handle whose calls travel over dao.stream to a publisher
-   serving `handlers`."
-  [handlers]
-  (let [requests (ring-handle)
-        responses (ring-handle)
-        oldest #(:dao.stream/cursor (stream/cursor % :dao.stream/oldest))
-        server-cursor (atom (oldest requests))
-        client-state (atom (rpc/client-state requests responses
-                                             (oldest responses)))
-        serve! (fn []
-                 (let [r (stream/next requests @server-cursor)]
-                   (reset! server-cursor (:dao.stream/cursor r))
-                   (stream/append! responses
-                                   (apply/dispatch-request
-                                     handlers (:dao.stream/value r)))))
-        call (fn [_ op args]
-               (let [requested (rpc/request! @client-state op args)
-                     id (:dao.stream.rpc/id requested)]
-                 (serve!)
-                 (let [done (remote/call-step (:dao.stream.rpc/state requested)
-                                              id 8)]
-                   (reset! client-state (:state done))
-                   (remote/completion-value (:completion done)))))]
-    (remote/content-client ::stream call (fn [_] nil))))
-
+;; The receiver knows only the identity and an index. The linker is the
+;; content pair's client; every request and response crosses a pair of
+;; `dao.stream` media as RPC envelopes, served by `default-handlers` over
+;; the publisher's store. The ring-buffer path is portable, so every host
+;; runs it; the JVM additionally runs the WebSocket transport.
 
 (deftest images-transfer-over-dao-stream
   (doseq [[label format mint] formats]
@@ -1719,9 +1771,8 @@
       (let [publisher (mem/create-content-mem)
             image (mint worked-example)
             {:keys [identity index]} (publish publisher format image)
-            client (stream-client (remote/default-handlers publisher))
-            res (linker/fetch client index format identity receiver
-                              (requested format))]
+            res (fetch-local publisher index format identity receiver
+                             (requested format))]
         (is (linker/ok? res))
         (is (= image (:value res)))
         (is (= (named-value worked-example)
@@ -1737,13 +1788,35 @@
 
                  :else (lifted-value (rc/lift (:value res))))))
         (is (= :absent
-               (:reason (linker/fetch client {identity
-                                              (jing/segment-key [:none])}
-                                      format identity receiver
-                                      (requested format))))
+               (:reason (fetch-local publisher
+                                     {identity (jing/segment-key [:none])}
+                                     format identity receiver
+                                     (requested format))))
             "an absent address over the stream is :absent")
-        (jing/close! client)
         (jing/close! publisher)))))
+
+
+#?(:cljd nil
+   :clj
+   (defn ws-runtime
+     "A link runtime whose content pair is a live WebSocket attachment to
+      the endpoint at `port`: the linker takes the established rpc client
+      of `connect-content!` and steps it itself, while the endpoint's own
+      thread serves the pair, so the drive only yields. `opts` is
+      `linker/link-state`'s, less `:rpc`. Returns the runtime and the
+      connection to close."
+     [port opts]
+     (let [conn (remote/connect-content! (str "ws://127.0.0.1:" port))
+           deadline (+ (System/currentTimeMillis) 10000)]
+       {:conn conn,
+        :runtime
+        {:state (linker/link-state
+                  (assoc opts :rpc @(:rpc (:client conn)))),
+         :drive (fn [state]
+                  (when (> (System/currentTimeMillis) deadline)
+                    (throw (ex-info "the WebSocket link stalled" {})))
+                  (Thread/sleep 1)
+                  state)}})))
 
 
 (deftest images-transfer-over-the-websocket-transport
@@ -1754,17 +1827,18 @@
            server (remote/serve-content! (remote/default-handlers publisher)
                                          port)]
        (try
-         (let [client (remote/connect-content! (str "ws://127.0.0.1:" port))]
-           (try
-             (doseq [[label format mint] formats]
-               (testing label
-                 (let [image (mint worked-example)
-                       {:keys [identity index]} (publish publisher format
-                                                         image)
-                       res (linker/fetch client index format identity
+         (doseq [[label format mint] formats]
+           (testing label
+             (let [image (mint worked-example)
+                   {:keys [identity index]} (publish publisher format image)
+                   {:keys [conn runtime]}
+                   (ws-runtime port {:formats {(:format format) format},
+                                     :indexes {(:format format) index}})]
+               (try
+                 (let [res (linker/fetch runtime (:format format) identity
                                          receiver (requested format))]
                    (is (linker/ok? res))
-                   (is (= image (:value res))))))
-             (finally (jing/close! client))))
+                   (is (= image (:value res))))
+                 (finally (jing/close! conn))))))
          (finally ((:stop! server)) (jing/close! publisher))))
      :cljs (is true "the WebSocket constructors are JVM-only")))
