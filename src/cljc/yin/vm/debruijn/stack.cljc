@@ -25,15 +25,17 @@
    The register payload of every parked record, wait entry, and reified
    continuation is
 
-       {:segment :pc :frames :stack :continuation :format :hash}
+       {:segment :pc :frames :stack :continuation :format :hash :image}
 
-   `:format` is `:yin.debruijn.code` and `:hash` is the loaded image's H
-   (`yin.vm.debruijn-code/image-hash`), so a continuation is never
-   interpreted by a VM or against an image other than its own:
-   `stack-restore` refuses any entry whose model or image differs with a
-   qualified `:continuation-format` outcome. That is the same-model,
-   same-image rule; cross-model transport is not a lift here and is
-   deliberately unsupported (design section 4.1, item 4).
+   `:format` is `:yin.debruijn.code`, `:hash` is the held code space's H
+   (`yin.vm.debruijn-code/image-hash`), and `:image` is the identity of
+   the offset-table row the payload's pc falls in. `attach-image` extends
+   the code space and the table (yin.vm.linker.md section 7.3, r6), so a
+   continuation is never interpreted by a VM or against an image other
+   than one it holds: `stack-restore` refuses any entry whose model
+   differs, or whose `:image` is no row of the table, with a qualified
+   `:continuation-format` outcome. Cross-model transport is not a lift
+   here and is deliberately unsupported (design section 4.1, item 4).
 
    Every program used in this namespace's own tests is a hand-built
    instruction vector, the same technique B1's standalone validator tests
@@ -63,12 +65,14 @@
 ;; values :primitives and :modules that `:load-free` resolves through in
 ;; the same `env -> store -> primitives -> module registry` order
 ;; `yin.vm.engine/resolve-var` implements for the named VM. :hash is the
-;; loaded image's H, stamped on every register payload; :bridge is the
-;; explicit host-side FFI bridge state `yin.vm.ffi` attaches.
+;; held code space's H and :images its offset table, which only the
+;; loaders and `attach-image` write; :bridge is the explicit host-side FFI
+;; bridge state `yin.vm.ffi` attaches.
 
 (defrecord DebruijnVM
   [segment      ; vector of instructions, pc-indexed; the whole program
    hash         ; H of `segment` (yin.vm.debruijn-code/image-hash)
+   images       ; offset table: [[identity offset length] ...], base first
    pc           ; program counter into segment
    frames       ; positional frame stack, outermost first, innermost last
    free-env     ; initial free-name environment map, fixed for this instance
@@ -94,18 +98,32 @@
 
 
 (defn- install-image
-  "Install an admitted (or empty) `segment` as the one image, unchecked."
+  "Install an admitted (or empty) `segment` as the one image, unchecked.
+   The offset table restarts at the base row `[H 0 n]`."
   [vm segment]
-  (assoc vm
-         :segment segment
-         :hash (dcode/image-hash segment)
-         :pc 0
-         :frames []
-         :stack []
-         :continuation []
-         :halted? (empty? segment)
-         :blocked? false
-         :value nil))
+  (let [h (dcode/image-hash segment)]
+    (assoc vm
+           :segment segment
+           :hash h
+           :images [[h 0 (count segment)]]
+           :pc 0
+           :frames []
+           :stack []
+           :continuation []
+           :halted? (empty? segment)
+           :blocked? false
+           :value nil)))
+
+
+(defn- admit!
+  "Admit a non-empty `segment` under `contract`: the stamp, then
+   `yin.vm.debruijn-code/image-defect`, Rule R included."
+  [segment contract]
+  (when (seq segment)
+    (vm/check-contract! vm/stack-contract contract)
+    (when-let [defect (dcode/image-defect segment)]
+      (throw (ex-info (str "Invalid stack image: " (:rule defect))
+                      defect)))))
 
 
 (defn load-image
@@ -114,21 +132,77 @@
    stack, and continuation, and the machine is running unless the segment
    is empty. The store, the parked map, the wait set, the ready queue,
    the id counter, and the composition values survive, exactly as they
-   survive a `yin.vm.semantic/load-vector`. A continuation parked under an
-   earlier image cannot be restored against this one: `stack-restore`
-   refuses it by H.
+   survive a `yin.vm.semantic/load-vector`. The offset table restarts at
+   `[H 0 n]`, so a continuation parked under an earlier image names no row
+   of it and `stack-restore` refuses it.
 
    `contract` is required and compared with `vm/stack-contract` first
    (`:contract-missing`, `:contract-mismatch`); the image must then pass
    `yin.vm.debruijn-code/image-defect`, Rule R included. An empty segment
    admits no code and needs neither."
   [vm segment contract]
-  (when (seq segment)
-    (vm/check-contract! vm/stack-contract contract)
-    (when-let [defect (dcode/image-defect segment)]
-      (throw (ex-info (str "Invalid stack image: " (:rule defect))
-                      defect))))
+  (admit! segment contract)
   (install-image vm segment))
+
+
+(defn- relocate
+  "Shift every `:pc`-kind operand of `inst` by `offset`."
+  [offset inst]
+  (reduce (fn [inst [i [_ kind]]]
+            (if (= :pc kind) (update inst (inc i) + offset) inst))
+          inst
+          (map-indexed vector (get dcode/opcode-table (nth inst 0)))))
+
+
+(defn attach-image
+  "Extend the code space of `vm` with `image`, non-destructively
+   (yin.vm.linker.md section 7.3, act 3): `image` is admitted alone as
+   `load-image` admits it, relocated by the held length, and appended to
+   `:segment`; one `[identity offset length]` row, identity H of `image`,
+   is appended to the offset table; `:hash` becomes H of the
+   concatenation. `:pc`, `:stack`, `:frames`, `:continuation`, and every
+   other register are unchanged: appending moves no instruction already
+   held. An image whose identity is already a row is not attached twice."
+  [vm image contract]
+  (admit! image contract)
+  (let [ident (dcode/image-hash image)]
+    (if (some #(= ident (nth % 0)) (:images vm))
+      vm
+      (let [held (:segment vm)
+            offset (count held)
+            combined (into held (map #(relocate offset %)) image)]
+        (assoc vm
+               :segment combined
+               :hash (dcode/image-hash combined)
+               :images (conj (:images vm)
+                             [ident offset (count image)]))))))
+
+
+(defn- row-at
+  "The offset-table row whose range holds `pc`; a pc one past the end of
+   the last row (the pc after a final instruction) falls in that row."
+  [images pc]
+  (or (some (fn [[_ off len :as row]]
+              (when (and (<= off pc) (< pc (+ off len))) row))
+            images)
+      (let [[_ off len :as row] (peek images)]
+        (when (and row (= pc (+ off len))) row))))
+
+
+(defn image-pc
+  "Lift an absolute `pc` of `vm` to `[identity rel-pc]` by its offset
+   table, or nil when no row holds it."
+  [vm pc]
+  (when-let [[ident off] (row-at (:images vm) pc)]
+    [ident (- pc off)]))
+
+
+(defn absolute-pc
+  "Lower `[identity rel-pc]` to an absolute pc of `vm` by its offset
+   table, or nil when the identity is no row of it."
+  [vm [ident rel-pc]]
+  (some (fn [[id off]] (when (= id ident) (+ off rel-pc)))
+        (:images vm)))
 
 
 (defn create-vm
@@ -161,6 +235,7 @@
      (-> (map->DebruijnVM
            {:segment [],
             :hash nil,
+            :images [],
             :pc 0,
             :frames [],
             :free-env (vm/check-bindings! :env (or (:free-env opts) {})),
@@ -225,9 +300,12 @@
   "The register payload of the continuation after the current instruction
    (design section 4.1, item 3): `pc'` is the advanced pc and `stack'` the
    operand stack with the instruction's operands popped. Frames and the
-   return-frame continuation are the running ones. `:format` and `:hash`
-   stamp the model and image identity that produced it. Free environment,
-   store, primitives, and modules are not registers and stay on the state."
+   return-frame continuation are the running ones. `:format` stamps the
+   model and `:image` the offset-table row `pc'` falls in, the identity its
+   positions are relative to and the one `stack-restore` checks; `:hash`
+   is the concatenation's H at the time, informative only. Free
+   environment, store, primitives, and modules are not registers and stay
+   on the state."
   [vm pc' stack']
   {:segment (:segment vm),
    :pc pc',
@@ -235,7 +313,8 @@
    :stack stack',
    :continuation (:continuation vm),
    :format format-tag,
-   :hash (:hash vm)})
+   :hash (:hash vm),
+   :image (nth (row-at (:images vm) pc') 0 nil)})
 
 
 (defn- refuse-continuation!
@@ -244,8 +323,10 @@
                   {:rule :continuation-format,
                    :format (:format entry),
                    :hash (:hash entry),
+                   :image (:image entry),
                    :expected-format format-tag,
-                   :expected-hash (:hash base)})))
+                   :expected-hash (:hash base),
+                   :images (:images base)})))
 
 
 (defn stack-restore
@@ -255,9 +336,12 @@
    or parked record; `val` is the value the parked instruction receives.
 
    It first refuses with a qualified `:continuation-format` outcome unless
-   the entry's `:format` is `:yin.debruijn.code` and its `:hash` equals the
-   loaded image's H: a continuation from the named VM, from the register
-   kernel, or from another image is never interpreted here.
+   the entry's `:format` is `:yin.debruijn.code` and its `:image` is a row
+   of the offset table (yin.vm.linker.md section 7.3, r6): a continuation
+   from the named VM, from the register kernel, or from an image this
+   kernel does not hold is never interpreted here. `:hash` is never a
+   restore key: it changes at every `attach-image`, while the table only
+   grows, so an entry parked before an attach still names its row.
 
    Then the FFI two-step, on the entry keys the `yin.vm.ffi` convention
    owns, in the semantic VM's placement:
@@ -273,10 +357,12 @@
    Otherwise the registers are written from the entry and `val` is conjed
    onto the restored `:stack` -- the B3 obligation that every
    value-producing opcode lands on the stack, since there is no
-   accumulator."
+   accumulator. `:segment` is never written from the entry: the code space
+   is kernel state, and since appending moves nothing, the entry's
+   absolute pcs and stack bases still name what they named."
   [base entry val]
   (when-not (and (= format-tag (:format entry))
-                 (= (:hash base) (:hash entry)))
+                 (some #(= (:image entry) (nth % 0)) (:images base)))
     (refuse-continuation! base entry))
   (if (:request-sent entry)
     (-> base
@@ -289,7 +375,6 @@
           base (if call-id (update base :parked dissoc call-id) base)
           val (if call-id (ffi/call-result val call-id) val)]
       (assoc base
-             :segment (:segment entry)
              :pc (:pc entry)
              :frames (:frames entry)
              :continuation (:continuation entry)

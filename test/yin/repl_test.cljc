@@ -387,6 +387,30 @@
               "every load's :hash is H (or R) over the whole :segment"))))))
 
 
+(deftest de-bruijn-appends-go-through-attach-image
+  (doseq [[vm-type size] [[:stack count]
+                          [:register (comp count :instructions)]]]
+    (testing (str vm-type)
+      (let [[state text] (evaluate (repl/create-state {:vm-type vm-type})
+                                   ["(def f (fn [x] (+ x 1)))"
+                                    "(f 1)"
+                                    "(f 1)"
+                                    "(f 41)"])
+            vm (:vm state)
+            images (:images vm)]
+        (is (= "42" text))
+        (is (= 2 (:last-value-2 state))
+            "an input whose image is already held reruns at its row")
+        (is (= (map #(nth % 1) images)
+               (reductions + 0 (map #(nth % 2) (butlast images))))
+            "each attach appends one row at the held length")
+        (is (= (size (:segment vm))
+               (reduce + (map #(nth % 2) images)))
+            "the rows tile the whole code space")
+        (is (= 4 (count images))
+            "the empty base row and one row per distinct image")))))
+
+
 (deftest the-output-cursor-is-minted-not-fabricated
   (let [output (handle 8)
         state (repl/create-state {:output-stream output})]

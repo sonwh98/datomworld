@@ -62,6 +62,8 @@
    telemetry-eid  ; telemetry entity-id seed, floored at datom/first-user-id
    vm-model       ; telemetry model keyword
    vm-id          ; telemetry instance id, minted by telemetry/install
+   rows           ; {row-id row}: every row loaded or attached, grow-only
+   row-index      ; {[body-node params] lambda-row-id} over `rows`
    ])
 
 
@@ -95,7 +97,21 @@
                    (:telemetry-t vm)
                    (:telemetry-eid vm)
                    (:vm-model vm)
-                   (:vm-id vm))))
+                   (:vm-id vm)
+                   (:rows vm)
+                   (:row-index vm))))
+
+
+(defn- closure-of
+  "The closure a `:lambda` `node` instantiates. A node the row decoder
+   annotated with its source row id (`vm-load-rows`, `attach-image`)
+   passes the id on as `:lambda` (yin.vm.linker.md section 7.3, the
+   walker rule); a node from any other loader carries none."
+  [node params body env]
+  (let [closure {:type :closure, :params params, :body body, :env env}]
+    (if-let [id (::lambda-row (meta node))]
+      (assoc closure :lambda id)
+      closure)))
 
 
 (defn- check-params!
@@ -399,7 +415,7 @@
                     nil
                     env
                     k
-                    {:type :closure, :params params, :body body, :env env}))
+                    (closure-of node params body env)))
         :application
         (if (vm/definition? node)
           ;; Rule R: a definition never resolves its operator. The key is
@@ -664,10 +680,10 @@
                            (recur nil
                                   env
                                   k
-                                  {:type :closure,
-                                   :params (:params node),
-                                   :body (:body node),
-                                   :env env}
+                                  (closure-of node
+                                              (:params node)
+                                              (:body node)
+                                              env)
                                   vm))
                :application
                (if (vm/definition? node)
@@ -770,6 +786,57 @@
            :value nil)))
 
 
+(defn- row-decoder
+  "A decoder over validated `rows`, row id -> node, rebuilding each row
+   once and sharing it as `vm/semantic-bytecode->ast` does, and
+   annotating every `:lambda` node with its source row id in metadata
+   (yin.vm.linker.md section 7.3, the walker rule). Metadata leaves node
+   equality alone, so the tree equals the one `semantic-bytecode->ast`
+   builds."
+  [rows]
+  (let [built (atom {})]
+    (letfn [(build
+              [id]
+              (or (get @built id)
+                  (let [row (get rows id)
+                        tag (nth row 1)
+                        node (reduce
+                               (fn [m [[field kind] v]]
+                                 (assoc m
+                                        field
+                                        (case kind
+                                          :node (build v)
+                                          :nodes (mapv build v)
+                                          v)))
+                               {:type tag}
+                               (map vector
+                                    (get vm/semantic-bytecode-grammar tag)
+                                    (drop 2 row)))
+                        node (if (= :lambda tag)
+                               (vary-meta node assoc ::lambda-row id)
+                               node)]
+                    (swap! built assoc id node)
+                    node)))]
+      build)))
+
+
+(defn- hold-rows
+  "Add `rows` to the rows `vm` holds and index each `:lambda` row among
+   them by `[body-node params]`."
+  [vm rows]
+  (let [decode (row-decoder rows)]
+    (assoc vm
+           :rows (merge (:rows vm) rows)
+           :row-index (reduce-kv (fn [index id row]
+                                   (if (= :lambda (nth row 1))
+                                     (assoc index
+                                            [(decode (nth row 3)) (nth row 2)]
+                                            id)
+                                     index))
+                                 (or (:row-index vm) {})
+                                 rows))))
+
+
 (defn vm-load-rows
   "Load one semantic-bytecode row set `{:root id, :rows {id row}}` into the
    VM: `vm/semantic-bytecode->ast` runs the §7.4 validator first and throws
@@ -781,16 +848,63 @@
    wants.
 
    `contract` is required and compared with `vm/ast-contract` first, as
-   for `vm-load-program`; S7.4 validation includes Rule R."
+   for `vm-load-program`; S7.4 validation includes Rule R. The rows join
+   the held rows and the `[node params]` index, as `attach-image` adds
+   them, and every `:lambda` node of the tree carries its row id."
   [^ASTWalkerVM vm bc contract]
   (vm/check-contract! vm/ast-contract contract)
-  (let [ast (vm/semantic-bytecode->ast bc)]
-    (assoc vm
+  (vm/semantic-bytecode->ast bc)
+  (let [ast ((row-decoder (:rows bc)) (:root bc))]
+    (assoc (hold-rows vm (:rows bc))
            :program ast
            :control ast
            :halted? false
            :blocked? false
            :value nil)))
+
+
+(defn attach-image
+  "Extend the code space of `vm` with the row set `bc`, non-destructively
+   (yin.vm.linker.md section 7.3, act 3): `bc` is admitted as
+   `vm-load-rows` admits it and its rows are added to the held rows by
+   id, the `[node params]` index extended; the current node, environment,
+   continuation, and store are unchanged. Rows are content-addressed, so
+   a row already held is the same row."
+  [^ASTWalkerVM vm bc contract]
+  (vm/check-contract! vm/ast-contract contract)
+  (vm/semantic-bytecode->ast bc)
+  (hold-rows vm (:rows bc)))
+
+
+(defn row-node
+  "The node the walker's row decoder builds for held row `id`, or nil when
+   no such row is held. A lower reconstructs a closure's body this way."
+  [vm id]
+  (when (contains? (:rows vm) id)
+    ((row-decoder (:rows vm)) id)))
+
+
+(defn closure-row
+  "The `:lambda` row id a walker `closure` lifts from (yin.vm.linker.md
+   section 7.3, the walker rule). A recorded `:lambda` id must name a held
+   `:lambda` row whose params are the closure's and whose body decodes to
+   the closure's node; a closure with none resolves through the
+   `[node params]` index. Anything else is the `:yin.k/non-portable`
+   refusal of kind `:unrooted-body`."
+  [vm closure]
+  (let [{:keys [params body lambda]} closure
+        refusal {:yin.k/status :yin.k/non-portable,
+                 :yin.k/kind :unrooted-body,
+                 :yin.k/params params}]
+    (if (some? lambda)
+      (let [row (get (:rows vm) lambda)]
+        (if (and row
+                 (= :lambda (nth row 1))
+                 (= params (nth row 2))
+                 (= body (row-node vm (nth row 3))))
+          lambda
+          refusal))
+      (get (:row-index vm) [body params] refusal))))
 
 
 (defn- vm-reset

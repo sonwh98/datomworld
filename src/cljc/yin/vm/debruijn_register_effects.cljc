@@ -65,12 +65,26 @@
 ;; 2. Continuation payload construction (design section 5.2.2)
 ;; =============================================================================
 
+(defn image-row
+  "The row of offset table `images` (`[[identity offset length] ...]`,
+   yin.vm.linker.md section 7.3) whose range holds instruction `pc`; a pc
+   one past the end of the last row falls in that row."
+  [images pc]
+  (or (some (fn [[_ off len :as row]]
+              (when (and (<= off pc) (< pc (+ off len))) row))
+            images)
+      (let [[_ off len :as row] (peek images)]
+        (when (and row (= pc (+ off len))) row))))
+
+
 (defn continuation-payload
   "Construct a canonical sparse register continuation payload for a
    suspending or boundary instruction. Extracts only live registers in
    strictly ascending index order.
    `runtime` must contain: `:segment`, `:hash`, `:pc`, `:frames`,
-   `:registers`, and `:continuation`."
+   `:registers`, and `:continuation`; its offset table `:images` gives
+   `:image`, the identity of the row the resume pc falls in, which is
+   what `register-restore` checks (r6)."
   [runtime instruction]
   (let [op (first instruction)]
     (when-not (boundary-opcodes op)
@@ -93,7 +107,8 @@
        :dest dest,
        :resume-mode resume-mode,
        :format format-tag,
-       :hash (:hash runtime)})))
+       :hash (:hash runtime),
+       :image (nth (image-row (:images runtime) (inc site-pc)) 0 nil)})))
 
 
 ;; =============================================================================
@@ -129,20 +144,16 @@
 
 
 (defn- return-frame-defect
-  [frame frame-idx]
+  "The first defect of one return `frame` of a payload whose code space
+   is `segment`. A frame carries no code space of its own
+   (yin.vm.linker.md section 7.3, r7): its absolute pcs are checked
+   against the payload's."
+  [segment frame frame-idx]
   (if-not (map? frame)
     {:rule :continuation-continuation, :frame-index frame-idx}
-    (let [{:keys [segment hash site-pc return-pc frames regs live dest]} frame]
+    (let [{:keys [site-pc return-pc frames regs live dest]} frame]
       (or (when (not= format-tag (:format frame format-tag))
             {:rule :continuation-format, :frame-index frame-idx})
-          (when-let [d (rcode/register-image-defect segment)]
-            (assoc d :rule :continuation-segment, :frame-index frame-idx))
-          (let [expected-h (rcode/register-hash segment)]
-            (when (not= expected-h hash)
-              {:rule :continuation-hash,
-               :expected expected-h,
-               :actual hash,
-               :frame-index frame-idx}))
           (let [insts (:instructions segment)
                 len (count insts)]
             (or (when-not (and (nonneg-int? site-pc) (< site-pc len))
@@ -260,7 +271,8 @@
                             {:rule :continuation-frames})
                           (when-not (vector? continuation)
                             {:rule :continuation-continuation})
-                          (some (fn [[idx f]] (return-frame-defect f idx))
+                          (some (fn [[idx f]]
+                                  (return-frame-defect segment f idx))
                                 (map-indexed vector continuation)))))))))))
 
 
