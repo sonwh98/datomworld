@@ -113,6 +113,11 @@
           (vector? value)
           (pp-seq value depth "[" "]")
 
+          (and (seq? value)
+               (= 'quote (first value))
+               (= 2 (count value)))
+          (str "'" (pp-str (second value) depth))
+
           (list? value)
           (pp-seq value depth "(" ")")
 
