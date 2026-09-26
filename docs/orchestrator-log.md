@@ -7418,3 +7418,124 @@ Open, for the successor and the owner:
   nil-address sentence; ucf-revisions I-4 records Rule R.
 Next: the owner rules on the failure policy and the serve decisions; the
   successor confirms GLM's budget after 01:26 before routing to it.
+
+## 2026-09-27 00:38:36 +07 — dao.stream.serve: owner invariant, clean-slate design, lease integration
+Completed-GMT: 2026-09-26 17:38:36 GMT
+Coding-Agent: claude (Sonnet 5, orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@b8c3dd44, uncommitted changes: docs/orchestrator-log.md (this entry); collab/ artifacts untracked as usual. No repo design docs were edited.
+Done: Took the dao.stream.serve section 15 open decisions to a mob of three Architects (fable, gpt-6-sol, deepseek-v4-pro) under the owner's invariant, then re-scoped twice on owner direction, all read-only:
+  1. section 15 decisions round: all three accepted the eight recommendations; codex found four spec defects (writer-only anchors, cached-blocked invalidation, UDP frame size vs fragmentation and the CBOR/Transit codec claim, OD-1 write wording), fable found two (proxy cursor-mismatch must be relayed; OD-3(a) endpoint sentence).
+  2. Owner: serve should unify the existing ad-hoc network paths (survey by an Explore subagent, unverified: one real transport, the ws with Transit-JSON/CBOR, five host adapters; consumers yin.repl, dao.jing.remote, rpc.ws; a separate JVM UDP DHT) and need not build on dao.stream.apply or rpc; asked for the simplest from-scratch design.
+  3. Clean-slate round then consensus round: converged on "mirror and reflection" (request map plus verbatim source outcome map, stateless serving side, identity in the request, request id, no sessions/open/ping/peer-id frames); serving retired, rpc a convention, apply retired or convention-over, DHT unrelated.
+  4. Owner: dao.stream is an abstraction boundary, not a network boundary; serve will need dao.lease. Lease round: all three READY TO SPECIFY.
+Decisions: None of mine. Rulings by majority of the three families: (Q1) a reflection answering blocked while a request is in flight satisfies the no-waiting rule (fable, deepseek; codex dissented in the consensus round then withdrew after the boundary point); (Q2) UDP fragments in v1 inside the UDP channel (fable, codex; deepseek would narrow to one datagram); leases only for a table entry served for a remote party and for a relay inbox pair, carried as ordinary streams with no new wire shape; network keys (oversize, not-found reason, deferred observation) belong in dao.stream.serve.md, only OD-1/2/3 (and an optional blocked sentence) in dao.stream.md.
+Verification: none run; no code or docs changed. Codex thread ids and deepseek/fable session ids below are resumable. Owner-visible caveats: two mutually unreachable peers (double symmetric NAT/CGNAT, two browsers) need a third reachable peer; all traffic plaintext and ungated until authentication exists; UDP messages bounded by a composed maximum; a reclaimed lease is gone, not merely disconnected; dao.lease.md is still a proposed design target.
+Delegates: architect fable-5-1 session 506ecf77-3b05-43cf-9579-ad73759f7aa6; architect gpt-6-sol codex threads 01a0deaf-ad51-7491-93e2-83d8ce020bec (decisions) and 01a0debb-6229-79e1-890d-4d1e0b7d8565 (clean-slate, consensus, lease); architect deepseek-v4-pro sessions 4db87028-780f-417e-9b6d-f579716f86a3 (decisions) and 7aec5601-a998-45b8-a314-235fd90bcf23 (clean-slate, consensus, lease). Prompts and findings in collab/: 1790442434xxx-architect-serve-decisions.*, 1790443205xxx-architect-serve-clean-slate.*, 1790443612xxx-architect-serve-converge.*, 1790444057xxx-architect-serve-lease.* (findings promoted for all). Explore subagent inventory not saved to collab/.
+Next: owner authorization to have fable write the new dao.stream.serve.md (replacing the 1,197-line draft) and land the dao.stream.md amendments and the section 16 companion-doc edits, then a codex gate; no commit without review. The routing-status entries for codex and deepseek budgets were removed by the owner, so remaining budgets are unknown.
+
+## 2026-09-27 00:54:06 +07 — dao.stream.remote: name ruled, middleware and ShiBi seam designed, lease status corrected
+Completed-GMT: 2026-09-26 17:54:06 GMT
+Coding-Agent: claude (Sonnet 5, orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@b8c3dd44, uncommitted changes: docs/design/dao.lease.md (status line), docs/orchestrator-log.md; collab/ untracked as usual.
+Corrects: the previous entry (00:38) says dao.lease.md is "still a proposed design target". That was the stale status line, not the truth: dao.lease is implemented (src/cljc/dao/lease.cljc, merged 2026-09-20, d90f5ec6; only the three use-case sketches, the wire close-code, and lease over served streams are not built). Owner asked me to update the stale status; the line in dao.lease.md now says implemented.
+Done: Two further owner statements folded into the dao.stream.serve design, both read-only architect rounds (no spec written yet):
+  1. Middleware: "dao.stream should have ring-like middleware to add things like encryption, authentication/authorization capability tokens, or other custom transformation". fable, gpt-6-sol and deepseek all READY TO SPECIFY the mechanism: a handle wrapper over the same protocol (declared data plus pure transforms, no ambient closures), position-preserving (cursors, anchors, gap, outcome kinds cross unchanged; a filter that drops elements is an interpreter, not middleware), two attachment points (per-stream on the table entry / reflection; per-channel for whole-message encryption), new dao.stream.middleware.md.
+  2. Owner correction: "authorization/authentication are the job of shibi capability system which isn't even spec out yet. the design of the shibi capability system must integrate with middleware for dao.stream.serve". ShiBi is a macaroon-style capability system, unimplemented (docs/bootstrap.md:65), with capability-versus-currency undecided (dao.stream.discovery.md:181-190). fable and deepseek redesigned to a capability-agnostic seam only: reserved open request key for an opaque credential (:dao.stream/credential per fable), a mirror-side gate with pure verify/fold over explicit source streams, a reflection-side present, a capability-free :dao.stream/refused outcome in dao.stream.md under OD-1; lease-as-capability dropped (dao.lease.md gates nothing); everything else (token format, attenuation, revocation, replay, budgets) moves to the future ShiBi spec. Lease attribution is closed by per-author media alone, no ShiBi needed. v1 ships the seam, a trivial allow-list policy, encryption, metering; docs/design/shibi.md a stub of the seam obligations.
+  3. Name. Owner asked whether dao.stream.peer beats dao.stream.serve; I advised against both and leaned dao.stream.remote. fable picked dao.stream.mirror, deepseek picked dao.stream.remote. OWNER RULING, verbatim: "use dao.stream.remote. this was actually the original intention of dao.stream.remote". No file in the repo uses that name; dao.jing.remote keeps remote.step after its transport half retires.
+Decisions: Owner's alone: the name dao.stream.remote. Architect rulings recorded above. gpt-6-sol was not asked the ShiBi/name round (budget unknown; held to gate the eventual spec). The serve module is therefore dao.stream.remote from here on; the descriptor type :dao.stream/remote already matches.
+Verification: none run; the only repo edit besides this log is the dao.lease.md status line, not tested (docs).
+Delegates: architect fable-5-1 session 506ecf77-3b05-43cf-9579-ad73759f7aa6 and deepseek-v4-pro session 7aec5601-a998-45b8-a314-235fd90bcf23 (both resumed for lease, middleware, ShiBi-seam rounds); architect gpt-6-sol codex thread 01a0debb-6229-79e1-890d-4d1e0b7d8565 (lease and middleware rounds). Prompts/findings in collab/: 1790444057xxx-architect-serve-lease.*, 1790444750xxx-architect-stream-middleware.*, 1790445022xxx-architect-stream-shibi-seam.* (findings promoted).
+Next: owner authorization for fable to write the new dao.stream.remote spec (replacing the 1,197-line dao.stream.serve.md), plus dao.stream.middleware.md, the dao.stream.md amendments (OD-1/2/3 decision 2, the refused row, the composed-handle sentence, optional blocked reword), the section 16 companion-doc edits (retargeted to the new name), and a docs/design/shibi.md stub; then a gpt-6-sol gate; no commit without review. Then implementation slices. Open for the owner later: force the ShiBi capability-versus-currency decision before ShiBi is load-bearing.
+
+## 2026-09-27 00:55:02 +07 — correction: dao.jing.remote, not dao.stream.remote, was the original intention
+Completed-GMT: 2026-09-26 17:55:02 GMT
+Coding-Agent: claude (Sonnet 5, orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@b8c3dd44, uncommitted changes: docs/design/dao.lease.md, docs/orchestrator-log.md.
+Corrects: the previous entry quotes the owner "use dao.stream.remote. this was actually the original intention of dao.stream.remote". The quote is accurate; the remark in it was a misremembering. Owner, verbatim: "oops i remembered wrong. it was dao.jing.remote which will be deprecated once dao.stream.remote is implemented".
+Done: Recorded only. The module name dao.stream.remote is unchanged (the owner has not withdrawn "use dao.stream.remote"); the corrected rationale is that dao.jing.remote is the older module the new one succeeds.
+Decisions: none of mine. Consequence for the design, not yet ruled by an Architect: the earlier decision 8 (retire only dao.jing.remote's transport half, keep remote.step and unify the ingress check) is now narrower than the owner's statement, which deprecates dao.jing.remote as a whole once dao.stream.remote is implemented. The fate table, the section 16 edits and the consumers (dao.jing.remote.step/async, dao.jing.coordinate, yin.repl.link, yin.vm.linker M3/M4, dao.data.btree.storage hydrate-async) need an Architect ruling on what replaces the stepped content client (likely content as a request/response convention over dao.stream.remote streams, with the shared ingress check kept).
+Verification: none; memory note project-invariant-dao-stream-p2p-no-privilege updated to match.
+Delegates: none.
+Next: unchanged, plus the deprecation scope above goes into the spec writer's brief.
+
+## 2026-09-27 00:56:38 +07 — owner direction: ShiBi is a tuple space of index and query interpreters
+Completed-GMT: 2026-09-26 17:56:38 GMT
+Coding-Agent: claude (Sonnet 5, orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@b8c3dd44, uncommitted changes: docs/design/dao.lease.md, docs/orchestrator-log.md.
+Done: Recorded only; no design work dispatched. Owner, verbatim: "shibi capability system should be built similar to dao.space as a tuple space that emerges from two interpreters: dao.space.index and dao.space.query". Saved as memory project-shibi-tuple-space.
+Decisions: none of mine. Orchestrator reading, for an Architect to confirm or reject (not a ruling): the fable/deepseek seam (a mirror-side gate with a pure verify and fold over explicit source streams, an opaque credential slot, a capability-free :dao.stream/refused) already has the tuple-space shape: fold is the index side observing streams, verify is the query side. If the spec writer finds the seam cannot host an index-plus-query ShiBi, that is a spec blocker to raise.
+Verification: none; nothing built or changed beyond memory and this log.
+Delegates: none.
+Next: add this direction to the spec writer's brief (state the seam so an index-plus-query ShiBi plugs in; flag if it cannot); the ShiBi spec itself waits, with the capability-versus-currency decision, until after dao.stream.remote and middleware.
+
+## 2026-09-27 02:07:03 +07 — SEAT HANDOFF to glm-5.3: dao.stream.remote spec set, fix round done, codex re-gate pending
+Completed-GMT: 2026-09-26 19:07:03 GMT
+Coding-Agent: claude (Sonnet 5, orchestrator seat, stopping: owner said my quota is low) -> successor: glm (glm-5.3)
+Session-ID: not-applicable (interactive seat)
+Tree: master@b8c3dd44. NOTHING from this stretch is committed or staged. Uncommitted: docs/design edits and new files (see Done), docs/orchestrator-log.md, docs/agents/routing-status.md (untracked, local). collab/ untracked as usual (73 files after my archive; archive/ is gitignored). No src/ or test/ file was touched. Untracked files that are not mine: .zcode/, .zcodeignore, public/chp/blog/muse-ai-agent-on-datom-world.blog. Re-derive everything from git status and the real diff; every claim here is a claim to verify.
+Done (all documents, all uncommitted):
+  - Owner invariant and a mob of three Architects (fable, gpt-6-sol, deepseek-v4-pro) designed dao.stream.remote from scratch ("mirror and reflection": request map plus verbatim source outcome map, stateless serving side, no sessions), integrated dao.lease, ring-like middleware, and a capability-agnostic seam for the unspecified ShiBi capability system (owner: ShiBi is a tuple space of index and query interpreters). Owner named the module dao.stream.remote and said dao.jing.remote is deprecated whole once it is implemented.
+  - fable (claude-fable-5-1) WROTE the spec set: docs/design/dao.stream.remote.md, dao.stream.middleware.md, dao.shibi.md (renamed by the owner from shibi.md), amended dao.stream.md (OD-1/2/3 accepted, :dao.stream/refused row, composed-handle sentence), edited 13 companion docs, deleted dao.stream.serve.md (history at 71f3fb93).
+  - gpt-6-sol GATED it: REJECT (8 must-fix, 4 should-fix). glm-5.3 reviewed items 5 to 8: APPROVE-WITH-FIXES (2 must-fix, 12 should-fix). glm-5.3 then FIXED (fresh session 6d228259-...): remote.md 725 to 675 lines, middleware.md 169, dao.shibi.md 47, NEW dao.stream.remote.implementation-plan.md 162, plus edits to dao.stream.md, dao.jing.cbor.md, dao.jing.md, dao.lease.md, dao.data.btree.md, UCF, yin.vm.linker.md, dao.jing.hash-registry.md, dao.jing.call-site-classification.md. GLM's own table: every gate item FIXED except three PARTIALs (length 675 not under 600; docs/dao.space.stigmergy.md not edited, outside docs/design; ws.md server/client wording deferred to the code slices).
+  - Also uncommitted: dao.lease.md Status line now "implemented" (owner request; the earlier 00:38 entry's "proposed design target" was the stale line, corrected in a later entry); routing-status.md entries for fable/GLM/codex.
+  - collab/ cleanup at the owner's request: 243 files moved to archive/ with mv -n (four name collisions with archive/ left in collab/).
+Decisions (owner's): module name dao.stream.remote; fable only when the owner says (reserving its quota: "i'll tell you when to use fable"), Architect work to gpt-6-sol and glm-5.3; write the spec; run the fix round. Architect rulings by majority are recorded in the earlier entries and the spec. GLM's fix-round design choices (all in its report, collab/1790447662245-architect-dao-stream-remote-spec-fixes.glm-5.3.findings.md): piggyback anchors DROPPED; protocol errors (not-found, no-surface, oversize) as :dao.stream.remote/error on the one answer shape; surface carried in the descriptor answer; ws-project channel adapter specified; the gate reads a bounded decision from a capacity-1 decision medium written by a separately composed index interpreter (fable's "seam passes" claim was disputed by the gate and is NOT carried forward); channel encryption DEFERRED with an exact caveat; meeting work bounded by composition bounds with refusal.
+OWNER-VISIBLE items to put in front of the owner (none decided): (1) remote channel confidentiality is deferred, a relay reads every envelope in clear even with value middleware; (2) the gate sees the latest published decision per medium, not folded history; (3) spec is 675 lines against a target under 600, the honest lever is relaxing "do not drop a rule"; (4) fable chose a new module dao.jing.content to replace all of dao.jing.remote (serve-step, step, driver, async; ingress check to dao.jing/accept-bytes!; coordinate as two remote descriptors, :url form dropped): the rounds left this to fable, gpt-6-sol and glm-5.3 judged it sound, the owner has not seen it; (5) NAT: two mutually unreachable peers need a third reachable peer, browsers cannot listen, plaintext unless middleware, UDP messages bounded by a composed maximum, false lease lapse possible under partition, and third-party lease renewal appends are accepted until ShiBi exists; (6) the ShiBi capability-versus-currency question (dao.stream.discovery.md:181-190) must be forced before ShiBi is load-bearing.
+Verification: mine, local, after the fix round: line counts match GLM's report (675, 169, 47, 162); git status src test empty; no non-ASCII and no line over 170 columns and no collab/ reference in the four new/rewritten docs. Earlier: fable's report claims checked (counts, deletion, lease status intact, no collab/ added to design docs). NOT run: any build or test (documents only); NOT verified by me: the fix-round content itself (nobody has re-read the fixed docs yet), GLM's claim of 30 citations, whether the amendments in dao.stream.md are faithful to OD-1/2/3 as drafted.
+Delegates (session ids resumable): fable claude-fable-5-1 506ecf77-3b05-43cf-9579-ad73759f7aa6 (design rounds and the spec, DO NOT dispatch without the owner); gpt-6-sol codex thread 01a0deaf-ad51-7491-93e2-83d8ce020bec (decisions round) and 01a0debb-6229-79e1-890d-4d1e0b7d8565 (clean-slate, consensus, lease, middleware, and the spec GATE: resume this one for the re-gate); deepseek-v4-pro 4db87028-780f-417e-9b6d-f579716f86a3 and 7aec5601-a998-45b8-a314-235fd90bcf23 (design rounds only); glm-5.3 reviewer b0bd616e-614a-4d4a-b8e0-e51983f1de9b and glm-5.3 fixer 6d228259-1dbf-4494-8b1f-25b5c5c8e6d3. Prompts and findings in collab/ (findings promoted): 1790442434xxx-architect-serve-decisions.*, 1790443205xxx-...-clean-slate.*, 1790443612xxx-...-converge.*, 1790444057xxx-...-serve-lease.*, 1790444750xxx-...-stream-middleware.*, 1790445022xxx-...-stream-shibi-seam.*, 1790445581642-architect-dao-stream-remote-spec.claude-fable-5-1.*, 1790446537557-architect-dao-stream-remote-spec-gate.gpt-6-sol.*, 1790447123416-reviewer-dao-stream-remote-spec-gate2.glm-5.3.*, 1790447662245-architect-dao-stream-remote-spec-fixes.glm-5.3.*. The Explore-agent network inventory was not saved.
+Routing and budgets (docs/agents/routing-status.md, owner-edited; re-read it): fable at 84% used, resets Tuesday 2026-09-29 04:00 (+0700 assumed), owner reserves it; GLM reset (fresh, exact % unknown); codex reset (fresh, exact % unknown); agy conserved; deepseek and cmd balances unknown (entries were removed by the owner). Owner memory notes were updated: project-invariant-dao-stream-p2p-no-privilege, project-shibi-tuple-space, feedback-use-fable-as-architect (fable override).
+Next (for the glm-5.3 seat): (1) re-read routing-status.md and this tail; (2) verify the fix round yourself: git status, git diff --stat, read the fixed dao.stream.remote.md, middleware.md, the implementation plan, and the dao.stream.md amendments; (3) send the fixed set to gpt-6-sol for the RE-GATE by resuming thread 01a0debb-6229-79e1-890d-4d1e0b7d8565 (GLM authored the fixes and reviewed the spec, so the re-gate must be codex, not GLM; ask it to press the two soft spots GLM named: the 675-line length and the decision-read contract in middleware.md, and to confirm the ShiBi-fit claim); fix findings by a delegate that is not the sole reviewer of its own fix; (4) bring the OWNER-VISIBLE items above to the owner, especially dao.jing.content and the length question; (5) after the owner accepts, slice the work from dao.stream.remote.implementation-plan.md into engineer dispatches (slice 0 adds :dao.stream/refused to src/cljc/dao/stream.cljc); (6) commit ONLY on explicit owner instruction, after review, staging only the requested files; (7) archive collab/ artifacts for committed work per orchestrator.md step 11; (8) untracked non-mine files and the four collab/archive name collisions await the owner. Open decisions for the owner not started: the ShiBi capability-versus-currency decision; whether ws.md's server/client wording is reworded now or with the code slices; docs/dao.space.stigmergy.md still instructs the retired connect-content!.
+
+
+## 2026-09-27 09:35:00 +07 — Orchestrator seat taken over by ZCode (GLM-5.3-Flash); state re-derived
+Completed-GMT: 2026-09-27 02:35:00 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@b8c3dd44; 18 tracked files uncommitted (the dao.stream.remote
+  spec set, companion-doc edits, dao.lease.md status, this log);
+  routing-status.md untracked-local
+Done:
+- Took the seat from the claude (Sonnet 5) seat per the owner. Re-derived
+  state per the 02:07 handoff: verified the uncommitted surface is
+  exactly the spec set (18 files, +333/-1471; the four new docs exist;
+  dao.stream.serve.md is deleted; no src/ or test/ file touched), and
+  the single remaining worktree list shows only the main checkout (all
+  epic worktrees are gone; the ucf-phase2 branch was fully merged).
+- Read the post-handoff history I had not seen: the linker epic COMPLETED
+  on master (M2 19719d66, M3, M4 in six merged slices with kernel
+  attach-image, manifests, authority events, require lowering, M5
+  42ad2666 wiring require into yin.repl at the prompt, plus the edge-case
+  hardening 3c64be22 and the Rule R amendment e1cf4217), gated per
+  slice (codex/fable/deepseek gates; the M5 gate REJECTED twice before
+  opus fix3 APPROVE). The prior seat's report entry 2f0cbcc4 records
+  the errors-and-corrections ledger.
+- Read routing-status.md: GLM froze at 98% (no GLM tasks until
+  2026-09-27 01:26 +0700, now past); fable reserved by the owner until
+  its 2026-09-29 04:00 reset (architect role goes to gpt-6-sol and
+  glm-5.3 meanwhile); M5 finished fix2 before the freeze awaiting a
+  codex re-gate (but the M5 merge commit 42ad2666 is on master, and the
+  07:00+07 entries record M5 fix3 by opus then APPROVE — the re-gate
+  note predates that).
+Pending, from the 02:07 handoff (not yet done by anyone):
+- The codex RE-GATE of the dao.stream.remote spec set (resume thread
+  01a0debb-6229-79e1-890d-4d1e0b7d8565; press the 675-line length and
+  the middleware decision-read contract; confirm the ShiBi-fit claim).
+- The OWNER-VISIBLE decisions (unchanged, none decided):
+  dao.jing.content replacing dao.jing.remote whole; remote channel
+  confidentiality deferred; the 675-line length; the ShiBi
+  capability-versus-currency question; the pending-link failure policy
+  (linker.md section 12 bullet 4).
+- Implementation slices from dao.stream.remote.implementation-plan.md
+  (slice 0: :dao.stream/refused) — only after the owner accepts the
+  spec set.
+Uncommitted-surface caution: the 18-file spec set is the owner's
+  reviewed-but-uncommitted work; the seat must NOT commit it without
+  the owner's instruction (the 02:07 handoff says commit only on
+  explicit instruction; nothing since has authorized it).
+Next: Await the owner's direction: (a) dispatch the codex re-gate of
+  the spec set now, (b) bring the owner-visible decisions forward, or
+  (c) both. No GLM dispatches until the budget is confirmed fresh.
