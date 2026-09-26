@@ -1,6 +1,7 @@
 # yin.vm de Bruijn linker over dao.stream (Phase B6)
 
-Status: design, revised; not implemented
+Status: superseded by docs/design/yin.vm.linker.md (yin.vm.linker, M1
+rename, 2026-09-25); design revised, not implemented
 
 ## 1. Objective and architectural position
 

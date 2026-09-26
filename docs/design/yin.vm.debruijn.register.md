@@ -392,6 +392,7 @@ The register instruction set is a positional form of the B1 table:
     :current-continuation [op rd live]
     :park         [op rd live]
     :resume       [op parked-id value-reg]
+    :define       [op rd name rs]
 
 The R2 descriptor slots and operand kinds are exactly:
 
@@ -419,6 +420,8 @@ The R2 descriptor slots and operand kinds are exactly:
       [[:rd :reg] [:live :data]]
     :resume
       [[:parked-id :kw] [:value-reg :reg]]
+    :define
+      [[:rd :reg] [:name :sym] [:rs :reg]]
 
 Each short slot name above is published under the
 `:yin.debruijn.register/*` namespace. R2 adds `:str` and `:kw` operand-kind
@@ -447,6 +450,26 @@ names `rd`. `:store-put` preserves the named operation's exact scalar value
 and writes that value to `rd`. `:resume` is the exception: it transfers
 control to an existing parked continuation and never returns to its own
 successor, so it has no destination register.
+
+`[:define rd name rs]` is the definition transition (Rule R: `yin/def`
+is syntax, never a name). The lowerer evaluates the value operand into
+`rs` and emits `:define` instead of a call; the kernel writes register
+`rs` under the literal `name` through `engine/store-put` and into `rd`,
+and never resolves the definition operator. Its use set is `{rs}` and
+its def set `{rd}`; it cannot suspend, so it carries no live set and is
+not a boundary opcode. The lift maps it back to the definition
+application. The validator's structural `reserved-rule` refuses a
+`:load-free`, `:define`, `:store-get`, or `:store-put` naming `yin/def`
+(`:reserved-name`), so the old `[:load-free rd yin/def]` call shape
+never loads, and `resolve-var` refuses the name before env or store.
+
+Rule R moved the register contract to `contract-version` 4, the "r2"
+contract (`yin.vm/register-contract`). `load-image [vm segment contract]`
+and `create-vm` (`:contract` in its options) require that stamp and
+refuse `:contract-missing` or `:contract-mismatch` before validation;
+`create-vm` also refuses a `:free-env`, `:store`, or `:primitives` that
+binds `yin/def`. Every "r1" image is refused by stamp, with no
+migration.
 
 Effect descriptors remain ordinary data passed to `yin.vm.engine`; no
 instruction contains a callback, timer, handle, or scheduler. The `live`
@@ -1011,15 +1034,15 @@ before R2 or R4.
 
 ### R5: linker integration over dao.stream
 
-    Fulfilled by: Phase B6 (src/cljc/yin/vm/debruijn_linker.cljc,
-    test/yin/vm/debruijn_linker_test.cljc)
+    Fulfilled by: Phase B6 (src/cljc/yin/vm/linker.cljc,
+    test/yin/vm/linker_test.cljc)
     Specification: docs/design/yin.vm.debruijn.linker.md
     Must not change: stack H, dao.stream, dao.jing, dao.jing.dht
 
 Per the owner's directive ("B6 should be used by both the stack and register
 vm for linking code over dao.stream"), the register format linking capabilities
 are fulfilled directly within the unified B6 linker phase. Phase B6 delivers
-`src/cljc/yin/vm/debruijn_linker.cljc`, providing the parameterized `fetch`
+`src/cljc/yin/vm/linker.cljc`, providing the parameterized `fetch`
 function, the register format record (`:yin.debruijn.register`), the R index,
 and same-root pairing datoms (`[root :yin.debruijn.register/hash R]`) with
 both trusted and verifying fallback paths. Full specification, file box,

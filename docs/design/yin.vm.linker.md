@@ -252,7 +252,7 @@ function slots; this revision replaces one, renames one, and adds four:
 
 ```clojure
 {:format              :yin.debruijn.code      ; the dispatch key
- :contract            "b1"                    ; contract revision name
+ :contract            "b2"                    ; contract revision name
  :identity-fn         (fn [value] identity)   ; mint: publish! only
  :identity-matches-fn (fn [identity value] boolean) ; step 3
  :row-defect-fn       (fn [value] defect-or-nil)    ; step 2, per part
@@ -306,10 +306,17 @@ function slots; this revision replaces one, renames one, and adds four:
   with the binding row's path and its enclosing tags; the application
   scanner is the application-row query over the same relation. For
   the vector formats all three are operand scans by pc (`:var`
-  against `:store-put`, `:load-free` against the `yin/def` call
-  sites, the call opcodes for applications) with conditional target
-  ranges taken from the `:jump-if` and body operands. A format whose
-  scanner returns positions as `nil` is admitted and falls under the
+  against `:store-put` and `:define`, `:load-free` against `:define`
+  and `:store-put`, the call opcodes for applications) with
+  conditional target ranges taken from the `:jump-if` and body
+  operands. Under Rule R (`yin/def` is syntax, never a name) a
+  definition is recognized by syntax alone: the tree's
+  `(yin/def <literal-symbol> value)` application and the vectors'
+  `:define` instruction. The definition operator is never an
+  obligation: every validator refuses it as a variable, binder, or
+  store key (`:reserved-name`), and the VM constructors refuse a
+  supplied env, store, or registry binding it. A format whose scanner
+  returns positions as `nil` is admitted and falls under the
   conservative degradation of step 5a: every occurrence is retained
   as an obligation, and with no application positions no occurrence
   inside a lambda body is discharged at all.
@@ -357,16 +364,18 @@ Step by step, for all four formats:
    the request's shape against the closed key set of section 6.3
    (`:invalid-request`), that it holds a format record for the requested
    format (`:unsupported-format`), and that the request's
-   `:yin.link/contract`, when present, equals the record's `:contract`
-   (`:contract-mismatch`). The contract check runs here, ahead of step
-   2's row-local grammar check, so no validator ever runs under the
-   wrong table; revision r2 placed it in step 4, after row-local
-   validation had already run, which was an ordering defect. For a
+   `:yin.link/contract`, which is required, equals the record's
+   `:contract` (`:contract-mismatch`). The contract check runs here,
+   ahead of step 2's row-local grammar check, so no validator ever runs
+   under the wrong table; revision r2 placed it in step 4, after
+   row-local validation had already run, which was an ordering defect.
+   For a
    manifest-delivered image the same check runs again against the
    manifest's per-format entry under `:yin.module/contracts`
    immediately after the manifest is verified and before any derivation
    or image is fetched (section 8.1). The manifest's own schema version
    is a different thing and is checked by the manifest validator.
+   A request that omits the contract is `:invalid-request`.
 1. **Resolve identity to storage address.** The index is linker-local
    composition data: a map, or datoms `[identity attribute address]`
    read through `index-from-datoms` from a `dao.space` source the linker
@@ -403,8 +412,11 @@ Step by step, for all four formats:
    assembled row set (`:id-resolves`, `:acyclic`, `:root-reachable` are
    whole-tree rules that step 2's row-local check cannot run); for a
    vector, over the vector; for a register image, including the
-   ascending, bounded, exact live-set rules. A validator that throws is
-   `:descriptor-defect` with rule `:validator-refused`.
+   ascending, bounded, exact live-set rules. Every validator includes
+   Rule R: a `yin/def` occurrence outside a legal definition's operator
+   slot, as a binder, or as a store or definition key is
+   `:descriptor-defect` with rule `:reserved-name`. A validator that
+   throws is `:descriptor-defect` with rule `:validator-refused`.
 5. **Verify dependency closure.** Two halves.
    - *5a, at the linker: obligations.* Two scans run over the verified
      value. `:obligations-fn` yields the free-name occurrences, each
@@ -414,7 +426,8 @@ Step by step, for all four formats:
      yields the **definition set** with positions: every constant store
      key the image binds at module level (the section 7.7 store-key
      query of `yin.vm.code-as-tuples.md`: `:vm/store-put` rows,
-     `:store-put` operands, `yin/def` applications with a constant key),
+     `:store-put` operands, `yin/def` applications with a literal key,
+     `:define` operands),
      each with the position of the binding in the main sequence.
      A definition discharges an occurrence by **defined-before-use
      under control-flow dominance**, not by subtraction of names and
@@ -596,7 +609,7 @@ the section 4.5 query of `yin.vm.code-as-tuples.md`, implemented as
 
 ```clojure
 {:format              :yin.ast/code
- :contract            "v2"
+ :contract            "v3"
  :identity-fn         (fn [body] (jing/segment-key body))
  :identity-matches-fn (fn [root-id body] (jing/segment-matches? root-id
                                                                   body))
@@ -625,13 +638,16 @@ All three scanners return the position-bearing records of section
 each occurrence's path and `:in-body?`; `definition-occurrences` is
 the store-key query carrying each binding row's path and
 `:conditional?`; `application-sites` is the application-row query.
-Loading is `yin.vm.ast-walker/vm-load-rows`.
+`validate-rows` carries the occurrence-aware `:reserved-name` rule, and
+`free-names` never returns the definition operator. Loading is
+`yin.vm.ast-walker/vm-load-rows`, which requires the contract and
+refuses `:contract-missing` or `:contract-mismatch` before validation.
 
 ### 5.2 `:yin.semantic/code` (the semantic VM)
 
 ```clojure
 {:format              :yin.semantic/code
- :contract            "v2"
+ :contract            "v3"
  :identity-fn         jing/segment-key
  :identity-matches-fn jing/segment-matches?
  :row-defect-fn       yin.vm.code/well-formed-vector?
@@ -645,23 +661,27 @@ Loading is `yin.vm.ast-walker/vm-load-rows`.
 Payload: the canonical positional instruction tuple vector (UCF section
 7.3.2), stored as the exact vector at its own `segment-key`; nothing
 else may hash there (UCF section 7.3.4). The identity is that address.
-`well-formed-vector?` is the section 7.5 grammar. `semantic-free-names`
+`well-formed-vector?` is the section 7.5 grammar, whose rule 9
+(`:reserved-name`) refuses a `:var` naming `yin/def`, a `:define` whose
+operand is not a non-reserved symbol, a closure binding it, and a store
+key naming it. `semantic-free-names`
 scans `:var` operands not bound by an enclosing closure's params, the
 `$code` query of section 7.7; `semantic-application-sites` scans the
 call opcodes, including calls of imported names and of primitives
 that receive a function argument; all three return the section 4.1
 records. The linker module defines them, as B6 defined the two de
 Bruijn scanners. The contract stamp is UCF's
-`{:yin.code/contract "v2"}`; a link request for this format carries the
+`{:yin.code/contract "v3"}`; a link request for this format carries the
 stamp, and the receiver's index is keyed per stamp (UCF section 7.3.3).
-Loading is `yin.vm.semantic/load-vector`, which writes the address to the
-image and the alias column.
+Loading is `yin.vm.semantic/load-vector`, which requires the contract,
+compares it before validation, and writes the address to the image and
+the alias column.
 
 ### 5.3 `:yin.debruijn.code` (the stack VM)
 
 ```clojure
 {:format              :yin.debruijn.code
- :contract            "b1"
+ :contract            "b2"
  :identity-fn         yin.vm.debruijn-code/image-hash
  :identity-matches-fn (fn [H v] (= H (yin.vm.debruijn-code/image-hash v)))
  :row-defect-fn       yin.vm.debruijn-code/image-defect
@@ -676,9 +696,13 @@ Unchanged from B6 section 5.1 in substance. The identity H is
 `image-hash` over the descriptor hash (which embeds the lowering contract
 version) and the canonical vector; the `=` here compares two values of
 one contract-pinned hash and is not a Class 3 site. Free names are
-`:load-free` operands; application sites are `:call` operands,
-including calls of imported names and function-argument primitives.
-Loading is `yin.vm.debruijn.stack/load-image`;
+`:load-free` operands; definitions are `[:define name]` operands;
+application sites are `:call` operands, including calls of imported
+names and function-argument primitives. `image-defect` checks shape,
+then Rule R (a `:load-free`, `:define`, `:store-get`, or `:store-put`
+naming `yin/def` is `:reserved-name`), then scope. Loading is
+`yin.vm.debruijn.stack/load-image`, which requires the contract "b2"
+and validates;
 `yin.repl`'s `append-stack-image` shows the relocation a second image
 needs beside a held one.
 
@@ -686,7 +710,7 @@ needs beside a held one.
 
 ```clojure
 {:format              :yin.debruijn.register
- :contract            "r1"
+ :contract            "r2"
  :identity-fn         yin.vm.debruijn-register-code/register-hash
  :identity-matches-fn (fn [R v]
                         (= R (yin.vm.debruijn-register-code/register-hash
@@ -701,8 +725,11 @@ needs beside a held one.
 
 Unchanged from B6 section 5.2 in substance. Validation includes the
 live-set rules; free names are `[:load-free rd name]` operands across all
-bodies; application sites are the call operands. Loading is
-`yin.vm.debruijn.register/load-image`.
+bodies; definitions are `[:define rd name rs]` operands; the validator's
+`reserved-rule` refuses `yin/def` as a free name, definition key, or
+store key (`:reserved-name`); application sites are the call operands.
+Loading is `yin.vm.debruijn.register/load-image`, which requires the
+contract "r2".
 
 ### 5.5 Same-root pairing becomes derivation verification
 
@@ -803,7 +830,7 @@ already has, the portable linker is a pure function over explicit state.
 ```
 
 A `request` is plain data and nothing else. Its closed key set is
-`:yin.link/id`, `:yin.link/format`, `:yin.link/contract` (optional), and
+`:yin.link/id`, `:yin.link/format`, `:yin.link/contract`, and
 exactly one of `:yin.link/name` or `:yin.link/identity`. The two
 admissible shapes:
 
@@ -811,13 +838,13 @@ admissible shapes:
 ;; by module name: the linker resolves the manifest (section 8)
 {:yin.link/id       [:t0 7]                  ; section 7.2, step 3
  :yin.link/format   :yin.debruijn.code
- :yin.link/contract "b1"
+ :yin.link/contract "b2"
  :yin.link/name     'my.lib}
 
 ;; by bare identity: B6's closed-image path, no manifest
 {:yin.link/id       [:t0 8]
  :yin.link/format   :yin.debruijn.code
- :yin.link/contract "b1"
+ :yin.link/contract "b2"
  :yin.link/identity H}
 ```
 
@@ -829,6 +856,8 @@ refusal is appended on the response stream under the request's id where
 the id is well formed, and under `:yin.link/id nil` otherwise; it is
 never processed further. The receiver's capabilities do not travel
 because discharge happens at the receiver (section 4.2, 5b).
+`:yin.link/contract` is required: an omission is `:invalid-request`,
+as it already is for `yin.vm.linker/fetch` since M2.
 
 `step` advances every in-flight link in a fixed order: re-attempt
 unsent content requests, poll the content response medium at most
@@ -849,6 +878,13 @@ A completion is the step-6 result or a refusal, tagged with its link id:
 A link with no completion yet is `:pending`; the caller steps again
 when it chooses. Retry cadence, deadlines, and permanent-absence policy
 are the composition's, as D6 states: streams report, they do not decide.
+`fetch` takes no deadline. A composition that wants one expresses it
+with `dao.lease` (`docs/design/dao.lease.md`): its drive holds a lease
+over the link and renews it from its own control flow whenever the link
+makes progress, and a judge in the same composition, reading a tick
+stream it wires, lapses the lease on `:silence` and calls `abandon`,
+which completes the link `:lost`. Time reaches this as data, so the
+linker stays clock-free.
 
 `abandon` retires a link's bookkeeping and completes it `:lost` with the
 given reason, so a caller that gives up still receives exactly one
@@ -864,17 +900,26 @@ The B6 signature changes in its first argument:
 ```
 
 `runtime` is `{:state link-state :drive (fn [state] state')}`. `:drive`
-is the composition's driver: it steps the linker's client side *and*
-whatever serves the content pair (`dao.stream.rpc/serve-once!` over the
-content handle, or nothing when a remote server runs elsewhere), and it
-is called in a loop until the one link completes. `fetch` therefore
+is the composition's driver: it advances whatever serves the content
+pair (`dao.stream.rpc/serve-once!` over the content handle, or nothing
+when a remote server runs elsewhere) and returns the link state. It
+does not step the linker: `fetch` calls `step` after each drive, in a
+loop until the one link completes, because `step` hands each completion
+out exactly once and a drive that stepped the linker would drop the
+completion `fetch` waits for. Liveness is the drive's: a drive whose
+server never answers never completes the link. `fetch` therefore
 holds no `dao.jing` handle and cannot call `jing/get`: the content
 handle is reachable only from the server side of the content pair. A
 test in M3 asserts this by wiring a server whose handle counts `get`
 calls and a linker state with no handle at all, and by checking that
 every local `fetch` produces exactly the request/response traffic on the
 content pair that the stepped path produces. `fetch` runs step 5b
-against the `receiver` argument before returning.
+against the `receiver` argument before returning. Under Rule R a
+receiver whose free env, store, or registry binds `yin/def` cannot
+exist: the VM constructors refuse it (`:reserved-name`), so 5b never
+meets the definition operator as a name. Every backend loader requires
+a contract stamp and compares it before validation, so the caller that
+loads a fetched image supplies the format record's `:contract`.
 
 `verify`, the pure steps 3 to 5a over values already in hand, and
 `discharge`, the pure step 5b over obligations and a receiver, are both
@@ -950,7 +995,7 @@ The steps, as rules:
     :link-id   [:t0 7]                 ; [origin counter], below
     :envelope  {:yin.link/id [:t0 7] :yin.link/name 'foo
                 :yin.link/format :yin.debruijn.code
-                :yin.link/contract "b1"}
+                :yin.link/contract "b2"}
     :request   {:dao.stream/identity ... :dao.stream/descriptor ...}
     :response  {:dao.stream/identity ... :dao.stream/descriptor ...}
     :cursor    <the kept cursor minted above>}
@@ -1522,10 +1567,10 @@ address. It replaces the `{sym fn}` dictionary entry.
 ```clojure
 {:yin.module/name        'my.lib
  :yin.module/schema      1                   ; this container's shape
- :yin.module/contracts   {:yin.ast/code          "v2"   ; per format
-                          :yin.semantic/code     "v2"
-                          :yin.debruijn.code     "b1"
-                          :yin.debruijn.register "r1"}
+ :yin.module/contracts   {:yin.ast/code          "v3"   ; per format
+                          :yin.semantic/code     "v3"
+                          :yin.debruijn.code     "b2"
+                          :yin.debruijn.register "r2"}
  :yin.module/tree        :segment/...        ; the one canonical tree
  :yin.module/derivations {:yin.semantic/code     :segment/...  ; record
                           :yin.debruijn.code     :segment/...  ; record
@@ -1565,9 +1610,11 @@ Rules:
     bytecode.
   - `:yin.module/contracts` maps each format the manifest lowered to
     the execution contract that format's image targets: the UCF stamp
-    `"v2"` for the semantic vector and the tree, the B1 lowering
-    contract `"b1"` for the stack image, the R1 contract `"r1"` for the
-    register image. A format present under `:yin.module/derivations`
+    `"v3"` for the semantic vector and the tree, the stack lowering
+    contract `"b2"` for the stack image, the register contract `"r2"`
+    for the register image. These are the Rule R revisions; a manifest
+    naming "v2", "b1", or "r1" is `:contract-mismatch`, with no
+    migration. A format present under `:yin.module/derivations`
     must be present here; one that is not is `:descriptor-defect` with
     rule `:contract-missing`.
   - A format record's `:contract` (section 4.1) is the one execution
@@ -1578,10 +1625,10 @@ Rules:
   format is checked against the format record's `:contract`
   (`:contract-mismatch`), before the name check and before any
   derivation or image is fetched (section 4.2, step 0). A four-way
-  manifest linking through the stack kernel therefore compares `"b1"`
-  with `"b1"`, and the same manifest linking through the semantic
-  kernel compares `"v2"` with `"v2"`; the tree's `"v2"` and the register
-  image's `"r1"` play no part in either check. Revision r3 carried one
+  manifest linking through the stack kernel therefore compares `"b2"`
+  with `"b2"`, and the same manifest linking through the semantic
+  kernel compares `"v3"` with `"v3"`; the tree's `"v3"` and the register
+  image's `"r2"` play no part in either check. Revision r3 carried one
   `:yin.module/contract "v2"` and would have refused every stack and
   register link of a valid manifest; that was a defect.
 - **Verifying and trusting are two policies, and verifying never
@@ -1645,7 +1692,8 @@ to a manifest address and is linker-local state in one of two shapes:
 
 **Fail-closed assertion policy.** This policy is an entry criterion for
 M4: no linker may resolve a name from `dao.space` assertions before it is
-implemented and tested.
+implemented and tested. The policy lives in `yin.vm.linker.authority`,
+as a pure function over plain data.
 
 - **Every authority event is a signed envelope.** An assertion and a
   retraction are two distinct envelope shapes, each a plain map whose
@@ -1679,9 +1727,10 @@ implemented and tested.
   a principal issues carries `:yin.module/seq`, strictly increasing
   over that principal's lifetime; the composition declares each
   principal's floor in `:authority` (`0` for a new principal, the
-  highest sequence already honored for a re-declared one). At the
-  snapshot the linker processes one principal's proven envelopes in
-  three passes, in this order:
+  highest sequence already honored for a re-declared one). The
+  declaration carries that floor as `:seq-floor`. At the snapshot the
+  linker processes one principal's proven envelopes in three passes,
+  in this order:
   1. *Deduplicate by content id.* Every envelope is content; two
      appearances of one envelope have one `segment-key` and are one
      event. All but the first appearance are dropped silently, as
@@ -1696,7 +1745,9 @@ implemented and tested.
      number. Both are discarded with `:kind :equivocation`, and the
      principal's later envelopes at the snapshot are discarded too. A
      duplicate can no longer reach this pass, so equivocation is
-     attributable to the signer alone.
+     attributable to the signer alone. The pair and every later
+     envelope of that principal are discarded with
+     `:kind :equivocation`.
   3. *Order and honor.* The remaining envelopes are ordered by sequence
      and each is honored only if its sequence exceeds the floor and
      every sequence honored before it; an envelope at or below either
@@ -1739,7 +1790,10 @@ implemented and tested.
   the assertion stream. The linker reads exactly that snapshot;
   assertions appended afterwards do not exist for it until the
   composition advances the snapshot, which is an ordinary `link-state`
-  rebuild, never an ambient re-read.
+  rebuild, never an ambient re-read. The snapshot result carries
+  `:honored-seq` per principal, the highest sequence honored in this
+  snapshot, which the composition declares back as the next
+  `:seq-floor`.
 - At the snapshot, for one name: unauthenticated envelopes, exact
   duplicates beyond the first, replays, equivocations, and envelopes by
   undeclared principals are discarded or collapsed as the passes above
@@ -1749,7 +1803,11 @@ implemented and tested.
   counted. Exactly one resolves the name. Zero is `:absent`. More than
   one is `:ambiguous-name` naming every remaining address and asserter,
   and no address is chosen by recency, sequence, order, or any other
-  rule.
+  rule. Three shape and declaration diagnostics sit beside the four
+  discard kinds: `:malformed-envelope` (an envelope that fails the
+  shape gate), `:undeclared-principal` (an author the authority map
+  does not declare), and `:no-proof-kind` (a principal declared with
+  neither proof kind).
 - Provenance is data the outcome carries: a successful resolution names
   the asserter, the proof kind, and the snapshot under
   `:yin.link/provenance` so a receiver can record which claim it acted
@@ -1976,7 +2034,8 @@ Renamed:  src/cljc/yin/vm/debruijn_linker.cljc
             -> src/cljc/yin/vm/linker.cljc            (M1)
           test/yin/vm/debruijn_linker_test.cljc
             -> test/yin/vm/linker_test.cljc           (M1)
-New:      test/yin/vm/linker_step_test.cljc           (M3)
+New:      src/cljc/yin/vm/linker/authority.cljc            (M4 entry)
+          test/yin/vm/linker_step_test.cljc           (M3)
           test/yin/vm/linker_authority_test.cljc      (M4 entry)
           test/yin/vm/linker_require_test.cljc        (M4)
 Edited:   src/cljc/yin/vm/module.cljc                 (M4)
@@ -2180,6 +2239,15 @@ Require:
     at evaluation -- and a fabricated closure with no recorded row
     resolves by the `[node params]` index or refuses
     `:unrooted-body`.
+24. Rule R holds on every format: an image that rebinds `yin/def` as
+    a lambda parameter, writes it through a direct `:store-put` or a
+    computed key, aliases it, or reads it as a variable anywhere but a
+    legal definition's operator slot is `:descriptor-defect` with rule
+    `:reserved-name`; a definition whose value is the quoted symbol
+    `yin/def` links; the definition operator never appears among the
+    obligations; an image or manifest stamped "v2", "b1", or "r1" is
+    `:contract-mismatch`; a request that omits the contract is
+    `:invalid-request`.
 
 ## 12. Open decisions
 
@@ -2204,8 +2272,10 @@ the first concerns material the composition supplies to a policy section
   manifests or a single image per format is undecided; section 7.4
   fixes only the response shape and the cycle refusal.
 - **Failure policy.** Retry, deadline, and permanent absence for a
-  `:pending` link are the composition's (D6). Whether `yin.repl` adopts
-  the `dao.jing.remote` timing options or its own is an M5 decision.
+  `:pending` link are the composition's (D6). `fetch` takes no
+  deadline; `dao.lease` is the mechanism a composition uses for one
+  (section 6.3). Whether `yin.repl` adopts the `dao.jing.remote` timing
+  options, `dao.lease`, or its own is an M5 decision.
 - **Contract-pinned AST and semantic identities.** Strict decoupling of
   storage address from VM identity holds for H and R only (section 3).
   Pinning `:yin.ast/code` and `:yin.semantic/code` identities to a

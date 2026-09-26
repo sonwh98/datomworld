@@ -301,14 +301,22 @@
   ;; forked descriptor-hash, and therefore every H here, exactly once.
   ;; `encode-image` (the image bytes themselves) does not depend on the
   ;; descriptor at all and is unchanged.
-  {:const-long ["0302000000102a000000000000000e"
-                "690222c38a278d591c872d3c5393c0e31d11ddfd3690fced03ef5b2632099221"]
-   :const-string ["030700000005hello0e"
-                  "e7ddbef771fd468e3b8d76a4c0f503ab49555dd05e02ef077b101798e045556a"]
-   :closure-bound ["02010000000000000002000000000000000e09000000000000000000000000000000000e"
-                   "10f9d4a16ee4d9f6e7ff79a9173d2127b1e3c655c29df5bad7035d848fdd1c8f"]
-   :load-free ["0a090000001500000000000700000001x0e"
-               "da8f48da58d4ee51398ae3a411d76af21b17eb603fa8b05f60a4e34920bcf704"]})
+  ;; Rule R moved every H again (lowering-contract-version 2, the "b2"
+  ;; contract) and the image bytes too: `:define` joined the sorted
+  ;; mnemonic tag table, shifting the tag of every mnemonic after it.
+  {:const-long ["0302000000102a000000000000000f"
+                (str "62ddeadc830b05d643c0421e541b2bb7"
+                     "8483805987ea84c7166f439f867f3927")]
+   :const-string ["030700000005hello0f"
+                  (str "6b8dea73d5a098238eadb0667458631a"
+                       "1f48d3aed702bfb8de9d2601e70188f5")]
+   :closure-bound [(str "02010000000000000002000000000000000f0a0000000000"
+                        "00000000000000000000000f")
+                   (str "3d2f65270b0aebba07e361b79b536fd1"
+                        "c7c08a9ad4fc222fab8da2811d0637fd")]
+   :load-free ["0b090000001500000000000700000001x0f"
+               (str "e00c3b0d63258ae66741fe1c499ee95a"
+                    "31d89a56e945baf0687b659b8ecd142e")]})
 
 
 (deftest golden-corpus-bytes-and-hash

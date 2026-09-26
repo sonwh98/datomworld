@@ -63,7 +63,8 @@
   ([segment opts]
    (dvm/create-vm segment
                   (merge {:make-stream tu/make-stream,
-                          :primitives vm/primitives}
+                          :primitives vm/primitives,
+                          :contract vm/stack-contract}
                          opts))))
 
 
@@ -72,7 +73,11 @@
   ([segment opts] (vm/run (make-vm segment opts))))
 
 
-(def ^:private load-ast (linearize/ast-loader semantic/vm-load-program))
+;; this suite is the AST's only producer: the trusted fresh path
+(def ^:private load-ast
+  (vm/fresh-code-loader
+    (linearize/ast-loader semantic/vm-load-program)
+    vm/ast-contract))
 
 
 (defn- semantic-run
@@ -174,7 +179,8 @@
     (let [vm (make-vm [])]
       (is (vm/halted? vm))
       (is (= vm (vm/run vm)) "nothing to run")
-      (let [loaded (dvm/load-image vm [[:const 9] [:halt]])]
+      (let [loaded (dvm/load-image vm [[:const 9] [:halt]]
+                                   vm/stack-contract)]
         (is (not (vm/halted? loaded)))
         (is (= 9 (vm/value (vm/run loaded)))))))
   (testing ":halt and a :return on an empty continuation write the stack
@@ -191,14 +197,12 @@
 
 (deftest stream-make-put-next-round-trip-test
   (testing "make, def it as s, put 7, then read it back through a cursor"
-    (let [first-run (run-segment [[:load-free 'yin/def] ; 0: def
-                                  [:const 's]           ; 1: def s
-                                  [:stream-make 4]      ; 2: def s sref
-                                  [:call 2 false]       ; 3: sref (store s = sref)
-                                  [:push]               ; 4
-                                  [:const 7]            ; 5: sref 7
-                                  [:stream-put]         ; 6: 7 (the appended value)
-                                  [:halt]])             ; 7
+    (let [first-run (run-segment [[:stream-make 4]      ; 0: sref
+                                  [:define 's]          ; 1: sref (store s)
+                                  [:push]               ; 2
+                                  [:const 7]            ; 3: sref 7
+                                  [:stream-put]         ; 4: 7 (appended)
+                                  [:halt]])             ; 5
           sref (get (vm/store first-run) 's)]
       (is (= 7 (vm/value first-run)) "put yields the appended value")
       (is (= [7] (:stack first-run)) "the target ref and the value were popped")
@@ -388,10 +392,9 @@
 ;; =============================================================================
 
 (deftest primitive-effect-descriptors-are-dispatched-test
-  (testing "yin/def, a primitive returning a :vm/store-put effect, writes the
-            store and yields the value"
-    (let [done (run-segment [[:load-free 'yin/def] [:const 'answer] [:const 42]
-                             [:call 2 false] [:halt]])]
+  (testing ":define, the definition transition, writes the store and
+            yields the value; there is no yin/def primitive (Rule R)"
+    (let [done (run-segment [[:const 42] [:define 'answer] [:halt]])]
       (is (= 42 (vm/value done)))
       (is (= 42 (get (vm/store done) 'answer)))))
   (testing "require through the module registry value"
@@ -620,7 +623,8 @@
 
 
 (deftest no-call-pair-test
-  (let [bare (dvm/create-vm [[:const 1] [:ffi-call :op/echo 1] [:halt]])]
+  (let [bare (dvm/create-vm [[:const 1] [:ffi-call :op/echo 1] [:halt]]
+                            {:contract vm/stack-contract})]
     (testing "a VM without :make-stream or explicit streams holds no pair"
       (is (nil? (ffi/call-pair (vm/store bare)))))
     (testing "a call fails before park-continuation, stranding nothing"
@@ -757,7 +761,7 @@
 (deftest mismatched-image-hash-is-refused-test
   (let [parked (vm/run (make-vm park-then-resume-segment))
         other [[:const :other] [:resume :parked-0] [:halt]]
-        loaded (dvm/load-image parked other)]
+        loaded (dvm/load-image parked other vm/stack-contract)]
     (testing "load-image keeps the parked record but changes H"
       (is (contains? (:parked loaded) :parked-0))
       (is (not= (:hash parked) (:hash loaded))))
@@ -769,7 +773,7 @@
     (testing "a woken wait entry of another image is refused the same way
               on its way out of the ready queue"
       (let [[blocked handle] (blocked-reader)
-            reloaded (dvm/load-image blocked other)]
+            reloaded (dvm/load-image blocked other vm/stack-contract)]
         (stream/append! handle :x)
         (is (= :continuation-format
                (:rule (throws-ex-data

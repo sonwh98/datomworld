@@ -17,7 +17,11 @@
        (catch #?(:clj Exception :cljs js/Error :cljd Object) _ true)))
 
 
-(def ^:private load-ast (linearize/ast-loader semantic/vm-load-program))
+;; this suite is the AST's only producer: the trusted fresh path
+(def ^:private load-ast
+  (vm/fresh-code-loader
+    (linearize/ast-loader semantic/vm-load-program)
+    vm/ast-contract))
 
 
 (defn- make-vm

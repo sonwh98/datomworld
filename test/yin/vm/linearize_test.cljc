@@ -338,8 +338,19 @@
 
 (deftest ast-loader-lowers-before-loading
   (let [ast-datoms (vm/ast->datoms worked-example)
-        load (linearize/ast-loader (fn [vm code-datoms] (assoc vm :code code-datoms)))]
-    (is (= (linearize/lower ast-datoms) (:code (load {} ast-datoms))))))
+        load (linearize/ast-loader (fn [vm code-datoms contract]
+                                     (assoc vm
+                                            :code code-datoms
+                                            :contract contract)))]
+    (is (= (linearize/lower ast-datoms)
+           (:code (load {} ast-datoms vm/ast-contract))))
+    (is (= vm/semantic-contract
+           (:contract (load {} ast-datoms vm/ast-contract)))
+        "the input's AST stamp is verified; only the linearizer's own
+         lowered output is stamped, with the semantic contract")
+    (is (= :contract-missing
+           (:rule (throws-ex-data #(load {} ast-datoms nil))))
+        "an unstamped input never reaches the lowerer")))
 
 
 ;; =============================================================================
@@ -373,6 +384,8 @@
                          :env env}
                         st env store k)
         :push (recur (inc pc) val (conj st val) env store k)
+        :define (recur (inc pc) val st env
+                       (assoc store (:yin.code/name i) val) k)
         :jump (recur (:yin.code/target i) val st env store k)
         :branch-false (recur (if val (inc pc) (:yin.code/target i)) val st env store k)
         :call (let [base (- (count st) (:yin.code/argc i) 1)
@@ -415,30 +428,38 @@
 
 
 (defn- recording-primitives
+  "Rule R: a definition is syntax, so nothing can intercept it. `rec`
+   records each definition instead: `(rec 'k (yin/def 'k v))` logs right
+   after the definition runs and returns its value."
   [log]
   (assoc vm/primitives
-         'yin/def (fn [key val]
-                    (swap! log conj [key val])
-                    {:effect :vm/store-put, :key key, :val val})))
+         'rec (fn [key val]
+                (swap! log conj [key val])
+                val)))
+
+
+(defn- rdef!
+  [k val]
+  (app (v 'rec) (lit k) (def! k val)))
 
 
 (def ^:private def-program
-  "`yin/def` side effects in operator position, in operands, in an `if` test
-   and both arms, in a closure body run later, in a tail call, and read back
+  "Definitions in operator position, in operands, in an `if` test and both
+   arms, in a closure body run later, in a tail call, and read back
    through the store."
-  (app (if-node (def! 'pick true)
+  (app (if-node (rdef! 'pick true)
                 (lam '[f x]
                      (tail (app (v 'f)
-                                (def! 'c (v 'x))
-                                (def! 'd (app (v '+) (v 'b) (lit 1))))))
-                (lam '[f x] (def! 'never 0)))
+                                (rdef! 'c (v 'x))
+                                (rdef! 'd (app (v '+) (v 'b) (lit 1))))))
+                (lam '[f x] (rdef! 'never 0)))
        (lam '[p q]
-            (if-node (def! 'e false)
-                     (def! 'never (v 'q))
+            (if-node (rdef! 'e false)
+                     (rdef! 'never (v 'q))
                      (tail (app (v '+)
-                                (def! 'f (v 'p))
-                                (def! 'g (app (v '*) (v 'q) (lit 2)))))))
-       (def! 'b (app (v '+) (def! 'a 1) (def! 'a 2)))))
+                                (rdef! 'f (v 'p))
+                                (rdef! 'g (app (v '*) (v 'q) (lit 2)))))))
+       (rdef! 'b (app (v '+) (rdef! 'a 1) (rdef! 'a 2)))))
 
 
 (deftest evaluation-order-matches-the-walker
@@ -606,7 +627,7 @@
 (defn- decoded-image
   "The image `semantic/load-vector` (U5) decodes a canonical vector to."
   [v]
-  (let [svm (semantic/load-vector (semantic/create-vm) v)]
+  (let [svm (semantic/load-vector (semantic/create-vm) v vm/semantic-contract)]
     (get-in svm [:code (:program svm)])))
 
 
@@ -649,6 +670,7 @@
           (case (nth t 0)
             :const {:yin.code/op :const, :yin.code/value (nth t 1)}
             :var {:yin.code/op :var, :yin.code/name (nth t 1)}
+            :define {:yin.code/op :define, :yin.code/name (nth t 1)}
             :closure {:yin.code/op :closure,
                       :yin.code/params (nth t 1),
                       :yin.code/body (nth t 2)}

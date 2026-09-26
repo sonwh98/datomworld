@@ -103,13 +103,20 @@
   "Load `image` after the stack image `vm` already holds and start at its
    first instruction.  A closure a previous input stored (a `def`) names a
    body pc in the earlier image, so that image is kept, not replaced.
-   `:hash` stays the canonical H of the whole loaded `:segment`
-   (yin.vm.debruijn.stack.md), so each load hashes the concatenation."
+   The incoming image is admitted alone by `load-image` under the current
+   stamp (the expander and the lowerer are its fresh producers), as
+   `append-register-image` admits its own; the image it runs in is the
+   concatenation. `:hash` stays the canonical H of the whole loaded
+   `:segment` (yin.vm.debruijn.stack.md), so each load hashes the
+   concatenation."
   [vm image]
   (let [held (:segment vm)
         offset (count held)
-        shift #(relocate dcode/opcode-table offset %)]
-    (assoc (stack/load-image vm (into held (map shift) image))
+        shift #(relocate dcode/opcode-table offset %)
+        combined (into held (map shift) image)]
+    (assoc (stack/load-image vm image vm/stack-contract)
+           :segment combined
+           :hash (dcode/image-hash combined)
            :pc offset)))
 
 
@@ -128,7 +135,7 @@
                   :instructions (into (:instructions held)
                                       (map shift)
                                       instructions)}]
-    (assoc (register/load-image vm image)
+    (assoc (register/load-image vm image vm/register-contract)
            :segment combined
            :hash (rcode/register-hash combined)
            :pc offset)))
@@ -143,10 +150,17 @@
    kernels through their lowerings to a stack image (H) or a register
    image (R).  No evaluator learns that an expander ran."
   {:ast-walker (fn [vm packet]
-                 (ast-walker/vm-load-rows vm (macro/packet->row-set packet)))
+                 (ast-walker/vm-load-rows vm
+                                          (macro/packet->row-set packet)
+                                          vm/ast-contract))
+   ;; every loader here is the trusted fresh-producer path: the only
+   ;; producer of `program-out` is the expander, so each supplies the
+   ;; current stamp itself
    :semantic (let [load-rows (linearize/rows-loader semantic/load-vector)]
                (fn [vm packet]
-                 (load-rows vm (macro/packet->row-set packet))))
+                 (load-rows vm
+                            (macro/packet->row-set packet)
+                            vm/ast-contract)))
    :stack (fn [vm packet]
             (append-stack-image
               vm
@@ -954,7 +968,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   [state]
   {:lang (:lang state)
    :macros (into (sorted-map-by #(compare (str %1) (str %2)))
-                 (map (fn [[sym [root _]]] [sym root]))
+                 (map (fn [[sym entry]]
+                        [sym (first (:yin.macro/tree entry))]))
                  (get-in state [:expander :ctx :store]))
    :vm {:type (:vm-type state)
         :halted? (vm/halted? (:vm state))

@@ -62,7 +62,8 @@
 
 (deftest semantic-continuation-ships-in-band-test
   (let [code (linearize/lower-ast sum-to-ast)
-        loaded (semantic/vm-load-program (make-semantic-vm) code)
+        loaded (semantic/vm-load-program (make-semantic-vm) code
+                                         vm/semantic-contract)
         mid (nth (iterate vm/step loaded) 60)
         state (transport/enqueue-batch (transport/init-state [:vm-a :vm-b])
                                        {:from :vm-a, :to :vm-b}
@@ -90,7 +91,8 @@
 
 (deftest a-continuation-holding-a-host-function-is-refused-test
   (let [code (linearize/lower-ast {:type :literal, :value 1})
-        vm0 (assoc (semantic/vm-load-program (make-semantic-vm) code)
+        vm0 (assoc (semantic/vm-load-program (make-semantic-vm) code
+                                             vm/semantic-contract)
                    :env {'f (fn [x] x)})]
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
           (handoff/continuation-datoms code vm0)))))
@@ -106,7 +108,8 @@
                            :body {:type :stream/cursor,
                                   :source {:type :variable, :name 's}}},
                 :operands [{:type :stream/make, :buffer 4}]})
-        loaded (semantic/vm-load-program (make-semantic-vm) code)
+        loaded (semantic/vm-load-program (make-semantic-vm) code
+                                         vm/semantic-contract)
         made (first (filter #(seq (handoff/resource-keys %))
                             (take-while (complement vm/halted?)
                                         (iterate vm/step loaded))))]
@@ -130,7 +133,8 @@
              'quoted {tag :quote, :value {tag :primitive, :name '+}},
              'nested [{:inner {tag :primitive, :name '+}} #{:a} '(1 2)],
              'op plus}
-        sender (assoc (semantic/vm-load-program (make-semantic-vm) code)
+        sender (assoc (semantic/vm-load-program (make-semantic-vm) code
+                                                vm/semantic-contract)
                       :env env
                       :stack [plus {tag :bogus}])
         received (handoff/datoms->semantic-vm
@@ -225,8 +229,9 @@
           ;; 'step is defined in vm-a's store; the call is loaded onto the
           ;; same VM so the store carries over.
           vm-a (vm/eval (make-vm :vm-a) define-ast)
-          loaded (ast-walker/vm-load-program vm-a (vec (vm/ast->datoms
-                                                         call-ast)))
+          loaded (ast-walker/vm-load-program vm-a
+                                             (vec (vm/ast->datoms call-ast))
+                                             vm/ast-contract)
           ;; Step part of the way, then lift the live state out.
           mid (nth (iterate vm/step loaded) 9)
           payload (handoff/vm-state->handoff :vm-a mid)
@@ -245,7 +250,8 @@
                :operands [{:type :literal, :value 1}
                           {:type :literal, :value 2}]}
           vm (ast-walker/vm-load-program (make-vm :vm-a)
-                                         (vec (vm/ast->datoms ast)))
+                                         (vec (vm/ast->datoms ast))
+                                         vm/ast-contract)
           payload (handoff/vm-state->handoff :vm-a vm)
           resumed (handoff/handoff->vm-state :vm-b payload make-vm)]
       (is (= {:type :application,

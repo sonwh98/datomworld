@@ -1467,6 +1467,20 @@
                                  :source {:type :variable, :name 's}}]}}})
 
 
+(def ^:private definition-tree
+  "Rule R: `((fn [_] (yin/def 'b 2)) (yin/def 'a 1))`, two definitions.
+   Every definition key is literal, so each is a store-slice requirement
+   exactly as a `:vm/store-put` key is."
+  (let [def! (fn [k v]
+               {:type :application,
+                :operator {:type :variable, :name 'yin/def},
+                :operands [{:type :literal, :value k}
+                           {:type :literal, :value v}]})]
+    {:type :application,
+     :operator {:type :lambda, :params '[_], :body (def! 'b 2)},
+     :operands [(def! 'a 1)]}))
+
+
 (def ^:private requirements-corpus
   "`parity/corpus` plus the kitchen sink and single-node key trees, so the
    conformance equality runs over programs that fill every field and
@@ -1475,6 +1489,7 @@
         [["kitchen sink" requirements-kitchen-sink]
          ["numeric store key" {:type :vm/store-put, :key 99, :val 1}]
          ["keyword store key" {:type :vm/store-get, :key :k}]
+         ["definition key" definition-tree]
          ["park" {:type :vm/park}]]))
 
 
@@ -1493,7 +1508,7 @@
 
 
 (deftest footprint-table-has-a-row-for-every-tag-and-mnemonic
-  (let [table (get vm/footprint-table "v2")]
+  (let [table (get vm/footprint-table vm/semantic-contract)]
     (is (= (set (keys vm/semantic-bytecode-grammar)) (set (keys (:tags table))))
         "every §2.3 tag: no external effect is an explicit #{}, never an
           absence (§7.7.1)")
@@ -1517,6 +1532,16 @@
       "both store directions, the FFI op, the parked id, and every
         effect-raising tag normalized by the footprint table — an FFI call
         contributes no effect identifier"))
+
+
+(deftest definition-keys-are-store-slice-requirements
+  (let [expected {:store-keys #{'a 'b}, :ffi-ops #{}, :parked-ids #{},
+                  :effects #{}}]
+    (is (= expected (vm/ast-requirements (tree-db definition-tree)))
+        "a definition's literal key, read off the tree")
+    (is (= expected (vm/segment-requirements (segment-db definition-tree)))
+        "the same key, read off `[:define k]`; the write is machine state,
+          so it contributes no effect identifier, as `:store-put` does")))
 
 
 (deftest requirement-sets-from-tree-and-segment-are-equal

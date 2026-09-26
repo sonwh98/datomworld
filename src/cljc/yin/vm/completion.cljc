@@ -694,7 +694,7 @@
              :cursor-profile (or cursor-profile (constantly nil)),
              :tree-of (or tree-of (constantly nil)),
              :segment-profile (or segment-profile (constantly layout-profile))}]
-    (-> (initial-state (or contract "v2"))
+    (-> (initial-state (or contract vm/semantic-contract))
         (seed env)
         (drain env)
         (verify env))))
@@ -709,7 +709,8 @@
      :registry        primitive registry for `profile-of`/`name-of`
                       (default `(:primitives vm)`)
      :modules         `{module {:yin.k/manifest address :yin.k/effects #{…}}}`
-     :contract        execution contract stamp (default \"v2\")
+     :contract        execution contract stamp (default
+                      `vm/semantic-contract`)
      :cursor-profile  opaque cursor → transport profile
      :tree-of         segment address → `{:root :rows}` a `:derive` record
                       names, or nil (§5.1.1 precedence)

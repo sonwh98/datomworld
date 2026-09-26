@@ -54,8 +54,9 @@
    framing, or control-flow rules change shape (design section 3).
    3, as of design sections 4.4-4.6 and 5.2: the complete R2 register
    effects set, in-band live sets on all six boundary opcodes, and
-   sparse continuation integration."
-  3)
+   sparse continuation integration. 4 (the `\"r2\"` contract,
+   `yin.vm/register-contract`): Rule R's `:define`."
+  4)
 
 
 ;; =============================================================================
@@ -139,7 +140,13 @@
           [:yin.debruijn.register/live :data]]
 
    :resume [[:yin.debruijn.register/parked-id :kw]
-            [:yin.debruijn.register/value-reg :reg]]})
+            [:yin.debruijn.register/value-reg :reg]]
+
+   ;; Rule R's definition transition: write register `rs` under the
+   ;; literal `name` and into `rd`
+   :define [[:yin.debruijn.register/rd :reg]
+            [:yin.debruijn.register/name :sym]
+            [:yin.debruijn.register/rs :reg]]})
 
 
 (def mnemonics
@@ -315,6 +322,7 @@
     :stream-next #{(nth t 2)}
     :ffi-call (set (nth t 3))
     :resume #{(nth t 2)}
+    :define #{(nth t 3)}
     #{}))
 
 
@@ -324,7 +332,7 @@
     (:const :load-bound :load-free :closure :move
             :store-get :store-put :gensym :stream-make
             :stream-put :stream-cursor :stream-next :stream-close
-            :ffi-call :current-continuation :park)
+            :ffi-call :current-continuation :park :define)
     #{(nth t 1)}
 
     :call (if (nth t 4) #{} #{(nth t 1)})
@@ -644,8 +652,23 @@
         (range (count bodies))))
 
 
+(defn- reserved-rule
+  "Rule R: no `:load-free`, `:define`, `:store-get`, or `:store-put`
+   names a reserved name. A lowered image carrying the old
+   `[:load-free rd yin/def]` call shape is refused here."
+  [{:keys [instructions]}]
+  (some (fn [pc]
+          (let [t (nth instructions pc)]
+            (when (and (contains? #{:load-free :define :store-get :store-put}
+                                  (nth t 0))
+                       (vm/reserved-name? (nth t 2)))
+              (tuple-defect :reserved-name pc))))
+        (range (count instructions))))
+
+
 (def ^:private structural-rules
-  [nonempty mnemonic-rule arity-rule operand-kind-rule target-bounds-rule])
+  [nonempty mnemonic-rule arity-rule operand-kind-rule target-bounds-rule
+   reserved-rule])
 
 
 (def ^:private body-rules

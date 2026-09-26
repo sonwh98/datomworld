@@ -76,28 +76,50 @@
                   (swap! code conj
                          {:op op, :source source, :operands operands})))]
     (letfn
-      [(lower-node
+      [(definition-operator?
+         [e]
+         (and (= :variable (get-attr e :yin/type))
+              (= vm/definition-operator (get-attr e :yin/name))))
+       (lower-node
          [e]
          (let [type (get-attr e :yin/type)]
            (reject-unsupported! type e)
            (case type
              :literal (emit! e :const :yin.code/value (get-attr e :yin/value))
-             :variable (emit! e :var :yin.code/name (get-attr e :yin/name))
+             :variable (let [n (get-attr e :yin/name)]
+                         (when (vm/reserved-name? n)
+                           (vm/refuse-reserved! :variable n {:node e}))
+                         (emit! e :var :yin.code/name n))
              :lambda (let [l (fresh!)]
+                       (when-let [p (some #(when (vm/reserved-name? %) %)
+                                          (get-attr e :yin/params))]
+                         (vm/refuse-reserved! :binder p {:node e}))
                        (swap! bodies conj [l e (get-attr e :yin/body)])
                        (emit! e :closure
                               :yin.code/params (get-attr e :yin/params)
                               :yin.code/body l))
-             :application (let [operands (get-attr e :yin/operands)]
-                            (lower-node (get-attr e :yin/operator))
-                            (emit! e :push)
-                            (doseq [o operands]
-                              (lower-node o)
-                              (emit! e :push))
-                            (emit! e :call
-                                   :yin.code/argc (count operands)
-                                   :yin.code/tail? (boolean
-                                                     (get-attr e :yin/tail?))))
+             :application
+             (if (definition-operator? (get-attr e :yin/operator))
+               ;; Rule R: the value operand, then `:define` with the literal
+               ;; key; the operator is never lowered to a `:var`.
+               (let [operands (get-attr e :yin/operands)
+                     nodes (mapv (fn [o]
+                                   {:type (get-attr o :yin/type),
+                                    :value (get-attr o :yin/value)})
+                                 operands)
+                     n (vm/definition-name {:operands nodes})]
+                 (lower-node (second operands))
+                 (emit! e :define :yin.code/name n))
+               (let [operands (get-attr e :yin/operands)]
+                 (lower-node (get-attr e :yin/operator))
+                 (emit! e :push)
+                 (doseq [o operands]
+                   (lower-node o)
+                   (emit! e :push))
+                 (emit! e :call
+                        :yin.code/argc (count operands)
+                        :yin.code/tail? (boolean
+                                          (get-attr e :yin/tail?)))))
              :if (let [else (fresh!)
                        end (fresh!)]
                    (lower-node (get-attr e :yin/test))
@@ -127,10 +149,16 @@
              :stream/close (do (lower-node (get-attr e :yin/source))
                                (emit! e :stream-close))
              :vm/gensym (emit! e :gensym :yin.code/prefix (get-attr e :yin/prefix))
-             :vm/store-get (emit! e :store-get :yin.code/key (get-attr e :yin/key))
-             :vm/store-put (emit! e :store-put
-                                  :yin.code/key (get-attr e :yin/key)
-                                  :yin.code/value (get-attr e :yin/value))
+             :vm/store-get (let [k (get-attr e :yin/key)]
+                             (when (vm/reserved-name? k)
+                               (vm/refuse-reserved! :store-key k {:node e}))
+                             (emit! e :store-get :yin.code/key k))
+             :vm/store-put (let [k (get-attr e :yin/key)]
+                             (when (vm/reserved-name? k)
+                               (vm/refuse-reserved! :store-key k {:node e}))
+                             (emit! e :store-put
+                                    :yin.code/key k
+                                    :yin.code/value (get-attr e :yin/value)))
              :vm/park (emit! e :park)
              :vm/current-continuation (emit! e :current-continuation)
              :vm/resume (do (lower-node (get-attr e :yin/val-node))
@@ -265,13 +293,20 @@
              :lambda (let [l (fresh!)]
                        (swap! bodies conj [l (nth slots 1) path])
                        (emit! path [:closure (nth slots 0) l]))
-             :application (let [operands (nth slots 1)]
-                            (lower-node (nth slots 0) (conj path 2))
-                            (emit! path [:push])
-                            (dotimes [j (count operands)]
-                              (lower-node (nth operands j) (conj path [3 j]))
-                              (emit! path [:push]))
-                            (emit! path [:call (count operands) (nth slots 2)]))
+             :application
+             (if (= [:variable vm/definition-operator]
+                    (subvec (get rows (nth slots 0)) 1))
+               ;; validated (Rule R): two operands, a literal symbol key
+               (let [operands (nth slots 1)]
+                 (lower-node (nth operands 1) (conj path [3 1]))
+                 (emit! path [:define (nth (get rows (nth operands 0)) 2)]))
+               (let [operands (nth slots 1)]
+                 (lower-node (nth slots 0) (conj path 2))
+                 (emit! path [:push])
+                 (dotimes [j (count operands)]
+                   (lower-node (nth operands j) (conj path [3 j]))
+                   (emit! path [:push]))
+                 (emit! path [:call (count operands) (nth slots 2)])))
              :if (let [else (fresh!)
                        end (fresh!)]
                    (lower-node (nth slots 0) (conj path 2))
@@ -410,10 +445,18 @@
 
 
 (defn ast-loader
-  "Adapt a code loader `(fn [vm code-datoms])` into one for a program stream
-   carrying AST datoms: §3.1's `(comp vm-load-program lower)` for a binary
-   loader. The composition makes this choice; no evaluator learns which form
-   travels.
+  "Adapt a stamped code loader `(fn [vm code-datoms contract])` into one
+   for a program stream carrying AST datoms: S3.1's
+   `(comp vm-load-program lower)` for a binary loader. The composition
+   makes this choice; no evaluator learns which form travels.
+
+   The returned loader is `(fn [vm datoms contract])`. `contract` is the
+   incoming AST's own stamp, required and compared with `vm/ast-contract`
+   before anything is lowered (`:contract-missing`, `:contract-mismatch`),
+   so an old or unstamped image is never relabelled. Only the lowered
+   segment, this linearizer's own fresh output from verified input, is
+   loaded under `vm/semantic-contract`. A medium whose only producer is
+   trusted fresh code composes `vm/fresh-code-loader` around this.
 
    Successive batches on one medium are independent AST programs whose
    tempids restart, so the default `:id-start` would hand two programs of
@@ -422,26 +465,39 @@
    already holds under `:code`; closures and continuations naming earlier
    segments keep resolving."
   [load-program]
-  (fn [vm datoms]
+  (fn [vm datoms contract]
+    (vm/check-contract! vm/ast-contract contract)
     (let [floor (reduce min
                         (min (- datom/first-user-id) (vm/loaded-code-floor (:code vm)))
                         (map first datoms))]
-      (load-program vm (lower datoms {:id-start (dec floor)})))))
+      (load-program vm
+                    (lower datoms {:id-start (dec floor)})
+                    vm/semantic-contract))))
 
 
 (defn rows-loader
-  "Adapt a vector loader (`semantic/load-vector`) into the row lane's loader
-   for a row medium (§7.1): each observed batch is one tree's canonical row
-   set `{:root id, :rows {id row}}`, already projected by whatever producer
-   owns the medium — the encoder observer, for the composition that
-   attaches the semantic VM behind one (`yin.vm.encoder`). The set is
-   validated (§7.4), lowered to the canonical instruction vector (§5.1),
-   and loaded; a batch of any other shape fails validation and throws.
+  "Adapt a stamped vector loader (`semantic/load-vector`) into the row
+   lane's loader for a row medium (S7.1): each observed batch is one
+   tree's canonical row set `{:root id, :rows {id row}}`, already projected
+   by whatever producer owns the medium, the encoder observer for the
+   composition that attaches the semantic VM behind one
+   (`yin.vm.encoder`). The set is validated (S7.4), lowered to the
+   canonical instruction vector (S5.1), and loaded; a batch of any other
+   shape fails validation and throws.
+
+   The returned loader is `(fn [vm bc contract])`: `contract` is the row
+   set's own AST stamp, required and compared with `vm/ast-contract` before
+   lowering, exactly as `ast-loader` requires; only the lowered vector is
+   loaded under `vm/semantic-contract`. A medium whose only producer is
+   trusted fresh code composes `vm/fresh-code-loader` around this.
 
    The composition makes this choice; no evaluator learns which form
    travels."
   [load-vector]
-  (fn [vm bc]
-    (load-vector vm (:vector (if (and (map? bc) (contains? bc :yin/batch))
-                               (lower-envelope bc)
-                               (lower-rows bc))))))
+  (fn [vm bc contract]
+    (vm/check-contract! vm/ast-contract contract)
+    (load-vector vm
+                 (:vector (if (and (map? bc) (contains? bc :yin/batch))
+                            (lower-envelope bc)
+                            (lower-rows bc)))
+                 vm/semantic-contract)))

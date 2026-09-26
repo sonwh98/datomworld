@@ -53,12 +53,14 @@
 
 (defn load-walker
   [ast]
-  (ast-walker/vm-load-program (ast-walker/create-vm) (vm/ast->datoms ast)))
+  (ast-walker/vm-load-program (ast-walker/create-vm) (vm/ast->datoms ast)
+                              vm/ast-contract))
 
 
 (defn load-semantic
   [ast]
-  (semantic/vm-load-program (semantic/create-vm) (linearize/lower-ast ast)))
+  (semantic/vm-load-program (semantic/create-vm) (linearize/lower-ast ast)
+                            vm/semantic-contract))
 
 
 (def evaluators

@@ -473,7 +473,7 @@
         store (get-in state [:expander :ctx :store])]
     (is (= #{'defn 'unless 'twice} (set (keys macros))))
     (doseq [[sym address] macros]
-      (is (= (first (get store sym)) address)
+      (is (= (first (:yin.macro/tree (get store sym))) address)
           (str sym " maps to its lambda packet's root address")))
     (is (str/includes? (second (repl/eval-input state "(repl-state)")) "unless"))))
 

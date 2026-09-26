@@ -196,6 +196,14 @@ It has an operator `[:variable yin/def]`, exactly two operands, a first operand
 second operand. A declared occurrence additionally requires a `:lambda` value
 root. No `:macro?` slot exists.
 
+`yin/def` is syntax, never a name (Rule R, `yin.vm/definition-operator`).
+The variable naming it is legal only as the operator of this shape, and
+`sym` must not itself be `yin/def`. It is never a lambda parameter, a
+store key, a definition key, or a macro name, and it is not a primitive:
+the evaluators write the literal key without resolving the operator.
+Recognition by this shape is therefore sound, because no binding in the
+program or the composition can change what a definition does.
+
 Every definition path must be harvested, including definitions in unexecuted
 branches and non-running trees. Every harvest entry must resolve to this shape.
 Missing, duplicate, out-of-range, or non-definition entries fail with
@@ -236,7 +244,7 @@ expand-batch : batch ctx
             | {:status :error :error error-data :log log-packet :ctx ctx'}
 expand       : batch ctx → tree-packet | throws
 definitions  : batch → ordered definition records
-invoke       : macro-tree operand-trees ctx → tree-packet
+invoke       : macro-entry operand-trees ctx -> tree-packet
 valid-tree?  : tree-packet opts → nil | error-data
 mark-tail    : tree-packet → tree-packet
 step         : expander → expander
@@ -380,6 +388,24 @@ macro-of(ctx, operator-address, shadow):
 There is no inline macro-lambda case. Transformer authority comes only from a
 validated declaration harvested into the store.
 
+The store never binds `yin/def` (Rule R), so `macro-of` never recognizes
+a definition as a macro call. Three sites refuse the reserved name, each
+with `{:rule :reserved-name}` data: `make-ctx` refuses a seeded store
+binding it (a macro named `yin/def`, role `:macro`); `expand-batch`
+refuses a context store binding it and throws, because that is a
+composition defect rather than a batch error; and initial harvest
+refuses it as a definition key (role `:definition-key`).
+
+Every store value is a stamped entry, `(macro-entry packet contract)`,
+`{:yin.macro/tree packet :yin.macro/contract c}`: a macro packet is
+code, so it carries the AST contract it was produced under. Harvest and
+post-harvest stamp only packets this expander produced from the batch it
+admitted, under `yin.vm/ast-contract`. A seeded or supplied entry keeps
+its own stamp and is verified, never relabelled: `make-ctx` and
+`expand-batch` refuse a store holding a bare packet or an entry without
+a contract (`:contract-missing`) or with an old one
+(`:contract-mismatch`), and throw.
+
 ### 4.2 `expand-node`
 
 ```text
@@ -422,6 +448,27 @@ for same-name calls.
 Re-entry after invocation increments depth. Re-check after an operator rewrite
 does not, because recognition is not expansion. A generated chain therefore
 consumes depth and cannot rewrite forever at a constant value.
+
+`invoke` runs the transformer on the bounded runner (S5.2), which is a
+walker: it inherits the walker's Rule R transition checks, so a
+transformer body that reads, binds, or stores under `yin/def` is refused
+when it runs. `invoke` verifies the entry's contract before anything
+runs, direct calls included, and hands that verified stamp to the
+runner in its request (`:contract`); the runner checks it again and
+loads the body rows under it, never under a stamp of its own. The
+expander's input batches themselves carry no stamp: they are syntax
+admitted by `valid-tree?`, and the packets harvested from them are this
+expander's fresh output.
+
+**Limitation (deferred, not closed by Rule R commit one).** Harvest
+stamps the packets it produces with the current AST contract, and that
+is sound only if every input batch is fresh source syntax, as this
+specification assumes of `program-in`. The expander's API cannot
+establish that provenance: nothing distinguishes a batch a frontend just
+produced from one replayed out of storage, so a persisted batch admitted
+here would have its macro bodies stamped current. Admitting persisted
+batches as code needs a stamped-input design, which is not specified
+here; until then a composition must feed the expander fresh syntax only.
 
 ### 4.3 Properties
 

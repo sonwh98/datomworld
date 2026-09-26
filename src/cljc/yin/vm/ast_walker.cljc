@@ -98,6 +98,13 @@
                    (:vm-id vm))))
 
 
+(defn- check-params!
+  "Rule R at transition time: the definition operator is never a binder."
+  [params]
+  (when-let [p (some #(when (vm/reserved-name? %) %) params)]
+    (vm/refuse-reserved! :binder p)))
+
+
 (defn- handle-primitive-result
   "Shared logic for handling the result of a primitive function application.
    Handles effect dispatch and blocking via engine/handle-effect."
@@ -362,6 +369,13 @@
                      :k nil
                      :halted? false)
               (cesk-return state nil env (:next k) value)))
+          :eval-define
+          ;; The definition transition's second half: the value operand has
+          ;; been evaluated, and its literal key is written. The operator
+          ;; was never resolved (Rule R).
+          (let [v (:value state)
+                state (assoc state :store (engine/store-put store (:name k) v))]
+            (cesk-return state nil (or (:env k) env) (:next k) v))
           :eval-resume-val
           (let [resume-val (:value state)
                 parked-id (:parked-id k)]
@@ -379,18 +393,30 @@
         (let [value (engine/resolve-var env store primitives modules (:name node))]
           (cesk-return state nil env k value))
         :lambda (let [{:keys [params body]} node]
+                  (check-params! params)
                   (cesk-return
                     state
                     nil
                     env
                     k
                     {:type :closure, :params params, :body body, :env env}))
-        :application (cesk-return
-                       state
+        :application
+        (if (vm/definition? node)
+          ;; Rule R: a definition never resolves its operator. The key is
+          ;; the literal first operand; only the value operand runs.
+          (cesk-return state
+                       (second (:operands node))
+                       env
+                       {:type :eval-define,
+                        :name (vm/definition-name node),
+                        :next k,
+                        :env env}
+                       (:value state))
+          (cesk-return state
                        (:operator node)
                        env
                        {:frame node, :next k, :env env, :type :eval-operator}
-                       (:value state))
+                       (:value state)))
         :if (cesk-return state
                          (:test node)
                          env
@@ -415,10 +441,11 @@
                             :value id
                             :control nil
                             :halted? (nil? k)))
-        :vm/store-get (cesk-return state nil env k (get store (:key node)))
+        :vm/store-get (do (engine/check-store-key! (:key node))
+                          (cesk-return state nil env k (get store (:key node))))
         :vm/store-put (let [key (:key node)
                             value (:val node)
-                            new-store (assoc store key value)]
+                            new-store (engine/store-put store key value)]
                         (assoc state
                                :store new-store
                                :value value
@@ -427,9 +454,11 @@
         :vm/store-update (let [key (:key node)
                                f (:fn node)
                                args (:args node)
+                               _ (engine/check-store-key! key)
                                current (get store key)
                                new-value (apply f current args)
-                               new-store (assoc store key new-value)]
+                               new-store (engine/store-put store key
+                                                           new-value)]
                            (assoc state
                                   :store new-store
                                   :value new-value
@@ -631,20 +660,26 @@
                                                      (:modules vm)
                                                      (:name node))]
                            (recur nil env k v vm))
-               :lambda (recur nil
-                              env
-                              k
-                              {:type :closure,
-                               :params (:params node),
-                               :body (:body node),
-                               :env env}
-                              vm)
+               :lambda (do (check-params! (:params node))
+                           (recur nil
+                                  env
+                                  k
+                                  {:type :closure,
+                                   :params (:params node),
+                                   :body (:body node),
+                                   :env env}
+                                  vm))
                :application
-               (recur (:operator node)
-                      env
-                      {:frame node, :next k, :env env, :type :eval-operator}
-                      val
-                      vm)
+               (if (vm/definition? node)
+                 (let [next (cesk-transition (cesk-return vm node env k val)
+                                             nil)]
+                   (recur (:control next) (:env next) (:k next) (:value next)
+                          next))
+                 (recur (:operator node)
+                        env
+                        {:frame node, :next k, :env env, :type :eval-operator}
+                        val
+                        vm))
                :if (recur (:test node)
                           env
                           {:frame node, :next k, :env env, :type :eval-test}
@@ -706,13 +741,27 @@
   (engine/vm-value vm))
 
 
+(defn- refuse-reserved-ast!
+  "Whole-tree Rule R validation of a reconstructed AST at load time."
+  [ast]
+  (when-let [defect (vm/ast-reserved-defect ast)]
+    (throw (ex-info "Program violates Rule R" defect))))
+
+
 (defn vm-load-program
   "Load one datom batch into the VM: the existing datom-to-AST conversion
    plus the execution-field updates. This is the loader host composition
    hands to `dao.stream.observer/run-on-stream` alongside
-   `engine/ready-for-ingress?` and the VM's runner."
-  [^ASTWalkerVM vm datoms]
+   `engine/ready-for-ingress?` and the VM's runner.
+
+   `contract` is required: the batch's stamp, compared with
+   `vm/ast-contract` before anything else (`:contract-missing`,
+   `:contract-mismatch`). The reconstructed tree is then validated whole
+   against Rule R. A fresh-code producer supplies the current constant."
+  [^ASTWalkerVM vm datoms contract]
+  (vm/check-contract! vm/ast-contract contract)
   (let [ast (vm/datoms->ast datoms)]
+    (refuse-reserved-ast! ast)
     (assoc vm
            :program ast
            :control ast
@@ -729,8 +778,12 @@
    updates as `vm-load-program`. This is §9.1's loader, the successor of
    the datom decode; the datom loader stays alongside it — both are legal
    per-composition choices, and a composition wires whichever loader(s) it
-   wants."
-  [^ASTWalkerVM vm bc]
+   wants.
+
+   `contract` is required and compared with `vm/ast-contract` first, as
+   for `vm-load-program`; S7.4 validation includes Rule R."
+  [^ASTWalkerVM vm bc contract]
+  (vm/check-contract! vm/ast-contract contract)
   (let [ast (vm/semantic-bytecode->ast bc)]
     (assoc vm
            :program ast
@@ -772,7 +825,7 @@
   (let [initial-env (:env vm)
         res (if ast
               (-> vm
-                  (vm-load-program (vm/ast->datoms ast))
+                  (vm-load-program (vm/ast->datoms ast) vm/ast-contract)
                   (vm/run))
               (vm/run vm))]
     (engine/restore-initial-env initial-env res)))
@@ -830,7 +883,7 @@
      (throw (ex-info
               "Program observation moved to dao.stream.observer: a VM no longer accepts :in-stream"
               {:in-stream (:in-stream opts)})))
-   (let [env (or (:env opts) {})
+   (let [env (vm/check-bindings! :env (or (:env opts) {}))
          base (vm/empty-state
                 (assoc (select-keys opts
                                     [:primitives :primitive-profiles

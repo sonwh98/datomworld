@@ -159,7 +159,9 @@
                          (vm/value
                            (vm/run
                              (ast-walker/vm-load-rows
-                               (tu/create-vm) (vm/ast->semantic-bytecode ast)))))]
+                               (tu/create-vm)
+                               (vm/ast->semantic-bytecode ast)
+                               vm/ast-contract))))]
           (is (= via-batch via-rows)))))))
 
 

@@ -73,7 +73,7 @@ New: src/clj/dao/agent/mcp/main.clj         CLI -main, stdio transport
 New: test/dao/agent/mcp/server_test.cljc
 Existing edits: none
 Depends on: dao.space.query, dao.space.transactor, dao.stream,
-            dao.stream.ws, dao.jing, yin.vm.debruijn-linker,
+            dao.stream.ws, dao.jing, yin.vm.linker,
             yin.vm.debruijn.register (R4 kernel), dao.agent.schema
 Must not change: yin.vm.*, dao.space.*, dao.stream.*, dao.jing.*
 ```

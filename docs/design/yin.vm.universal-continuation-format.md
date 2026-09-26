@@ -1,7 +1,14 @@
 ## §7. The Universal Continuation Format (Proposed)
 
 > [!WARNING]  
-> **Status: Proposed / Deferred.** The Semantic VM's linear CESK state is theoretically sound as an architecture-agnostic continuation format, but true heterogeneous network migration requires addressing several critical defects identified in the 2026-09-14 architectural review. This revision (r3) incorporates r2's answers to that review's findings 1–19 and the subsequent owner ruling on §7.3's canonical form; §7.11 lists the acceptance blockers that keep this warning standing until an implementation phase closes each of them with tests.
+> **Status: Proposed / Deferred.** The Semantic VM's linear CESK state is
+> theoretically sound as an architecture-agnostic continuation format, but
+> true heterogeneous network migration requires addressing several critical
+> defects identified in the 2026-09-14 architectural review. This revision
+> (r4) incorporates r2's answers to that review's findings 1-19, the owner
+> ruling on S7.3's canonical form (r3), and Rule R's "v3" contract (r4);
+> S7.11 lists the acceptance blockers that keep this warning standing until
+> an implementation phase closes each of them with tests.
 
 The Semantic VM's linear CESK state (`{:segment id, :pc n, :env E, :stack S, :k K}`) is proposed as the canonical exchange format for network-transparent continuations. Because this lowered representation resolves execution-order ambiguity inherent in the Universal AST, it provides a simpler target for specialized execution engines (e.g., WebAssembly, LLVM, hardware FPGA) to participate in the `datom.world` ecosystem.
 
@@ -21,6 +28,12 @@ Status: Phase 5 design draft, 2026-09-14; revised 2026-09-14 (r2) per the
 architectural review `collab/1789387292000-architect-ucf-review.gpt-6-astra.findings.md`;
 amended 2026-09-14 (r3) by owner ruling — §7.3's canonical form is the
 positional instruction tuple vector, not EAV (§7.3.2).
+Amended 2026-09-25 (r4) for Rule R, `yin/def` is syntax, never a name
+(collab `1790345200000-architect-yin-def-rule-r-final` findings): the
+contract stamp moves to "v3" because the resolution order refuses the
+reserved name before env and a `:define` transition is added (S7.3.3);
+`yin/def` leaves the primitive registry (S7.5.2) and the free-name set
+(S7.6.1); S7.11 records the remaining definition-frame obligations.
 Subordinate to [`datom.world.md`](./datom.world.md); builds on the Phase 0
 contract in [`yin.vm.semantic.md`](./yin.vm.semantic.md) (§1–§4), the storage
 contract in [`dao.jing.md`](./dao.jing.md), the stream contract in
@@ -85,7 +98,7 @@ never a bare marker map.
 
 ```clojure
 {:yin.k/type        :yin.k/continuation
- :yin.k/contract    {:yin.code/contract "v2" :yin.k/version 0}   ; §7.3.3
+ :yin.k/contract    {:yin.code/contract "v3" :yin.k/version 0}   ; S7.3.3
  :yin.k/id          :segment/sha256-…          ; §7.3.4  content address of this map minus :yin.k/id
  :yin.k/occurrence  :yin.k/o-…                  ; §7.7    the checkpoint occurrence — the lease subject
  :yin.k/origin      {:yin.k/occurrence :yin.k/o-…                        ; predecessor, or absent on a first park
@@ -256,15 +269,19 @@ restoration, and scheduling outside the stamp. UCF therefore versions the
   arity and operand kinds, and the saturation/defaults table — plus the
   §2.6 well-formedness rules and the resolved-interpretation
   (last-value-wins) rule;
-- the §2.4 opcode table and the §4.2 transitions;
-- the resolution precedence of `resolve-var` (env → store → primitives →
-  modules);
+- the S2.4 opcode table and the S4.2 transitions, including the
+  definition transition `[:define name]`, which writes its literal key
+  and never resolves its operator;
+- the resolution precedence of `resolve-var` (env, then store, then
+  primitives, then modules), preceded by Rule R: a reserved name (the
+  one-entry set `#{yin/def}`) is refused before env or store is
+  consulted, so no binding can redirect a definition (S7.5.2);
 - the effect→outcome mapping of §3.3 and `engine/handle-effect`;
 - call restoration and the scheduler semantics of §3.5 — wait-entry shapes,
   `check-wait-set`'s round order, `semantic-restore`.
 
 ```clojure
-:yin.k/contract {:yin.code/contract "v2"    ; the revision above, by name
+:yin.k/contract {:yin.code/contract "v3"    ; the revision above, by name
                  :yin.k/version    0}       ; this envelope's own version
 ```
 
@@ -279,6 +296,25 @@ Because interpretation is part of identity, an engine's code index is keyed
 **per stamp revision**: lookup is `(get-in index [stamp address])`, and the
 same address under different stamps is a different image the same way the
 same datoms under different loaders are a different program.
+
+The current revision is "v3" (`yin.vm/semantic-contract`, and
+`yin.vm/ast-contract` for the Universal AST). It superseded "v2" because
+Rule R changed the resolution order and added the `:define` opcode and
+transition; see the revision log in S7.11. The de Bruijn images carry
+their own names, "b2" (stack) and "r2" (register). Every persistent-code
+loader requires a stamp and refuses `:contract-missing` or
+`:contract-mismatch` before validation, so an old-stamped image fails by
+stamp, not by grammar. The lowering adapters (`linearize/ast-loader`,
+`linearize/rows-loader`) and `ucf/canonicalize` are not exceptions:
+each requires its input's own stamp and verifies it before lowering or
+canonicalizing, and stamps only output it produced from verified input.
+Macro packets are code too: each macro-store value carries its own AST
+stamp, which the transformer runner verifies before it executes the
+packet. Fresh-code producers (yang, the expander, `vm/eval`, a linearizer over
+code it just lowered) supply the current constant themselves, and an
+observer medium whose only producer is trusted fresh code takes the one
+explicitly named path for that, `vm/fresh-code-loader`; nothing assigns
+a stamp to externally supplied datoms or rows.
 
 ### 7.3.4 References to code inside a continuation
 
@@ -662,9 +698,17 @@ present as. Rules:
   a routing decision for whoever chose this resumer, not a silent
   substitution.
 - The standard map `yin.vm/primitives` must be published with profiles
-  (note `yin/def` is `:effectful` with effect `:vm/store-put`, and `require`
-  is `:effectful` with `:module/require`); that publication is an acceptance
-  blocker (§7.11).
+  (note `require` is `:effectful` with `:module/require`); that
+  publication is an acceptance blocker (S7.11).
+- **`yin/def` is syntax, never a primitive (Rule R).** It is not in
+  `yin.vm/primitives` and has no profile; a definition lowers to the
+  `:define` transition (S7.3.3), which writes its literal key through
+  `engine/store-put`. `empty-state` refuses a composition-supplied
+  registry or profile table that binds `yin/def` (`:reserved-name`), and
+  the VM constructors refuse a supplied env binding it, so a requirement
+  naming it can never be satisfied or substituted. `require`
+  is dynamic, not statically interpreted, and stays an ordinary
+  primitive.
 
 ### 7.5.3 Sharing, cells, and cycles
 
@@ -816,6 +860,11 @@ fact, and convergence is reached only when a full pass adds neither:
   store key or profiled primitive/module requirement can discharge an
   obligation, discovery is `:incomplete`; after lowering, an unavailable
   retained requirement is `:yin.k/unsatisfied` (§7.6.5).
+  Definitions are syntax (Rule R, S7.5.2): the definition operator
+  `yin/def` is never a free name and never an obligation, because a
+  well-formed segment has no `:var` naming it (`free-names` never returns
+  it); a `[:define name]` operand is a store key the segment writes, like
+  a `:store-put` operand, not a name it resolves.
 - **Modules:** a module's manifest declares its exported primitive profiles
   and its **store footprint** (store keys and effect kinds its handlers may
   touch). Until manifests carry footprints, any required module whose
@@ -1341,7 +1390,7 @@ the review's named architectural obligations; they are blockers to
   as portable as `dao.jing/segment-key`. Canonical CBOR landed in
   3ddaa21b (recorded in `yin.vm.ucf-revisions.md` section 5); the
   cross-host address checks below still must pass.
-- **Contract revision publication.** `:yin.code/contract "v2"` has a
+- **Contract revision publication.** `:yin.code/contract "v3"` needs a
   published revision history naming the complete execution contract
   (§7.3.3): the tuple grammar — mnemonic set, per-mnemonic arity and operand
   kinds, saturation/defaults table — the opcode table and transitions, the
@@ -1350,9 +1399,14 @@ the review's named architectural obligations; they are blockers to
   history landed in dbae125b (`yin.vm.ucf-revisions.md`); runtime profile
   checks below remain open.
 - **Primitive profile publication.** The standard `yin.vm/primitives`
-  map published with profiles (§7.5.2), including the `:effectful`
-  declarations for `yin/def` and `require`; reverse-lookup uniqueness
-  asserted at `create-vm`.
+  map published with profiles (S7.5.2), including the `:effectful`
+  declaration for `require` (`yin/def` is syntax, not a primitive);
+  reverse-lookup uniqueness asserted at `create-vm`.
+- **Definition frames under Rule R.** The UCF frame encoding of a
+  pending definition (a define continuation awaiting its value), stamp
+  comparison at continuation lowering, module-store snapshot lowering
+  through `engine/store-put`, and the lift and lower round trip of a
+  parked definition are M4 obligations and do not pass today.
 - **Discovery completeness.** The fixed point of §7.6.1 implemented and
   tested against the `:store-get`/`:store-put`, dynamic-callee, and
   cross-activation-`E` cases; module manifests publishing store footprints

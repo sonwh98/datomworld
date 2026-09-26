@@ -89,7 +89,9 @@
    composition hands to observer coordination; the demo calls it directly
    because it animates single steps rather than running to halt."
   [code-datoms]
-  (semantic/vm-load-program (make-vm :vm-a) (vec code-datoms)))
+  (semantic/vm-load-program (make-vm :vm-a)
+                            (vec code-datoms)
+                            vm/semantic-contract))
 
 
 (defn codemirror-editor

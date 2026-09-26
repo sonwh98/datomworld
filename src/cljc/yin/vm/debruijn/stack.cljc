@@ -8,7 +8,8 @@
    `[:store-put key value]`, `[:gensym prefix]`, `[:stream-make buffer]`,
    `[:stream-put]`, `[:stream-cursor]`, `[:stream-next]`, `[:stream-close]`,
    `[:current-continuation]`, `[:park]`, `[:resume parked-id]`,
-   `[:ffi-call op argc]` -- whose shapes come from
+   `[:ffi-call op argc]`, `[:define name]` (Rule R's definition
+   transition) -- whose shapes come from
    `yin.vm.code/vector-operand-table` and section 2 of the design doc.
 
    B3 implemented the pure kernel: frames, closures, loads, calls, returns,
@@ -92,15 +93,8 @@
   :yin.debruijn.code)
 
 
-(defn load-image
-  "Load `segment` (a vector of instructions) into `vm` as its one image:
-   H is recomputed, the registers are reset to pc 0 with empty frames,
-   stack, and continuation, and the machine is running unless the segment
-   is empty. The store, the parked map, the wait set, the ready queue,
-   the id counter, and the composition values survive, exactly as they
-   survive a `yin.vm.semantic/load-vector`. A continuation parked under an
-   earlier image cannot be restored against this one: `stack-restore`
-   refuses it by H."
+(defn- install-image
+  "Install an admitted (or empty) `segment` as the one image, unchecked."
   [vm segment]
   (assoc vm
          :segment segment
@@ -114,6 +108,29 @@
          :value nil))
 
 
+(defn load-image
+  "Load `segment` (a vector of instructions) into `vm` as its one image:
+   H is recomputed, the registers are reset to pc 0 with empty frames,
+   stack, and continuation, and the machine is running unless the segment
+   is empty. The store, the parked map, the wait set, the ready queue,
+   the id counter, and the composition values survive, exactly as they
+   survive a `yin.vm.semantic/load-vector`. A continuation parked under an
+   earlier image cannot be restored against this one: `stack-restore`
+   refuses it by H.
+
+   `contract` is required and compared with `vm/stack-contract` first
+   (`:contract-missing`, `:contract-mismatch`); the image must then pass
+   `yin.vm.debruijn-code/image-defect`, Rule R included. An empty segment
+   admits no code and needs neither."
+  [vm segment contract]
+  (when (seq segment)
+    (vm/check-contract! vm/stack-contract contract)
+    (when-let [defect (dcode/image-defect segment)]
+      (throw (ex-info (str "Invalid stack image: " (:rule defect))
+                      defect))))
+  (install-image vm segment))
+
+
 (defn create-vm
   "Build a fresh `DebruijnVM` over `segment` (a vector of instructions).
 
@@ -124,7 +141,10 @@
    standard registry), `:make-stream` (the host's stream constructor; no
    for every v2 VM), `:call-in`/`:call-out`/`:call-capacity` (the FFI pair,
    built by `yin.vm/empty-state` exactly as the semantic VM's is), and
-   `:bridge` (host FFI handlers, attached by `yin.vm.ffi/attach`).
+   `:bridge` (host FFI handlers, attached by `yin.vm.ffi/attach`), and
+   `:contract`, the segment's stamp, required when `segment` is non-empty
+   (`load-image`). A `:free-env`, `:store`, or `:primitives` binding a
+   reserved name is refused (Rule R).
 
    An empty segment starts halted with an empty program, as the semantic
    VM's `create-vm` does; `load-image` loads work into it.
@@ -143,10 +163,11 @@
             :hash nil,
             :pc 0,
             :frames [],
-            :free-env (or (:free-env opts) {}),
+            :free-env (vm/check-bindings! :env (or (:free-env opts) {})),
             :stack [],
             :continuation [],
-            :store (merge (:store base) (:store opts)),
+            :store (merge (:store base)
+                          (vm/check-bindings! :store (:store opts))),
             :blocked? false,
             :halted? true,
             :wait-set [],
@@ -158,7 +179,7 @@
             :bridge nil,
             :primitives (:primitives base),
             :modules (or (:modules opts) {})})
-         (load-image segment)
+         (load-image segment (:contract opts))
          (ffi/attach (:bridge opts))))))
 
 
@@ -439,7 +460,7 @@
           ;; A primitive host function, resolved by :load-free. The same
           ;; path the named engine's `apply-call` uses for a `fn?` callee:
           ;; a plain result lands on the stack; an effect descriptor (a
-          ;; `yin/def`, a `require`, a `stream` module call) is dispatched
+          ;; `require`, a `stream` module call) is dispatched
           ;; through the engine and may park with the continuation after
           ;; the call site.
           (fn? f)
@@ -483,7 +504,17 @@
         (assoc vm
                :pc (inc pc)
                :stack (conj stack value)
-               :store (assoc store key value)))
+               :store (engine/store-put store key value)))
+
+      ;; :define -- the definition transition: pop the value, write it
+      ;; under the literal name, and leave it as the expression's value.
+      ;; The operator is never resolved (Rule R).
+      :define
+      (let [value (peek stack)]
+        (assoc vm
+               :pc (inc pc)
+               :stack (conj (pop stack) value)
+               :store (engine/store-put store (nth inst 1) value)))
 
       ;; :gensym -- a fresh id; the engine's counter advances
       :gensym

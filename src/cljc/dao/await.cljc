@@ -215,6 +215,11 @@
   ([proc] (run proc {}))
   ([proc opts]
    (let [{:keys [env store-updates]} (prepare-env (:env proc))
+         ;; allowlisted state construction: only minted keyword keys
+         _ (when-let [k (some #(when-not (keyword? %) %)
+                              (keys store-updates))]
+             (throw (ex-info "dao.await store update carries a non-minted key"
+                             {:rule :store-update-key, :key k})))
          vm (-> (ast-walker/create-vm
                   (assoc opts
                          :modules (registry (:modules opts))

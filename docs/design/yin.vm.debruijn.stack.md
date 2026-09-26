@@ -339,6 +339,12 @@ pcs; the resolver's occurrence memo never changes emitted bytes. A
 straight from its resolved attributes; a `:lambda` emits `[:closure arity
 body-pc]`. Every other node emits the carried mnemonic unchanged.
 
+A definition `(yin/def <literal-symbol> value)` is syntax, not a call
+(Rule R): the resolver keeps its literal key and never resolves the
+operator, and `lower-stack` emits the value operand's instructions
+followed by `[:define name]`, exactly as the named linearizer does. The
+lift maps `:define` back to the definition application.
+
 Layout equality with the named linearizer no longer holds by construction.
 It is a required structural-comparison test: for every corpus program the
 canonical vector of `(lower x)` and `(lower-stack (resolve x))` have the
@@ -392,6 +398,19 @@ Scope validation is mandatory in both places where an image can enter:
 No projected reader participates in this path; only the B1 image validator
 admits executable images.
 
+The loader enforces this. `load-image [vm segment contract]` requires the
+stack contract stamp, "b2" (`yin.vm/stack-contract`, lowering-contract
+version 2), refuses `:contract-missing` or `:contract-mismatch` before
+anything else, and then validates through `image-defect`: shape, then
+Rule R, then scope. The Rule R check refuses a `:load-free`, `:define`,
+`:store-get`, or `:store-put` naming `yin/def` as `:reserved-name`, so a
+lowered image carrying the old `[:load-free yin/def] ... [:call 2 false]`
+call shape never loads. `create-vm` takes `:contract` in its options,
+required for a non-empty segment, and refuses a `:free-env`, `:store`,
+or `:primitives` that binds `yin/def`. The "b1" loader admitted images
+without validation; that defect is closed, and every "b1" image is
+refused by stamp with no migration.
+
 ## 4. VM state and execution
 
 The sibling VM uses explicit state:
@@ -416,6 +435,16 @@ The existing named `bind-params` remains name-keyed and unchanged.
 primitives, and module registry. Positional locals never fall through to a
 store key. `:macro?` is retained only in named datoms; runtime closure
 application ignores it exactly as the named runtime does after macro expansion.
+`resolve-var` refuses `yin/def` (`:reserved-name`) before it consults
+`free-env` or the store.
+
+`[:define name]` pops the value, writes it under `name` through
+`engine/store-put` (the one program store write, which refuses the
+reserved key), and pushes the value back as the expression's value. It
+never resolves the definition operator, so no binding can redirect a
+definition. `:define` is opcode data from `vector-operand-table`
+(`[[:yin.debruijn.code/name :sym]]`), carried into this dimension's
+opcode table like every other retained shape.
 
 The VM is a new `yin.vm.debruijn.stack` namespace. It may implement existing VM
 protocols without adding methods, and it may reuse data-only engine helpers
@@ -677,8 +706,8 @@ lanes must agree under the normalizer.
 
 ### B6: committed closed-image linker over dao.jing
 
-    New: src/cljc/yin/vm/debruijn_linker.cljc
-    New: test/yin/vm/debruijn_linker_test.cljc
+    New: src/cljc/yin/vm/linker.cljc
+    New: test/yin/vm/linker_test.cljc
     Existing edits: none
     Depends on: dao.jing (segment-key, materialize!, get), dao.jing.dht
     (create-content-dht, IDhtNet), dao.jing.remote (the DaoStream
@@ -698,8 +727,8 @@ D11, D13, D14, D15, and D16 remain the governing decisions.
 
 ### B7: dependency closure linker
 
-    New: src/cljc/yin/vm/debruijn_linker.cljc
-    New: test/yin/vm/debruijn_linker_dependency_test.cljc
+    New: src/cljc/yin/vm/linker.cljc
+    New: test/yin/vm/linker_dependency_test.cljc
     Existing edits: none
     Must not change: merged projection namespace or B6 closed-image semantics
 

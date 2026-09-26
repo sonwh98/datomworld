@@ -106,6 +106,8 @@
            (case type
              :literal (emit! e [:const (get-attr e :yin/value)])
              :variable (let [free (get-attr e :yin.resolved/free)]
+                         (when (vm/reserved-name? free)
+                           (vm/refuse-reserved! :variable free {:entity e}))
                          (emit! e (if (some? free)
                                     [:load-free free]
                                     [:load-bound (get-attr e :yin.resolved/depth)
@@ -113,14 +115,22 @@
              :lambda (let [l (fresh!)]
                        (swap! bodies conj [l e (get-attr e :yin/body)])
                        (emit! e [:closure (get-attr e :yin.resolved/arity) l]))
-             :application (let [operands (get-attr e :yin/operands)]
-                            (lower-node (get-attr e :yin/operator))
-                            (emit! e [:push])
-                            (doseq [o operands]
-                              (lower-node o)
-                              (emit! e [:push]))
-                            (emit! e [:call (count operands)
-                                      (boolean (get-attr e :yin/tail?))]))
+             :application
+             (let [operands (get-attr e :yin/operands)]
+               (if (resolve/definition-operator? get-attr
+                                                 (get-attr e :yin/operator))
+                 ;; Rule R: the value, then `:define` with the literal key;
+                 ;; the operator is never loaded
+                 (let [n (resolve/definition-key get-attr operands)]
+                   (lower-node (second operands))
+                   (emit! e [:define n]))
+                 (do (lower-node (get-attr e :yin/operator))
+                     (emit! e [:push])
+                     (doseq [o operands]
+                       (lower-node o)
+                       (emit! e [:push]))
+                     (emit! e [:call (count operands)
+                               (boolean (get-attr e :yin/tail?))]))))
              :if (let [else (fresh!), end (fresh!)]
                    (lower-node (get-attr e :yin/test))
                    (emit! e [:branch-false else])

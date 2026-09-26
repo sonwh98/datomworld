@@ -159,6 +159,10 @@ See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary
 - Do not optimize prematurely.
 - When uncertain, ask at the architectural level, not the implementation level.
 - Explanations should align with Plan 9 / Datomic / Lisp lineage.
+- Program store writes go through `engine/store-put`; any other store write
+  the store-write audit (`test/yin/vm/store_write_audit_test.clj`)
+  detects must be on its allowlist; its docstring states the residual it
+  leaves to review.
 
 ### Problem Decomposition
 

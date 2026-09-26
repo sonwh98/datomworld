@@ -41,6 +41,84 @@ The program-cache helpers (`pinned-compiled-versions` and friends) walk
 inside `:next`-chained frames. On a payload without those keys they find
 nothing, which is correct; no VM in this repository uses the compiled cache.
 
+### 1.1 Names and the program store (Rule R)
+
+`yin/def` is syntax, never a name. Two engine functions carry that rule
+for every VM:
+
+    resolve-var      env store primitives registry name -> value
+    store-put        store key val -> store       (refuses a reserved key)
+
+`resolve-var` refuses a reserved name (`:reserved-name`, role
+`:variable`) before it consults env or store; every executing variable
+lookup of all four VMs goes through it. `store-put`, with its guard
+`check-store-key!`, is the one program store write: the `:vm/store-put`
+effect dispatcher, the direct store instructions of the walker, semantic,
+stack, and register VMs, and all four definition transitions write
+through it, and none of those transitions resolves its operator. A
+program therefore cannot redirect a definition through any binding.
+
+`resume-from-run-queue` asserts that a ready entry's `:store-updates`
+carries only keyword keys, the ones the engine mints, and refuses any
+other key with `{:rule :store-update-key}`.
+
+Every other store write the audit detects is state construction and
+sits on an allowlist, enforced by the store-write audit
+(`test/yin/vm/store_write_audit_test.clj`). The allowlist is exact for
+what the detector sees, and no more. The audit reads every file under
+`src` as forms, every host's reader-conditional branch included, and
+detects:
+
+- an `assoc`, `assoc-in`, `update`, `update-in`, `merge`, `merge-with`,
+  `into`, `dissoc`, `select-keys`, `conj`, `swap!`, `reset!`, `vswap!`,
+  or `vreset!` whose argument is `:store`, whose key path contains
+  `:store`, or whose target is a store: a symbol named `store`,
+  `new-store`, `store0`, ..., `(:store x)`, `(get x :store)`,
+  `(get-in x [:store ...])`, or a local alias of one;
+- a local alias bound by `let`, `let*`, `loop`, `loop*`, `when-let`,
+  `if-let`, `when-some`, `if-some`, or `binding`, directly or through an
+  earlier alias, or by a `{heap :store}` destructuring key, scoped to the
+  binding form's body;
+- a pipeline whose threaded value is a store: `->`, `->>`, `some->`,
+  `some->>`, `cond->` and `cond->>` (forms only), and `doto`. The value
+  is a store from the start when the initial value is a store (any of
+  the store forms above, a scoped alias included), or from the first step
+  that moves onto one (`:store`, `(:store)`, `(get :store)`,
+  `(get-in [:store ...])`); every mutation-head step from then on is a
+  site, conservatively, even after a step that leaves the store;
+- `as->`, whose name is a store alias from a store initial value, or
+  after any step that is a store;
+- every `store-put` call and every map literal with a `:store` key.
+
+It fails on any detected site, keyed by file, top-level form, and head,
+outside the list, on any listed site that is gone, and on an unreadable
+file. Negative fixtures pin every form above: each mutation head and
+store spelling, each binding form, each pipeline shape seeded both with
+an extracted store and with a let-bound alias, and each step that moves
+a pipeline onto the store.
+
+It does NOT detect, and review must cover: a store passed across a
+function boundary and written under the parameter's own name; a store
+carried inside another data structure (a map, an atom, a collection
+taken apart by `when-first`) and written from there; and a mutation
+built dynamically (`apply`, `partial`, `comp`, a head bound to another
+name). Residual fixtures pin each of these as undetected, so the stated
+guarantee cannot silently drift from the code. Transients, host
+interop, and macros that expand to a write are outside the detector too,
+with no fixture.
+
+The list: program writes through `engine/store-put`; engine-minted
+keyword keys (stream ids, cursor ids, and cursor advance in
+`handle-next` and the wait-set resolver); the ready-queue merge
+(asserted keyword keys); VM construction (the FFI pair, and the two de
+Bruijn constructor merges, checked); `dao.await` (checked keyword
+keys); the REPL history keys `*1`, `*2`, `*3`; the continuation handoff
+demo (checked); a JVM demo store transfer (`src/clj/yin/demo.clj`);
+display projections in two browser demos; the waitset result and a
+dao.space index handle, which are not VM program writes; and the
+expander's macro store. A new store write must either route through
+`store-put` or join the allowlist in review.
+
 ## 2. What a VM supplies
 
 Exactly one VM-level function and one instruction-site builder shape.
@@ -51,7 +129,8 @@ Exactly one VM-level function and one instruction-site builder shape.
 
 `base` is the VM state after the engine has done its part: the ready entry
 popped, `:store-updates` merged, `:blocked?` and `:halted?` cleared (from
-`resume-from-run-queue`), or the parked record removed (from
+`resume-from-run-queue`, which first asserts keyword keys, section
+1.1), or the parked record removed (from
 `resume-continuation`). `entry` is the wait, ready, or parked record. `val`
 is the value the parked instruction receives: the woken stream value, or the
 resume operand.

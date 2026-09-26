@@ -71,7 +71,8 @@
 
 
 (def ^:private load-semantic-ast
-  (linearize/ast-loader semantic/vm-load-program))
+  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+                        vm/ast-contract))
 
 
 (defn- semantic-run
@@ -91,7 +92,8 @@
   ([ast opts]
    (vm/run (dvm/create-vm (adapted-stack ast)
                           (merge {:make-stream tu/make-stream,
-                                  :primitives vm/primitives}
+                                  :primitives vm/primitives,
+                                  :contract vm/stack-contract}
                                  opts)))))
 
 
@@ -105,7 +107,8 @@
                (adapted-register ast-or-image))]
      (vm/run (rvm/create-vm img
                             (merge {:make-stream tu/make-stream,
-                                    :primitives vm/primitives}
+                                    :primitives vm/primitives,
+                                    :contract vm/register-contract}
                                    opts))))))
 
 
@@ -365,7 +368,8 @@
                              [:const 1 "payload"]
                              [:stream-put 2 0 1 []]
                              [:halt 2]])
-          vm (rvm/create-vm img {:store {:scripted (scripted-stream outcomes
+          vm (rvm/create-vm img {:contract vm/register-contract,
+                                 :store {:scripted (scripted-stream outcomes
                                                                     seen)}})
           parked (nth (iterate vm/step vm) 3)
           entry (first (:wait-set parked))]
@@ -430,7 +434,7 @@
                                                                 :end 1}],
                                                       :instructions body0})
                                           body1))}
-          vm0 (rvm/create-vm img)
+          vm0 (rvm/create-vm img {:contract vm/register-contract})
           parked (vm/run vm0)]
       (is (true? (vm/halted? parked)))
       (is (= :parked-0 (get-in parked [:value :id])))
@@ -476,7 +480,7 @@
 
 (deftest ivm-protocol-test
   (let [img (hand-image 1 [[:const 0 99] [:halt 0]])
-        vm (rvm/create-vm img)]
+        vm (rvm/create-vm img {:contract vm/register-contract})]
     (is (false? (vm/halted? vm)))
     (is (false? (vm/blocked? vm)))
     (is (nil? (vm/value vm)))
@@ -495,7 +499,8 @@
 
 (deftest ivm-state-protocol-test
   (let [img (hand-image 1 [[:const 0 123] [:halt 0]])
-        vm (rvm/create-vm img {:store {:my-key 456}})]
+        vm (rvm/create-vm img {:contract vm/register-contract,
+                               :store {:my-key 456}})]
     (is (= {:pc 0} (vm/control vm)))
     (is (= 456 (get (vm/store vm) :my-key)))
     (is (empty? (vm/continuation vm)))
@@ -505,7 +510,8 @@
 
 (deftest eval-throws-test
   (testing "eval throws informative ex-info pointing to adapt"
-    (let [vm (rvm/create-vm (hand-image 1 [[:halt 0]]))]
+    (let [vm (rvm/create-vm (hand-image 1 [[:halt 0]]) {:contract
+                                                        vm/register-contract})]
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error :cljd Object)
                             #"executes raw instruction vectors"
             (vm/eval vm (lit 42)))))))
@@ -518,7 +524,7 @@
 (deftest refuse-foreign-continuation-format-test
   (testing "register-restore refuses continuation with foreign format"
     (let [img (hand-image 1 [[:halt 0]])
-          vm (rvm/create-vm img)
+          vm (rvm/create-vm img {:contract vm/register-contract})
           bad-entry {:format :yin.debruijn.code,
                      :hash (:hash vm),
                      :pc 0,
@@ -532,7 +538,7 @@
 (deftest refuse-continuation-hash-mismatch-test
   (testing "register-restore refuses continuation with mismatched hash"
     (let [img (hand-image 1 [[:halt 0]])
-          vm (rvm/create-vm img)
+          vm (rvm/create-vm img {:contract vm/register-contract})
           bad-entry {:format rvm/format-tag,
                      :hash "wrong-hash",
                      :pc 0,
@@ -546,7 +552,7 @@
 (deftest refuse-non-plain-resume-value-test
   (testing "register-restore refuses non-plain resume values like host fn"
     (let [img (hand-image 2 [[:park 0 []] [:halt 0]])
-          vm (rvm/create-vm img)
+          vm (rvm/create-vm img {:contract vm/register-contract})
           entry (effects/continuation-payload vm (first (:instructions img)))]
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error :cljd Object)
                             #"Resume value must be plain data"
@@ -556,7 +562,7 @@
 (deftest refuse-tampered-continuation-payload-test
   (testing "register-restore refuses tampered continuation payload with defects"
     (let [img (hand-image 2 [[:park 0 []] [:halt 0]])
-          vm (rvm/create-vm img)
+          vm (rvm/create-vm img {:contract vm/register-contract})
           valid-entry (effects/continuation-payload
                         vm (first (:instructions img)))]
       (testing "tampered live set"
@@ -596,7 +602,7 @@
                    :instructions [[:const 999 42]]}] ; out of bounds register
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error :cljd Object)
                             #"Invalid register image"
-            (rvm/create-vm bad-img))))))
+            (rvm/create-vm bad-img {:contract vm/register-contract}))))))
 
 
 (deftest refuse-unknown-opcode-test

@@ -193,11 +193,13 @@
     :stack {:lower linearize/lower-stack,
             :count count,
             :encode dcode/encode-image,
-            :create dvm/create-vm}
+            :create #(dvm/create-vm %1 (assoc %2 :contract
+                                              vm/stack-contract))}
     :register {:lower register-compile/lower-register,
                :count (comp count :instructions),
                :encode rcode/encode-register-image,
-               :create rvm/create-vm}))
+               :create #(rvm/create-vm %1 (assoc %2 :contract
+                                                 vm/register-contract))}))
 
 
 (defn- measure
@@ -284,12 +286,14 @@
                    (vm/value (vm/run (dvm/create-vm
                                        (:image (linearize/adapt
                                                  (vm/ast->datoms ast)))
-                                       vm-opts))))
+                                       (assoc vm-opts :contract
+                                              vm/stack-contract)))))
                  (b0/normalize
                    (vm/value (vm/run (rvm/create-vm
                                        (:image (register-compile/adapt
                                                  (vm/ast->datoms ast)))
-                                       vm-opts)))))))))))
+                                       (assoc vm-opts :contract
+                                              vm/register-contract))))))))))))
 
 
 (deftest corpus-sample-present-test
@@ -382,12 +386,16 @@
              reg-img (:image (register-compile/lower-register resolved))
              run-stack (fn []
                          (dotimes [_ 20]
-                           (vm/run (dvm/create-vm stack-img vm-opts))))
+                           (vm/run (dvm/create-vm stack-img
+                                                  (assoc vm-opts :contract
+                                                         vm/stack-contract)))))
              stack-file (run-with-jfr! "stack-vm-countdown" run-stack)
              stack-sum (summarize-jfr stack-file)
              run-reg (fn []
                        (dotimes [_ 20]
-                         (vm/run (rvm/create-vm reg-img vm-opts))))
+                         (vm/run (rvm/create-vm reg-img
+                                                (assoc vm-opts :contract
+                                                       vm/register-contract)))))
              reg-file (run-with-jfr! "register-vm-countdown" run-reg)
              reg-sum (summarize-jfr reg-file)]
          (is (.exists stack-file))

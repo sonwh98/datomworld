@@ -719,8 +719,14 @@
    `{:kind :fuel-guard :steps n}`, `{:kind :suspended}` (a park, resume,
    bridge call, blocked read, or work scheduled outside the body
    continuation), `{:kind :effect-guard :tag t}` (a stream constructor), or
-   `{:kind :body-error :message s}` (the body threw)."
-  [{:keys [macro-tree env prelude max-steps]}]
+   `{:kind :body-error :message s}` (the body threw).
+
+   `contract` is the packet's own AST stamp, carried from its store entry
+   by `invoke`, which has verified it; the body rows load under that stamp,
+   never one this runner supplies, and a missing or old stamp is refused
+   (thrown) before anything runs."
+  [{:keys [macro-tree contract env prelude max-steps]}]
+  (vm/check-contract! vm/ast-contract contract)
   (let [index (packet-index macro-tree)
         body (nth (get index (first macro-tree)) 3)
         body-set {:root body, :rows (into {} (map (fn [a] [a (get index a)]))
@@ -729,7 +735,8 @@
       (loop [v (ast-walker/vm-load-rows
                  (ast-walker/create-vm {:env env, :primitives prelude,
                                         :primitive-profiles {}})
-                 body-set)
+                 body-set
+                 contract)
              steps 0]
         (let [tag (:type (:control v))]
           (cond (or (:blocked? v) (seq (:wait-set v)) (seq (:parked v)))
@@ -773,11 +780,43 @@
   [(get-in ctx [:incarnation :yin.expander/token]) counter])
 
 
+(defn macro-entry
+  "A macro-store value: a self-contained lambda tree `packet` with the AST
+   `contract` it was produced under. The store holds only these. The
+   transformer runner verifies the contract before it executes the packet
+   (Rule R: a persistent or supplied code packet is never relabelled), and
+   the expander stamps only what it harvests itself, under
+   `vm/ast-contract`."
+  [packet contract]
+  {:yin.macro/tree packet, :yin.macro/contract contract})
+
+
+(defn- verified-tree
+  "The packet of a macro-store value after its contract is verified
+   against `vm/ast-contract`: `:contract-missing` for a bare packet or an
+   entry without one, `:contract-mismatch` for an old stamp."
+  [entry]
+  (vm/check-contract! vm/ast-contract
+                      (when (map? entry) (:yin.macro/contract entry)))
+  (:yin.macro/tree entry))
+
+
+(defn- check-store!
+  "A supplied macro store: no reserved name is a macro (Rule R), and every
+   entry carries the current AST contract. Returns `store`."
+  [store]
+  (vm/check-bindings! :macro store)
+  (doseq [entry (vals store)] (verified-tree entry))
+  store)
+
+
 (defn- invoke*
-  "Run one macro body. `counter` is the attempt counter, which gensyms read.
-   `{:tree packet}` or `{:error e}`."
-  [macro-tree operands ctx counter]
-  (let [macro-root (first macro-tree)
+  "Run one macro body. `entry` is a macro-store value (`macro-entry`),
+   verified before anything runs. `counter` is the attempt counter, which
+   gensyms read. `{:tree packet}` or `{:error e}`."
+  [entry operands ctx counter]
+  (let [macro-tree (verified-tree entry)
+        macro-root (first macro-tree)
         params (nth (root-row macro-tree) 2)
         {:keys [env expected got]} (bind-arguments params operands)]
     (if-not env
@@ -791,6 +830,7 @@
                                     "__" token "_" counter "_" i))))
             run (or (:eval ctx) bounded-row-evaluator)
             {:keys [value error]} (run {:macro-tree macro-tree,
+                                        :contract (:yin.macro/contract entry),
                                         :env env,
                                         :prelude (prelude gensym),
                                         :max-steps (get-in ctx [:guards :max-steps])})]
@@ -807,13 +847,16 @@
 
 
 (defn invoke
-  "Run `macro-tree` (a self-contained lambda packet) on `operand-trees` and
-   return its result tree packet, unvalidated. Gensyms use `(:attempt ctx)`
-   as the attempt counter. Throws `ex-info` carrying the error data on an
-   arity, guard, suspension, or body failure."
-  [macro-tree operand-trees ctx]
+  "Run `entry`, a macro-store value (`macro-entry`: a self-contained lambda
+   packet and its AST contract), on `operand-trees` and return its result
+   tree packet, unvalidated. The contract is verified first
+   (`:contract-missing`, `:contract-mismatch`, thrown). Gensyms use
+   `(:attempt ctx)` as the attempt counter. Throws `ex-info` carrying the
+   error data on an arity, guard, suspension, or body failure."
+  [entry operand-trees ctx]
   (let [ctx (update ctx :guards #(merge default-guards %))
-        {:keys [tree error]} (invoke* macro-tree (vec operand-trees) ctx (:attempt ctx))]
+        {:keys [tree error]} (invoke* entry (vec operand-trees) ctx
+                                      (:attempt ctx))]
     (when error
       (throw (ex-info "Macro invocation failed" error)))
     tree))
@@ -895,11 +938,16 @@
 
 (defn- harvest
   "Initial harvest: iterate definitions in ordinal order; a declared one
-   installs its lambda packet, a plain one removes the name. Last wins."
+   installs its lambda packet, a plain one removes the name. Last wins.
+   A reserved name is never a definition key or a macro name (Rule R)."
   [store index-of definitions]
   (reduce (fn [store {:keys [tree name value declared?]}]
+            (when (vm/reserved-name? name)
+              (vm/refuse-reserved! :definition-key name))
             (if declared?
-              (assoc store name (packet-of (index-of tree) value))
+              (assoc store name
+                     (macro-entry (packet-of (index-of tree) value)
+                                  vm/ast-contract))
               (dissoc store name)))
           store
           definitions))
@@ -929,7 +977,9 @@
                           (let [[_ _ nm k] row
                                 entry (get catalogue k)]
                             (if (and entry (= nm (:name entry)))
-                              (assoc store nm (:macro-tree entry))
+                              (assoc store nm
+                                     (macro-entry (:macro-tree entry)
+                                                  vm/ast-contract))
                               store))
 
                           :else
@@ -1014,10 +1064,10 @@
    guard or invocation, run the transformer on the operand packets, validate
    and merge the result, finish the event, and reconsider the result at the
    same occurrence with depth + 1."
-  [st address macro-tree {:keys [path rel frame shadow depth]}]
+  [st address entry {:keys [path rel frame shadow depth]}]
   (let [[st counter] (allocate-attempt st)
         ctx (:ctx st)
-        macro-root (first macro-tree)
+        macro-root (first (:yin.macro/tree entry))
         begin (fn [output error]
                 (event-row (attempt-id ctx counter)
                            (:source-batch st)
@@ -1036,7 +1086,7 @@
       [(failed st {:kind :depth-guard, :depth depth, :path path}) address]
       (let [row (get (:index st) address)
             operands (mapv #(packet-of (:index st) %) (nth row 3))
-            {:keys [tree error]} (invoke* macro-tree operands ctx counter)
+            {:keys [tree error]} (invoke* entry operands ctx counter)
             invalid (fn [reason]
                       {:kind :invalid-output, :macro macro-root, :path path,
                        :reason reason})]
@@ -1148,8 +1198,12 @@
    `{:status :ok :tree packet :log log :ctx ctx'}` or
    `{:status :error :error e :log log :ctx ctx'}`. Either way `ctx'` has
    consumed the batch (`:t` + 1) and every attempt it allocated; only
-   success changes the store, to the post-harvest store."
+   success changes the store, to the post-harvest store. A context store
+   binding a reserved name, or holding an entry without the current AST
+   contract, is refused (Rule R): it is a composition defect, so it throws
+   rather than returning an error."
   [batch ctx]
+  (check-store! (:store ctx))
   (let [ctx (with-default-guards ctx)
         source-batch (:t ctx)
         base {:ctx ctx, :source-batch source-batch, :events [], :produced []}
@@ -1219,9 +1273,13 @@
 
 (defn make-ctx
   "An expander context. The composition supplies the incarnation `token`
-   and the opaque `source-medium` identity (§3.1); the store may be seeded."
+   and the opaque `source-medium` identity (S3.1); the store may be
+   seeded with `macro-entry` values. A seeded store binding a reserved
+   name, a macro named `yin/def`, is refused (Rule R), and so is any entry
+   whose AST contract is absent (`:contract-missing`) or old
+   (`:contract-mismatch`)."
   [{:keys [token source-medium store guards], eval-fn :eval}]
-  (cond-> {:store (or store {}),
+  (cond-> {:store (check-store! (or store {})),
            :incarnation {:yin.expander/token token},
            :attempt 0,
            :source-medium source-medium,

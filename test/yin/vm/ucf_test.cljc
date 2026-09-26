@@ -136,7 +136,7 @@
     (testing "Refs are the loader's resolved pcs"
       (is (= 6 (nth (nth v 0) 2))))
     (testing "The direct path accepts and runs what canonicalization mints"
-      (let [loaded (semantic/load-vector (make-vm) v)]
+      (let [loaded (semantic/load-vector (make-vm) v vm/semantic-contract)]
         (is (= 11 (vm/value (vm/run loaded))))
         (is (= (:code (semantic/load-image (worked-segment)))
                (:code (get-in loaded [:code (:program loaded)])))
@@ -144,21 +144,22 @@
 
 
 (deftest code-identity-and-contract-stamp-test
-  (let [outcome (ucf/canonicalize (worked-segment))]
+  (let [outcome (ucf/canonicalize (worked-segment) vm/semantic-contract)]
     (testing "The address is dao.jing's segment key of the vector"
       (is (= :yin.k/ok (:yin.k/status outcome)))
       (is (= worked-vector (:yin.code/vector outcome)))
       (is (= (jing/segment-key worked-vector) (:yin.code/hash outcome)))
       (is (= (ucf/code-address worked-vector) (:yin.code/hash outcome)))
       (is (jing/segment-address? (:yin.code/hash outcome))))
-    (testing "The stamp names the v2 contract and the envelope version"
-      (is (= {:yin.code/contract "v2", :yin.k/version 0}
+    (testing "The stamp names the v3 contract and the envelope version"
+      (is (= {:yin.code/contract "v3", :yin.k/version 0}
              (:yin.k/contract outcome)))
       (is (= ucf/contract-stamp (:yin.k/contract outcome))))))
 
 
 (deftest loader-verifies-the-address-canonicalization-mints-test
-  (let [address (:yin.code/hash (ucf/canonicalize (effects-segment)))
+  (let [address (:yin.code/hash (ucf/canonicalize (effects-segment)
+                                                  vm/semantic-contract))
         claimed (fn [batch]
                   (into (segment 8 [[:yin.code/hash address]])
                         (remove (fn [[e]] (= seg e)) batch)))]
@@ -184,9 +185,9 @@
 ;; =============================================================================
 
 (deftest equivalence-under-relabelling-and-reordering-test
-  (let [reference (ucf/canonicalize (worked-segment))
+  (let [reference (ucf/canonicalize (worked-segment) vm/semantic-contract)
         same? (fn [batch]
-                (let [o (ucf/canonicalize batch)]
+                (let [o (ucf/canonicalize batch vm/semantic-contract)]
                   (and (= (:yin.code/vector reference) (:yin.code/vector o))
                        (= (:yin.code/hash reference) (:yin.code/hash o)))))]
     (testing "Entity ids are relabelled: alpha-equivalent batches agree"
@@ -217,13 +218,13 @@
 
 
 (deftest equivalence-under-saturation-and-resolution-test
-  (let [stated (ucf/canonicalize (effects-segment))]
+  (let [stated (ucf/canonicalize (effects-segment) vm/semantic-contract)]
     (testing "Omitted defaulted operands are materialized (S7.3.2); an
               argc is not omissible, S2.6 rule 7 requires it on the batch"
       (let [omitted (ucf/canonicalize
                       (without-attrs (effects-segment)
                                      #{:yin.code/prefix :yin.code/buffer
-                                       :yin.code/tail?}))]
+                                       :yin.code/tail?}) vm/semantic-contract)]
         (is (= [:gensym "id"] (nth (:yin.code/vector omitted) 0)))
         (is (= [:stream-make vm/default-stream-capacity]
                (nth (:yin.code/vector omitted) 2)))
@@ -242,8 +243,9 @@
                            (instruction 1 :halt))]
         (is (= [[:const 10] [:halt]]
                (ucf/batch->canonical-instruction-vector twice)))
-        (is (= (:yin.code/hash (ucf/canonicalize once))
-               (:yin.code/hash (ucf/canonicalize twice))))))))
+        (is (= (:yin.code/hash (ucf/canonicalize once vm/semantic-contract))
+               (:yin.code/hash (ucf/canonicalize twice
+                                                 vm/semantic-contract))))))))
 
 
 ;; =============================================================================
@@ -251,7 +253,9 @@
 ;; =============================================================================
 
 (deftest distinction-test
-  (let [address (fn [batch] (:yin.code/hash (ucf/canonicalize batch)))
+  (let [address (fn [batch]
+                  (:yin.code/hash (ucf/canonicalize batch
+                                                    vm/semantic-contract)))
         vector-of ucf/batch->canonical-instruction-vector
         const-program (fn [& values]
                         (assemble (segment 2)
@@ -307,7 +311,7 @@
           r (refusal-of bad)]
       (is (= :yin.k/non-portable (:yin.k/status r)))
       (is (= :non-canonicalizable (:yin.k/kind r)))
-      (is (= r (ucf/canonicalize bad))
+      (is (= r (ucf/canonicalize bad vm/semantic-contract))
           "canonicalize returns the same outcome rather than throwing")))
   (testing "An operand the tuple has no slot for is refused, naming the pc"
     (let [r (refusal-of (assemble (segment 2)
@@ -355,7 +359,7 @@
     (is (= #{:const :var :closure :push :call :return :jump :branch-false
              :halt :gensym :store-get :store-put :stream-make :stream-put
              :stream-cursor :stream-next :stream-close :park :resume
-             :current-continuation :ffi-call}
+             :current-continuation :ffi-call :define}
            (set (keys ucf/transitions)))))
   (testing "The parking transitions are S7.4.1's, effectful calls included"
     (is (= #{:park :stream-next :stream-put :ffi-call :call}
@@ -472,7 +476,8 @@
    and return the operand depth before it with the frame the machine left:
    a wait entry, or the parked record for an explicit park."
   [vm batch at]
-  (let [before (step-to (semantic/vm-load-program vm batch) at)
+  (let [before (step-to (semantic/vm-load-program vm batch
+                                                  vm/semantic-contract) at)
         after (vm/step before)
         frame (or (first (:wait-set after))
                   (first (vals (:parked after))))]
