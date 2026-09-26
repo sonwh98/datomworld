@@ -1715,7 +1715,14 @@ as a pure function over plain data.
   ```
 
   The envelope is transacted as datoms `[ev :yin.module/envelope env]`
-  and `[ev :yin.module/proof proof]`. An envelope is honored only with
+  and `[ev :yin.module/proof proof]`. Ingestion is
+  `yin.vm.linker.authority/events-from-datoms`: one event per envelope
+  datom, carrying its entity's proof value (an envelope with no
+  proof datom, or whose entity carries two distinct proof values, is the
+  no-proof case below; a proof datom with no envelope datom names no
+  event, and joins one only if an envelope later appears on its entity), with the carrier
+  `:dao.stream/identity` of the read supplied by the composition, never
+  read from a datom. An envelope is honored only with
   a proof; a bare `:asserted-by` value is a string anyone can write.
   An envelope whose proof is absent or fails is `:unauthenticated`
   with `:kind :no-proof` or `:bad-proof` and is discarded before
