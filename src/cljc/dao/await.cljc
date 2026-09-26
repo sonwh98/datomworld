@@ -77,6 +77,15 @@
 (def ^:private await-bindings {'cursor cursor, '<! <!, '>! >!})
 
 
+(def ^:private await-profiles
+  "UCF 7.5.2 profiles for the await bindings: each is an `:effectful`
+   pure effect constructor declaring the one stream effect it returns."
+  {'cursor (vm/primitive-profile 'cursor :effectful [1] #{:stream/cursor}
+                                 :none)
+   '<! (vm/primitive-profile '<! :effectful [1] #{:stream/next} :none)
+   '>! (vm/primitive-profile '>! :effectful [2] #{:stream/put} :none)})
+
+
 (defn registry
   "A module registry value carrying the await bindings under 'await and
    'dao.await, on top of base (default: yin.vm.module's built-in
@@ -85,8 +94,9 @@
   ([] (registry nil))
   ([base]
    (-> (or base (module/default-registry))
-       (module/register-module 'await await-bindings)
-       (module/register-module 'dao.await await-bindings))))
+       (module/register-host-module 'await await-bindings await-profiles)
+       (module/register-host-module 'dao.await await-bindings
+                                    await-profiles))))
 
 
 ;; =============================================================================

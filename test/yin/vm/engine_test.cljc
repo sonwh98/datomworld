@@ -187,9 +187,12 @@
 ;; =============================================================================
 
 (deftest resolve-var-reads-a-supplied-registry-test
-  (let [registry (module/register-module (module/empty-registry)
-                                         'my.lib
-                                         {'answer 42})]
+  (let [registry (module/register-host-module
+                   (module/empty-registry)
+                   'my.lib
+                   {'answer 42}
+                   {'answer (vm/primitive-profile 'answer :pure [0] #{}
+                                                  :none)})]
     (testing "Resolution order is env, store, primitives, registry"
       (is (= 1 (engine/resolve-var {'x 1} {'x 2} {'x 3} registry 'x)))
       (is (= 2 (engine/resolve-var {} {'x 2} {'x 3} registry 'x)))

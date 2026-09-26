@@ -6,14 +6,15 @@
    supplied by the composition that wires the VM.
 
      (-> (empty-registry)
-         (register-module 'my.lib {'foo (fn [x] x)})
+         (register-host-module 'my.lib {'foo (fn [x] x)} profiles)
          (register-stream-module))
 
    Nothing in this namespace runs at load time, and nothing registers itself.
    A composition that wants Yin source to reach `(stream/...)` registers the
    stream module explicitly and supplies `:make-stream` beside it."
   (:require
-    [clojure.string :as str]))
+    [clojure.string :as str]
+    [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -33,22 +34,27 @@
   (mapv symbol (str/split (str sym) #"\.")))
 
 
-(defn register-module
-  "Return registry with bindings merged into module-name.
-   module-name is a dotted symbol; bindings is a map of symbol -> function."
-  [registry module-name bindings]
-  (update-in (or registry (empty-registry))
-             (into [:modules] (symbol->path module-name))
-             merge
-             bindings))
+(defn- walk-path
+  "Descend a registry's :modules map along path, a sequence of symbols.
+
+   Namespace segments step through plain maps until the path reaches a
+   module entry (a map carrying :manifest); the remaining segments read
+   that entry's :slice, so a binding name resolves to its export."
+  [node path]
+  (if (seq path)
+    (if (and (map? node) (contains? node :manifest))
+      (get-in node (into [:slice] path))
+      (when-let [child (get node (first path))]
+        (walk-path child (rest path))))
+    node))
 
 
 (defn resolve-module
   "Get a value from a registry value by dotted symbol path.
-   (resolve-module r 'io)                    → full 'io bindings map
-   (resolve-module r 'io.file-output-stream) → the specific binding"
+   (resolve-module r 'io)                    → the 'io registry entry
+   (resolve-module r 'io.file-output-stream) → the specific export"
   [registry sym]
-  (get-in (:modules registry) (symbol->path sym)))
+  (walk-path (:modules registry) (symbol->path sym)))
 
 
 (defn register-effect-handler
@@ -68,6 +74,94 @@
   "List the top-level module names in a registry value."
   [registry]
   (keys (:modules registry)))
+
+
+;; =============================================================================
+;; Host modules
+;; =============================================================================
+;;
+;; A host module is the trusted composition boundary (yin.vm.linker.md
+;; section 8.3): the host is where the code already is, so no code is
+;; fetched. Registration checks the declaration, not the code -- a host
+;; function is opaque, and its profile is the warranty the composition
+;; publishes with it and answers for as trusted, reviewed code.
+
+(def ^:private profile-keys
+  "The five keys of a UCF 7.5.2 profile record, the shape
+   `yin.vm/primitive-profiles` publishes."
+  [:yin.k/profile :yin.k/class :yin.k/arities :yin.k/effects
+   :yin.k/host-state])
+
+
+(defn- profile-rule
+  "The registration rule a binding's profile breaks, or nil when it is a
+   UCF 7.5.2 record of a class a host module may export: `:pure`, or
+   `:effectful` with a declared non-empty effect set, and no declared
+   host state."
+  [profile]
+  (cond
+    (not (and (map? profile)
+              (every? #(contains? profile %) profile-keys)))
+    :malformed-profile
+
+    (not= :none (:yin.k/host-state profile))
+    :host-state
+
+    :else
+    (case (:yin.k/class profile)
+      :pure nil
+      :effectful (if (seq (:yin.k/effects profile))
+                   nil
+                   :undeclared-effects)
+      :host-class)))
+
+
+(defn- check-binding!
+  "Refuse, as a host assembly defect detected before any operation runs,
+   a binding whose profile breaks a registration rule."
+  [module-name sym profile]
+  (when-let [rule (if (nil? profile)
+                    :missing-profile
+                    (profile-rule profile))]
+    (throw (ex-info "Host module registration refused"
+                    {:rule rule, :module module-name, :name sym}))))
+
+
+(defn register-host-module
+  "Return registry with host module `module-name` installed from `fns`
+   under `profiles`.
+
+   module-name is a dotted symbol; fns maps each export symbol to the host
+   value it publishes; profiles maps each export symbol to its UCF 7.5.2
+   profile record in the shape of `yin.vm/primitive-profiles`. Every
+   binding must carry a profile, and the profile's class must be `:pure`,
+   or `:effectful` with a declared, non-empty `:yin.k/effects` set, with
+   `:yin.k/host-state` `:none`. An `:effectful` export returns plain
+   effect data for the engine to interpret and performs no IO itself;
+   `stream/make` is exactly such a constructor.
+
+   The module is entered as an already-linked manifest with
+   `:yin.module/tree` absent, `:yin.module/derivations {}`, and its
+   exports listed under `:yin.module/primitives` by profile address; the
+   exports themselves are its `:slice`, and its `:address` and
+   `:derivation` are nil because no content was fetched or derived: the
+   host is the boundary."
+  [registry module-name fns profiles]
+  (doseq [sym (sort-by str (keys fns))]
+    (check-binding! module-name sym (get profiles sym)))
+  (assoc-in (or registry (empty-registry))
+            (into [:modules] (symbol->path module-name))
+            {:manifest {:yin.module/name module-name,
+                        :yin.module/derivations {},
+                        :yin.module/primitives
+                        (into {} (map (fn [[sym _f]]
+                                        [sym (:yin.k/profile
+                                               (get profiles sym))]))
+                              fns)},
+             :address nil,
+             :derivation nil,
+             :slice fns,
+             :stores {}}))
 
 
 ;; =============================================================================
@@ -92,7 +186,7 @@
 ;;
 ;; These are pure data constructors. They touch no stream: Yin source calls
 ;; them through the module system, they return effect maps, and the engine
-;; interprets those. `take!` is deliberately absent — destructive read is one
+;; interprets those. `take!` is deliberately absent: destructive read is one
 ;; reader's progress and every other reader's data loss, and a v2 `take!` would
 ;; need the reader-position-in-the-medium the contract retired.
 
@@ -126,12 +220,27 @@
   {'make make, 'put! put!, 'cursor cursor, 'next! next!, 'close! close!})
 
 
+(def stream-profiles
+  "UCF 7.5.2 profiles for the v2 `stream` module's bindings. Each binding
+   is an `:effectful` pure effect constructor: it returns plain effect
+   data declaring the one effect kind the engine interprets, and touches
+   no stream itself."
+  {'make (vm/primitive-profile 'make :effectful [0 1] #{:stream/make}
+                               :none)
+   'put! (vm/primitive-profile 'put! :effectful [2] #{:stream/put} :none)
+   'cursor (vm/primitive-profile 'cursor :effectful [1] #{:stream/cursor}
+                                 :none)
+   'next! (vm/primitive-profile 'next! :effectful [1] #{:stream/next} :none)
+   'close! (vm/primitive-profile 'close! :effectful [1] #{:stream/close}
+                                 :none)})
+
+
 (defn register-stream-module
   "Return registry with the v2 `stream` module registered.
    A composition that calls this must also supply `:make-stream`, or
    `(stream/make)` is unsupported and says so."
   [registry]
-  (register-module registry 'stream stream-module))
+  (register-host-module registry 'stream stream-module stream-profiles))
 
 
 ;; =============================================================================
@@ -141,7 +250,7 @@
 (defn require-handler
   "Resolve `:module/require` against the registry value only.
 
-   v1's clj branch called `clojure.core/require` from inside effect dispatch —
+   v1's clj branch called `clojure.core/require` from inside effect dispatch,
    a host call in the middle of interpretation. It does not survive: a module
    is either in the registry the composition supplied or it is not."
   [state effect _opts]
