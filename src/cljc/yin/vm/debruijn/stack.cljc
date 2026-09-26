@@ -169,11 +169,12 @@
    is appended to the offset table; `:hash` becomes H of the
    concatenation. `:pc`, `:stack`, `:frames`, `:continuation`, and every
    other register are unchanged: appending moves no instruction already
-   held. An image whose identity is already a row is not attached twice."
+   held. An image whose identity is already a row is not attached twice,
+   and an empty image, which adds no code, is not attached at all."
   [vm image contract]
   (admit! image contract)
   (let [ident (dcode/image-hash image)]
-    (if (some #(= ident (nth % 0)) (:images vm))
+    (if (or (empty? image) (some #(= ident (nth % 0)) (:images vm)))
       vm
       (let [held (:segment vm)
             offset (count held)
@@ -206,10 +207,16 @@
 
 (defn absolute-pc
   "Lower `[identity rel-pc]` to an absolute pc of `vm` by its offset
-   table, or nil when the identity is no row of it."
+   table, or nil when the identity is no row of it or `rel-pc` is no pc
+   `image-pc` lifts into that row."
   [vm [ident rel-pc]]
-  (some (fn [[id off]] (when (= id ident) (+ off rel-pc)))
-        (:images vm)))
+  (let [images (:images vm)]
+    (some (fn [[id off :as row]]
+            (when (and (= id ident)
+                       (nat-int? rel-pc)
+                       (= row (row-at images (+ off rel-pc))))
+              (+ off rel-pc)))
+          images)))
 
 
 (defn create-vm

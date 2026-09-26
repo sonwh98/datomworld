@@ -978,14 +978,18 @@
                    (= :yin.semantic/code (:yin.k/format marker)))
       (binding-mismatch! marker))
     (let [local (get (:code-aliases vm) (:yin.k/segment marker))
+          entry (:yin.k/entry marker)
           store-of (:yin.k/store-of marker)]
-      (when (nil? local)
+      ;; An entry outside the attached image names no code of it either.
+      (when-not (and (some? local)
+                     (nat-int? entry)
+                     (< entry (count (get-in vm [:code local :code]))))
         (throw (ex-info "Closure origin image is not attached"
                         {:reason :origin-not-attached,
                          :segment (:yin.k/segment marker)})))
       {:type :closure,
        :params (:yin.k/params marker),
-       :entry (:yin.k/entry marker),
+       :entry entry,
        :segment local,
        :env (cond-> (into {}
                           (map (fn [[k x]] [k (decode x)]))

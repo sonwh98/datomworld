@@ -408,12 +408,23 @@
 (defn- accept-and-ack-slot!
   "Synchronously drive one handoff: take the pending slot's offer, ack it
    with a fresh traffic medium, and step the endpoint so the accept frame
-   is sent.  Returns the traffic handle."
+   is sent.  Returns the traffic handle.
+
+   The client's handshake completes when it reads the 101, but the listener
+   accepts in its on-open callback, after the 101 is sent: the pending slot
+   and its offer are awaited (bounded), and a timeout fails loudly."
   [endpoint slots]
-  (let [index (some (fn [[i slot]] (when (= :pending (:status slot)) i))
-                    (map-indexed vector (:slots (ws/endpoint-state endpoint))))
-        entry (nth slots index)
-        offer-event (first (dual-values (:offer-handle entry)))
+  (let [statuses #(map :status (:slots (ws/endpoint-state endpoint)))
+        pending (fn []
+                  (some (fn [[status entry]]
+                          (when (= :pending status)
+                            (when-let [offer (first (dual-values
+                                                      (:offer-handle entry)))]
+                              [entry offer])))
+                        (map vector (statuses) slots)))
+        [entry offer-event] (or (eventually pending 5000)
+                                (throw (ex-info "no slot offer within 5s"
+                                                {:statuses (statuses)})))
         traffic (dual-buffer 16)]
     (stream/append! (:ack-handle entry)
                     {:ws/attachment (:ws/attachment offer-event)
