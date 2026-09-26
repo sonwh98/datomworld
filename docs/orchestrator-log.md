@@ -7299,3 +7299,122 @@ Next: Successor resumes at the pause point above; M4 (with the :reasons
   Option B implementation, the UCF table amendments, the vm.cljc Dart
   residual) follows M3's gate; M5 last; then the deferred items per the
   16:10 brief. All owner rulings remain in force.
+
+
+## 2026-09-26 23:25:00 +0700 — Orchestrator seat report: M2 to M5 landed, follow-ups closed
+Completed-GMT: 2026-09-26 16:25:00 GMT
+Coding-Agent: Claude Code (Sonnet 5, orchestrator seat; took over from GLM-5.3-Flash)
+Session-ID: fa5bf27a-873e-4b49-b144-4020b87a8d0e
+Tree: master@492997ee, in sync with origin/master (pushed 2026-09-26
+  after the owner's "commit it and push everything"). No feature
+  branches or extra worktrees remain.
+This entry covers the seat from the takeover (after the 17:53 handoff
+  update 2 above) through the yin.vm.linker epic (M1 to M5) and its
+  follow-ups. The 09-25 handoff entries remain in force for rulings and
+  procedures.
+
+What landed on master (local time, 2026-09-26):
+- 05:06 0fc931fc Rule R: yin/def is syntax, never a name; contract
+  stamps AST v3, semantic v3, stack b2, register r2 at every
+  persistent-code loader.
+- 06:09 19719d66 M2 (four format records, identity-directed bounded
+  fetch); 07:21 9779044c M3 (stepped core, link runtime); 07:36
+  cb96de0b authority policy A1 and A2; 07:17 71f3fb93 the
+  dao.stream.serve spec (P2P, no server/client, NAT); 13:12 merge of
+  ucf-phase2 into master.
+- 16:47 45ad454f M4 S2 (host-module registration), 244a4695 S1
+  (kernel attach-image); merges d64e2ec4 and 9428c3d2.
+- 19:19 M4 S3 c2f9d56e (require lowering, install child, private
+  :resources table, sealed references, per-child capability secrets),
+  S4 44cda2cb (manifests and derivation records), A3 c0bd4412
+  (authority ingestion from datoms), S5 d01466c8 (UCF amendments);
+  merges 28ff1a5b, 3e9a665c, 28229945, 78163e92.
+- 22:47 M5 42ad2666 (yin.repl wiring, src/cljc/yin/repl/link.cljc),
+  merge 768e62c2.
+- 23:11 follow-ups 3c64be22 (code) and e1cf4217 (docs), merge
+  3244f9ea; 23:22 492997ee dao.pretty quote rendering on ClojureDart.
+Pushes: origin/master 9428c3d2 (after M4 S1 and S2), then 78163e92 and
+  finally 492997ee, each on an explicit owner instruction.
+Final lanes on the pushed tree (solo): JVM 2206 tests / 182,800
+  assertions / 0 failures; Node 2121 / 49,480 / 0; Dart 2083 passed;
+  cljstyle clean; kondo 0 errors, warnings equal to the base.
+
+Gates (reviewer is never the author's model family; every P0 and P1
+  was fixed before commit):
+- S3: opus authored; codex gpt-6-sol REJECT (P0: engine resources
+  reachable through the task store; P1: install publication threw
+  instead of refusing; P1: register image table not bound to the code
+  space) -> S3a and S3b (opus; private :resources r8, seals r10,
+  lift-authenticates-first r11) -> re-gate P1 (child secrets missing
+  under the REPL and dao.await) -> S3c -> APPROVE.
+- S4: glm authored; Fable APPROVE-WITH-FIXES (non-map manifest
+  fail-open; declared-discharge threw on an unknown kind; profile
+  names) -> fixed by sonnet -> APPROVE.
+- A3: glm authored; codex APPROVE-WITH-FIXES (a second proof silently
+  won by order) -> sonnet fix -> APPROVE. Accepted residual: an
+  untrusted writer can add a bogus second proof to an event entity and
+  drop that event (availability, not an authority bypass); the
+  composition must restrict write access to the assertion source.
+- S5: glm authored (docs); sonnet APPROVE-WITH-FIXES (UCF 7.5.4 kind
+  set) -> fixed.
+- M5: glm-5.3-flash authored; codex REJECT twice (P0 origin reuse after
+  rollback; P1 lost ids; P1 abandon blind to installs; input silently
+  dropped; false progress; then replay not stopping at a new pending
+  require) -> glm fix1, fix2, then opus fix3 -> APPROVE.
+- S1 and S2 (deepseek-v4-pro gates) were earlier: Opus later found a
+  register-kernel bug in S1 that the gate missed (parked entries after
+  attach-image refused as corrupt); fixed inside S3.
+
+Errors and corrections to record:
+- Estimated timestamps: early briefs in this seat carried timestamps I
+  estimated rather than read from the clock; from the first correction
+  on I used `date`. The affected briefs' Created-* headers are
+  therefore approximate.
+- Dart lane: one S3 Dart failure was a real defect (`(type x)` in
+  engine.cljc, unresolved by the ClojureDart compiler), not load; the
+  earlier 10 to 34 minute Dart runs were machine load (a solo run with a
+  full recompile takes about four minutes). mise was not reinstalling
+  anything (resolves in 0.03 s).
+- The intermittent single JVM failure seen in earlier runs was
+  identified: dao.stream.ws.jvm-test
+  transit-and-cbor-sessions-share-one-live-jvm-listener, a test race
+  (accept-and-ack-slot! read the endpoint before the server thread's
+  on-open wrote the offer). Fixed test-side (bounded wait, fails
+  loudly); production code unchanged.
+- My brief's Base64 ceil(3n/4) bound was wrong (Opus's deviation was
+  correct); one delegate "kondo not installed" claim was repeated by me
+  before the owner pointed to docs/build-n-test.md (`clojure -M:kondo`);
+  quoted baseline assertion counts were off by about 8.
+- ClojureDart printed a quoted symbol as (quote mod) where JVM and cljs
+  print 'mod; M5's tests were made value-based and dao.pretty's cljd
+  printer now prints reader form (492997ee, with dao.pretty-test).
+
+Routing and budgets (details in docs/agents/routing-status.md, which is
+  untracked and local):
+- Owner-directed routing: S1 opus, S2 glm; S3 opus, S4 glm; S5 and A3
+  glm; M5 glm-5.3-flash. Follow-up code (S3a to S3c, M5 fix3, the
+  post-M5 code follow-ups) went to opus; sonnet did the A3, S4 and S5
+  fixes. The owner asked me to write the docs myself and delegate code.
+- GLM froze at 98% on 2026-09-26 22:2x: the owner ordered no GLM tasks
+  until 2026-09-27 01:26 +0700. None were sent.
+
+Open, for the successor and the owner:
+- Pending-link failure policy (linker.md section 12 bullet 4): the
+  current M5 state is a clock-free pending run (retained input,
+  (abandon)). glm and codex both suggest composing dao.lease later if a
+  deadline is wanted; the owner has not ruled.
+- dao.stream.serve section 15 decisions (held reads optional and off by
+  default, OD-1 to OD-3, lease-governed served-entry lifetime, rename
+  dao.stream.serving, door admission, peer-id format, append via proxy,
+  retiring the dao.jing.remote transport half) and the doc edits the
+  spec implies in other files.
+- Untracked files in the master checkout that this seat did not create
+  (.zcode/, .zcodeignore, a public/chp/blog/ muse post) and nine
+  colliding files in collab/ (eight identical duplicates, one that
+  differs).
+- The docs/design/yin.vm.linker.md follow-ups already closed: item 12
+  citation, r7 reset and entry-field sentences, section 10 file box,
+  section 7.3 empty-attach and out-of-range pc sentences, section 4.2 5b
+  nil-address sentence; ucf-revisions I-4 records Rule R.
+Next: the owner rules on the failure policy and the serve decisions; the
+  successor confirms GLM's budget after 01:26 before routing to it.
