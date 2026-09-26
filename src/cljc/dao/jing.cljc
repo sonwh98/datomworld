@@ -633,7 +633,8 @@
   "Walk the intake pool once from (:next state) and process at most one
    payload, through dao.stream.observe/step with materialize! as the
    effect. Returns {:state next-state :signal s ...} where the signal is
-   drawn from the same seven outcomes dao.stream declares for next:
+   drawn from the declared next outcomes dao.stream declares, or, for a
+   well-formed unrecognized outcome, that outcome's own keyword:
 
      {:signal :dao.stream/ok, :address a}
        a payload was materialized; the member advanced to the successor
@@ -645,18 +646,24 @@
      {:signal :dao.stream/gap, :member i, :cursor recovery}
        member i's position was evicted;
      {:signal k, :member i, :result read}
-       k is :dao.stream/cursor-mismatch, :dao.stream/invalid-cursor, or
-       :dao.stream/transport-error.
+       k is :dao.stream/cursor-mismatch, :dao.stream/invalid-cursor,
+       :dao.stream/transport-error, or :dao.stream/refused -- or, for a
+       well-formed outcome outside this contract version, that outcome
+       itself, which the step classifies as refused.
 
    gap and defect reports leave the member's cursor unchanged and move
    :next past the member, so the same condition is reported again on that
    member's next turn; nothing is auto-resynchronized. A defect carries the
    raw read under :result exactly as the step classified it -- a transport
-   that answered outside the contract is reported with its answer retained,
-   never folded into a meaning nobody chose. Blocked and ended members
-   never prevent later members from being checked, and a member that
-   yielded a payload loses its turn, so a continuously ready member cannot
-   starve another.
+   that answered with something that is not a well-formed outcome map is
+   reported with its answer retained, never folded into a meaning nobody
+   chose. A refused read reports the same way under its own outcome: a
+   policy declined the member's read, nothing was observed, and the member
+   keeps its cursor -- and an unrecognized outcome reports this way too,
+   a newer contract being a refusal, not a defect. Blocked and
+   ended members never prevent later members from being checked, and a
+   member that yielded a payload loses its turn, so a continuously ready
+   member cannot starve another.
 
    The effect is materialize!, which answers ok or throws: :failed is
    unreachable, and a throwing effect propagates before any cursor moves,
@@ -704,6 +711,13 @@
                  :signal :dao.stream/gap
                  :member i
                  :cursor (:recovery r)}
+                :refused
+                {:state (-> state'
+                            (assoc-in [:members i :status] (:outcome r))
+                            (assoc :next (mod (inc i) n)))
+                 :signal (:outcome r)
+                 :member i
+                 :result (:read r)}
                 :defect
                 {:state (-> state'
                             (assoc-in [:members i :status] (:outcome r))

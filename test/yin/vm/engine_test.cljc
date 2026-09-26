@@ -155,6 +155,93 @@
                           #(engine/handle-put s0 forged)))))))))
 
 
+(deftest refused-append-answers-are-shaped-refusals-test
+  (testing "refused is the effect's shaped refusal value, not a throw"
+    (let [refusing (reify stream/IDaoStreamWriter
+                     (append! [_ _] {:dao.stream/outcome :dao.stream/refused}))
+          [sref s0] (engine/attach-resource (state) refusing)
+          r (engine/handle-put s0 {:effect :stream/put, :stream sref, :val 1})]
+      (is (= {:status :refused
+              :outcome :dao.stream/refused
+              :stream-id :stream-0}
+             (:value r))
+          "the program reads the refusal as data, poll-link-response's shape")
+      (is (not (contains? r :park)) "a refusal parks nothing")))
+  (testing "an outcome outside this contract version is treated as refused"
+    (let [quantum (reify stream/IDaoStreamWriter
+                    (append!
+                      [_ _]
+                      {:dao.stream/outcome
+                       :dao.stream/quantum-flux}))
+          [sref s0] (engine/attach-resource (state) quantum)
+          r (engine/handle-put s0 {:effect :stream/put, :stream sref, :val 1})]
+      (is (= {:status :refused
+              :outcome :dao.stream/quantum-flux
+              :stream-id :stream-0}
+             (:value r))
+          "an unrecognized outcome is a newer contract, not a defect")))
+  (testing "the declared append defects still throw, as v1 did"
+    (let [defective (reify stream/IDaoStreamWriter
+                      (append!
+                        [_ _]
+                        {:dao.stream/outcome :dao.stream/invalid-value}))
+          [sref s0] (engine/attach-resource (state) defective)]
+      (is (throws?
+            (fn []
+              (engine/handle-put
+                s0 {:effect :stream/put, :stream sref, :val 1})))))))
+
+
+(defn- scripted-reader-handle
+  "A reader that mints `::at` and answers every `next` with `result`."
+  [result]
+  (reify stream/IDaoStreamReader
+    (cursor
+      [_ _]
+      {:dao.stream/outcome :dao.stream/ok, :dao.stream/cursor ::at})
+
+    (next [_ _] result)))
+
+
+(deftest refused-read-answers-are-shaped-refusals-test
+  (testing "refused is the effect's shaped refusal value, not a throw"
+    (let [[sref s0] (engine/attach-resource
+                      (state)
+                      (scripted-reader-handle
+                        {:dao.stream/outcome :dao.stream/refused}))
+          [cursor-ref s1] (engine/handle-cursor s0 {:stream sref} :cursor-0)
+          r (engine/handle-next s1 {:cursor cursor-ref})]
+      (is (= {:status :refused
+              :outcome :dao.stream/refused
+              :stream-id :stream-0
+              :cursor-id :cursor-0}
+             (:value r))
+          "the program reads the refusal as data")
+      (is (= ::at (get-in (:state r) [:resources :cursor-0 :cursor]))
+          "a refused read never moves the cursor cell")))
+  (testing "an outcome outside this contract version is treated as refused"
+    (let [[sref s0] (engine/attach-resource
+                      (state)
+                      (scripted-reader-handle
+                        {:dao.stream/outcome :dao.stream/quantum-flux}))
+          [cursor-ref s1] (engine/handle-cursor s0 {:stream sref} :cursor-0)
+          r (engine/handle-next s1 {:cursor cursor-ref})]
+      (is (= {:status :refused
+              :outcome :dao.stream/quantum-flux
+              :stream-id :stream-0
+              :cursor-id :cursor-0}
+             (:value r))
+          "an unrecognized outcome is a newer contract, not a defect")))
+  (testing "the declared read defects still throw, as v1 did"
+    (let [[sref s0] (engine/attach-resource
+                      (state)
+                      (scripted-reader-handle
+                        {:dao.stream/outcome :dao.stream/cursor-mismatch}))
+          [cursor-ref s1] (engine/handle-cursor s0 {:stream sref} :cursor-0)]
+      (is (throws? (fn []
+                     (engine/handle-next s1 {:cursor cursor-ref})))))))
+
+
 ;; =============================================================================
 ;; :stream/take does not exist
 ;; =============================================================================
@@ -376,6 +463,158 @@
       (is (throws? (fn []
                      (engine/resume-from-run-queue
                        woken (fn [base _entry _val] base))))))))
+
+
+(deftest a-woken-refused-entry-resumes-as-data-test
+  (testing "A waiter whose poll is refused wakes terminal under its own
+            keyword and resumes with the shaped refusal, the same value the
+            immediate path returns: whether the first attempt blocked must
+            not change what the program sees"
+    (let [[sref s0] (engine/attach-resource
+                      (state)
+                      (scripted-reader-handle
+                        {:dao.stream/outcome :dao.stream/refused}))
+          [_ s1] (engine/handle-cursor s0 {:stream sref} :cursor-0)
+          parked (assoc s1
+                        :blocked? true
+                        :wait-set [(assoc (cursor-waiter :k1)
+                                          :stream-id :stream-0)])
+          woken (engine/check-wait-set parked)
+          entry (first (:ready-queue woken))
+          restored (atom nil)]
+      (is (= :dao.stream/refused (:status entry))
+          "the waitset wakes refused under its own keyword")
+      (is (= {:status :refused
+              :outcome :dao.stream/refused
+              :stream-id :stream-0
+              :cursor-id :cursor-0}
+             (:value entry))
+          "make-woken-run-queue-entries shapes the refusal")
+      (let [out (engine/resume-from-run-queue
+                  woken
+                  (fn [base _entry val]
+                    (reset! restored val)
+                    base))]
+        (is (= (:value entry) @restored)
+            "the resume delivers the refusal as data, never a raise")
+        (is (empty? (:ready-queue out)))))))
+
+
+(deftest a-woken-unrecognized-entry-resumes-as-data-test
+  (testing "A waiter whose poll answers a well-formed outcome outside this
+            contract version wakes under its own keyword and resumes with
+            the shaped refusal, the same value the immediate path returns:
+            whether the first attempt blocked must not change what the
+            program sees"
+    (let [[sref s0] (engine/attach-resource
+                      (state)
+                      (scripted-reader-handle
+                        {:dao.stream/outcome :dao.stream/quantum-flux}))
+          [_ s1] (engine/handle-cursor s0 {:stream sref} :cursor-0)
+          parked (assoc s1
+                        :blocked? true
+                        :wait-set [(assoc (cursor-waiter :k1)
+                                          :stream-id :stream-0)])
+          woken (engine/check-wait-set parked)
+          entry (first (:ready-queue woken))
+          restored (atom nil)]
+      (is (= :dao.stream/quantum-flux (:status entry))
+          "the waitset wakes the unrecognized outcome under its own keyword")
+      (is (= {:status :refused
+              :outcome :dao.stream/quantum-flux
+              :stream-id :stream-0
+              :cursor-id :cursor-0}
+             (:value entry))
+          "make-woken-run-queue-entries shapes the refusal handle-next
+           returns immediately")
+      (let [out (engine/resume-from-run-queue
+                  woken
+                  (fn [base _entry val]
+                    (reset! restored val)
+                    base))]
+        (is (= (:value entry) @restored)
+            "the resume delivers the refusal as data, never a raise")
+        (is (empty? (:ready-queue out))))))
+
+  (testing "A parked writer waking unrecognized refuses the same way, in
+            handle-put's shape: no cursor-id, no cursor update"
+    (let [quantum (reify stream/IDaoStreamWriter
+                    (append!
+                      [_ _]
+                      {:dao.stream/outcome :dao.stream/quantum-flux}))
+          [_ s0] (engine/attach-resource (state) quantum)
+          parked (assoc s0
+                        :blocked? true
+                        :wait-set [{:reason :put,
+                                    :stream-id :stream-0,
+                                    :datom 1,
+                                    :k {:type :probe-frame},
+                                    :env {}}])
+          woken (engine/check-wait-set parked)
+          entry (first (:ready-queue woken))
+          restored (atom nil)]
+      (is (= :dao.stream/quantum-flux (:status entry)))
+      (is (= {:status :refused
+              :outcome :dao.stream/quantum-flux
+              :stream-id :stream-0}
+             (:value entry)))
+      (is (nil? (:resource-updates entry))
+          "a writer's refusal carries no cursor update")
+      (let [out (engine/resume-from-run-queue
+                  woken
+                  (fn [base _entry val]
+                    (reset! restored val)
+                    base))]
+        (is (= (:value entry) @restored)
+            "the resume delivers the refusal as data, never a raise")
+        (is (empty? (:ready-queue out))))))
+
+  (testing "The declared read defects still raise on resume, as the
+            immediate handle-next raises them"
+    (let [[sref s0] (engine/attach-resource
+                      (state)
+                      (scripted-reader-handle
+                        {:dao.stream/outcome :dao.stream/transport-error}))
+          [_ s1] (engine/handle-cursor s0 {:stream sref} :cursor-0)
+          parked (assoc s1
+                        :blocked? true
+                        :wait-set [(assoc (cursor-waiter :k1)
+                                          :stream-id :stream-0)])
+          woken (engine/check-wait-set parked)
+          entry (first (:ready-queue woken))]
+      (is (= :dao.stream/transport-error (:status entry)))
+      (is (= {:outcome :dao.stream/transport-error,
+              :stream-id :stream-0,
+              :cursor-id :cursor-0}
+             (throws-ex-data
+               (fn []
+                 (engine/resume-from-run-queue
+                   woken (fn [base _entry _val] base)))))
+          "a declared error outcome stays terminal")))
+
+  (testing "The declared write defects still raise on resume, as the
+            immediate handle-put raises them"
+    (let [closed-writer (reify stream/IDaoStreamWriter
+                          (append!
+                            [_ _]
+                            {:dao.stream/outcome :dao.stream/closed}))
+          [_ s0] (engine/attach-resource (state) closed-writer)
+          parked (assoc s0
+                        :blocked? true
+                        :wait-set [{:reason :put,
+                                    :stream-id :stream-0,
+                                    :datom 1,
+                                    :k {:type :probe-frame},
+                                    :env {}}])
+          woken (engine/check-wait-set parked)
+          entry (first (:ready-queue woken))]
+      (is (= :dao.stream/closed (:status entry)))
+      (is (= {:outcome :dao.stream/closed, :stream-id :stream-0}
+             (throws-ex-data
+               (fn []
+                 (engine/resume-from-run-queue
+                   woken (fn [base _entry _val] base)))))
+          "a declared error outcome stays terminal"))))
 
 
 ;; =============================================================================

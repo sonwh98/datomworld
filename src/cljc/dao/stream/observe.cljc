@@ -44,41 +44,59 @@
 (defn- valid-or-transport-error
   "Fold a defective host answer into the contract's outcome algebra.
 
-   A conforming operation already returns one of the contract outcomes; this
-   keeps the step's branch total when a composition supplies a bad handle or
-   an effect answers with something that is not an outcome map."
+   A conforming operation already returns one of the contract outcomes. An
+   answer that is not a well-formed outcome map -- a non-map, a missing or
+   unqualified outcome keyword, a declared outcome missing its required
+   keys -- folds into `transport-error` with the raw answer retained, so
+   this step's branches stay total over whatever a composition supplies.
+   A well-formed outcome map whose outcome lies outside the operation's
+   declared set is a newer contract, not a defect in this host's assembly:
+   it is preserved exactly as it arrived, and `step` classifies it as
+   `refused` (Result Convention, unrecognized outcomes)."
   [operation result]
-  (if (stream/valid-outcome? operation result)
-    result
-    {:dao.stream/outcome :dao.stream/transport-error
-     :dao.stream/error :dao.stream/invalid-operation-result
-     :dao.stream/answer result}))
+  (let [defect (stream/validate-outcome operation result)]
+    (if (or (nil? defect) (= :unauthorized-outcome (:error defect)))
+      result
+      {:dao.stream/outcome :dao.stream/transport-error
+       :dao.stream/error :dao.stream/invalid-operation-result
+       :dao.stream/answer result})))
 
 
 (defn step
   "Read one value from `source` at `cursor` and run `effect` on it.
 
    `effect` is `(fn [value] -> outcome-map)` answering with the writer outcome
-   set: `ok`, `full` (\"not yet\"), `invalid-value`, `closed`, or
-   `transport-error`.  Any other answer is classified as `transport-error`
-   with the raw answer retained.  An effect that throws propagates.
+   set: `ok`, `full` (\"not yet\"), `invalid-value`, `closed`, `refused`, or
+   `transport-error`.  An answer that is not a well-formed outcome map is
+   classified as `transport-error` with the raw answer retained.  A
+   well-formed outcome outside the declared set is unrecognized -- a newer
+   contract, not a defect -- and is preserved as it arrived: on a read it
+   classifies as `:refused`, on an effect as `:failed`, exactly as
+   `refused` classifies.  An effect that throws propagates.
 
    Returns a map carrying `:cursor` and `:read` (the raw read answer) in every
    case:
 
-   | status     | when                                    | cursor    | also         |
-   | ---------- | --------------------------------------- | --------- | ------------ |
-   | `:advance` | read ok, effect ok                      | successor | `:effect`    |
-   | `:retry`   | read blocked, or effect full            | unchanged | `:outcome`   |
-   | `:ended`   | read end                                | unchanged | `:outcome`   |
-   | `:gap`     | read gap                                | unchanged | `:recovery`  |
-   | `:defect`  | read cursor-mismatch, invalid-cursor,
-                  transport-error, or malformed                | unchanged | `:outcome`   |
-   | `:failed`  | effect invalid-value, closed,
-                  transport-error, or malformed                | unchanged | `:outcome`, `:effect` |
+   | status     | when                              | cursor    | also        |
+   | ---------- | --------------------------------- | --------- | ----------- |
+   | `:advance` | read ok, effect ok                | successor | `:effect`   |
+   | `:retry`   | read blocked, or effect full      | unchanged | `:outcome`  |
+   | `:ended`   | read end                          | unchanged | `:outcome`  |
+   | `:gap`     | read gap                          | unchanged | `:recovery` |
+   | `:refused` | read refused or unrecognized;     | unchanged | `:outcome`  |
+   |            | nothing was observed              |           |             |
+   | `:defect`  | read cursor-mismatch,             | unchanged | `:outcome`  |
+   |            | invalid-cursor, transport-error,  |           |             |
+   |            | or malformed                      |           |             |
+   | `:failed`  | effect invalid-value, closed,     | unchanged | `:outcome`, |
+   |            | refused, transport-error,         |           | `:effect`   |
+   |            | unrecognized, or malformed        |           |             |
 
    A `:retry` from the effect also carries `:effect`.  The cursor is the
-   successor on `:advance` and unchanged on every other status."
+   successor on `:advance` and unchanged on every other status.  `refused`
+   is a policy answer, not a defect: nothing was observed and nothing was
+   recorded, and the cursor stays where it was.  An unrecognized outcome
+   answers the same: a newer contract is a refusal, never a defect."
   [source cursor effect]
   (let [read-result (valid-or-transport-error :next (stream/next source cursor))
         read-outcome (:dao.stream/outcome read-result)]
@@ -120,7 +138,24 @@
                        :recovery (:dao.stream/cursor read-result)
                        :read read-result}
 
+      :dao.stream/refused {:status :refused
+                           :cursor cursor
+                           :outcome read-outcome
+                           :read read-result}
+
+      (:dao.stream/cursor-mismatch
+        :dao.stream/invalid-cursor
+        :dao.stream/transport-error)
       {:status :defect
+       :cursor cursor
+       :outcome read-outcome
+       :read read-result}
+
+      ;; A well-formed outcome outside this contract version, preserved by
+      ;; valid-or-transport-error: refused, never a defect.  Only a folded
+      ;; malformed answer carries transport-error, named in the clause
+      ;; above.
+      {:status :refused
        :cursor cursor
        :outcome read-outcome
        :read read-result})))

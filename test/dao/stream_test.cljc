@@ -244,6 +244,7 @@
     (is (= #{:dao.stream/ok
              :dao.stream/invalid-anchor
              :dao.stream/closed
+             :dao.stream/refused
              :dao.stream/transport-error}
            (get ds/operation-outcomes :cursor)))
 
@@ -253,6 +254,7 @@
              :dao.stream/gap
              :dao.stream/cursor-mismatch
              :dao.stream/invalid-cursor
+             :dao.stream/refused
              :dao.stream/transport-error}
            (get ds/operation-outcomes :next)))
 
@@ -260,6 +262,7 @@
              :dao.stream/full
              :dao.stream/invalid-value
              :dao.stream/closed
+             :dao.stream/refused
              :dao.stream/transport-error}
            (get ds/operation-outcomes :append!)))
 
@@ -271,6 +274,22 @@
     (is (false? (ds/valid-outcome? :descriptor {:dao.stream/outcome :dao.stream/not-found})))
     (is (false? (ds/valid-outcome? :append! {:dao.stream/outcome :dao.stream/blocked})))
     (is (false? (ds/valid-outcome? :next {:dao.stream/outcome :dao.stream/full})))))
+
+
+(deftest refused-outcome-is-declared-for-cursor-next-append-test
+  (testing "the contract's refusal is admitted exactly where it is declared"
+    (let [refusal {:dao.stream/outcome :dao.stream/refused}]
+      (doseq [op [:cursor :next :append!]]
+        (is (contains? (get ds/operation-outcomes op) :dao.stream/refused)
+            (str "refused is declared for " op))
+        (is (ds/valid-outcome? op refusal)
+            (str "the validator admits a refused " op " answer")))
+      (doseq [op [:create! :attach! :descriptor :close!]]
+        (is (not (contains? (get ds/operation-outcomes op)
+                            :dao.stream/refused))
+            (str "refused is outside " op "'s declared set"))
+        (is (false? (ds/valid-outcome? op refusal))
+            (str "the validator rejects a refused " op " answer"))))))
 
 
 (deftest descriptor-identity-equality-test
@@ -446,14 +465,25 @@
             :descriptor {:produces #{:dao.stream/ok}
                          :exclusions {}}
             :cursor {:produces #{:dao.stream/ok :dao.stream/invalid-anchor :dao.stream/closed}
-                     :exclusions {:dao.stream/transport-error "in-memory read only"}}
+                     :exclusions {:dao.stream/refused
+                                  "no policy is composed on the handle"
+                                  :dao.stream/transport-error
+                                  "in-memory read only"}}
             :next {:produces #{:dao.stream/ok :dao.stream/blocked :dao.stream/end
                                :dao.stream/gap :dao.stream/cursor-mismatch :dao.stream/invalid-cursor}
-                   :exclusions {:dao.stream/transport-error "in-memory read only"}}
+                   :exclusions {:dao.stream/refused
+                                "no policy is composed on the handle"
+                                :dao.stream/transport-error
+                                "in-memory read only"}}
             :append! {:produces #{:dao.stream/ok :dao.stream/closed}
-                      :exclusions {:dao.stream/full "evicts oldest instead of refusing"
-                                   :dao.stream/invalid-value "carries all host values"
-                                   :dao.stream/transport-error "in-memory state has no failure"}}
+                      :exclusions {:dao.stream/refused
+                                   "no policy is composed on the handle"
+                                   :dao.stream/full
+                                   "evicts oldest instead of refusing"
+                                   :dao.stream/invalid-value
+                                   "carries all host values"
+                                   :dao.stream/transport-error
+                                   "in-memory state has no failure"}}
             :close! {:produces #{:dao.stream/ok}
                      :exclusions {}}}}]
       (is (true? (:valid? (conf/validate-manifest valid-manifest))))))
@@ -503,15 +533,18 @@
            {:descriptor {:produces #{:dao.stream/ok} :exclusions {}}
             :cursor {:produces #{:dao.stream/ok :dao.stream/invalid-anchor}
                      :exclusions {:dao.stream/closed "not modeled in mock"
+                                  :dao.stream/refused "no policy in mock"
                                   :dao.stream/transport-error "in-memory only"}}
             :next {:produces #{:dao.stream/ok :dao.stream/blocked :dao.stream/end}
                    :exclusions {:dao.stream/gap "unbounded mock does not evict"
                                 :dao.stream/cursor-mismatch "single stream mock"
                                 :dao.stream/invalid-cursor "mock assumes valid cursors"
+                                :dao.stream/refused "no policy in mock"
                                 :dao.stream/transport-error "in-memory only"}}
             :append! {:produces #{:dao.stream/ok :dao.stream/closed}
                       :exclusions {:dao.stream/full "unbounded mock"
                                    :dao.stream/invalid-value "accepts all values"
+                                   :dao.stream/refused "no policy in mock"
                                    :dao.stream/transport-error "in-memory only"}}
             :close! {:produces #{:dao.stream/ok} :exclusions {}}}
            :fixtures

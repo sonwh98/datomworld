@@ -97,14 +97,25 @@
               :exclusions {:dao.stream/transport-error "captured in-memory resolver has no failure channel"}}
     :descriptor {:produces #{:dao.stream/ok} :exclusions {}}
     :cursor {:produces #{:dao.stream/ok :dao.stream/invalid-anchor :dao.stream/closed}
-             :exclusions {:dao.stream/transport-error "one in-memory state deref cannot fail operationally"}}
+             :exclusions {:dao.stream/transport-error
+                          "one in-memory state deref cannot fail operationally"
+                          :dao.stream/refused
+                          "no policy is composed on a ring buffer handle"}}
     :next {:produces #{:dao.stream/ok :dao.stream/blocked :dao.stream/end
                        :dao.stream/gap :dao.stream/cursor-mismatch :dao.stream/invalid-cursor}
-           :exclusions {:dao.stream/transport-error "coherent in-memory state has no failure channel"}}
+           :exclusions {:dao.stream/refused
+                        "no policy is composed on a ring buffer handle"
+                        :dao.stream/transport-error
+                        "coherent in-memory state has no failure channel"}}
     :append! {:produces #{:dao.stream/ok :dao.stream/closed}
-              :exclusions {:dao.stream/full "evict-oldest retention never refuses append"
-                           :dao.stream/invalid-value "reference transport accepts all host values"
-                           :dao.stream/transport-error "coherent in-memory state has no failure channel"}}
+              :exclusions {:dao.stream/refused
+                           "no policy is composed on a ring buffer handle"
+                           :dao.stream/full
+                           "evict-oldest retention never refuses append"
+                           :dao.stream/invalid-value
+                           "reference transport accepts all host values"
+                           :dao.stream/transport-error
+                           "coherent in-memory state has no failure channel"}}
     :close! {:produces #{:dao.stream/ok} :exclusions {}}}
    :fixtures
    {:create! {:dao.stream/ok #(ring/create! spec)

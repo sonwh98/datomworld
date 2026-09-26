@@ -188,6 +188,7 @@
    :dao.stream/gap :dao.stream/gap
    :dao.stream/cursor-mismatch :dao.stream/cursor-mismatch
    :dao.stream/invalid-cursor :dao.stream/invalid-cursor
+   :dao.stream/refused :dao.stream/refused
    :dao.stream/transport-error :dao.stream/transport-error})
 
 
@@ -199,6 +200,7 @@
    :dao.stream/full :wait
    :dao.stream/invalid-value :dao.stream/invalid-value
    :dao.stream/closed :dao.stream/closed
+   :dao.stream/refused :dao.stream/refused
    :dao.stream/transport-error :dao.stream/transport-error})
 
 

@@ -190,6 +190,8 @@
      :exclusions
      {:dao.stream/closed
       "there are no attachments: every handle is the logical stream's owner, and an owner mints cursors after close so retained history stays readable"
+      :dao.stream/refused
+      "no policy is composed on a memory-log handle"
       :dao.stream/transport-error
       "minting reads one in-memory state value and has no failure it could observe and return from"}}
 
@@ -199,6 +201,8 @@
      :exclusions
      {:dao.stream/gap
       "retention is complete: no position is ever dropped, so no cursor can point at one that was"
+      :dao.stream/refused
+      "no policy is composed on a memory-log handle"
       :dao.stream/transport-error
       "a read is one indexed lookup into retained state; there is no failure it could observe and return from"}}
 
@@ -209,6 +213,8 @@
       "no capacity is declared: the transport is logically unbounded and refuses nothing"
       :dao.stream/invalid-value
       "the log holds host values by reference and encodes nothing, so no value is uncarriable"
+      :dao.stream/refused
+      "no policy is composed on a memory-log handle"
       :dao.stream/transport-error
       "the append either completes its one state transition and returns, or does not return"}}
 

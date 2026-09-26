@@ -805,6 +805,7 @@
                     :dao.stream/gap :dao.stream/gap,
                     :dao.stream/cursor-mismatch :dao.stream/cursor-mismatch,
                     :dao.stream/invalid-cursor :dao.stream/invalid-cursor,
+                    :dao.stream/refused :dao.stream/refused,
                     :dao.stream/transport-error :dao.stream/transport-error}]
       (is (= stream/outcomes-next (set (keys expected)))
           "the table covers the declared set exactly, and fails if it grows")

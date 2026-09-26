@@ -56,11 +56,12 @@
 
 
 (deftest every-read-outcome-maps-to-exactly-one-status
-  (testing "the seven declared read outcomes are total over the step's statuses"
+  (testing "the eight declared read outcomes are total over the step's statuses"
     (let [expected {:dao.stream/ok :advance,
                     :dao.stream/blocked :retry,
                     :dao.stream/end :ended,
                     :dao.stream/gap :gap,
+                    :dao.stream/refused :refused,
                     :dao.stream/cursor-mismatch :defect,
                     :dao.stream/invalid-cursor :defect,
                     :dao.stream/transport-error :defect}]
@@ -71,12 +72,25 @@
             (str outcome " must classify as " status))))))
 
 
+(deftest a-refused-read-is-its-own-refused-status
+  (testing "the refusal is data, not a defect: nothing observed, cursor kept"
+    (let [result (step-on :dao.stream/refused)]
+      (is (= :refused (:status result))
+          "the refusal is not the :defect default, it is its own status")
+      (is (= :dao.stream/refused (:outcome result)))
+      (is (= at (:cursor result)) "a refused read never moves the cursor")
+      (is (not (contains? result :recovery)) "no recovery cursor exists")
+      (is (= (read-answer :dao.stream/refused) (:read result))
+          "the raw refusal answer is retained"))))
+
+
 (deftest every-effect-outcome-maps-to-exactly-one-status
-  (testing "the five declared append outcomes are total over the step's statuses"
+  (testing "the six declared append outcomes are total over the step's statuses"
     (let [expected {:dao.stream/ok :advance,
                     :dao.stream/full :retry,
                     :dao.stream/invalid-value :failed,
                     :dao.stream/closed :failed,
+                    :dao.stream/refused :failed,
                     :dao.stream/transport-error :failed}]
       (is (= stream/outcomes-append (set (keys expected)))
           "the table covers the declared set exactly, and fails if it grows")
@@ -91,12 +105,14 @@
   (testing "the successor is taken from the read, and only when the effect answered ok"
     (is (= successor (:cursor (step-on :dao.stream/ok))))
     (doseq [outcome [:dao.stream/blocked :dao.stream/end :dao.stream/gap
+                     :dao.stream/refused
                      :dao.stream/cursor-mismatch :dao.stream/invalid-cursor
                      :dao.stream/transport-error]]
       (is (= at (:cursor (step-on outcome)))
           (str "the cursor is unchanged on " outcome)))
     (doseq [outcome [:dao.stream/full :dao.stream/invalid-value
-                     :dao.stream/closed :dao.stream/transport-error]]
+                     :dao.stream/closed :dao.stream/refused
+                     :dao.stream/transport-error]]
       (is (= at (:cursor (step-on :dao.stream/ok
                                   (fn [_] {:dao.stream/outcome outcome}))))
           (str "a read ok whose effect answered " outcome " keeps the cursor")))))
@@ -134,8 +150,7 @@
 
 
 (deftest a-malformed-read-is-a-defect-with-the-raw-answer-retained
-  (doseq [answer [{:dao.stream/outcome :dao.stream/wholly-unexpected}
-                  {:dao.stream/outcome :dao.stream/ok}
+  (doseq [answer [{:dao.stream/outcome :dao.stream/ok}
                   {}
                   nil
                   :not-a-map]]
@@ -147,13 +162,46 @@
           "the raw answer is retained so a caller can report what it was told"))))
 
 
+(deftest an-unrecognized-read-is-refused-with-its-own-outcome
+  (testing "a well-formed outcome outside the declared read set is refused,
+            never a defect: a newer contract, not this host's assembly"
+    (doseq [outcome [:dao.stream/wholly-unexpected
+                     :dao.stream/retracted]]
+      (let [answer {:dao.stream/outcome outcome}
+            result (observe/step (reader answer (atom [])) at ok-effect)]
+        (is (= :refused (:status result))
+            (str outcome " must classify as refused"))
+        (is (= outcome (:outcome result))
+            "the unrecognized outcome is preserved, not folded")
+        (is (= at (:cursor result))
+            "an unrecognized read never moves the cursor")
+        (is (not (contains? result :recovery)) "no recovery cursor exists")
+        (is (= answer (:read result))
+            "the raw answer is retained exactly as it arrived")))))
+
+
 (deftest a-malformed-effect-answer-is-a-failure-with-the-raw-answer-retained
-  (doseq [answer [{:dao.stream/outcome :dao.stream/end} {} nil :not-a-map]]
+  (doseq [answer [{} nil :not-a-map]]
     (let [result (step-on :dao.stream/ok (fn [_] answer))]
       (is (= :failed (:status result)) (str "malformed effect: " (pr-str answer)))
       (is (= :dao.stream/transport-error (:outcome result)))
       (is (= at (:cursor result)))
       (is (= answer (:dao.stream/answer (:effect result)))))))
+
+
+(deftest an-unrecognized-effect-answer-fails-as-refused-does
+  (testing "a well-formed outcome outside the declared write set is :failed,
+            its outcome preserved: for a write the effect is unknown"
+    (doseq [answer [{:dao.stream/outcome :dao.stream/wholly-unexpected}
+                    {:dao.stream/outcome :dao.stream/end}]]
+      (let [result (step-on :dao.stream/ok (fn [_] answer))]
+        (is (= :failed (:status result))
+            (str "unrecognized effect: " (pr-str answer)))
+        (is (= (:dao.stream/outcome answer) (:outcome result))
+            "the unrecognized outcome is preserved, not folded")
+        (is (= at (:cursor result)))
+        (is (= answer (:effect result))
+            "the raw answer is retained exactly as it arrived")))))
 
 
 (deftest the-read-is-retained-on-every-status

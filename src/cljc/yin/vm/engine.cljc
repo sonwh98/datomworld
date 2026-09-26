@@ -308,12 +308,54 @@
     [ref (assoc-in state [:resources id] handle)]))
 
 
+(def ^:private wake-error-outcomes
+  "The declared outcomes `handle-next` and `handle-put` raise as errors,
+   by wait reason: the read defects for a parked reader, the write defects
+   for a parked writer. A wake raises these exactly as the immediate
+   operation would. Every other status is either a value answer or an
+   outcome outside this contract version, and both of those the immediate
+   path answers as data -- so the wake answers them as data too."
+  {:next #{:dao.stream/cursor-mismatch :dao.stream/invalid-cursor
+           :dao.stream/transport-error}
+   :put #{:dao.stream/closed :dao.stream/invalid-value
+          :dao.stream/transport-error}})
+
+
+(def ^:private wake-value-statuses
+  "The statuses a woken entry resumes with its poll's own value, by wait
+   reason: ok, end and gap for a parked reader, ok alone for a parked
+   writer -- the write outcome set has no end and no gap, so those
+   keywords on an append are outcomes outside this contract version and
+   refuse. An entry that was never polled carries no status and resumes
+   with the value it already holds."
+  {:next #{nil :ok :end :dao.stream/gap}
+   :put #{nil :ok}})
+
+
+(defn- wake-refusal?
+  "True when a woken `:next`/`:put` entry's `status` is one the immediate
+   path answers as the shaped refusal: `:dao.stream/refused`, or a
+   well-formed outcome outside this contract version -- a newer contract,
+   not a defect. The declared error outcomes are terminal instead, and
+   the value statuses carry their poll's own value."
+  [reason status]
+  (and (contains? #{:next :put} reason)
+       (not (contains? (get wake-value-statuses reason) status))
+       (not (contains? (get wake-error-outcomes reason) status))))
+
+
 (defn make-woken-run-queue-entries
   "Transform woken wait-set entries into ready-queue entries.
    Readers (with :cursor-ref) record the successor cursor the transport
    returned as a resource update. Writers (no :cursor-ref) just stamp
    :value. Each woken result's :status rides onto the ready entry, where
    terminal-resume-outcome reads it.
+
+   A woken status the immediate `handle-put`/`handle-next` answers as the
+   shaped refusal -- `:dao.stream/refused`, or an outcome outside this
+   contract version -- is shaped into that same refusal value, so whether
+   the first attempt blocked does not change what the program sees. The
+   declared error outcomes stay raw, for terminal-resume-outcome to raise.
 
    The ready entry stays pure data: any `:stream` handle a poll resolved
    is dropped -- the resource updates carry the successor cursor, and
@@ -322,6 +364,12 @@
   [state woken]
   (mapv (fn [{:keys [entry value cursor status], :as woken-entry}]
           (let [cursor-ref (:cursor-ref entry)
+                value (if (wake-refusal? (:reason entry) status)
+                        (cond-> {:status :refused
+                                 :outcome status
+                                 :stream-id (:stream-id entry)}
+                          cursor-ref (assoc :cursor-id (:id cursor-ref)))
+                        value)
                 updates
                 (or (:resource-updates woken-entry)
                     (when (and cursor-ref cursor)
@@ -356,11 +404,15 @@
 
 
 (defn handle-put
-  "Handle :stream/put. Total over the five append outcomes, once the
+  "Handle :stream/put. Total over the six append outcomes, once the
    reference verifies.
    Returns {:value v :state s} on success, {:park true :stream-id id :state s}
-   on `full`. `closed`, `invalid-value` and `transport-error` are errors that
-   name their outcome, as v1's throw on a closed stream did."
+   on `full`. `closed`, `invalid-value` and `transport-error` are errors
+   that name their outcome, as v1's throw on a closed stream did.
+   `refused`, and any outcome outside this contract version, is not a
+   throw: the effect's value is the shaped refusal
+   {:status :refused, :outcome o, :stream-id id} -- data the program
+   reads, the way `poll-link-response` answers a refused link."
   [state effect]
   (let [stream-id (check-ref! state :stream/put :stream-ref (:stream effect))
         val (:val effect)
@@ -370,7 +422,12 @@
     (case o
       :dao.stream/ok {:value val, :state state}
       :dao.stream/full {:park true, :stream-id stream-id, :state state}
-      (fail "Stream append failed" {:outcome o, :stream-id stream-id}))))
+      (:dao.stream/closed
+        :dao.stream/invalid-value
+        :dao.stream/transport-error)
+      (fail "Stream append failed" {:outcome o, :stream-id stream-id})
+      {:state state,
+       :value {:status :refused, :outcome o, :stream-id stream-id}})))
 
 
 (defn handle-cursor
@@ -390,13 +447,18 @@
 
 
 (defn handle-next
-  "Handle :stream/next. Total over the seven read outcomes, once the
+  "Handle :stream/next. Total over the eight read outcomes, once the
    reference verifies.
 
    `ok` advances the cursor cell to the exact returned successor. `blocked`
    parks. `end` yields nil, as v1 did. `gap` advances to the recovery cursor
    and yields `:dao.stream/gap`, so a program that reads it learns values were
-   lost. The three terminal outcomes are errors."
+   lost. `cursor-mismatch`, `invalid-cursor` and `transport-error` are
+   errors. `refused`, and any outcome outside this contract version, is
+   not a throw: the effect's value is the shaped refusal
+   {:status :refused, :outcome o, :stream-id id, :cursor-id cid} --
+   data the program reads, the way `poll-link-response` answers a
+   refused link."
   [state effect]
   (let [cursor-ref (:cursor effect)
         cursor-id (check-ref! state :stream/next :cursor-ref cursor-ref)
@@ -421,8 +483,16 @@
                              :state state}
         :dao.stream/end {:value nil, :state state}
         :dao.stream/gap (advance :dao.stream/gap)
+        (:dao.stream/cursor-mismatch
+          :dao.stream/invalid-cursor
+          :dao.stream/transport-error)
         (fail "Stream read failed"
-              {:outcome o, :stream-id stream-id, :cursor-id cursor-id})))))
+              {:outcome o, :stream-id stream-id, :cursor-id cursor-id})
+        {:state state,
+         :value {:status :refused,
+                 :outcome o,
+                 :stream-id stream-id,
+                 :cursor-id cursor-id}}))))
 
 
 (defn handle-close
@@ -1325,20 +1395,23 @@
 
 (defn- terminal-resume-outcome
   "The outcome a woken entry resolved with, when it is one the immediate
-   path raises as an error. `handle-put` and `handle-next` throw for every
-   outcome outside ok/end/gap, and whether the first attempt blocked must not
-   change that. A waitset diagnostic is terminal whatever the entry's
-   `:reason` — an unsupported reason is by definition outside the
-   `#{:next :put}` this check otherwise reads — so it is named here rather
-   than falling through to the restore. An entry that was never polled
-   carries no status."
+   path raises as an error. `handle-put` and `handle-next` raise exactly
+   the declared error outcomes of their operation, and whether the first
+   attempt blocked must not change that. An outcome outside this contract
+   version is the shaped refusal on the immediate path, so it is the
+   shaped refusal here too, never a raise. A waitset diagnostic is
+   terminal whatever the entry's `:reason` -- an unsupported reason is by
+   definition outside the `#{:next :put}` this check otherwise reads --
+   so it is named here rather than falling through to the restore. An
+   entry that was never polled carries no status."
   [entry]
   (let [status (:status entry)]
     (cond
       (contains? waitset-diagnostics status) status
       (= :link-refused status) status
       (contains? #{:next :put} (:reason entry))
-      (when-not (contains? #{nil :ok :end :dao.stream/gap} status) status))))
+      (when (contains? (get wake-error-outcomes (:reason entry)) status)
+        status))))
 
 
 (defn- throw-terminal-resume!

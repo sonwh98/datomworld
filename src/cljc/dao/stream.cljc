@@ -72,6 +72,7 @@
   #{:dao.stream/ok
     :dao.stream/invalid-anchor
     :dao.stream/closed
+    :dao.stream/refused
     :dao.stream/transport-error})
 
 
@@ -82,6 +83,7 @@
     :dao.stream/gap
     :dao.stream/cursor-mismatch
     :dao.stream/invalid-cursor
+    :dao.stream/refused
     :dao.stream/transport-error})
 
 
@@ -90,6 +92,7 @@
     :dao.stream/full
     :dao.stream/invalid-value
     :dao.stream/closed
+    :dao.stream/refused
     :dao.stream/transport-error})
 
 
