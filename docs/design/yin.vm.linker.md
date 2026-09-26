@@ -1681,7 +1681,8 @@ to a manifest address and is linker-local state in one of two shapes:
 
 **Fail-closed assertion policy.** This policy is an entry criterion for
 M4: no linker may resolve a name from `dao.space` assertions before it is
-implemented and tested.
+implemented and tested. The policy lives in `yin.vm.linker.authority`,
+as a pure function over plain data.
 
 - **Every authority event is a signed envelope.** An assertion and a
   retraction are two distinct envelope shapes, each a plain map whose
@@ -1715,9 +1716,10 @@ implemented and tested.
   a principal issues carries `:yin.module/seq`, strictly increasing
   over that principal's lifetime; the composition declares each
   principal's floor in `:authority` (`0` for a new principal, the
-  highest sequence already honored for a re-declared one). At the
-  snapshot the linker processes one principal's proven envelopes in
-  three passes, in this order:
+  highest sequence already honored for a re-declared one). The
+  declaration carries that floor as `:seq-floor`. At the snapshot the
+  linker processes one principal's proven envelopes in three passes,
+  in this order:
   1. *Deduplicate by content id.* Every envelope is content; two
      appearances of one envelope have one `segment-key` and are one
      event. All but the first appearance are dropped silently, as
@@ -1732,7 +1734,9 @@ implemented and tested.
      number. Both are discarded with `:kind :equivocation`, and the
      principal's later envelopes at the snapshot are discarded too. A
      duplicate can no longer reach this pass, so equivocation is
-     attributable to the signer alone.
+     attributable to the signer alone. The pair and every later
+     envelope of that principal are discarded with
+     `:kind :equivocation`.
   3. *Order and honor.* The remaining envelopes are ordered by sequence
      and each is honored only if its sequence exceeds the floor and
      every sequence honored before it; an envelope at or below either
@@ -1775,7 +1779,10 @@ implemented and tested.
   the assertion stream. The linker reads exactly that snapshot;
   assertions appended afterwards do not exist for it until the
   composition advances the snapshot, which is an ordinary `link-state`
-  rebuild, never an ambient re-read.
+  rebuild, never an ambient re-read. The snapshot result carries
+  `:honored-seq` per principal, the highest sequence honored in this
+  snapshot, which the composition declares back as the next
+  `:seq-floor`.
 - At the snapshot, for one name: unauthenticated envelopes, exact
   duplicates beyond the first, replays, equivocations, and envelopes by
   undeclared principals are discarded or collapsed as the passes above
@@ -1785,7 +1792,11 @@ implemented and tested.
   counted. Exactly one resolves the name. Zero is `:absent`. More than
   one is `:ambiguous-name` naming every remaining address and asserter,
   and no address is chosen by recency, sequence, order, or any other
-  rule.
+  rule. Three shape and declaration diagnostics sit beside the four
+  discard kinds: `:malformed-envelope` (an envelope that fails the
+  shape gate), `:undeclared-principal` (an author the authority map
+  does not declare), and `:no-proof-kind` (a principal declared with
+  neither proof kind).
 - Provenance is data the outcome carries: a successful resolution names
   the asserter, the proof kind, and the snapshot under
   `:yin.link/provenance` so a receiver can record which claim it acted
@@ -2012,7 +2023,8 @@ Renamed:  src/cljc/yin/vm/debruijn_linker.cljc
             -> src/cljc/yin/vm/linker.cljc            (M1)
           test/yin/vm/debruijn_linker_test.cljc
             -> test/yin/vm/linker_test.cljc           (M1)
-New:      test/yin/vm/linker_step_test.cljc           (M3)
+New:      src/cljc/yin/vm/linker/authority.cljc            (M4 entry)
+          test/yin/vm/linker_step_test.cljc           (M3)
           test/yin/vm/linker_authority_test.cljc      (M4 entry)
           test/yin/vm/linker_require_test.cljc        (M4)
 Edited:   src/cljc/yin/vm/module.cljc                 (M4)
