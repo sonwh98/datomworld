@@ -1,5 +1,9 @@
 # dao.jing.remote on DaoStream v2
 
+Status (2026-09-27): historical. The module this plan built is deprecated
+whole by `dao.stream.remote.md` section 8, which names its successor,
+`dao.jing.content`. Nothing below is a current rule.
+
 Status: implementation plan, subordinate to [`dao.stream.md`](./dao.stream.md)
 (the contract) and [`dao.jing.md`](./dao.jing.md) (the storage boundary).
 Verified against `3228d0e`. Authored by the Architect and revised through five

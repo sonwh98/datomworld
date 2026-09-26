@@ -239,10 +239,12 @@ query rule, exactly as predicted.
 For a working multi-agent system on today's code, trusted agents only — no coordinator, no
 deposit API, no new namespaces:
 
-1. **One `dao.jing.file` content handle**, made network-accessible with
-   `dao.jing.remote/default-handlers`. A remote reader uses
-   `dao.jing.remote/connect-content!`; both handles expose the same plain-data content
-   effects.
+1. **Historical implementation:** today's `dao.jing.file` content handle
+   used `dao.jing.remote/default-handlers` and
+   `dao.jing.remote/connect-content!`. `dao.jing.remote` is deprecated
+   whole; the planned successor is `dao.jing.content` over
+   `dao.stream.remote.md` (see its implementation plan). Both handles
+   expose the same plain-data content effects.
 2. **Writes**: each agent owns a local `dao.stream` memory-log and creates one
    transactor value with that stream plus an explicit DaoJing intake pool
    (`dao.space.transactor/create!`). It commits entity maps or datom vectors

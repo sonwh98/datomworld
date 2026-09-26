@@ -118,8 +118,9 @@ content addresses, never holding code that arrived by linking.
 ### 1.2 What this document does not add
 
 - No transport. `dao.stream` and its transports are the only medium.
-- No peer routing, caching, or responder. `dao.jing.remote` serves
-  content; `dao.jing.dht` finds it, behind that served boundary.
+- No peer routing, caching, or responder. `dao.jing.content` serves
+  content over remote streams (`dao.stream.remote.md` section 8);
+  `dao.jing.dht` finds it, behind that served boundary.
 - No global registry, loader, or callback. Every handle, index, stream,
   and format record is an explicit argument or a value in VM state.
 - No execution inside the linker. The linker fetches and verifies. Loading
@@ -775,16 +776,19 @@ wired by the composition, and its transport is the composition's choice:
 |-----------------------|--------------|-----------------|---------------|
 | single process, tests | ring buffer  | ring buffer     | mem handle    |
 | durable local         | ring buffer  | ring buffer     | file handle   |
-| remote content        | ring buffer  | ws + rpc        | remote's      |
+| remote content        | ring buffer  | remote streams  | content's     |
 | peer network          | ring buffer  | ring buffer     | dht handle    |
 
 Nothing in the linker or the VM changes across rows. This is I3 made
 operational: a "local" require and a "remote" require are the same four
 appends and four reads.
 
-The content pair is `dao.jing.remote`'s existing wire vocabulary:
-`:jing/get-content` answering `{:found? boolean :value v}` over
-`dao.stream.rpc`. The linker writes no protocol of its own for content.
+The content pair is `dao.jing.content`'s request and response vocabulary
+(`dao.stream.remote.implementation-plan.md`, section 1): `{:jing/request r :jing/get address}`
+answered by `{:jing/request r :jing/found? b :jing/bytes b64}`, over local
+ring buffers or reflections of remote streams, with the shared ingress
+check `dao.jing/accept-bytes!` applied to every answer. The linker writes
+no protocol of its own for content.
 
 **The DHT sits behind the served boundary.** `dao.jing.dht`'s handle is
 a synchronous `dao.jing` handle over `IDhtNet`, not a stepped DaoStream
@@ -820,8 +824,9 @@ observed.
 
 ### 6.3 The stepped interface
 
-Following `dao.stream.md` OD-5 and the shape `dao.jing.remote.step`
-already has, the portable linker is a pure function over explicit state.
+Following `dao.stream.md` OD-5 and the shape `dao.jing.content.step`
+(formerly `dao.jing.remote.step`) has, the portable linker is a pure
+function over explicit state.
 
 ```clojure
 (link-state opts)               ; -> state; no socket, atom, or scheduler
@@ -1955,9 +1960,11 @@ under `:sha256` verifies against its own address while the default is
 `:blake3`.
 
 **M3. Stepped core and link runtime.** Implement `link-state`,
-`request-link`, `step`, `abandon` over `dao.jing.remote.step` (or, for a
-purely local composition, over `dao.stream.rpc` on a ring-buffer pair
-served by `dao.jing.remote/serve-content!`'s handlers). Reimplement
+`request-link`, `step`, `abandon` over `dao.jing.content.step` on a
+request and response pair, local ring buffers or reflections
+(`dao.stream.remote.md` section 8), served by
+`dao.jing.content/serve-step`, with the shared ingress check
+`dao.jing/accept-bytes!`. Reimplement
 `fetch` as the blocking driver over a link runtime; export `verify` and
 `discharge`. Tests: the full refusal matrix through `step` over ring
 buffers on all three hosts; the JVM WebSocket path from B6 completion
@@ -2093,7 +2100,7 @@ Edited:   src/cljc/yin/vm/module.cljc                 (M4)
              references; 7.5.1, 7.5.3, and 7.6.2 resource decode
              targets and store model)                               (M4)
 Depends:  dao.jing (segment-key, segment-matches?, materialize!)
-          dao.jing.remote, dao.jing.remote.step, dao.stream.rpc
+          dao.jing.content, dao.jing.content.step (dao.stream.remote.md)
           yin.vm (validate-rows, free-names, primitive-profiles)
           yin.vm.code (well-formed-vector?)
           yin.vm.ledger (derive-record, verify-derivation)
@@ -2308,8 +2315,9 @@ the first concerns material the composition supplies to a policy section
   (section 6.3). M5 shipped a clock-free pending run with `(abandon)`
   and no deadline; a configurable `:link-policy` (`:manual` by default, a
   function for embedders, `:lease` reserved for a `dao.lease` deadline)
-  is designed in `yin.repl.link-policy.md`. The `dao.jing.remote` timing
-  options govern content transport attempts, not the life of a require.
+  is designed in `yin.repl.link-policy.md`. The content driver's timing
+  options (`dao.jing.content.driver`, JVM host policy) govern content
+  transport attempts, not the life of a require.
 - **Contract-pinned AST and semantic identities.** Strict decoupling of
   storage address from VM identity holds for H and R only (section 3).
   Pinning `:yin.ast/code` and `:yin.semantic/code` identities to a

@@ -592,23 +592,25 @@ Three rules make these resumable somewhere other than where they were minted:
   resumer exactly. A first poll that observes `gap` is the honest outcome
   the contract already promises a kept cursor (`dao.stream.md`, *Retention
   and Gaps*). At migration the composition serves every carried stream
-  cell through a standard stream-over-network facade derived from the
-  `dao.stream` operation and outcome contract. This is an access path to
-  the original logical stream, not a copied stream with new positions.
-  `dao.stream` itself assumes no network. The facade serves the source's
-  declared reader and writer surface, preserving its outcome maps and
-  cursor namespace rather than assigning new positions.
-  The cell's stream descriptor carries the generated facade endpoint,
-  while the cell carries its kept cursor. The receiver attaches a proxy
-  `dao.stream` implementation through that endpoint and resumes at the
-  kept cursor. `dao.stream.rpc.ws` demonstrates the transport-neutral RPC
-  pattern over ring buffers; it does not itself supply the UCF facade.
-  `:yin.k/cursor-profiles` in `:yin.k/requires` declares what the facade
-  must honor, including cursor identity, position, and `gap` outcomes.
-  If the source cannot expose those operations, preserve the cursor, or
-  keep the endpoint reachable, lift refuses as `:yin.k/unsatisfied` before
-  minting the value. Attach failure on the receiver is also
-  `:yin.k/unsatisfied`, naming the stream identity.
+  cell through `dao.stream.remote.md`: the exporter enters the cell's
+  handle in its table and the cell's stream descriptor becomes a remote
+  descriptor. This is an access path to the original logical stream, not
+  a copied stream with new positions. `dao.stream` itself assumes no
+  network. The mirror serves the source's declared reader and writer
+  surface, preserving its outcome maps and cursor namespace rather than
+  assigning new positions. The cell carries its kept cursor. The receiver
+  attaches a reflection through that descriptor and resumes at the kept
+  cursor. `:yin.k/cursor-profiles` in `:yin.k/requires` names
+  `:dao.stream.remote/v1`, the one profile: a cursor is plain data in the
+  channel's portable domain and the source honors it after
+  serialization, including cursor identity, position, and `gap` outcomes.
+  If the source cannot be entered in a table, preserve the cursor, or
+  keep a channel reachable, lift refuses as `:yin.k/unsatisfied` before
+  minting the value. A reflection marked gone on the receiver is also
+  `:yin.k/unsatisfied`, naming the stream identity. The exporter keeps
+  the entry served under a lease the resumer holds
+  (`dao.stream.remote.md`, section 6). Re-homing a stream is out of
+  scope: serving from the exporter pins the exporter.
 - **Outstanding calls route to the emitter's pair; the resumer's pair is its
   own.** The reference machine restores a `:request-sent` entry into a
   response wait through its fixed local store keys (`vm/call-out-stream-key`
@@ -625,7 +627,12 @@ Three rules make these resumable somewhere other than where they were minted:
   `not-found` is `:yin.k/unsatisfied` naming the stream identity, never a
   silent `nil`; a `:put` wait retries its retained value and resumes with it
   on `ok` (the engine, a woken writer's retry appends and stamps the
-  value); a `:next` wait polls its cell. No wait is silently dropped and no
+  value), where through a reflection `ok` is acceptance on the outbound
+  path and the wait resumes only when the source's `ok` is observed on the
+  link's event writer, while an append whose effect is unknown leaves the
+  wait undischarged for the program or its composition to decide
+  (`dao.stream.remote.md`, sections 2.4 and 2.5); a `:next` wait polls
+  its cell. No wait is silently dropped and no
   retained value is recomputed — what parks is what resumes.
 
 **Linker pending variants (M4).** Specified by `yin.vm.linker.md` and
@@ -943,14 +950,15 @@ cell still share one entry and one ref per cell keeps its own, but no
 store key is ever created, and program values keep only the opaque
 reference ids, exactly as a running program holds them.
 
-A stream reference is portable when the exporter can serve its declared
-`dao.stream` surface through the facade and publish an attachable endpoint
-for the original logical stream. This applies to local implementations,
+A stream reference is portable when the exporter can enter its handle in a
+`dao.stream.remote.md` table and publish a remote descriptor for the
+original logical stream. This applies to local implementations,
 including an in-memory or string-backed stream; they need no native
-network transport. The exporter checks the required cursor profile before
-encoding the cell, and the receiver binds a proxy on `attach!`. The facade
-preserves the source's cursor and outcome semantics, including `gap`; it
-does not turn `:oldest` or `:newest` into a kept position. A raw host handle
+network transport. The exporter checks the `:dao.stream.remote/v1` cursor
+profile before encoding the cell, and the receiver holds a reflection
+after `attach!`. The mirror preserves the source's cursor and outcome
+semantics, including `gap`; it does not turn `:oldest` or `:newest` into
+a kept position. A raw host handle
 still never crosses the value boundary. A stream that cannot be served or
 cannot honor the required profile refuses through the existing
 non-portable or unsatisfied outcomes; a missing remote attachment is
@@ -1588,10 +1596,11 @@ the review's named architectural obligations; they are blockers to
 - **Pending-state completeness.** Every pending variant of §7.4.3 must
   round-trip and resume *elsewhere*: retained writes, sent and retained FFI
   calls with both endpoints and the kept response cursor, and cursor cells
-  through the aliasing scenarios of `check-wait-set`. This depends on a
-  generated stream-over-network facade and a **portable cursor profile**
-  that preserves the source stream's kept cursor and `gap` outcomes. The
-  M4 string-backed stream test below is the required cross-host proof.
+  through the aliasing scenarios of `check-wait-set`. This depends on
+  `dao.stream.remote.md` and its **portable cursor profile**
+  `:dao.stream.remote/v1`, which preserves the source stream's kept cursor
+  and `gap` outcomes. The M4 string-backed stream test below is the
+  required cross-host proof.
 - **Enforceable fencing.** Epoch-checked, atomic-with-commitment admission
   and durable op-id plus intent dedup at enrolled consumers are design
   items for `dao.space.transactor.md`. A consumer without a shared atomic
@@ -1713,22 +1722,25 @@ claim that all five blockers have closed.
   `:yin.k/not-at-safepoint`; queued work gives `:yin.k/not-quiescent`.
   Insufficient pending evidence refuses before publication, as does a
   missing portable cursor profile. Halt yields a result, not a frame.
-- Facade acceptance: Park a continuation holding a string-backed local
-  `dao.stream` with a kept cursor, then migrate to another network node.
-  The exporter mechanically serves that stream through the standard
-  facade; the cell descriptor contains the facade endpoint and kept
-  cursor, and the receiver binds a proxy `dao.stream` to the original
-  logical stream. Reads resume at the kept position. Force retention
-  loss and verify the proxy returns `:dao.stream/gap` with the source's
+- Reflection acceptance (`dao.stream.remote.implementation-plan.md`, slice 8): Park a
+  continuation holding a string-backed local `dao.stream` with a kept
+  cursor, then migrate to another network node. The exporter
+  mechanically serves that stream by entering it in its table; the cell
+  descriptor is a remote descriptor and the cell carries the kept
+  cursor, and the receiver holds a reflection on the original logical
+  stream. Reads resume at the kept position. Force retention loss and
+  verify the reflection returns `:dao.stream/gap` with the source's
   successor cursor, without replay or silent skip. Repeat with a source
-  that cannot honor the profile: lift refuses `:yin.k/unsatisfied`; an
-  unreachable endpoint on lower is `:yin.k/unsatisfied` naming the stream.
+  that cannot honor the profile: lift refuses `:yin.k/unsatisfied`; a
+  reflection marked gone on lower is `:yin.k/unsatisfied` naming the
+  stream. The exporter's entry and any relay pair the route depends on
+  are lease-governed, and a resumer that arrives after reclaim observes
+  `not-found`.
 - Landing and order: M4 covers the early two-engine gate, the table,
-  reference-machine parity, and the cross-host facade proof after code
+  reference-machine parity, and the cross-host reflection proof after code
   identity; the kept-cursor proof no longer waits for post-M5 hardening.
-  M3's stream exchanges and `dao.stream.rpc.ws` supply the RPC pattern,
-  but M4 must land the generic facade and proxy, not just reuse a native
-  network stream.
+  M4 must land the mirror step and reflection of `dao.stream.remote.md`,
+  not just reuse a native network stream.
   Before export, specify the no-wait explicit-park representation and any
   `:call-effect` pending shape; test them or remove that reason from the
   wire contract. The `:reasons` Option B ruling in
@@ -1762,7 +1774,7 @@ claim that all five blockers have closed.
   primitive profiles (including effectful `yin/def` and `require`), and
   linker section 11 item 12's `:yin.k/binding`, `:yin.k/store-of`,
   private-resource, and sealed-reference variants before lift uses them.
-  M4 also proves the string-backed stream facade and kept-cursor case in
+  M4 also proves the string-backed stream reflection and kept-cursor case in
   the safepoint row before cross-host values are accepted. Phase 1
   canonicalization and M2 format records do not encode frames or values.
 

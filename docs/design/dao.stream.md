@@ -110,6 +110,20 @@ Every DaoStream operation returns data.
   outcome, and a consumer must ignore keys it does not understand. This is
   what allows future extensions (for example readiness notification) to be
   added without breaking existing consumers.
+- Each outcome set is exhaustive **for this version of the contract**. A
+  consumer that receives an outcome it does not recognize treats it as: not
+  `ok`; nothing observed; for a write, effect unknown and no automatic
+  retry; and not retryable unless the result map carries
+  `:dao.stream/retry? true`. It does not throw, because an unrecognized
+  outcome is a newer contract, not a defect in this host's assembly. A
+  transport may carry `:dao.stream/retry? true` on any non-`ok` outcome to
+  say that asking again is the right response.
+- `:dao.stream/refused` is an outcome `cursor`, `next` and `append!` may
+  produce: a policy composed on this handle declined the operation; nothing
+  was observed and nothing was appended; not retryable unless the map
+  carries `:dao.stream/retry? true`. `descriptor` and `close!` never produce
+  it: a name is not gated and a lifecycle transition is not declined. What
+  the policy is, and how it is composed, is outside this contract.
 - Exceptions are reserved for defects in the host's own assembly of
   DaoStream, detected before any operation runs. Everything observable at an
   operation returns data: closed, full, blocked, end, gap, not found,
@@ -262,9 +276,13 @@ Its properties are settled:
   key.
 - It carries the logical-stream identity under the contract-owned
   `:dao.stream/identity` key. Different descriptors may reach
-  the same logical stream through different endpoints; their reachability data
+  the same logical stream through different endpoints of the same owning
+  transport; their reachability data
   may differ, but their logical-stream identity is structurally equal. The same
-  descriptor attaches to the same stream every time.
+  descriptor attaches to the same stream every time. A logical stream is the
+  sequence one transport instance owns: a copy on another host or medium is a
+  different logical stream with its own identity, and that it mirrors the
+  first is a fact for an interpreter to record.
 - It is self-contained. If the stream is remote, it contains whatever is
   needed to connect — perhaps an IP address and port. The entry data is
   transport-owned; a handler that cannot make sense of it returns
@@ -418,6 +436,12 @@ than on a transport it detected. Such an interpreter is composed for a
 particular medium and says so; it is not contract-generic code, and nothing
 contract-generic may be built on it.
 
+A handle may be composed over another handle on the same logical stream: it
+declares that stream's identity, implements no surface the inner handle
+lacks, passes cursors through unchanged, and may present values under its
+own interpretation. Such a handle is host-composed, like a transport
+constructor's closures, and is otherwise an ordinary handle.
+
 The reader surface is a promise: the handle presents its elements as
 one positioned, append-only, retained sequence that cursors can observe and
 re-observe. A transport whose medium retains nothing cannot make that
@@ -492,7 +516,8 @@ A cursor is an immutable value owned by the interpreter that holds it.
   cannot fail this way excludes the outcome like any other (see Surfaces).
   `cursor`'s outcome set is therefore `:dao.stream/ok` (with
   `:dao.stream/cursor`), `:dao.stream/invalid-anchor`,
-  `:dao.stream/closed`, and `:dao.stream/transport-error`.
+  `:dao.stream/closed`, `:dao.stream/refused`, and
+  `:dao.stream/transport-error`.
 - A composition that intends to observe events caused by an operation mints
   its `:dao.stream/newest` cursor **before** invoking that operation. Minting
   after `attach!`, endpoint bind, handoff installation, or any other operation
@@ -520,9 +545,13 @@ A cursor is an immutable value owned by the interpreter that holds it.
   cursor's representation belongs to the transport.
 - A cursor binds to the logical stream, not to a handle: any handle on the
   same logical stream accepts it, so a cursor handed to another interpreter
-  works with that interpreter's own handle. Whether a cursor survives
-  serialization to another host is transport-owned and TBD, like the
-  descriptor envelope.
+  works with that interpreter's own handle. A cursor is plain data and
+  survives the host serialization codec structurally unchanged, under the
+  same rule as the envelopes. A cursor that outlives the stream it names is
+  a cursor like any other: `next` answers `cursor-mismatch` when the handle
+  it is given is on a different logical stream, never a defect. A descriptor
+  whose stream no longer exists is `attach!`'s own `not-found`, a separate
+  case that takes no cursor.
 - A cursor carries the logical-stream identity, not a reachability descriptor.
   `cursor-mismatch` compares that identity, so handles reached through distinct
   descriptors for the same logical stream accept the same cursor.
@@ -547,6 +576,7 @@ answer.
 | `:dao.stream/gap`             | This position was evicted.                                                    | `:dao.stream/cursor` (earliest retained position, or the tail when nothing is retained) |
 | `:dao.stream/cursor-mismatch` | The cursor was minted by a different logical stream.                          | —                                                                                       |
 | `:dao.stream/invalid-cursor`  | The value is not a cursor.                                                    | —                                                                                       |
+| `:dao.stream/refused`         | A policy composed on this handle declined the read; nothing was observed.     | —                                                                                       |
 | `:dao.stream/transport-error` | The transport failed to perform the read; nothing was observed.               | —                                                                                       |
 
 Reading never mutates the stream. Two readers with cursors at the same
@@ -565,7 +595,8 @@ reader's progress every other reader's data loss.
 | `:dao.stream/full`            | The transport does not accept the value; nothing was appended. Whether this is transient or permanent is the transport's declared nature (see Retention and Gaps). | —             |
 | `:dao.stream/invalid-value`   | The transport cannot carry this value (for example, it cannot be encoded); nothing was appended.                                                     | —             |
 | `:dao.stream/closed`          | What this handle is on is closed to new appends; the value was not appended.                                                                         | —             |
-| `:dao.stream/transport-error` | The transport failed to perform the append; nothing was appended.                                                                                    | —             |
+| `:dao.stream/refused`         | A policy composed on this handle declined the append; nothing was appended.                                                                          | —             |
+| `:dao.stream/transport-error` | The transport failed to perform the append. Whether the value was appended is unknown unless the transport declares that its failures are clean.     | —             |
 
 Acceptance is handle-relative, as close outcomes are. **Which sequence** a
 handle's writer surface is on is part of the transport's declared nature: for a
@@ -576,7 +607,18 @@ not here. No remote transport can say more — under *no operation waits*, an
 answer from the far end cannot arrive before `append!` returns.
 
 The writer decides what to do about any non-`ok` outcome; DaoStream does not
-retry, buffer, or notify on its behalf.
+retry, buffer, or notify on its behalf. The three in-memory transports
+(`ringbuffer`, `memory-log`, `ws`) declare clean failure: their
+`transport-error` means nothing was appended.
+
+**Deduplication and correlation are the payload's.** A writer that must
+retry safely puts an identity in the value; a reader that must not act twice
+deduplicates on it. The stream never promises exactly-once, and a
+`transport-error` whose effect is unknown is never retried automatically.
+
+A transport whose acceptance is not its final answer (durability reached,
+far-end refusal) declares the channel on which that answer is deposited, as
+*Close* already requires for a failing flush.
 
 ## Close
 
@@ -802,149 +844,12 @@ replaced by one sentence in *Explicitly Absent* recording why. Drafted
 2026-09-19 from a review of this document against `dao.stream`, its three
 transports (`ringbuffer`, `memory-log`, `ws`), and their consumers.
 
-OD-1 to OD-4 are ordered by cost of delay. Each is a paragraph today, while
-three transports and a handful of consumers exist, and a migration once a
-durable or replicated transport ships. OD-5 was added afterwards and is
-numbered by arrival; it concerns the layers above this contract rather than the
-contract's own operations.
-
-### OD-1. An unrecognized outcome has no defined meaning
-
-**The assumption.** The Result Convention makes each operation's outcome set
-exhaustive and makes result *maps* open. The two rules are asymmetric: a future
-extension may add a key, never an outcome. The contract assumes the seven
-outcome sets are complete for every transport that will ever exist.
-
-**Evidence.** Consumers are already total over the closed sets and treat
-anything else as a fault: `dao.stream.observe/step` classifies an unrecognized
-read or effect outcome as `transport-error` and reports `:defect` or `:failed`;
-`yin.vm.engine/handle-put` and `handle-next` throw. *Envelopes* declines to
-reserve an outcome for gating and says gating "arrives as an addition", but
-under the exhaustive rule a new outcome is not an addition.
-
-**What breaks.** Any condition the present outcomes cannot express honestly:
-attachment or append refused for lack of authority; a descriptor that is valid
-but served elsewhere now; a transport that is throttling rather than full; an
-append whose effect is unknown (OD-2). Each must either be squeezed into an
-existing outcome that misdescribes it (`not-found` for unauthorized, `full` for
-throttled) or break every consumer.
-
-**Proposed resolution.** Keep each outcome set exhaustive *for this version of
-the contract* and add one rule to the Result Convention that makes later
-outcomes safe to introduce:
-
-> A consumer that receives an outcome it does not recognize treats it as: not
-> `ok`; nothing observed and nothing appended; and not retryable, unless the
-> result map carries `:dao.stream/retry? true`. It does not throw, because an
-> unrecognized outcome is a newer contract, not a defect in this host's
-> assembly.
-
-With that rule a newer transport degrades to "refused, do not retry" on an
-older consumer instead of to an exception, and `:dao.stream/retry?` lets it
-say when waiting is the right response. The existing `full` and `blocked` keep
-their meanings and need not carry the key.
-
-**Cost if deferred.** Every consumer written in the meantime hard-codes
-"unknown means defect", and the first new outcome is a coordinated change
-across all of them.
-
-### OD-2. `append!` assumes its own effect is always knowable
-
-**The assumption.** *Writing* defines `transport-error` as "the transport
-failed to perform the append; nothing was appended", and `ok` as acceptance at
-a definite position. Both assume the transport knows, at return time, whether
-the value is in the sequence.
-
-**Evidence.** True of all three transports today: `ringbuffer` and `memory-log`
-are single in-memory state transitions, and `ws` sidesteps the question because
-its writer surface is the outbound path, so `ok` claims only enqueueing. No
-transport yet has a medium that can fail *after* accepting bytes.
-
-**What breaks.** A durable file whose write succeeds and whose sync fails; a
-log replicated to a quorum; an append forwarded to a remote sequencer. Each has
-a third state, *unknown*, that the table cannot express. A consumer written
-against the present text retries on `transport-error`, which is correct only if
-nothing was appended, and duplicates the value when something was.
-
-Two related gaps compound it. `append!`'s `ok` carries no correlation value, so
-where the real answer is displaced to another channel (*Writing*: "what becomes
-of the value at the far end is reported there, not here") nothing in the
-contract ties that answer to the append that caused it. `attach!` has
-`:dao.stream/attachment` for exactly this; `append!` has no counterpart. And
-`ok` promises neither readability nor delivery nor durability, with no named
-way to learn any of the three later.
-
-**Proposed resolution.** Three sentences, no new operation:
-
-1. Reword `transport-error` on `append!`: "The transport failed to perform the
-   append. Whether the value was appended is unknown unless the transport
-   declares that its failures are clean." The three existing transports declare
-   clean failure, so nothing changes for them.
-2. State the rule the RPC layer already follows: **deduplication and
-   correlation are the payload's.** A writer that must retry safely puts an
-   identity in the value; a reader that must not act twice deduplicates on it.
-   The stream never promises exactly-once.
-3. Name where later answers land: a transport whose acceptance is not its
-   final answer (durability reached, far-end refusal) declares the channel on
-   which that answer is deposited, as *Close* already requires for a failing
-   flush.
-
-**Cost if deferred.** The first durable transport either lies (reports clean
-failure it cannot guarantee) or changes the meaning of an outcome that every
-retry loop already depends on.
-
-### OD-3. A cursor binds to the logical stream but is shaped by one transport
-
-**The assumption.** *Cursors* promises that "any handle on the same logical
-stream accepts it", and *Envelopes* allows that "different descriptors may
-reach the same logical stream through different endpoints". *Cursors* also says
-"a cursor's representation belongs to the transport". Together these hold only
-if a logical stream lives on exactly one transport for its whole life.
-
-**Evidence.** Cursor maps are keyed in the minting transport's namespace
-(`:dao.stream.ringbuffer/identity` and `/position`,
-`:dao.stream.memory-log/identity` and `/position`), so a cursor from one
-transport is `invalid-cursor` on any other, whatever identity it names. Across
-hosts the promise has never been exercised: `ws` has no reader surface, so
-inbound values are deposited on a local stream with its own identity and its
-own positions. What a remote host reads is a copy, not the stream. Finally,
-"whether a cursor survives serialization to another host is transport-owned and
-TBD", while *Explicitly Absent* removes `seek`: a kept cursor is therefore the
-only checkpoint a consumer has, and whether it can be written down is
-undecided.
-
-**What breaks.** Replication and DHT replicas (which replica's positions are
-the stream's?); re-homing a stream from memory to a durable medium without
-invalidating every kept cursor; a durable consumer resuming after restart;
-comparing two replicas to detect a forked history.
-
-**Proposed resolution.** Two decisions, the first a choice:
-
-1. **Choose what a logical identity ranges over.** Either
-   (a) *one origin, one transport*: a logical stream is the sequence one
-   transport instance owns. A copy on another host or medium is a different
-   logical stream with its own identity; that it mirrors the first is a fact for an
-   interpreter to record. This is how the code already behaves:
-   `dao.stream.forward` copies into a destination with its own identity. The
-   sentence
-   about different descriptors reaching one stream narrows to "different
-   endpoints of the same owning transport". Or
-   (b) *contract-level position*: the contract defines a position within an
-   identity (an ordinal), cursors carry it under a `:dao.stream/…` key, and any
-   transport serving that identity honors it.
-   Recommended: (a). It matches Axiom 2 (sameness between sequences is an
-   interpretation), costs a paragraph, and leaves (b) available later as an
-   additive key. (b) commits every future transport, including ones with no
-   natural ordinal, now.
-2. **Settle serialization.** Replace "TBD" with: "A cursor is plain data and
-   survives the host serialization codec structurally unchanged, under the same
-   rule as the envelopes. A cursor that outlives the stream it names yields
-   `not-found` at `attach!` or `cursor-mismatch` at `next`, never a defect."
-   Both existing transports already satisfy this.
-
-**Cost if deferred.** The first durable or replicated transport decides both
-questions implicitly, by whatever its cursor happens to look like, and every
-consumer that persisted a cursor inherits that accident.
+OD-1, OD-2 and OD-3 were accepted on 2026-09-27 and their text moved into
+*Result Convention*, *Writing*, *Envelopes* and *Cursors*; the numbers are
+not reused. OD-4 is a paragraph today, while three transports and a handful
+of consumers exist, and a migration once a durable or replicated transport
+ships. OD-5 was added afterwards and is numbered by arrival; it concerns the
+layers above this contract rather than the contract's own operations.
 
 ### OD-4. A logical stream can close but cannot end
 

@@ -87,7 +87,7 @@ throw on canonical-encoder refusal — they are never validators.
 
 ### Default-only remote mint entry points
 
-Classified explicitly per the hash-registry design and architect sign-off:
+Classified explicitly per the hash-registry design and architect sign-off. Both remote sites live in `dao.jing.remote`, deprecated whole; the successor `dao.jing.content` inherits the classifications (`dao.stream.remote.md`, section 8):
 
 | Site | Location | Disposition |
 |---|---|---|

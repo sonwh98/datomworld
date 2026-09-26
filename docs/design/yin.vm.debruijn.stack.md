@@ -811,7 +811,7 @@ transport-neutral mechanism, and their physical placement is not a linker
 decision.
 
 `dao.jing` stores and fetches the image as a value at its own content
-address, over `dao.stream` through `dao.jing.remote`. B verifies the
+address, over `dao.stream` through `dao.jing.content`. B verifies the
 received value twice, against its Jing address with `segment-key` and
 against H with `image-hash`, and never treats `jing/segment-key` as H. The
 integrity rule is the same as hashing wire bytes before trusting them; the

@@ -50,8 +50,8 @@ The linker embodies the separation between storage and stream transport:
    `dao.stream`. No direct function calls cross process or host boundaries.
 3. **Reused DaoJing substrate**: The linker builds directly on DaoJing:
    - `dao.jing.dht` handles local cache retrieval and Kademlia peer lookup.
-   - `dao.jing.remote` handles DHT requests over `dao.stream` using
-     `content-client` and `default-handlers`.
+   - `dao.jing.content` (`dao.stream.remote.md` section 8; formerly
+     `dao.jing.remote`) handles content requests over remote streams.
 
 B6 reuses this substrate wholesale. The linker writes no transport, no peer
 lookup, no cache, and no responder of its own.
@@ -72,8 +72,8 @@ B6 contributes:
 
 ### 2.2 What B6 does not add
 
-- No new transport: `dao.stream` is the only medium; `dao.jing.remote`
-  provides the RPC client and server.
+- No new transport: `dao.stream` is the only medium; `dao.jing.content`
+  provides the request and response convention over remote streams.
 - No peer routing or caching: handled entirely by DaoJing DHT.
 - No global registry: handles, indexes, and format records are explicit
   arguments.
@@ -345,7 +345,7 @@ Reference-by-hash is a stream process, not hidden VM machinery:
 
 Cross-host transfer over `dao.stream`:
 
-1. (H, R) JVM to Dart transfer over `dao.jing.remote`'s DaoStream transport,
+1. (H, R) JVM to Dart transfer over `dao.jing.content` on remote streams,
    where the receiver initially knows only the identity (H or R) and an
    index. Includes the Dart-side client harness for that path.
 2. (H, R) Equal normalized results under the B0 normalizer when the fetched

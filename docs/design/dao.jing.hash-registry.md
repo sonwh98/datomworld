@@ -402,7 +402,7 @@ There is no fallback reader for the old `:schema-hash` field and no dual candida
 
 ### Address-directed validation sites
 
-The following sites validate content against an address already supplied by stored data, a caller, or a peer. They use `segment-matches?`:
+The following sites validate content against an address already supplied by stored data, a caller, or a peer. They use `segment-matches?` (the `dao.jing.remote` sites describe the code as it stands today; `dao.jing.remote` is deprecated whole and its successor `dao.jing.content` keeps the same checks, per `dao.stream.remote.md` section 8):
 
 - `dao.jing/materialize!` on `:present` read-back
 - `dao.jing.mem/validate-address-payload!`

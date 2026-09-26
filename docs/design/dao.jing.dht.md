@@ -162,9 +162,13 @@ and `:reply`. One Transit-JSON message map per datagram: requests carry
   `:store-content` is content-address verified, but is not guarded by
   returnability cookies or per-peer limits. UDP amplification hardening is
   open.
-- **NAT traversal is unaddressed.** A global peer-to-peer grid behind NAT
-  requires hole-punching, relay/TURN, and bootstrap discovery. Until then the
-  DHT works where peers can reach each other's UDP sockets directly.
+- **NAT traversal is unaddressed here.** A global peer-to-peer grid behind
+  NAT requires hole-punching, relay/TURN, and bootstrap discovery. Until then
+  the DHT works where peers can reach each other's UDP sockets directly.
+  `dao.stream.remote.md` section 4 specifies hole punching and relay as
+  conventions over remote streams; a DHT node is a natural peer to run its
+  meeting convention, and `dao.stream.discovery.md`'s rendezvous topics are
+  where a meeting's descriptors are found.
 - **Storage economics / GC.** Unbounded caching is unbounded storage growth.
   There is no pinning, eviction, or reclamation policy, so `get` is best-effort
   by default and superseded content accumulates.

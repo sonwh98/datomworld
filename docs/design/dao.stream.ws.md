@@ -6,26 +6,28 @@ Where the two disagree, the contract wins.
 
 ## What the Descriptor Names
 
-A WebSocket descriptor names a **server-hosted stream**, never a connection.
-The stream exists on the serving host — created there, retained there,
-closed there by its owner — and it exists whether or not any client is
-currently connected. A connection is the mechanics of one attachment:
-connecting joins the stream, disconnecting detaches from it, and neither
-event creates, closes, or destroys anything. That is what makes `attach!`
-honest here: the same descriptor reaches the same stream every time, because
-the stream's identity and lifecycle belong to the server, not to the wire.
+A WebSocket descriptor names a **stream held by the accepting peer**, never
+a connection. The stream exists on the peer that holds it — created there,
+retained there, closed there by its owner — and it exists whether or not
+any dialer is currently connected. A connection is the mechanics of one
+attachment: connecting joins the stream, disconnecting detaches from it, and
+neither event creates, closes, or destroys anything. That is what makes
+`attach!` honest here: the same descriptor reaches the same stream every
+time, because the stream's identity and lifecycle belong to the peer that
+holds the stream, not to the wire.
 
-This framing generalizes: **serving is what makes any stream remotely
-attachable.** A ring buffer is host-local only because nothing speaks for
-it. A host that composes a WebSocket endpoint in front of one is serving
-that ring buffer; the endpoint produces a descriptor carrying its address and
-the ring buffer's unchanged logical-stream identity, and remote
-interpreters can attach. The transport owns no stream — it serves streams
-the host composed, which is exactly the contract's rule that descriptors
-resolve against "the streams a network endpoint serves because serving them
-is what it is."
+What this transport offers a dialer on its own is a **copy path**: values
+forwarded from a held source into each accepted connection and deposited on
+the dialer's medium with that medium's own positions. Attachment to the
+original stream, with the source's own cursors and outcomes, is
+[`dao.stream.remote.md`](./dao.stream.remote.md), which uses an attachment
+of this transport as a channel and owns no stream either. The transport
+owns no stream — it serves streams the host composed, which is exactly the
+contract's rule that descriptors resolve against "the streams a network
+endpoint serves because serving them is what it is." An acceptor may also
+dial: which end dialed is an establishment fact, not a role.
 
-A server that wants per-conversation state does not bend attachment into
+A peer that wants per-conversation state does not bend attachment into
 creation: it `create!`s a fresh stream for the conversation and offers that
 stream's descriptor.
 
@@ -36,7 +38,7 @@ handle. It has no reader surface: a socket retains nothing, so it cannot make
 the reader surface's promise — a positioned, append-only, retained sequence
 that cursors can observe and re-observe. `cursor` and `next` do not exist on it.
 
-Both a client handle and a server-side accepted-connection handle answer
+Both a dialer-side handle and an acceptor-side accepted-connection handle answer
 `descriptor` with reachability for the endpoint through which they attached
 and with the served stream's transport-independent `:dao.stream/identity`.
 Two endpoints may therefore produce different descriptors for the same served
@@ -685,16 +687,20 @@ Close code `4000`, reason `dao.stream/ended`, maps to `:ws/ended`. Code `4004` i
   Even repaired, the residual is unbounded for a stalled peer and
   caller-owned: a late `onOpen` can be aborted, but the JDK offers no
   handle to bound a peer that never completes the handshake. `yin.repl`
-  is this gap's first consumer and `dao.jing.remote` its second, and
-  neither can close it from where it stands.
+  is this gap's first consumer and `dao.jing.remote` (deprecated by
+  `dao.stream.remote.md`) its second, and neither can close it from where
+  it stands.
 - Exact envelope key set (tracks the contract's descriptor TBD).
 - Liveness: whether an idle connection is probed with the protocol's own
   ping/pong frames or with ordinary deposited values, how often, how many
   unanswered probes end a connection, and — if the probe is not a protocol
-  frame — which component is obliged to answer it.
+  frame — which component is obliged to answer it. For a connection used as
+  a `dao.stream.remote.md` channel, a `descriptor` request is the probe and
+  the mirror step answers it; cadence stays the composition's.
 - Resumption protocol: stream identity is stable across reconnects, so
-  resumption is possible by design; what history a rejoining client receives
-  (and how it states where it left off) is not yet specified.
+  resumption is possible by design; what history a rejoining dialer receives
+  (and how it states where it left off) is not yet specified for the copy
+  path. Through `dao.stream.remote.md` a kept cursor is the whole answer.
 - Backpressure protocols above the stream (a reader publishing its progress
   as data is interpretation, outside both this transport and the contract).
   Needing nothing from this transport does not mean needing no specification:
@@ -708,4 +714,6 @@ Close code `4000`, reason `dao.stream/ended`, maps to `:ws/ended`. Code `4004` i
   establishment. On such a host `append!` may accept into the host's opaque
   buffer and the manifest excludes transient `full` for that state; this
   bounded-observability asymmetry is explicit rather than an invented signal.
-- Relationship to the RPC layers built over streams.
+- Relationship to the RPC layers built over streams: `dao.stream.remote.md`
+  section 8 retires `dao.stream.rpc.ws` and `dao.stream.serving` and makes
+  request and response a convention over remote streams.

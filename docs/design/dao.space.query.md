@@ -277,7 +277,8 @@ It is a pure data-structure walk over whatever `jing/get` returns — it never
 touches bytes or calls `edn/read-string` itself. `jing/get`'s contract is
 "returns the stored opaque value at a strict segment address, already
 decoded." Whether that value arrived via an EDN round-trip (`dao.jing.file`), a
-plain in-memory reference (`dao.jing.mem`), an RPC (`dao.jing.remote`), or a
+plain in-memory reference (`dao.jing.mem`), a request over remote streams
+(`dao.jing.content`), or a
 DHT fetch
 (`dao.jing.dht`) is backend-internal and invisible here. This is exactly the
 seam Datomic's Peer occupies internally when it decodes storage's index blobs

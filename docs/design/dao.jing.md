@@ -324,15 +324,19 @@ registered `:segment/<algorithm>-<digest>` addresses; arbitrary keys and mutable
 roots are outside DaoJing and throw before a backend is consulted.
 
 A reader may access the target locally or through a remote transport
-(`dao.jing.remote`, `dao.jing.dht`). Location changes how bytes are obtained,
+(`dao.jing.content` over `dao.stream.remote.md`, which deprecates
+`dao.jing.remote`; `dao.jing.dht`). Location changes how bytes are obtained,
 not how their identity or meaning is determined.
 
 Higher layers expose the semantic compositions the stream participates in. A
 query reads a published index descriptor containing a serializable
 content-store coordinate plus an immutable manifest address.
 `dao.jing.coordinate/open!` interprets coordinates such as
-`{:dao.jing/type :dao.jing/file :path ...}` or,
-on the JVM, `{:dao.jing/type :dao.jing/remote :url ...}` into local handles;
+`{:dao.jing/type :dao.jing/file :path ...}` or
+`{:dao.jing/type :dao.jing/remote :dao.jing/requests ... :dao.jing/answers ...}`
+(two remote descriptors, `dao.stream.remote.md` section 8; today only the
+deprecated JVM form `{:dao.jing/type :dao.jing/remote :url ...}` exists)
+into local handles;
 unsupported coordinates fail closed. These coordinates are caller-supplied
 values, not state inferred from storage. DaoJing does not infer a source or
 coordinate from the stream that carried a payload, and no content address is
@@ -395,8 +399,10 @@ optional `:close-fn`.
 **Content-store coordinates are transportable data.**
 `dao.jing.coordinate/open!` is the explicit interpretation boundary from a
 coordinate to a live handle. Its closed dispatch recognizes
-`:dao.jing/file` on every supported platform and `:dao.jing/remote` on the
-JVM. There is no name-to-handle registry; adding a backend is an explicit code
+`:dao.jing/file` on every supported platform and `:dao.jing/remote` (today,
+the deprecated `:url` form) on the JVM only; the target is the
+two-descriptor coordinate of `dao.stream.remote.md` section 8 on every
+host. There is no name-to-handle registry; adding a backend is an explicit code
 change to the coordinate interpreter.
 
 Implemented backends:
@@ -423,7 +429,11 @@ Implemented backends:
   open with the file untouched. The store guarantees idempotent close,
   throws after close, and serializes concurrent puts with exactly one record
   written.
-- `dao.jing.remote` — over DaoStream v2, both halves JVM-only: the
+- `dao.jing.remote` — **deprecated whole** by `dao.stream.remote.md`
+  section 8, which replaces it with `dao.jing.content`: a request and
+  response convention over remote streams, a stepped client on every host,
+  and the blocking driver as JVM host policy. Until that lands, it is as
+  described here: over DaoStream v2, both halves JVM-only: the
   constructor `connect-content!` returns a content handle over a live v2
   attachment, and `serve-content!` serves `default-handlers` — or any
   `{op fn}` map — at a WebSocket endpoint. The synchronous client is a
@@ -501,11 +511,16 @@ not-found sentinel and answers bytes or that sentinel. `materialize!` encodes
 a payload exactly once, derives the address from those bytes, and hands the
 same bytes to the backend; on `:present` it reads the bytes back and
 verifies them by hash and byte for byte. `get` hash-verifies the backend's
-bytes and decodes them. `dao.jing.remote` and `dao.jing.dht` carry the bytes
-as padded standard-alphabet Base64 text inside their existing Transit and
-datagram envelopes, and run the one ingress canonicality check (strict
+bytes and decodes them. `dao.jing.content` (succeeding `dao.jing.remote`) and
+`dao.jing.dht` carry the bytes
+as padded standard-alphabet Base64 text in the application value, on the
+channel codec's message boundaries (`dao.jing.content`) and in its own
+datagram envelope (`dao.jing.dht`; `dao.jing.cbor.md`, Remote and DHT),
+and run the one ingress canonicality check (strict
 Base64, digest, canonical decode) before any received bytes are stored or
-served.
+served. That check is one shared function, `dao.jing/accept-bytes!` (the
+target; today it is the private `dao.jing.remote/accept-bytes!`), used by
+every ingress (`dao.stream.remote.md`, section 8).
 
 ## Open items and current limitations
 
@@ -591,6 +606,13 @@ served.
   completion. `dao.data.btree.storage/hydrate-async` and
   `store-tree-async` consume it through a `hydration-storage` whose
   source is that handle; see `dao.data.btree.md` §6 Phase 4 notes.
+
+  **Status 2026-09-27:** `dao.jing.remote.step` and `dao.jing.remote.async`
+  are deprecated with `dao.jing.remote`. `dao.stream.remote.md` section 8
+  names their successors, `dao.jing.content.step` and
+  `dao.jing.content.async`, with the same shapes, whose media are any
+  `dao.stream` handles: reflections of remote streams or local ring
+  buffers.
 
 ## Lineage
 

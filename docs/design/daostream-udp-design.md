@@ -1,4 +1,5 @@
 > **Status (2026-09-17):** v1 design. Implementation deleted under `dao.stream.v1-retirement.implementation-plan.md`.
+> **Superseded (2026-09-27)** as prior art by `dao.stream.remote.md`: reads there are idempotent by cursor, so the DRDS reliability layer is not revived; fragmentation lives inside the UDP channel; and NAT traversal, a non-goal here, is addressed there as a convention.
 
 # DaoStream UDP Transport Design
 

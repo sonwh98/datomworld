@@ -810,13 +810,15 @@ that measurement is the §7 item.
 ### 5.4 The async gap, composed
 
 Which backends are actually synchronous, per platform (verified against
-`dao/jing/mem.cljc` and `dao/jing/file.cljc`):
+`dao/jing/mem.cljc` and `dao/jing/file.cljc`; the `dao.jing.content` row
+is the target name for today's `dao.jing.remote`, deprecated whole by
+`dao.stream.remote.md` section 8, same async behavior):
 
 ```
 backend           JVM    cljs/Node   cljs/browser   cljd desktop/mobile   cljd Flutter Web
 KVMem             sync   sync        sync           sync                  sync
 KVFile            sync   sync (fs)   n/a            sync (dart:io sync)   n/a (no dart:io)
-dao.jing.remote   async  async       async          async                 async
+dao.jing.content  async  async       async          async                 async
 DHT (networked)   async  async       async          async                 async
 IndexedDB         n/a    n/a         async          n/a                   n/a
 ```
@@ -904,7 +906,7 @@ though the granularity crossover is deferred (§7):
 ```clojure
 (hydrate! set)          ;; blocking variant, for hosts that CAN block against
                         ;; an async backend (JVM/desktop against
-                        ;; dao.jing.remote or a DHT): full-graph fetch into
+                        ;; dao.jing.content or a DHT): full-graph fetch into
                         ;; the hydration cache; returns the same BTSet
                         ;; (residency lives in the storage layer, not the
                         ;; set). Pointless over a sync backend — rule 1
@@ -1218,9 +1220,12 @@ clj -M:cljd test                                                     (Dart; requ
   `store-tree-async` — `dao.jing` has no async jing handle variant yet, so
   there is nothing real to await; wrapping the sync paths in
   Promise/Future would be API theater. They land with the first async
-  backend (dao.jing.remote / IndexedDB), same signatures as §5.4.
+  backend (dao.jing.content, formerly dao.jing.remote / IndexedDB), same
+  signatures as §5.4.
 - Landed 2026-09-18 over `dao.jing.remote.async/async-content` (the
-  stepped client's async backend): `(hydrate-async s)` and
+  stepped client's async backend; deprecated with `dao.jing.remote`, its
+  successor is `dao.jing.content.async` over remote streams,
+  `dao.stream.remote.md` section 8, async on every host): `(hydrate-async s)` and
   `(store-tree-async s storage)` return a Promise (cljs) / Completer
   Future (cljd) / CompletableFuture (JVM); a callback arity
   `(… on-ok on-err)` is the portable core the tests drive. A

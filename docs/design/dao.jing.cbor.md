@@ -28,9 +28,14 @@ append-only log and later replay it with no external message boundary to
 mark records, so it alone must invent a self-describing frame, which is
 why that frame is itself a CBOR structure (a two-element
 `[digest payload-bytes]` array; see *Memory and files*). `dao.jing.mem`
-never persists, so it has no framing at all; `dao.jing.remote`/`dao.jing.dht`
-get record boundaries for free from Transit's own message envelopes, so
-they frame with Base64-inside-Transit, never a raw CBOR array. This is not
+never persists, so it has no framing at all; `dao.jing.content` (formerly
+`dao.jing.remote`)/`dao.jing.dht`
+get record boundaries from the channel codec's own message framing, one
+application value per message: Transit-JSON text or canonical CBOR binary
+on a WebSocket channel, canonical CBOR on the UDP channel
+(`dao.stream.remote.md` 3.1, 3.2), one Transit-JSON value per DHT datagram.
+So payload bytes travel as Base64 in the application value, never a raw
+CBOR array. This is not
 about `dao.jing.file` being more or less "Jing's own" than any other
 backend in this source tree — all of `memory`/`file`/`remote`/`dht` are
 equally in-repo; only PostgreSQL and S3 are genuinely third-party and not
@@ -432,8 +437,9 @@ bytes) and payload-bytes contains the exact canonical payload.
 **`dao.jing.file` itself owns parsing and constructing this two-element
 frame**, with Jing's own shared codec — the exception the Objective names
 above, needed because `dao.jing.file`'s frame shape is itself a CBOR
-structure, unlike `dao.jing.mem`'s unframed map or
-`dao.jing.remote`/`dao.jing.dht`'s Base64-inside-Transit framing. The
+structure, unlike `dao.jing.mem`'s unframed map or the network backends'
+Base64-in-application-value carriage on channel-codec message boundaries
+(see the Objective). The
 wrapper owns keyword↔digest conversion, so file framing has no
 identifier-codec dependency, and the algorithm identifier itself is not
 carried in the frame — it round-trips through the address keyword the
@@ -456,8 +462,12 @@ over externally supplied bytes.
 ### Remote and DHT
 
 Carry canonical payload bytes as padded standard-alphabet Base64 strings
-(no whitespace or URL-safe alphabet) inside the existing Transit
-operation envelopes. Encode and decode this transport representation at
+(no whitespace or URL-safe alphabet) in the application value, one
+application value per channel-codec message: `dao.jing.content` rides a
+`dao.stream.remote.md` channel (Transit-JSON text or canonical CBOR
+binary per WebSocket message, canonical CBOR per datagram on UDP), while
+`dao.jing.dht` keeps its own one-Transit-JSON-value-per-datagram envelope.
+Encode and decode this transport representation at
 Jing's network boundaries; leave general DaoStream Transit unchanged.
 Remote and DHT APIs above the byte-store wrapper remain value-facing.
 

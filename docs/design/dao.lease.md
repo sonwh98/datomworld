@@ -1,7 +1,10 @@
 # DaoLease
 
-Status: proposed design target, derived from and subordinate to
-[`datom.world.md`](./datom.world.md). This document is the operative contract:
+Status: implemented (`src/cljc/dao/lease.cljc`, `test/dao/lease_test.cljc`,
+`test/dao/lease_composition_test.cljc`; merged 2026-09-20), derived from and
+subordinate to [`datom.world.md`](./datom.world.md). The three use cases in
+[`dao.lease.implementation-plan.md`](./dao.lease.implementation-plan.md) are
+sketches, not finished components. This document is the operative contract:
 every sentence below is a rule. Why the design is this shape is in
 [`dao.lease.rationale.md`](./dao.lease.rationale.md), which binds nothing.
 
@@ -285,12 +288,17 @@ is delivery, not a second authoring.
 
 `:lapsed` does not cross; it is the grantor's record on the grantor's stream. A
 remote holder learns of a reclaim by observing it — for a served connection, an
-ordinary `:ws/closed`. No close code is assigned here; distinguishing reclaim on
-the wire belongs to `dao.stream.ws.md`'s deferred close-code design.
+ordinary `:ws/closed`; for a stream served under `dao.stream.remote.md`, the
+`not-found` protocol error its mirror answers for the reclaimed identity. A remote holder that
+reads the grantor's stream through a served handle is observing the grantor's
+record, not receiving carriage. No close code is assigned here; distinguishing
+reclaim on the wire belongs to `dao.stream.ws.md`'s deferred close-code design.
 
 ## Out of scope
 
 - **Delegated renewal.** A renewal is evidence about its author.
 - **Transfer of a lease between holders.**
 - **Who may be granted anything at all**, and **what is leasable** — this
-  contract gates nothing, and the domain decides.
+  contract gates nothing, and the domain decides. `dao.stream.remote.md`
+  names two subjects: a stream entry served for a remote party, and a relay
+  pair on a meeting peer.
