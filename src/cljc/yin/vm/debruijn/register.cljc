@@ -197,16 +197,16 @@
    becomes R of the concatenation. `:pc`, `:registers`, `:frames`,
    `:continuation`, and every other register are unchanged: appending
    moves no instruction already held. An image whose identity is already
-   a row is not attached twice."
+   a row is not attached twice, and an empty image, which adds no code,
+   is not attached at all."
   [vm image contract]
   (when-not (empty-segment? image)
     (vm/check-contract! vm/register-contract contract)
     (when-let [defect (rcode/register-image-defect image)]
       (throw (ex-info (str "Invalid register image: " (:rule defect))
                       defect))))
-  (let [image (if (empty-segment? image) empty-image image)
-        ident (rcode/register-hash image)]
-    (if (some #(= ident (nth % 0)) (:images vm))
+  (let [ident (when-not (empty-segment? image) (rcode/register-hash image))]
+    (if (or (nil? ident) (some #(= ident (nth % 0)) (:images vm)))
       vm
       (let [held (:segment vm)
             offset (count (:instructions held))
@@ -235,10 +235,16 @@
 
 (defn absolute-pc
   "Lower `[identity rel-pc]` to an absolute pc of `vm` by its offset
-   table, or nil when the identity is no row of it."
+   table, or nil when the identity is no row of it or `rel-pc` is no pc
+   `image-pc` lifts into that row."
   [vm [ident rel-pc]]
-  (some (fn [[id off]] (when (= id ident) (+ off rel-pc)))
-        (:images vm)))
+  (let [images (:images vm)]
+    (some (fn [[id off :as row]]
+            (when (and (= id ident)
+                       (nat-int? rel-pc)
+                       (= row (effects/image-row images (+ off rel-pc))))
+              (+ off rel-pc)))
+          images)))
 
 
 (defn create-vm

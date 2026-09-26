@@ -12,7 +12,7 @@
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.content :as content]
-            #?@(:clj [[yin.vm.debruijn-linearize :as linearize]])
+            #?@(:cljd [] :clj [[yin.vm.debruijn-linearize :as linearize]])
             [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn-vm-contract-test :as b0]
             [yin.vm.debruijn.register :as rvm]
@@ -560,6 +560,19 @@
                                           :segment/another}}}}
                [mod]))
           "a linked module of another manifest address resolves nothing"))))
+
+
+(deftest a-declared-obligation-without-an-address-resolves-nothing
+  (is (= {:status :refused, :reason :unresolved-free,
+          :name 'p, :kind :primitive}
+         (linker/discharge {:primitives {'p {:fn identity}}}
+                           [{:name 'p, :kind :primitive}]))
+      "a nil profile never equals an unprofiled primitive")
+  (is (= {:status :refused, :reason :unresolved-free,
+          :name 'dep/f, :kind :module}
+         (linker/discharge {:modules {:modules {'dep {}}}}
+                           [{:name 'dep/f, :kind :module, :module 'dep}]))
+      "a nil manifest never equals an unmanifested module"))
 
 
 ;; =============================================================================

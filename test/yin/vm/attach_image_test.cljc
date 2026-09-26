@@ -22,6 +22,7 @@
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.linearize :as linearize]
+            [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
@@ -182,6 +183,24 @@
              (:rule (ex-data-of #(dvm/attach-image vm module nil))))))))
 
 
+(deftest stack-empty-attach-and-out-of-range-pcs-test
+  (let [base [[:const 0] [:halt]]
+        module (stack-image module-ast)
+        attached (dvm/attach-image (stack-vm base) module vm/stack-contract)
+        ident (dc/image-hash module)
+        n (count module)]
+    (testing "an empty image attaches no row and leaves the hash"
+      (is (= attached (dvm/attach-image attached [] vm/stack-contract))))
+    (testing "absolute-pc places exactly the pcs image-pc lifts"
+      (is (= 2 (dvm/absolute-pc attached [ident 0])))
+      (is (= (+ 2 n) (dvm/absolute-pc attached [ident n]))
+          "one past the end of the last row")
+      (is (nil? (dvm/absolute-pc attached [ident (inc n)])))
+      (is (nil? (dvm/absolute-pc attached [ident -1])))
+      (is (nil? (dvm/absolute-pc attached [(dc/image-hash base) 2]))
+          "one past a row that is not the last is the next row's pc"))))
+
+
 (deftest stack-parked-entry-restores-after-an-attach-test
   (let [parked (vm/run (stack-vm (stack-image parking-ast)))
         entry (first (:wait-set parked))
@@ -340,6 +359,29 @@
     (testing "an image already held is not attached twice"
       (is (= attached
              (rvm/attach-image attached module vm/register-contract))))))
+
+
+(deftest register-empty-attach-and-out-of-range-pcs-test
+  (let [base (register-image (lit 0))
+        module (register-image module-ast)
+        attached (rvm/attach-image (register-vm base) module
+                                   vm/register-contract)
+        ident (rcode/register-hash module)
+        off (count (:instructions base))
+        n (count (:instructions module))]
+    (testing "an empty image attaches no row and leaves the hash"
+      (is (= attached
+             (rvm/attach-image attached
+                               {:bodies [], :instructions []}
+                               vm/register-contract))))
+    (testing "absolute-pc places exactly the pcs image-pc lifts"
+      (is (= off (rvm/absolute-pc attached [ident 0])))
+      (is (= (+ off n) (rvm/absolute-pc attached [ident n]))
+          "one past the end of the last row")
+      (is (nil? (rvm/absolute-pc attached [ident (inc n)])))
+      (is (nil? (rvm/absolute-pc attached [ident -1])))
+      (is (nil? (rvm/absolute-pc attached [(rcode/register-hash base) off]))
+          "one past a row that is not the last is the next row's pc"))))
 
 
 (deftest register-parked-entry-restores-after-an-attach-test
@@ -613,6 +655,20 @@
     (testing "each applies the export"
       (is (= 42 (:value a)))
       (is (= 42 (:value b))))))
+
+
+(deftest semantic-closure-entry-outside-its-image-is-refused-test
+  (let [image (semantic-vector module-ast)
+        child (vm/run (semantic/load-vector (semantic-vm) image
+                                            vm/semantic-contract))
+        closure (get (vm/store child) 'f)
+        marker (module/lift-closure child closure identity)
+        lower #(module/lower-closure child (assoc marker :yin.k/entry %)
+                                     identity)]
+    (is (= (:entry closure) (:entry (lower (:entry closure)))))
+    (doseq [entry [(count image) -1 nil]]
+      (is (= :origin-not-attached (:reason (ex-data-of #(lower entry))))
+          (str "entry " entry)))))
 
 
 ;; =============================================================================

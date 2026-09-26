@@ -1003,18 +1003,22 @@
    obligation is discharged only by a primitive of equal profile address,
    a module obligation only by a linked module of equal manifest address.
    Anything else the receiver holds under the name -- same name, other
-   profile; same name, other manifest -- resolves nothing."
+   profile; same name, other manifest -- resolves nothing, and neither
+   does an obligation with no address (two absent addresses are not
+   equal ones)."
   [{:keys [primitives modules]} obligation]
   (case (:kind obligation)
     :primitive
     (let [entry (get primitives (:name obligation))]
       (when-not (and (map? entry)
+                     (some? (:profile obligation))
                      (= (:profile obligation) (:yin.k/profile entry)))
         (refused :unresolved-free
                  {:name (:name obligation), :kind :primitive})))
     :module
     (let [entry (module/resolve-module modules (:module obligation))]
       (when-not (and (map? entry)
+                     (some? (:manifest obligation))
                      (= (:manifest obligation) (:manifest entry)))
         (refused :unresolved-free
                  {:name (:name obligation), :kind :module})))
