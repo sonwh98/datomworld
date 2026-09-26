@@ -2305,8 +2305,11 @@ the first concerns material the composition supplies to a policy section
 - **Failure policy.** Retry, deadline, and permanent absence for a
   `:pending` link are the composition's (D6). `fetch` takes no
   deadline; `dao.lease` is the mechanism a composition uses for one
-  (section 6.3). Whether `yin.repl` adopts the `dao.jing.remote` timing
-  options, `dao.lease`, or its own is an M5 decision.
+  (section 6.3). M5 shipped a clock-free pending run with `(abandon)`
+  and no deadline; a configurable `:link-policy` (`:manual` by default, a
+  function for embedders, `:lease` reserved for a `dao.lease` deadline)
+  is designed in `yin.repl.link-policy.md`. The `dao.jing.remote` timing
+  options govern content transport attempts, not the life of a require.
 - **Contract-pinned AST and semantic identities.** Strict decoupling of
   storage address from VM identity holds for H and R only (section 3).
   Pinning `:yin.ast/code` and `:yin.semantic/code` identities to a
