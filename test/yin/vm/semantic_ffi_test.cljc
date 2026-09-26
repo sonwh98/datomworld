@@ -36,7 +36,8 @@
 
 (defn- make-vm
   ([] (make-vm {}))
-  ([opts] (semantic/create-vm (merge {:make-stream tu/make-stream} opts))))
+  ([opts] (semantic/create-vm (merge {:make-stream tu/make-stream,
+                                      :capability-secret tu/secret} opts))))
 
 
 (defn- run-ast
@@ -119,7 +120,7 @@
 (deftest a-response-for-another-call-does-not-resume-this-one-test
   (let [parked (run-ast (make-vm) (call-ast :op/echo [1]))
         call-id (:call-id (first (:wait-set parked)))
-        call-out (get (vm/store parked) vm/call-out-stream-key)]
+        call-out (get (:resources parked) vm/call-out-stream-key)]
     (apply2/put-response! call-out (apply2/success-response [:other call-id] 1))
     (let [data (throws-ex-data (fn [] (resume parked)))]
       (is (some? data) "A mis-correlated response is an error, not a value")

@@ -120,7 +120,8 @@
   "Pipeline B: `linearize/lower` onto a fresh semantic VM."
   [ast]
   (outcome #(vm/run (load-ast (semantic/create-vm
-                                {:make-stream tu/make-stream})
+                                {:make-stream tu/make-stream,
+                                 :capability-secret tu/secret})
                               (named-datoms ast)))))
 
 
@@ -130,6 +131,7 @@
   [image]
   (outcome #(vm/run (dvm/create-vm image
                                    {:make-stream tu/make-stream,
+                                    :capability-secret tu/secret
                                     :primitives vm/primitives,
                                     :contract vm/stack-contract}))))
 

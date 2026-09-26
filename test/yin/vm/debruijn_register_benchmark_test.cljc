@@ -155,7 +155,8 @@
 ;; =============================================================================
 
 (def ^:private vm-opts
-  {:make-stream tu/make-stream, :primitives vm/primitives})
+  {:make-stream tu/make-stream,
+   :capability-secret tu/secret, :primitives vm/primitives})
 
 
 (def ^:private step-cap 10000000)

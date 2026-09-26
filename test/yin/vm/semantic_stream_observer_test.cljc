@@ -109,7 +109,8 @@
 (defn- make-session
   ([] (make-session tu/default-capacity))
   ([capacity]
-   (tu/make-observer-session (semantic/create-vm {:make-stream tu/make-stream})
+   (tu/make-observer-session (semantic/create-vm {:make-stream tu/make-stream,
+                                                  :capability-secret tu/secret})
                              capacity)))
 
 
@@ -218,7 +219,7 @@
       (is (= :ok (:status (observer/observe-next (:observer session))))
           "The second batch is still ahead of the observer's cursor"))
     (let [entry (first (:wait-set parked))
-          handle (get (vm/store parked) (:stream-id entry))]
+          handle (get (:resources parked) (:stream-id entry))]
       (stream/append! handle :woken)
       (let [done (:consumer (run-session session))]
         (testing "The next round wakes the reader, then loads what waited"
@@ -233,7 +234,8 @@
 ;; =============================================================================
 
 (deftest the-two-observer-stages-compose-end-to-end-test
-  (let [new-vm #(semantic/create-vm {:make-stream tu/make-stream})]
+  (let [new-vm #(semantic/create-vm {:make-stream tu/make-stream,
+                                     :capability-secret tu/secret})]
     (testing "The encoder projects and forwards; the VM's own observer runs"
       (let [session (tu/make-encoder-session (new-vm))]
         (stream/append! (:program session) (binop '* (lit 6) (lit 7)))
@@ -291,7 +293,7 @@
               "the second batch waits on the row medium, ahead of the
                 evaluator's cursor")
           (let [entry (first (:wait-set parked))
-                handle (get (vm/store parked) (:stream-id entry))]
+                handle (get (:resources parked) (:stream-id entry))]
             (stream/append! handle :woken)
             (let [done (:consumer (:evaluator (tu/run-encoder-session run)))]
               (is (vm/halted? done))

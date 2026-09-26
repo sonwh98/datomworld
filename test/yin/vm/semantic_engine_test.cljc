@@ -26,7 +26,8 @@
 
 (defn- make-vm
   []
-  (semantic/create-vm {:make-stream tu/make-stream}))
+  (semantic/create-vm {:make-stream tu/make-stream,
+                       :capability-secret tu/secret}))
 
 
 (defn- run-ast
@@ -66,7 +67,7 @@
   [capacity]
   (let [parked (run-ast (read-first capacity))
         entry (first (:wait-set parked))]
-    [parked (get (vm/store parked) (:stream-id entry))]))
+    [parked (get (:resources parked) (:stream-id entry))]))
 
 
 (defn- host-value?
@@ -100,7 +101,7 @@
 (deftest a-value-wakes-the-parked-reader-test
   (let [[parked handle] (blocked-reader 4)
         cursor-id (get-in (first (:wait-set parked)) [:cursor-ref :id])
-        before (get-in parked [:store cursor-id :cursor])]
+        before (get-in parked [:resources cursor-id :cursor])]
     (testing "Polling without a value leaves the reader parked"
       (is (vm/blocked? (vm/run parked))))
     (stream/append! handle :a)
@@ -110,7 +111,7 @@
         (is (= :a (vm/value done)))
         (is (empty? (:wait-set done))))
       (testing "The stored cursor advances to the returned successor"
-        (is (not= before (get-in done [:store cursor-id :cursor])))))))
+        (is (not= before (get-in done [:resources cursor-id :cursor])))))))
 
 
 (deftest a-wait-set-read-back-from-edn-resumes-test
@@ -150,7 +151,7 @@
                                      :target (var-ref 's),
                                      :val (lit 7)}
                                     (var-ref 's))))
-        handle (get (vm/store ref-vm) (:id (vm/value ref-vm)))
+        handle (get (:resources ref-vm) (:id (vm/value ref-vm)))
         cursor (:dao.stream/cursor (stream/cursor handle stream/anchor-oldest))]
     (testing "The put's value is in the accumulator and on the stream"
       (is (= 7 (vm/value (run-ast (let1 's

@@ -60,7 +60,11 @@
    make-stream  ; host stream constructor or nil
    bridge       ; host FFI bridge or nil
    primitives   ; primitive registry for :load-free
-   modules])    ; module registry for :load-free and effect dispatch
+   modules      ; module registry for :load-free and effect dispatch
+   store-of     ; the running body's module store address, or nil
+   resources    ; private engine resources: the link pair
+   origin       ; this task's origin tag for link ids
+   ancestry])   ; the modules installing on this task's install chain
 
 
 (def format-tag
@@ -243,15 +247,28 @@
    `:call-in`/`:call-out`/`:call-capacity`, `:bridge`, and `:contract`, the
    segment's stamp, required when `segment` is non-empty (`load-image`). A
    `:free-env`, `:store`, or `:primitives` binding a reserved name is
-   refused (Rule R)."
+   refused (Rule R). `:link-request`/`:link-response` (the link pair
+   `require` lowers to), `:origin`, and `:ancestry` are
+   `yin.vm/empty-state`'s."
   ([segment] (create-vm segment {}))
   ([segment opts]
    (let [base (vm/empty-state
                 (assoc (select-keys opts [:modules :make-stream :call-in
-                                          :call-out :call-capacity])
+                                          :call-out :call-capacity
+                                          :link-request :link-response
+                                          :origin :ancestry
+                                          :capability-secret :secret-source
+                                          :attach-stream])
                        :primitives (or (:primitives opts) {})))]
      (-> (map->DebruijnRegisterVM
            {:segment {:bodies [], :instructions []},
+            :store-of nil,
+            :resources (:resources base),
+            :origin (:origin base),
+            :ancestry (:ancestry base),
+            :capability-secret (:capability-secret base),
+            :secret-source (:secret-source base),
+            :attach-stream (:attach-stream base),
             :hash nil,
             :images [],
             :pc 0,
@@ -306,9 +323,10 @@
                :frames (:frames frame)
                :registers final-regs
                :continuation (pop continuation)
+               :store-of (:store-of frame)
                :value val
                :halted? false))
-      (assoc vm :halted? true, :value val))))
+      (assoc vm :halted? true, :value val, :store-of nil))))
 
 
 (defn- refuse-continuation!
@@ -359,6 +377,7 @@
                                   :pc (:pc entry)
                                   :frames (:frames entry)
                                   :continuation (:continuation entry)
+                                  :store-of (:store-of entry)
                                   :halted? false)
                            val)
         (let [pc (:pc entry)
@@ -377,6 +396,7 @@
                  :frames (:frames entry)
                  :registers final-regs
                  :continuation (:continuation entry)
+                 :store-of (:store-of entry)
                  :value val
                  :halted? false))))))
 
@@ -384,6 +404,14 @@
 ;; =============================================================================
 ;; Effects & FFI dispatch
 ;; =============================================================================
+
+(defn- payload-of
+  "The continuation payload of `inst` (`effects/continuation-payload`),
+   carrying the running body's module store when there is one."
+  [vm inst]
+  (cond-> (effects/continuation-payload vm inst)
+    (:store-of vm) (assoc :store-of (:store-of vm))))
+
 
 (defn- park-entry-fns
   [payload]
@@ -396,14 +424,15 @@
                   (assoc payload
                          :reason :next
                          :cursor-ref (:cursor-ref result)
-                         :stream-id (:stream-id result)))})
+                         :stream-id (:stream-id result))),
+   :module/require (fn [_state _effect _result] payload)})
 
 
 (defn- run-effect
   [vm effect inst]
   (let [opts (when (rcode/boundary-opcodes (first inst))
                {:park-entry-fns
-                (park-entry-fns (effects/continuation-payload vm inst))})
+                (park-entry-fns (payload-of vm inst))})
         pc' (inc (:pc vm))
         {:keys [state value blocked?]}
         (engine/handle-effect vm effect opts)]
@@ -417,7 +446,7 @@
 
 (defn- run-call-effect
   [vm effect inst]
-  (let [payload (effects/continuation-payload vm inst)
+  (let [payload (payload-of vm inst)
         tail? (true? (nth inst 4))
         pc' (inc (:pc vm))
         {:keys [state value blocked?]}
@@ -436,12 +465,12 @@
 
 (defn- ffi-call
   [vm inst]
-  (let [{:keys [pc registers store]} vm
+  (let [{:keys [pc registers resources]} vm
         op (nth inst 2)
         arg-regs (nth inst 3)
         args (mapv #(nth registers %) arg-regs)
-        {:keys [call-in]} (ffi/require-call-pair! store op)
-        payload (effects/continuation-payload vm inst)
+        {:keys [call-in]} (ffi/require-call-pair! resources op)
+        payload (payload-of vm inst)
         parked (engine/park-continuation (assoc vm :pc (inc pc)) payload)
         call-id (get-in parked [:value :id])
         request (apply2/request call-id op args)
@@ -475,7 +504,7 @@
   "Execute exactly one instruction and return the resulting VM."
   [vm]
   (let [{:keys [segment pc frames free-env registers continuation
-                store primitives modules]} vm
+                primitives modules store-of]} vm
         inst (nth (:instructions segment) pc)
         op (nth inst 0)]
     (case op
@@ -491,17 +520,19 @@
                :registers (assoc registers (nth inst 1) val)))
 
       :load-free
-      (let [val (engine/resolve-var free-env store primitives modules
-                                    (nth inst 2))]
+      (let [val (engine/resolve-var free-env
+                                    (engine/active-store vm store-of)
+                                    primitives modules (nth inst 2))]
         (assoc vm
                :pc (inc pc)
                :registers (assoc registers (nth inst 1) val)))
 
       :closure
-      (let [clos {:type :closure,
-                  :arity (nth inst 2),
-                  :body-pc (nth inst 3),
-                  :frames frames}]
+      (let [clos (cond-> {:type :closure,
+                          :arity (nth inst 2),
+                          :body-pc (nth inst 3),
+                          :frames frames}
+                   store-of (assoc :store-of store-of))]
         (assoc vm
                :pc (inc pc)
                :registers (assoc registers (nth inst 1) clos)))
@@ -537,17 +568,20 @@
                 (if tail?
                   continuation
                   (conj continuation
-                        {:site-pc pc,
-                         :return-pc (inc pc),
-                         :frames frames,
-                         :regs (mapv (fn [r] [r (nth registers r)]) live),
-                         :live live,
-                         :dest rd}))]
+                        (cond-> {:site-pc pc,
+                                 :return-pc (inc pc),
+                                 :frames frames,
+                                 :regs (mapv (fn [r] [r (nth registers r)])
+                                             live),
+                                 :live live,
+                                 :dest rd}
+                          store-of (assoc :store-of store-of))))]
             (assoc vm
                    :pc callee-pc
                    :frames body-frames
                    :registers callee-regs
-                   :continuation continuation'))
+                   :continuation continuation'
+                   :store-of (:store-of f)))
 
           (fn? f)
           (let [result (apply f args)]
@@ -573,30 +607,34 @@
       (return-transition vm (nth registers (nth inst 1)))
 
       :halt
-      (assoc vm :halted? true, :value (nth registers (nth inst 1)))
+      (assoc vm
+             :halted? true, :value (nth registers (nth inst 1)), :store-of nil)
 
+      ;; A module closure's store instructions route to its module store,
+      ;; with no ambient fallback (yin.vm.linker.md section 7.3, r7).
       :store-get
       (assoc vm
              :pc (inc pc)
-             :registers (assoc registers (nth inst 1) (get store (nth inst 2))))
+             :registers (assoc registers
+                               (nth inst 1)
+                               (get (engine/active-store vm store-of)
+                                    (nth inst 2))))
 
       :store-put
       (let [key (nth inst 2)
             val (nth inst 3)]
-        (assoc vm
+        (assoc (engine/put-active vm store-of key val)
                :pc (inc pc)
-               :registers (assoc registers (nth inst 1) val)
-               :store (engine/store-put store key val)))
+               :registers (assoc registers (nth inst 1) val)))
 
       ;; :define -- the definition transition: register `rs` is written
       ;; under the literal name and into `rd`. The operator is never
       ;; resolved (Rule R).
       :define
       (let [val (nth registers (nth inst 3))]
-        (assoc vm
+        (assoc (engine/put-active vm store-of (nth inst 2) val)
                :pc (inc pc)
-               :registers (assoc registers (nth inst 1) val)
-               :store (engine/store-put store (nth inst 2) val)))
+               :registers (assoc registers (nth inst 1) val)))
 
       :gensym
       (let [[id vm'] (engine/gensym vm (nth inst 2))]
@@ -626,14 +664,14 @@
         (run-effect vm {:effect :stream/close, :stream sr} inst))
 
       :current-continuation
-      (let [payload (effects/continuation-payload vm inst)
+      (let [payload (payload-of vm inst)
             reified (merge {:type :reified-continuation} payload)]
         (assoc vm
                :pc (inc pc)
                :registers (assoc registers (nth inst 1) reified)))
 
       :park
-      (let [payload (effects/continuation-payload vm inst)]
+      (let [payload (payload-of vm inst)]
         (engine/park-continuation (assoc vm :pc (inc pc)) payload))
 
       :resume
@@ -698,3 +736,71 @@
         {:rule :not-yet-supported})))
   (store [this] (:store this))
   (continuation [this] (:continuation this)))
+
+
+;; =============================================================================
+;; Module kernel (yin.vm.linker.md section 7.3)
+;; =============================================================================
+;; As the stack kernel: a positional closure lifts by the offset table row
+;; holding its body pc and lowers by the receiving table's row.
+
+(defn- binding-mismatch!
+  [marker]
+  (throw (ex-info "Closure marker of another binding discipline or format"
+                  {:reason :binding-mismatch,
+                   :binding (:yin.k/binding marker),
+                   :format (:yin.k/format marker),
+                   :expected-format format-tag})))
+
+
+(extend-type DebruijnRegisterVM
+  module/IModuleKernel
+  (link-format [_] {:format format-tag, :contract vm/register-contract})
+  (spawn-module
+    [vm image {:keys [modules origin ancestry capability-secret]}]
+    (create-vm image
+               {:free-env (:free-env vm),
+                :primitives (:primitives vm),
+                :modules modules,
+                :make-stream (:make-stream vm),
+                :link-request (get (:resources vm)
+                                   module/link-request-resource),
+                :link-response (get (:resources vm)
+                                    module/link-response-resource),
+                :origin origin,
+                :ancestry ancestry,
+                :capability-secret capability-secret,
+                :secret-source (:secret-source vm),
+                :attach-stream (:attach-stream vm),
+                :contract vm/register-contract}))
+  (image-identity [_ image] (rcode/register-hash image))
+  (image-holds? [_ image segment] (= segment (rcode/register-hash image)))
+  (attach-module [vm image] (attach-image vm image vm/register-contract))
+  (lift-closure [vm closure encode]
+    (let [[ident rel] (or (image-pc vm (:body-pc closure))
+                          (throw (ex-info "Closure body in no held image"
+                                          {:yin.k/status :yin.k/non-portable,
+                                           :yin.k/kind :unrooted-body})))]
+      (cond-> {:yin.k/tag :yin.k/closure,
+               :yin.k/binding :positional,
+               :yin.k/format format-tag,
+               :yin.k/segment ident,
+               :yin.k/entry rel,
+               :yin.k/arity (:arity closure),
+               :yin.k/frames (mapv #(mapv encode %) (:frames closure))}
+        (:store-of closure) (assoc :yin.k/store-of (:store-of closure)))))
+  (lower-closure [vm marker decode]
+    (when-not (and (= :positional (:yin.k/binding marker))
+                   (= format-tag (:yin.k/format marker)))
+      (binding-mismatch! marker))
+    (let [pc (absolute-pc vm [(:yin.k/segment marker) (:yin.k/entry marker)])]
+      (when (nil? pc)
+        (throw (ex-info "Closure origin image is not attached"
+                        {:reason :origin-not-attached,
+                         :segment (:yin.k/segment marker)})))
+      (cond-> {:type :closure,
+               :arity (:yin.k/arity marker),
+               :body-pc pc,
+               :frames (mapv #(mapv decode %) (:yin.k/frames marker))}
+        (:yin.k/store-of marker)
+        (assoc :store-of (:yin.k/store-of marker))))))

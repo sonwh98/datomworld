@@ -189,10 +189,14 @@
         reader-cursor* (atom (vm/mint-oldest medium :continuation-reader))
         ;; Create two VMs and define 'step on both
         vm-a (-> (ast-walker/create-vm {:env {}, :primitives vm/primitives,
-                                        :make-stream make-stream})
+                                        :make-stream make-stream,
+                                        :capability-secret
+                                        (str (random-uuid))})
                  (vm/eval define-step-ast))
         vm-b (-> (ast-walker/create-vm {:env {}, :primitives vm/primitives,
-                                        :make-stream make-stream})
+                                        :make-stream make-stream,
+                                        :capability-secret
+                                        (str (random-uuid))})
                  (vm/eval define-step-ast))]
     (println "VM-A and VM-B initialized. 'step' function defined on both.")
     (println)

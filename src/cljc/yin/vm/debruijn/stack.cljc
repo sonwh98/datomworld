@@ -27,7 +27,10 @@
 
        {:segment :pc :frames :stack :continuation :format :hash :image}
 
-   `:format` is `:yin.debruijn.code`, `:hash` is the held code space's H
+   plus `:store-of` while a linked module's closure runs (yin.vm.linker.md
+   section 7.3): its module store is the active store, a return frame
+   saves the caller's, and a halt clears it. `:format` is
+   `:yin.debruijn.code`, `:hash` is the held code space's H
    (`yin.vm.debruijn-code/image-hash`), and `:image` is the identity of
    the offset-table row the payload's pc falls in. `attach-image` extends
    the code space and the table (yin.vm.linker.md section 7.3, r6), so a
@@ -89,7 +92,11 @@
    make-stream  ; host-supplied stream constructor, or nil
    bridge       ; explicit host-side FFI bridge state, or nil
    primitives   ; primitive registry, for :load-free
-   modules])    ; module registry, for :load-free and effect dispatch
+   modules      ; module registry, for :load-free and effect dispatch
+   store-of     ; the running body's module store address, or nil
+   resources    ; private engine resources: the link pair
+   origin       ; this task's origin tag for link ids
+   ancestry])   ; the modules installing on this task's install chain
 
 
 (def format-tag
@@ -218,7 +225,9 @@
    `:bridge` (host FFI handlers, attached by `yin.vm.ffi/attach`), and
    `:contract`, the segment's stamp, required when `segment` is non-empty
    (`load-image`). A `:free-env`, `:store`, or `:primitives` binding a
-   reserved name is refused (Rule R).
+   reserved name is refused (Rule R). `:link-request`/`:link-response`
+   (the link pair `require` lowers to), `:origin`, and `:ancestry` are
+   `yin.vm/empty-state`'s.
 
    An empty segment starts halted with an empty program, as the semantic
    VM's `create-vm` does; `load-image` loads work into it.
@@ -230,10 +239,21 @@
   ([segment opts]
    (let [base (vm/empty-state
                 (assoc (select-keys opts [:modules :make-stream :call-in
-                                          :call-out :call-capacity])
+                                          :call-out :call-capacity
+                                          :link-request :link-response
+                                          :origin :ancestry
+                                          :capability-secret :secret-source
+                                          :attach-stream])
                        :primitives (or (:primitives opts) {})))]
      (-> (map->DebruijnVM
            {:segment [],
+            :store-of nil,
+            :resources (:resources base),
+            :origin (:origin base),
+            :ancestry (:ancestry base),
+            :capability-secret (:capability-secret base),
+            :secret-source (:secret-source base),
+            :attach-stream (:attach-stream base),
             :hash nil,
             :images [],
             :pc 0,
@@ -307,14 +327,15 @@
    environment, store, primitives, and modules are not registers and stay
    on the state."
   [vm pc' stack']
-  {:segment (:segment vm),
-   :pc pc',
-   :frames (:frames vm),
-   :stack stack',
-   :continuation (:continuation vm),
-   :format format-tag,
-   :hash (:hash vm),
-   :image (nth (row-at (:images vm) pc') 0 nil)})
+  (cond-> {:segment (:segment vm),
+           :pc pc',
+           :frames (:frames vm),
+           :stack stack',
+           :continuation (:continuation vm),
+           :format format-tag,
+           :hash (:hash vm),
+           :image (nth (row-at (:images vm) pc') 0 nil)}
+    (:store-of vm) (assoc :store-of (:store-of vm))))
 
 
 (defn- refuse-continuation!
@@ -379,6 +400,7 @@
              :frames (:frames entry)
              :continuation (:continuation entry)
              :stack (conj (vec (:stack entry)) val)
+             :store-of (:store-of entry)
              :value val
              ;; Restored registers are active work: a driver resuming a
              ;; halted machine directly through `engine/resume-continuation`
@@ -402,7 +424,8 @@
                     (assoc regs
                            :reason :next
                            :cursor-ref (:cursor-ref result)
-                           :stream-id (:stream-id result)))}))
+                           :stream-id (:stream-id result))),
+     :module/require (fn [_state _effect _result] regs)}))
 
 
 (defn- run-effect
@@ -431,14 +454,14 @@
    identical request, and `stack-restore` turns that writer into the
    response reader when it wakes."
   [vm op argc]
-  (let [{:keys [pc stack store]} vm
+  (let [{:keys [pc stack resources]} vm
         total (count stack)
         args (subvec stack (- total argc))
         stack' (subvec stack 0 (- total argc))
         ;; The pair is checked before parking: an error raised after
         ;; park-continuation would strand a continuation in :parked and
         ;; consume an id counter.
-        {:keys [call-in]} (ffi/require-call-pair! store op)
+        {:keys [call-in]} (ffi/require-call-pair! resources op)
         regs (registers vm (inc pc) stack')
         parked (engine/park-continuation (assoc vm :pc (inc pc) :stack stack')
                                          regs)
@@ -474,8 +497,8 @@
   "Execute exactly one instruction and return the resulting VM. Assumes the
    VM's continuation is active; callers (`step`, `run`) check that first."
   [vm]
-  (let [{:keys [segment pc frames free-env stack continuation store
-                primitives modules]}
+  (let [{:keys [segment pc frames free-env stack continuation
+                primitives modules store-of]}
         vm
         inst (nth segment pc)
         op (nth inst 0)]
@@ -491,8 +514,9 @@
 
       :load-free
       (let [name (nth inst 1)
-            value (engine/resolve-var free-env store primitives modules
-                                      name)]
+            value (engine/resolve-var free-env
+                                      (engine/active-store vm store-of)
+                                      primitives modules name)]
         (assoc vm :pc (inc pc) :stack (conj stack value)))
 
       ;; This positional dimension has no `:macro?` flag on `:closure` (it
@@ -503,8 +527,9 @@
         (assoc vm
                :pc (inc pc)
                :stack (conj stack
-                            {:type :closure, :arity arity,
-                             :body-pc body-pc, :frames frames})))
+                            (cond-> {:type :closure, :arity arity,
+                                     :body-pc body-pc, :frames frames}
+                              store-of (assoc :store-of store-of)))))
 
       ;; The named VM (semantic.cljc) keeps a separate `val` accumulator
       ;; distinct from its operand stack `St`, so `:push` there commits
@@ -534,13 +559,16 @@
                 continuation' (if tail?
                                 continuation
                                 (conj continuation
-                                      {:return-pc (inc pc), :frames frames,
-                                       :stack-base (count stack')}))]
+                                      (cond-> {:return-pc (inc pc),
+                                               :frames frames,
+                                               :stack-base (count stack')}
+                                        store-of (assoc :store-of store-of))))]
             (assoc vm
                    :pc (:body-pc f)
                    :frames body-frames
                    :stack stack'
-                   :continuation continuation'))
+                   :continuation continuation'
+                   :store-of (:store-of f)))
 
           ;; A primitive host function, resolved by :load-free. The same
           ;; path the named engine's `apply-call` uses for a `fn?` callee:
@@ -565,8 +593,10 @@
                  :pc (:return-pc frame)
                  :frames (:frames frame)
                  :stack (conj (subvec stack 0 (:stack-base frame)) val)
-                 :continuation (pop continuation))
-          (assoc vm :halted? true, :stack [val], :value val)))
+                 :continuation (pop continuation)
+                 :store-of (:store-of frame))
+          (assoc vm
+                 :halted? true, :stack [val], :value val, :store-of nil)))
 
       :jump
       (assoc vm :pc (nth inst 1))
@@ -578,28 +608,31 @@
           (assoc vm :pc (nth inst 1) :stack stack')))
 
       :halt
-      (assoc vm :halted? true, :value (peek stack))
+      (assoc vm :halted? true, :value (peek stack), :store-of nil)
 
+      ;; A module closure's store instructions route to its module store,
+      ;; with no ambient fallback (yin.vm.linker.md section 7.3, r7).
       :store-get
       (let [key (nth inst 1)]
-        (assoc vm :pc (inc pc) :stack (conj stack (get store key))))
+        (assoc vm
+               :pc (inc pc)
+               :stack (conj stack (get (engine/active-store vm store-of)
+                                       key))))
 
       :store-put
       (let [key (nth inst 1), value (nth inst 2)]
-        (assoc vm
+        (assoc (engine/put-active vm store-of key value)
                :pc (inc pc)
-               :stack (conj stack value)
-               :store (engine/store-put store key value)))
+               :stack (conj stack value)))
 
       ;; :define -- the definition transition: pop the value, write it
       ;; under the literal name, and leave it as the expression's value.
       ;; The operator is never resolved (Rule R).
       :define
       (let [value (peek stack)]
-        (assoc vm
+        (assoc (engine/put-active vm store-of (nth inst 1) value)
                :pc (inc pc)
-               :stack (conj (pop stack) value)
-               :store (engine/store-put store (nth inst 1) value)))
+               :stack (conj (pop stack) value)))
 
       ;; :gensym -- a fresh id; the engine's counter advances
       :gensym
@@ -719,3 +752,73 @@
              {:rule :not-yet-supported})))
   (store [this] (:store this))
   (continuation [this] (:continuation this)))
+
+
+;; =============================================================================
+;; Module kernel (yin.vm.linker.md section 7.3)
+;; =============================================================================
+;; A positional closure lifts by the offset table: the row holding its body
+;; pc gives the origin identity and the image-relative entry, and its frames
+;; encode value by value, outermost first. It lowers by the receiving
+;; table's row for that identity, which act 3 attached.
+
+(defn- binding-mismatch!
+  [marker]
+  (throw (ex-info "Closure marker of another binding discipline or format"
+                  {:reason :binding-mismatch,
+                   :binding (:yin.k/binding marker),
+                   :format (:yin.k/format marker),
+                   :expected-format format-tag})))
+
+
+(extend-type DebruijnVM
+  module/IModuleKernel
+  (link-format [_] {:format format-tag, :contract vm/stack-contract})
+  (spawn-module
+    [vm image {:keys [modules origin ancestry capability-secret]}]
+    (create-vm image
+               {:free-env (:free-env vm),
+                :primitives (:primitives vm),
+                :modules modules,
+                :make-stream (:make-stream vm),
+                :link-request (get (:resources vm)
+                                   module/link-request-resource),
+                :link-response (get (:resources vm)
+                                    module/link-response-resource),
+                :origin origin,
+                :ancestry ancestry,
+                :capability-secret capability-secret,
+                :secret-source (:secret-source vm),
+                :attach-stream (:attach-stream vm),
+                :contract vm/stack-contract}))
+  (image-identity [_ image] (dcode/image-hash image))
+  (image-holds? [_ image segment] (= segment (dcode/image-hash image)))
+  (attach-module [vm image] (attach-image vm image vm/stack-contract))
+  (lift-closure [vm closure encode]
+    (let [[ident rel] (or (image-pc vm (:body-pc closure))
+                          (throw (ex-info "Closure body in no held image"
+                                          {:yin.k/status :yin.k/non-portable,
+                                           :yin.k/kind :unrooted-body})))]
+      (cond-> {:yin.k/tag :yin.k/closure,
+               :yin.k/binding :positional,
+               :yin.k/format format-tag,
+               :yin.k/segment ident,
+               :yin.k/entry rel,
+               :yin.k/arity (:arity closure),
+               :yin.k/frames (mapv #(mapv encode %) (:frames closure))}
+        (:store-of closure) (assoc :yin.k/store-of (:store-of closure)))))
+  (lower-closure [vm marker decode]
+    (when-not (and (= :positional (:yin.k/binding marker))
+                   (= format-tag (:yin.k/format marker)))
+      (binding-mismatch! marker))
+    (let [pc (absolute-pc vm [(:yin.k/segment marker) (:yin.k/entry marker)])]
+      (when (nil? pc)
+        (throw (ex-info "Closure origin image is not attached"
+                        {:reason :origin-not-attached,
+                         :segment (:yin.k/segment marker)})))
+      (cond-> {:type :closure,
+               :arity (:yin.k/arity marker),
+               :body-pc pc,
+               :frames (mapv #(mapv decode %) (:yin.k/frames marker))}
+        (:yin.k/store-of marker)
+        (assoc :store-of (:yin.k/store-of marker))))))

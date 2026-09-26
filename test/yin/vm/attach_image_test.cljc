@@ -90,7 +90,8 @@
 
 (defn- opts
   [contract]
-  {:make-stream tu/make-stream, :primitives vm/primitives,
+  {:make-stream tu/make-stream,
+   :capability-secret tu/secret, :primitives vm/primitives,
    :contract contract})
 
 
@@ -107,7 +108,7 @@
 (defn- stream-of
   "The stream handle the parked reader of `vm` waits on."
   [vm]
-  (get (vm/store vm) (:stream-id (first (:wait-set vm)))))
+  (get (:resources vm) (:stream-id (first (:wait-set vm)))))
 
 
 (defn- start-at
@@ -364,6 +365,75 @@
                                              41))))))))
 
 
+(deftest register-entry-parked-after-an-attach-restores-test
+  (let [program (register-image parking-ast)
+        parent (rvm/attach-image (vm/run (register-vm (register-image
+                                                        (lit 0))))
+                                 program
+                                 vm/register-contract)
+        parked (vm/run (register-start-at
+                         parent
+                         (rvm/absolute-pc parent
+                                          [(rcode/register-hash program) 0])))
+        entry (first (:wait-set parked))]
+    (testing "the payload names a concatenated code space and its table"
+      (is (= 2 (count (:images entry))))
+      (is (= (:images parked) (:images entry))))
+    (testing "each image of the code space is checked alone, and the
+              entry restores"
+      (stream/append! (stream-of parked) 41)
+      (is (= 41 (vm/value (vm/run parked)))))
+    (testing "a table row naming an image the code space does not hold
+              is a defect"
+      (is (= :continuation-segment
+             (:rule (ex-data-of
+                      #(rvm/register-restore
+                         parked
+                         (assoc-in entry [:images 1 0] "forged")
+                         41))))))))
+
+
+(deftest register-entry-table-must-cover-the-code-space-exactly-test
+  (let [program (register-image parking-ast)
+        parked-on (fn [base]
+                    (let [parent (rvm/attach-image base program
+                                                   vm/register-contract)
+                          pc (rvm/absolute-pc parent
+                                              [(rcode/register-hash program)
+                                               0])]
+                      (vm/run (register-start-at parent pc))))
+        parked (parked-on (vm/run (register-vm (register-image (lit 0)))))
+        entry (first (:wait-set parked))
+        [[_ _ base-len] [_ off len]] (:images entry)
+        defect (fn [parked entry]
+                 (ex-data-of #(rvm/register-restore parked entry 41)))]
+    (testing "a missing row leaves instructions uncovered"
+      (let [d (defect parked (update entry :images subvec 0 1))]
+        (is (= :continuation-segment (:rule d)))
+        (is (= base-len (:covered d)))))
+    (testing "an overlapping row is refused"
+      (let [d (defect parked
+                (assoc-in entry [:images 1] [(first (peek (:images
+                                                            entry)))
+                                             (dec off) (inc len)]))]
+        (is (= :continuation-segment (:rule d)))
+        (is (= (dec off) (second (:row d))))))
+    (testing "reordered rows are refused"
+      (let [d (defect parked (update entry :images (comp vec reverse)))]
+        (is (= :continuation-segment (:rule d)))
+        (is (some? (:row d)))))
+    (testing "a zero-length row's identity is checked too"
+      (let [empty-parked (parked-on (register-vm nil))
+            empty-entry (first (:wait-set empty-parked))]
+        (is (zero? (nth (first (:images empty-entry)) 2)))
+        (is (nil? (defect empty-parked empty-entry))
+            "the genuine empty base row is accepted")
+        (let [d (defect empty-parked
+                  (assoc-in empty-entry [:images 0 0] "forged"))]
+          (is (= :continuation-segment (:rule d)))
+          (is (= "forged" (first (:row d)))))))))
+
+
 (deftest register-call-in-flight-survives-a-nested-attach-test
   (let [parked (vm/run (register-vm (register-image parking-ast)))
         frame (peek (:continuation parked))
@@ -442,6 +512,7 @@
                     (update :continuation #(rebase-closures rebase %))
                     (assoc :segment (:segment receiver)
                            :hash (:hash receiver)
+                           :images (:images receiver)
                            :image (rcode/register-hash program)))]
     (testing "the receiving table places every pc"
       (is (< (:pc lowered) (:pc entry)))
@@ -465,6 +536,7 @@
 (defn- semantic-vm
   []
   (semantic/create-vm {:make-stream tu/make-stream,
+                       :capability-secret tu/secret
                        :primitives vm/primitives}))
 
 
@@ -549,7 +621,7 @@
 
 (defn- walker-vm
   []
-  (walker/create-vm {:make-stream tu/make-stream,
+  (walker/create-vm {:make-stream tu/make-stream, :capability-secret tu/secret,
                      :primitives vm/primitives}))
 
 
@@ -643,6 +715,24 @@
              (:yin.k/status (walker/closure-row
                               done (assoc closure :params '[z]))))
           "a recorded id whose row disagrees refuses the same way"))))
+
+
+(deftest walker-row-nodes-are-decoded-once-and-held-test
+  (let [child (vm/run (load-rows (walker-vm) module-ast))
+        closure (get (vm/store child) 'f)
+        body-id (nth (get (:rows child) (:lambda closure)) 3)]
+    (testing "row-node answers from the held decode, not a rebuild"
+      (is (identical? (walker/row-node child body-id)
+                      (walker/row-node child body-id))))
+    (testing "the closure's body is the held node itself"
+      (is (identical? (:body closure) (walker/row-node child body-id))))
+    (testing "an attach extends the held decode without rebuilding it"
+      (let [attached (walker/attach-image child
+                                          (vm/ast->semantic-bytecode
+                                            shared-body-ast)
+                                          vm/ast-contract)]
+        (is (identical? (walker/row-node child body-id)
+                        (walker/row-node attached body-id)))))))
 
 
 (deftest walker-exported-closure-lowers-structurally-equal-test

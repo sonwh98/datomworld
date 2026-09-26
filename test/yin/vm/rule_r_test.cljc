@@ -24,6 +24,7 @@
             [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
             [yin.vm.macro :as m]
+            [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.ucf :as ucf]))
@@ -113,7 +114,8 @@
 (defn- semantic-run
   [ast]
   (vm/run (semantic/vm-load-program
-            (semantic/create-vm {:make-stream tu/make-stream})
+            (semantic/create-vm {:make-stream tu/make-stream,
+                                 :capability-secret tu/secret})
             (linearize/lower-ast ast)
             vm/semantic-contract)))
 
@@ -123,6 +125,7 @@
   (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
                          {:primitives vm/primitives,
                           :make-stream tu/make-stream,
+                          :capability-secret tu/secret
                           :contract vm/stack-contract})))
 
 
@@ -131,6 +134,7 @@
   (vm/run (rvm/create-vm (:image (rc/adapt (vm/ast->datoms ast)))
                          {:primitives vm/primitives,
                           :make-stream tu/make-stream,
+                          :capability-secret tu/secret
                           :contract vm/register-contract})))
 
 
@@ -219,7 +223,7 @@
   (doseq [[backend run] (select-keys backends [:ast-walker :semantic])]
     (testing (name backend)
       (let [blocked (run parked-definition)
-            handle (get (vm/store blocked) :stream-0)]
+            handle (get (:resources blocked) :stream-0)]
         (is (vm/blocked? blocked))
         (is (not (contains? (vm/store blocked) 'x)))
         (stream/append! handle 7)
@@ -391,15 +395,16 @@
 
 
 (deftest a-ready-entry-carries-only-minted-keys
-  (is (= :store-update-key
+  (is (= :resource-update-key
          (rule-of #(engine/resume-from-run-queue
-                     {:ready-queue [{:store-updates {'yin/def 1}}],
+                     {:ready-queue [{:resource-updates {'yin/def 1}}],
                       :store {}}
                      (fn [base _ _] base)))))
-  (is (= {:c 1}
-         (:store (engine/resume-from-run-queue
-                   {:ready-queue [{:store-updates {:c 1}}], :store {}}
-                   (fn [base _ _] base))))))
+  (let [resumed (engine/resume-from-run-queue
+                  {:ready-queue [{:resource-updates {:c 1}}], :store {}}
+                  (fn [base _ _] base))]
+    (is (= {:c 1} (:resources resumed)))
+    (is (= {} (:store resumed)) "a resource update never reaches the store")))
 
 
 ;; =============================================================================
@@ -422,6 +427,31 @@
              "register registry" #(rvm/create-vm nil {:primitives registry})}]
       (testing label
         (is (= :reserved-name (rule-of thunk)))))))
+
+
+(deftest construction-refuses-a-module-registry-binding-the-name
+  (let [profile (vm/primitive-profile 'def :pure [0] #{} :none)
+        by-path (module/register-host-module (module/empty-registry)
+                                             'yin {'def (fn [] nil)}
+                                             {'def profile})
+        by-key (module/register-host-module (module/empty-registry)
+                                            'lib {'yin/def (fn [] nil)}
+                                            {'yin/def profile})
+        clean (module/register-host-module (module/empty-registry)
+                                           'lib {'f (fn [] nil)}
+                                           {'f profile})]
+    (doseq [[label registry] {"the yin.def path" by-path,
+                              "a slice key" by-key}
+            [kernel thunk]
+            {"walker" #(ast-walker/create-vm {:modules registry}),
+             "semantic" #(semantic/create-vm {:modules registry}),
+             "stack" #(dvm/create-vm [] {:modules registry}),
+             "register" #(rvm/create-vm nil {:modules registry})}]
+      (testing (str kernel ", " label)
+        (is (= :reserved-name (rule-of thunk)))
+        (is (= :registry (:role (refusal thunk))))))
+    (testing "a registry binding no reserved name is accepted"
+      (is (some? (dvm/create-vm [] {:modules clean}))))))
 
 
 (deftest the-expander-refuses-the-name

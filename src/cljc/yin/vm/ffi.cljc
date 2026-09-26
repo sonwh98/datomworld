@@ -31,11 +31,12 @@
 
 
 (defn call-pair
-  "Return {:call-in h :call-out h} from a VM store, or nil when the VM was
-   built without a pair."
-  [store]
-  (let [in (get store vm/call-in-stream-key)
-        out (get store vm/call-out-stream-key)]
+  "Return {:call-in h :call-out h} from a VM's private `:resources` table,
+   or nil when the VM was built without a pair. The pair never lives in the
+   store (yin.vm.linker.md section 7.3, r8)."
+  [resources]
+  (let [in (get resources vm/call-in-stream-key)
+        out (get resources vm/call-out-stream-key)]
     (when (and in out) {:call-in in, :call-out out})))
 
 
@@ -43,8 +44,8 @@
   "Fail when the VM holds no FFI pair. Callers must run this before parking:
    an error raised after `park-continuation` strands a continuation in
    `:parked` and consumes an id counter."
-  [store what]
-  (or (call-pair store)
+  [resources what]
+  (or (call-pair resources)
       (throw (ex-info "This VM was constructed without an FFI call pair, so it cannot make a dao.stream.apply call"
                       {:what what}))))
 
@@ -76,7 +77,7 @@
    shape) is unchanged."
   [entry call-id]
   (-> entry
-      (dissoc :value :status :cursor :store-updates :stream
+      (dissoc :value :status :cursor :resource-updates :stream
               :datom :type :id :request-sent :op)
       (assoc :call-id call-id
              :reason :next
@@ -124,7 +125,7 @@
    the call-in stream when the bridge does not carry one."
   [vm bridge]
   (if-let [bridge* (normalize bridge)]
-    (let [{:keys [call-in]} (require-call-pair! (:store vm) :bridge)
+    (let [{:keys [call-in]} (require-call-pair! (:resources vm) :bridge)
           cursor (or (:cursor bridge*) (vm/mint-oldest call-in :bridge))]
       (assoc vm :bridge (assoc bridge* :cursor cursor)))
     vm))
@@ -169,7 +170,7 @@
    handler is not re-run. The three terminal outcomes advance once, report the
    response undeliverable, and terminate the bridge."
   [vm response successor request-id]
-  (let [call-out (get (:store vm) vm/call-out-stream-key)
+  (let [call-out (get (:resources vm) vm/call-out-stream-key)
         result (apply2/put-response! call-out response)
         o (:dao.stream/outcome result)]
     (case o
@@ -211,7 +212,7 @@
                         (:pending-successor bridge)
                         (:pending-request-id bridge))
       :else
-      (let [call-in (get (:store vm) vm/call-in-stream-key)
+      (let [call-in (get (:resources vm) vm/call-in-stream-key)
             _ (when (nil? call-in)
                 (throw (ex-info "This VM has no call-in stream to bridge"
                                 {:bridge? (some? bridge)})))

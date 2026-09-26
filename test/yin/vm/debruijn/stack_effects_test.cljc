@@ -63,6 +63,7 @@
   ([segment opts]
    (dvm/create-vm segment
                   (merge {:make-stream tu/make-stream,
+                          :capability-secret tu/secret
                           :primitives vm/primitives,
                           :contract vm/stack-contract}
                          opts))))
@@ -83,7 +84,8 @@
 (defn- semantic-run
   "Run `ast` on a fresh semantic VM, B4's parity oracle."
   [ast]
-  (vm/run (load-ast (semantic/create-vm {:make-stream tu/make-stream})
+  (vm/run (load-ast (semantic/create-vm {:make-stream tu/make-stream,
+                                         :capability-secret tu/secret})
                     (vm/ast->datoms ast))))
 
 
@@ -147,7 +149,7 @@
   []
   (let [parked (run-segment read-first-segment)
         entry (first (:wait-set parked))]
-    [parked (get (vm/store parked) (:stream-id entry))]))
+    [parked (get (:resources parked) (:stream-id entry))]))
 
 
 (def ^:private payload-keys
@@ -207,12 +209,16 @@
       (is (= 7 (vm/value first-run)) "put yields the appended value")
       (is (= [7] (:stack first-run)) "the target ref and the value were popped")
       (is (= :stream-ref (:type sref)))
-      ;; A second program over the same store reads it back.
-      (is (= 7 (vm/value (run-segment [[:load-free 's]     ; 0: s
-                                       [:stream-cursor]    ; 1: cursor ref
-                                       [:stream-next]      ; 2: 7
-                                       [:halt]]            ; 3
-                                      {:store (vm/store first-run)}))))))
+      ;; A second program in the same task reads it back: the reference
+      ;; is the task's own, sealed under its secret, and its stream lives
+      ;; in the task's private resources.
+      (is (= 7 (vm/value (vm/run (dvm/load-image
+                                   first-run
+                                   [[:load-free 's]     ; 0: s
+                                    [:stream-cursor]    ; 1: cursor ref
+                                    [:stream-next]      ; 2: 7
+                                    [:halt]]            ; 3
+                                   vm/stack-contract)))))))
   (testing "the :stream-put layout is the value on top and the target ref
             beneath it, both popped -- `lower-stack` emits target, push,
             value, stream-put"
@@ -240,26 +246,33 @@
                                                    [:stream-cursor]
                                                    [:stream-next]
                                                    [:halt]])]
-                          [parked (get (vm/store parked)
+                          [parked (get (:resources parked)
                                        (:stream-id (first (:wait-set parked))))])]
     (dotimes [n 5] (stream/append! handle n))
     (is (= :dao.stream/gap (vm/value (vm/run parked))))))
 
 
 (deftest stream-errors-name-their-outcome-test
-  (testing "put on an unknown stream reference"
-    (is (= {:message "Invalid stream reference",
-            :data {:ref {:type :stream-ref, :id :nope}}}
+  (testing "put on an unknown stream reference is refused as forged"
+    (is (= {:message "Forged resource reference",
+            :data {:reason :forged-resource-reference,
+                   :effect :stream/put,
+                   :kind :stream-ref,
+                   :id :nope}}
            (caught #(run-segment [[:const {:type :stream-ref, :id :nope}]
                                   [:push] [:const 1] [:stream-put] [:halt]])))))
   (testing "put on a closed stream"
     (let [[parked handle] (blocked-reader)
-          sref {:type :stream-ref, :id (:stream-id (first (:wait-set parked)))}]
+          ;; the task's own reference to the stream it made
+          sref (engine/issue-ref parked :stream-ref
+                                 (:stream-id (first (:wait-set parked))))]
       (stream/close! handle)
       (is (= "Stream append failed"
-             (:message (caught #(run-segment [[:const sref] [:push] [:const 1]
-                                              [:stream-put] [:halt]]
-                                             {:store (vm/store parked)}))))))))
+             (:message (caught #(vm/run (dvm/load-image
+                                          (assoc parked :wait-set [])
+                                          [[:const sref] [:push] [:const 1]
+                                           [:stream-put] [:halt]]
+                                          vm/stack-contract)))))))))
 
 
 ;; =============================================================================
@@ -296,7 +309,7 @@
 (deftest a-value-wakes-the-parked-reader-test
   (let [[parked handle] (blocked-reader)
         cursor-id (get-in (first (:wait-set parked)) [:cursor-ref :id])
-        before (get-in parked [:store cursor-id :cursor])]
+        before (get-in parked [:resources cursor-id :cursor])]
     (testing "polling without a value leaves the reader parked"
       (is (vm/blocked? (vm/run parked))))
     (stream/append! handle :a)
@@ -308,7 +321,7 @@
         (is (empty? (:wait-set done)))
         (is (empty? (:ready-queue done))))
       (testing "the stored cursor advances to the returned successor"
-        (is (not= before (get-in done [:store cursor-id :cursor])))))))
+        (is (not= before (get-in done [:resources cursor-id :cursor])))))))
 
 
 (deftest a-wait-set-read-back-from-edn-resumes-test
@@ -359,20 +372,23 @@
 (deftest a-full-stream-parks-the-writer-and-retries-test
   (let [outcomes (atom [:dao.stream/full :dao.stream/ok])
         seen (atom [])
-        sref {:type :stream-ref, :id :scripted}
+        ;; the composition hands the task its stream: into the private
+        ;; resources, the program holding only the sealed reference
+        [sref task] (engine/attach-resource (make-vm [])
+                                            (scripted-stream outcomes seen))
         ;; Stepped, not run: `run` would poll the wait set and retry at once.
         parked (nth (iterate vm/step
-                             (make-vm [[:const sref] [:push] [:const 7]
-                                       [:stream-put] [:push] [:const :after]
-                                       [:halt]]
-                                      {:store {:scripted (scripted-stream outcomes
-                                                                          seen)}}))
+                             (dvm/load-image task
+                                             [[:const sref] [:push] [:const 7]
+                                              [:stream-put] [:push]
+                                              [:const :after] [:halt]]
+                                             vm/stack-contract))
                     4)
         entry (first (:wait-set parked))]
     (testing "a full append parks a writer entry carrying the datom to retry"
       (is (vm/blocked? parked))
       (is (= :put (:reason entry)))
-      (is (= :scripted (:stream-id entry)))
+      (is (= (:id sref) (:stream-id entry)))
       (is (= 7 (:datom entry)) "handle-effect stamped the value")
       (is (= 4 (:pc entry)))
       (is (= [] (:stack entry)) "value and target both popped")
@@ -434,7 +450,7 @@
       (is (= 4 (:pc entry)))
       (is (= [] (:stack entry)))
       (is (not (host-value? (:wait-set parked))) "no primitive fn parked"))
-    (stream/append! (get (vm/store parked) (:stream-id entry)) :woken)
+    (stream/append! (get (:resources parked) (:stream-id entry)) :woken)
     (let [done (vm/run parked)]
       (is (= [:woken :tail] (:stack done)))
       (is (= :tail (vm/value done))))))
@@ -520,7 +536,7 @@
   (testing "a response for another call does not resume this one"
     (let [parked (run-segment [[:const 1] [:ffi-call :op/echo 1] [:halt]])
           call-id (:call-id (first (:wait-set parked)))
-          call-out (get (vm/store parked) vm/call-out-stream-key)]
+          call-out (get (:resources parked) vm/call-out-stream-key)]
       (apply2/put-response! call-out
                             (apply2/success-response [:other call-id] 1))
       (let [data (throws-ex-data (fn [] (vm/run parked)))]
@@ -831,7 +847,7 @@
         named (semantic-run ast)
         db (debruijn-run ast)
         wake (fn [vm value]
-               (stream/append! (get (vm/store vm)
+               (stream/append! (get (:resources vm)
                                     (:stream-id (first (:wait-set vm))))
                                value)
                (b0/normalize (vm/value (vm/run vm))))]
@@ -848,7 +864,7 @@
   (testing "a closed stream ends with nil on both"
     (let [ast (read-first-ast 4)
           close-and-run (fn [vm]
-                          (stream/close! (get (vm/store vm)
+                          (stream/close! (get (:resources vm)
                                               (:stream-id (first (:wait-set vm)))))
                           (b0/normalize (vm/value (vm/run vm))))]
       (is (= (close-and-run (semantic-run ast)) (close-and-run (debruijn-run ast))
@@ -856,7 +872,7 @@
   (testing "eviction surfaces as :dao.stream/gap on both"
     (let [ast (read-first-ast 2)
           overrun (fn [vm]
-                    (let [handle (get (vm/store vm)
+                    (let [handle (get (:resources vm)
                                       (:stream-id (first (:wait-set vm))))]
                       (dotimes [n 5] (stream/append! handle n))
                       (b0/normalize (vm/value (vm/run vm)))))]
@@ -868,8 +884,10 @@
   (let [ast {:type :dao.stream.apply/call,
              :op :op/echo,
              :operands [(lit 42)]}
-        named (vm/run (load-ast (semantic/create-vm {:make-stream tu/make-stream,
-                                                     :bridge {:op/echo identity}})
+        named (vm/run (load-ast (semantic/create-vm
+                                  {:make-stream tu/make-stream,
+                                   :capability-secret tu/secret
+                                   :bridge {:op/echo identity}})
                                 (vm/ast->datoms ast)))
         db (run-segment (debruijn-image ast) {:bridge {:op/echo identity}})]
     (is (= (b0/normalize (vm/value named)) (b0/normalize (vm/value db)) 42))

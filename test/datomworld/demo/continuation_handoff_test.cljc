@@ -17,14 +17,21 @@
      ringbuffer/capacity-key (or capacity vm/default-stream-capacity)}))
 
 
+(def ^:private secret
+  "The composition's capability secret (yin.vm.linker.md 7.3, r10)."
+  "datomworld.demo.continuation-handoff-test/secret")
+
+
 (defn- make-vm
   [_vm-key]
-  (ast-walker/create-vm {:primitives vm/primitives, :make-stream make-stream}))
+  (ast-walker/create-vm {:primitives vm/primitives, :make-stream make-stream,
+                         :capability-secret secret}))
 
 
 (defn- make-semantic-vm
   []
-  (semantic/create-vm {:primitives vm/primitives, :make-stream make-stream}))
+  (semantic/create-vm {:primitives vm/primitives, :make-stream make-stream,
+                       :capability-secret secret}))
 
 
 (def ^:private sum-to-ast
@@ -100,7 +107,8 @@
 
 (deftest a-continuation-holding-a-stream-is-not-shippable-test
   ;; ((fn [s] (stream/cursor s)) (stream/make 4)): once :stream-make runs, the
-  ;; handle lives in the sender's store and the registers only name it.
+  ;; handle lives in the sender's private resources and the registers only
+  ;; name it.
   (let [code (linearize/lower-ast
                {:type :application,
                 :operator {:type :lambda,

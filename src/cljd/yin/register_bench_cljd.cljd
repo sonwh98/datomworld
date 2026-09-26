@@ -111,7 +111,9 @@
    The semantic VM refuses an AST in `eval`, so its program is lowered and
    loaded explicitly, and it is then run once like the walker's."
   [evaluator ast]
-  (let [opts {:primitives vm/primitives, :make-stream make-stream}]
+  (let [opts {:primitives vm/primitives,
+              :make-stream make-stream,
+              :capability-secret (str (random-uuid))}]
     (case evaluator
       :ast-walker (vm/eval (ast-walker/create-vm opts) ast)
       :semantic (vm/run (semantic/vm-load-program

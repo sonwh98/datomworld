@@ -122,7 +122,9 @@
    of its own loader."
   {:ast-walker
    {:create (fn [opts]
-              (ast-walker/create-vm (merge {:make-stream tu/make-stream} opts)))
+              (ast-walker/create-vm (merge {:make-stream tu/make-stream,
+                                            :capability-secret tu/secret}
+                                           opts)))
     :load (fn [vm ast]
             (ast-walker/vm-load-program vm (vm/ast->datoms ast)
                                         vm/ast-contract))
@@ -130,7 +132,9 @@
 
    :semantic
    {:create (fn [opts]
-              (semantic/create-vm (merge {:make-stream tu/make-stream} opts)))
+              (semantic/create-vm (merge {:make-stream tu/make-stream,
+                                          :capability-secret tu/secret}
+                                         opts)))
     :load (fn [vm ast]
             ((linearize/ast-loader semantic/vm-load-program)
              vm (vm/ast->datoms ast) vm/ast-contract))
@@ -291,7 +295,8 @@
 
 (deftest ast-walker-smoke-test
   (let [sink (tu/new-memory-log)
-        done (-> (ast-walker/create-vm {:make-stream tu/make-stream
+        done (-> (ast-walker/create-vm {:make-stream tu/make-stream,
+                                        :capability-secret tu/secret
                                         :telemetry {:stream sink}})
                  (ast-walker/vm-load-program (vm/ast->datoms tiny-ast)
                                              vm/ast-contract)
@@ -308,7 +313,8 @@
 
 (deftest semantic-smoke-test
   (let [sink (tu/new-memory-log)
-        done (-> (semantic/create-vm {:make-stream tu/make-stream
+        done (-> (semantic/create-vm {:make-stream tu/make-stream,
+                                      :capability-secret tu/secret
                                       :telemetry {:stream sink}})
                  ((linearize/ast-loader semantic/vm-load-program)
                   (vm/ast->datoms tiny-ast)
@@ -330,7 +336,8 @@
 
 (deftest summaries-never-embed-raw-handles-or-host-functions-test
   (let [sink (tu/new-memory-log)
-        _vm (ast-walker/create-vm {:make-stream tu/make-stream
+        _vm (ast-walker/create-vm {:make-stream tu/make-stream,
+                                   :capability-secret tu/secret
                                    :env {'host-fn inc}
                                    :telemetry {:stream sink}})
         datoms (tu/drain sink)]
@@ -344,7 +351,7 @@
         "the environment's host function is tagged, not embedded")
     (is (some (fn [[_e a v]] (and (= :vm.summary/type a) (= :stream v)))
               datoms)
-        "the store's FFI pair summarizes as stream identity nodes")))
+        "the resources' FFI pair summarizes as stream identity nodes")))
 
 
 (deftest store-summaries-preserve-stream-and-cursor-identities-test
@@ -355,27 +362,34 @@
             snaps (snapshot-groups (tu/drain sink))
             last-snap (peek snaps)
             [_root root-facts] (root-of last-snap)
+            ;; stream handles and cursor cells live in the private
+            ;; resources table (yin.vm.linker.md 7.3, r8), summarized beside
+            ;; the store
+            resources (reconstruct (:entities last-snap)
+                                   (first (:vm/resources root-facts)))
             store (reconstruct (:entities last-snap)
                                (first (:vm/store root-facts)))
-            handle (get (vm/store done) :stream-0)
+            handle (get (:resources done) :stream-0)
             ;; gensym ids come from one counter, so the program's cursor key
             ;; is whatever the run minted; find it by what it points at.
             cursor-key (some (fn [[k v]]
                                (when (and (map? v)
                                           (= :stream-0 (:stream-id v)))
                                  k))
-                             (vm/store done))
+                             (:resources done))
             real-identity (:dao.stream/identity (stream/descriptor handle))
-            real-position (get-in (vm/store done)
+            real-position (get-in (:resources done)
                                   [cursor-key :cursor
                                    :dao.stream.ringbuffer/position])
-            stream-node (get (:entries store) :stream-0)
-            cursor-node (get (:entries store) cursor-key)]
+            stream-node (get (:entries resources) :stream-0)
+            cursor-node (get (:entries resources) cursor-key)]
         (is (= 99 (vm/value done)))
         (is (some? handle) "the program really made a stream")
         (is (some? cursor-key) "and really minted a cursor on it")
         (is (= :stream (:type stream-node))
-            "a stored handle is a stream summary, keyed by its store id")
+            "a held handle is a stream summary, keyed by its resource id")
+        (is (not (contains? (:entries store) :stream-0))
+            "and no store entry holds it")
         (is (= real-identity (get-in stream-node [:identity :value]))
             "the stream's logical identity survives for an analyzer")
         (is (= :map (:type cursor-node)))
@@ -400,7 +414,7 @@
   (let [sink (tu/new-memory-log)
         result (vm/eval
                  (ast-walker/create-vm
-                   {:make-stream tu/make-stream,
+                   {:make-stream tu/make-stream, :capability-secret tu/secret,
                     :bridge {:op/echo identity},
                     :telemetry {:stream sink}})
                  {:type :dao.stream.apply/call,
@@ -412,8 +426,10 @@
       (is (vm/halted? result))
       (is (= 42 (vm/value result)) "the resumed continuation got the answer")
       (is (empty? (:parked result)) "the parked continuation was consumed")
-      (is (contains? (vm/store result) :yin/call-in)
-          "the FFI pair survives the resumed state"))
+      (is (contains? (:resources result) :yin/call-in)
+          "the FFI pair survives the resumed state")
+      (is (not (contains? (vm/store result) :yin/call-in))
+          "in the private resources, never the store"))
     (testing "both sides of the bridge emit their :bridge snapshots"
       (is (pos? (count (filter #{:bridge} phases))))
       (is (pos? (count (filter #{:park} phases)))

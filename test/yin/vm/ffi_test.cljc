@@ -100,6 +100,7 @@
         call-in (tu/new-stream 8)
         call-out (scripted-writer outcomes)
         vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+                                   :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out call-out})
         ;; Handlers are attached after the call parks, so the scripted
@@ -128,6 +129,7 @@
   (let [call-in (tu/new-stream 8)
         call-out (scripted-writer (atom [:dao.stream/closed]))
         vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+                                   :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out call-out})
         parked (ffi/attach (vm/eval vm0 (call-ast :op/echo [1]))
@@ -149,6 +151,7 @@
   (testing "An evicted request can never be answered, so it is reported"
     (let [call-in (tu/new-stream 2)
           vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+                                     :capability-secret tu/secret
                                      :call-in call-in,
                                      :call-out (tu/new-stream 8),
                                      :bridge {:op/echo identity}})]
@@ -159,6 +162,7 @@
 (deftest end-on-the-request-stream-terminates-test
   (let [call-in (tu/new-stream 4)
         vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+                                   :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out (tu/new-stream 4),
                                    :bridge {:op/echo identity}})]
@@ -170,6 +174,7 @@
   (let [call-in (tu/new-stream 4)
         call-out (tu/new-stream 4)
         vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+                                   :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out call-out,
                                    :bridge {:op/echo identity}})]
@@ -192,7 +197,7 @@
 (deftest no-call-pair-test
   (let [bare (ast-walker/create-vm {})]
     (testing "A VM without :make-stream or explicit streams holds no pair"
-      (is (nil? (get (vm/store bare) vm/call-in-stream-key)))
+      (is (nil? (get (:resources bare) vm/call-in-stream-key)))
       (is (nil? (ffi/call-pair (vm/store bare)))))
     (testing "A non-nil bridge on such a VM is a construction error"
       (is (throws? (fn []
@@ -208,7 +213,7 @@
   (testing "attach mints against call-in, where the store is visible"
     (let [vm0 (tu/create-vm)
           attached (ffi/attach vm0 {:op/echo identity})]
-      (is (= (:dao.stream/cursor (stream/cursor (get (vm/store vm0)
+      (is (= (:dao.stream/cursor (stream/cursor (get (:resources vm0)
                                                      vm/call-in-stream-key)
                                                 stream/anchor-oldest))
              (get-in attached [:bridge :cursor]))
@@ -226,6 +231,7 @@
     (let [call-in (tu/new-stream 8)
           _ (stream/append! call-in (apply2/request :pre :op/echo [:early]))
           vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+                                     :capability-secret tu/secret
                                      :call-in call-in,
                                      :call-out (tu/new-stream 8),
                                      :bridge {:op/echo identity}})
@@ -281,6 +287,7 @@
                     {:dao.stream/outcome :dao.stream/full}))
         call-out (tu/new-stream 8)
         vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+                                   :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out call-out})
         parked (vm/eval vm0 (call-ast :op/echo [3]))]
@@ -310,6 +317,7 @@
         call-in (gated-call-in delegate 1)
         call-out (tu/new-stream 8)
         vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+                                   :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out call-out})
         parked (vm/eval vm0 (call-ast :op/echo [5]))]

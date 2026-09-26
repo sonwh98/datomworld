@@ -170,7 +170,9 @@
                   {:segment seg, :pc (inc pc), :env E, :stack St, :k K,
                    :reason :next,
                    :cursor-ref (:cursor-ref result),
-                   :stream-id (:stream-id result)})})
+                   :stream-id (:stream-id result)})
+   :module/require (fn [_state _effect _result]
+                     {:segment seg, :pc (inc pc), :env E, :stack St, :k K})})
 
 
 (defn- run-effect
@@ -262,7 +264,10 @@
                        (and fuel (dec fuel)))
               ;; :var — val ← resolve(E, S, prims, modules, name) (2, :load-var)
               2 (recur seg (inc pc)
-                       (engine/resolve-var E (:store vm) (:primitives vm)
+                       (engine/resolve-var E
+                                           (engine/active-store
+                                             vm (engine/env-store-of E))
+                                           (:primitives vm)
                                            (:modules vm) (nth inst 1))
                        St E K vm image (and fuel (dec fuel)))
               ;; :closure — val ← clo(params, entry, seg, E) (4, :lambda)
@@ -282,8 +287,10 @@
               ;; :branch-false — pc ← val ? pc+1 : target (7, :branch)
               7 (recur seg (if val (inc pc) (nth inst 1)) val St E K vm image
                        (and fuel (dec fuel)))
-              ;; :halt — halt with val as the result (23, :halt)
-              23 (put-registers vm nil nil val [] E nil)
+              ;; :halt -- halt with val as the result (23, :halt); a halt
+              ;; leaves no module store context
+              23 (put-registers vm nil nil val [] (engine/without-store-of E)
+                                nil)
               ;; :return — pop a frame, or halt on an empty K (6, :return)
               6 (if-let [frame (peek K)]
                   (recur (:segment frame) (:pc frame) val
@@ -291,25 +298,27 @@
                          (:env frame) (pop K)
                          vm (get (:code vm) (:segment frame))
                          (and fuel (dec fuel)))
-                  (put-registers vm nil nil val [] E nil))
+                  (put-registers vm nil nil val []
+                                 (engine/without-store-of E) nil))
               ;; :gensym — val ← fresh id; counter advances (9, :gensym)
               9 (let [[id vm'] (engine/gensym vm (nth inst 1))]
                   (recur seg (inc pc) id St E K vm' image
                          (and fuel (dec fuel))))
-              ;; :store-get — val ← S[key] (10, :store-get)
-              10 (recur seg (inc pc) (get (:store vm) (nth inst 1))
+              ;; :store-get -- val <- S[key] (10, :store-get); a module
+              ;; closure's store instructions route to its module store
+              10 (recur seg (inc pc)
+                        (get (engine/active-store vm (engine/env-store-of E))
+                             (nth inst 1))
                         St E K vm image (and fuel (dec fuel)))
               ;; :store-put — S[key] ← v; val ← v (11, :store-put)
-              11 (let [vm' (assoc vm :store (engine/store-put (:store vm)
-                                                              (nth inst 1)
-                                                              (nth inst 2)))]
+              11 (let [vm' (engine/put-active vm (engine/env-store-of E)
+                                              (nth inst 1) (nth inst 2))]
                    (recur seg (inc pc) (nth inst 2) St E K vm' image
                           (and fuel (dec fuel))))
               ;; :define -- S[name] <- val; val unchanged (24). The
               ;; definition transition: the operator is never resolved.
-              24 (let [vm' (assoc vm :store (engine/store-put (:store vm)
-                                                              (nth inst 1)
-                                                              val))]
+              24 (let [vm' (engine/put-active vm (engine/env-store-of E)
+                                              (nth inst 1) val)]
                    (recur seg (inc pc) val St E K vm' image
                           (and fuel (dec fuel))))
               ;; :current-continuation — val ← {seg, pc+1, E, St, K} (19)
@@ -426,7 +435,7 @@
                        ;; after park-continuation would strand a continuation
                        ;; in :parked and consume an id counter.
                        {:keys [call-in]}
-                       (ffi/require-call-pair! (:store vm) ffi-op)
+                       (ffi/require-call-pair! (:resources vm) ffi-op)
                        vm' (put-registers vm seg pc val St' E K)
                        parked (engine/park-continuation
                                 vm'
@@ -877,7 +886,10 @@
                                     [:primitives :primitive-profiles
                                      :primitive-canonical-names :modules
                                      :make-stream :call-in :call-out
-                                     :call-capacity])
+                                     :call-capacity :link-request
+                                     :link-response :origin :ancestry
+                                     :capability-secret :secret-source
+                                     :attach-stream])
                        :telemetry (:telemetry opts)
                        :vm-model :semantic))]
      (-> (map->SemanticVM (merge base
@@ -895,3 +907,87 @@
          (telemetry/install :semantic)
          (ffi/attach (:bridge opts))
          (telemetry/emit-snapshot :init)))))
+
+
+;; =============================================================================
+;; Module kernel (yin.vm.linker.md section 7.3)
+;; =============================================================================
+;; A named closure lifts by the alias column: its local segment id's
+;; address, its entry pc, its params, and its environment encoded value by
+;; value, the module store context read out of the environment. It lowers
+;; by the receiving alias column's local id for that address, which act 3
+;; minted; existing local ids are never renumbered.
+
+(defn- binding-mismatch!
+  [marker]
+  (throw (ex-info "Closure marker of another binding discipline or format"
+                  {:reason :binding-mismatch,
+                   :binding (:yin.k/binding marker),
+                   :format (:yin.k/format marker),
+                   :expected-format :yin.semantic/code})))
+
+
+(extend-type SemanticVM
+  module/IModuleKernel
+  (link-format [_]
+    {:format :yin.semantic/code, :contract vm/semantic-contract})
+  (spawn-module
+    [vm image {:keys [modules origin ancestry capability-secret]}]
+    (load-vector (create-vm
+                   {:primitives (:primitives vm),
+                    :primitive-profiles (:primitive-profiles vm),
+                    :primitive-canonical-names (:primitive-canonical-names vm),
+                    :modules modules,
+                    :make-stream (:make-stream vm),
+                    :link-request (get (:resources vm)
+                                       module/link-request-resource),
+                    :link-response (get (:resources vm)
+                                        module/link-response-resource),
+                    :origin origin,
+                    :ancestry ancestry,
+                    :capability-secret capability-secret,
+                    :secret-source (:secret-source vm),
+                    :attach-stream (:attach-stream vm)})
+                 image
+                 vm/semantic-contract))
+  (image-identity [_ image] (jing/segment-key image))
+  (image-holds? [_ image segment] (jing/segment-matches? segment image))
+  (attach-module [vm image] (attach-image vm image vm/semantic-contract))
+  (lift-closure [vm closure encode]
+    (let [local (:segment closure)
+          address (some (fn [[a l]] (when (= l local) a)) (:code-aliases vm))
+          env (:env closure)
+          store-of (engine/env-store-of env)]
+      (when (nil? address)
+        (throw (ex-info "Closure segment has no address"
+                        {:yin.k/status :yin.k/non-portable,
+                         :yin.k/kind :unrooted-body,
+                         :segment local})))
+      (cond-> {:yin.k/tag :yin.k/closure,
+               :yin.k/binding :named,
+               :yin.k/format :yin.semantic/code,
+               :yin.k/segment address,
+               :yin.k/entry (:entry closure),
+               :yin.k/params (:params closure),
+               :yin.k/env (into {}
+                                (map (fn [[k x]] [k (encode x)]))
+                                (engine/without-store-of env))}
+        store-of (assoc :yin.k/store-of store-of))))
+  (lower-closure [vm marker decode]
+    (when-not (and (= :named (:yin.k/binding marker))
+                   (= :yin.semantic/code (:yin.k/format marker)))
+      (binding-mismatch! marker))
+    (let [local (get (:code-aliases vm) (:yin.k/segment marker))
+          store-of (:yin.k/store-of marker)]
+      (when (nil? local)
+        (throw (ex-info "Closure origin image is not attached"
+                        {:reason :origin-not-attached,
+                         :segment (:yin.k/segment marker)})))
+      {:type :closure,
+       :params (:yin.k/params marker),
+       :entry (:yin.k/entry marker),
+       :segment local,
+       :env (cond-> (into {}
+                          (map (fn [[k x]] [k (decode x)]))
+                          (:yin.k/env marker))
+              store-of (assoc engine/store-of-key store-of))})))

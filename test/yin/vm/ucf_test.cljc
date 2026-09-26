@@ -60,7 +60,8 @@
 
 (defn- make-vm
   ([] (make-vm {}))
-  ([opts] (semantic/create-vm (merge {:make-stream tu/make-stream} opts))))
+  ([opts] (semantic/create-vm (merge {:make-stream tu/make-stream,
+                                      :capability-secret tu/secret} opts))))
 
 
 (defn- ex-data-of

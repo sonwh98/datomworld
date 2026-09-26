@@ -402,7 +402,7 @@
 
   (testing "stale wake keys rejected on ffi-reader"
     (let [reader (:ffi-reader (make-valid-wait-entries))
-          stale-keys [:value :status :cursor :store-updates :stream
+          stale-keys [:value :status :cursor :resource-updates :stream
                       :datom :type :id :request-sent :op]]
       (doseq [k stale-keys]
         (let [bad (assoc reader k "stale-val")
@@ -437,7 +437,7 @@
                               :status :ok
                               :value "res"
                               :cursor :cur
-                              :store-updates {}
+                              :resource-updates {}
                               :stream :st
                               :type :resp
                               :id :id1)
