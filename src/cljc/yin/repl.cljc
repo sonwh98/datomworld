@@ -18,6 +18,7 @@
             [yang.clojure :as yang.clojure]
             [yang.php :as yang.php]
             [yang.python :as yang.python]
+            [yin.repl.link :as link]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.debruijn-code :as dcode]
@@ -62,6 +63,16 @@
    an element, and the drain stays total against a transport that could
    answer `gap` repeatedly."
   4096)
+
+
+(def link-round-budget
+  "How many serve-and-run rounds one evaluation drives while its VM waits
+   on a link (yin.vm.linker.md sections 6.3 and 7.2).  A round serves the
+   interpreter once and runs the VM once; a local content source answers
+   within a few, so the budget is reached only by a link that stays
+   `:pending`, which the shell then reports as its own non-blocking state
+   instead of wedging on."
+  40)
 
 
 (def vm-constructors
@@ -173,7 +184,7 @@
   "Commands this shell answers.  `connect` and `disconnect` belong to the
    driver, which owns the RPC client; `telemetry` is answered only to say that
    this REPL slice does not have it."
-  #{'vm 'lang 'compile 'reset 'help 'repl-state 'quit 'telemetry})
+  #{'vm 'lang 'compile 'reset 'help 'repl-state 'quit 'telemetry 'abandon})
 
 
 (def help-text
@@ -184,6 +195,7 @@
        "  (reset)\n"
        "  (connect \"daostream:ws://host:port\")\n"
        "  (disconnect)\n"
+       "  (abandon)  - give up a (require ...) that is still pending\n"
        "  (repl-state)\n"
        "  (help)\n"
        "  (quit)\n"
@@ -417,22 +429,34 @@
    medium, its attachment, the observer, and the VM together.
 
    `extra-primitives` is the host-supplied map merged over the REPL's own
-   primitives, so an embedding host's functions win a name collision."
-  ([vm-type output-stream] (make-vm vm-type output-stream nil))
+   primitives, so an embedding host's functions win a name collision.
+
+   `link-pair` is the link pair `(require ...)` lowers to
+   (yin.vm.linker.md section 6.1), held in the VM's private `:resources`
+   table; `make-session` composes one per VM, and the install children
+   the VM starts inherit it."
+  ([vm-type output-stream] (make-vm vm-type output-stream nil nil))
   ([vm-type output-stream extra-primitives]
+   (make-vm vm-type output-stream extra-primitives nil))
+  ([vm-type output-stream extra-primitives link-pair]
    (when-not (contains? vm-constructors vm-type)
      (throw (ex-info "Unknown Yin REPL VM type"
                      {:vm-type vm-type
                       :supported (vec (keys vm-constructors))})))
    ((get vm-constructors vm-type)
-    {:primitives (merge (make-repl-primitives output-stream) extra-primitives)
-     :modules (module/register-stream-module (module/default-registry))
-     :make-stream make-ring-stream
-     ;; the task's capability secret (yin.vm.linker.md 7.3, r10): the REPL
-     ;; is the composition, so it mints one from its own random source,
-     ;; and a fresh one for every install child the task starts
-     :capability-secret (str (random-uuid))
-     :secret-source (fn [_origin] (str (random-uuid)))})))
+    (cond-> {:primitives (merge (make-repl-primitives output-stream)
+                                extra-primitives)
+             :modules (module/register-stream-module
+                        (module/default-registry))
+             :make-stream make-ring-stream
+             ;; the task's capability secret (yin.vm.linker.md 7.3, r10):
+             ;; the REPL is the composition, so it mints one from its own
+             ;; random source, and a fresh one for every install child the
+             ;; task starts
+             :capability-secret (str (random-uuid))
+             :secret-source (fn [_origin] (str (random-uuid)))}
+      link-pair (assoc :link-request (:requests link-pair)
+                       :link-response (:responses link-pair))))))
 
 
 (defn- make-runner
@@ -507,9 +531,16 @@
    the expander observes `program-in` — `:program-stream`, watched by
    `:observer` — and appends each expanded tree packet to `program-out` —
    `:row-stream`, watched independently by the evaluator's `:row-observer`,
-   which loads each packet and runs it."
+   which loads each packet and runs it.
+
+   The link pair is the session's (`yin.repl.link/make-pair`): the VM's
+   half lives in its private `:resources`, the interpreter's half beside
+   it under `:link-pair`.  The content pair and the name environment the
+   interpreter serves from are the shell's (`:link-source`), and outlive
+   a session rebuild."
   [vm-type output-stream extra-primitives]
-  (let [vm (make-vm vm-type output-stream extra-primitives)
+  (let [pair (link/make-pair)
+        vm (make-vm vm-type output-stream extra-primitives pair)
         program-in (make-attachment ingress-capacity)
         program-out (make-attachment ingress-capacity)]
     {:vm vm
@@ -519,18 +550,31 @@
      :observer (:observer program-in)
      :expander (make-expander (:identity program-in) (:stream program-out))
      :row-stream (:stream program-out)
-     :row-observer (:observer program-out)}))
+     :row-observer (:observer program-out)
+     :link-pair pair}))
 
 
 (defn create-state
   "Create the shell value.  `:primitives` is a host-supplied map merged over
    the REPL primitives; it is kept as `:extra-primitives` so every session
-   rebuild — `(reset)`, `(vm …)` — installs it again."
+   rebuild — `(reset)`, `(vm …)` — installs it again.
+
+   `content-store` (a `dao.jing` byte-store handle), `content-client` (a
+   `dao.stream.rpc` client state on a connection whose far end serves
+   content) and `name-env` (module name -> manifest address) compose the
+   content pair and the name environment the linker interpreter serves
+   `(require ...)` from (yin.repl.link/composition); with neither content
+   source, a require stays `:pending` and says so."
   ([] (create-state {}))
-  ([{:keys [lang output-cursor output-stream vm-type primitives]
+  ([{:keys [lang output-cursor output-stream vm-type primitives
+            content-store content-client name-env]
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
-         output-cursor (or output-cursor (mint-cursor output-stream))]
+         output-cursor (or output-cursor (mint-cursor output-stream))
+         link-source (link/composition
+                       {:name-env name-env
+                        :content-store content-store
+                        :content-client content-client})]
      (merge
        (make-session vm-type output-stream primitives)
        {:lang lang
@@ -546,6 +590,8 @@
         :last-value-2 nil
         :last-value-3 nil
         :pending-input nil
+        :link-source link-source
+        :pending-run nil
         :running? true}))))
 
 
@@ -739,33 +785,175 @@
                       errors)))
 
 
+(defn- link-waiting?
+  "True while `vm` parks on a link wait: the two link states `require`
+   parks in, or the install it waits on (yin.vm.linker.md section 7.2).
+   These are the reasons the shell's interpreter can move, so they are
+   the ones a round drives before reporting the VM wedged."
+  [vm]
+  (boolean (some #(contains? #{:link-request :link-response :install}
+                             (:reason %))
+                 (:wait-set vm))))
+
+
+(defn- carry-link-identity
+  "The round's base VM with the link identity `used` has already minted
+   carried forward: link ids `[origin counter]` and install-child origin
+   tags are minted once and never reused on a pair (yin.vm.linker.md
+   section 7.2), and the shell's rollback to the round's base -- whose
+   counters never advanced -- must not let a later require or install
+   mint an identity the pair has already answered."
+  [base used]
+  (let [n (max (or (:id-counter base) 0) (or (:id-counter used) 0))
+        o (max (or (:origins base) 0) (or (:origins used) 0))]
+    (cond-> base
+      (pos? n) (assoc :id-counter n)
+      (pos? o) (assoc :origins o))))
+
+
+(defn- link-raise
+  "The raise of a resumed link wait, carrying the identity the parked
+   evaluation has minted so far -- the counters of the VM the raise
+   interrupted, whose every earlier run is in them -- so a rollback
+   cannot reuse it."
+  [error vm]
+  (ex-info (or (ex-message error) "Link failed")
+           (assoc (or (ex-data error) {})
+                  ::link-counter (:id-counter vm)
+                  ::link-origins (:origins vm))))
+
+
+(defn- drive-links
+  "Serve the linker interpreter and run the parked VM alternately, at most
+   `link-round-budget` rounds, while `vm` waits on a link.  A round that
+   moves nothing ends the drive: a link whose content source cannot
+   answer will not answer by waiting longer.  Returns
+   `[state vm pending]`, `pending` the links the interpreter reported
+   `:pending`.  A refused or lost link raises as the VM's own, carrying
+   the interrupted VM's minted identity."
+  [state vm]
+  (loop [i 0
+         vm vm
+         state state
+         pending []]
+    (cond
+      (or (vm/halted? vm) (not (link-waiting? vm)) (>= i link-round-budget))
+      [state vm pending]
+
+      :else
+      (let [served (link/serve {:pair (:link-pair state)
+                                :source (:link-source state)})
+            state (assoc state :link-pair (:pair served))
+            pending (if (seq (:pending served)) (:pending served) pending)]
+        (if (:progress? served)
+          (let [vm' (try (vm/run vm)
+                         (catch #?(:cljd Object :clj Exception :cljs js/Error)
+                                error
+                           (throw (link-raise error vm))))]
+            (recur (inc i) vm' state pending))
+          [state vm pending])))))
+
+
+(defn- tokenize
+  "Answer the halted VM's value on the output medium under `state`'s
+   round, as the evaluator runner does for a program it runs itself.  A
+   resumed require halts outside the observer loop, so the shell emits
+   its token here."
+  [state vm]
+  ((make-runner (:output-stream state) (round-id state)) vm))
+
+
+(defn- pending-text
+  [pending]
+  (if (seq pending)
+    (str ";; require pending: "
+         (str/join ", " (map (fn [p]
+                               (str (pr-str (:name p))
+                                    " (link " (pr-str (:yin.link/id p)) ")"))
+                             pending))
+         "); lines typed meanwhile run when it completes, (abandon) gives"
+         " up\n")
+    (str ";; require still pending; lines typed meanwhile run when it"
+         " completes, (abandon) gives up\n")))
+
+
+(defn- dropped-lines-text
+  [n]
+  (when (pos? n)
+    (str ";; dropped " n " line" (when (> n 1) "s")
+         " typed while the require was pending\n")))
+
+
+(defn- pending-eval
+  "Answer a round whose require did not complete: the parked VM, its
+   round-start base, and the pending links are the shell's
+   `:pending-run`, and the prompt returns.  Nothing is wedged: another
+   line re-checks the link, `(abandon)` gives it up, and `(reset)` or
+   `(vm ...)` drops it with the session."
+  [state state' vm' pending]
+  (let [[state'' text] (drain-output state')]
+    [(-> state''
+         (assoc :vm vm'
+                :pending-run {:vm vm', :base (:vm state), :links pending}))
+     (str text (pending-text pending))]))
+
+
+(defn- wedged-program
+  [state]
+  (ex-info
+    "Program stream did not form a complete, runnable Yin VM program.
+Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+    {:vm-type (:vm-type state)}))
+
+
 (defn- run-evaluation
   "The evaluator half of a round whose expander forwarded a program: run
-   it, then either finalize the value or consume the failure.  `state` is
-   the round's starting state; `expanded` already carries the expander's
-   progress, which a failing evaluation keeps."
+   it, then either finalize the value, drive its require to a conclusion,
+   or park it as `:pending-run`.  `state` is the round's starting state;
+   `expanded` already carries the expander's progress, which a failing
+   evaluation keeps."
   [state expanded]
   (try
     (let [gaps-before (ingress-gaps expanded)
-          evaluated (run-evaluator-stage expanded)]
+          evaluated (run-evaluator-stage expanded)
+          vm (:vm evaluated)]
       (cond
         (> (ingress-gaps evaluated) gaps-before)
         [(assoc evaluated :ingress-loss? true)
          (str "Error: " ingress-loss-text)]
 
-        (vm/halted? (:vm evaluated))
+        (vm/halted? vm)
         (finalize-eval state evaluated
-                       (engine/restore-initial-env (:env (:vm expanded))
-                                                   (:vm evaluated)))
+                       (engine/restore-initial-env (:env (:vm expanded)) vm))
 
-        :else
-        (throw
-          (ex-info
-            "Program stream did not form a complete, runnable Yin VM program.
-Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
-            {:vm-type (:vm-type state)}))))
+        (link-waiting? vm)
+        (let [[state' vm' pending] (drive-links evaluated vm)]
+          (cond
+            (vm/halted? vm')
+            (finalize-eval state
+                           (assoc state' :vm vm')
+                           (tokenize state'
+                                     (engine/restore-initial-env
+                                       (:env (:vm expanded)) vm')))
+
+            (link-waiting? vm')
+            (pending-eval state state' vm' pending)
+
+            :else (throw (wedged-program state))))
+
+        :else (throw (wedged-program state))))
     (catch #?(:cljd Object :clj Exception :cljs js/Error) error
-      (consume-failed-round (assoc expanded :vm (:vm state)) error))))
+      ;; a link raise rolls the shell back to the round's base; the
+      ;; identity the interrupted VM had minted rides on it, so nothing
+      ;; is minted twice on the surviving pair
+      (let [d (ex-data error)
+            base (if (or (::link-counter d) (::link-origins d))
+                   (carry-link-identity
+                     (:vm state)
+                     {:id-counter (::link-counter d)
+                      :origins (::link-origins d)})
+                   (:vm state))]
+        (consume-failed-round (assoc expanded :vm base) error)))))
 
 
 (defn- eval-program
@@ -866,18 +1054,58 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   "Replace the VM, the expander, and their media, attachments, and
    observers.  The value history is cleared with them: a closure in `*1`
    names a code segment the old VM held, which the new one does not.  The
-   new expander holds only the standard forms."
+   new expander holds only the standard forms.  A require still pending
+   on the old VM is dropped with it: its link pair is the session's, and
+   the new session answers from its own."
   [state vm-type]
   (merge state
-         (make-session vm-type (:output-stream state) (:extra-primitives state))
+         (make-session vm-type (:output-stream state)
+                       (:extra-primitives state))
          {:vm-type vm-type
           :ingress-loss? false
           :last-value nil
           :last-value-2 nil
-          :last-value-3 nil}))
+          :last-value-3 nil
+          :pending-run nil}))
 
 
 (declare repl-state)
+
+
+(defn- abandon-pending
+  "Give up the shell's `:pending-run` (section 7.2, step 7, the abandoned
+   case): every install in flight is dropped through the engine's own
+   `refused`, every link wait entry is retired with the reason raised as
+   the require's error, and the shell returns to the round the require
+   began in, whose store and value history the parked evaluation never
+   wrote.  Lines typed while the require was pending are dropped with
+   it, and said so.  The linker side learns nothing: no response was
+   ever promised, and one that still arrives is skipped as late.  The
+   identity the parked evaluation minted -- link ids and child origins
+   -- is carried onto the base, so nothing is minted twice on the
+   surviving pair."
+  [state]
+  (if-let [parked (:pending-run state)]
+    (let [[state' text] (drain-output state)
+          ;; installs first: their waiters leave the wait set with the
+          ;; refusal queued, then every remaining link entry retires
+          vm (engine/abandon-installs (:vm parked) :yin.repl/abandoned)
+          error (try
+                  (vm/run (reduce (fn [vm e]
+                                    (engine/abandon-link vm (:link-id e)
+                                                         :yin.repl/abandoned))
+                                  vm
+                                  (:wait-set vm)))
+                  nil
+                  (catch #?(:cljd Object :clj Exception :cljs js/Error) e
+                    e))]
+      [(assoc state'
+              :vm (carry-link-identity (:base parked) vm)
+              :pending-run nil)
+       (str text
+            (if error (format-error error) "")
+            (dropped-lines-text (count (:pending-lines parked))))])
+    [state "Nothing is pending"]))
 
 
 (defn handle-command
@@ -904,6 +1132,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                        (compile-command-ast state (first args)))]
       reset [(rebuild-session state (:vm-type state))
              (str (get vm-labels (:vm-type state)) " reset")]
+      abandon (abandon-pending state)
       help [state help-text]
       repl-state [state (format-value (repl-state state))]
       quit [(assoc state :running? false) "Bye"]
@@ -911,7 +1140,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       [state (str "Error: Unknown Yin REPL command " (pr-str command))])))
 
 
-(defn- eval-parsed
+(defn- eval-parsed*
+  "The parse dispatch of one line, against a shell with no require to
+   re-check."
   [state trimmed parsed]
   (try
     (let [forms (:forms parsed)
@@ -928,6 +1159,88 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
     (catch #?(:cljd Object :clj Exception :cljs js/Error) error
       (let [[state' output-text] (drain-output state)]
         [state' (str output-text (format-error error))]))))
+
+
+(defn- fold-queued
+  "Evaluate the lines retained while a require was pending, in the order
+   they were typed, each exactly once, and join their texts.  A line that
+   parks the shell on a require of its own stops the fold: the lines
+   after it stay retained, in order, on the new `:pending-run`."
+  [[state text] queued]
+  (loop [state state
+         text text
+         [in & more :as queued] (seq queued)]
+    (cond
+      (empty? queued) [state text]
+      (:pending-run state) [(update-in state [:pending-run :pending-lines]
+                                       (fnil into []) queued)
+                            text]
+      :else (let [[state' text'] (eval-parsed* state
+                                               (:trimmed in)
+                                               (:parsed in))]
+              (recur state' (str text "\n" text') more)))))
+
+
+(defn- resume-pending
+  "One bounded re-check of the shell's `:pending-run`: serve the
+   interpreter, run the parked VM, and either answer its value -- the
+   round the require began in finally completes, and the lines retained
+   while it was pending, then `input`, evaluate against it -- report it
+   pending again with `input` retained for that completion, or, when the
+   re-check raised the link's refusal, return the shell to the round's
+   base with the error as text and evaluate `input` there."
+  [state trimmed parsed]
+  (let [parked (:pending-run state)
+        input {:trimmed trimmed, :parsed parsed}]
+    (try
+      (let [[state' vm' pending] (drive-links state (:vm parked))]
+        (if (vm/halted? vm')
+          (let [vm'' (engine/restore-initial-env (:env (:base parked)) vm')
+                [st text] (finalize-eval state
+                                         (assoc state' :vm vm'')
+                                         (tokenize state' vm''))]
+            (fold-queued [(assoc st :vm vm'' :pending-run nil) text]
+                         (conj (vec (:pending-lines parked)) input)))
+          (let [[st text] (drain-output state')]
+            [(assoc st
+                    :vm vm'
+                    :pending-run (-> parked
+                                     (assoc :vm vm' :links pending)
+                                     (update :pending-lines
+                                             (fnil conj []) input)))
+             (str text (pending-text pending))])))
+      (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+        (let [[st text] (drain-output state)
+              d (ex-data error)]
+          (fold-queued
+            [(assoc st
+                    :vm (carry-link-identity
+                          (:base parked)
+                          {:id-counter (::link-counter d)
+                           :origins (::link-origins d)})
+                    :pending-run nil)
+             (str text
+                  (format-error error)
+                  (dropped-lines-text (count (:pending-lines parked))))]
+            [input]))))))
+
+
+(defn- command-line?
+  [parsed]
+  (let [forms (:forms parsed)
+        form (when (= 1 (count forms)) (first forms))]
+    (and form (command-form? form))))
+
+
+(defn- eval-parsed
+  [state trimmed parsed]
+  (if (and (:pending-run state) (not (command-line? parsed)))
+    ;; A require is still pending: re-check it first.  While it stays
+    ;; pending the line is retained -- the parked VM owns the store a new
+    ;; evaluation would fork -- and it evaluates, in typing order and
+    ;; exactly once, when the link completes.
+    (resume-pending state trimmed parsed)
+    (eval-parsed* state trimmed parsed)))
 
 
 (defn eval-input
@@ -978,5 +1291,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    :running? (:running? state)
    :output {:cursor (:output-cursor state)
             :last-outcome (get-in state [:ledger :output] :untried)}
+   :pending (when-let [parked (:pending-run state)]
+              (mapv (fn [p]
+                      {:name (:name p)
+                       :link-id (:yin.link/id p)})
+                    (:links parked)))
    :telemetry {:supported? false :note telemetry-text}
    :remote {:connected? false}})

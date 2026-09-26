@@ -1221,6 +1221,23 @@
       state)))
 
 
+(defn abandon-installs
+  "A composition gives up on every install in flight (the abandoned case
+   of section 7.2, step 7, reaching section 7.3's `refused`): each child
+   is dropped -- nothing from its store is published -- and every
+   `:install` waiter is restored with the reason as the require's error,
+   so the install entry is removed and a later require may try again. A
+   state with no installs is unchanged. The dropped children's own link
+   ids are never minted again by a state that carries `:origins` forward
+   past them."
+  [state reason]
+  (reduce (fn [state module-name]
+            (refuse-install state module-name
+                            {:status :lost, :reason reason}))
+          state
+          (keys (:installs state))))
+
+
 (defn check-wait-set
   "Check wait-set entries against their transports.
 

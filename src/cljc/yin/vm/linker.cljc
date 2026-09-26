@@ -2047,11 +2047,14 @@
    when the `:verifying` policy fetched the tree (`yin.vm.ledger`'s own
    content-and-derivation check; the de Bruijn formats' recomputation
    ran before the image, needing none), join every retained obligation
-   with the manifest's declarations, and discharge against `receiver`.
-   `derivation` is `checked-derivation`'s outcome, nil for the tree
-   format. Returns `[state outcome]`, `fetch`'s outcome shape plus
-   `:manifest` and, for a lowered format, `:derivation` and `:trust`."
-  [state drive record identity manifest derivation receiver]
+   with the manifest's declarations, and discharge against `receiver` --
+   unless `defer?`, the serving composition's choice (section 7.2 steps 6
+   and 7): the obligations then travel for the receiving task's own step
+   5b, which runs against its live state. `derivation` is
+   `checked-derivation`'s outcome, nil for the tree format. Returns
+   `[state outcome]`, `fetch`'s outcome shape plus `:manifest` and, for a
+   lowered format, `:derivation` and `:trust`."
+  [state drive record identity manifest derivation receiver defer?]
   (let [[state c] (drive-link state drive (:format record) identity
                               (:contract record))]
     (if (refused? c)
@@ -2074,12 +2077,13 @@
             (let [outcome (merge {:status :ok}
                                  (:image c)
                                  {:obligations declared,
-                                  :manifest manifest})]
-              [state (or (discharge receiver declared)
-                         (merge outcome
-                                (when (:derivation derivation)
-                                  {:derivation (:derivation derivation),
-                                   :trust (:trust derivation)})))])))))))
+                                  :manifest manifest}
+                                 (when (:derivation derivation)
+                                   {:derivation (:derivation derivation),
+                                    :trust (:trust derivation)}))]
+              [state (if defer?
+                       outcome
+                       (or (discharge receiver declared) outcome))])))))))
 
 
 (defn link-manifest
@@ -2090,8 +2094,11 @@
    name environment or the section 8.2 authority policy, and names the
    resolution in `opts` as `:name`. `receiver` is `fetch`'s receiver.
    `opts` carries the requester's `:contract` (required), the
-   `:derivation` policy (`:verifying`, the default, or `:trusted`), and
-   the resolution `:name`.
+   `:derivation` policy (`:verifying`, the default, or `:trusted`), the
+   resolution `:name`, and `:defer-discharge`: a serving composition
+   (section 7.2) sets it true, and step 8 -- the linker-side 5b -- is
+   skipped, the obligations travelling for the receiving task's own step
+   5b against its live state (section 7.2, step 7).
 
    The order is fixed (sections 4.2 and 8.1):
      0. the format record; the requester's contract    :unsupported-format,
@@ -2113,8 +2120,8 @@
      6. the image fetch: the six steps through the      fetch's refusals
         format record
      7. every retained obligation is declared           :undeclared-free
-     8. discharge (5b) against `receiver`               :unresolved-free,
-                                                        :shadowed-free
+     8. discharge (5b) against `receiver`, unless       :unresolved-free,
+        `:defer-discharge`                              :shadowed-free
 
    The manifest's `:yin.module/index` is merged into the linker-local
    index of the requested format the moment the manifest is verified.
@@ -2130,7 +2137,8 @@
    (let [{:keys [state drive]} runtime
          record (get (:formats state) format-kw)
          contract (:contract opts)
-         policy (or (:derivation opts) :verifying)]
+         policy (or (:derivation opts) :verifying)
+         defer? (boolean (:defer-discharge opts))]
      (cond
        (nil? record)
        (refused :unsupported-format {:format format-kw})
@@ -2167,7 +2175,7 @@
                              (linked-image
                                state drive record
                                (:yin.module/tree manifest)
-                               manifest nil receiver)]
+                               manifest nil receiver defer?)]
                          outcome)
                        (let [[_ derivation]
                              (checked-derivation state drive format-kw
@@ -2178,7 +2186,7 @@
                                  (linked-image
                                    state drive record
                                    (:output derivation)
-                                   manifest derivation receiver)]
+                                   manifest derivation receiver defer?)]
                              outcome)))))))))))))))
 
 

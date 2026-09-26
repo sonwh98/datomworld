@@ -326,6 +326,10 @@
    "src/cljc/yin/repl.cljc"
    {["inject-last-value" "update"] 1
     ["make-expander" :map] 1}
+   ;; the content source descriptor: `:store` names a dao.jing byte-store
+   ;; handle the linker interpreter serves content from, never a VM store
+   "src/cljc/yin/repl/link.cljc"
+   {["composition" :map] 1}
    ;; the handoff demo: shipped definitions, checked
    "src/cljc/datomworld/demo/continuation_handoff.cljc"
    {["datoms->semantic-vm" "update"] 1}
