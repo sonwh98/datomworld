@@ -433,7 +433,10 @@ encodings (§7.5):
 :yin.k/frame
 {:yin.k/segment  :segment/sha256-3f1a…
  :yin.k/pc       5                         ; the resume pc, already pc+1
- :yin.k/reason   :next                     ; :park | :next | :put | :ffi | :ffi-request | :call-effect
+ :yin.k/reason   :next                     ; :park | :next | :put | :ffi
+                                          ; | :ffi-request | :call-effect
+                                          ; | :link-request | :link-response
+                                          ; | :install
  :yin.k/val      nil                       ; accumulator; nil except where §7.4.3 pre-fills it
  :yin.k/stack    [ … ]                     ; St per the table above, encoded
  :yin.k/env      { sym → encoded value }   ; E
@@ -442,6 +445,40 @@ encodings (§7.5):
                     :yin.k/pc 5 :yin.k/env {…} :yin.k/stack-base 0} … ]   ; K, innermost last
  :yin.k/pending  {…}}                      ; the wait it was in, §7.4.3 — one variant per reason
 ```
+
+**Linker safepoints (M4).** Every block marked (linker M4) is specified by
+`yin.vm.linker.md`; the private resources table, sealed references and
+install child land with M4 slices S3 to S4 (S3 ships r8-r11, the install
+child and link-module; S4 ships manifests). The running VM implements the
+safepoint and resource semantics; only the UCF lift and lower of parked
+link and install entries stays future. The require flow adds three
+safepoints to the set above, one per wait state of a `:module/require`
+effect that misses the module registry (`yin.vm.linker.md` 7.2, 7.3); a
+hit answers without parking. The frame is the effectful-call row's in all
+three -- `require` is named there -- and the wait entry moves between the
+three reasons without the machine advancing, so the canonical resume pc
+and the stack are that row's in every state:
+
++----------------+----------------------------------------+-----------+------------------------+--------------------------------------------------+
+| Safepoint kind | Raised by                              | Resume pc | Stack in frame (St)    | Accumulator on resume                            |
++================+========================================+===========+========================+==================================================+
+| :link-request  | the :module/require effect on a        | pc+1      | St minus the popped    | no resume from this state: on ok                 |
+|                | registry miss, before the link         |           | operator and args      | the entry becomes :link-response                 |
+|                | request envelope is appended ok;       |           |                        |                                                  |
+|                | a full retry keeps this state          |           |                        |                                                  |
+|                | (the :ffi-request discipline)          |           |                        |                                                  |
++----------------+----------------------------------------+-----------+------------------------+--------------------------------------------------+
+| :link-response | the request append's ok; the kept      | pc+1      | St minus the popped    | a matching refusal, or a failed                  |
+|                | cursor polls the link response         |           | operator and args      | discharge, raises as the effect's                |
+|                | stream for the correlated id           |           |                        | error                                            |
++----------------+----------------------------------------+-----------+------------------------+--------------------------------------------------+
+| :install       | a matching ok response, its            | pc+1      | St minus the popped    | the required module's symbol on                  |
+|                | obligations discharged, while          |           | operator and args      | linked; the refusal as the                       |
+|                | the install child runs its             |           |                        | effect's error on refused                        |
+|                | phases                                 |           |                        |                                                  |
++----------------+----------------------------------------+-----------+------------------------+--------------------------------------------------+
+
+The pending variants of the three reasons are in section 7.4.3.
 
 **Quiescence.** The migration unit is one task: the whole blocked machine
 (§7.6.3). Lifting additionally requires the machine's ready-queue to be
@@ -591,6 +628,64 @@ Three rules make these resumable somewhere other than where they were minted:
   value); a `:next` wait polls its cell. No wait is silently dropped and no
   retained value is recomputed — what parks is what resumes.
 
+**Linker pending variants (M4).** Specified by `yin.vm.linker.md`; lands
+with M4 slices S3 to S4. The require flow adds three pending variants,
+one per safepoint of the same name (`yin.vm.linker.md` 7.2, 7.3). A wait
+entry's `:cursor` (the kept cursor) is UCF's `:yin.k/cell`: the cell id
+stands for the cursor and its kept position rides in the cells table of
+section 7.5.3:
+
+```clojure
+;; module link, request in hand (:module/require miss)
+{:yin.k/reason    :link-request
+ :yin.k/link-id   [:t0 7]                 ; [origin counter], below
+ :yin.k/envelope  {:yin.link/id [:t0 7] :yin.link/name 'foo
+                   :yin.link/format :yin.debruijn.code
+                   :yin.link/contract "b2"}   ; rebuilt verbatim
+ :yin.k/request   {:dao.stream/identity ... :dao.stream/descriptor ...}
+ :yin.k/response  {:dao.stream/identity ... :dao.stream/descriptor ...}
+ :yin.k/cell      :yin.k/c-31}            ; response cell, minted newest
+                                          ; before the request is appended
+
+;; module link, awaiting the correlated response (request appended ok)
+{:yin.k/reason    :link-response
+ :yin.k/link-id   [:t0 7]
+ :yin.k/response  {:dao.stream/identity ... :dao.stream/descriptor ...}
+ :yin.k/cell      :yin.k/c-31}            ; the kept cell, at its kept
+                                          ; position
+
+;; module install (a matching ok discharged; the child runs)
+{:yin.k/reason    :install
+ :yin.k/name      'foo}
+```
+
+Four rules fix the exchange. The link id is the pair `[origin
+counter]`, scoped to the link pair, not to a VM: several tasks share
+one response stream, `origin` is a task origin tag the scheduler mints
+from its own counter and never reuses, and `counter` is the task's
+engine gensym, so no two requests on one pair share an id. The response
+cursor is minted `:dao.stream/newest` before the request is appended --
+the `dao.stream.md` *Cursors* rule for observing events caused by an
+operation -- so a response that lands before the cursor exists is not
+skipped. `:link-request` carries everything needed to rebuild the
+envelope, `:link-response` carries the response descriptor and the kept
+cell; a `full` append keeps the request state, retains the envelope
+verbatim, and retries on the next poll, the `:ffi-request` discipline.
+And the poll restores only on exact correlation: the entry advances
+past every response whose `:yin.link/id` is not its own, keeping its
+cursor at the first unconsumed position -- the per-cell round-order
+discipline section 7.5.3 already gives shared cursors -- and skips
+duplicate, late, and unknown responses, each skip a telemetry
+diagnostic that consumes nothing but the cursor position. A matching
+refusal, or a failed discharge, resumes the program with the refusal
+raised as the effect's error, the way an `:ffi` `error` raises; a
+composition that abandons a link raises the reason the same way and
+retires the id. A matching `ok` makes the entry `:install`, and no task
+is restored until the install reaches `linked` or `refused`: `linked`
+restores every waiter with the required module's symbol as its value,
+`refused` with the refusal as the effect's error. On `gap` the honest
+outcome is a `gap`, and the composition's policy decides.
+
 ## §7.5 Recursive portable encoding (blocker 2)
 
 ### 7.5.1 A disjoint tagged grammar
@@ -646,6 +741,78 @@ ref graph that is cyclic *through ref data* (content-addressed table entries
 cannot mint such a cycle — a cycle can only be written by hand, and it is
 rejected); and a value table entry not referenced by anything reachable.
 Malformed-but-correctly-hashed input fails here, before any lowering.
+
+**Closure markers carry a binding discipline and a store (linker M4).**
+Specified by `yin.vm.linker.md`; lands with M4 slices S3 to S4.
+The closure row above was written for the named semantic VM alone. The
+linker's four backends split into named kernels (`:yin.ast/code`,
+`:yin.semantic/code`) and positional ones (`:yin.debruijn.code`,
+`:yin.debruijn.register`), so the marker gains a `:yin.k/binding` key
+with two variants, and a closure defined in a linked module carries
+`:yin.k/store-of`, the manifest address of the module store its body
+resolves against (`yin.vm.linker.md` 7.3):
+
+```clojure
+;; named (:yin.ast/code, :yin.semantic/code)
+{:yin.k/tag :yin.k/closure :yin.k/binding :named
+ :yin.k/segment addr :yin.k/entry pc
+ :yin.k/params [sym ...] :yin.k/env {sym encoded}
+ :yin.k/store-of m}                       ; when module-defined
+
+;; positional (:yin.debruijn.code, :yin.debruijn.register)
+{:yin.k/tag :yin.k/closure :yin.k/binding :positional
+ :yin.k/segment identity :yin.k/entry pc
+ :yin.k/arity n :yin.k/frames [[encoded ...] ...]
+ :yin.k/store-of m}                       ; when module-defined
+```
+
+A `:named` marker lowers only into a named kernel and a `:positional`
+marker only into a positional kernel of the same `:format`; the reverse
+is `:binding-mismatch`, so a lifted slice carried elsewhere fails
+closed rather than being reinterpreted. `:binding-mismatch` is a
+lower-side refusal (`yin.vm.linker.md` 7.3), not a `:yin.k/non-portable`
+kind, so it is not in the closed set of section 7.5.4. In a `:named` marker lifted
+from the AST walker, the segment names the `:lambda` row whose body
+slot is the closure's body and the entry is nil; in a `:positional`
+marker, the segment is the origin image's identity and the entry is
+relative to it. `yin.vm.linker.md` 7.3 states each kernel's lift and
+lower into these shapes, the walker's included, with its
+`:unrooted-body` refusal. The store named by `:yin.k/store-of` travels
+once per slice, not per closure, under the module-store amendment of
+section 7.6.2.
+
+**Resource markers decode into a private table, and references re-seal
+(linker M4).** Specified by `yin.vm.linker.md`; lands with M4 slices S3
+to S4. The `:yin.k/stream` and `:yin.k/cursor-ref` rows above
+decode to a store key and a store cursor entry; the linker's resource
+split moves both targets out of the store (`yin.vm.linker.md` 7.3).
+Lowering installs an attached handle under a fresh resource id in the
+receiver's private `:resources` table, and lowers a logical cell to a
+cursor entry in `:resources` seeded with its carried position,
+remapping every `:yin.k/cursor-ref` to that entry -- two refs to one
+cell still share one entry -- and no store key is ever created: program
+values keep only the opaque `stream-ref` and `cursor-ref` ids, exactly
+as a running program holds them. References are sealed, not merely
+shaped. Each task's resources are bound to a task-scoped capability
+secret, minted once by the composition at task creation from its own
+random source and held in VM state -- never in a program value, never
+on a stream, never counter-derived. Every reference the engine issues
+carries a seal over its id under that secret, and every effect dispatch
+that resolves a program-supplied reference verifies the seal against
+the active task's secret before touching `:resources`; a literal with a
+wrong or missing seal fails closed as `:forged-resource-reference`,
+naming the effect and the id it named. Lift and lower re-seal rather
+than carry, and lift authenticates before it encodes: a `:yin.k/stream`
+or `:yin.k/cursor-ref` marker is emitted only after the reference's
+seal and resource kind verify against the emitter task's own secret,
+and an invalid, unsealed, or forged reference refuses the lift
+immediately, as `:yin.k/non-portable` with `:yin.k/kind
+:forged-resource-reference`. The marker carries no seal -- it is the
+portable encoding -- and the lower, having installed the attachment or
+cell in the receiver's `:resources`, issues a fresh reference sealed
+under the receiver's secret. One task's literals cannot guess another
+task's secret, so cross-task forgery and the export-laundering path
+fail with the same refusal.
 
 ### 7.5.2 Primitives: a name is a binding, not a meaning
 
@@ -768,6 +935,17 @@ fresh store cursor entry seeded with its carried position; every
 one entry and one ref per cell keeps its own. The FFI response cell of
 §7.4.3 is a cell like any other.
 
+**Cells lower into the private resource table (linker M4).**
+Specified by `yin.vm.linker.md`; lands with M4 slices S3 to S4. The
+lowering rule above -- each cell becomes a fresh store cursor entry --
+is amended by the resource split of `yin.vm.linker.md` 7.3: each cell
+becomes a cursor entry in the receiver's private `:resources` table,
+seeded with its carried position, and every `:yin.k/cursor-ref` to it
+remaps to that entry; two refs to one cell still share one entry and
+one ref per cell keeps its own, but no store key is ever created, and
+program values keep only the opaque reference ids, exactly as a
+running program holds them.
+
 A stream reference is portable when the exporter can serve its declared
 `dao.stream` surface through the facade and publish an attachable endpoint
 for the original logical stream. This applies to local implementations,
@@ -795,8 +973,10 @@ continuation:
 
 The kind set is closed:
 `:host-object | :unnamed-function | :ambiguous-primitive | :host-state-primitive
-| :cyclic | :in-memory-handle | :non-canonicalizable | :foreign-parked-ref`
-(the last two from §7.3.2 and §7.6.3). There is no partial UCF value and no
+| :cyclic | :in-memory-handle | :non-canonicalizable | :foreign-parked-ref
+| :forged-resource-reference | :missing-module-store | :unrooted-body`
+(`:non-canonicalizable` and `:foreign-parked-ref` from §7.3.2 and §7.6.3;
+the last three from linker M4, `yin.vm.linker.md` 7.3). There is no partial UCF value and no
 placeholder for a missing leaf. A program that wishes to be migratable keeps
 host resources behind stream descriptors and named, profiled primitives,
 which is the same discipline the host boundary rules already impose on
@@ -899,6 +1079,20 @@ The FFI pair is never in the slice — a program that names the pair's store
 keys directly holds handles, and the lift refuses it (§7.5.4). A resumer has
 its own pair; outstanding calls route per §7.4.3.
 
+**Resource cells live beside the store, not in it (linker M4).**
+Specified by `yin.vm.linker.md`; lands with M4 slices S3 to S4. The
+opening list above is amended by the linker's resource split
+(`yin.vm.linker.md` 7.3): stream handles, cursor cells, and the FFI
+pair live in a private `:resources` table in VM state, beside the
+store, never inside it. The engine's own machinery -- wait-set
+resolution, handle creation and polling, resume -- reads and writes
+only that table, and no user store instruction and no `resolve-var`
+step consults it, at top level or inside a module closure. The ids may
+stay predictable: they name nothing a store instruction can reach. A
+migration slice still carries resource cells, remapped at resume, but
+beside the program store; the decode targets of sections 7.5.1 and
+7.5.3 move with them.
+
 **There is no merge.** The first draft said, in two places, both that the
 slice wins on collision and that the slice merges *under* the local store —
 a contradiction, and beneath it a real defect: resolution is env → store →
@@ -917,6 +1111,28 @@ entries keep their keys verbatim. "Unreachable store entries do not travel"
 survives unchanged — anything the program did not observe is not the
 program's state — and nothing else shares state with the resumed task by
 accident.
+
+**There is no merge at the module grain either (linker M4).** Specified by `yin.vm.linker.md`; lands with M4
+slices S3 to S4. A module
+install's exports cross the child-to-parent boundary as a lifted slice,
+and the stores cross with them (`yin.vm.linker.md` 7.3). One snapshot
+encodes per module, under its manifest address: the installing child's
+halted store, and every dependency's store the exports reach
+transitively, as it stands in the child's state at halt, including the
+mutations the child made through the dependency's own closures. A
+closure's `:yin.k/store-of` with no snapshot refuses the lift, as
+`:yin.k/non-portable` with `:yin.k/kind :missing-module-store`; each
+snapshot encodes as a `:yin.k/store` slice, and whatever that grammar
+refuses refuses the lift and the install. On lowering, each receiving
+task instantiates every snapshot into `:module-stores {m {sym value}}`
+in its own state, one instance per module: a store the task already
+holds stands as instantiated -- first link wins, and a later slice
+never overwrites a live instance -- and nothing is written into any
+task's ambient store. A receiver binding of the same name can neither
+supply nor shadow the module's value; while a closure carrying
+`:yin.k/store-of m` executes, the module store of `m` is its active
+store and the ambient store does not participate, the routing
+`yin.vm.linker.md` 7.3 states.
 
 ### 7.6.3 The migration unit is one task
 
