@@ -427,7 +427,12 @@
    ((get vm-constructors vm-type)
     {:primitives (merge (make-repl-primitives output-stream) extra-primitives)
      :modules (module/register-stream-module (module/default-registry))
-     :make-stream make-ring-stream})))
+     :make-stream make-ring-stream
+     ;; the task's capability secret (yin.vm.linker.md 7.3, r10): the REPL
+     ;; is the composition, so it mints one from its own random source,
+     ;; and a fresh one for every install child the task starts
+     :capability-secret (str (random-uuid))
+     :secret-source (fn [_origin] (str (random-uuid)))})))
 
 
 (defn- make-runner

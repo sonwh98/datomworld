@@ -96,19 +96,24 @@
           tail? (and (= :call op) (true? (nth instruction 4)))
           dest (if tail? nil (nth instruction 1))
           resume-mode (if tail? :return-result :write-result)
-          regs (mapv (fn [r] [r (nth (:registers runtime) r)]) live)]
-      {:segment (:segment runtime),
-       :site-pc site-pc,
-       :pc (inc site-pc),
-       :frames (:frames runtime),
-       :regs regs,
-       :live live,
-       :continuation (:continuation runtime),
-       :dest dest,
-       :resume-mode resume-mode,
-       :format format-tag,
-       :hash (:hash runtime),
-       :image (nth (image-row (:images runtime) (inc site-pc)) 0 nil)})))
+          regs (mapv (fn [r] [r (nth (:registers runtime) r)]) live)
+          images (:images runtime)]
+      (cond-> {:segment (:segment runtime),
+               :site-pc site-pc,
+               :pc (inc site-pc),
+               :frames (:frames runtime),
+               :regs regs,
+               :live live,
+               :continuation (:continuation runtime),
+               :dest dest,
+               :resume-mode resume-mode,
+               :format format-tag,
+               :hash (:hash runtime),
+               :image (nth (image-row images (inc site-pc)) 0 nil)}
+        ;; a code space grown by `attach-image` is a concatenation of
+        ;; images, each admitted alone: the table travels so each can be
+        ;; checked alone (`continuation-defect`)
+        (< 1 (count images)) (assoc :images images)))))
 
 
 ;; =============================================================================
@@ -201,6 +206,73 @@
                                :frame-index frame-idx})))))))))))
 
 
+(defn- unrelocate
+  "Shift every `:pc`-kind operand of `inst` back by `offset`."
+  [offset inst]
+  (reduce (fn [inst [i [_ kind]]]
+            (if (= :pc kind) (update inst (inc i) - offset) inst))
+          inst
+          (map-indexed vector (get rcode/opcode-table (nth inst 0)))))
+
+
+(defn- image-slice
+  "The image an offset-table row `[identity offset length]` names inside
+   the concatenated `segment`, relocated back to its own pc 0."
+  [{:keys [bodies instructions]} [_ off len]]
+  {:bodies (into []
+                 (comp (filter #(and (<= off (:start %))
+                                     (< (:start %) (+ off len))))
+                       (map #(-> %
+                                 (update :start - off)
+                                 (update :end - off))))
+                 bodies),
+   :instructions (mapv #(unrelocate off %)
+                       (subvec instructions off (+ off len)))})
+
+
+(defn- table-defect
+  "The first defect of offset table `images` as a description of a code
+   space of `n` instructions: every row is `[identity offset length]`,
+   the rows are in offset order, each starts where the one before it
+   ends (the first at 0), and together they cover all `n` instructions
+   -- no gap, no overlap, no instruction outside every row."
+  [n images]
+  (if-not (and (sequential? images)
+               (seq images)
+               (every? #(and (vector? %) (= 3 (count %))) images))
+    {:rule :image-table}
+    (loop [rows (seq images)
+           expected 0]
+      (if-let [[_ off len :as row] (first rows)]
+        (if (and (nonneg-int? off) (nonneg-int? len) (= expected off)
+                 (<= (+ off len) n))
+          (recur (next rows) (+ off len))
+          {:rule :image-row, :row row})
+        (when-not (= expected n)
+          {:rule :image-coverage, :covered expected, :length n})))))
+
+
+(defn- code-space-defect
+  "The first defect of a payload's code space: the one image it holds,
+   or, for a concatenation `attach-image` grew (the payload carries the
+   offset table), the table's exact coverage of the instructions and
+   each image alone, which must carry its row's identity -- a
+   zero-length row (the empty base image of a VM built with no code)
+   included."
+  [segment images]
+  (if (some? images)
+    (or (table-defect (count (:instructions segment)) images)
+        (when-let [d (rcode/register-image-defect segment)]
+          (when-not (= :terminator (:rule d)) d))
+        (some (fn [[ident _ len :as row]]
+                (let [image (image-slice segment row)]
+                  (or (when (pos? len) (rcode/register-image-defect image))
+                      (when-not (= ident (rcode/register-hash image))
+                        {:rule :image-row, :row row}))))
+              images))
+    (rcode/register-image-defect segment)))
+
+
 (defn continuation-defect
   "Return nil when `payload` is a valid sparse register continuation payload,
    or the first deterministic defect map.
@@ -210,7 +282,8 @@
     {:rule :continuation-shape}
     (or (when (not= format-tag (:format payload))
           {:rule :continuation-format})
-        (when-let [d (rcode/register-image-defect (:segment payload))]
+        (when-let [d (code-space-defect (:segment payload)
+                                        (:images payload))]
           (assoc d :rule :continuation-segment))
         (let [expected-h (rcode/register-hash (:segment payload))]
           (when (not= expected-h (:hash payload))
@@ -281,7 +354,7 @@
 ;; =============================================================================
 
 (def ^:private stale-keys
-  [:value :status :cursor :store-updates :stream
+  [:value :status :cursor :resource-updates :stream
    :datom :type :id :request-sent :op])
 
 
@@ -305,10 +378,10 @@
                   :ffi-reader stale-keys
                   :stream-reader stale-keys
                   :stream-writer
-                  [:value :status :cursor :store-updates :stream
+                  [:value :status :cursor :resource-updates :stream
                    :type :id :request-sent :op]
                   :ffi-writer
-                  [:value :status :cursor :store-updates :stream
+                  [:value :status :cursor :resource-updates :stream
                    :type :id])
                 present-stale (filterv #(contains? entry %) prohibited-stale)]
             (or (when (seq present-stale)

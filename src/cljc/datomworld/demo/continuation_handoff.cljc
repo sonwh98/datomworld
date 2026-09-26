@@ -123,28 +123,30 @@
 
 
 (defn- composition-key?
-  "Store keys the receiving composition supplies for itself: the FFI pair."
+  "Resource ids the receiving composition supplies for itself: the FFI
+   pair and the link pair."
   [k]
   (contains? #{vm/call-in-stream-key vm/call-out-stream-key
-               vm/call-out-cursor-key}
+               vm/call-out-cursor-key :yin.link/request :yin.link/response}
              k))
 
 
 (defn resource-keys
-  "Store keys holding live resources the registers cannot carry: anything
-   that is neither a definition (a symbol) nor the composition's FFI pair.
-   These are stream handles made by `:stream-make`; a `{:type :stream-ref}`
-   in the registers names one, and on the receiver it would name nothing."
+  "Resource ids holding live resources the registers cannot carry: every
+   entry of the VM's private `:resources` table but the composition's own
+   pairs. These are stream handles and cursor cells the program made; a
+   `{:type :stream-ref}` in the registers names one, and on the receiver
+   it would name nothing -- its seal is the sender's."
   [vm-state]
   (into []
-        (remove #(or (symbol? %) (composition-key? %)))
-        (keys (:store vm-state))))
+        (remove composition-key?)
+        (keys (:resources vm-state))))
 
 
 (defn shippable?
   "True when a semantic VM is between instructions with nothing outside its
    registers: no wait set, ready queue, or parked continuation, and no stream
-   handle in its store."
+   handle or cursor cell in its resources."
   [vm-state]
   (boolean (and vm-state
                 (:control vm-state)

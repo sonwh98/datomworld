@@ -27,7 +27,8 @@
 
 (defn- state
   ([] (state {}))
-  ([opts] (vm/empty-state (merge {:make-stream tu/make-stream} opts))))
+  ([opts] (vm/empty-state (merge {:make-stream tu/make-stream,
+                                  :capability-secret tu/secret} opts))))
 
 
 ;; =============================================================================
@@ -35,10 +36,14 @@
 ;; =============================================================================
 
 (deftest stream-make-uses-the-supplied-constructor-test
-  (testing "handle-make calls :make-stream and stores the handle"
+  (testing "handle-make calls :make-stream and holds the handle in the
+            private resources table, answering a sealed reference"
     (let [[ref s'] (engine/handle-make (state) {:capacity 4} :stream-0)]
-      (is (= {:type :stream-ref, :id :stream-0} ref))
-      (is (stream/writer? (get (:store s') :stream-0)))))
+      (is (= {:type :stream-ref, :id :stream-0} (dissoc ref :seal)))
+      (is (string? (:seal ref)))
+      (is (stream/writer? (get (:resources s') :stream-0)))
+      (is (not (contains? (:store s') :stream-0))
+          "no store instruction can reach the handle")))
   (testing "A nil capacity takes the VM default, so both paths agree"
     (let [seen (atom nil)
           make (fn [c] (reset! seen c) (tu/make-stream c))
@@ -47,9 +52,21 @@
                                     :stream-0)]
       (is (= vm/default-stream-capacity @seen))))
   (testing "Without :make-stream the effect is unsupported and says so"
-    (let [bare (vm/empty-state {})]
+    (let [bare (vm/empty-state {:capability-secret tu/secret})]
       (is (nil? (:make-stream bare)))
-      (is (throws? (fn [] (engine/handle-make bare {:capacity 4} :stream-0)))))))
+      (is (throws? (fn [] (engine/handle-make bare {:capacity 4} :stream-0))))))
+  (testing "Without a capability secret no reference is issued and no
+            stream is created"
+    (let [made (atom 0)
+          make (fn [c] (swap! made inc) (tu/make-stream c))
+          secretless (vm/empty-state {:make-stream make})
+          ;; construction made the FFI pair
+          before @made]
+      (is (= :no-capability-secret
+             (:reason (throws-ex-data
+                        #(engine/handle-make secretless {:capacity 4}
+                                             :stream-0)))))
+      (is (= before @made)))))
 
 
 ;; =============================================================================
@@ -58,13 +75,11 @@
 
 (deftest cursor-entries-carry-an-opaque-cursor-test
   (testing "handle-cursor mints against the stream rather than fabricating"
-    (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
-          [ref s1] (engine/handle-cursor s0
-                                         {:stream {:type :stream-ref,
-                                                   :id :stream-0}}
-                                         :cursor-0)
-          entry (get (:store s1) :cursor-0)]
-      (is (= {:type :cursor-ref, :id :cursor-0} ref))
+    (let [[sref s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+          [ref s1] (engine/handle-cursor s0 {:stream sref} :cursor-0)
+          entry (get (:resources s1) :cursor-0)]
+      (is (= {:type :cursor-ref, :id :cursor-0} (dissoc ref :seal)))
+      (is (string? (:seal ref)))
       (is (= :stream-0 (:stream-id entry)))
       (is (contains? entry :cursor))
       (is (not (contains? entry :position))
@@ -81,31 +96,24 @@
                        [_ _]
                        {:dao.stream/outcome
                         :dao.stream/transport-error}))
-          s0 (assoc-in (state) [:store :stream-0] refusing)]
+          [sref s0] (engine/attach-resource (state) refusing)]
       (is (throws? (fn []
-                     (engine/handle-cursor s0
-                                           {:stream {:type :stream-ref,
-                                                     :id :stream-0}}
-                                           :cursor-0)))))))
+                     (engine/handle-cursor s0 {:stream sref} :cursor-0)))))))
 
 
 (deftest next-advances-to-the-returned-successor-test
-  (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
-        [_ s1] (engine/handle-cursor s0
-                                     {:stream {:type :stream-ref,
-                                               :id :stream-0}}
-                                     :cursor-0)
-        cursor-ref {:type :cursor-ref, :id :cursor-0}
-        handle (get (:store s1) :stream-0)]
+  (let [[sref s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+        [cursor-ref s1] (engine/handle-cursor s0 {:stream sref} :cursor-0)
+        handle (get (:resources s1) :stream-0)]
     (testing "An empty open stream parks the reader"
       (let [r (engine/handle-next s1 {:cursor cursor-ref})]
         (is (true? (:park r)))
         (is (= :stream-0 (:stream-id r)))))
     (stream/append! handle :a)
-    (testing "A value advances the stored cursor to the exact successor"
-      (let [before (get-in s1 [:store :cursor-0 :cursor])
+    (testing "A value advances the cursor cell to the exact successor"
+      (let [before (get-in s1 [:resources :cursor-0 :cursor])
             r (engine/handle-next s1 {:cursor cursor-ref})
-            after (get-in r [:state :store :cursor-0 :cursor])]
+            after (get-in r [:state :resources :cursor-0 :cursor])]
         (is (= :a (:value r)))
         (is (not= before after))))
     (testing "A closed and drained stream ends with nil, as v1 did"
@@ -117,18 +125,14 @@
 
 (deftest gap-is-a-value-the-program-sees-test
   (testing "Eviction surfaces as :dao.stream/gap at the reader's cursor"
-    (let [[_ s0] (engine/handle-make (state) {:capacity 2} :stream-0)
-          [_ s1] (engine/handle-cursor s0
-                                       {:stream {:type :stream-ref,
-                                                 :id :stream-0}}
-                                       :cursor-0)
-          handle (get (:store s1) :stream-0)
-          cursor-ref {:type :cursor-ref, :id :cursor-0}]
+    (let [[sref s0] (engine/handle-make (state) {:capacity 2} :stream-0)
+          [cursor-ref s1] (engine/handle-cursor s0 {:stream sref} :cursor-0)
+          handle (get (:resources s1) :stream-0)]
       (dotimes [n 5] (stream/append! handle n))
       (let [r (engine/handle-next s1 {:cursor cursor-ref})]
         (is (= :dao.stream/gap (:value r)))
-        (is (not= (get-in s1 [:store :cursor-0 :cursor])
-                  (get-in r [:state :store :cursor-0 :cursor]))
+        (is (not= (get-in s1 [:resources :cursor-0 :cursor])
+                  (get-in r [:state :resources :cursor-0 :cursor]))
             "A gap advances to the recovery cursor")))))
 
 
@@ -137,21 +141,18 @@
 ;; =============================================================================
 
 (deftest put-is-total-over-append-outcomes-test
-  (let [[_ s0] (engine/handle-make (state) {:capacity 2} :stream-0)
-        effect {:effect :stream/put,
-                :stream {:type :stream-ref, :id :stream-0},
-                :val 1}]
+  (let [[sref s0] (engine/handle-make (state) {:capacity 2} :stream-0)
+        effect {:effect :stream/put, :stream sref, :val 1}]
     (testing "ok returns the appended value"
       (is (= 1 (:value (engine/handle-put s0 effect)))))
     (testing "closed is an error naming its outcome, as v1's throw was"
-      (stream/close! (get (:store s0) :stream-0))
+      (stream/close! (get (:resources s0) :stream-0))
       (is (throws? (fn [] (engine/handle-put s0 effect)))))
-    (testing "An unknown stream reference is an error"
-      (is (throws? (fn []
-                     (engine/handle-put s0
-                                        (assoc effect
-                                               :stream {:type :stream-ref,
-                                                        :id :nope}))))))))
+    (testing "An unknown stream reference is refused as forged"
+      (let [forged (assoc effect :stream {:type :stream-ref, :id :nope})]
+        (is (= :forged-resource-reference
+               (:reason (throws-ex-data
+                          #(engine/handle-put s0 forged)))))))))
 
 
 ;; =============================================================================
@@ -255,13 +256,12 @@
 
 (deftest wait-set-is-resolved-from-the-store-test
   (testing "A parked reader is woken by polling, and its cursor advances"
-    (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+    (let [[sref s0] (engine/handle-make (state) {:capacity 4} :stream-0)
           [_ s1] (engine/handle-cursor s0
-                                       {:stream {:type :stream-ref,
-                                                 :id :stream-0}}
+                                       {:stream sref}
                                        :cursor-0)
-          handle (get (:store s1) :stream-0)
-          before (get-in s1 [:store :cursor-0 :cursor])
+          handle (get (:resources s1) :stream-0)
+          before (get-in s1 [:resources :cursor-0 :cursor])
           parked (assoc s1
                         :blocked? true
                         :wait-set [{:reason :next,
@@ -276,7 +276,7 @@
         (is (= :v (:value entry)))
         (is (= {:cursor-0 {:stream-id :stream-0,
                            :cursor (:cursor entry)}}
-               (:store-updates entry)))
+               (:resource-updates entry)))
         (is (not= before (:cursor entry)))))))
 
 
@@ -291,12 +291,11 @@
 
 (deftest waiters-sharing-a-cursor-read-distinct-values-test
   (testing "Each waiter polls from its predecessor's successor"
-    (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+    (let [[sref s0] (engine/handle-make (state) {:capacity 4} :stream-0)
           [_ s1] (engine/handle-cursor s0
-                                       {:stream {:type :stream-ref,
-                                                 :id :stream-0}}
+                                       {:stream sref}
                                        :cursor-0)
-          handle (get (:store s1) :stream-0)]
+          handle (get (:resources s1) :stream-0)]
       (stream/append! handle :a)
       (stream/append! handle :b)
       (let [parked (assoc s1
@@ -310,18 +309,18 @@
         (is (not= (:cursor (first tasks)) (:cursor (second tasks)))
             "The second waiter holds its own successor")
         (is (= (:cursor (second tasks))
-               (get-in (:store-updates (second tasks)) [:cursor-0 :cursor])))))))
+               (get-in (:resource-updates (second tasks))
+                       [:cursor-0 :cursor])))))))
 
 
 (deftest retained-waiter-re-resolves-its-cursor-test
   (testing "A waiter that stayed parked polls from the cursor another waiter
             advanced, not from the value that waiter consumed"
-    (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+    (let [[sref s0] (engine/handle-make (state) {:capacity 4} :stream-0)
           [_ s1] (engine/handle-cursor s0
-                                       {:stream {:type :stream-ref,
-                                                 :id :stream-0}}
+                                       {:stream sref}
                                        :cursor-0)
-          handle (get (:store s1) :stream-0)
+          handle (get (:resources s1) :stream-0)
           parked (assoc s1
                         :blocked? true
                         :wait-set [(cursor-waiter :k1) (cursor-waiter :k2)])
@@ -399,11 +398,11 @@
 
 
 (deftest scheduler-round-test
-  (let [[_ s0] (engine/handle-make (state) {:capacity 4} :stream-0)
+  (let [[sref s0] (engine/handle-make (state) {:capacity 4} :stream-0)
         [_ s1] (engine/handle-cursor s0
-                                     {:stream {:type :stream-ref, :id :stream-0}}
+                                     {:stream sref}
                                      :cursor-0)
-        handle (get (:store s1) :stream-0)
+        handle (get (:resources s1) :stream-0)
         parked (assoc s1 :blocked? true :wait-set [(cursor-waiter :k1)])
         restore-fn (fn [base entry val]
                      (assoc base :restored [(:k entry) val]))]
@@ -430,7 +429,7 @@
                  :hash "h", :k {:type :frame}, :env {'x 1}}
         writer (assoc payload
                       :value 42, :status :woken, :cursor :c-1,
-                      :store-updates {:k 1}, :stream :s-1, :datom {:req 1},
+                      :resource-updates {:k 1}, :stream :s-1, :datom {:req 1},
                       :type :wait, :id :w-1, :request-sent true, :op :op/echo,
                       :call-id :parked-0, :reason :put,
                       :stream-id vm/call-in-stream-key)
@@ -441,7 +440,7 @@
       (is (not (contains? entry :value)))
       (is (not (contains? entry :status)))
       (is (not (contains? entry :cursor)))
-      (is (not (contains? entry :store-updates)))
+      (is (not (contains? entry :resource-updates)))
       (is (not (contains? entry :stream)))
       (is (not (contains? entry :datom)))
       (is (not (contains? entry :type)))
@@ -590,12 +589,11 @@
                     (engine/resume-from-run-queue v (fn [base _entry _val] base)))]
     (testing "A blocked exit emits :blocked exactly once"
       (let [sink (tu/new-memory-log)
-            [_ s0] (engine/handle-make (state {:telemetry {:stream sink}})
-                                       {:capacity 4}
-                                       :stream-0)
+            [sref s0] (engine/handle-make (state {:telemetry {:stream sink}})
+                                          {:capacity 4}
+                                          :stream-0)
             [_ s1] (engine/handle-cursor s0
-                                         {:stream {:type :stream-ref,
-                                                   :id :stream-0}}
+                                         {:stream sref}
                                          :cursor-0)
             parked (assoc s1
                           :blocked? true

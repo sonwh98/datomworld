@@ -64,6 +64,18 @@
    vm-id          ; telemetry instance id, minted by telemetry/install
    rows           ; {row-id row}: every row loaded or attached, grow-only
    row-index      ; {[body-node params] lambda-row-id} over `rows`
+   row-nodes      ; {row-id node}: each held row decoded once
+   resources      ; private engine resources: the link pair
+   origin         ; this task's origin tag for link ids
+   origins        ; counter for the origin tags of install children
+   ancestry       ; the modules installing on this task's install chain
+   installs       ; {module-name install}: the install children
+   module-stores  ; {manifest-address store}: linked modules' stores
+   link-retired   ; {link-id :restored | :abandoned}
+   link-diagnostics ; skipped link responses not yet taken
+   capability-secret ; this task's secret; every reference is sealed by it
+   secret-source  ; the composition's minting of child task secrets
+   attach-stream  ; the composition's attacher for lowered streams
    ])
 
 
@@ -72,7 +84,11 @@
    Preserves blocked, store, and scheduler fields from vm.
    Derives :halted? from the new CESK state."
   [^ASTWalkerVM vm control env k val]
-  (let [blocked (:blocked? vm)]
+  (let [blocked (:blocked? vm)
+        ;; a halt leaves no module store context (yin.vm.linker.md 7.3)
+        env (if (and (nil? control) (nil? k))
+              (engine/without-store-of env)
+              env)]
     (->ASTWalkerVM blocked
                    (:bridge vm)
                    (and (not blocked) (nil? control) (nil? k))
@@ -99,7 +115,19 @@
                    (:vm-model vm)
                    (:vm-id vm)
                    (:rows vm)
-                   (:row-index vm))))
+                   (:row-index vm)
+                   (:row-nodes vm)
+                   (:resources vm)
+                   (:origin vm)
+                   (:origins vm)
+                   (:ancestry vm)
+                   (:installs vm)
+                   (:module-stores vm)
+                   (:link-retired vm)
+                   (:link-diagnostics vm)
+                   (:capability-secret vm)
+                   (:secret-source vm)
+                   (:attach-stream vm))))
 
 
 (defn- closure-of
@@ -142,7 +170,9 @@
                                               :env env,
                                               :reason :next,
                                               :cursor-ref (:cursor-ref r),
-                                              :stream-id (:stream-id r)})}})]
+                                              :stream-id (:stream-id r)}),
+                              :module/require (fn [_s _e _r]
+                                                {:k k, :env env})}})]
       (if blocked?
         (assoc state
                :control nil
@@ -165,7 +195,7 @@
    succeeded. `closed`, `invalid-value` and `transport-error` fail the call
    here and name their outcome."
   [state op args k env]
-  (let [{:keys [call-in]} (ffi/require-call-pair! (:store state) op)
+  (let [{:keys [call-in]} (ffi/require-call-pair! (:resources state) op)
         response-cont {:type :dao.stream.apply/eval-call, :next k, :env env}
         parked (engine/park-continuation state {:k response-cont, :env env})
         parked-id (get-in parked [:value :id])
@@ -230,7 +260,7 @@
    Each return path produces exactly one ASTWalkerVM allocation via
    cesk-return."
   [state ast]
-  (let [{:keys [control env k store primitives modules]} state
+  (let [{:keys [control env k primitives modules]} state
         {:keys [type], :as node} (or ast control)]
     (if (and (nil? node) k)
       (let [cont-type (:type k)]
@@ -390,8 +420,10 @@
           ;; been evaluated, and its literal key is written. The operator
           ;; was never resolved (Rule R).
           (let [v (:value state)
-                state (assoc state :store (engine/store-put store (:name k) v))]
-            (cesk-return state nil (or (:env k) env) (:next k) v))
+                env (or (:env k) env)
+                state (engine/put-active state (engine/env-store-of env)
+                                         (:name k) v)]
+            (cesk-return state nil env (:next k) v))
           :eval-resume-val
           (let [resume-val (:value state)
                 parked-id (:parked-id k)]
@@ -406,7 +438,10 @@
       (case type
         :literal (cesk-return state nil env k (:value node))
         :variable
-        (let [value (engine/resolve-var env store primitives modules (:name node))]
+        (let [value (engine/resolve-var env
+                                        (engine/active-store
+                                          state (engine/env-store-of env))
+                                        primitives modules (:name node))]
           (cesk-return state nil env k value))
         :lambda (let [{:keys [params body]} node]
                   (check-params! params)
@@ -453,34 +488,32 @@
                          (:value state))))
         :vm/gensym (let [prefix (or (:prefix node) "id")
                          [id s'] (engine/gensym state prefix)]
-                     (assoc s'
-                            :value id
-                            :control nil
-                            :halted? (nil? k)))
+                     (cesk-return s' nil env k id))
+        ;; A module closure's store nodes route to its module store, with
+        ;; no ambient fallback (yin.vm.linker.md section 7.3, r7).
         :vm/store-get (do (engine/check-store-key! (:key node))
-                          (cesk-return state nil env k (get store (:key node))))
+                          (cesk-return state nil env k
+                                       (get (engine/active-store
+                                              state
+                                              (engine/env-store-of env))
+                                            (:key node))))
         :vm/store-put (let [key (:key node)
-                            value (:val node)
-                            new-store (engine/store-put store key value)]
-                        (assoc state
-                               :store new-store
-                               :value value
-                               :control nil
-                               :halted? (and (not (:blocked? state)) (nil? k))))
+                            value (:val node)]
+                        (cesk-return (engine/put-active
+                                       state (engine/env-store-of env)
+                                       key value)
+                                     nil env k value))
         :vm/store-update (let [key (:key node)
                                f (:fn node)
                                args (:args node)
+                               store-of (engine/env-store-of env)
                                _ (engine/check-store-key! key)
-                               current (get store key)
-                               new-value (apply f current args)
-                               new-store (engine/store-put store key
-                                                           new-value)]
-                           (assoc state
-                                  :store new-store
-                                  :value new-value
-                                  :control nil
-                                  :halted? (and (not (:blocked? state))
-                                                (nil? k))))
+                               current (get (engine/active-store state store-of)
+                                            key)
+                               new-value (apply f current args)]
+                           (cesk-return (engine/put-active state store-of key
+                                                           new-value)
+                                        nil env k new-value))
         :vm/current-continuation
         (cesk-return state
                      nil
@@ -671,7 +704,10 @@
         node (case type
                :literal (recur nil env k (:value node) vm)
                :variable (let [v (engine/resolve-var env
-                                                     (:store vm)
+                                                     (engine/active-store
+                                                       vm
+                                                       (engine/env-store-of
+                                                         env))
                                                      (:primitives vm)
                                                      (:modules vm)
                                                      (:name node))]
@@ -786,15 +822,16 @@
            :value nil)))
 
 
-(defn- row-decoder
-  "A decoder over validated `rows`, row id -> node, rebuilding each row
-   once and sharing it as `vm/semantic-bytecode->ast` does, and
-   annotating every `:lambda` node with its source row id in metadata
-   (yin.vm.linker.md section 7.3, the walker rule). Metadata leaves node
-   equality alone, so the tree equals the one `semantic-bytecode->ast`
-   builds."
-  [rows]
-  (let [built (atom {})]
+(defn- decode-rows
+  "Decode every row of validated `rows` into a node, extending `nodes`
+   (`{row-id node}`, the nodes already held): each row is rebuilt once
+   and shared as `vm/semantic-bytecode->ast` does, a row already held is
+   reused as it stands, and every `:lambda` node is annotated with its
+   source row id in metadata (yin.vm.linker.md section 7.3, the walker
+   rule). Metadata leaves node equality alone, so a tree equals the one
+   `semantic-bytecode->ast` builds."
+  [rows nodes]
+  (let [built (atom (or nodes {}))]
     (letfn [(build
               [id]
               (or (get @built id)
@@ -817,20 +854,25 @@
                                node)]
                     (swap! built assoc id node)
                     node)))]
-      build)))
+      (doseq [id (keys rows)] (build id))
+      @built)))
 
 
 (defn- hold-rows
-  "Add `rows` to the rows `vm` holds and index each `:lambda` row among
-   them by `[body-node params]`."
+  "Add `rows` to the rows `vm` holds, decode each once into the held
+   `:row-nodes`, and index each `:lambda` row among them by
+   `[body-node params]`. The decode is held on the VM as data, so a
+   lift's `row-node` reads it rather than rebuilding a subtree."
   [vm rows]
-  (let [decode (row-decoder rows)]
+  (let [nodes (decode-rows rows (:row-nodes vm))]
     (assoc vm
            :rows (merge (:rows vm) rows)
+           :row-nodes nodes
            :row-index (reduce-kv (fn [index id row]
                                    (if (= :lambda (nth row 1))
                                      (assoc index
-                                            [(decode (nth row 3)) (nth row 2)]
+                                            [(get nodes (nth row 3))
+                                             (nth row 2)]
                                             id)
                                      index))
                                  (or (:row-index vm) {})
@@ -854,8 +896,9 @@
   [^ASTWalkerVM vm bc contract]
   (vm/check-contract! vm/ast-contract contract)
   (vm/semantic-bytecode->ast bc)
-  (let [ast ((row-decoder (:rows bc)) (:root bc))]
-    (assoc (hold-rows vm (:rows bc))
+  (let [held (hold-rows vm (:rows bc))
+        ast (get (:row-nodes held) (:root bc))]
+    (assoc held
            :program ast
            :control ast
            :halted? false
@@ -877,11 +920,11 @@
 
 
 (defn row-node
-  "The node the walker's row decoder builds for held row `id`, or nil when
-   no such row is held. A lower reconstructs a closure's body this way."
+  "The node the walker's row decoder built for held row `id`, or nil when
+   no such row is held. A lower reconstructs a closure's body this way.
+   The decode ran once, when the row was loaded or attached."
   [vm id]
-  (when (contains? (:rows vm) id)
-    ((row-decoder (:rows vm)) id)))
+  (get (:row-nodes vm) id))
 
 
 (defn closure-row
@@ -1003,7 +1046,10 @@
                                     [:primitives :primitive-profiles
                                      :primitive-canonical-names :modules
                                      :make-stream :call-in :call-out
-                                     :call-capacity])
+                                     :call-capacity :link-request
+                                     :link-response :origin :ancestry
+                                     :capability-secret :secret-source
+                                     :attach-stream])
                        :telemetry (:telemetry opts)
                        :vm-model :ast-walker))]
      (-> (map->ASTWalkerVM (merge base
@@ -1018,3 +1064,82 @@
          (telemetry/install :ast-walker)
          (ffi/attach (:bridge opts))
          (telemetry/emit-snapshot :init)))))
+
+
+;; =============================================================================
+;; Module kernel (yin.vm.linker.md section 7.3)
+;; =============================================================================
+;; A walker closure lifts from its `:lambda` row by the walker rule
+;; (`closure-row`) and lowers to the body the receiving decoder built for
+;; that row's body slot, present after act 3 attached the rows. The
+;; module store context rides in the environment, as for the semantic VM.
+
+(defn- binding-mismatch!
+  [marker]
+  (throw (ex-info "Closure marker of another binding discipline or format"
+                  {:reason :binding-mismatch,
+                   :binding (:yin.k/binding marker),
+                   :format (:yin.k/format marker),
+                   :expected-format :yin.ast/code})))
+
+
+(extend-type ASTWalkerVM
+  module/IModuleKernel
+  (link-format [_] {:format :yin.ast/code, :contract vm/ast-contract})
+  (spawn-module
+    [vm image {:keys [modules origin ancestry capability-secret]}]
+    (vm-load-rows (create-vm
+                    {:primitives (:primitives vm),
+                     :primitive-profiles (:primitive-profiles vm),
+                     :primitive-canonical-names
+                     (:primitive-canonical-names vm),
+                     :modules modules,
+                     :make-stream (:make-stream vm),
+                     :link-request (get (:resources vm)
+                                        module/link-request-resource),
+                     :link-response (get (:resources vm)
+                                         module/link-response-resource),
+                     :origin origin,
+                     :ancestry ancestry,
+                     :capability-secret capability-secret,
+                     :secret-source (:secret-source vm),
+                     :attach-stream (:attach-stream vm)})
+                  image
+                  vm/ast-contract))
+  (image-identity [_ image] (:root image))
+  (image-holds? [_ image segment] (contains? (:rows image) segment))
+  (attach-module [vm image] (attach-image vm image vm/ast-contract))
+  (lift-closure [vm closure encode]
+    (let [id (closure-row vm closure)
+          env (:env closure)
+          store-of (engine/env-store-of env)]
+      (when (map? id)
+        (throw (ex-info "Walker closure has no source row" id)))
+      (cond-> {:yin.k/tag :yin.k/closure,
+               :yin.k/binding :named,
+               :yin.k/format :yin.ast/code,
+               :yin.k/segment id,
+               :yin.k/entry nil,
+               :yin.k/params (:params closure),
+               :yin.k/env (into {}
+                                (map (fn [[k x]] [k (encode x)]))
+                                (engine/without-store-of env))}
+        store-of (assoc :yin.k/store-of store-of))))
+  (lower-closure [vm marker decode]
+    (when-not (and (= :named (:yin.k/binding marker))
+                   (= :yin.ast/code (:yin.k/format marker)))
+      (binding-mismatch! marker))
+    (let [id (:yin.k/segment marker)
+          row (get (:rows vm) id)
+          store-of (:yin.k/store-of marker)]
+      (when-not (and row (= :lambda (nth row 1)))
+        (throw (ex-info "Closure origin image is not attached"
+                        {:reason :origin-not-attached, :segment id})))
+      {:type :closure,
+       :params (:yin.k/params marker),
+       :body (row-node vm (nth row 3)),
+       :env (cond-> (into {}
+                          (map (fn [[k x]] [k (decode x)]))
+                          (:yin.k/env marker))
+              store-of (assoc engine/store-of-key store-of)),
+       :lambda id})))

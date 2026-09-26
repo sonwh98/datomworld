@@ -119,7 +119,8 @@
 (defn reserved-name-defect
   "The data of a Rule R refusal: `role` names where the reserved name
    appeared (`:variable`, `:binder`, `:store-key`, `:definition-key`,
-   `:definition-shape`, `:primitive`, `:env`, `:store`, `:macro`)."
+   `:definition-shape`, `:primitive`, `:env`, `:store`, `:macro`,
+   `:registry`)."
   [role name]
   {:rule :reserved-name, :name name, :role role})
 
@@ -1866,6 +1867,45 @@
        dangling (assoc :error dangling)))))
 
 
+(defn- registry-reserved-name
+  "The reserved name a module registry value binds, or nil. A registry
+   binds a name when a module entry's `:slice` or `:bindings` holds it as
+   a key, or when the name's dotted path (`yin.def` for `yin/def`, the
+   path `resolve-var`'s module step walks) reaches a binding. Namespace
+   segments are plain maps; a map carrying `:manifest` is a module entry."
+  [registry]
+  (letfn [(entries
+            [node]
+            (when (map? node)
+              (if (contains? node :manifest)
+                [node]
+                (mapcat entries (vals node)))))
+          (exports
+            [entry]
+            (concat (keys (:slice entry)) (keys (:bindings entry))))
+          (reaches?
+            [node path]
+            (cond (empty? path) (some? node)
+                  (not (map? node)) false
+                  (contains? node :manifest)
+                  (or (contains? (:slice node) (first path))
+                      (contains? (:bindings node) (first path)))
+                  :else (reaches? (get node (first path)) (rest path))))]
+    (let [modules (:modules registry)]
+      (or (some (fn [entry]
+                  (some #(when (reserved-name? %) %) (exports entry)))
+                (entries modules))
+          (some (fn [n]
+                  (when (and (namespace n)
+                             (reaches? modules
+                                       (map symbol
+                                            (re-seq #"[^.]+"
+                                                    (str (namespace n) "."
+                                                         (name n))))))
+                    n))
+                reserved-names)))))
+
+
 (defn empty-state
   "Return an initial immutable VM state map.
 
@@ -1882,12 +1922,30 @@
      :telemetry    telemetry config {:stream <dao.stream writer> :vm-id <id>};
                    validated by telemetry/install, which both create-vms call
                    after this
+     :link-request  the link request writer (yin.vm.linker.md section 6.1)
+     :link-response the link response reader; with the writer, the link
+                    pair `require` lowers to. Both are held in the private
+                    `:resources` table no store instruction reads.
+     :origin       this task's origin tag for link ids (default `:t0`)
+     :ancestry     the modules being installed on this task's install
+                   chain (section 7.4), empty for a root task
+     :capability-secret this task's capability secret (yin.vm.linker.md
+                   section 7.3, r10), minted by the composition from its
+                   own random source. Every resource reference the engine
+                   issues is sealed under it; a task composed without one
+                   issues none, and every stream effect over a supplied
+                   reference fails closed.
+     :secret-source (fn [origin] -> secret): the composition's minting of
+                   an install child's secret; without it a child has none
+     :attach-stream (fn [descriptor] -> attach outcome): how a lowered
+                   stream reference (r9) attaches to its stream
 
-   The FFI pair comes from explicitly supplied `:call-in`/`:call-out` first —
+   The FFI pair comes from explicitly supplied `:call-in`/`:call-out` first --
    matching v1's precedence, so a composition handing over streams directly is
-   never silently overridden — else from `:make-stream`, else the store holds
-   no pair at all. A VM with no pair is coherent: it still operates streams the
-   composition handed it. What it cannot do is make a
+   never silently overridden -- else from `:make-stream`, else the VM holds
+   no pair at all. The pair lives in the private `:resources` table, never in
+   the store (r8). A VM with no pair is coherent: it still operates streams
+   the composition handed it. What it cannot do is make a
    `:dao.stream.apply/call`.
 
    A registry binding a reserved name (Rule R) is refused.
@@ -1901,6 +1959,8 @@
                                                (or (:primitives opts)
                                                    primitives))
          _ (check-bindings! :primitive (:primitive-profiles opts))
+         _ (when-let [n (registry-reserved-name (:modules opts))]
+             (refuse-reserved! :registry n))
          installed-profiles (or (:primitive-profiles opts)
                                 (into {} (keep (fn [[name _]]
                                                  (when-let [profile
@@ -1970,7 +2030,17 @@
                  (catch #?(:cljd Object :clj Throwable :cljs :default) e
                    (doseq [h @created] (close-quietly h))
                    (throw e)))))]
-       {:store (or pair-store {}),
+       {:store {},
+        :resources (cond-> (or pair-store {})
+                     (:link-request opts)
+                     (assoc :yin.link/request (:link-request opts))
+                     (:link-response opts)
+                     (assoc :yin.link/response (:link-response opts))),
+        :origin (or (:origin opts) :t0),
+        :ancestry (vec (:ancestry opts)),
+        :capability-secret (:capability-secret opts),
+        :secret-source (:secret-source opts),
+        :attach-stream (:attach-stream opts),
         :parked {},
         :id-counter 0,
         :ready-queue [],

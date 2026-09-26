@@ -65,7 +65,8 @@
 
 (defn- new-vm
   ([] (new-vm {}))
-  ([opts] (semantic/create-vm (merge {:make-stream tu/make-stream} opts))))
+  ([opts] (semantic/create-vm (merge {:make-stream tu/make-stream,
+                                      :capability-secret tu/secret} opts))))
 
 
 (def ^:private maker-uses
@@ -235,8 +236,11 @@
            (get-in both [:yin.k/requires :yin.k/streams])))
     (testing "the slice is pulled, never copied"
       (let [stream-id (first (get-in a [:yin.k/requires :yin.k/streams]))]
-        (is (= #{'a 'mk 'fact stream-id} (set (keys (:yin.k/store a)))))
-        (is (= #{'b 'mk 'fact} (set (keys (:yin.k/store b)))))))
+        (is (= #{'a 'mk 'fact} (set (keys (:yin.k/store a)))))
+        (is (= #{stream-id} (set (keys (:yin.k/resources a))))
+            "the stream is pulled beside the store slice, never inside it")
+        (is (= #{'b 'mk 'fact} (set (keys (:yin.k/store b)))))
+        (is (empty? (:yin.k/resources b)))))
     (is (= :complete (get-in both [:yin.k/requires :yin.k/discovery])))))
 
 
@@ -431,8 +435,10 @@
     (is (vm/blocked? machine))
     (is (= 1 (count (:yin.k/streams requires))))
     (is (= #{:ringbuffer} (:yin.k/cursor-profiles requires)))
-    (is (= 2 (count (:yin.k/store result))) "the cursor entry and its stream")
-    (is (not-any? completion/ffi-pair-keys (keys (:yin.k/store result))))
+    (is (= 2 (count (:yin.k/resources result)))
+        "the cursor entry and its stream, beside the store slice")
+    (is (empty? (:yin.k/store result)))
+    (is (not-any? completion/ffi-pair-keys (keys (:yin.k/resources result))))
     (is (= #{#{} #{[:stream (first (:yin.k/streams requires))]}}
            (set (map second (::completion/work-items result))))
         "the entry's frame captures the stream; its K frame captures nothing")

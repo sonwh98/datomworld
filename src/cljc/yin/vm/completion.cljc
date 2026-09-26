@@ -33,7 +33,7 @@
 ;; =============================================================================
 
 (def ffi-pair-keys
-  "The FFI pair's store keys (UCF §7.5.4 / §7.6.2): never part of a store
+  "The FFI pair's resource ids (UCF 7.5.4 and 7.6.2): never part of a
    slice — the pair is a receiver capability, named by `:yin.k/ffi-ops`."
   #{vm/call-in-stream-key vm/call-out-stream-key vm/call-out-cursor-key})
 
@@ -372,17 +372,23 @@
 
 
 (defn- pull-store
-  "§7.1: pull store key `k` when the store holds it; the pulled value is
-   abstracted and folded at once. The `:store-slice` key set is the memo
-   that closes cycles through the store. An FFI pair key is never pulled."
+  "Section 7.1: pull store key `k` when the store holds it, or resource
+   id `k` when the VM's private `:resources` table does; the pulled value
+   is abstracted and folded at once. A stream handle or cursor cell lands in
+   `:resource-slice`, beside the program store slice and never inside it
+   (yin.vm.linker.md section 7.3, r8). The two slices' key sets are the
+   memo that closes cycles. An FFI pair id is never pulled."
   [state env k]
-  (let [store (:store (:vm env))]
-    (if (or (contains? (:store-slice state) k)
-            (contains? ffi-pair-keys k)
-            (not (contains? store k)))
+  (let [{:keys [store resources]} (:vm env)
+        [slice source] (cond (contains? store k) [:store-slice store]
+                             (contains? resources k) [:resource-slice
+                                                      resources])]
+    (if (or (nil? slice)
+            (contains? (get state slice) k)
+            (contains? ffi-pair-keys k))
       state
-      (let [v (get store k)
-            state (assoc-in state [:store-slice k] v)
+      (let [v (get source k)
+            state (assoc-in state [slice k] v)
             ;; a cursor-entry `{:stream-id id :cursor <opaque>}` pulls its
             ;; stream and names its transport profile (§7.1 rule 4, §9)
             state (if (and (map? v) (contains? v :stream-id)
@@ -557,6 +563,7 @@
             :primitives #{}},
    :obligations {},
    :store-slice {},
+   :resource-slice {},
    :store-named #{},
    :parked-slice {},
    :requires {:yin.k/segments #{},
@@ -717,8 +724,10 @@
      :segment-profile segment address → lowering profile
                       (default \"ast-to-bytecode\")
 
-   The store and parked slices are raw emitter values; the lift encodes
-   them. A non-empty `:yin.k/refusals` means the lift refuses."
+   The store, resource, and parked slices are raw emitter values; the
+   lift encodes them. `:yin.k/resources` holds the stream handles and
+   cursor cells the frame reaches, beside the program store slice, never
+   inside it. A non-empty `:yin.k/refusals` means the lift refuses."
   [opts]
   (let [state (walk opts)
         status (discovery state)
@@ -730,6 +739,7 @@
                                 (into loaded (:segments (:missing state)))
                                 :yin.k/discovery status)),
      :yin.k/store (:store-slice state),
+     :yin.k/resources (:resource-slice state),
      :yin.k/scheduler {:yin.k/parked (:parked-slice state),
                        :yin.k/id-counter (:id-counter (:vm opts))},
      :yin.k/missing (:missing state),

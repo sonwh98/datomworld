@@ -417,14 +417,21 @@
                                      (str %)
                                      ":<vm>")
                        vm-types)
-        strip (fn [text] (str/replace text #"\"[0-9a-f-]{36}\"" "<id>"))]
+        strip (fn [text] (str/replace text #"\"[0-9a-f-]{36}\"" "<id>"))
+        ;; a reference's seal is its task's (yin.vm.linker.md 7.3, r10):
+        ;; each shell mints its own secret, so seals differ by design
+        unseal (fn [texts]
+                 (mapv #(str/replace % #":seal\s+\"[0-9a-f]{64}\""
+                                     ":seal <seal>")
+                       texts))]
     (is (= ["[10 20 30]" "done [10 20 30]\nnil"]
            (subvec (get answers :semantic) 10 12)))
     (is (error? (get-in answers [:semantic 12])))
     (is (= "3" (get-in answers [:semantic 13])))
     (is (error? (get-in answers [:semantic 14])))
     (doseq [vm-type vm-types]
-      (is (= (pop (get answers :semantic)) (pop (get answers vm-type)))
+      (is (= (unseal (pop (get answers :semantic)))
+             (unseal (pop (get answers vm-type))))
           (str vm-type " answers what the semantic VM answers")))
     (is (apply = (map strip summaries))
         "repl-state agrees up to the VM's name and the medium's identity")))

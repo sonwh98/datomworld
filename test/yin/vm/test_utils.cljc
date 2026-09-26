@@ -30,6 +30,14 @@
 (def default-capacity 64)
 
 
+(def secret
+  "The capability secret these test compositions give a task
+   (yin.vm.linker.md section 7.3, r10): injected and deterministic, so
+   every host runs the same seals. A test of cross-task forgery composes
+   its tasks with distinct secrets."
+  "yin.vm.test-utils/capability-secret")
+
+
 (defn make-stream
   "A `:make-stream` over the v2 ring buffer. A nil capacity is the VM's
    default, not an unbounded stream: v2 has no unbounded mode."
@@ -79,7 +87,10 @@
 (defn create-vm
   "An ast-walker VM wired to the ring buffer."
   ([] (create-vm {}))
-  ([opts] (ast-walker/create-vm (merge {:make-stream make-stream} opts))))
+  ([opts]
+   (ast-walker/create-vm (merge {:make-stream make-stream,
+                                 :capability-secret secret}
+                                opts))))
 
 
 (defn- run-vm

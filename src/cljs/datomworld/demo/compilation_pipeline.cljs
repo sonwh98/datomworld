@@ -85,7 +85,8 @@
   (ast-walker/create-vm
     {:primitives vm/primitives,
      :modules (module/register-stream-module (module/default-registry)),
-     :make-stream make-stream}))
+     :make-stream make-stream,
+     :capability-secret (str (random-uuid))}))
 
 
 (defn- load-program!

@@ -305,6 +305,7 @@
                                     {:primitives (merge vm/primitives
                                                         math-primitives),
                                      :make-stream make-stream,
+                                     :capability-secret (str (random-uuid)),
                                      :bridge bridge-handlers})
                                   ast)]
            (flush-plot-batch! points* call-count*)

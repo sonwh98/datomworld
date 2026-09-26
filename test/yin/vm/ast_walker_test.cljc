@@ -28,9 +28,9 @@
 (deftest cesk-state-test
   (testing "Initial state carries the FFI pair and its cursor"
     (let [vm (create-vm)]
-      (is (contains? (vm/store vm) vm/call-in-stream-key))
-      (is (contains? (vm/store vm) vm/call-out-stream-key))
-      (is (contains? (vm/store vm) vm/call-out-cursor-key))
+      (is (contains? (:resources vm) vm/call-in-stream-key))
+      (is (contains? (:resources vm) vm/call-out-stream-key))
+      (is (contains? (:resources vm) vm/call-out-cursor-key))
       (is (not (contains? (vm/store vm) :yin/call-in-cursor))
           "call-in-cursor-key is dropped: v1 wrote it and nothing read it")
       (is (nil? (:in-stream vm))
@@ -53,8 +53,8 @@
                             (queue-ast! {:type :literal, :value 42})
                             tu/run-session))]
       (is (nil? (vm/continuation vm)))
-      (is (contains? (vm/store vm) vm/call-in-stream-key))
-      (is (contains? (vm/store vm) vm/call-out-stream-key))
+      (is (contains? (:resources vm) vm/call-in-stream-key))
+      (is (contains? (:resources vm) vm/call-out-stream-key))
       (is (= 42 (vm/value vm)))))
   (testing "Environment is empty by default"
     (is (= {} (vm/environment (create-vm))))))
@@ -275,13 +275,15 @@
   (testing "stream/make with no declared buffer uses the VM default"
     (let [seen (atom nil)
           make (fn [c] (reset! seen c) (tu/make-stream c))
-          vm (vm/eval (ast-walker/create-vm {:make-stream make})
+          vm (vm/eval (ast-walker/create-vm {:make-stream make,
+                                             :capability-secret tu/secret})
                       {:type :stream/make})]
       (is (= :stream-ref (:type (vm/value vm))))
       (is (= vm/default-stream-capacity @seen))))
   (testing "Without :make-stream the VM says so rather than reaching for one"
     (is (throws? (fn []
-                   (vm/eval (ast-walker/create-vm {})
+                   (vm/eval (ast-walker/create-vm
+                              {:capability-secret tu/secret})
                             {:type :stream/make, :buffer 4}))))))
 
 
@@ -327,7 +329,7 @@
   (testing "A closed, drained stream reads nil rather than blocking"
     (let [vm0 (vm/eval (create-vm) {:type :stream/make, :buffer 5})
           stream-ref (vm/value vm0)
-          handle (get (vm/store vm0) (:id stream-ref))]
+          handle (get (:resources vm0) (:id stream-ref))]
       (stream/close! handle)
       (is (nil? (vm/value (vm/eval vm0 (read-first-ast stream-ref))))))))
 

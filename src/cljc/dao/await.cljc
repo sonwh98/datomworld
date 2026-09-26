@@ -37,6 +37,7 @@
             [yang.clojure :as yang]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.engine :as engine]
             [yin.vm.module :as module]))
 
 
@@ -178,20 +179,18 @@
   (or (ds/reader? v) (ds/writer? v)))
 
 
-(defn- prepare-env
-  "Walk the user env. For each value that is a v2 handle, allocate a fresh
-   store key, replace the env value with a :stream-ref pointing at that key,
-   and record the handle in :store-updates so the caller can splice it into
-   the VM store. Non-handle values pass through unchanged."
-  [env]
-  (reduce-kv (fn [acc sym v]
+(defn- attach-env-streams
+  "Attach every v2 handle in the user env to `vm`: the handle goes into the
+   VM's private `:resources` table and the env value becomes the sealed
+   stream reference the engine issues for it (yin.vm.linker.md section
+   7.3, r8 and r10). Non-handle values pass through unchanged."
+  [vm env]
+  (reduce-kv (fn [vm sym v]
                (if (host-stream? v)
-                 (let [id (keyword (str "await-stream-" (name (gensym ""))))]
-                   (-> acc
-                       (assoc-in [:env sym] {:type :stream-ref, :id id})
-                       (assoc-in [:store-updates id] v)))
-                 (assoc-in acc [:env sym] v)))
-             {:env {}, :store-updates {}}
+                 (let [[ref vm] (engine/attach-resource vm v)]
+                   (assoc-in vm [:env sym] ref))
+                 vm))
+             vm
              env))
 
 
@@ -209,9 +208,13 @@
    value or parks on a stream effect.
 
    opts are host-composition options passed to yin.vm.ast-walker/create-vm
-   (:make-stream, :primitives, :call-in/:call-out, :bridge). :env always
-   comes from the process, and :modules is the caller's registry with the
-   await bindings layered on top, so await names always resolve.
+   (:make-stream, :primitives, :call-in/:call-out, :bridge,
+   :capability-secret). :env always comes from the process, and :modules is
+   the caller's registry with the await bindings layered on top, so await
+   names always resolve. `run` is the composition of the task it makes, so
+   absent a supplied `:capability-secret` it mints one from its own random
+   source (yin.vm.linker.md section 7.3, r10), and absent a supplied
+   `:secret-source` it mints a fresh secret for each install child.
 
    Returns a result map:
      {:type :dao.await/result
@@ -224,17 +227,19 @@
    appended to (or closed) the stream a parked entry is waiting on."
   ([proc] (run proc {}))
   ([proc opts]
-   (let [{:keys [env store-updates]} (prepare-env (:env proc))
-         ;; allowlisted state construction: only minted keyword keys
-         _ (when-let [k (some #(when-not (keyword? %) %)
-                              (keys store-updates))]
-             (throw (ex-info "dao.await store update carries a non-minted key"
-                             {:rule :store-update-key, :key k})))
+   (let [env (vm/check-bindings! :env (:env proc))
          vm (-> (ast-walker/create-vm
                   (assoc opts
                          :modules (registry (:modules opts))
-                         :env env))
-                (update :store merge store-updates))
+                         :capability-secret (or (:capability-secret opts)
+                                                (str (random-uuid)))
+                         ;; each install child's secret, fresh, unless the
+                         ;; caller injects its own source
+                         :secret-source (or (:secret-source opts)
+                                            (fn [_origin]
+                                              (str (random-uuid))))
+                         :env (into {} (remove #(host-stream? (val %))) env)))
+                (attach-env-streams env))
          after (vm/eval vm (:ast proc))]
      (result-map proc after))))
 

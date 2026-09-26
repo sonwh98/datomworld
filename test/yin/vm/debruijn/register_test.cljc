@@ -81,6 +81,7 @@
   ([ast opts]
    (vm/run (load-semantic-ast (semantic/create-vm
                                 (merge {:make-stream tu/make-stream,
+                                        :capability-secret tu/secret
                                         :primitives vm/primitives}
                                        opts))
                               (vm/ast->datoms ast)))))
@@ -92,6 +93,7 @@
   ([ast opts]
    (vm/run (dvm/create-vm (adapted-stack ast)
                           (merge {:make-stream tu/make-stream,
+                                  :capability-secret tu/secret
                                   :primitives vm/primitives,
                                   :contract vm/stack-contract}
                                  opts)))))
@@ -107,6 +109,7 @@
                (adapted-register ast-or-image))]
      (vm/run (rvm/create-vm img
                             (merge {:make-stream tu/make-stream,
+                                    :capability-secret tu/secret
                                     :primitives vm/primitives,
                                     :contract vm/register-contract}
                                    opts))))))
@@ -345,7 +348,7 @@
       (is (= 1 (count (:wait-set parked))))
       (let [entry (first (:wait-set parked))
             stream-id (:stream-id entry)
-            stream-handle (get (vm/store parked) stream-id)]
+            stream-handle (get (:resources parked) stream-id)]
         (is (= :next (:reason entry)))
         (is (= :yin.debruijn.register (:format entry)))
         (is (= (rcode/register-hash img) (:hash entry)))
@@ -363,14 +366,16 @@
   (testing "stream-put on full stream parks writer, resumes on retry"
     (let [outcomes (atom [:dao.stream/full :dao.stream/ok])
           seen (atom [])
-          sref {:type :stream-ref, :id :scripted}
+          ;; the composition hands the task its stream: into the private
+          ;; resources, the program holding only the sealed reference
+          [sref task] (engine/attach-resource
+                        (rvm/create-vm nil {:capability-secret tu/secret})
+                        (scripted-stream outcomes seen))
           img (hand-image 3 [[:const 0 sref]
                              [:const 1 "payload"]
                              [:stream-put 2 0 1 []]
                              [:halt 2]])
-          vm (rvm/create-vm img {:contract vm/register-contract,
-                                 :store {:scripted (scripted-stream outcomes
-                                                                    seen)}})
+          vm (rvm/load-image task img vm/register-contract)
           parked (nth (iterate vm/step vm) 3)
           entry (first (:wait-set parked))]
       (is (vm/blocked? parked))

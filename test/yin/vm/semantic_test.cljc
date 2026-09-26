@@ -11,6 +11,7 @@
             [dao.jing :as jing]
             [dao.stream :as stream]
             [yin.vm :as vm]
+            [yin.vm.engine :as engine]
             [yin.vm.malformed-rows :as malformed]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
@@ -54,7 +55,8 @@
 
 (defn- make-vm
   ([] (make-vm {}))
-  ([opts] (semantic/create-vm (merge {:make-stream tu/make-stream} opts))))
+  ([opts] (semantic/create-vm (merge {:make-stream tu/make-stream,
+                                      :capability-secret tu/secret} opts))))
 
 
 (defn- run-segment
@@ -91,9 +93,9 @@
 (deftest create-vm-test
   (let [vm (make-vm)]
     (testing "Initial state carries the FFI pair and no code"
-      (is (contains? (vm/store vm) vm/call-in-stream-key))
-      (is (contains? (vm/store vm) vm/call-out-stream-key))
-      (is (contains? (vm/store vm) vm/call-out-cursor-key))
+      (is (contains? (:resources vm) vm/call-in-stream-key))
+      (is (contains? (:resources vm) vm/call-out-stream-key))
+      (is (contains? (:resources vm) vm/call-out-cursor-key))
       (is (= {} (:code vm)))
       (is (nil? (vm/control vm)))
       (is (nil? (vm/continuation vm)))
@@ -677,7 +679,7 @@
 ;; =============================================================================
 
 (deftest blocked-stream-next-wakes-test
-  (let [vm (make-vm {:make-stream tu/make-stream})
+  (let [vm (make-vm {:make-stream tu/make-stream, :capability-secret tu/secret})
         program (assemble (segment 4)
                           (instruction 0 :stream-make :yin.code/buffer 8)
                           (instruction 1 :stream-cursor)
@@ -692,7 +694,7 @@
       (is (= 3 (:pc (first (:wait-set blocked))))
           "the entry resumes at the pc after the blocked instruction"))
     (let [entry (first (:wait-set blocked))
-          handle (get (vm/store blocked) (:stream-id entry))]
+          handle (get (:resources blocked) (:stream-id entry))]
       (stream/append! handle :hello)
       (let [woken (vm/run blocked)]
         (testing "and the appended value wakes it and lands in val"
@@ -806,8 +808,9 @@
       (is (= {:segment seg, :pc 3, :env {}, :stack [], :k [],
               :reason :next,
               ;; The id counter is shared across prefixes: the stream took
-              ;; :stream-0, so the cursor mints :cursor-1.
-              :cursor-ref {:type :cursor-ref, :id :cursor-1},
+              ;; :stream-0, so the cursor mints :cursor-1. The reference is
+              ;; the one the task issued, sealed under its secret.
+              :cursor-ref (engine/issue-ref blocked :cursor-ref :cursor-1),
               :stream-id :stream-0}
              entry)
           "the entry is exactly the §3.5 registers plus reason and ids")
@@ -816,7 +819,7 @@
           "the entry survives an EDN round-trip")
       (testing "and an entry restored from EDN still wakes by id"
         (let [shipped (edn/read-string (pr-str entry))
-              handle (get (vm/store blocked) (:stream-id shipped))]
+              handle (get (:resources blocked) (:stream-id shipped))]
           (stream/append! handle :hello)
           (let [woken (vm/run (assoc blocked :wait-set [shipped]))]
             (is (= :hello (vm/value woken)))
@@ -831,7 +834,7 @@
       (is (pure-entry? entry))
       (is (= entry (edn/read-string (pr-str entry))))
       (testing "freeing capacity wakes the round-tripped entry"
-        (let [handle (get (vm/store blocked) (:stream-id entry))
+        (let [handle (get (:resources blocked) (:stream-id entry))
               cursor (:dao.stream/cursor
                        (stream/cursor handle stream/anchor-oldest))]
           (is (= :a (:dao.stream/value (stream/next handle cursor))))
@@ -843,7 +846,7 @@
   (testing "A terminal outcome on wake fails exactly as the immediate one did"
     (let [blocked (run-blocked-writer)
           entry (first (:wait-set blocked))
-          handle (get (vm/store blocked) (:stream-id entry))]
+          handle (get (:resources blocked) (:stream-id entry))]
       (stream/close! handle)
       (is (thrown-with-msg?
             #?(:clj Exception :cljs js/Error :cljd Object)
@@ -858,7 +861,7 @@
 
 (deftest ffi-call-test
   (testing "An ffi-call parks, the bridge answers, the call resumes"
-    (let [vm (make-vm {:make-stream tu/make-stream
+    (let [vm (make-vm {:make-stream tu/make-stream, :capability-secret tu/secret
                        :bridge {:op/echo identity}})
           program (assemble (segment 4)
                             (instruction 0 :const :yin.code/value 21)

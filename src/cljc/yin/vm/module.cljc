@@ -14,6 +14,8 @@
    stream module explicitly and supplies `:make-stream` beside it."
   (:require
     [clojure.string :as str]
+    [dao.jing :as jing]
+    [dao.stream :as stream]
     [yin.vm :as vm]))
 
 
@@ -39,14 +41,72 @@
 
    Namespace segments step through plain maps until the path reaches a
    module entry (a map carrying :manifest); the remaining segments read
-   that entry's :slice, so a binding name resolves to its export."
+   that entry's task-local lowered `:bindings` when it holds them -- a
+   linked module (yin.vm.linker.md section 8.3) -- and its `:slice`
+   otherwise, which for a host module is the host values themselves, so
+   a binding name resolves to its export."
   [node path]
   (if (seq path)
     (if (and (map? node) (contains? node :manifest))
-      (get-in node (into [:slice] path))
+      (get-in node (into [(if (contains? node :bindings) :bindings :slice)]
+                         path))
       (when-let [child (get node (first path))]
         (walk-path child (rest path))))
     node))
+
+
+(defn module-entry
+  "The registry entry of module `module-name` in `modules` (a registry's
+   `:modules` map), or nil when the dotted path reaches no module entry."
+  [modules module-name]
+  (let [node (reduce (fn [node seg] (when (map? node) (get node seg)))
+                     modules
+                     (symbol->path module-name))]
+    (when (and (map? node) (contains? node :manifest)) node)))
+
+
+(defn assoc-module
+  "Return registry with `entry` installed as module `module-name`."
+  [registry module-name entry]
+  (assoc-in (or registry (empty-registry))
+            (into [:modules] (symbol->path module-name))
+            entry))
+
+
+(defn link-module
+  "The `linked` transition's registry update (yin.vm.linker.md sections
+   7.3 and 8.3): `registry` gains the module `manifest` names as the
+   portable encoding of acts 1 to 3 -- `{:manifest m :address a
+   :derivation d :slice {sym encoded} :stores {address snapshot} :cells
+   {cell-id cell} :images {identity image}}` -- never lowered values. `a`
+   is the manifest's own address; `lifted` is the act-1 lift, `{:slice
+   :stores :cells :images}`, the cells being the logical cursor cells its
+   references name (r9) and the images the verified origin images a
+   receiving task attaches.
+   Each receiving task lowers the entry into its own `:bindings`."
+  [registry manifest derivation lifted]
+  (assoc-module registry
+                (:yin.module/name manifest)
+                {:manifest manifest,
+                 :address (jing/segment-key manifest),
+                 :derivation derivation,
+                 :slice (:slice lifted),
+                 :stores (:stores lifted),
+                 :cells (:cells lifted),
+                 :images (:images lifted)}))
+
+
+(defn module-entries
+  "Every `[name entry]` a registry value holds, the module name read back
+   from each entry's manifest."
+  [registry]
+  (letfn [(walk
+            [node]
+            (when (map? node)
+              (if (contains? node :manifest)
+                [[(:yin.module/name (:manifest node)) node]]
+                (mapcat walk (vals node)))))]
+    (vec (walk (:modules registry)))))
 
 
 (defn resolve-module
@@ -247,19 +307,175 @@
 ;; Built-in effect handlers
 ;; =============================================================================
 
-(defn require-handler
-  "Resolve `:module/require` against the registry value only.
+;; =============================================================================
+;; `require` lowers to the linker (yin.vm.linker.md section 7)
+;; =============================================================================
 
-   v1's clj branch called `clojure.core/require` from inside effect dispatch,
-   a host call in the middle of interpretation. It does not survive: a module
-   is either in the registry the composition supplied or it is not."
-  [state effect _opts]
-  (let [module-name (:module effect)]
-    (if (some? (resolve-module (:modules state) module-name))
+(defprotocol IModuleKernel
+  "What a kernel supplies the install child and the `linked` transition
+   (yin.vm.linker.md section 7.3). Every method is a pure function of a
+   VM value; the engine owns the phases, the kernel owns its coordinates."
+
+  (link-format
+    [vm]
+    "`{:format kw :contract s}`: the format this kernel links, and the
+     execution contract it runs.")
+
+  (spawn-module
+    [vm image opts]
+    "A fresh VM of this backend with the verified `image` loaded by the
+     ordinary loader, holding nothing of `vm`'s state but its composition
+     values (primitives, stream constructor, link pair). `opts` carries
+     `:modules` (the child's module view), `:origin`, and `:ancestry`.")
+
+  (image-identity
+    [vm image]
+    "The identity this kernel's code space names `image` by: H, R, the
+     vector's address, or the tree's root row id.")
+
+  (image-holds?
+    [vm image segment]
+    "True when a closure marker's `:yin.k/segment` falls in `image`.")
+
+  (attach-module
+    [vm image]
+    "`vm` with `image` attached by the kernel's `attach-image` under its
+     own contract; an image already held is not attached twice.")
+
+  (lift-closure
+    [vm closure encode]
+    "The `:yin.k/closure` marker of `closure` in `vm`'s coordinates,
+     captured values encoded by `encode`, with `:yin.k/store-of` when the
+     closure carries one. Throws the `:yin.k/non-portable` refusal as
+     ex-data when the closure cannot be lifted.")
+
+  (lower-closure
+    [vm marker decode]
+    "The closure `marker` denotes in `vm`'s coordinates, captured values
+     decoded by `decode`, carrying the marker's `:yin.k/store-of`. A
+     marker of another binding discipline or format is
+     `:binding-mismatch`."))
+
+
+(def link-request-resource
+  "The private resource id of the link request stream (section 6.1): the
+   writer the composition supplied. No store instruction reaches it."
+  :yin.link/request)
+
+
+(def link-response-resource
+  "The private resource id of the link response stream."
+  :yin.link/response)
+
+
+(defn- installing?
+  [state module-name]
+  (contains? (:installs state) module-name))
+
+
+(defn- block-on
+  "The handler outcome that parks the continuation as `entry`."
+  [state entry]
+  {:state (-> state
+              (update :wait-set (fnil conj []) entry)
+              (assoc :value :yin/blocked
+                     :blocked? true
+                     :halted? false)),
+   :value :yin/blocked,
+   :blocked? true})
+
+
+(defn- mint-link-id
+  "The next link id `[origin counter]` of this task (section 7.2, step 3):
+   the task's origin tag beside its own engine counter."
+  [state]
+  (let [counter (or (:id-counter state) 0)]
+    [[(or (:origin state) :t0) counter]
+     (assoc state :id-counter (inc counter))]))
+
+
+(defn append-link-request
+  "Append `entry`'s retained envelope on the link request stream. `ok`
+   moves the entry to the `:link-response` state; `full` keeps it in
+   `:link-request`, envelope verbatim, for the next poll; the terminal
+   outcomes throw, naming the outcome and the link id."
+  [resources entry]
+  (let [writer (get resources link-request-resource)
+        o (:dao.stream/outcome (stream/append! writer (:envelope entry)))]
+    (case o
+      :dao.stream/ok (-> entry
+                         (dissoc :envelope)
+                         (assoc :reason :link-response))
+      :dao.stream/full entry
+      (throw (ex-info "Link request could not be appended"
+                      {:outcome o, :link-id (:link-id entry)})))))
+
+
+(defn require-handler
+  "Resolve `:module/require` (yin.vm.linker.md sections 7.2 and 8.3).
+
+   A module already in the registry value -- a host module, or one linked
+   earlier and lowered into this task -- answers now. A module installing
+   in this scheduler (section 7.3) is neither linked nor absent: the
+   requiring continuation joins that install's waiters as an `:install`
+   entry. Anything else is a miss, and a miss never throws for absence:
+   it mints a `:dao.stream/newest` cursor on the link response stream,
+   THEN builds the `:link-request` wait entry -- cursor before append, so
+   a response that lands before the entry is first polled is not skipped
+   -- and appends the envelope under the link id `[origin counter]`. On
+   `ok` the entry waits in `:link-response`; on `full` it stays in
+   `:link-request` and the poll retries it. The entry is the kernel's
+   registers plus the link fields: resource ids and plain data, never a
+   handle.
+
+   A module already on this task's install ancestry is `:require-cycle`
+   naming the chain (section 7.4): the child that asked is refused. A VM
+   composed without a link pair cannot link, so its miss fails as v1's
+   did, naming the modules it has."
+  [state effect {:keys [park-entry-fns]}]
+  (let [module-name (:module effect)
+        build (get park-entry-fns :module/require)
+        registers #(if build (build state effect nil) {})
+        resources (:resources state)
+        response (get resources link-response-resource)]
+    (cond
+      (some? (resolve-module (:modules state) module-name))
       {:value module-name, :state state, :blocked? false}
+
+      (some #{module-name} (:ancestry state))
+      (throw (ex-info "Require cycle"
+                      {:reason :require-cycle,
+                       :module module-name,
+                       :chain (conj (vec (:ancestry state)) module-name)}))
+
+      (installing? state module-name)
+      (block-on state (assoc (registers) :reason :install :name module-name))
+
+      (not (and response (get resources link-request-resource)))
       (throw (ex-info "Module is not in this VM's registry"
                       {:module module-name,
-                       :available (vec (list-modules (:modules state)))})))))
+                       :available (vec (list-modules (:modules state)))}))
+
+      :else
+      (let [minted (stream/cursor response stream/anchor-newest)
+            _ (when-not (= :dao.stream/ok (:dao.stream/outcome minted))
+                (throw (ex-info "Link response cursor mint failed"
+                                {:outcome (:dao.stream/outcome minted),
+                                 :module module-name})))
+            [link-id state] (mint-link-id state)
+            {:keys [format contract]} (link-format state)
+            entry (assoc (registers)
+                         :reason :link-request
+                         :name module-name
+                         :link-id link-id
+                         :envelope {:yin.link/id link-id,
+                                    :yin.link/name module-name,
+                                    :yin.link/format format,
+                                    :yin.link/contract contract}
+                         :request link-request-resource
+                         :response link-response-resource
+                         :cursor (:dao.stream/cursor minted))]
+        (block-on state (append-link-request resources entry))))))
 
 
 (defn default-registry

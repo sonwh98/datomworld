@@ -292,46 +292,29 @@
 (def allowlist
   "file -> {[top-level-name head] count}, with the reason each may write."
   {"src/cljc/yin/vm/engine.cljc"
-   {;; the one program write, and the :vm/store-put effect dispatcher
+   {;; the one program write, and `put-active`, which routes every program
+    ;; write -- definitions, direct store instructions, the :vm/store-put
+    ;; effect -- to the task's store or the running module's store, both
+    ;; through store-put
     ["store-put" "assoc"] 1
-    ["handle-effect" "store-put"] 1
-    ["handle-effect" "assoc"] 1
-    ;; engine-minted keyword keys: stream ids, cursor ids, cursor advance
-    ["handle-make" "assoc"] 2
-    ["handle-cursor" "assoc"] 2
-    ["handle-next" "assoc"] 2
-    ["waitset-resolver" "assoc"] 1
-    ["check-wait-set" "assoc"] 1
-    ;; the ready-queue merge, asserted to carry only keyword keys
-    ["resume-from-run-queue" "assoc"] 1
-    ["resume-from-run-queue" "merge"] 1}
-   ;; program writes through engine/store-put: the definition transition,
-   ;; :vm/store-put, and :vm/store-update
-   "src/cljc/yin/vm/ast_walker.cljc"
-   {["cesk-transition" "assoc"] 3
-    ["cesk-transition" "engine/store-put"] 3}
-   ;; opcodes 11 (store-put) and 24 (define), through engine/store-put
-   "src/cljc/yin/vm/semantic.cljc"
-   {["vm-hot" "assoc"] 2
-    ["vm-hot" "engine/store-put"] 2}
-   ;; the constructor merge (checked) and :store-put/:define through
-   ;; engine/store-put
+    ["put-active" "assoc"] 1
+    ["put-active" "store-put"] 2
+    ;; step 5b's receiver: the live store read, never written. Stream
+    ;; handles, cursor cells, and their advances are written to the private
+    ;; :resources table, never the store (yin.vm.linker.md 7.3, r8).
+    ["discharge-defect" :map] 1}
+   ;; the constructor merge (checked); every kernel's program writes --
+   ;; definitions and direct store instructions -- go through
+   ;; engine/put-active
    "src/cljc/yin/vm/debruijn/stack.cljc"
    {["create-vm" :map] 1
-    ["create-vm" "merge"] 1
-    ["step1" "assoc"] 2
-    ["step1" "engine/store-put"] 2}
+    ["create-vm" "merge"] 1}
    "src/cljc/yin/vm/debruijn/register.cljc"
    {["create-vm" :map] 1
-    ["create-vm" "merge"] 1
-    ["step1" "assoc"] 2
-    ["step1" "engine/store-put"] 2}
+    ["create-vm" "merge"] 1}
    ;; construction: the FFI pair under minted keyword keys
    "src/cljc/yin/vm.cljc"
    {["empty-state" :map] 1}
-   ;; dao.await: minted keyword keys, checked
-   "src/cljc/dao/await.cljc"
-   {["run" "update"] 1}
    ;; the waitset library's result carries the store its :advance wrote
    "src/cljc/dao/stream/waitset.cljc"
    {["check" :map] 1}

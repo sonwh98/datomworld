@@ -219,7 +219,8 @@
    :telemetry-t as its t, and touches no stream.
 
    The CESK components are read by the field names every VM built on
-   yin.vm/empty-state carries (:control, :env, :store, :k, :parked) — the
+   yin.vm/empty-state carries (:control, :env, :store, :k, :parked), and
+   the private engine resources beside the store (:resources) -- the
    same values the IVMState accessors project — because this namespace
    cannot require yin.vm back without a require cycle the ClojureScript
    build would reject.
@@ -242,6 +243,11 @@
          environment-eid (when environment (mint!))
          store (some-> state :store summarize-store)
          store-eid (when store (mint!))
+         ;; the private engine resources (yin.vm.linker.md 7.3, r8): stream
+         ;; handles and cursor cells, summarized as the store is -- a handle
+         ;; is its identity node, never the host object
+         resources (some-> state :resources summarize-store)
+         resources-eid (when resources (mint!))
          continuation
          (when (or (some? (:k state))
                    (seq (:parked state))
@@ -262,6 +268,7 @@
            control-eid (conj (d root :vm/control control-eid))
            environment-eid (conj (d root :vm/environment environment-eid))
            store-eid (conj (d root :vm/store store-eid))
+           resources-eid (conj (d root :vm/resources resources-eid))
            continuation-eid (conj (d root :vm/continuation continuation-eid)))
          opt-datoms
          (mapv (fn [[k v]] (d root (keyword "vm" (name k)) v))
@@ -281,6 +288,8 @@
                   (when environment-eid
                     (summary-entity environment environment-eid t pool))
                   (when store-eid (summary-entity store store-eid t pool))
+                  (when resources-eid
+                    (summary-entity resources resources-eid t pool))
                   continuation-datoms)))))
 
 
