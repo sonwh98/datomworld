@@ -7761,3 +7761,27 @@ Next: the ShiBi spec round remains post-epic (after dao.stream.remote
   slices 5-8 + fable sign-off). When it runs, the two-interpreter
   design starts from this statement: spec the tuple shapes and the
   index/query interpreters, not a token format.
+
+
+## 2026-09-28 01:55:00 +0700 — Owner rulings before sleep: ShiBi = capabilities; push authorized post-epic
+Completed-GMT: 2026-09-27 18:55:00 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Done:
+- OWNER RULING: ShiBi capability-vs-currency RESOLVED -- capabilities
+  adopted per the architect's recommendation (gpt-6-sol decision brief
+  collab/1790508000000-architect-shibi-cap-vs-currency-brief.*:
+  attenuatable capabilities over pure data; metering is a policy on a
+  grant; transferable currency deferred as a separate future
+  decision). Recorded in memory project_shibi_tuple_space.md. The
+  post-epic ShiBi design round is unblocked: spec capability tuple
+  shapes and the two interpreters.
+- OWNER AUTHORIZATION: push master to origin once the dao.stream.remote
+  epic completes (slices 5-8 landed, fable final sign-off done). Not
+  before.
+In flight: slice-6 fix round (ZCode subagent), slice-5 finisher r7
+  (claude CLI), slice-7 r2 (claude CLI), slice-8 fix round (ZCode
+  subagent).
+Next: collect each stream; verify; gate; commit per the standing
+  rule; then the fable final sign-off (owner-authorized for this
+  review); then PUSH; then the post-epic queue (ShiBi design round,
+  remote-FFI revisit, collab/ remainder, hygiene).
