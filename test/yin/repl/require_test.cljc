@@ -4,10 +4,10 @@
    interpreter, links the module's manifest over the content pair,
    installs through the child phases, and resumes with the export bound
    -- on every backend the shell supports.  The content source is an
-   in-process `dao.jing` store served behind `dao.jing.remote`'s
-   handlers; the link pair is the session's, so a link whose source
-   cannot answer surfaces as the shell's own `:pending` state, and
-   `(abandon)` gives it up.
+   in-process `dao.jing` store served behind the content interpreter
+   (`dao.jing.content/serve-step`); the link pair is the session's, so a
+   link whose source cannot answer surfaces as the shell's own
+   `:pending` state, and `(abandon)` gives it up.
 
    Modules are minted four ways (tree, semantic vector, H, R) with
    derivation records under the profiles this linker re-lowers, exactly
@@ -23,9 +23,7 @@
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
             [dao.stream :as stream]
-            [dao.stream.apply :as apply]
             [dao.stream.ringbuffer :as ring]
-            [dao.stream.rpc :as rpc]
             [yin.repl :as repl]
             [yin.repl.link :as link]
             [yin.vm :as vm]
@@ -187,18 +185,19 @@
 
 
 (defn- silent-client
-  "A `dao.stream.rpc` client on a wire nothing answers: requests are
-   delivered and nothing ever comes back, so every link attempt spends
-   its budget and reports the link pending."
+  "The linker's content-pair client on a wire nothing answers: requests
+   are delivered and nothing ever comes back, so every link attempt
+   spends its budget and reports the link pending."
   []
   (let [medium #(-> {:dao.stream/type ring/transport-type
                      ring/capacity-key 64}
                     ring/create!
                     :dao.stream/handle)
         responses (medium)]
-    (rpc/client-state (medium) responses
-                      (:dao.stream/cursor
-                        (stream/cursor responses stream/anchor-newest)))))
+    {:requests (medium)
+     :answers responses
+     :cursor (:dao.stream/cursor
+               (stream/cursor responses stream/anchor-newest))}))
 
 
 (defn- withholding
@@ -227,7 +226,7 @@
 
                 (append!
                   [_ value]
-                  (if (some #{address} (apply/request-args value))
+                  (if (= address (get value :jing/get))
                     {:dao.stream/outcome :dao.stream/ok}
                     (stream/append! wire value)))
 
@@ -531,3 +530,288 @@
       (is (nil? (:pending-run freed)))
       (is (= 3 (:last-value freed))
           "the rollback returns to the round the second require began in"))))
+
+
+;; =============================================================================
+;; The session link policy (docs/design/yin.repl.link-policy.md, phase 1)
+;; =============================================================================
+
+(defn- refusal-of
+  "What `create-state` answers to the `:link-policy` `policy`: the
+   thrown error when it refuses it (the assembly fails closed), or
+   `:accepted` when it does not."
+  [policy]
+  (try
+    (repl/create-state {:vm-type :stack :link-policy policy})
+    :accepted
+    (catch #?(:cljd Object :clj Exception :cljs js/Error) e
+      e)))
+
+
+(deftest link-policy-defaults-to-manual-test
+  (testing ":manual is the default, and nil passes through to it"
+    (is (= :manual (:link-policy (repl/create-state {:vm-type :stack}))))
+    (is (= :manual (:link-policy
+                     (repl/create-state {:vm-type :stack
+                                         :link-policy nil})))))
+  (let [state (repl/create-state {:vm-type :stack})
+        [pending text] (repl/eval-input state "(require (quote mod))")
+        [held _] (repl/eval-input pending "(+ 1 2)")
+        [held2 _] (repl/eval-input held "(+ 3 4)")
+        [held3 _] (repl/eval-input held2 "(+ 5 6)")]
+    (testing "the run parks as today and survives every re-check"
+      (is (str/includes? text "pending"))
+      (is (some? (:pending-run held3)))
+      (is (vm/blocked? (:vm held3))))
+    (testing "repl-state names the policy and the no-progress checks"
+      (is (= [{:name 'mod :policy :manual :checks 3}]
+             (mapv #(select-keys % [:name :policy :checks])
+                   (:pending (repl/repl-state held3))))))))
+
+
+(deftest a-function-policy-abandons-after-n-no-progress-checks-test
+  (let [views (atom [])
+        policy (fn [view]
+                 (swap! views conj view)
+                 (if (>= (:checks view) 2)
+                   {:abandon :host-gave-up}
+                   :keep))
+        state (repl/create-state {:vm-type :stack :link-policy policy})
+        [pending _] (repl/eval-input state "(require (quote mod))")
+        [held _] (repl/eval-input pending "(+ 1 2)")
+        [freed text] (repl/eval-input held "(+ 3 4)")]
+    (testing "the policy saw the section 3.1 view, plain data only"
+      (is (= [0 1 2] (mapv :checks @views)))
+      (is (= [0 1 2] (mapv :lines-retained @views)))
+      (is (= ['mod] (mapv :name (:links (first @views)))))
+      (is (vector? (:link-id (first (:links (first @views)))))))
+    (testing "the second no-progress check ended the require"
+      (is (nil? (:pending-run freed)))
+      (is (str/includes? text "the session link policy ended the require"))
+      (is (str/includes? text "Module link refused: host-gave-up"))
+      (is (not (str/includes? text "require pending"))
+          "a policy abandon is never mistaken for a run still waiting"))
+    (testing "the retained lines dropped once, reported once"
+      (is (str/includes? text "dropped 2 lines"))
+      (is (= 1 (count (re-seq #"dropped" text)))))
+    (testing "the shell returned to the round the require began in"
+      (is (>= (or (:id-counter (:vm freed)) 0) 1)
+          "the carried id keeps the next require off the retired one")
+      (is (= "3" (second (repl/eval-input freed "(+ 1 2)")))))))
+
+
+(deftest a-keep-policy-never-ends-a-pending-run-test
+  (let [state (repl/create-state {:vm-type :stack
+                                  :link-policy (constantly :keep)})
+        [pending _] (repl/eval-input state "(require (quote mod))")
+        [held _] (repl/eval-input pending "(+ 1 2)")]
+    (is (some? (:pending-run held)))
+    (is (= 1 (:checks (:pending-run held))))
+    (is (= :fn (:policy
+                 (first (:pending (repl/repl-state held))))))))
+
+
+(deftest a-bare-abandon-uses-the-policy-reason-test
+  (let [state (repl/create-state {:vm-type :stack
+                                  :link-policy (constantly :abandon)})
+        [_ text] (repl/eval-input state "(require (quote mod))")]
+    (is (str/includes? text "the session link policy ended the require"))
+    (is (str/includes? text "Module link refused: link-policy"))
+    (is (not (str/includes? text "require pending")))))
+
+
+(deftest a-misbehaving-policy-is-kept-and-reported-test
+  (let [boom (fn [_] (throw (ex-info "host policy boom" {})))
+        state (repl/create-state {:vm-type :stack :link-policy boom})
+        [pending text] (repl/eval-input state "(require (quote mod))")]
+    (testing "a throw is one error line, and the run stands"
+      (is (str/includes? text "Error: host policy boom"))
+      (is (str/includes? text "pending"))
+      (is (some? (:pending-run pending)))))
+  (let [state (repl/create-state {:vm-type :stack
+                                  :link-policy (constantly :bogus)})
+        [pending text] (repl/eval-input state "(require (quote mod))")]
+    (testing "an out-of-contract return is kept and reported too"
+      (is (str/includes? text "outside its contract"))
+      (is (some? (:pending-run pending)))))
+  (let [state (repl/create-state
+                {:vm-type :stack
+                 :link-policy (fn [_] {::x :not-part-of-the-contract})})
+        [pending text] (repl/eval-input state "(require (quote mod))")]
+    (testing "a map with no :abandon is out of contract, not an abandon"
+      (is (str/includes? text "outside its contract"))
+      (is (some? (:pending-run pending)))))
+  (let [state (repl/create-state
+                {:vm-type :stack
+                 :link-policy (fn [_] {:abandon :reason :extra true})})
+        [pending text] (repl/eval-input state "(require (quote mod))")]
+    (testing "a map with extra keys beside :abandon is out of contract"
+      (is (str/includes? text "outside its contract"))
+      (is (str/includes? text "outside its contract"))
+      (is (some? (:pending-run pending))))))
+
+
+(deftest unknown-and-lease-link-policies-are-refused-at-create-state-test
+  (doseq [policy [:lease :whenever "manual" 42]]
+    (testing (pr-str policy)
+      (let [e (refusal-of policy)]
+        (is (not= :accepted e))
+        (is (= [:manual :fn] (:supported (ex-data e)))))))
+  (testing ":lease is refused as not implemented yet"
+    (is (str/includes? (ex-message (refusal-of :lease))
+                       "not implemented yet"))))
+
+
+(deftest reset-and-vm-preserve-the-link-policy-test
+  (let [policy (constantly :keep)
+        state (repl/create-state {:vm-type :stack :link-policy policy})
+        [pending _] (repl/eval-input state "(require (quote mod))")
+        [held _] (repl/eval-input pending "(+ 1 2)")
+        [held2 _] (repl/eval-input held "(+ 3 4)")
+        [reset-state _] (repl/eval-input held2 "(reset)")
+        [vm-state _] (repl/eval-input reset-state "(vm :register)")
+        [pending' _] (repl/eval-input vm-state "(require (quote mod))")
+        [held' _] (repl/eval-input pending' "(+ 1 2)")]
+    (testing "the policy survives (reset) and (vm ...)"
+      (is (identical? policy (:link-policy reset-state)))
+      (is (identical? policy (:link-policy vm-state))))
+    (testing "the dropped run's checks went with it; a new park starts at 0"
+      (is (nil? (:pending-run reset-state)))
+      (is (= 0 (:checks (:pending-run pending'))))
+      (is (= 1 (:checks (:pending-run held')))))))
+
+
+(deftest a-policy-abandon-matches-abandon-s-retained-line-semantics-test
+  (let [by-command (let [state (repl/create-state {:vm-type :stack})
+                         [parked _] (repl/eval-input
+                                      state "(require (quote mod))")
+                         [held _] (repl/eval-input parked "(+ 1 2)")]
+                     (repl/eval-input held "(abandon)"))
+        by-policy (let [state (repl/create-state
+                                {:vm-type :stack
+                                 :link-policy (fn [v]
+                                                (if (= 1 (:checks v))
+                                                  :abandon
+                                                  :keep))})
+                        [parked _] (repl/eval-input
+                                     state "(require (quote mod))")]
+                    (repl/eval-input parked "(+ 1 2)"))
+        [command-state command-text] by-command
+        [policy-state policy-text] by-policy]
+    (testing "both drop the retained line once and report it once"
+      (is (str/includes? command-text "dropped 1 line"))
+      (is (str/includes? policy-text "dropped 1 line"))
+      (is (= 1 (count (re-seq #"dropped" command-text))))
+      (is (= 1 (count (re-seq #"dropped" policy-text)))))
+    (testing "only the policy abandon says the session policy ended it"
+      (is (not (str/includes? command-text "session link policy")))
+      (is (= 1 (count (re-seq #"session link policy" policy-text)))))
+    (testing "both carry the minted identity and free the shell"
+      (is (nil? (:pending-run command-state)))
+      (is (nil? (:pending-run policy-state)))
+      (is (>= (or (:id-counter (:vm command-state)) 0) 1))
+      (is (>= (or (:id-counter (:vm policy-state)) 0) 1))
+      (is (= "3" (second (repl/eval-input command-state "(+ 1 2)"))))
+      (is (= "3" (second (repl/eval-input policy-state "(+ 1 2)")))))))
+
+
+(deftest a-late-response-after-a-policy-abandon-is-skipped-test
+  "The pair survives the policy abandon as it survives `(abandon)`: the
+   abandoned round's request, answered late over the same pair by the
+   source that finally works, is skipped as unknown, and the next
+   require mints an id of its own (yin.vm.linker.md section 7.2, step
+   7)."
+  (let [store (mem/create-content-mem)
+        {:keys [address]} (publish-module store closed-module 'mod
+                                          closed-exports)
+        as-other (:address (publish-module store closed-module 'other
+                                           closed-exports))
+        state (repl/create-state
+                {:vm-type :stack
+                 :content-client (silent-client)
+                 :name-env {'other as-other 'mod address}
+                 :link-policy (fn [v]
+                                (if (= 1 (:checks v))
+                                  :abandon
+                                  :keep))})
+        [pending _] (repl/eval-input state "(require (quote other))")
+        [held text] (repl/eval-input pending "(+ 1 2)")
+        working (assoc held
+                       :link-source
+                       (link/composition
+                         {:content-store store
+                          :name-env {'other as-other 'mod address}}))
+        [linked _] (repl/eval-input working "(require (quote mod))")
+        [done _] (repl/eval-input linked "(mod/f)")]
+    (testing "the policy ended the require with the retained line dropped"
+      (is (str/includes? text "the session link policy ended the require"))
+      (is (str/includes? text "dropped 1 line"))
+      (is (nil? (:pending-run held))))
+    (testing "the late answer was skipped; the later require linked for real"
+      (let [ids (mapv :yin.link/id (pair-requests (:link-pair linked)))]
+        (is (= [{:kind :unknown, :id (first ids), :entry (second ids)}]
+               (first (engine/take-link-diagnostics (:vm linked)))))
+        (is (not= (first ids) (second ids))
+            "the carried identity kept the later require off the retired id"))
+      (is (= 'mod (:last-value linked)))
+      (is (= 42 (:last-value done))))))
+
+
+(deftest a-completing-re-check-never-consults-the-policy-test
+  (let [consults (atom 0)
+        store (mem/create-content-mem)
+        {:keys [address]} (publish-module store closed-module 'mod
+                                          closed-exports)
+        state (repl/create-state
+                {:vm-type :stack
+                 :content-client (silent-client)
+                 :name-env {'mod address}
+                 :link-policy (fn [_] (swap! consults inc) :keep)})
+        [pending _] (repl/eval-input state "(require (quote mod))")
+        [held _] (repl/eval-input pending "(+ 1 2)")
+        working (assoc held
+                       :link-source
+                       (link/composition
+                         {:content-store store
+                          :name-env {'mod address}}))
+        [done _] (repl/eval-input working "(+ 3 4)")]
+    (testing "the run completed and ran the retained line, then the new one"
+      (is (= 7 (:last-value done)))
+      (is (= 3 (:last-value-2 done)))
+      (is (nil? (:pending-run done))))
+    (testing "the park and pending re-check consulted; completion did not"
+      (is (= 2 @consults)))))
+
+
+(deftest recheck-pending-steps-a-run-without-an-input-line-test
+  "Section 4: the host drivers can only trigger a re-check with a typed
+   line -- `driver/repl-step` evaluates drained input and nothing else
+   -- so the shell carries the public step an unattended host drives at
+   its own cadence."
+  (let [state (repl/create-state {:vm-type :stack
+                                  :link-policy (constantly :keep)})
+        [pending _] (repl/eval-input state "(require (quote mod))")
+        [step1 _] (repl/recheck-pending pending)
+        [step2 text] (repl/recheck-pending step1)]
+    (testing "each step is one no-progress re-check"
+      (is (some? (:pending-run step2)))
+      (is (= 2 (:checks (:pending-run step2))))
+      (is (str/includes? text "pending")))
+    (let [empty (repl/create-state {:vm-type :stack})
+          [st text] (repl/recheck-pending empty)]
+      (testing "nothing pending: nothing printed, nothing changed"
+        (is (nil? text))
+        (is (nil? (:pending-run st))))))
+  (let [state (repl/create-state
+                {:vm-type :stack
+                 :link-policy (fn [v]
+                                (if (= 2 (:checks v))
+                                  :abandon
+                                  :keep))})
+        [pending _] (repl/eval-input state "(require (quote mod))")
+        [step1 _] (repl/recheck-pending pending)
+        [step2 text] (repl/recheck-pending step1)]
+    (testing "an unattended policy abandon ends the run with the message"
+      (is (nil? (:pending-run step2)))
+      (is (str/includes? text "the session link policy ended the require"))
+      (is (str/includes? text "Module link refused: link-policy")))))

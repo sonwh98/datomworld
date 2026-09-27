@@ -554,6 +554,27 @@
      :link-pair pair}))
 
 
+(defn- checked-link-policy
+  "Validate the `:link-policy` creation option, failing closed at
+   assembly (yin.repl.link-policy.md section 3): `:manual` is the
+   default and today's behavior, a function `(fn [view])` is the
+   embedder's rule, and `:lease` is reserved for the phase-2 deadline --
+   refused, not implemented yet.  Anything else is refused with the
+   supported values named."
+  [policy]
+  (cond
+    (or (nil? policy) (= :manual policy)) :manual
+    (fn? policy) policy
+    :else
+    (throw
+      (ex-info
+        (if (= :lease policy)
+          "Yin REPL :link-policy :lease is not implemented yet"
+          "Unknown Yin REPL :link-policy")
+        {:link-policy policy
+         :supported [:manual :fn]}))))
+
+
 (defn create-state
   "Create the shell value.  `:primitives` is a host-supplied map merged over
    the REPL primitives; it is kept as `:extra-primitives` so every session
@@ -564,10 +585,18 @@
    content) and `name-env` (module name -> manifest address) compose the
    content pair and the name environment the linker interpreter serves
    `(require ...)` from (yin.repl.link/composition); with neither content
-   source, a require stays `:pending` and says so."
+   source, a require stays `:pending` and says so.
+
+   `:link-policy` is the session's pending-link rule
+   (yin.repl.link-policy.md), kept beside `:link-source` so `(reset)` and
+   `(vm ...)` preserve it: `:manual`, the default, ends a pending run
+   only at `(abandon)`; a function `(fn [view])` is consulted when a
+   require parks and after each re-check that leaves the run pending,
+   answering `:keep`, `:abandon` or `{:abandon reason}`; `:lease` is
+   reserved for phase 2 and refused, as is anything else, at assembly."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
-            content-store content-client name-env]
+            content-store content-client name-env link-policy]
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
@@ -591,6 +620,7 @@
         :last-value-3 nil
         :pending-input nil
         :link-source link-source
+        :link-policy (checked-link-policy link-policy)
         :pending-run nil
         :running? true}))))
 
@@ -828,17 +858,22 @@
    `link-round-budget` rounds, while `vm` waits on a link.  A round that
    moves nothing ends the drive: a link whose content source cannot
    answer will not answer by waiting longer.  Returns
-   `[state vm pending]`, `pending` the links the interpreter reported
-   `:pending`.  A refused or lost link raises as the VM's own, carrying
-   the interrupted VM's minted identity."
+   `[state vm pending progress?]`, `pending` the links the interpreter
+   reported `:pending`, and `progress?` true when a round moved
+   something -- advanced a serve cursor, delivered a response or
+   completed an install -- the fact the pending run's `:checks` resets
+   on (yin.repl.link-policy.md section 3.1).  A refused or lost link
+   raises as the VM's own, carrying the interrupted VM's minted
+   identity."
   [state vm]
   (loop [i 0
          vm vm
          state state
-         pending []]
+         pending []
+         progress? false]
     (cond
       (or (vm/halted? vm) (not (link-waiting? vm)) (>= i link-round-budget))
-      [state vm pending]
+      [state vm pending progress?]
 
       :else
       (let [served (link/serve {:pair (:link-pair state)
@@ -850,8 +885,8 @@
                          (catch #?(:cljd Object :clj Exception :cljs js/Error)
                                 error
                            (throw (link-raise error vm))))]
-            (recur (inc i) vm' state pending))
-          [state vm pending])))))
+            (recur (inc i) vm' state pending true))
+          [state vm pending progress?])))))
 
 
 (defn- tokenize
@@ -884,18 +919,132 @@
          " typed while the require was pending\n")))
 
 
+(def ^:private policy-abandon-text
+  "The message a policy-driven abandon prints, in the shape of the
+   `(abandon)` notice, so a policy abandon is never mistaken for a
+   user's (yin.repl.link-policy.md section 3.3)."
+  ";; the session link policy ended the require\n")
+
+
+(defn- abandon-pending
+  "Give up the shell's `:pending-run` (section 7.2, step 7, the abandoned
+   case): every install in flight is dropped through the engine's own
+   `refused`, every link wait entry is retired with the reason raised as
+   the require's error, and the shell returns to the round the require
+   began in, whose store and value history the parked evaluation never
+   wrote.  Lines typed while the require was pending are dropped with
+   it, and said so.  The linker side learns nothing: no response was
+   ever promised, and one that still arrives is skipped as late.  The
+   identity the parked evaluation minted -- link ids and child origins
+   -- is carried onto the base, so nothing is minted twice on the
+   surviving pair.  The `(abandon)` command retires with
+   `:yin.repl/abandoned` and no message of its own; the session link
+   policy retires with the reason it answered and prints
+   `policy-abandon-text`, so a policy abandon is never mistaken for a
+   user's."
+  ([state] (abandon-pending state :yin.repl/abandoned nil))
+  ([state reason ended-text]
+   (if-let [parked (:pending-run state)]
+     (let [[state' text] (drain-output state)
+           ;; installs first: their waiters leave the wait set with the
+           ;; refusal queued, then every remaining link entry retires
+           vm (engine/abandon-installs (:vm parked) reason)
+           error (try
+                   (vm/run (reduce (fn [vm e]
+                                     (engine/abandon-link vm (:link-id e)
+                                                          reason))
+                                   vm
+                                   (:wait-set vm)))
+                   nil
+                   (catch #?(:cljd Object :clj Exception :cljs js/Error) e
+                     e))]
+       [(assoc state'
+               :vm (carry-link-identity (:base parked) vm)
+               :pending-run nil)
+        (str text
+             ended-text
+             (if error (format-error error) "")
+             (dropped-lines-text (count (:pending-lines parked))))])
+     [state "Nothing is pending"])))
+
+
+(defn- consult-link-policy
+  "Consult the shell's `:link-policy` over a run that is still pending --
+   when the require parks, and after each re-check that leaves it so;
+   never on a re-check that completes it (yin.repl.link-policy.md
+   section 3.2).  `text` is what the round printed so far and
+   `kept-text` what a kept run reports.  `:manual` is never consulted
+   and keeps the run; a function's `:keep` keeps it; `:abandon` or
+   `{:abandon reason}` runs the same abandon path as `(abandon)`, the
+   reason defaulting to `:yin.repl/link-policy`; a throw or a return
+   outside the contract is a `:keep` for this consult plus one shell
+   error line -- never a silent abandon, never session death (section
+   3.4).  The view the function receives is plain data, no clock, no
+   handle, no secret (section 3.1).  Returns `[state text]`."
+  [state text kept-text]
+  (if-not (fn? (:link-policy state))
+    [state (str text kept-text)]
+    (let [parked (:pending-run state)
+          answer (try
+                   {:answer ((:link-policy state)
+                             {:links (mapv (fn [p]
+                                             {:name (:name p)
+                                              :link-id (:yin.link/id p)})
+                                           (:links parked))
+                              :checks (or (:checks parked) 0)
+                              :lines-retained
+                              (count (:pending-lines parked))})}
+                   (catch #?(:cljd Object :clj Exception :cljs js/Error) e
+                     {:thrown e}))]
+      (cond
+        (:thrown answer)
+        [state (str text kept-text (format-error (:thrown answer)) "\n")]
+
+        (= :keep (:answer answer))
+        [state (str text kept-text)]
+
+        (= :abandon (:answer answer))
+        (let [[state' text'] (abandon-pending state :yin.repl/link-policy
+                                              policy-abandon-text)]
+          [state' (str text text')])
+
+        (and (map? (:answer answer))
+             (= #{:abandon} (set (keys (:answer answer)))))
+        (let [reason (or (:abandon (:answer answer)) :yin.repl/link-policy)
+              [state' text'] (abandon-pending state reason
+                                              policy-abandon-text)]
+          [state' (str text text')])
+
+        :else
+        [state
+         (str text
+              kept-text
+              (format-error
+                (ex-info
+                  "Link policy returned a value outside its contract"
+                  {:answer (:answer answer)
+                   :contract [:keep :abandon {:abandon :reason}]}))
+              "\n")]))))
+
+
 (defn- pending-eval
   "Answer a round whose require did not complete: the parked VM, its
    round-start base, and the pending links are the shell's
    `:pending-run`, and the prompt returns.  Nothing is wedged: another
-   line re-checks the link, `(abandon)` gives it up, and `(reset)` or
-   `(vm ...)` drops it with the session."
+   line re-checks the link, the host may step one itself with
+   `recheck-pending`, the link policy is consulted as the run parks, and
+   `(reset)` or `(vm ...)` drops it with the session."
   [state state' vm' pending]
   (let [[state'' text] (drain-output state')]
-    [(-> state''
-         (assoc :vm vm'
-                :pending-run {:vm vm', :base (:vm state), :links pending}))
-     (str text (pending-text pending))]))
+    (consult-link-policy
+      (assoc state''
+             :vm vm'
+             :pending-run {:vm vm'
+                           :base (:vm state)
+                           :links pending
+                           :checks 0})
+      text
+      (pending-text pending))))
 
 
 (defn- wedged-program
@@ -1072,42 +1221,6 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 (declare repl-state)
 
 
-(defn- abandon-pending
-  "Give up the shell's `:pending-run` (section 7.2, step 7, the abandoned
-   case): every install in flight is dropped through the engine's own
-   `refused`, every link wait entry is retired with the reason raised as
-   the require's error, and the shell returns to the round the require
-   began in, whose store and value history the parked evaluation never
-   wrote.  Lines typed while the require was pending are dropped with
-   it, and said so.  The linker side learns nothing: no response was
-   ever promised, and one that still arrives is skipped as late.  The
-   identity the parked evaluation minted -- link ids and child origins
-   -- is carried onto the base, so nothing is minted twice on the
-   surviving pair."
-  [state]
-  (if-let [parked (:pending-run state)]
-    (let [[state' text] (drain-output state)
-          ;; installs first: their waiters leave the wait set with the
-          ;; refusal queued, then every remaining link entry retires
-          vm (engine/abandon-installs (:vm parked) :yin.repl/abandoned)
-          error (try
-                  (vm/run (reduce (fn [vm e]
-                                    (engine/abandon-link vm (:link-id e)
-                                                         :yin.repl/abandoned))
-                                  vm
-                                  (:wait-set vm)))
-                  nil
-                  (catch #?(:cljd Object :clj Exception :cljs js/Error) e
-                    e))]
-      [(assoc state'
-              :vm (carry-link-identity (:base parked) vm)
-              :pending-run nil)
-       (str text
-            (if error (format-error error) "")
-            (dropped-lines-text (count (:pending-lines parked))))])
-    [state "Nothing is pending"]))
-
-
 (defn handle-command
   "Answer one shell command.  Unsupported arguments are answered as text, not
    thrown, so a mistyped command cannot end a step."
@@ -1181,34 +1294,40 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
               (recur state' (str text "\n" text') more)))))
 
 
-(defn- resume-pending
+(defn- recheck-pending*
   "One bounded re-check of the shell's `:pending-run`: serve the
    interpreter, run the parked VM, and either answer its value -- the
    round the require began in finally completes, and the lines retained
-   while it was pending, then `input`, evaluate against it -- report it
-   pending again with `input` retained for that completion, or, when the
-   re-check raised the link's refusal, return the shell to the round's
-   base with the error as text and evaluate `input` there."
-  [state trimmed parsed]
-  (let [parked (:pending-run state)
-        input {:trimmed trimmed, :parsed parsed}]
+   while it was pending, then `input`, evaluate against it -- consult
+   the link policy when the re-check leaves the run pending, `:checks`
+   counting this pending run's re-checks that made no progress and
+   resetting on one that did, or, when the re-check raised the link's
+   refusal, return the shell to the round's base with the error as text
+   and evaluate `input` there.  `input` is nil for the host's
+   `recheck-pending`, which evaluates no line of its own."
+  [state input]
+  (let [parked (:pending-run state)]
     (try
-      (let [[state' vm' pending] (drive-links state (:vm parked))]
+      (let [[state' vm' pending progress?] (drive-links state (:vm parked))]
         (if (vm/halted? vm')
           (let [vm'' (engine/restore-initial-env (:env (:base parked)) vm')
                 [st text] (finalize-eval state
                                          (assoc state' :vm vm'')
                                          (tokenize state' vm''))]
             (fold-queued [(assoc st :vm vm'' :pending-run nil) text]
-                         (conj (vec (:pending-lines parked)) input)))
-          (let [[st text] (drain-output state')]
-            [(assoc st
-                    :vm vm'
-                    :pending-run (-> parked
-                                     (assoc :vm vm' :links pending)
-                                     (update :pending-lines
-                                             (fnil conj []) input)))
-             (str text (pending-text pending))])))
+                         (cond-> (vec (:pending-lines parked))
+                           input (conj input))))
+          (let [checks (if progress? 0 (inc (or (:checks parked) 0)))
+                parked' (cond-> (assoc parked
+                                       :vm vm'
+                                       :links pending
+                                       :checks checks)
+                          input (update :pending-lines
+                                        (fnil conj []) input))
+                [st text] (drain-output (assoc state'
+                                               :vm vm'
+                                               :pending-run parked'))]
+            (consult-link-policy st text (pending-text pending)))))
       (catch #?(:cljd Object :clj Exception :cljs js/Error) error
         (let [[st text] (drain-output state)
               d (ex-data error)]
@@ -1222,7 +1341,31 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
              (str text
                   (format-error error)
                   (dropped-lines-text (count (:pending-lines parked))))]
-            [input]))))))
+            (cond-> [] input (conj input))))))))
+
+
+(defn recheck-pending
+  "One re-check of the shell's `:pending-run` without an input line --
+   the step an unattended host drives at its own cadence
+   (yin.repl.link-policy.md section 4): serve the interpreter, run the
+   parked VM, and consult the link policy when the run is still
+   pending.  A re-check that completes the run folds the retained lines
+   exactly as a typed line's completion does.  Returns `[state text]`,
+   `text` nil when nothing is pending.  It reads no clock and takes no
+   callback; the host decides when to call it."
+  [state]
+  (if (:pending-run state)
+    (recheck-pending* state nil)
+    [state nil]))
+
+
+(defn- resume-pending
+  "One bounded re-check of the shell's `:pending-run` behind a typed
+   line: while the run stays pending the line is retained -- the parked
+   VM owns the store a new evaluation would fork -- and it evaluates,
+   in typing order and exactly once, when the link completes."
+  [state trimmed parsed]
+  (recheck-pending* state {:trimmed trimmed, :parsed parsed}))
 
 
 (defn- command-line?
@@ -1274,7 +1417,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    The program media are the composition's own, observed beside the VM, so
    the shell reports what it knows of them — the declared capacity, the gaps
    the session's observers counted, and whether a loss has already refused
-   further evaluation.  `:macros` maps each macro the expander's store holds
+   further evaluation.  Each `:pending` entry carries the link policy's
+   name (`:manual` or `:fn`) and the pending run's `:checks`, so a host
+   can display why a run is still waiting (yin.repl.link-policy.md
+   section 3.5).  `:macros` maps each macro the expander's store holds
    to its lambda's root address (yin.vm.macro.md §10.1)."
   [state]
   {:lang (:lang state)
@@ -1292,9 +1438,12 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    :output {:cursor (:output-cursor state)
             :last-outcome (get-in state [:ledger :output] :untried)}
    :pending (when-let [parked (:pending-run state)]
-              (mapv (fn [p]
-                      {:name (:name p)
-                       :link-id (:yin.link/id p)})
-                    (:links parked)))
+              (let [policy (:link-policy state)]
+                (mapv (fn [p]
+                        {:name (:name p)
+                         :link-id (:yin.link/id p)
+                         :policy (if (fn? policy) :fn policy)
+                         :checks (or (:checks parked) 0)})
+                      (:links parked))))
    :telemetry {:supported? false :note telemetry-text}
    :remote {:connected? false}})
