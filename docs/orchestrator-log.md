@@ -7539,3 +7539,96 @@ Uncommitted-surface caution: the 18-file spec set is the owner's
 Next: Await the owner's direction: (a) dispatch the codex re-gate of
   the spec set now, (b) bring the owner-visible decisions forward, or
   (c) both. No GLM dispatches until the budget is confirmed fresh.
+
+
+## 2026-09-27 15:20:29 +07 — Handoff readiness entry: ZCode/GLM seat, dao.stream.remote slices 0-3 landed, slice 4 in flight via CLI mob
+Completed-GMT: 2026-09-27 08:20:29 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@83cc8bcd; UNCOMMITTED: the slice-4 partial work in the
+  working tree (content.cljc/content/step.cljc+driver.cljc+async.cljc,
+  jing.cljc accept-bytes! +31, coordinate.cljc, linker.cljc ingress
+  migration, ucf_test.cljc's five pins), plus this log entry.
+  routing-status.md untracked-local. 18 tracked paths modified total.
+Owner rulings in force this seat (2026-09-27):
+- "delegate concurrent tasks... you have my permission to stage and
+  commit as long as there's a reviewer and an architect.md has signed
+  off."
+- "instead of using subagents, use cli as described in the
+  orchestrator.md rules" — CLI delegates (claude/glm/codex CLIs with
+  recorded session ids) are the default for new dispatches; the two
+  pre-change ZCode subagents were allowed to finish.
+- Earlier rulings carry forward: commit gate = implemented + reviewed
+  per team.md + architect sign-off; merges to master surfaced; fable
+  only on the owner's word; architect tier = gpt-6-sol + glm-5.3.
+Done this seat (since the 2026-09-27 09:35 takeover entry):
+- Landed the dao.stream.remote spec set: d81e50ad (owner accepted;
+  final gate READY after the autonomous mob: gpt-6-sol + fable fixed
+  the re-gate's five findings in parallel, fresh-session final gate,
+  two mechanical residuals applied orchestrator-direct), 49790e19
+  (UCF blocker-closure acceptance matrix), dbae125b (UCF v2 revision
+  history; :reasons Option B; M4 publication gate cleared), two blogs
+  (05a82c9e why-clojure-has-no-linker with the format.md em-dash rule
+  applied; cfd46d35 ide-on-datomworld + the owner-titled REPL-framing
+  edits), the spec itself (1f7990d5), and the architect's post-landing
+  doc corrections (6638e21b).
+- dao.stream.remote IMPLEMENTATION, slices 0-3 COMMITTED, each through
+  the full cascade (GLM implement -> orchestrator tri-host verify ->
+  gpt-6-sol review+sign-off -> commit): slice 0 431a269c (:refused +
+  unrecognized-outcome rule; gate caught 2 P1s: the rule was folded to
+  transport-error and the parked-wake law failed), slice 1 ea660cd1
+  (middleware; gate caught shared-gate-state and position-rule-as-
+  convention, then the nil-addition hole -> the position rule is now
+  structural), slice 2 803c9004 (remote core, 4 confirmation rounds:
+  registered-sends-only, identity+cursor keying, pending-probe
+  retention, close-forgets-probe-before-drain with a discriminating
+  test), slice 3 83cc8bcd (ws-project + composition; the implementer's
+  BLOCKED split the slice -- the :ws/accept/served-path retirements
+  are DEFERRED to slices 4/5 with pointer comments; gate caught
+  medium-end ring left open, session accumulation, second-dial mixing).
+- Concurrent CLI work dispatched (briefs in collab/, session ids on
+  file): UCF test pins (claude 3cfc40a5: five pins landed, lanes green
+  per its own runs; my verify caught a tree-wide audit failure from
+  slice 4's then-invalid symbol -- the pins themselves are clean;
+  awaiting a clean full-suite for the gpt-6-sol gate), cross-host
+  socket proofs (glm, session on file: running), slice 4 (below).
+IN FLIGHT at this handoff:
+- Slice 4 round 2 via glm CLI: the first implementer (ZCode subagent)
+  died on a model-request error mid-flight, leaving partial work
+  (content.cljc, content/step.cljc with its invalid symbol since fixed,
+  content/driver.cljc, content/async.cljc, accept-bytes! in jing.cljc,
+  linker migration). Round-2 brief
+  collab/1790499500000-vm-engineer-dao-stream-remote-slice4-r2.prompt.md
+  documents the partial state as the starting inventory and the
+  remaining work (port the old tests, migrate all consumers, delete
+  the old remote module + tests, prove no require remains). glm is
+  running it.
+- Cross-host socket proofs (glm, running).
+- UCF pins gate: dispatch gpt-6-sol once the full suite is green
+  (blocked only by slice 4's tree state).
+Next (successor):
+1. Collect slice 4 round 2 (glm); on COMPLETE run the tri-host lanes
+   yourself; then ONE combined gpt-6-sol gate over slice 4 + the UCF
+   pins (batch to conserve codex budget); on READY+GRANTED commit both
+   (separate commits: slice 4 feat, ucf pins test).
+2. Slices 5-8 per the plan (slice 5: yin.repl.serve + connect over
+   reflections + the deferred ws retirements -- slice 4's completion
+   unblocks them; slice 6 UDP; 7 proof; 8 completion), same cadence.
+3. Then fable reviews the whole dao.stream.remote implementation for
+   the final sign-off -- owner-authorized for that review specifically
+   ("finally have fable review").
+4. Owner-visible open decisions: pending-link failure policy
+   (linker.md section 12 bullet 4); ShiBi capability-versus-currency;
+   push to origin (~40 commits ahead, never pushed this seat).
+5. Process notes for successors: (a) CLI delegate sessions can
+   double-background -- a claude run exited on a background compile
+   wait; recover by resuming the session id and demanding foreground
+   work; (b) an in-flight implementer's syntax error breaks the
+   tree-wide store-write-audit test for EVERYONE -- message the
+   implementer, do not touch its files; (c) baselines quoted in
+   briefs go stale -- make implementers measure the true baseline at
+   their start commit; (d) heredocs with quoted delimiters do not
+   expand $(date) -- two log entries needed post-repair.
+Next: the successor collects the in-flight streams per the resume
+  procedure above; no re-derivation shortcuts -- the 02:07 claude-seat
+  handoff's "re-derive everything" posture still applies.
