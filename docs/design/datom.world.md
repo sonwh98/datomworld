@@ -15,6 +15,9 @@ Restrictions are a feature.
 
 1. **Everything is a Stream**: All IO and data flow through append-only streams.
 2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+   At system scale, a "system" is an emergent property of interpreters of
+   pure data, not an object, service, or stored artifact. Find the
+   interpreters and the data they share to find the system.
 3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
 4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
 
@@ -130,6 +133,20 @@ directions wearing the shape of an event.
 
 Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
 Stigmergic coordination emerges from sharing data across streams.
+
+**Systems emerge from interpreters of pure data.** Streams are the
+composition medium; each interpreter gives the same data a perspective
+without collapsing interpretation into execution or owning the truth.
+
+- `dao.space` emerges from `dao.space.index` and `dao.space.query` over
+  ordinary streams.
+- ShiBi capability, metering, and budget emerge from different
+  interpreters over the same tuples; no token object is stored.
+- The four VMs interpret one Universal AST; many syntaxes feed that AST.
+- The semantic AST in `dao.space` is queryable facts projected by the
+  auto-index observer.
+- Client and server are roles in one stigmergic behavior implemented by
+  interpreters, not distinct kinds of nodes.
 
 **Derive, don't persist.** Before adding a tag, slot, or field to any
 canonical content-hashed structure (an AST grammar, a datom schema, a row
