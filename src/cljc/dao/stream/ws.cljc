@@ -407,6 +407,11 @@
 
 ;; Server acceptance is intentionally an endpoint composition object, not a
 ;; global transport directory.  Its slots are supplied and owned by the host.
+;; Deferred retirement (dao.stream.remote.implementation-plan.md, slice 3,
+;; round 2): the :served table and the accept/disclaim handshake go once the
+;; mirror answers not-found per identity; they stay until dao.stream.serving,
+;; which routes accepted offers by these descriptors, is deleted with its
+;; consumers in slices 4 and 5.
 (defn make-endpoint
   [{:keys [served control control-admission slots codecs] :as config}]
   (let [control-target (checked-target control control-admission)
@@ -545,6 +550,9 @@
        (admission? (:ws/admission ack))))
 
 
+;; Deferred retirement: the wire {:ws/frame :ws/accept} answer to an
+;; acknowledgement goes with the served-path table and the disclaim frame
+;; (slices 4 and 5); the copy path's clients still resolve on receiving it.
 (defn- accept-slot!
   [endpoint index slot ack]
   (let [hstate (:handle-state slot)
