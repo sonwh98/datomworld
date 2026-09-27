@@ -1,6 +1,10 @@
 # yin.repl link policy: what a pending require does when nobody answers
 
-Status: design, proposed (2026-09-26). Not implemented. Subordinate to
+Status: ADOPTED by owner ruling (2026-09-27): Option C of the
+pending-link failure policy -- the clock-free linker stands, the
+:link-policy seam ships (:manual default, function policies, :lease
+reserved for phase 2), and the pending require returns a lease-aware
+handle map by default. Implementation pending. Subordinate to
 [`datom.world.md`](./datom.world.md) and to
 [`yin.vm.linker.md`](./yin.vm.linker.md); it settles the M5 decision that
 `yin.vm.linker.md` section 12 (bullet "Failure policy") left open. The

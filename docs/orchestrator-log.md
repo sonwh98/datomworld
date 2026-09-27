@@ -7632,3 +7632,39 @@ Next (successor):
 Next: the successor collects the in-flight streams per the resume
   procedure above; no re-derivation shortcuts -- the 02:07 claude-seat
   handoff's "re-derive everything" posture still applies.
+
+
+## 2026-09-27 22:40:00 +0700 — OWNER RULING: pending-link failure policy = Option C (lease-aware pending map)
+Completed-GMT: 2026-09-27 15:40:00 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Done:
+- Relayed the architect's decision brief (gpt-6-sol,
+  collab/1790497500000-architect-pending-link-policy-brief.gpt-6-sol.*:
+  Option A keep clock-free / B lease-per-link now / C defer with the
+  documented seam; recommendation C).
+- OWNER RULING (paraphrase of the owner's description, confirmed as C
+  with one addition): "(require 'foo) returns immediately with a map
+  with a status value :pending. it has lease information. the user can
+  use that map to inspect the status of the linker. and the programmer
+  can force a wait with a timeout and write code in a loop and can
+  break out of that loop." The owner confirmed this is Option C.
+- The refinement over bare C: the returned pending map carries lease
+  information by default, and a timeout-wait helper composes over
+  abandon so the common case is one call while the raw loop stays
+  available.
+- yin.repl.link-policy.md's status line updated to ADOPTED (the
+  design already specifies: :link-policy on create-state (:manual
+  default, function policies receiving the {:links :checks
+  :lines-retained} view, :lease reserved for phase 2), the view
+  contract, consult timing, abandon semantics, misbehaving-policy
+  fail-safe, and the driving question settled at implementation).
+Decisions: owner's alone. This closes yin.vm.linker.md section 12
+  bullet 4 (the pending-link failure policy).
+Next: dispatch the implementation of yin.repl.link-policy.md (per its
+  own sections 3-5: :link-policy on create-state, the view, the
+  policy consult, the driving step if the host drivers lack one, the
+  timeout-wait helper composing abandon) through the standing cascade
+  (GLM implement -> tri-host verify -> gpt-6-sol gate -> commit);
+  record section 12 bullet 4 as closed in the linker spec's next doc
+  pass.
