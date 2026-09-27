@@ -7717,3 +7717,20 @@ Next: implementation is a post-epic item (disjoint from the
   slice 4 round 2 (glm), cross-host proofs (glm), link-policy
   implementation (subagent) all in flight; slices 5-8 then fable's
   final sign-off.
+
+
+## 2026-09-28 01:35:00 +0700 — Owner decision: yin.vm.ffi stays on dao.stream.apply; remote-FFI-by-composition deferred
+Completed-GMT: 2026-09-27 18:35:00 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Done:
+- Owner explored re-basing yin.vm.ffi onto dao.stream.remote; ruled to
+  KEEP it the way it is (on dao.stream.apply, per the architect's
+  ruling A issued this session). Deferred with a reminder to revisit:
+  a post-epic design round for "remote FFI by composition" -- the VM
+  call stream wired to dao.stream.remote reflections so host calls can
+  be serviced by a remote peer, as a section-5-style convention
+  (descriptor pair, correlation, primitive profiles), NOT a dependency
+  edge out of yin.vm. To integrate with the lease/reclaim and eventual
+  ShiBi authorization seams when that design round happens.
+- Reminder set on this entry: revisit after the dao.stream.remote epic
+  (slices 5-8 + fable sign-off) completes.
