@@ -6,7 +6,7 @@
        [:section#shibi.section-dark
         [:div.section-inner
          [:span.status-pill "Economic primitive"]
-         [:h1 "💩 Shibi (屎币)"]
+         [:h1 "屎币Shibi"]
          [:p.section-lead
           "Shibi is Datom.World's capability token system—a general-purpose economic primitive for managing shared resources and agent authority. "
           "While spam control demonstrates its power (solving the tragedy of the commons through market economics), "
