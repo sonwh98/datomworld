@@ -122,6 +122,29 @@
   (vec (remove (fn [[_ a]] (contains? attrs a)) batch)))
 
 
+;; A second, unrelated segment: two segments' entity ids never mix, so an
+;; independent id and eid range keeps this batch's datoms out of the other's.
+(def ^:private seg-b -2)
+
+
+(defn- eid-b
+  [pc]
+  (- -20 pc))
+
+
+(defn- segment-b
+  [length]
+  (entity-datoms seg-b [[:yin.code/type :segment] [:yin.code/length length]]))
+
+
+(defn- instruction-b
+  [pc op & operands]
+  (entity-datoms (eid-b pc)
+                 (into [[:yin.code/segment seg-b] [:yin.code/pc pc]
+                        [:yin.code/op op]]
+                       (partition 2 operands))))
+
+
 ;; =============================================================================
 ;; S7.3.2 the canonical instruction vector
 ;; =============================================================================
@@ -179,6 +202,21 @@
              (:defect (ex-data-of
                         #(semantic/load-image
                            (claimed (effects-segment :prefix "g"))))))))))
+
+
+(deftest load-image-refuses-before-checking-a-claimed-hash-test
+  (testing "A well-formed but non-canonicalizable claimed batch is refused
+            as non-portable, never reported as a hash-mismatch: load-image
+            canonicalizes first and only then compares the claimed hash"
+    (let [batch (assemble (segment 2 [[:yin.code/hash :segment/claimed]
+                                      [:yin.code/entry 1]])
+                          (instruction 0 :const :yin.code/value 1)
+                          (instruction 1 :halt))
+          r (ex-data-of #(semantic/load-image batch))]
+      (is (= :yin.k/non-portable (:yin.k/status r)))
+      (is (= :non-canonicalizable (:yin.k/kind r)))
+      (is (= :segment-attribute (get-in r [:yin.k/defect :rule])))
+      (is (not= :hash-mismatch (get-in r [:yin.k/defect :rule]))))))
 
 
 ;; =============================================================================
@@ -351,6 +389,19 @@
                              (instruction 1 :halt)))))))
 
 
+(deftest canonicalize-rethrows-non-ucf-exceptions-test
+  (testing "An exception canonicalize's catch does not recognize as a
+            :yin.k/non-portable refusal propagates uncaught rather than
+            being swallowed as one"
+    (let [bad (conj (worked-segment) :not-a-datom)
+          caught (try (ucf/canonicalize bad vm/semantic-contract)
+                      ::not-thrown
+                      (catch #?(:cljd Object :clj Exception :cljs js/Error) e
+                        e))]
+      (is (not= ::not-thrown caught))
+      (is (nil? (:yin.k/status (ex-data caught)))))))
+
+
 ;; =============================================================================
 ;; S7.4 safepoints: the static half
 ;; =============================================================================
@@ -381,6 +432,17 @@
       (is (= [-2 -3] (mapv :yin.safepoint/stack-effect sps))))
     (testing "Nothing is read from E after either call"
       (is (= [[] []] (mapv :yin.safepoint/lexically-required sps))))))
+
+
+(deftest safepoint-reasons-for-park-and-ffi-call-test
+  (testing "A :park safepoint's reason is :park alone"
+    (is (= [[:park]]
+           (mapv :yin.safepoint/reasons (ucf/safepoints [[:park] [:halt]])))))
+  (testing "An :ffi-call safepoint carries both its reasons at one point:
+            sent, or retained while the request is in hand"
+    (is (= [[:ffi :ffi-request]]
+           (mapv :yin.safepoint/reasons
+                 (ucf/safepoints [[:ffi-call :op/add 0] [:halt]]))))))
 
 
 (deftest stack-effect-per-parking-kind-test
@@ -586,6 +648,35 @@
     (is (conforms? batch 4 obs))))
 
 
+(deftest ffi-call-retained-conformance-test
+  (let [batch-a (assemble (segment 6)
+                          (instruction 0 :const :yin.code/value 1)
+                          (instruction 1 :push)
+                          (instruction 2 :const :yin.code/value 2)
+                          (instruction 3 :push)
+                          (instruction 4 :ffi-call :yin.code/ffi-op :op/add
+                                       :yin.code/argc 1)
+                          (instruction 5 :halt))
+        batch-b (assemble (segment-b 2)
+                          (instruction-b 0 :ffi-call :yin.code/ffi-op :op/add
+                                         :yin.code/argc 0)
+                          (instruction-b 1 :halt))
+        vm-a (semantic/vm-load-program (make-vm {:make-stream one-slot-writer})
+                                       batch-a vm/semantic-contract)
+        after-a (vm/step (step-to vm-a 4))
+        vm-b (semantic/vm-load-program after-a batch-b vm/semantic-contract)
+        after-b (vm/step (step-to vm-b 0))
+        entry (peek (:wait-set after-b))]
+    (testing "The one-slot call-in stream is already held by the sent
+              request from batch-a: a second :ffi-call is retained, not
+              sent, at the same safepoint"
+      (is (vm/blocked? after-b))
+      (is (= 2 (count (:wait-set after-b))) "the sent entry is still waiting")
+      (is (true? (:request-sent entry)))
+      (is (= :put (:reason entry)))
+      (is (= :op/add (:op entry))))))
+
+
 (deftest effectful-call-conformance-test
   (let [blocking-next (fn [cursor] {:effect :stream/next, :cursor cursor})
         batch (assemble (segment 7)
@@ -626,3 +717,13 @@
       (is (= '[] (ucf/unsatisfied-names sp frame #{'+})))
       (is (= '[+ q]
              (ucf/unsatisfied-names sp {:env {}} (constantly false)))))))
+
+
+(deftest activation-state-multi-frame-stack-bases-test
+  (testing "Stack bases follow :k in order -- the outermost return frame
+            first, the innermost last: mapv over :k, nothing reordered"
+    (let [frame {:segment seg, :pc 3, :env {}, :stack [],
+                 :k [{:type :return, :stack-base 0}
+                     {:type :return, :stack-base 2}
+                     {:type :return, :stack-base 5}]}]
+      (is (= [0 2 5] (:yin.k/stack-bases (ucf/activation-state frame)))))))
