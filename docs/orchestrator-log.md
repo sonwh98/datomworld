@@ -7785,3 +7785,78 @@ Next: collect each stream; verify; gate; commit per the standing
   rule; then the fable final sign-off (owner-authorized for this
   review); then PUSH; then the post-epic queue (ShiBi design round,
   remote-FFI revisit, collab/ remainder, hygiene).
+
+
+## 2026-09-28 00:07:42 +0700 — Interim handoff-readiness entry: slices 0-2 and 6 committed, slices 5/7/8 in flight, ShiBi + auto-index + FFI rulings recorded
+Completed-GMT: 2026-09-27 17:07:42 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@69fb62e3 + ~12 uncommitted paths: slice-5 rewrite (serve/
+  connect/adapter/driver reworked, rpc.cljc translated, serving.cljc +
+  rpc_ws.cljc + apply wire envelope deleted, lease_composition_test
+  migrated per ruling) AND slice-8 fix round (ucf/remote.cljc +
+  remote_test.cljc rewritten per its gate's three P1s) AND the
+  dissolve commit 237f020a already landed earlier this stretch.
+Done this stretch (since the 2026-09-27 09:35 takeover entry, all
+  committed unless noted):
+- dao.stream.remote spec set: re-gate (5 findings) -> autonomous mob
+  fix (gpt-6-sol + fable in parallel, reconciled in-tree) -> final
+  gate (4 mechanical findings, fixed orchestrator-direct) -> round-2
+  confirm READY/GRANTED -> OWNER ACCEPTED, committed d81e50ad.
+- Slice 6 UDP channel: implemented, gate 3 findings (2 P1 receive
+  defects + P2 validation), fix round, confirm r2 READY/GRANTED,
+  committed f692e826. Fragment-recognition P2 fix applied
+  orchestrator-direct (missing-:part bypass) with regression shape.
+- ShiBi: decision brief relayed; OWNER RULED capabilities (attenuatable
+  capabilities over pure data; metering = policy on a grant; currency
+  deferred). Recorded e199b8ef (dao.shibi.md header, pure-data/
+  emergent-capability direction) and memory.
+- Emergent-property principle: OWNER DIRECTION to spell it out in
+  datom.world.md. Architect authored; committed a7bd1fab. Public page
+  axiom 2 extended to match: 5325e04d.
+- yin.vm.content dissolved (owner principle: "not special content,
+  fundamentally just tuples"): materialize-tree! beside validate-rows
+  in yin.vm, materialize-vector! beside well-formed-vector? in
+  yin.vm.code (split avoids circular require); 237f020a, gate
+  READY/GRANTED.
+- Owner rulings recorded: yin.vm.ffi STAYS on dao.stream.apply
+  (architect ruling A; remote-FFI-by-composition DEFERRED, revisit
+  post-epic, 85a11435); pending-link Option C adopted and link-policy
+  IMPLEMENTED (8d4f3c9f, gate READY/GRANTED after one P1 fix:
+  abandon-map must match the exact #{:abandon} key set); auto-index
+  q-by-user-require ruling (977962ac); push authorized once the epic
+  completes; GLM->subagent (0.67 quota) / non-GLM->CLI routing;
+  brief-first collab rule.
+In flight (3 concurrent, disjoint file sets):
+- SLICE 5 (yin.repl/serve+connect+adapter rework, serving/rpc_ws/
+  apply-envelope deletions, lease_composition migration): the r4/r5
+  sessions double-backgrounded then died mid-rewrite (22 embed/main
+  failures); recovered via resume b571de74 (r8, running): current
+  failures are exactly 2 (main_test remote-value nil cases) + bb.edn
+  still referencing deleted dao.stream.slice-peer (Dart peer build).
+- SLICE 6 FIX ROUND (ZCode subagent): round-1 fixes verified by me
+  (focused 12/35/0); confirmation r2 dispatched (gpt-6-sol).
+- SLICE 8 (ZCode subagent, fix round): gate found 3 P1s (shallow
+  round-trip: invented entries instead of real parked shapes; v1
+  profile claimed without codec-portability check; per-entry c-0
+  cells instead of frame-level sharing). Fix round running.
+- Slice 7 r2 (pair/meet/relay) dispatched via claude CLI; slice-8
+  (UCF facade) dispatched via claude CLI.
+Environment notes for the successor:
+- 3-day-old orphan JVM (pid 37263, pre-takeover leftover) was
+  misleading a watch loop; killed. Long-running detached suites can
+  outlive their sessions -- check process ELAPSED before waiting.
+- claude --resume with a NEW session id starts FRESH (no context);
+  long dispatches must carry the full contract in the prompt (the
+  slice-5 r5->r6->r7 chain hit this).
+- ZCode subagent completions can fail to notify (slice-6 fix agent
+  sat finished-but-unreported for 4h; the tree diff + output.txt
+  mtimes revealed it). Check agent metadata.json status when in doubt.
+- dart.cljd and node.cljs (slice-6) got DYNAMIC-WARNING type hints;
+  cljstyle binary absent in some CLI sessions -- use mise exec cljstyle.
+Next: collect slice-5 r8, slice-6 confirm, slice-8 fix; verify all;
+gates; commit each per the standing rule; then slice 7 gate/commit;
+slice 8 confirm; fable final sign-off; PUSH (authorized); post-epic
+queue (ShiBi spec round -- capabilities adopted; remote-FFI revisit;
+auto-index implementation; yang.antlr consistency pass + gate before
+any implementation; collab/ remainder + hygiene).
