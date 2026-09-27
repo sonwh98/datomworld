@@ -10,10 +10,12 @@ This document is subordinate to
 [`datom.world.md`](./datom.world.md) (axioms and invariants),
 [`dao.stream.md`](./dao.stream.md) (the passive stream substrate),
 [`yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) (the Universal
-AST encoding), [`dao.stream.apply.md`](./dao.stream.apply.md) (the
-stream-native apply protocol), and [`dao.jing.dht.md`](./dao.jing.dht.md)
-(content-addressed segment distribution). Where it restates a rule from
-one of them it cites the rule; it supersedes none of them.
+AST encoding), [`dao.stream.remote.md`](./dao.stream.remote.md) (mirror,
+reflection, and channel transport), and
+[`dao.jing.dht.md`](./dao.jing.dht.md) (content-addressed segment
+distribution). `dao.jing.content` provides the content service over
+reflections. Where this document restates a rule from those contracts,
+it cites the rule; it supersedes none of them.
 
 Owner directive, verbatim: "the list of language is not exhaustive". Every
 language named below (Java, Python, PHP, JavaScript, Go, Rust, Clojure,
@@ -43,6 +45,12 @@ language interpreters lower that data to Yin's existing Universal AST;
 the established encoder produces canonical content-addressed rows.
 Evaluation, indexing, persistence, diagnostics, and tooling remain
 independently composed observers.
+
+Remote compiler and content services use `dao.stream.remote` mirror and
+reflection handles. WebSocket channels compose `ws-project` at each end.
+Content puts and fetched bytes pass the shared `dao.jing/accept-bytes!`
+ingress check through `dao.jing.content`; transport does not validate
+their content. These service boundaries do not change the frontend SPI.
 
 **An ANTLR grammar supplies syntax recognition. Executable language
 support additionally requires a semantics-preserving lowering and runtime
@@ -1260,7 +1268,7 @@ and no host function is ever called from portable code.
 |       |                             | enters the VM kernel          |
 +-------+-----------------------------+-------------------------------+
 | 4     | System I/O and effects:     | Yin VM effect descriptors;    |
-|       | files, sockets, timers,     | FFI through dao.stream.apply; |
+|       | files, sockets, timers,     | Local dao.stream.apply FFI;   |
 |       | processes, native libraries | host interpreters append      |
 |       |                             | outcomes                      |
 +-------+-----------------------------+-------------------------------+
@@ -1322,12 +1330,14 @@ the operation, and appends the outcome; portable code reads the outcome.
 A host with no implementation for an effect emits a qualified
 unsupported result, which is a correct outcome.
 
-FFI calls go through `dao.stream.apply` (`dao.stream.apply.md`): the
-call is a request record on a stream, the result is a response record,
-and correlation is by identity in the data. No direct host function
-calls from portable code. Browser APIs, Node APIs, JVM libraries, and
-Dart platform channels are all effect packages declared in a frontend's
-runtime profile, not properties of any grammar.
+FFI calls use `dao.stream.apply` as the VM's local FFI bridge. The call
+is a request record on a stream, the result is a response record, and
+correlation is by identity in the data. The apply wire envelope is
+retired from the network path; remote service traffic uses request and
+answer streams over `dao.stream.remote` reflections. No direct host
+function calls from portable code. Browser APIs, Node APIs, JVM
+libraries, and Dart platform channels are effect packages declared in
+a frontend's runtime profile, not properties of any grammar.
 
 Capabilities are declared: the runtime profile lists the effects a
 language's standard library may request, and a composition grants or
