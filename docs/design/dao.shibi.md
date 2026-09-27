@@ -7,13 +7,20 @@ documents may rely on and what ShiBi must supply. It designs nothing.
 ## What it is
 
 ShiBi is the capability system of datom.world: authentication and
-authorization are its job and no other document's. It is to be built the
-way `dao.space` is built, as a tuple space that emerges from two
-interpreters over ordinary streams, one that indexes and one that queries,
-neither knowing the other exists (`datom.world.md`, Streams). Its tokens are
-described elsewhere as Macaroon-style: attenuatable, offline-verifiable,
-revocable caveats (`dao.space.security.md`, Capabilities Govern
-Interpreters).
+authorization are its job and no other document's. Owner direction
+(2026-09-28): ShiBi is pure data -- the capability is an emergent
+property of interpreters of pure data, exactly as dao.space is the
+emergent property of dao.space.index and dao.space.query. There is no
+token object to mint and no capability stored anywhere: grant,
+attenuation, revocation and budget are patterns of interpretation over
+tuples, and different interpreters over the same tuples can realize a
+capability system, a metering system, or something else entirely. It
+is built the way `dao.space` is built, as a tuple space that emerges
+from two interpreters over ordinary streams, one that indexes and one
+that queries, neither knowing the other exists (`datom.world.md`,
+Streams). Earlier Macaroon-style token framing
+(`dao.space.security.md`) is superseded by this direction: tokens
+would be one interpreter's emission, not ShiBi's substance.
 
 ## How it plugs in
 
