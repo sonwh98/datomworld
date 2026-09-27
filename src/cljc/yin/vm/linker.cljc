@@ -1,10 +1,11 @@
 (ns yin.vm.linker
   "The code linker (docs/design/yin.vm.linker.md): fetches and verifies
    code over a DaoStream content pair (section 6). The linker holds no
-   DaoJing handle: every read is a `:jing/get-content` request on a
-   `dao.stream.rpc` client, answered by whatever serves the pair -- a
-   local store, a `dao.jing.dht/create-content-dht` handle, or a remote
-   endpoint -- behind `dao.jing.remote/default-handlers`.
+   DaoJing handle: every read is a {:jing/request r :jing/get address}
+   request on the content pair -- dao.jing.content's request and response
+   vocabulary (dao.stream.remote.implementation-plan.md section 1) --
+   answered by whatever serves the pair, behind
+   dao.jing.content/serve-step.
 
    The portable interface is stepped (section 6.3): `link-state`,
    `request-link`, `step`, and `abandon` are pure functions over explicit
@@ -28,17 +29,16 @@
    storage-derived ones, so step 2 checks the address and step 3 checks
    the identity; neither subsumes the other (I5).
 
-   The rpc client, the indexes, the format records, and the bounds are
-   linker-local state (section 6.2); the receiver environment is an
-   explicit argument. There is no global loader, registry, callback, or
-   cache here, and every outcome -- success or refusal -- is a returned
-   plain data map (section 4.3)."
+   The content pair client, the indexes, the format records, and the
+   bounds are linker-local state (section 6.2); the receiver environment
+   is an explicit argument. There is no global loader, registry,
+   callback, or cache here, and every outcome -- success or refusal --
+   is a returned plain data map (section 4.3)."
   (:require #?@(:cljd [["dart:typed_data" :as typed]])
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.space.query :as query]
-            [dao.stream.apply :as apply]
-            [dao.stream.rpc :as rpc]
+            [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.code :as code]
             [yin.vm.debruijn-code :as debruijn-code]
@@ -1167,39 +1167,23 @@
      :cljs (js-obj)))
 
 
-(def ^:private get-content-op
-  "The content pair's one read operation: `dao.jing.remote`'s existing
-   wire vocabulary (section 6.1). The linker writes no protocol of its
-   own for content."
-  :jing/get-content)
-
-
-(defn- presence-envelope?
-  "True only for the exact wire envelope `{:found? boolean :value v}` that
-   `:jing/get-content` answers."
-  [x]
-  (and (map? x)
-       (= #{:found? :value} (set (keys x)))
-       (let [f (:found? x)] (or (true? f) (false? f)))))
-
-
-(defn- answered-text
-  "Step 2's read: the Base64 reply text one content-pair completion
-   carries, or `missing` when it carries none -- not found, an error
-   response, a malformed envelope, a value that is not text, or a
-   request lost by the medium. A failing read has no payload for this
-   link, so it fails closed as `:absent`, never as execution. Nothing is
-   decoded here, so that step 2's byte cap runs before the text is."
-  [completion]
-  (let [response (:dao.stream.rpc/response completion)
-        answer (when (and (some? response)
-                          (nil? (apply/response-error response)))
-                 (apply/response-ok response))]
-    (if (and (presence-envelope? answer)
-             (true? (:found? answer))
-             (string? (:value answer)))
-      (:value answer)
-      missing)))
+(defn- answer-text
+  "Step 2's read: the Base64 reply text one content-pair answer carries,
+   or `missing` when it carries none -- not found, or a value that is
+   not the exact reply envelope the client vocabulary answers a read
+   with, {:jing/request r :jing/found? true :jing/bytes b64}: the three
+   keys present and no others (the shape content/step's get-answer?
+   demands). A failing read has no payload for this link, so it fails
+   closed as `:absent`, never as execution. Nothing is decoded here, so
+   that step 2's byte cap runs before the text is."
+  [answer]
+  (if (and (map? answer)
+           (= #{:jing/request :jing/found? :jing/bytes}
+              (set (keys answer)))
+           (true? (get answer :jing/found?))
+           (string? (get answer :jing/bytes)))
+    (get answer :jing/bytes)
+    missing))
 
 
 (defn- least-decoded-length
@@ -1212,13 +1196,23 @@
   (- (* 3 (quot (count text) 4)) 2))
 
 
-(defn- text-bytes
-  "The bytes strict padded Base64 `text` decodes to, or `missing` when it
-   is not strict Base64 (fails closed as `:absent`)."
-  [text]
-  (try (jing/base64->bytes text)
-       (catch #?(:cljd Object :clj Throwable :cljs :default) _
-         missing)))
+(defn- ingress!
+  "The one ingress check, dao.jing/accept-bytes!, guarded: the canonical
+   bytes the answer text carries for `address`, or a refusal mapping the
+   check's reason onto step 2's closed refusal set. Text that is not
+   strict Base64 has no payload (:absent); bytes that do not hash to the
+   address, or that do not decode as exactly one canonical payload, are
+   not the content the address names (:address-mismatch)."
+  [address text]
+  (try
+    {:bytes (jing/accept-bytes! address text)}
+    (catch #?(:cljd Object :clj Throwable :cljs :default) e
+      (case (get (ex-data e) :reason)
+        :base64 {:refusal (refused :absent {:address address})}
+        {:refusal (refused :address-mismatch
+                           (cond-> {:address address}
+                             (= :non-canonical (get (ex-data e) :reason))
+                             (assoc :value nil)))}))))
 
 
 (defn- decoded
@@ -1277,18 +1271,16 @@
 (defn- checked-part
   "One worklist visit over the Base64 reply `text` the content pair
    answered for `address`: bound the text against the byte `budget`
-   remaining before it is decoded at all, decode it strictly, check the
-   decoded size against the budget before hashing or decoding the
-   payload, verify the bytes against the address they were requested
-   at, then validate the part row-locally -- in that order, so an
-   oversized reply is refused before its text is decoded, an oversized
-   row before its bytes are hashed or decoded, mismatched bytes are never
-   decoded for evidence, and a malformed row is refused before anything
-   it references is decoded or enqueued. The order is total: no reply
-   (`:absent`), then the text bound (`:parts-limit`), then text that is
-   not strict Base64 (`:absent`), then the decoded bound
-   (`:parts-limit`), so oversize text is `:parts-limit` whether or not it
-   is Base64. Returns `{:value v :bytes n}` or a refusal."
+   remaining before it is decoded at all, admit it through the one
+   ingress check, check the admitted size against the budget, then
+   validate the part row-locally -- in that order, so an oversized
+   reply is refused before its text is decoded, text that is not strict
+   Base64 or bytes that fail the ingress check are refused before the
+   row is seen, and a malformed row is refused before anything it
+   references is decoded or enqueued. The order is total: no reply
+   (`:absent`), then the text bound (`:parts-limit`), then the ingress
+   refusal (`:absent` or `:address-mismatch`), then the decoded bound
+   (`:parts-limit`). Returns `{:value v :bytes n}` or a refusal."
   [format identity address text budget]
   (cond
     (identical? missing text)
@@ -1298,26 +1290,20 @@
     (refused :parts-limit {:bound :max-bytes, :address address})
 
     :else
-    (let [bs (text-bytes text)]
-      (cond
-        (identical? missing bs)
-        (refused :absent {:address address})
-
-        (and budget (> (byte-count bs) budget))
-        (refused :parts-limit {:bound :max-bytes, :address address})
-
-        (not (jing/segment-bytes-match? address bs))
-        (refused :address-mismatch {:address address})
-
-        :else
-        (let [value (decoded bs)]
-          (if (nil? value)
-            (refused :address-mismatch {:address address, :value nil})
-            (if-let [defect (row-defect format value)]
-              (refused :descriptor-defect
-                       {:identity identity, :address address,
-                        :defect defect})
-              {:value value, :bytes (byte-count bs)})))))))
+    (let [ingress (ingress! address text)]
+      (if-some [refusal (:refusal ingress)]
+        refusal
+        (let [bs (:bytes ingress)]
+          (if (and budget (> (byte-count bs) budget))
+            (refused :parts-limit {:bound :max-bytes, :address address})
+            (let [value (decoded bs)]
+              (if (nil? value)
+                (refused :address-mismatch {:address address, :value nil})
+                (if-let [defect (row-defect format value)]
+                  (refused :descriptor-defect
+                           {:identity identity, :address address,
+                            :defect defect})
+                  {:value value, :bytes (byte-count bs)})))))))))
 
 
 (def default-bounds
@@ -1411,19 +1397,43 @@
 ;; The stepped core (sections 6.2, 6.3)
 ;; =============================================================================
 
+(defn- valid-content!
+  "Throw unless `content` names a content pair the linker can speak
+   (section 6.1): a requests writer, an answers reader, and the reading
+   cursor the composition minted."
+  [content]
+  (when-not (and (map? content)
+                 (stream/writer? (get content :requests))
+                 (stream/reader? (get content :answers))
+                 (contains? content :cursor))
+    (throw (ex-info
+             "the link state's :content needs :requests, :answers and
+              :cursor of the content pair"
+             {:content content})))
+  content)
+
+
 (defn link-state
   "The linker-local state (section 6.2), constructed once by the
-   composition. `:rpc` is a `dao.stream.rpc` client state on the content
-   pair; `:formats` maps a format keyword to its record (section 5);
-   `:indexes` maps a format keyword to its index, a map or function from
-   identity to storage address (the identity function for the two
-   storage-derived formats, section 3); `:bounds` is `{:max-parts n
-   :max-depth d :max-bytes b}`, every bound left nil taking
-   `default-bounds`. Functions live here and only here; no socket, atom,
-   handle, or scheduler does. The name environment, authority,
-   derivation, and fallback policies of section 8 are M4's."
-  [{:keys [rpc formats indexes bounds]}]
-  {:rpc rpc,
+   composition. `:content` is the linker's client on the content pair
+   (section 6.1): `{:requests w :answers r :cursor c}`, the pair's two
+   handles and the reading cursor the composition minted (an anchor is
+   resolved on the first poll); the client's own bookkeeping -- the one
+   retained unsent request, the losses a refused append filed, the
+   terminal reason -- is linker state the steps maintain. `:formats`
+   maps a format keyword to its record (section 5); `:indexes` maps a
+   format keyword to its index, a map or function from identity to
+   storage address (the identity function for the two storage-derived
+   formats, section 3); `:bounds` is `{:max-parts n :max-depth d
+   :max-bytes b}`, every bound left nil taking `default-bounds`.
+   Functions live here and only here; no socket, atom, or scheduler
+   does. The name environment, authority, derivation, and fallback
+   policies of section 8 are M4's."
+  [{:keys [content formats indexes bounds]}]
+  {:content (-> (valid-content! content)
+                (assoc :unsent nil)
+                (assoc :lost [])
+                (assoc :terminal nil)),
    :formats (or formats {}),
    :indexes (or indexes {}),
    :bounds (bounded bounds),
@@ -1642,27 +1652,142 @@
               (assoc-in state [:links id] link'))))))))
 
 
-(defn- route-completion
-  "Route one raw content-pair completion to the link awaiting its id. A
-   completion no link claims -- the late answer of an abandoned link --
-   is dropped."
-  [state raw]
-  (let [rid (:dao.stream.rpc/id raw)
+(defn- mint-request-id
+  "A self-minted random request id (the content vocabulary's r), unique
+   against the ids this client owes, so an answer correlates to the link
+   that asked and callers sharing one answers stream do not collide."
+  [state]
+  (loop []
+    (let [id (str (random-uuid))]
+      (if (or (contains? (:routes state) id)
+              (= id (get-in state [:content :unsent :id])))
+        (recur)
+        id))))
+
+
+(defn- route-answer
+  "Route one content-pair answer to the link awaiting its id: the entry
+   carries the raw answer, or a loss with its reason, and a loss routes
+   exactly as a reply that carried no payload does (checked-part's
+   `missing`). An id no link claims -- the late answer of an abandoned
+   link -- is dropped."
+  [state entry]
+  (let [rid (:id entry)
         id (get (:routes state) rid)]
     (if (and (some? id) (contains? (:links state) id))
-      (receive-part (update state :routes dissoc rid) id (answered-text raw))
+      (receive-part (update state :routes dissoc rid)
+                    id (answer-text (:answer entry)))
       (update state :routes dissoc rid))))
+
+
+(defn- lose-claims
+  "Mark every claim the content client holds lost with `reason`: each
+   id's loss routes on the ordinary path, its route dying there as any
+   answer's does. A terminal reason also ends the client, and the one
+   retained unsent request dies with it: no later step can deliver it."
+  [state reason terminal?]
+  (let [losses (mapv (fn [rid] {:id rid, :lost reason})
+                     (keys (:routes state)))
+        state (cond-> state
+                (and terminal? (get-in state [:content :unsent]))
+                (assoc-in [:content :unsent] nil)
+
+                terminal?
+                (assoc-in [:content :terminal] reason))]
+    [state losses]))
+
+
+(defn- anchor-cursor
+  "Resolve an anchor-keyword cursor through the answers reader: the
+   Linda mint (:dao.stream/newest) on a reflection is answered across
+   the channel, so an answer that is not yet available leaves the anchor
+   in place for the next step. Returns [cursor settled?]."
+  [answers anchor]
+  (let [r (stream/cursor answers anchor)]
+    (if (= :dao.stream/ok (:dao.stream/outcome r))
+      [(:dao.stream/cursor r) true]
+      [anchor false])))
+
+
+(defn- poll-answers
+  "Order 2: read at most `budget` answers, correlating each by its
+   :jing/request id against the claims in :routes. Returns
+   {:state s :routed [...] :diagnostics [...]}: each answer a claim
+   holds is routed under its id; an answer nobody claims, or a value
+   that is not an answer, is a diagnostic and never reaches a link. A
+   blocked read stops the poll; a gap loses every claim without ending
+   the client; a reader that ends or errs ends it, the losses routed
+   with the outcome as their reason."
+  [state budget]
+  (loop [state state, left budget, routed [], diagnostics []]
+    (cond
+      (:terminal (:content state))
+      {:state state, :routed routed, :diagnostics diagnostics}
+
+      (contains? stream/standard-anchors (:cursor (:content state)))
+      (let [[cursor settled?]
+            (anchor-cursor (:answers (:content state))
+                           (:cursor (:content state)))]
+        (if settled?
+          (recur (assoc-in state [:content :cursor] cursor)
+                 left routed diagnostics)
+          {:state state, :routed routed, :diagnostics diagnostics}))
+
+      (zero? left)
+      {:state state, :routed routed, :diagnostics diagnostics}
+
+      :else
+      (let [r (stream/next (:answers (:content state))
+                           (:cursor (:content state)))
+            outcome (:dao.stream/outcome r)]
+        (cond
+          (= :dao.stream/ok outcome)
+          (let [v (:dao.stream/value r)
+                state (assoc-in state [:content :cursor]
+                                (:dao.stream/cursor r))]
+            (if (and (map? v) (contains? v :jing/request))
+              (let [rid (get v :jing/request)]
+                (if (contains? (:routes state) rid)
+                  (recur state (dec left)
+                         (conj routed {:id rid, :answer v}) diagnostics)
+                  (recur state (dec left) routed
+                         (conj diagnostics
+                               {:yin.link/code :yin.link/unsolicited-answer
+                                :yin.link/value v}))))
+              (recur state (dec left) routed
+                     (conj diagnostics
+                           {:yin.link/code :yin.link/malformed-answer
+                            :yin.link/value v}))))
+
+          (= :dao.stream/blocked outcome)
+          {:state state, :routed routed, :diagnostics diagnostics}
+
+          (= :dao.stream/gap outcome)
+          (let [[state losses]
+                (lose-claims
+                  (assoc-in state [:content :cursor] (:dao.stream/cursor r))
+                  :dao.stream/gap false)]
+            (recur state left (into routed losses) diagnostics))
+
+          :else
+          (let [reason (if (keyword? outcome)
+                         outcome
+                         :dao.stream/transport-error)
+                [state losses] (lose-claims state reason true)]
+            (recur state left (into routed losses) diagnostics)))))))
 
 
 (defn- issue-request
   "Issue link `id`'s next content request, in worklist order, unless one
    is already awaited. The depth bound is checked before the read; a
    terminal client has no payload for the link (`:absent`, failing
-   closed); a writer still owing an unsent envelope issues nothing this
-   step -- `rpc` retains one envelope, retried by the next step."
+   closed); a writer still owing an unsent request issues nothing this
+   step -- the client retains one request, retried by the next step. A
+   writer that refuses the append outright files the loss for the next
+   step's routing, through the claim the issue already holds."
   [state id]
   (let [link (get-in state [:links id])
-        rpc-state (:rpc state)]
+        content (:content state)]
     (if (or (nil? link) (some? (:awaiting link)))
       state
       (let [[address depth] (nth (:queue link) (:at link))
@@ -1672,52 +1797,79 @@
           (finish state id
                   (refused :parts-limit {:bound :max-depth, :address address}))
 
-          (:terminal rpc-state)
+          (:terminal content)
           (finish state id (refused :absent {:address address}))
 
-          (rpc/unsent? rpc-state)
+          (:unsent content)
           state
 
           :else
-          (let [r (rpc/request! rpc-state get-content-op [address])
-                rid (:dao.stream.rpc/id r)
-                state (assoc state :rpc (:dao.stream.rpc/state r))]
-            (if (some? rid)
+          (let [rid (mint-request-id state)
+                value {:jing/request rid, :jing/get address}
+                outcome (:dao.stream/outcome
+                          (stream/append! (:requests content) value))]
+            (case outcome
+              (:dao.stream/ok :dao.stream/full)
               (-> state
+                  (cond-> (= :dao.stream/full outcome)
+                    (assoc-in [:content :unsent]
+                              {:id rid, :value value}))
                   (assoc-in [:links id :awaiting] rid)
                   (assoc-in [:routes rid] id))
-              (finish state id (refused :absent {:address address})))))))))
+
+              ;; closed, invalid-value, refused, transport-error: the
+              ;; append never happened, and the loss is filed for the
+              ;; next step's routing under the claim just taken
+              (-> state
+                  (assoc-in [:links id :awaiting] rid)
+                  (assoc-in [:routes rid] id)
+                  (assoc-in [:content :lost] [{:id rid, :lost outcome}])))))))))
 
 
 (defn step
   "One non-waiting advance of every in-flight link (section 6.3), in a
    fixed order: re-attempt the unsent content request; poll the content
-   response medium at most `budget` elements; route each correlated
-   response to its link and run the verification step it enables; issue
+   answers medium at most `budget` elements; route each correlated
+   answer to its link and run the verification step it enables; issue
    the next content request each link's worklist needs; take the
    completions. Returns `{:state s :completions [...] :diagnostics
    [...]}`: each completion carries its `:yin.link/id` exactly once; a
    link with none yet is `:pending`, and the caller steps again when it
-   chooses. Diagnostics are the rpc client's, taken exactly once.
+   chooses. Diagnostics are the content client's, taken exactly once.
 
    This is an interpreter step -- it performs stream operations -- under
    a single-owner precondition: one caller, one state thread."
   [state budget]
-  (let [rpc0 (:rpc state)
-        rpc1 (if (and (rpc/unsent? rpc0) (not (:terminal rpc0)))
-               (:dao.stream.rpc/state (rpc/request! rpc0 nil nil))
-               rpc0)
-        rpc2 (:dao.stream.rpc/state (rpc/poll! rpc1 budget))
-        rpc3 (if (and (:terminal rpc2) (rpc/unsent? rpc2))
-               (rpc/abandon-unsent rpc2 (:terminal rpc2))
-               rpc2)
-        [raw rpc4] (rpc/take-completed rpc3)
-        [diagnostics rpc5] (rpc/take-diagnostics rpc4)
-        routed (reduce route-completion (assoc state :rpc rpc5) raw)
-        issued (reduce issue-request routed (:order routed))]
+  (let [content (:content state)
+        ;; 1. re-attempt the one retained unsent request
+        attempt (when (and (:unsent content) (not (:terminal content)))
+                  (stream/append! (:requests content)
+                                  (:value (:unsent content))))
+        [state unsent-loss]
+        (if (nil? attempt)
+          [state []]
+          (let [rid (get-in state [:content :unsent :id])
+                outcome (:dao.stream/outcome attempt)]
+            (case outcome
+              :dao.stream/ok [(assoc-in state [:content :unsent] nil) []]
+              :dao.stream/full [state []]
+              ;; refused: the delivery is lost on the ordinary path
+              [(assoc-in state [:content :unsent] nil)
+               [{:id rid, :lost outcome}]])))
+        ;; 2 and 3: poll, losing what the medium lost
+        polled (poll-answers state budget)
+        ;; 5 (the routing half): the refused re-attempt, the losses a
+        ;; refused append filed last step, then this step's answers
+        routed (-> unsent-loss
+                   (into (get-in state [:content :lost] []))
+                   (into (:routed polled)))
+        state (assoc-in (:state polled) [:content :lost] [])
+        routed-state (reduce route-answer state routed)
+        ;; 4: the next request each surviving link's worklist needs
+        issued (reduce issue-request routed-state (:order routed-state))]
     {:state (assoc issued :outbox []),
      :completions (:outbox issued),
-     :diagnostics diagnostics}))
+     :diagnostics (:diagnostics polled)}))
 
 
 (defn abandon
@@ -1725,17 +1877,16 @@
    bookkeeping is retired and it completes `{:status :lost :reason
    reason}` at the next `step`, so a caller that gives up still receives
    exactly one completion. A content request it still owed the writer is
-   abandoned with it; one already on the wire is answered into nothing.
+   dropped with it -- its claim dies here, so its late answer is
+   unsolicited -- and one already on the wire is answered into nothing.
    An id with no link in flight leaves the state unchanged."
   [state link-id reason]
   (if-let [link (get-in state [:links link-id])]
-    (let [rid (:awaiting link)
-          rpc-state (:rpc state)]
+    (let [rid (:awaiting link)]
       (-> state
-          (assoc :rpc (if (and (some? rid)
-                               (= rid (get-in rpc-state [:unsent :id])))
-                        (rpc/abandon-unsent rpc-state reason)
-                        rpc-state))
+          (cond-> (and (some? rid)
+                       (= rid (get-in state [:content :unsent :id])))
+            (assoc-in [:content :unsent] nil))
           (update :routes dissoc rid)
           (finish link-id {:status :lost, :reason reason})))
     state))
@@ -1771,7 +1922,7 @@
 
    `runtime` is `{:state link-state :drive (fn [state] state')}`.
    `:drive` is the composition's driver: it advances whatever serves the
-   content pair (`dao.stream.rpc/serve-once!` over a handle, or nothing
+   content pair (`dao.jing.content/serve-step` over a handle, or nothing
    when a remote server runs elsewhere) and returns the link state; after
    each drive `fetch` steps the linker, until the one link completes.
    `fetch` holds no DaoJing handle and cannot call `jing/get`: the

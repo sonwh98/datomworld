@@ -233,34 +233,39 @@
   "Open a published covered-index coordinate — the serializable map
    `index/published-index` builds — as a query value the caller owns: the
    content-store handle it opens is closed by `close-published!`, never by
-   a query. Nothing is fetched beyond the manifest; the row vector stays
+   a query. `opts` reaches `dao.jing.coordinate/open!` as-is: a remote
+   content-store coordinate opens through the composition's
+   :dao.jing/attach entry, which a coordinate never carries, being data.
+   Nothing is fetched beyond the manifest; the row vector stays
    deferred behind :rows and the covered sets behind restored B-trees, so a
    `current` view with no as-of can answer selective clauses without a
    full drain."
-  [coordinate]
-  (when-not (and (map? coordinate)
-                 (= :dao.space.index/published (:dao.stream/type coordinate)))
-    (throw (ex-info "open-published! takes a published-index coordinate"
-                    {:coordinate coordinate})))
-  (let [{:keys [content-store manifest-address]} coordinate
-        expected (index/published-index content-store manifest-address)]
-    (when-not (= expected coordinate)
-      (throw (ex-info "invalid published-index coordinate"
-                      {:coordinate coordinate, :expected expected})))
-    (let [store (jing-coordinate/open! content-store)]
-      (try
-        (let [manifest (index/read-manifest store manifest-address)]
-          {:dao.space.query/published coordinate
-           :indexes (index/restored-indexes store manifest)
-           :rows (delay (index/read-datoms store manifest-address))
-           :store store
-           :close-guard (atom false)})
-        (catch #?(:cljd Object
-                  :clj Throwable
-                  :cljs :default)
-               error
-          (jing/close! store)
-          (throw error))))))
+  ([coordinate] (open-published! coordinate nil))
+  ([coordinate opts]
+   (when-not (and (map? coordinate)
+                  (= :dao.space.index/published
+                     (:dao.stream/type coordinate)))
+     (throw (ex-info "open-published! takes a published-index coordinate"
+                     {:coordinate coordinate})))
+   (let [{:keys [content-store manifest-address]} coordinate
+         expected (index/published-index content-store manifest-address)]
+     (when-not (= expected coordinate)
+       (throw (ex-info "invalid published-index coordinate"
+                       {:coordinate coordinate, :expected expected})))
+     (let [store (jing-coordinate/open! content-store opts)]
+       (try
+         (let [manifest (index/read-manifest store manifest-address)]
+           {:dao.space.query/published coordinate
+            :indexes (index/restored-indexes store manifest)
+            :rows (delay (index/read-datoms store manifest-address))
+            :store store
+            :close-guard (atom false)})
+         (catch #?(:cljd Object
+                   :clj Throwable
+                   :cljs :default)
+                error
+           (jing/close! store)
+           (throw error)))))))
 
 
 (defn close-published!

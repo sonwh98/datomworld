@@ -1,26 +1,24 @@
 (ns dao.data.btree-async-test
   "hydrate-async and store-tree-async (docs/design/dao.data.btree.md §5.4)
-   over dao.jing.remote.async, the async content backend over the stepped
-   client.
+   over dao.jing.content.async, the async content backend over the
+   stepped client.
 
    Every test runs on every host, synchronously: the backend's reschedule
    hook is a manual queue, and `drain!` turns a hand-turned server (ring
-   buffers + dao.stream.apply over dao.jing.remote/default-handlers, as in
-   dao.jing.remote.step-test) before each queued pump.  The callback
+   buffers + dao.jing.content/serve-step over a dao.jing handle, as in
+   dao.jing.content.step-test) before each queued pump.  The callback
    arities are the portable surface under test; the host deferred wrapper
    is checked on the JVM only."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.data.btree :as bt]
             [dao.data.btree.storage :as bts]
             [dao.jing :as jing]
+            [dao.jing.content :as content]
+            [dao.jing.content.async :as content.async]
+            [dao.jing.content.step :as step]
             [dao.jing.mem :as mem]
-            [dao.jing.remote :as remote]
-            [dao.jing.remote.async :as remote.async]
-            [dao.jing.remote.step :as step]
             [dao.stream :as stream]
-            [dao.stream.apply :as apply]
-            [dao.stream.ringbuffer :as ring]
-            [dao.stream.rpc :as rpc]))
+            [dao.stream.ringbuffer :as ring]))
 
 
 (defn- ex-msg
@@ -47,9 +45,29 @@
 
 
 (defn- make-server
-  "A hand-turned server: `serve!` dispatches `handlers` over every request
-   not yet served, one response per request."
-  [handlers]
+  "A hand-turned server over a dao.jing handle: `serve!` answers every
+   request not yet served, one answer per request."
+  [handle]
+  (let [request-handle (ring-handle 256)
+        response-handle (ring-handle 256)
+        cursor-atom (atom (ring-cursor request-handle))]
+    {:request request-handle
+     :response response-handle
+     :serve! (fn []
+               (loop []
+                 (let [cursor (content/serve-step handle request-handle
+                                                  @cursor-atom
+                                                  response-handle 1)]
+                   (when (not= cursor @cursor-atom)
+                     (reset! cursor-atom cursor)
+                     (recur)))))}))
+
+
+(defn- scripted-server
+  "A hand-turned server answering each request through `answer-fn`,
+   which receives the request map and returns the answer value to
+   append (nil appends nothing: the server's silence)."
+  [answer-fn]
   (let [request-handle (ring-handle 256)
         response-handle (ring-handle 256)
         cursor-atom (atom (ring-cursor request-handle))]
@@ -60,35 +78,41 @@
                  (let [read (stream/next request-handle @cursor-atom)]
                    (when (= :dao.stream/ok (:dao.stream/outcome read))
                      (reset! cursor-atom (:dao.stream/cursor read))
-                     (stream/append! response-handle
-                                     (apply/dispatch-request
-                                       handlers
-                                       (:dao.stream/value read)))
+                     (when-some [answer (answer-fn
+                                          (:dao.stream/value read))]
+                       (stream/append! response-handle answer))
                      (recur)))))}))
 
 
-(defn- rig
-  "An async content handle over a hand-turned server for `handlers`, with a
+(defn- rig-with-server
+  "An async content handle over an explicit hand-turned `server`, with a
    manual scheduler (or, given `schedule`, a host timer that turns the
-   server before each pump). `:gets` counts get requests issued through it."
-  ([handlers] (rig handlers nil))
-  ([handlers schedule]
-   (let [server (make-server handlers)
-         queue (atom [])
-         gets (atom 0)
-         backend (remote.async/async-content
-                   (step/client-state
-                     (rpc/client-state (:request server)
-                                       (:response server)
-                                       (ring-cursor (:response server))))
-                   {:schedule (if schedule
-                                (fn [f] (schedule #(do ((:serve! server)) (f))))
-                                (fn [f] (swap! queue conj f)))})]
-     {:server server
-      :queue queue
-      :gets gets
-      :source (update backend :get-content-async-fn
-                      (fn [g] (fn [a cb] (swap! gets inc) (g a cb))))})))
+   server before each pump)."
+  [server schedule]
+  (let [queue (atom [])
+        gets (atom 0)
+        backend (content.async/async-content
+                  (step/client-state (:request server)
+                                     (:response server)
+                                     (ring-cursor (:response server)))
+                  {:schedule (if schedule
+                               (fn [f] (schedule #(do ((:serve! server)) (f))))
+                               (fn [f] (swap! queue conj f)))})]
+    {:server server
+     :queue queue
+     :gets gets
+     :source (update backend :get-content-async-fn
+                     (fn [g] (fn [a cb] (swap! gets inc) (g a cb))))}))
+
+
+(defn- rig
+  "An async content handle over a hand-turned server for the dao.jing
+   handle `store`, with a manual scheduler (or, given `schedule`, a
+   host timer that turns the server before each pump). `:gets` counts
+   get requests issued through it."
+  ([store] (rig store nil))
+  ([store schedule]
+   (rig-with-server (make-server store) schedule)))
 
 
 (defn- drain!
@@ -125,7 +149,7 @@
 
 (deftest hydrate-async-fills-the-cache-then-reads-succeed
   (let [{:keys [store address]} (seeded-store 600)
-        r (rig (remote/default-handlers store))
+        r (rig store)
         hs (bts/hydration-storage (:source r) (mem/create-content-mem)
                                   {:branching-factor 32})
         s (bt/restore-tree compare address hs 600)
@@ -149,7 +173,7 @@
 
 (deftest hydrate-async-rejects-a-source-miss
   (let [store (mem/create-content-mem)
-        r (rig (remote/default-handlers store))
+        r (rig store)
         hs (bts/hydration-storage (:source r) (mem/create-content-mem))
         s (bt/restore-tree compare (jing/segment-key {:not "stored"}) hs 1)
         {:keys [result on-ok on-err]} (outcome)]
@@ -159,8 +183,17 @@
 
 
 (deftest hydrate-async-rejects-a-failed-fetch
+  ;; The vocabulary carries no error answer: a hostile answer outside
+  ;; the found shape decodes as :error, which the fetch surface reports
+  ;; as a failed fetch rather than silence.
   (let [{:keys [address]} (seeded-store 100)
-        r (rig {:jing/get-content (fn [_] (throw (ex-info "down" {})))})
+        r (rig-with-server
+            (scripted-server
+              (fn [request]
+                {:jing/request (:jing/request request)
+                 :jing/found? "down"
+                 :jing/bytes nil}))
+            nil)
         hs (bts/hydration-storage (:source r) (mem/create-content-mem)
                                   {:branching-factor 32})
         s (bt/restore-tree compare address hs 100)
@@ -172,7 +205,7 @@
 
 (deftest store-tree-async-resolves-after-every-segment-acknowledges
   (let [store (mem/create-content-mem)
-        r (rig (remote/default-handlers store))
+        r (rig store)
         hs (bts/hydration-storage (:source r) (mem/create-content-mem)
                                   {:branching-factor 32})
         s (into (bt/restore-tree compare nil hs 0) (range 600))]
@@ -201,17 +234,48 @@
             (is (= (range 600) (seq s2)))))))))
 
 
+(defn- honest-answer
+  "The answer value the content interpreter would give `request` from
+   the dao.jing handle `store` (nil for a malformed request)."
+  [store request]
+  (let [missing (atom ::the-not-found-sentinel)]
+    (cond
+      (and (map? request)
+           (= #{:jing/request :jing/get} (set (keys request))))
+      (let [result ((:get-bytes-fn store) (get request :jing/get) missing)]
+        (if (identical? result missing)
+          {:jing/request (:jing/request request)
+           :jing/found? false
+           :jing/bytes nil}
+          {:jing/request (:jing/request request)
+           :jing/found? true
+           :jing/bytes (jing/bytes->base64 result)}))
+
+      :else nil)))
+
+
 (deftest store-tree-async-retries-unacknowledged-segments
+  ;; The vocabulary carries no error answer: a hostile put verdict
+  ;; outside #{:inserted :present} decodes as :error, which the write
+  ;; surface reports as a failed segment write rather than silence --
+  ;; and the same client, media and queue survive to retry.
   (let [store (mem/create-content-mem)
         failing? (atom true)
-        handlers (remote/default-handlers store)
-        put (:jing/put-content handlers)
-        r (rig (assoc handlers
-                      :jing/put-content
-                      (fn [address payload]
-                        (if @failing?
-                          (throw (ex-info "refused" {}))
-                          (put address payload)))))
+        r (rig-with-server
+            (scripted-server
+              (fn [request]
+                (if (and @failing? (contains? request :jing/put))
+                  {:jing/request (:jing/request request)
+                   :jing/result :refused}
+                  (or (honest-answer store request)
+                      (let [bs (jing/accept-bytes!
+                                 (get request :jing/put)
+                                 (get request :jing/bytes))]
+                        {:jing/request (:jing/request request)
+                         :jing/result ((:put-bytes-fn store)
+                                       (get request :jing/put)
+                                       bs)})))))
+            nil)
         hs (bts/hydration-storage (:source r) (mem/create-content-mem)
                                   {:branching-factor 32})
         s (into (bt/restore-tree compare nil hs 0) (range 300))]
@@ -246,7 +310,7 @@
                                 {:branching-factor 32, :algorithm :sha256})
         s (into (bt/restore-tree compare nil storage 0) (range 300))
         root (bt/store-tree s storage)
-        r (rig (remote/default-handlers store))
+        r (rig store)
         cache (mem/create-content-mem)
         hs (bts/hydration-storage (:source r) cache {:branching-factor 32})
         s-restored (bt/restore-tree compare root hs 300)
@@ -265,7 +329,7 @@
 
 (deftest store-tree-async-flushes-preserve-sha256-algorithm-test
   (let [store (mem/create-content-mem)
-        r (rig (remote/default-handlers store))
+        r (rig store)
         raw-cache (mem/create-content-mem)
         hs (bts/hydration-storage (:source r)
                                   raw-cache
@@ -286,7 +350,7 @@
 
 (deftest store-tree-async-materialize-fallback-preserves-sha256-test
   (let [store (mem/create-content-mem)
-        r (rig (remote/default-handlers store))
+        r (rig store)
         source-without-put (dissoc (:source r) :put-content-async-fn)
         raw-cache (mem/create-content-mem)
         hs (bts/hydration-storage source-without-put
@@ -310,8 +374,8 @@
   #?(:cljd nil
      ;; the real reschedule path: pumps run on the JVM delayed executor
      :clj (let [{:keys [store address]} (seeded-store 200)
-                r (rig (remote/default-handlers store)
-                       (remote.async/default-schedule 1))
+                r (rig store
+                       (content.async/default-schedule 1))
                 hs (bts/hydration-storage (:source r) (mem/create-content-mem)
                                           {:branching-factor 32})
                 s (bt/restore-tree compare address hs 200)

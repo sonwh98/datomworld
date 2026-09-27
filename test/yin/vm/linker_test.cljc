@@ -9,12 +9,11 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
+            [dao.jing.content :as jing-content]
             [dao.jing.dht :as dht]
             [dao.jing.mem :as mem]
-            [dao.jing.remote :as remote]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
-            [dao.stream.rpc :as rpc]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.content :as content]
@@ -434,35 +433,34 @@
 
 
 (defn serve-all
-  "Answer every request waiting on `requests` from `handlers`, returning
-   the successor server state."
-  [handlers requests responses server]
+  "Answer every request waiting on `requests` from the dao.jing handle
+   `store`, returning the successor server cursor."
+  [store requests responses server]
   (loop [server server]
-    (let [r (rpc/serve-once! handlers requests responses server)]
-      (if (contains? #{:dao.stream.apply/idle :dao.stream.apply/terminal
-                       :dao.stream.apply/pending-response}
-                     (:dao.stream.apply/outcome r))
-        (:dao.stream.apply/state r)
-        (recur (:dao.stream.apply/state r))))))
+    (let [server' (jing-content/serve-step store requests server
+                                           responses 32)]
+      (if (= server server') server (recur server')))))
 
 
 (defn local-runtime
   "A single-process link runtime: `linker/link-state` of `opts` (less
-   `:rpc`) on a ring-buffer content pair of `capacity` elements, whose
-   drive answers every waiting request from `handlers`. The two media are
-   returned beside the runtime as `:requests` and `:responses`."
-  ([handlers opts] (local-runtime handlers opts 64))
-  ([handlers opts capacity]
+   `:content`) on a ring-buffer content pair of `capacity` elements,
+   whose drive answers every waiting request from the dao.jing handle
+   `store`. The two media are returned beside the runtime as `:requests`
+   and `:responses`."
+  ([store opts] (local-runtime store opts 64))
+  ([store opts capacity]
    (let [requests (ring-handle capacity)
          responses (ring-handle capacity)
-         server (atom (rpc/server-state (oldest requests)))]
+         server (atom (oldest requests))]
      {:state (linker/link-state
                (assoc opts
-                      :rpc (rpc/client-state requests responses
-                                             (oldest responses)))),
+                      :content {:requests requests
+                                :answers responses
+                                :cursor (oldest responses)})),
       :drive (fn [state]
                (swap! server
-                      (fn [s] (serve-all handlers requests responses s)))
+                      (fn [s] (serve-all store requests responses s)))
                state),
       :requests requests,
       :responses responses})))
@@ -478,12 +476,42 @@
   ([store index format identity receiver]
    (fetch-local store index format identity receiver nil))
   ([store index format identity receiver opts]
-   (linker/fetch (local-runtime (remote/default-handlers store)
+   (linker/fetch (local-runtime store
                                 {:formats {(:format format) format},
                                  :indexes {(:format format) index},
                                  :bounds (dissoc opts :contract)})
                  (:format format) identity receiver
                  (select-keys opts [:contract]))))
+
+
+(defn answering-runtime
+  "A single-process link runtime shaped like `local-runtime`, whose
+   drive answers every waiting request with `answer` applied to the raw
+   request value: the test owns the reply envelope, so the replies the
+   exact wire rules must refuse ride the same medium an honest server's
+   answer rides."
+  [opts answer]
+  (let [requests (ring-handle 64)
+        responses (ring-handle 64)
+        server (atom (oldest requests))]
+    {:state (linker/link-state
+              (assoc opts
+                     :content {:requests requests
+                               :answers responses
+                               :cursor (oldest responses)})),
+     :drive (fn [state]
+              (swap! server
+                     (fn [s]
+                       (loop [cursor s]
+                         (let [r (stream/next requests cursor)]
+                           (if (= :dao.stream/ok (:dao.stream/outcome r))
+                             (let [reply (answer (:dao.stream/value r))]
+                               (stream/append! responses reply)
+                               (recur (:dao.stream/cursor r)))
+                             cursor)))))
+              state),
+     :requests requests,
+     :responses responses}))
 
 
 ;; =============================================================================
@@ -753,25 +781,18 @@
         (jing/close! store)))))
 
 
-;; The linker is the content pair's client (section 6.1): a corrupted RPC
-;; reply reaches its own step-2 check exactly as store-level corruption
-;; does, so the two are one refusal wherever the bytes were damaged (I3).
-(deftest corrupt-rpc-response-is-an-address-mismatch
+;; The linker is the content pair's client (section 6.1): corrupted
+;; content behind the served boundary reaches its own step-2 check
+;; exactly as store-level corruption does, so the two are one refusal
+;; wherever the bytes were damaged (I3).
+(deftest corrupt-served-content-is-an-address-mismatch
   (doseq [[label format mint] formats]
     (testing label
       (let [store (mem/create-content-mem)
             image (mint worked-example)
             {:keys [identity index]} (publish store format image)
-            handlers (update (remote/default-handlers store)
-                             :jing/get-content
-                             (fn [get-content]
-                               (fn [address]
-                                 (update (get-content address) :value
-                                         #(jing/bytes->base64
-                                            (tamper-bytes
-                                              (jing/base64->bytes %)))))))
             res (linker/fetch (local-runtime
-                                handlers
+                                (corrupt-store store)
                                 {:formats {(:format format) format},
                                  :indexes {(:format format) index}})
                               (:format format) identity receiver
@@ -780,6 +801,47 @@
         (is (= (index identity) (:address res)))
         (is (not (contains? res :value))
             "mismatched bytes are refused undecoded")
+        (jing/close! store)))))
+
+
+;; The reply envelope is exact (section 6.1): a found read answer is
+;; admitted only as {:jing/request r :jing/found? true :jing/bytes
+;; b64} -- the three keys present and no others, the shape the stepped
+;; client decodes (content/step's get-answer?). A reply that carries
+;; an extra key is no reply at all: step 2's read yields nothing, and
+;; the part is refused :absent, never linked. The exact shape on the
+;; same medium still links.
+(deftest a-found-answer-with-an-extra-key-is-absent
+  (doseq [[label format mint] formats]
+    (testing label
+      (let [store (mem/create-content-mem)
+            image (mint worked-example)
+            {:keys [identity index]} (publish store format image)
+            opts {:formats {(:format format) format},
+                  :indexes {(:format format) index}}
+            reply
+            (fn [extra? v]
+              (let [bs ((:get-bytes-fn store)
+                        (get v :jing/get) ::none)
+                    found? (not (identical? bs ::none))
+                    b64 (when found? (jing/bytes->base64 bs))]
+                (cond-> {:jing/request (get v :jing/request),
+                         :jing/found? found?,
+                         :jing/bytes b64}
+                  extra? (assoc :value b64))))]
+        (is (= {:status :refused, :reason :absent,
+                :address (get index identity)}
+               (linker/fetch
+                 (answering-runtime opts #(reply true %))
+                 (:format format) identity receiver
+                 (requested format)))
+            "a found answer with an extra key is :absent")
+        (is (linker/ok?
+              (linker/fetch
+                (answering-runtime opts #(reply false %))
+                (:format format) identity receiver
+                (requested format)))
+            "the exact envelope on the same medium still links")
         (jing/close! store)))))
 
 
@@ -1653,7 +1715,7 @@
   "A local runtime holding `stack-format` and the H index `h-index` over
    `store`."
   [store h-index]
-  (local-runtime (remote/default-handlers store)
+  (local-runtime store
                  {:formats {:yin.debruijn.code linker/stack-format},
                   :indexes {:yin.debruijn.code h-index}}))
 
@@ -1760,10 +1822,12 @@
 ;; Transfer over dao.stream (S11.1, S11.3)
 ;; =============================================================================
 ;; The receiver knows only the identity and an index. The linker is the
-;; content pair's client; every request and response crosses a pair of
-;; `dao.stream` media as RPC envelopes, served by `default-handlers` over
-;; the publisher's store. The ring-buffer path is portable, so every host
-;; runs it; the JVM additionally runs the WebSocket transport.
+;; content pair's client; every request and answer crosses a pair of
+;; `dao.stream` media in dao.jing.content's vocabulary, served from the
+;; publisher's store by the content interpreter. The ring-buffer path is
+;; portable, so every host runs it. (The WebSocket transport for a
+;; content pair is slice 5's serving work, retired here with the module
+;; that carried it.)
 
 (deftest images-transfer-over-dao-stream
   (doseq [[label format mint] formats]
@@ -1794,51 +1858,3 @@
                                      (requested format))))
             "an absent address over the stream is :absent")
         (jing/close! publisher)))))
-
-
-#?(:cljd nil
-   :clj
-   (defn ws-runtime
-     "A link runtime whose content pair is a live WebSocket attachment to
-      the endpoint at `port`: the linker takes the established rpc client
-      of `connect-content!` and steps it itself, while the endpoint's own
-      thread serves the pair, so the drive only yields. `opts` is
-      `linker/link-state`'s, less `:rpc`. Returns the runtime and the
-      connection to close."
-     [port opts]
-     (let [conn (remote/connect-content! (str "ws://127.0.0.1:" port))
-           deadline (+ (System/currentTimeMillis) 10000)]
-       {:conn conn,
-        :runtime
-        {:state (linker/link-state
-                  (assoc opts :rpc @(:rpc (:client conn)))),
-         :drive (fn [state]
-                  (when (> (System/currentTimeMillis) deadline)
-                    (throw (ex-info "the WebSocket link stalled" {})))
-                  (Thread/sleep 1)
-                  state)}})))
-
-
-(deftest images-transfer-over-the-websocket-transport
-  #?(:cljd (is true "the WebSocket constructors are JVM-only")
-     :clj
-     (let [port (+ 20000 (rand-int 30000))
-           publisher (mem/create-content-mem)
-           server (remote/serve-content! (remote/default-handlers publisher)
-                                         port)]
-       (try
-         (doseq [[label format mint] formats]
-           (testing label
-             (let [image (mint worked-example)
-                   {:keys [identity index]} (publish publisher format image)
-                   {:keys [conn runtime]}
-                   (ws-runtime port {:formats {(:format format) format},
-                                     :indexes {(:format format) index}})]
-               (try
-                 (let [res (linker/fetch runtime (:format format) identity
-                                         receiver (requested format))]
-                   (is (linker/ok? res))
-                   (is (= image (:value res))))
-                 (finally (jing/close! conn))))))
-         (finally ((:stop! server)) (jing/close! publisher))))
-     :cljs (is true "the WebSocket constructors are JVM-only")))

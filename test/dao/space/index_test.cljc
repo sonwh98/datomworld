@@ -17,8 +17,7 @@
             [dao.data.btree :as bt]
             [dao.datom :as datom]
             [dao.jing :as jing]
-            #?@(:clj [[dao.jing.coordinate :as jing-coordinate]
-                      [dao.jing.remote :as jing-remote]])
+            [dao.jing.coordinate :as jing-coordinate]
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.stream :as stream]
@@ -622,14 +621,43 @@
                                  :not/a-segment)))))
 
 
-(deftest remote-coordinate-allows-an-explicit-nil-options-entry
-  #?(:clj (with-redefs [jing-remote/connect-content!
-                        (fn [url options] {:url url, :options options})]
-            (is (= {:url "ws://example.test/jing", :options {}}
-                   (jing-coordinate/open! {:dao.jing/type :dao.jing/remote,
-                                           :url "ws://example.test/jing",
-                                           :options nil}))))
-     :default (is true "the synchronous remote coordinate is JVM-only")))
+(deftest remote-coordinate-attaches-its-two-descriptors
+  (let [requests-descriptor {:dao.stream/type :dao.stream/remote
+                             :dao.stream/identity "content/requests"}
+        answers-descriptor {:dao.stream/type :dao.stream/remote
+                            :dao.stream/identity "content/answers"}
+        coordinate {:dao.jing/type :dao.jing/remote
+                    :dao.jing/requests requests-descriptor
+                    :dao.jing/answers answers-descriptor}
+        attached (atom [])
+        attach! (fn [descriptor]
+                  (swap! attached conj descriptor)
+                  {:dao.stream/outcome :dao.stream/ok
+                   :dao.stream/handle
+                   (:dao.stream/handle
+                     (ringbuffer/create!
+                       {:dao.stream/type ringbuffer/transport-type
+                        ringbuffer/capacity-key 8}))})]
+    (is (map? (jing-coordinate/open! coordinate
+                                     {:dao.jing/attach attach!}))
+        "the coordinate opens over the attached pair -- the blocking
+         driver on the JVM, the stepped client elsewhere")
+    (is (= [requests-descriptor answers-descriptor] @attached)
+        "both descriptors attach, requests first")
+    (is (thrown? #?(:clj Exception
+                    :cljd Object
+                    :cljs js/Error)
+          (jing-coordinate/open! coordinate nil))
+        "a remote coordinate needs the composition's attach entry")
+    (doseq [bad [{:dao.jing/type :dao.jing/remote}
+                 (assoc coordinate :url "ws://example.test")
+                 (assoc coordinate :dao.jing/requests "not a map")
+                 (dissoc coordinate :dao.jing/answers)]]
+      (is (thrown? #?(:clj Exception
+                      :cljd Object
+                      :cljs js/Error)
+            (jing-coordinate/open! bad {:dao.jing/attach attach!}))
+          (str "rejected before any attach: " (pr-str (set (keys bad))))))))
 
 
 (deftest covered-indexes-returns-the-four-covered-sets

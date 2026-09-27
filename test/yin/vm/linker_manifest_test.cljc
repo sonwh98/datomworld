@@ -8,7 +8,6 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
-            [dao.jing.remote :as remote]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.content :as content]
@@ -114,7 +113,7 @@
   ([store] (manifest-runtime store {}))
   ([store opts]
    (lt/local-runtime
-     (remote/default-handlers store)
+     store
      (assoc opts :formats (into {} (map (fn [f] [(:format f) f]))
                                 all-formats)))))
 

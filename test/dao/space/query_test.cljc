@@ -749,7 +749,7 @@
            (is
              true
              "counting harness requires with-redefs, unavailable on ClojureDart")
-           :default (with-redefs [jing-coordinate/open! (fn [_]
+           :default (with-redefs [jing-coordinate/open! (fn [_ _opts]
                                                           (:store counter))]
                       (let [opened (query/open-published! (:coordinate fx))
                             query-form '[:find ?v :where [$ 42 :user/email ?v]]
@@ -792,7 +792,7 @@
              true
              "counting harness requires with-redefs, unavailable on ClojureDart")
            :default
-           (with-redefs [jing-coordinate/open! (fn [_] (:store counter))]
+           (with-redefs [jing-coordinate/open! (fn [_ _opts] (:store counter))]
              ;; Two pattern clauses over one source: plan-where runs the
              ;; clause-cost estimator on both. The estimator must not
              ;; force the deferred relation, or planning alone would
@@ -988,7 +988,7 @@
            (is true
                "the counting harness needs with-redefs, unavailable on ClojureDart")
            :default
-           (with-redefs [jing-coordinate/open! (fn [_] (:store counter))]
+           (with-redefs [jing-coordinate/open! (fn [_ _opts] (:store counter))]
              (let [opened (query/open-published! (:coordinate fx))]
                (is (= 1 ((:gets counter)))
                    "opening a published coordinate performs exactly one content fetch after open and before any read: the manifest, with zero tree nodes faulted")
@@ -1095,7 +1095,7 @@
                             :close-fn (fn []
                                         (swap! closes inc)
                                         (base-close)))]
-           (with-redefs [jing-coordinate/open! (fn [_] store)]
+           (with-redefs [jing-coordinate/open! (fn [_ _opts] store)]
              (let [thrown (try (query/open-published! (:coordinate fx))
                                (catch #?(:clj Throwable
                                          :cljs :default

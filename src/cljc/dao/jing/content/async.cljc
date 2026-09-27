@@ -1,16 +1,17 @@
-(ns dao.jing.remote.async
+(ns dao.jing.content.async
   "The async content backend over the stepped client
-   (`dao.jing.remote.step`): the consumer-facing half `dao.jing.md`'s *Async
-   hydration* open item owes to `dao.data.btree.md` §5.4.
+   (dao.jing.content.step): the consumer-facing callback facade
+   dao.data.btree.md section 5.4 hydrates through.
 
-   `dao.jing.remote.step` is pure: the caller owns the state and chooses
-   every cadence.  This namespace is that caller, once, for consumers that
-   want a callback per request instead of a state machine — chiefly
-   `dao.data.btree.storage/hydrate-async` and `store-tree-async`.  It owns
-   the stepped state as the single step owner (`step`'s precondition) and
-   drives it with the non-blocking reschedule pattern: a pump runs, then
-   reschedules itself through `schedule` while any request is queued or
-   outstanding, and goes idle otherwise.  Nothing ever blocks or waits.
+   dao.jing.content.step is pure: the caller owns the state and chooses
+   every cadence. This namespace is that caller, once, for consumers
+   that want a callback per request instead of a state machine --
+   chiefly dao.data.btree.storage/hydrate-async and store-tree-async.
+   It owns the stepped state as the single step owner (step's
+   precondition) and drives it with the non-blocking reschedule
+   pattern: a pump runs, then reschedules itself through `schedule`
+   while any request is queued or outstanding, and goes idle otherwise.
+   Nothing ever blocks or waits.
 
    The handle is plain data, like a dao.jing content handle:
 
@@ -19,23 +20,22 @@
       :put-content-async-fn (fn [address payload callback])}
 
    Each callback is invoked exactly once, on the pump, with the stepped
-   client's published completion for that request — `{:found? b :value v}`
-   for a get, `{:materialized? true :address a :result r}` for a
-   materialization — or its `:error` / `:lost` tail.  A request the rpc
-   layer refuses without an id (`:terminal`, `:allocator-error`,
-   `:invalid-request`) completes `:lost` with the rpc reason (or the
-   outcome) at once, so no callback is ever left owed.
+   client's published completion for that request -- {:found? b :value
+   v} for a get, {:materialized? true :address a :result r} for a
+   materialization -- or its :error / :lost tail. A request the writer
+   refuses outright completes :lost with the writer's outcome at once,
+   so no callback is ever left owed.
 
    Requests are only queued by the fns above; every stream operation
    happens inside the pump, so the stepped state has one owner even when
    requests arrive from other threads (JVM)."
   (:require #?@(:cljd [["dart:async" :as async]])
             [dao.jing :as jing]
-            [dao.jing.remote.step :as step]))
+            [dao.jing.content.step :as step]))
 
 
 (def default-budget
-  "Response-medium elements each pump polls at most (`step`'s budget)."
+  "Answers each pump polls at most (step's budget)."
   64)
 
 
@@ -60,8 +60,8 @@
 
 (defn- submit
   "Submit one queued request to the stepped state. Returns
-   `[:busy]` when an unsent envelope is owed (nothing submitted),
-   `[:registered state' id]`, or `[:refused state' completion]` for an
+   [:busy] when an unsent request is owed (nothing submitted),
+   [:registered state' id], or [:refused state' completion] for an
    outcome that carries no id."
   [state [kind arg opts]]
   (let [r (case kind
@@ -72,19 +72,19 @@
       (= :busy (:outcome r)) [:busy]
       (some? (:id r)) [:registered (:state r) (:id r)]
       :else [:refused (:state r)
-             {:lost (or (:dao.stream.rpc/reason r) (:outcome r))}])))
+             {:lost (or (:reason r) (:outcome r))}])))
 
 
 (defn async-content
   "An async content handle over one stepped-client state (see the
-   namespace docstring). The caller attaches the state's rpc media first
-   (`rpc.ws/init-client` after a WebSocket `attach!`, ring buffers in a
-   test) and hands ownership of it to this handle. opts:
-   {:schedule (fn [thunk]) — reschedule hook (default `default-schedule`
+   namespace docstring). The caller attaches the state's pair first
+   (reflections of remote streams, ring buffers in a test) and hands
+   ownership of it to this handle. opts:
+   {:schedule (fn [thunk]) -- reschedule hook (default `default-schedule`
                              over :delay-ms); tests pass a manual queue
-    :delay-ms n            — default `default-delay-ms`
-    :budget n              — default `default-budget`
-    :on-diagnostics f      — receives each step's non-empty diagnostics}"
+    :delay-ms n            -- default `default-delay-ms`
+    :budget n              -- default `default-budget`
+    :on-diagnostics f      -- receives each step's non-empty diagnostics}"
   ([step-state] (async-content step-state nil))
   ([step-state opts]
    (let [budget (or (:budget opts) default-budget)
@@ -157,7 +157,7 @@
            nil)]
      {:get-content-async-fn
       (fn [address callback]
-        ;; C1 before the queue, so a bad address throws at the caller
+        ;; before the queue, so a bad address throws at the caller
         ;; rather than inside the pump
         (when-not (jing/segment-address? address)
           (throw (ex-info

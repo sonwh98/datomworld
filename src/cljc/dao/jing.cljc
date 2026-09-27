@@ -471,6 +471,37 @@
     (cbor/decode-snapshot bs)))
 
 
+(defn accept-bytes!
+  "The canonical payload bytes carried by the Base64 text b64 at address,
+   or a throw: this is the one ingress canonicality check for bytes Jing
+   did not encode itself (docs/design/dao.jing.cbor.md, Layering and
+   interfaces). The text must be strict padded standard-alphabet Base64,
+   the bytes must hash to the address under its carried algorithm, and
+   they must decode as exactly one canonical payload. Every entry of
+   remote content runs this one check: the dao.jing.content interpreter
+   on every put, the stepped client on every get answer and :present
+   verify, and the linker on every answer it admits. A refusal is an
+   ex-info whose data carries {:address address :reason k} with k one of
+   :segment-address, :base64, :hash-mismatch, :non-canonical."
+  [address b64]
+  (when-not (segment-address? address)
+    (throw (ex-info "content address must be a segment address"
+                    {:address address, :reason :segment-address})))
+  (let [bs (try (base64->bytes b64)
+                (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                  (throw (ex-info "content bytes are not strict Base64"
+                                  {:address address
+                                   :reason :base64}))))]
+    (when-not (segment-bytes-match? address bs)
+      (throw (ex-info "content address does not match payload hash"
+                      {:address address, :reason :hash-mismatch})))
+    (try (cbor/decode bs)
+         (catch #?(:cljd Object :clj Throwable :cljs :default) _
+           (throw (ex-info "content payload is not one canonical payload"
+                           {:address address, :reason :non-canonical}))))
+    bs))
+
+
 (defn materialize!
   "Content-address payload and store it through the handle's byte store.
 

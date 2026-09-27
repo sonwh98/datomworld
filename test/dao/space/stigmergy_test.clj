@@ -11,11 +11,12 @@
   Publication is explicit: each agent publishes its local stream into one
   shared DaoJing intake pool, and a DaoJing observer over that pool
   materializes the covered indexes into a server-side dao.jing.file content
-  store served by dao.jing.remote/serve-content!. Publication enqueue alone is not
+  store served over one content pair by dao.jing.content/serve-step.
+  Publication enqueue alone is not
   visibility — the observer is. Readers query the published manifest
   addresses through the server file handle or a remote
-  dao.jing.remote/connect-content! client, and the two must agree
-  (transport transparency). JVM-only (blocking rpc, file store,
+  coordinate-built client over the pair, and the two must agree
+  (transport transparency). JVM-only (blocking driver, file store,
   wall-clock).
 
   The space persists after the run for inspection at target/stigmergy-space.db;
@@ -24,8 +25,8 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [dao.datom :as datom]
             [dao.jing :as jing]
+            [dao.jing.content :as content]
             [dao.jing.file :as file]
-            [dao.jing.remote :as remote]
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.transactor :as transactor]
@@ -41,14 +42,51 @@
 ;; ---------------------------------------------------------------------------
 ;; The medium: one shared DaoJing intake stream for the whole run, a
 ;; server-side dao.jing.file content store the observer materializes into,
-;; and a websocket server exposing that store (remote/default-handlers +
-;; remote/connect-content!). Publication is enqueue; the observer is
-;; visibility; readers reach the file store locally or over the wire.
+;; and one served content pair exposing that store (the content interpreter
+;; on a daemon ticker). Publication is enqueue; the observer is
+;; visibility; readers reach the file store locally or over the pair.
 ;; ---------------------------------------------------------------------------
 
 (def ^:dynamic *store* nil)        ; the server-side file content store
-(def ^:dynamic *url* nil)          ; websocket url of the store's rpc server
+(def ^:dynamic *attach!* nil)      ; the served pair's attach entry
 (def ^:dynamic *shared-intake* nil) ; one DaoJing intake stream, all agents
+
+(def ^:private requests-identity
+  "The served pair's requests-stream identity."
+  "stigmergy/requests")
+
+
+(def ^:private answers-identity
+  "The served pair's answers-stream identity."
+  "stigmergy/answers")
+
+
+(defn- nonclosable
+  "A reader/writer view of `handle` without the closable surface, so one
+   opened index's close never ends the shared pair."
+  [handle]
+  (reify
+    stream/IDaoStreamDescriptor
+    (descriptor [_] (stream/descriptor handle))
+
+
+    stream/IDaoStreamReader
+
+    (cursor [_ anchor] (stream/cursor handle anchor))
+
+    (next [_ cursor] (stream/next handle cursor))
+
+
+    stream/IDaoStreamWriter
+
+    (append! [_ value] (stream/append! handle value))))
+
+
+(defn- medium
+  [capacity]
+  (:dao.stream/handle
+    (ringbuffer/create! {:dao.stream/type :dao.stream/ringbuffer
+                         :dao.stream.ringbuffer/capacity capacity})))
 
 
 (defn- space-fixture
@@ -62,17 +100,38 @@
   (let [store (file/create-content-file space-path)
         ;; capacity chosen so position 0 never evicts during a run: the
         ;; simulation enqueues at most a few hundred payloads per agent
-        intake (:dao.stream/handle
-                 (ringbuffer/create!
-                   {:dao.stream/type :dao.stream/ringbuffer
-                    :dao.stream.ringbuffer/capacity 65536}))
-        srv (remote/serve-content! (remote/default-handlers store)
-                                   (+ 10000 (rand-int 50000)))]
+        intake (medium 65536)
+        requests (medium 65536)
+        answers (medium 65536)
+        server (atom (:dao.stream/cursor
+                       (stream/cursor requests :dao.stream/oldest)))
+        running (atom true)
+        ticker (Thread.
+                 (fn []
+                   (while @running
+                     (swap! server
+                            (fn [cursor]
+                              (content/serve-step store requests cursor
+                                                  answers 32)))
+                     (Thread/sleep 1))))
+        attach! (fn [descriptor]
+                  (let [handle
+                        (nonclosable
+                          (if (= requests-identity
+                                 (:dao.stream/identity descriptor))
+                            requests
+                            answers))]
+                    {:dao.stream/outcome :dao.stream/ok
+                     :dao.stream/handle handle}))]
+    (doto ticker
+      (.setDaemon true)
+      (.setName "stigmergy-content-pair")
+      (.start))
     (try (binding [*store* store
-                   *url* (str "ws://127.0.0.1:" (:port srv))
+                   *attach!* attach!
                    *shared-intake* intake]
            (f))
-         (finally ((:stop! srv))
+         (finally (reset! running false)
                   (stream/close! intake)
                   (jing/close! store)))))
 
@@ -81,10 +140,19 @@
 
 
 (defn- with-remote
-  "Run f with a remote dao.jing content client; closes it after."
+  "Run f naming the served pair as the content source."
   [f]
-  (let [client (remote/connect-content! *url*)]
-    (try (f client) (finally (jing/close! client)))))
+  (f ::remote))
+
+
+(defn- remote-coordinate
+  "The two-descriptor remote coordinate of the served content pair."
+  []
+  {:dao.jing/type :dao.jing/remote
+   :dao.jing/requests {:dao.stream/type :dao.stream/remote
+                       :dao.stream/identity requests-identity}
+   :dao.jing/answers {:dao.stream/type :dao.stream/remote
+                      :dao.stream/identity answers-identity}})
 
 
 ;; ---------------------------------------------------------------------------
@@ -161,14 +229,22 @@
 
 (defn- published-source-pool
   "Immutable query sources over the queried content store (server file
-   handle or remote content client), one per manifest address. Sources are
-   snapshots: rebuild and republish after writes, never reuse one expecting
-   it to advance."
+   handle or the remote coordinate of the served pair), one per manifest
+   address. Sources are snapshots: rebuild and republish after writes,
+   never reuse one expecting it to advance."
   [content-store addresses]
   (let [coordinate (if (identical? content-store *store*)
                      {:dao.jing/type :dao.jing/file, :path space-path}
-                     {:dao.jing/type :dao.jing/remote, :url *url*})]
+                     (remote-coordinate))]
     (mapv #(index/published-index coordinate %) addresses)))
+
+
+(defn- open-opts
+  "The coordinate-open options of `content-store`: the served pair's
+   attach entry for the remote source, none for the file store."
+  [content-store]
+  (when-not (identical? content-store *store*)
+    {:dao.jing/attach *attach!*}))
 
 
 (defn- sources
@@ -183,7 +259,9 @@
       (mapcat (fn [source]
                 (mapcat (fn [[e a v t _m]]
                           (cond-> [[e a v]] (= a :claim/by) (conj [e a v t])))
-                        (let [opened (query/open-published! source)]
+                        (let [opened (query/open-published! source
+                                                            (open-opts
+                                                              content-store))]
                           (try (query/current-state-seq (query/rows opened))
                                (finally (query/close-published! opened)))))))
       (published-source-pool content-store (publish-and-materialize! agents)))))
@@ -412,14 +490,15 @@
 
 (deftest transport-transparency
   (with-remote
-    (fn [_remote]
+    (fn [remote]
       (let [agent (open-agent "transparency-probe")]
         (put-entity! agent {:probe/id "wire"})
         (let [address (first (publish-and-materialize! [agent]))]
           (testing
             "the same published manifest address reads identically from the
-                    server-side file content handle and the remote content
-                    client — the rpc is invisible, and the datoms are durable
+                    server-side file content handle and the remote
+                    coordinate-built client over the pair — the transport
+                    is invisible, and the datoms are durable
                     in the file store"
             (let [file-opened (query/open-published!
                                 (index/published-index
@@ -428,9 +507,9 @@
                                   address))
                   remote-opened (query/open-published!
                                   (index/published-index
-                                    {:dao.jing/type :dao.jing/remote,
-                                     :url *url*}
-                                    address))]
+                                    (remote-coordinate)
+                                    address)
+                                  (open-opts remote))]
               (try (is (= (qv '[:find ?e ?a ?v :where [?e ?a ?v]]
                               (query/current file-opened))
                           (qv '[:find ?e ?a ?v :where [?e ?a ?v]]

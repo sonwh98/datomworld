@@ -19,7 +19,7 @@
      absent from not-yet-fetched without blocking on the backend. hydrate!
      copies the reachable blob graph from the source into the cache. The
      source is either a sync content handle or an async one
-     (dao.jing.remote.async/async-content); over an async source the
+     (dao.jing.content.async/async-content); over an async source the
      non-blocking hydrate-async and store-tree-async are the only way in
      and out, and the sync store path throws.
 
@@ -97,7 +97,7 @@
 ;; Hydration cache (§5.4)
 
 (defn- async-source?
-  "True for an async content handle (dao.jing.remote.async/async-content)."
+  "True for an async content handle (dao.jing.content.async/async-content)."
   [source]
   (some? (:get-content-async-fn source)))
 
@@ -161,7 +161,7 @@
   "The §5.4 hydration-cache adapter: reads answer only from `cache` (miss
    => \"unhydrated segment\"); `hydrate!` fills the cache from `source`.
    `source` is a sync content handle (hydrate!, store-tree) or an async
-   one from dao.jing.remote.async (hydrate-async, store-tree-async)."
+   one from dao.jing.content.async (hydrate-async, store-tree-async)."
   ([source cache] (hydration-storage source cache nil))
   ([source cache opts]
    (let [box (volatile! nil)

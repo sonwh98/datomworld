@@ -8,9 +8,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
-            [dao.jing.remote :as remote]
             [dao.stream :as stream]
-            [dao.stream.rpc :as rpc]
             [yin.vm :as vm]
             [yin.vm.content :as content]
             [yin.vm.linker :as linker]
@@ -35,7 +33,7 @@
    `indexes`, and any further `link-state` options in `opts`."
   ([store indexes] (runtime store indexes {}))
   ([store indexes opts]
-   (lt/local-runtime (remote/default-handlers store)
+   (lt/local-runtime store
                      (merge {:formats all-formats, :indexes indexes} opts)
                      1024)))
 
@@ -180,17 +178,17 @@
         n (count (:rows tree))
         requests (lt/ring-handle 256)
         responses (lt/ring-handle 256)
-        handlers (remote/default-handlers store)
         state (linker/link-state
-                {:rpc (rpc/client-state requests responses
-                                        (oldest responses)),
+                {:content {:requests requests
+                           :answers responses
+                           :cursor (oldest responses)}
                  :formats all-formats,
                  :indexes {:yin.ast/code {root root}}})
         [state id] (linker/request-link state
                                         (request-for linker/ast-format root))]
     (is (< 1 n) "the tree has several parts")
     (loop [state state
-           server (rpc/server-state (oldest requests))
+           server (oldest requests)
            k 1]
       (let [r (linker/step state 8)
             mine (filter (fn [c] (= id (:yin.link/id c))) (:completions r))]
@@ -199,8 +197,7 @@
               (is (= k (count (elements requests)))
                   "exactly one further part is requested per step")
               (recur (:state r)
-                     (:dao.stream.apply/state
-                       (rpc/serve-once! handlers requests responses server))
+                     (lt/serve-all store requests responses server)
                      (inc k)))
           (let [c (first mine)]
             (is (= :ok (:status c)) "the last answer completes the link")
@@ -325,13 +322,12 @@
             opts {:formats all-formats, :indexes {(:format format) index}}
             fetch-counts (atom {})
             step-counts (atom {})
+            bare #(mapv (fn [v] (dissoc v :jing/request)) (elements %))
             by-fetch (lt/local-runtime
-                       (remote/default-handlers
-                         (lt/counting-store store fetch-counts))
+                       (lt/counting-store store fetch-counts)
                        opts 1024)
             by-step (lt/local-runtime
-                      (remote/default-handlers
-                        (lt/counting-store store step-counts))
+                      (lt/counting-store store step-counts)
                       opts 1024)
             res (linker/fetch by-fetch (:format format) identity lt/receiver
                               {:contract (:contract format)})
@@ -340,11 +336,11 @@
         (is (= :ok (:status c)))
         (is (= (:value res) (:value (:image c))))
         (is (seq (elements (:requests by-fetch))))
-        (is (= (elements (:requests by-step)) (elements (:requests by-fetch)))
-            "the same content requests, in the same order")
-        (is (= (elements (:responses by-step))
-               (elements (:responses by-fetch)))
-            "the same content responses")
+        (is (= (bare (:requests by-step)) (bare (:requests by-fetch)))
+            "the same content requests, in the same order -- the minted
+             request ids aside, which no caller shares")
+        (is (= (bare (:responses by-step)) (bare (:responses by-fetch)))
+            "the same content answers")
         (is (= @step-counts @fetch-counts))
         (is (every? #{1} (vals @fetch-counts))
             "each part is read once, by the server")
@@ -475,12 +471,36 @@
 ;; =============================================================================
 
 (defn- replying
-  "A local runtime whose server answers every read with the found
-   envelope carrying `text`, whatever it is."
+  "A link runtime whose content pair answers every read with the found
+   answer carrying `text`, whatever it is -- a scripted server over the
+   raw vocabulary, so the reply is exactly the bytes the test names."
   [text opts]
-  (lt/local-runtime {:jing/get-content (fn [_] {:found? true, :value text})}
-                    (merge {:formats all-formats} opts)
-                    1024))
+  (let [requests (lt/ring-handle 1024)
+        responses (lt/ring-handle 1024)
+        server (atom (oldest requests))]
+    {:state (linker/link-state
+              (merge {:formats all-formats
+                      :content {:requests requests
+                                :answers responses
+                                :cursor (oldest responses)}}
+                     opts))
+     :drive (fn [state]
+              (swap! server
+                     (fn [c]
+                       (loop [c c]
+                         (let [read (stream/next requests c)]
+                           (if (= :dao.stream/ok (:dao.stream/outcome read))
+                             (do (stream/append!
+                                   responses
+                                   {:jing/request
+                                    (get (:dao.stream/value read) :jing/request)
+                                    :jing/found? true
+                                    :jing/bytes text})
+                                 (recur (:dao.stream/cursor read)))
+                             c)))))
+              state)
+     :requests requests
+     :responses responses}))
 
 
 (defn- decoded-length
@@ -539,18 +559,19 @@
                   {:requests requests,
                    :responses responses,
                    :state (linker/link-state
-                            {:rpc (rpc/client-state requests responses
-                                                    (oldest responses)),
+                            {:content {:requests requests
+                                       :answers responses
+                                       :cursor (oldest responses)}
                              :formats all-formats,
                              :indexes {:yin.debruijn.code index}})}))]
     (testing "a read not yet issued"
       (let [{:keys [requests responses state]} (fresh)
             [state id] (linker/request-link
                          state (request-for linker/stack-format identity))
-            _ (stream/append! responses :dao.stream.apply/ended)
+            _ (stream/close! responses)
             r (linker/step state 8)]
-        (is (some? (:terminal (:rpc (:state r))))
-            "the medium ended the attachment")
+        (is (some? (get-in r [:state :content :terminal]))
+            "the medium ended the client")
         (is (= [{:status :refused, :reason :absent, :address address,
                  :yin.link/id id}]
                (:completions r)))
@@ -560,7 +581,7 @@
             [state id] (linker/request-link
                          state (request-for linker/stack-format identity))
             r1 (linker/step state 8)
-            _ (stream/append! responses :dao.stream.apply/ended)
+            _ (stream/close! responses)
             r2 (linker/step (:state r1) 8)]
         (is (empty? (:completions r1)))
         (is (= 1 (count (elements requests))))
@@ -571,7 +592,7 @@
     (jing/close! store)))
 
 
-(deftest a-full-writer-retries-the-one-envelope-it-owes
+(deftest a-full-writer-retries-the-one-request-it-owes
   (let [store (mem/create-content-mem)
         {:keys [identity index]}
         (lt/publish store linker/stack-format
@@ -588,9 +609,10 @@
                      (do (swap! fulls dec)
                          {:dao.stream/outcome :dao.stream/full})
                      (stream/append! requests v))))
-        handlers (remote/default-handlers store)
         state (linker/link-state
-                {:rpc (rpc/client-state writer responses (oldest responses)),
+                {:content {:requests writer
+                           :answers responses
+                           :cursor (oldest responses)}
                  :formats all-formats,
                  :indexes {:yin.debruijn.code index}})
         [state a] (linker/request-link
@@ -603,20 +625,20 @@
         r2 (linker/step (:state r1) 8)
         seen2 (elements requests)
         r3 (linker/step (:state r2) 8)
-        _ (lt/serve-all handlers requests responses
-                        (rpc/server-state (oldest requests)))
+        _ (lt/serve-all store requests responses (oldest requests))
         r4 (linker/step (:state r3) 8)]
-    (is (rpc/unsent? (:rpc (:state r1)))
-        "the writer answered full: the envelope is retained unsent")
+    (is (some? (get-in r1 [:state :content :unsent]))
+        "the writer answered full: the request is retained unsent")
     (is (empty? (:completions r1)))
     (is (empty? seen1) "and nothing reached the medium")
-    (is (rpc/unsent? (:rpc (:state r2))) "full again: still retained")
+    (is (some? (get-in r2 [:state :content :unsent]))
+        "full again: still retained")
     (is (empty? (:completions r2)))
     (is (empty? seen2)
-        "no second link is issued while one envelope is owed")
-    (is (not (rpc/unsent? (:rpc (:state r3)))))
-    (is (= [0 1] (mapv :dao.stream.apply/id (elements requests)))
-        "the retried envelope keeps its id, and the second link follows")
+        "no second link is issued while one request is owed")
+    (is (nil? (get-in r3 [:state :content :unsent])))
+    (is (= 2 (count (elements requests)))
+        "the retried request kept its id, and the second link follows")
     (is (= #{a b} (set (map :yin.link/id (:completions r4)))))
     (is (every? (fn [c] (= :ok (:status c))) (:completions r4)))
     (jing/close! store)))

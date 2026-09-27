@@ -23,10 +23,9 @@
    re-read and re-attempted on a later round, and `abandon` is the
    shell's.  No clock, no atom, no global: every input is an argument or
    a composition value, and every outcome is plain data."
-  (:require [dao.jing.remote :as remote]
+  (:require [dao.jing.content :as content]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
-            [dao.stream.rpc :as rpc]
             [yin.vm.linker :as linker]))
 
 
@@ -107,13 +106,14 @@
 (defn composition
   "The content side of the shell's link composition, from the host's
    creation options.  `content-store` is a `dao.jing` byte-store handle
-   served in process over its own ring-buffer pair (the single-process
-   and durable-local rows of section 6.1); `content-client` is a
-   `dao.stream.rpc` client state on a connection whose far end serves
-   content (the remote-content row), and the drive then only steps the
-   linker, the server running elsewhere (section 6.4).  A content source
-   is optional: with none, every link stays `:pending` and says so.
-   Supplying both is a composition defect."
+   served in process over its own ring-buffer content pair (the
+   single-process and durable-local rows of section 6.1);
+   `content-client` is the linker's content-pair client map
+   `{:requests w :answers r :cursor c}` on a connection whose far end
+   serves content (the remote-content row), and the drive then only
+   steps the linker, the server running elsewhere (section 6.4).  A
+   content source is optional: with none, every link stays `:pending`
+   and says so.  Supplying both is a composition defect."
   [{:keys [name-env content-store content-client]}]
   (when (and content-store content-client)
     (throw (ex-info "content-store and content-client are exclusive"
@@ -149,20 +149,19 @@
 
 
 (defn- drain-server
-  "Answer what is waiting on the content pair, in at most `serve-steps`
-   `serve-once!` advances, and return the successor server state."
-  [handlers requests responses server]
-  (loop [server server
+  "Answer what is waiting on the content pair from the store, in at most
+   `serve-steps` serve-step advances, and return the successor server
+   cursor."
+  [store requests responses cursor]
+  (loop [cursor cursor
          left serve-steps]
     (if (zero? left)
-      server
-      (let [r (rpc/serve-once! handlers requests responses server)]
-        (if (contains? #{:dao.stream.apply/idle
-                         :dao.stream.apply/terminal
-                         :dao.stream.apply/pending-response}
-                       (:dao.stream.apply/outcome r))
-          (:dao.stream.apply/state r)
-          (recur (:dao.stream.apply/state r) (dec left)))))))
+      cursor
+      (let [cursor' (content/serve-step store requests cursor
+                                        responses serve-steps)]
+        (if (= cursor cursor')
+          cursor
+          (recur cursor' (dec left)))))))
 
 
 (defn- attempt-runtime
@@ -171,7 +170,7 @@
    cursors are minted before the attempt's first append -- `:newest`
    observes next arrival -- so nothing of an earlier attempt is read
    again and nothing of this one is skipped.  The drive counts its
-   rounds and holds the server state on the linker state itself, so an
+   rounds and holds the server cursor on the linker state itself, so an
    attempt that exhausts `attempt-budget` throws the pending signal and
    the caller reports the link `:pending` -- nothing on the pair was
    concluded."
@@ -181,23 +180,23 @@
       :local
       (let [requests (:requests content)
             responses (:responses content)
-            handlers (remote/default-handlers (:store content))
-            server0 (rpc/server-state (newest requests))]
+            server0 (newest requests)]
         {:state (linker/link-state
-                  {:rpc (rpc/client-state requests responses
-                                          (newest responses))
+                  {:content {:requests requests
+                             :answers responses
+                             :cursor (newest responses)}
                    :formats formats})
          :drive (fn [st]
                   (budget! st)
                   (assoc st
                          ::round (inc (or (::round st) 0))
-                         ::server (drain-server handlers requests
+                         ::server (drain-server (:store content) requests
                                                 responses
                                                 (or (::server st)
                                                     server0))))})
 
       :remote
-      {:state (linker/link-state {:rpc (:client content)
+      {:state (linker/link-state {:content (:client content)
                                   :formats formats})
        :drive (fn [st]
                 (budget! st)
