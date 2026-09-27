@@ -7734,3 +7734,30 @@ Done:
   ShiBi authorization seams when that design round happens.
 - Reminder set on this entry: revisit after the dao.stream.remote epic
   (slices 5-8 + fable sign-off) completes.
+
+
+## 2026-09-28 01:50:00 +0700 — Owner design statement: ShiBi is pure data; capability is emergent from interpreters
+Completed-GMT: 2026-09-27 18:50:00 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Done:
+- Owner elaborated the ShiBi direction (verbatim): "Here is how I
+  imagine Shibi. it is pure data. the capability is an emergent
+  property of interpreter of pure data. This is exactly like how
+  dao.space is an emergent property of dao.space.index and
+  dao.space.query."
+- This DISSOLVES the capability-vs-currency fork the gpt-6-sol brief
+  presented (collab/1790508000000-architect-shibi-cap-vs-currency-
+  brief.*): neither capability nor currency is a stored token shape.
+  The tuples are pure data; capability, metering and budget are
+  emergent properties of interpreters over that data -- different
+  interpreter choices for different deployment needs, all riding the
+  same dao.stream.remote seam (opaque credential slot; mirror-side
+  gate whose verify is a pure query over an index-published snapshot).
+- Recorded: memory project_shibi_tuple_space.md extended;
+  docs/design/dao.shibi.md header updated with the owner's framing
+  (orchestrator-direct: recording a ruling, not authoring design);
+  committed this entry.
+Next: the ShiBi spec round remains post-epic (after dao.stream.remote
+  slices 5-8 + fable sign-off). When it runs, the two-interpreter
+  design starts from this statement: spec the tuple shapes and the
+  index/query interpreters, not a token format.
