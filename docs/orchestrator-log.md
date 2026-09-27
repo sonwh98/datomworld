@@ -7694,3 +7694,26 @@ Dispatched: an Architect design round (gpt-6-sol) for the seam: how
   as an observer, what gets transacted (AST datoms, code identity,
   provenance), and how q surfaces over it -- as a design doc, parallel
   to the dao.stream.remote slices (disjoint files).
+
+
+## 2026-09-27 23:30:00 +0700 — Owner ruled the q surface: user-require (design committed)
+Completed-GMT: 2026-09-27 16:30:00 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Done:
+- The architect delivered docs/design/yin.repl.dao.space-index.md (83
+  lines): the index observer on yin.repl's program-out medium
+  (repl.cljc:523-554), the $ast row relation plus the 6.5 datom
+  projection transacted atomically per program with session provenance
+  via the metadata-entity convention, code-and-claims-only indexing,
+  and the q-surface fork presented with the recommendation.
+- OWNER RULING: the q surface is user-require — dao.space.query/q is
+  not bound in the session; the user's own require binds it over the
+  maintained index. Binding at the first prompt was considered and is
+  a composition a host can still make; the shell does not.
+- The design doc records both rulings (automatic indexing; user-require
+  q) and is committed with this entry.
+Next: implementation is a post-epic item (disjoint from the
+  dao.stream.remote slices; composes beside them). The epic continues:
+  slice 4 round 2 (glm), cross-host proofs (glm), link-policy
+  implementation (subagent) all in flight; slices 5-8 then fable's
+  final sign-off.
