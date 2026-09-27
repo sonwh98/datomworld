@@ -10,7 +10,6 @@
             [dao.jing.mem :as mem]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.content :as content]
             #?@(:cljd [] :clj [[yin.vm.debruijn-linearize :as linearize]])
             [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn-vm-contract-test :as b0]
@@ -73,7 +72,7 @@
   ([store ast] (module-manifest store ast 'my.lib))
   ([store ast name]
    (let [tree (vm/ast->semantic-bytecode ast)
-         tree-addr (content/materialize-tree! store tree)
+         tree-addr (vm/materialize-tree! store tree)
          {:keys [identities addresses] :as recs}
          (derive-records store tree-addr ast)
          manifest {:yin.module/name name
@@ -257,7 +256,7 @@
      (doseq [[format lower] [[linker/stack-format #'linearize/adapt]
                              [linker/register-format #'rc/adapt]]]
        (let [store (mem/create-content-mem)
-             tree (content/materialize-tree!
+             tree (vm/materialize-tree!
                     store (vm/ast->semantic-bytecode lt/worked-example))
              profile (if (= linker/stack-format format)
                        linker/stack-lowering-profile
@@ -345,10 +344,10 @@
    from `from`'s tree: every image individually valid, every root
    another."
   [store main from]
-  (let [main-tree (content/materialize-tree! store
-                                             (vm/ast->semantic-bytecode main))
-        from-tree (content/materialize-tree! store
-                                             (vm/ast->semantic-bytecode from))
+  (let [main-tree (vm/materialize-tree! store
+                                        (vm/ast->semantic-bytecode main))
+        from-tree (vm/materialize-tree! store
+                                        (vm/ast->semantic-bytecode from))
         recs (derive-records store from-tree from)
         manifest {:yin.module/name 'my.lib
                   :yin.module/schema linker/manifest-schema
@@ -399,9 +398,9 @@
 
 (deftest a-record-claiming-another-tree-s-image-is-derivation-mismatch
   (let [store (mem/create-content-mem)
-        tree (content/materialize-tree! store
-                                        (vm/ast->semantic-bytecode
-                                          lt/worked-example))
+        tree (vm/materialize-tree! store
+                                   (vm/ast->semantic-bytecode
+                                     lt/worked-example))
         other (derive-records store tree lt/other-program)
         manifest {:yin.module/name 'my.lib
                   :yin.module/schema linker/manifest-schema
@@ -438,9 +437,9 @@
 
 (deftest an-unimplemented-profile-is-unverified-derivation-when-verifying
   (let [store (mem/create-content-mem)
-        tree (content/materialize-tree! store
-                                        (vm/ast->semantic-bytecode
-                                          lt/worked-example))
+        tree (vm/materialize-tree! store
+                                   (vm/ast->semantic-bytecode
+                                     lt/worked-example))
         sem (lt/publish store linker/semantic-format
                         (lt/semantic-vector lt/worked-example))
         foreign {:yin.lower/profile "v2-expander",

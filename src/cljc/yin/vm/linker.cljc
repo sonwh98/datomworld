@@ -1995,7 +1995,8 @@
    `[identity attribute address]`. The address is the store's own
    `segment-key`; the identity is the format's own mint. The caller owns
    the index: nothing is recorded here. The two storage-derived formats
-   mint through `yin.vm.content` instead (section 9)."
+   mint through `yin.vm/materialize-tree!` and
+   `yin.vm.code/materialize-vector!` instead (section 9)."
   [handle format image]
   (let [address (jing/materialize! handle image)]
     [((:identity-fn format) image) (address-attribute format) address]))

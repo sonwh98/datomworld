@@ -16,7 +16,7 @@
             [dao.stream.ringbuffer :as ring]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.content :as content]
+            [yin.vm.code :as code]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-register-code :as rcode]
@@ -272,7 +272,8 @@
 
 (def formats
   "Each format record beside the lowering that mints its images. For the
-   two storage-derived formats the mint side is `yin.vm.content`
+   two storage-derived formats the mint side is
+   `yin.vm/materialize-tree!` / `yin.vm.code/materialize-vector!`
    (section 9) and the identity is its own address, so the index maps
    identity to itself (section 4.2, step 1)."
   [[:H linker/stack-format stack-image]
@@ -324,12 +325,13 @@
   "Store `image` for `format`; return `{:identity id :address a :index
    idx}`. The de Bruijn formats publish through `linker/publish!` and
    read the index back from the datom; the storage-derived formats mint
-   through `yin.vm.content` (section 9) and index identity to itself."
+   through `yin.vm`/`yin.vm.code` (section 9) and index identity to
+   itself."
   [handle format image]
   (if (storage-derived? format)
     (let [id (if (= :yin.ast/code (:format format))
-               (content/materialize-tree! handle image)
-               (content/materialize-vector! handle image))]
+               (vm/materialize-tree! handle image)
+               (code/materialize-vector! handle image))]
       {:identity id, :address id, :index {id id}})
     (let [datom (linker/publish! handle format image)]
       {:identity (first datom),
@@ -984,7 +986,7 @@
   (let [store (mem/create-content-mem)
         wanted (semantic-vector worked-example)
         other (semantic-vector other-program)
-        other-address (content/materialize-vector! store other)
+        other-address (code/materialize-vector! store other)
         index {(jing/segment-key wanted) other-address}]
     (is (= {:status :refused, :reason :hash-mismatch,
             :expected (jing/segment-key wanted),
@@ -1059,7 +1061,7 @@
 (deftest a-tree-fetch-carries-its-parts-and-obligations
   (let [store (mem/create-content-mem)
         tree (vm/ast->semantic-bytecode worked-example)
-        root (content/materialize-tree! store tree)
+        root (vm/materialize-tree! store tree)
         res (fetch-local store {root root} linker/ast-format root
                          receiver (requested linker/ast-format))]
     (is (linker/ok? res))
@@ -1416,7 +1418,7 @@
 (deftest a-module-that-rebinds-yin-def-is-reserved-name
   (let [tree (vm/ast->semantic-bytecode yin-def-rebound-then-def)]
     (is (thrown? #?(:cljd Object :clj Exception :cljs :default)
-          (content/materialize-tree! (mem/create-content-mem) tree))
+          (vm/materialize-tree! (mem/create-content-mem) tree))
         "the mint side refuses it before the write")
     (is (= reserved-refused (reserved-refusal tree))
         "yin/def is never a definition key")))
@@ -1577,7 +1579,7 @@
 
 (deftest a-body-occurrence-with-no-application-site-is-discharged
   (let [store (mem/create-content-mem)
-        address (content/materialize-vector! store no-site-vector)]
+        address (code/materialize-vector! store no-site-vector)]
     (is (linker/ok? (fetch-local store {address address}
                                  linker/semantic-format address
                                  {} (requested linker/semantic-format)))
@@ -1588,7 +1590,7 @@
 
 (deftest an-unreadable-vector-layout-degrades-conservatively
   (let [store (mem/create-content-mem)
-        address (content/materialize-vector! store unreadable-vector)
+        address (code/materialize-vector! store unreadable-vector)
         format linker/semantic-format]
     (is (= [{:name 'q, :at nil, :in-body? true}]
            ((:obligations-fn format) unreadable-vector))

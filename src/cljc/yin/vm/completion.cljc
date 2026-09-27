@@ -295,9 +295,9 @@
 
 (defn vm-fetch
   "The emitter's own `fetch`: answer an address from the VM's loaded
-   images, else from the caller's `fetch` (e.g. over
-   `yin.vm.content/fetch-vector` / `load-rows`). A caller fetch that throws
-   the content namespace's \"resolves to no payload\" is a miss, as nil is."
+   images, else from the caller's `fetch` (e.g. `yin.vm.linker/fetch`).
+   A caller fetch that throws the content store's \"resolves to no
+   payload\" is a miss, as nil is."
   [vm fetch]
   (fn [address]
     (or (some-> (get (:code-aliases vm) address)

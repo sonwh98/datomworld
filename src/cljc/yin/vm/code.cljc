@@ -426,6 +426,19 @@
   (some #(% v) vector-rules))
 
 
+(defn materialize-vector!
+  "Materialize one canonical instruction vector as the exact payload at its
+   own `(jing/segment-key v)` address (UCF §7.3.4: nothing else may hash
+   there). The vector is validated (§7.5) first, so a malformed vector is
+   refused before the write. Returns the address -- the segment's
+   `:yin.code/hash`."
+  [handle v]
+  (when-let [defect (well-formed-vector? v)]
+    (throw (ex-info "Cannot materialize a vector that fails validation"
+                    {:defect defect})))
+  (jing/materialize! handle v))
+
+
 ;; =============================================================================
 ;; Segment rows (§6.2)
 ;; =============================================================================

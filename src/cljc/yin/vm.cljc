@@ -1444,6 +1444,24 @@
         (rows-reserved-defect root rows defect-res))))
 
 
+(defn materialize-tree!
+  "Materialize every row of one projected tree `{:root id, :rows {id row}}`
+   individually under its own address (D3): each row's body
+   `(subvec row 1)` through `jing/materialize!`, which derives exactly the
+   row's id. The tree is validated (§7.4) first, so an invalid tree is
+   refused before the first write. Returns the root row id -- the tree's
+   address (§4.1)."
+  [handle {:keys [root rows] :as tree}]
+  (when-let [{:keys [rule path id]} (validate-rows tree)]
+    (throw (ex-info "Cannot materialize rows that fail validation"
+                    (cond-> {:rule rule}
+                      path (assoc :path path)
+                      id (assoc :id id)))))
+  (doseq [row (vals rows)]
+    (jing/materialize! handle (subvec row 1)))
+  root)
+
+
 (defn semantic-bytecode->ast
   "Reconstruct the canonical map AST from `{:root row-id, :rows {row-id row}}`
    (§7.1 load-time reconstruction), the inverse of `ast->semantic-bytecode`.

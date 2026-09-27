@@ -27,7 +27,7 @@
             [yin.repl :as repl]
             [yin.repl.link :as link]
             [yin.vm :as vm]
-            [yin.vm.content :as content]
+            [yin.vm.code :as code]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.engine :as engine]
             [yin.vm.debruijn-linearize :as dl]
@@ -141,8 +141,8 @@
    requires another."
   [store ast name exports & [overlay]]
   (let [tree (vm/ast->semantic-bytecode ast)
-        tree-addr (content/materialize-tree! store tree)
-        sem (content/materialize-vector! store (semantic-vector ast))
+        tree-addr (vm/materialize-tree! store tree)
+        sem (code/materialize-vector! store (semantic-vector ast))
         h-img (stack-image ast)
         r-img (register-image ast)
         h (dcode/image-hash h-img)

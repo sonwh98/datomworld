@@ -10,7 +10,7 @@
             [dao.jing.mem :as mem]
             [dao.stream :as stream]
             [yin.vm :as vm]
-            [yin.vm.content :as content]
+            [yin.vm.code :as code]
             [yin.vm.linker :as linker]
             [yin.vm.linker-test :as lt]
             [yin.vm.semantic :as semantic]))
@@ -174,7 +174,7 @@
 (deftest a-link-stays-pending-while-the-server-answers-one-part-per-step
   (let [store (mem/create-content-mem)
         tree (vm/ast->semantic-bytecode lt/worked-example)
-        root (content/materialize-tree! store tree)
+        root (vm/materialize-tree! store tree)
         n (count (:rows tree))
         requests (lt/ring-handle 256)
         responses (lt/ring-handle 256)
@@ -413,7 +413,7 @@
         h (lt/publish store linker/stack-format
                       (lt/stack-image lt/worked-example))
         tree (vm/ast->semantic-bytecode lt/closed-program)
-        root (content/materialize-tree! store tree)
+        root (vm/materialize-tree! store tree)
         rt (runtime store {:yin.debruijn.code (:index h),
                            :yin.ast/code {root root}})
         [state a] (linker/request-link
@@ -446,7 +446,7 @@
 (deftest an-addressed-instruction-stream-runs-under-its-stamp-or-is-refused
   (let [store (mem/create-content-mem)
         v (lt/semantic-vector lt/worked-example)
-        address (content/materialize-vector! store v)
+        address (code/materialize-vector! store v)
         indexes {:yin.semantic/code {address address}}
         c (link (runtime store indexes)
                 (request-for linker/semantic-format address))]

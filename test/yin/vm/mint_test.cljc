@@ -1,4 +1,4 @@
-(ns yin.vm.content-test
+(ns yin.vm.mint-test
   "U10: code content in `dao.jing` (D3 individual rows; D7's intake answer
    is the `dao.jing.stream` adapter, tested in its own namespace). The
    criteria here are the unit's own: materialize! -> fetch round-trips
@@ -9,14 +9,17 @@
    retired the `load-rows`/`fetch-vector` loaders and moved their
    callers to `fetch` (section 9 of `docs/design/yin.vm.linker.md`),
    which since M3 reads over a ring-buffer content pair served from the
-   store (`yin.vm.linker-test/fetch-local`)."
+   store (`yin.vm.linker-test/fetch-local`). The two mint functions
+   exercised here, `yin.vm/materialize-tree!` and
+   `yin.vm.code/materialize-vector!`, live beside the grammars they
+   enforce -- they are not a content category of their own."
   (:require #?@(:cljd [["dart:io" :as dart-io]])
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.file :as jing-file]
             [dao.jing.mem :as jing-mem]
             [yin.vm :as vm]
-            [yin.vm.content :as content]
+            [yin.vm.code :as code]
             [yin.vm.linearize :as linearize]
             [yin.vm.linker :as linker]
             [yin.vm.linker-test :as lt]
@@ -101,7 +104,7 @@
     (let [h (jing-mem/create-content-mem)]
       (doseq [[name ast] corpus-trees]
         (let [tree (vm/ast->semantic-bytecode ast)
-              root (content/materialize-tree! h tree)
+              root (vm/materialize-tree! h tree)
               loaded (fetch-tree h root)]
           (is (= root (:root tree)) (str "the tree's address is its root row id: " name))
           (is (= tree loaded) (str "materialize! -> get -> validate round-trips: " name))
@@ -109,7 +112,7 @@
                  (vm/semantic-bytecode->ast tree))
               (str "the fetched tree reconstructs to the same map AST: " name)))
         (let [vector (:vector (linearize/lower-rows (vm/ast->semantic-bytecode ast)))
-              address (content/materialize-vector! h vector)
+              address (code/materialize-vector! h vector)
               fetched (fetch-vector h address)]
           (is (= (jing/segment-key vector) address)
               (str "a vector materializes under its own segment-key: " name))
@@ -129,8 +132,8 @@
           vector (:vector (linearize/lower-rows tree))
           h (jing-file/create-content-file path)]
       (try
-        (let [root (content/materialize-tree! h tree)
-              address (content/materialize-vector! h vector)]
+        (let [root (vm/materialize-tree! h tree)
+              address (code/materialize-vector! h vector)]
           (jing/close! h)
           (let [h2 (jing-file/create-content-file path)]
             (try
@@ -150,7 +153,7 @@
   (testing "the memory backend carries it: full round trip"
     (let [h (jing-mem/create-content-mem)
           tree (vm/ast->semantic-bytecode metadata-literal-ast)
-          root (content/materialize-tree! h tree)
+          root (vm/materialize-tree! h tree)
           loaded (fetch-tree h root)
           lit-row (some (fn [row] (when (= :literal (nth row 1)) row))
                         (vals (:rows loaded)))]
@@ -165,7 +168,7 @@
           h (jing-file/create-content-file path)
           tree (vm/ast->semantic-bytecode metadata-literal-ast)]
       (try
-        (let [root (content/materialize-tree! h tree)]
+        (let [root (vm/materialize-tree! h tree)]
           (jing/close! h)
           (let [h2 (jing-file/create-content-file path)
                 loaded (fetch-tree h2 root)
@@ -196,8 +199,8 @@
           tree-a (vm/ast->semantic-bytecode (wrap 0))
           tree-b (vm/ast->semantic-bytecode (wrap 1))
           shared-root (:root (vm/ast->semantic-bytecode shared))]
-      (content/materialize-tree! h tree-a)
-      (content/materialize-tree! h tree-b)
+      (vm/materialize-tree! h tree-a)
+      (vm/materialize-tree! h tree-b)
       (is (= (count (merge (:rows tree-a) (:rows tree-b)))
              (count (jing-mem/entries h)))
           "the store holds each distinct row once, trees merged by address")
@@ -251,7 +254,7 @@
   (testing "materialize-vector! refuses a malformed vector before the write"
     (let [h (jing-mem/create-content-mem)]
       (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default) #"fails validation"
-            (content/materialize-vector! h [[:jump 9]])))
+            (code/materialize-vector! h [[:jump 9]])))
       (is (not (contains? (jing-mem/entries h) (jing/segment-key [[:jump 9]]))))
       (jing/close! h))))
 
@@ -266,7 +269,7 @@
                          :operator {:type :variable, :name 'x},
                          :operands [{:type :literal, :value 1}]}})
           vector (:vector (linearize/lower-rows tree))
-          address (content/materialize-vector! h vector)
+          address (code/materialize-vector! h vector)
           res (lt/fetch-local h {address address} linker/semantic-format
                               address receiver
                               (requested linker/semantic-format))
