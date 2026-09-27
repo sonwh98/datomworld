@@ -7668,3 +7668,29 @@ Next: dispatch the implementation of yin.repl.link-policy.md (per its
   (GLM implement -> tri-host verify -> gpt-6-sol gate -> commit);
   record section 12 bullet 4 as closed in the linker spec's next doc
   pass.
+
+
+## 2026-09-27 22:55:00 +0700 — Owner feature direction: yin.repl evaluations auto-index into dao.space
+Completed-GMT: 2026-09-27 15:55:00 GMT
+Coding-Agent: ZCode (GLM-5.3-Flash, orchestrator seat)
+Done:
+- Owner shared a feature (outside yin.vm.link): Datalog queries on the
+  semantic AST from yin.repl. Then ruled the indexing half, verbatim:
+  "as the user evaluates code in the REPL, it should be automatically
+  indexed in dao.space by the dao.space.index/transactor!"
+- Saved as memory project_repl_eval_auto_index.md alongside the
+  sibling directions (shibi tuple space; peer observers one stream).
+- Open sub-question (not ruled): whether the q/match surface is bound
+  in the session by default or opt-in (the owner was explicitly unsure:
+  "I am not sure if dao.space.query should be loaded by default or
+  leave it as a feature that a user can load for themselves").
+  Orchestrator reading for an Architect: the INDEX is automatic (now
+  ruled); the QUERY SURFACE is a shell-identity fork (minimal core per
+  the yin.repl docstring vs batteries-included per the IDE post) --
+  recommend opt-in first use, default binding only if the owner wants
+  the IDE posture from the first prompt.
+Dispatched: an Architect design round (gpt-6-sol) for the seam: how
+  yin.repl's evaluation stream composes dao.space.index/the transactor
+  as an observer, what gets transacted (AST datoms, code identity,
+  provenance), and how q surfaces over it -- as a design doc, parallel
+  to the dao.stream.remote slices (disjoint files).
