@@ -8233,3 +8233,37 @@ one from the ruling before dispatching. Pipeline unchanged: verify ->
 gpt-6-sol gate (author family varies) -> commit on GRANTED. Open
 risks: none blocking; yin.repl.main-test intermittent unchanged;
 stale dart peers need rebuild (above).
+
+## 2026-09-28 19:46:15 +07 — Slice 3a: FFI export binding (yin.vm.ffi.remote-serve), gate r3 READY/GRANTED; committed b34643c0
+Completed-GMT: 2026-09-28 12:46:15 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@b34643c0, committed; uncommitted: docs/agents/delegate-invocation-reference.md (codex resume quirk), this log entry
+Done: New yin.vm.ffi.remote-serve (+test, 869 lines): open! validates all required options before minting any
+cursor; serve! is the UCF callback, idempotent per live handle by reference identity, fresh random identity per
+tenure; step is one mirror pass bounded by ::step-budget through a budget-limited reader view; retire! unpublishes
+before releasing; close! retires all and closes the channel writer; serve! refuses readable handles whose cursors do
+not round-trip the codec; lift-frame retires provisional exports of a refused frame.
+Decisions: (1) Architect design round 1 (gpt-6-sol) rated a P1 that mirror-step drops a full-refused answer; the
+orchestrator found it contradicted the signed-off remote spec (mirror stateless, resend recovery, append! never
+re-sent) and routed it back. Round 2 RETRACTED it: no mirror retention, no spec change, sub-slice 3.1 dropped; order
+is export binding -> lease wiring -> responder + VM/UCF acceptance; owner policy (channel adapter, lease params,
+capacities, handler authority) is injected as required options. (2) Round 2 first ran on gpt-6-luna (codex resume
+without -m); preserved as ...-r2.gpt-6-luna.findings.md, superseded, re-run pinned -m gpt-6-sol (answers agreed).
+Quirk added to delegate-invocation-reference.md. (3) OWNER DECISION on gate P2 (close!/shared channel): "(a)
+Dedicated channel" -> required ::channel-exclusive? declaration. (4) Gate r1 REQUEST CHANGES (P1 unbounded step, P2
+cursor portability, P2 channel ownership) -> fixes r2/r3 -> gate r2 one P3 test pin -> fix r4 -> gate r3 READY /
+GRANTED. Step budget counts channel reads (malformed included); gate ruled acceptable.
+Verification (orchestrator, final tree): kondo 0/0; cljstyle clean; focused JVM 54/471/0; full JVM 2298/183458/0;
+Node 2204/50059/0; CLJD 2166 all passed. Post-commit: formatter hook neutral (same stat, no residue). yin.repl.main-test
+cross-process flake investigated: A/B on a clean master worktree (1a52b61c) failed 1 in 4 on the same tests; main tree
+later 4/4 pass -> pre-existing, not attributable. Scratch worktree left at scratchpad/wt-master (removal needs owner).
+Delegates: Architect gpt-6-sol codex thread 01a0e7c5-6b35-7e01-9081-541da3b78e92 (collab/1790594862000-architect-
+ffi-serving-slice3.*); Implementer claude-opus-5-5 session 2fd38cae-ba0d-4d01-9d12-b9ee9af137e2 (collab/1790595472000-
+vm-engineer-ffi-export-binding.*, rounds r1-r4); Gate gpt-6-sol thread 01a0e7da-5e32-7723-a2bd-f9a6a42d4463
+(collab/1790596235000-reviewer-ffi-export-binding-gate.*, r1-r3).
+Next: Slice 3b lease wiring (dao.lease judge/holder, idempotent reclaim calling retire!), then 3c apply responder +
+real-VM end-to-end + UCF retained round trip. Parallel in flight: REPL code indexing in worktree
+/Users/sto/workspace/datomworld-repl-index (branch repl-code-index), gate r1 REQUEST CHANGES (P1 publish overflow of
+4096 intake, P2 failure not surfaced) + OWNER RULING "Report, keep evaluating" on index gaps; fix round running,
+implementer session 7fcb4501-80b2-43a3-8511-32424dd6f0d4, gate thread 01a0e802-49fe-77e1-bfc2-20092d11eacb.

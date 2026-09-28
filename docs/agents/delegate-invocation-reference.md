@@ -222,6 +222,12 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   under the default command sandbox are host diagnostics: retry via host
   escalation with the documented narrow prefixes, preserving each CLI's own
   read-only/write mode.
+- **`codex exec resume <id>` without `-m` can silently switch models.** On
+  2026-09-28 a resumed `gpt-6-sol` Architect thread ran on `gpt-6-luna`. The
+  only trace was a JSONL `item.completed` error item reading "This session was
+  recorded with model `gpt-6-sol` but is resuming with `gpt-6-luna`". Always
+  pass the original `-m <model>` on resume, and grep the log for `recorded with
+  model` before treating the answer as that model's.
 - **GLM/Muse `claude-code:unrecognized_model` startup warnings** are expected
   for their wrappers; verify the resulting artifact before declaring failure.
 - **The same benign startup warning can precede a real outage, not just a
