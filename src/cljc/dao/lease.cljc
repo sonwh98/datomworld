@@ -2097,6 +2097,20 @@
                        {:medium decl :refused :host-values}))))
 
 
+(defn- check-medium-entry!
+  "One fact-medium wiring's own checks, as `make-judge` runs them at
+  assembly: the entry is `{:handle :cursor :source :medium}` and its
+  medium declaration is valid (C2/C3)."
+  [entry]
+  (check-assembly! (and (map? entry)
+                        (some? (:handle entry))
+                        (some? (:cursor entry))
+                        (some? (:source entry)))
+                   "each fact medium is wired {:handle :cursor :source :medium}"
+                   {:medium-entry entry :refused :medium-entry})
+  (check-medium-declaration! "each fact medium" (get entry :medium)))
+
+
 (defn- wire-declared-medium
   "Wire one fact medium, KEEPING its explicit declaration on the wired
   entry: the declaration is wiring data a consumer can still read, not a
@@ -2172,13 +2186,7 @@
                      "the judge is wired the medium each recipient reads its facts from"
                      {:media media :refused :media})
     (doseq [entry media]
-      (check-assembly! (and (map? entry)
-                            (some? (:handle entry))
-                            (some? (:cursor entry))
-                            (some? (:source entry)))
-                       "each fact medium is wired {:handle :cursor :source :medium}"
-                       {:medium-entry entry :refused :medium-entry})
-      (check-medium-declaration! "each fact medium" (get entry :medium)))
+      (check-medium-entry! entry))
     ;; The budget is validated as an integer HERE, before anything could
     ;; derive from it -- an assembly ex-info, never a raw host error --
     ;; and again, with the rest of the state's seams, in initial-judge.
@@ -2202,7 +2210,11 @@
     (check-durable-prerequisites! config)
     ;; Every check passed: build the state, then wire. Nothing is wired
     ;; before the whole config has been refused or accepted.
-    (let [judge (initial-judge config)
+    (let [judge (assoc (initial-judge config)
+                       ;; the assembly's declarations, kept so a medium
+                       ;; wired later is validated against the same ones
+                       :resolver-bindings (get config :resolver-bindings)
+                       :durable? (boolean (get config :durable?)))
           judge (reduce (fn [j t] (wire-tick j (:handle t) (:cursor t) (get t :source)))
                         judge ticks)
           judge (reduce wire-declared-medium judge media)]
@@ -2210,6 +2222,43 @@
        :step judge-step
        :scope (if (get config :durable?) :durable :process-scoped)
        :cadence (get config :cadence)})))
+
+
+(defn wire-declared-facts
+  "Wire one more fact medium into a composed judge -- the judge state
+  `make-judge` returned under `:judge` -- after assembly: a medium that
+  comes to exist with a grant, such as a per-lease renewal medium.
+  `entry` is `{:handle :cursor :source :medium declaration}`, validated
+  exactly as `make-judge` validates each wired medium at assembly -- the
+  entry's shape and its explicit declaration (C2/C3), the `:durable?`
+  host-values refusal (C4), and resolver compatibility against the
+  `:resolver-bindings` the judge was assembled with (D4) -- and the
+  declaration rides the wired entry as it does there. A refusal throws
+  ex-info naming the seam under `:refused` and wires nothing; a judge
+  not assembled by `make-judge` carries no bindings to validate against
+  and is refused under `:resolver-bindings`. Returns the judge."
+  [judge entry]
+  (check-medium-entry! entry)
+  (check-derived-medium-refusals! [entry] (get judge :durable?))
+  (check-resolver-compatibility! "the judge"
+                                 (get judge :resolver)
+                                 (get judge :resolver-bindings)
+                                 [entry])
+  (wire-declared-medium judge entry))
+
+
+(defn unwire-facts
+  "Unwire the fact medium whose handle is `handle` (by reference
+  identity): the judge reads it no more, so no fact appended there
+  reaches a later pass. Every other wired medium, tick cursor and the
+  ledger are untouched -- a lease that medium carried stays in the
+  ledger, judged as a lease on no medium, until it leaves by the pass.
+  Idempotent: a handle not wired unwires nothing. Returns the judge."
+  [judge handle]
+  (update judge :facts
+          (fn [entries]
+            (filterv (fn [entry] (not (identical? handle (:handle entry))))
+                     entries))))
 
 
 (defn make-holder

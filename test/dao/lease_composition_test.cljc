@@ -773,6 +773,99 @@
           "the retry recorded after the writer recovered"))))
 
 
+;; =============================================================================
+;; Wiring after assembly: wire-declared-facts / unwire-facts
+;; =============================================================================
+
+(defn- wiring-refusal-key
+  [judge entry]
+  (try (lease/wire-declared-facts judge entry) :wired
+       (catch #?(:cljd Object :clj Exception :cljs :default) e
+         (:refused (ex-data e)))))
+
+
+(deftest wire-declared-facts-test
+  (testing "a medium wired after assembly is validated as make-judge
+            validates, keeps its declaration, and its facts count"
+    (let [renewals (new-buffer 8)
+          entry {:handle renewals
+                 :cursor (oldest-cursor renewals)
+                 :source :holder-b
+                 :medium standard-medium}
+          system (-> (composed {})
+                     (update :judge lease/wire-declared-facts entry)
+                     (update :judge lease/author-grant
+                             (lease/grant :l2 :db :holder-b {:ms 10}))
+                     (tick! 1)
+                     step!)]
+      (is (= [:holder-a :holder-b] (mapv :source (get-in system [:judge :facts]))))
+      (is (= standard-medium (:medium (peek (get-in system [:judge :facts]))))
+          "the declaration rides the wired entry")
+      (append-ok! renewals (lease/renewal :l2))
+      (let [system (-> system (tick! 6) step!)]
+        (is (= {:ms 6} (get-in system [:judge :ledger :l2 :last-observation]))
+            "a renewal on the medium wired later counts for its holder"))))
+  (testing "each invalid wiring is refused under the seam it names, wiring
+            nothing"
+    (let [judge (:judge (composed {}))
+          b (new-buffer 8)
+          good {:handle b :cursor (oldest-cursor b) :source :holder-b
+                :medium standard-medium}]
+      (doseq [[expected entry]
+              [[:medium-entry (dissoc good :cursor)]
+               [:medium-entry (dissoc good :source)]
+               [:medium (dissoc good :medium)]
+               [:medium (update good :medium dissoc :retention)]
+               [:medium (assoc-in good [:medium :capacity] 0)]
+               [:medium (assoc-in good [:medium :value-domain] :anything)]
+               [:attribution (assoc-in good [:medium :attribution] :envelope-key)]]]
+        (is (= expected (wiring-refusal-key judge entry))
+            (str "refused under " expected)))
+      (is (= :wired (wiring-refusal-key judge good)))
+      (is (= :host-values
+             (wiring-refusal-key
+               (:judge (lease/make-judge
+                         (judge-config {:durable? true
+                                        :durable-judge :dj
+                                        :incarnation-rule :ir
+                                        :fencing :f})))
+               (assoc-in good [:medium :value-domain] :host-values)))
+          "a durable judge refuses a host-values medium, as at assembly")
+      (is (= :resolver-bindings
+             (wiring-refusal-key
+               (lease/initial-judge {:resolver resolver :self :grantor})
+               good))
+          "a judge not assembled by make-judge has no bindings to check against"))))
+
+
+(deftest unwire-facts-test
+  (testing "unwiring removes exactly that medium, idempotently, and its
+            facts no longer reach the pass"
+    (let [renewals (new-buffer 8)
+          other (new-buffer 8)
+          system (-> (composed {})
+                     (update :judge lease/wire-declared-facts
+                             {:handle renewals :cursor (oldest-cursor renewals)
+                              :source :holder-b :medium standard-medium})
+                     (update :judge lease/wire-declared-facts
+                             {:handle other :cursor (oldest-cursor other)
+                              :source :holder-c :medium standard-medium})
+                     (update :judge lease/author-grant
+                             (lease/grant :l2 :db :holder-b {:ms 10}))
+                     (tick! 1)
+                     step!)
+          unwired (lease/unwire-facts (:judge system) renewals)]
+      (is (= [:holder-a :holder-c] (mapv :source (:facts unwired)))
+          "exactly that medium, the others in order")
+      (is (= unwired (lease/unwire-facts unwired renewals)) "idempotent")
+      (is (= (:ledger (:judge system)) (:ledger unwired))
+          "the ledger is untouched")
+      (append-ok! renewals (lease/renewal :l2))
+      (let [system (-> (assoc system :judge unwired) (tick! 6) step!)]
+        (is (= {:ms 1} (get-in system [:judge :ledger :l2 :last-observation]))
+            "the unwired medium's renewal never reached the pass")))))
+
+
 ;; C5/C6/C7 are pinned outside the runtime tests, as the plan's §7 states:
 ;; no timer or clock call exists in src/cljc/dao/lease.cljc (the grep),
 ;; dao.lease requires dao.stream and never the reverse (by construction),
