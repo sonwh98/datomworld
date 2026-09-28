@@ -7938,3 +7938,43 @@ any implementation; collab/ remainder + hygiene).
 - Next: fable final sign-off on the complete dao.stream.remote
   implementation (owner-directed), then PUSH (authorized), then the
   post-epic queue.
+
+## 2026-09-28 11:12:33 +0700 — EPIC SIGNED OFF: fable READY/GRANTED on the complete dao.stream.remote implementation; PUSHED
+
+- Final sign-off (owner-directed fable dispatch,
+  collab/1790568188000): NO P1 findings. Design coverage walked
+  section by section -- every requirement implemented or recorded as
+  deferred (yin.vm.ffi ruling respected); slices fit; UCF fresh-key
+  allocation and carried-route restore confirmed sound; identity
+  discipline elsewhere (rpc, dao.jing.content.step, yin.repl.serve)
+  confirmed good. Verdict: READY, Sign-off: GRANTED.
+- FABLE PUNCH LIST (composition-level, none contradicts a slice
+  acceptance row; fix round queued):
+  P2-1 relay pair ids sequential + reset on restart (meeting
+  restart reuses pair-0; stale holder reaches the wrong pair instead
+  of not-found) -> mint (random-uuid) like rpc/step do.
+  P2-2 pair in-stream gone/channel-gone never ends the pair channel
+  (remote_pair translates only gap/end; drain! ignores the
+  transport-error reasons; outstanding appends never get
+  append-unknown) -> end the pair reader on not-found/channel-gone
+  from the in stream + test.
+  P2-3 no production serve! for the UCF facade: document serve!
+  idempotence-per-handle on the callback contract; leased-serve!
+  exemplar + test, or record the lease as post-epic.
+  P2-4 rpc collapses no-surface/oversize into transport-error
+  (permanent/config errors sound retryable) -> map them + pins.
+  P2-5 ws slot-release paths unpinned (close!, protocol error,
+  invalid ack, :expiry-ms) -> add pins; the code already returns
+  slots on every traced path.
+  P3: UDP send-to!/1200-byte bound/opposite-direction/reply-to-source
+  untested; per-link sequential wire ids + absorb! doesn't check
+  answer identity (forgeable by a reader-writer); drain! stops on
+  gap (self-healing); pair ends leak forever; reflexive-tag assoc on
+  a non-map meet-request would throw inside apply-request -- CONFIRM
+  a hostile peer cannot crash a mirror step (open question from
+  fable); stale docs (dao.stream.remote.md header still says
+  "design target, not implemented"; dao.stream.ws.md accept/disclaim
+  frames; connect.cljc:544 disclaim comment).
+- State at push: master 19c44279 + this entry; tri-host JVM
+  2279*/183279* (the one intermittent is the queued pre-existing
+  main-test flake), Node 2185/49908/0, Dart 2147 all-pass.
