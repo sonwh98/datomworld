@@ -873,3 +873,44 @@
       (is (= 21 (vm/value result)))
       (is (vm/halted? result))
       (is (empty? (:parked result)) "the completed call leaves :parked"))))
+
+
+;; =============================================================================
+;; semantic-restore: a retained writer's response route
+;; =============================================================================
+
+(deftest semantic-restore-retained-response-route-test
+  (let [base {:parked {:parked-0 {:continuation true}}}
+        entry (fn [extra]
+                (merge {:segment 0, :pc 3, :env {}, :stack [], :k [],
+                        :request-sent true, :call-id :parked-0,
+                        :reason :put, :stream-id :yin/call-in,
+                        :datom {:request true}}
+                       extra))]
+    (testing "an ordinary retained writer waits on the fixed call-out keys"
+      (let [restored (semantic/semantic-restore base (entry nil))
+            [wait] (:wait-set restored)]
+        (is (true? (:blocked? restored)))
+        (is (false? (:halted? restored)))
+        (is (= :next (:reason wait)))
+        (is (= :parked-0 (:call-id wait)))
+        (is (= 3 (:pc wait)))
+        (is (= vm/call-out-cursor-key (get-in wait [:cursor-ref :id])))
+        (is (= vm/call-out-stream-key (:stream-id wait)))))
+    (testing "a lowered retained writer waits on its carried route"
+      (let [restored (semantic/semantic-restore
+                       base
+                       (entry {:stream-id :yin.k/k-7,
+                               :response-cursor :yin.k/k-9,
+                               :response-stream :yin.k/k-8}))
+            [wait] (:wait-set restored)]
+        (is (true? (:blocked? restored)))
+        (is (= :next (:reason wait)))
+        (is (= :parked-0 (:call-id wait)))
+        (is (= :yin.k/k-9 (get-in wait [:cursor-ref :id]))
+            "the carried response cell's allocated key")
+        (is (= :yin.k/k-8 (:stream-id wait))
+            "the carried response reflection's allocated key")
+        (is (= 3 (:pc wait)))
+        (is (contains? (:parked restored) :parked-0)
+            "the parked call is untouched until its response lands")))))

@@ -7860,3 +7860,81 @@ slice 8 confirm; fable final sign-off; PUSH (authorized); post-epic
 queue (ShiBi spec round -- capabilities adopted; remote-FFI revisit;
 auto-index implementation; yang.antlr consistency pass + gate before
 any implementation; collab/ remainder + hygiene).
+
+## 2026-09-28 10:11:50 +0700 — Slice 5 committed (8b5d907b); slice-8 confirm r9 = REQUEST CHANGES (one P1: verbatim envelope), fix r5 dispatched
+
+- SLICE 5 LANDED: 8b5d907b, 156 files, +8813/-5620. Gate r5
+  READY/GRANTED on the settled tree; tri-host green on that tree
+  (JVM 2278/183274/0, Node 2184/49902/0, Dart 2146). Content: the
+  yin.repl service over mirror/reflection (requests/answers
+  convention), serving.cljc / rpc/ws.cljc / rpc_ws tests / the apply
+  wire envelope / slice-peer test peers deleted, rpc.cljc reworked
+  (own vocabulary, random self-minted ids, reflection-failure
+  translation, mint-terminal path), accept-slot handoff atomic with
+  the phase change, lease_composition migrated, node ws tests moved
+  to the real 5-event wire flow. Note: the commit also swept the
+  accumulated collab/ artifacts and stray .zcode/.opencode files that
+  had piled up untracked -- reviewed before staging, all provenance
+  entries from this epic.
+- SLICE 8 CONFIRM R9 (fresh, post-test-pins): structural items all
+  present (carried endpoints, fresh-key allocation, restore dispatch,
+  both new pins). One ruling requirement UNMET: the retained FFI
+  request envelope is not preserved verbatim -- lift keeps only
+  :request-op/:request-args (remote.cljc:348) and lower rebuilds via
+  apply2/request (remote.cljc:638); apply.cljc's request? explicitly
+  permits additional keys ("the envelope remains open"), so
+  reconstruction is lossy by construction, and the round-trip test
+  only uses a constructor-made envelope. Verdict REQUEST CHANGES,
+  sign-off DENIED.
+- FIX R5 DISPATCHED (GLM subagent per routing, brief
+  collab/1790565038000-...-slice8-fixes-r5.prompt.md): lift carries
+  :yin.k/request-envelope verbatim; lower uses it as :datom and
+  refuses an envelope-less :ffi-request pend as :yin.k/unsatisfied
+  naming the request identity (no silent reconstruction); three test
+  pins (lift carries extra keys; round-trip :datom = original
+  envelope; refusal). Allowed files: ucf/remote.cljc +
+  ucf/remote_test.cljc only. Then: Node+Dart lanes (orchestrator),
+  confirm r10 (gpt-6-sol), commit on GRANTED, fable final sign-off,
+  push (authorized).
+
+## 2026-09-28 11:01:04 +0700 — Slice 8 complete: UCF facade + carried-route restore, confirm r11 READY/GRANTED; committed
+
+- The dao.stream.remote implementation plan is now fully landed
+  (slices 0-8). Slice 8 = the UCF facade (yin.vm.ucf.remote, new):
+  lift/lower through remote descriptors -- pending-wait travel as
+  data (7.4.3), frame-level cell sharing (7.5.3), collision-free
+  fresh-key batch allocation checked against receiver resources +
+  fixed VM keys, and the FFI-migration ruling implemented to the
+  letter: retained FFI calls lower only when the carried pair is
+  re-establishable; the request envelope travels VERBATIM
+  (:yin.k/request-envelope; op/args are derived views only; the
+  lower never rebuilds -- apply's open-envelope protocol makes
+  reconstruction lossy); an envelope-less :ffi-request pend refuses
+  :yin.k/unsatisfied naming the request identity BEFORE any
+  attachment (a refusal mints no reflection); no receiver-handler
+  fallback. yin.vm.semantic: carried-response-route +
+  semantic-restore re-keys the restored wait onto the carried
+  [:response-cursor :response-stream] route; ordinary writers keep
+  fixed defaults.
+- Gate chain: confirm r8 (structurally sound, 2 pins missing) ->
+  test-pins round (GLM subagent) -> confirm r9 REQUEST CHANGES
+  (envelope not verbatim) -> fix r5 (GLM subagent,
+  collab/1790565038000) -> confirm r10 REQUEST CHANGES (refusal
+  after attach-all: side effects before refusal) -> fix r6
+  (orchestrator-direct: pre-attach validation in lower-frame; the
+  whole frame refuses with nothing attached; pin asserts zero
+  attach! calls) -> confirm r11 READY/GRANTED.
+- Tri-host on the landed tree: facade 22/213/0 JVM; ucf-test 23/123;
+  Node 2185/49908/0; Dart 2147 all-pass.
+- POST-EPIC QUEUE ADDITION: yin.repl.main-test
+  killing-the-connection-is-observable-and-requests-are-lost is an
+  INTERMITTENT (cross-process wire timing; remote-value's
+  await-event occasionally misses event-ms). Pre-existing: 1 failure
+  in 8 namespace runs on committed master, 2 in 9 on the working
+  tree -- not a slice-8 regression (ucf files are not on that path).
+  Diagnose the event-publication race in the landed slice-5 wire
+  path (or loosen the test's await budget); logs
+  collab/slice8-r5-jvm-full.log.
+- Next: fable final sign-off on the complete dao.stream.remote
+  implementation (owner-directed), then PUSH (authorized), then the
+  post-epic queue.

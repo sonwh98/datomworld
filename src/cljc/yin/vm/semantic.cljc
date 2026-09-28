@@ -115,6 +115,19 @@
    :stream-id vm/call-out-stream-key})
 
 
+(defn- carried-response-route
+  "The response route a lowered retained writer carries -- its
+   [response cursor key, response stream key] pair, the route data
+   `yin.vm.ucf.remote` stamps on the lowered entry
+   (`yin.vm.universal-continuation-format.md` S7.4.3). nil when the
+   writer carries none: an ordinary retained call waits on the fixed
+   local call-out keys."
+  [entry]
+  (when (and (contains? entry :response-cursor)
+             (contains? entry :response-stream))
+    [(:response-cursor entry) (:response-stream entry)]))
+
+
 (defn semantic-restore
   "Restore a wait-set or ready-queue entry into machine registers.
 
@@ -123,26 +136,35 @@
    - A `:request-sent` entry is a writer whose retained FFI request has now
      been appended. The call starts waiting for its correlated response,
      exactly as an immediately-sent one does, so the entry is replaced by its
-     response reader and the machine stays blocked.
+     response reader and the machine stays blocked. A writer carrying a
+     lowered call's response route (`:response-cursor`, `:response-stream`)
+     waits on that carried route; an ordinary one waits on the fixed local
+     call-out keys.
    - A `:call-id` entry is a response reader. The woken value is a response
      envelope, so `ffi/call-result` unwraps it, checks correlation, and the
      parked call leaves `:parked` rather than accumulating."
   ([base entry] (semantic-restore base entry (:value entry)))
   ([base entry val]
    (if (:request-sent entry)
-     (assoc base
-            :wait-set (conj (vec (or (:wait-set base) []))
-                            (response-wait-entry (:segment entry)
-                                                 (:pc entry)
-                                                 (:env entry)
-                                                 (:stack entry)
-                                                 (:k entry)
-                                                 (:call-id entry)))
-            :control nil
-            :k nil
-            :value :yin/blocked
-            :blocked? true
-            :halted? false)
+     (let [wait (response-wait-entry (:segment entry)
+                                     (:pc entry)
+                                     (:env entry)
+                                     (:stack entry)
+                                     (:k entry)
+                                     (:call-id entry))
+           wait (if-let [[cursor-key stream-key]
+                         (carried-response-route entry)]
+                  (assoc wait
+                         :cursor-ref {:type :cursor-ref, :id cursor-key}
+                         :stream-id stream-key)
+                  wait)]
+       (assoc base
+              :wait-set (conj (vec (or (:wait-set base) [])) wait)
+              :control nil
+              :k nil
+              :value :yin/blocked
+              :blocked? true
+              :halted? false))
      (let [call-id (:call-id entry)
            base (if call-id (update base :parked dissoc call-id) base)
            val (if call-id (ffi/call-result val call-id) val)]
