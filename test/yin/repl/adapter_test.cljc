@@ -1,6 +1,7 @@
 (ns yin.repl.adapter-test
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
+            [dao.stream.apply :as apply2]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc :as rpc]
             [yin.repl.adapter :as adapter]))
@@ -92,8 +93,9 @@
     (is (= :yin.repl.adapter/requested
            (:yin.repl.adapter/outcome submitted)))
     (is (rpc/safe-id? id))
-    (is (= (rpc/request-value id :op/eval ["(+ 20 22)"])
-           request-value))
+    (is (= (apply2/request id :op/eval ["(+ 20 22)"])
+           request-value)
+        "the wire value is a dao.stream.apply request envelope")
     (is (= {:op :op/eval :args ["(+ 20 22)"]}
            (get-in state [:yin.repl.adapter/rpc :outstanding id])))))
 

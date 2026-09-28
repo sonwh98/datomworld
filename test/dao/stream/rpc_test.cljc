@@ -1,6 +1,7 @@
 (ns dao.stream.rpc-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
+            [dao.stream.apply :as apply2]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc :as rpc]))
 
@@ -298,3 +299,130 @@
            (rpc/rebind (assoc polled :terminal :dao.stream.apply/ended)
                        request-handle))
         "only a /detached terminal is reconnectable")))
+
+
+(deftest wire-values-are-apply-envelopes-preserved-whole
+  (let [request-handle (handle)
+        response-handle (handle)
+        requested (rpc/request! (client request-handle response-handle) :math/add [1 2])
+        id (:dao.stream.rpc/id requested)
+        emitted (:dao.stream/value (stream/next request-handle (cursor request-handle)))
+        answer (assoc (apply2/success-response id 3) :trace/hop 2)
+        _ (stream/append! response-handle answer)
+        polled (rpc/poll! (:dao.stream.rpc/state requested))
+        [completions _] (rpc/take-completed (:dao.stream.rpc/state polled))]
+    (is (apply2/request? emitted))
+    (is (= (apply2/request id :math/add [1 2]) emitted))
+    (is (= :dao.stream.rpc/responded (:dao.stream.rpc/outcome polled)))
+    (is (apply2/response? (:dao.stream.rpc/response polled)))
+    (is (= answer (:dao.stream.rpc/response polled))
+        "the accepted answer is the whole open envelope, extra keys included")
+    (is (= answer (:dao.stream.rpc/response (first completions))))))
+
+
+(deftest an-invalid-error-body-is-rejected-and-leaves-the-request-outstanding
+  (testing "a valid apply error body completes the request: the
+            invalid case below is rejected for its body, not its
+            apply keys"
+    (let [request-handle (handle)
+          response-handle (handle)
+          requested (rpc/request! (client request-handle response-handle) :op/a [])
+          id (:dao.stream.rpc/id requested)
+          _ (stream/append! response-handle
+                            (apply2/error-response id :op/divide-by-zero "boom"))
+          polled (rpc/poll! (:dao.stream.rpc/state requested))
+          [completions _] (rpc/take-completed (:dao.stream.rpc/state polled))
+          completion (first completions)]
+      (is (= :dao.stream.rpc/responded (:dao.stream.rpc/outcome polled)))
+      (is (= 1 (count completions)))
+      (is (false? (rpc/answer-ok? (:dao.stream.rpc/response completion))))
+      (is (= {:dao.stream.apply/code :op/divide-by-zero
+              :dao.stream.apply/message "boom"}
+             (rpc/answer-error (:dao.stream.rpc/response completion))))))
+  (testing "an invalid error body is rejected: the request stays
+            outstanding and the diagnostic is consumed exactly once"
+    (let [request-handle (handle)
+          response-handle (handle)
+          requested (rpc/request! (client request-handle response-handle) :op/a [])
+          id (:dao.stream.rpc/id requested)
+          _ (stream/append! response-handle
+                            {:dao.stream.apply/id id
+                             :dao.stream.apply/error {:dao.stream.apply/code :unqualified
+                                                      :dao.stream.apply/message "x"}})
+          polled (rpc/poll! (:dao.stream.rpc/state requested))
+          state (:dao.stream.rpc/state polled)]
+      (is (= :dao.stream.rpc/diagnostic (:dao.stream.rpc/outcome polled)))
+      (is (= :dao.stream.rpc/malformed-response
+             (get-in polled [:dao.stream.rpc/diagnostic :dao.stream.rpc/code])))
+      (is (contains? (:outstanding state) id))
+      (is (empty? (:completed state)))
+      (is (= :dao.stream.rpc/idle
+             (:dao.stream.rpc/outcome (rpc/poll! state)))
+          "the malformed answer is consumed exactly once"))))
+
+
+(deftest an-unsafe-reply-id-is-a-diagnostic-consumed-once
+  (let [request-handle (handle)
+        response-handle (handle)
+        requested (rpc/request! (client request-handle response-handle) :op/a [])
+        id (:dao.stream.rpc/id requested)
+        unsafe (apply2/success-response "opaque-id" :v)
+        _ (stream/append! response-handle unsafe)
+        polled (rpc/poll! (:dao.stream.rpc/state requested))
+        state (:dao.stream.rpc/state polled)]
+    (is (apply2/response? unsafe) "a valid apply response, outside rpc's id policy")
+    (is (= :dao.stream.rpc/diagnostic (:dao.stream.rpc/outcome polled)))
+    (is (= :dao.stream.rpc/unsafe-response-id
+           (get-in polled [:dao.stream.rpc/diagnostic :dao.stream.rpc/code])))
+    (is (contains? (:outstanding state) id) "the request is still outstanding")
+    (is (= :dao.stream.rpc/idle (:dao.stream.rpc/outcome (rpc/poll! state)))
+        "the unsafe reply is consumed exactly once")))
+
+
+(deftest at-the-outstanding-limit-request-answers-backpressure
+  (let [request-handle (handle)
+        response-handle (handle)
+        initial (rpc/client-state request-handle response-handle
+                                  (cursor response-handle)
+                                  {:max-outstanding 1})
+        first-result (rpc/request! initial :op/a [])
+        state (:dao.stream.rpc/state first-result)
+        pressed (rpc/request! state :op/b [])]
+    (is (= :dao.stream.rpc/requested (:dao.stream.rpc/outcome first-result)))
+    (is (= :dao.stream.rpc/backpressure (:dao.stream.rpc/outcome pressed)))
+    (is (identical? state (:dao.stream.rpc/state pressed))
+        "no id allocated, no unsent retained, prior outstanding unaffected")
+    (is (nil? (:dao.stream.rpc/id pressed)))
+    (is (= 1 (count (:outstanding state))))
+    (is (= [:op/a]
+           (loop [c (cursor request-handle) ops []]
+             (let [r (stream/next request-handle c)]
+               (if (= :dao.stream/ok (:dao.stream/outcome r))
+                 (recur (:dao.stream/cursor r) (conj ops (rpc/request-op (:dao.stream/value r))))
+                 ops))))
+        "nothing was appended for the refused request")
+    (is (= rpc/default-max-outstanding
+           (:max-outstanding (client request-handle response-handle))))
+    (is (thrown? #?(:cljd Object :clj Exception :cljs :default)
+          (rpc/client-state request-handle response-handle
+                            (cursor response-handle) {:max-outstanding 0})))))
+
+
+(deftest no-surface-and-oversize-keep-their-own-terminal-words
+  (let [request-handle (handle)
+        poll-with (fn [reason]
+                    (:dao.stream.rpc/state
+                      (rpc/poll! (rpc/client-state request-handle
+                                                   (transport-error-reader reason)
+                                                   :c))))
+        no-surface (poll-with :dao.stream.remote/no-surface)
+        oversize (poll-with :dao.stream.remote/oversize)
+        not-found (poll-with :dao.stream.remote/not-found)
+        detached (poll-with :dao.stream.remote/channel-gone)]
+    (is (= :dao.stream.apply/no-surface (:terminal no-surface)))
+    (is (= :dao.stream.apply/oversize (:terminal oversize)))
+    (doseq [terminal [no-surface oversize not-found]]
+      (is (= terminal (rpc/rebind terminal request-handle))
+          "terminal for the binding: rebind refuses it"))
+    (is (nil? (:terminal (rpc/rebind detached request-handle)))
+        "detached alone is rebindable")))

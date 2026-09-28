@@ -114,6 +114,7 @@
     :dao.stream.rpc/pending-request :yin.repl.adapter/pending-request
     :dao.stream.rpc/request-undeliverable :yin.repl.adapter/request-undeliverable
     :dao.stream.rpc/invalid-request :yin.repl.adapter/invalid-input
+    :dao.stream.rpc/backpressure :yin.repl.adapter/backpressure
     :dao.stream.rpc/allocator-error :yin.repl.adapter/terminal
     :dao.stream.rpc/terminal :yin.repl.adapter/terminal
     :yin.repl.adapter/transport-result))

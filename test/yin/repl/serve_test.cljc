@@ -258,7 +258,7 @@
           [[answer] _cursor] (answers-since endpoint answers-cursor)]
       (is (= 3 (rpc/answer-id answer)))
       (is (= :yin.repl.serve/unknown-operation
-             (:dao.stream.rpc/code (rpc/answer-error answer)))
+             (:dao.stream.apply/code (rpc/answer-error answer)))
           "the server evaluates locally or says it does not proxy"))))
 
 
@@ -272,7 +272,7 @@
           [[answer] cursor] (answers-since endpoint answers-cursor)]
       (is (= 1 (rpc/answer-id answer)))
       (is (= :yin.repl.serve/incomplete-input
-             (:dao.stream.rpc/code (rpc/answer-error answer)))
+             (:dao.stream.apply/code (rpc/answer-error answer)))
           "the envelope was well formed; refusing the fragment is this server's decision")
       (is (nil? (:pending-input (:repl endpoint)))
           "line continuation is a terminal concern; the shell retains none of it")
@@ -288,12 +288,29 @@
         endpoint (serve/step endpoint 1)
         answers-cursor (:dao.stream/cursor (stream/cursor (:answers endpoint)
                                                           stream/anchor-oldest))]
-    (stream/append! (:requests endpoint) {:dao.stream.rpc/id 9 :not :a-request})
+    (stream/append! (:requests endpoint) {:dao.stream.apply/id 9 :not :a-request})
     (let [endpoint (serve/step endpoint 2)
           [[answer] _cursor] (answers-since endpoint answers-cursor)]
       (is (= 9 (rpc/answer-id answer)))
       (is (= :yin.repl.serve/malformed-request
-             (:dao.stream.rpc/code (rpc/answer-error answer)))))))
+             (:dao.stream.apply/code (rpc/answer-error answer)))))))
+
+
+(deftest a-well-formed-request-with-an-unsafe-id-is-dropped-not-evaluated
+  (let [{:keys [endpoint]} (endpoint!)
+        endpoint (serve/step endpoint 1)
+        answers-cursor (:dao.stream/cursor (stream/cursor (:answers endpoint)
+                                                          stream/anchor-oldest))]
+    (stream/append! (:requests endpoint)
+                    (rpc/request-value "opaque-id" :op/eval ["(+ 1 2)"]))
+    (let [endpoint (serve/step endpoint 2)
+          [answers _cursor] (answers-since endpoint answers-cursor)]
+      (is (empty? answers)
+          "an id rpc could never have minted correlates nothing, even
+           on an otherwise well-formed apply request")
+      (is (str/includes? (str/join " " (texts endpoint))
+                         "malformed request dropped")
+          "dropped as a diagnostic -- never evaluated, never answered"))))
 
 
 (deftest an-uncorrelatable-value-is-dropped-as-a-diagnostic

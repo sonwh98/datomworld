@@ -507,7 +507,11 @@
           (let [request (:dao.stream/value result)
                 successor (:dao.stream/cursor result)]
             (cond
-              (rpc/request-value? request)
+              ;; rpc's safe-id policy holds on received requests too: an
+              ;; apply-shaped request whose id this client could never have
+              ;; minted is dropped below, never evaluated.
+              (and (rpc/request-value? request)
+                   (rpc/safe-id? (rpc/request-id request)))
               (let [[repl' answer] (evaluate (:repl endpoint) request)]
                 (recur remaining
                        (assoc endpoint
@@ -517,11 +521,11 @@
 
               ;; Correlatable but malformed: an error answer at least tells
               ;; the caller their own request failed, distinct from silence.
-              (and (map? request) (rpc/safe-id? (:dao.stream.rpc/id request)))
+              (and (map? request) (rpc/safe-id? (rpc/request-id request)))
               (recur remaining
                      (assoc endpoint
                             :pending-answer
-                            (rpc/error-answer (:dao.stream.rpc/id request)
+                            (rpc/error-answer (rpc/request-id request)
                                               :yin.repl.serve/malformed-request
                                               "Malformed request envelope")
                             :pending-successor successor))

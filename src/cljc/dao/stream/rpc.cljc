@@ -6,15 +6,23 @@
    handles (a request writer and a response reader), owns the returned state,
    and chooses when to step `request!` and `poll!`.
 
-   The request/answer vocabulary below is owned by this namespace, not by
-   `dao.stream.apply`: a request is `{:dao.stream.rpc/id
-   :dao.stream.rpc/op :dao.stream.rpc/args}` and an answer is `{:dao.stream.rpc/id
-   :dao.stream.rpc/ok <value>}` or `{:dao.stream.rpc/id
-   :dao.stream.rpc/error {:dao.stream.rpc/code :dao.stream.rpc/message}}`.
-   Ids are self-minted random safe integers, not a sequential counter: callers
-   sharing one answers stream must not collide on a caller-chosen id
-   (docs/design/dao.stream.remote.md, section 5)."
-  (:require [dao.stream :as stream]))
+   The wire values are `dao.stream.apply` envelopes: a request is
+   `{:dao.stream.apply/id :dao.stream.apply/op :dao.stream.apply/args}` and an
+   answer is `{:dao.stream.apply/id :dao.stream.apply/ok <value>}` or
+   `{:dao.stream.apply/id :dao.stream.apply/error {:dao.stream.apply/code
+   :dao.stream.apply/message}}`.  Envelopes stay open and are retained and
+   forwarded whole.  Events, diagnostics, and completions are this client's
+   own state and keep the `:dao.stream.rpc/*` keys; only the request and
+   answer values they embed are apply envelopes.
+
+   Id allocation is client policy layered over apply's opaque correlation id:
+   ids are self-minted random safe integers, not a sequential counter, so
+   callers sharing one answers stream must not collide on a caller-chosen id
+   (docs/design/dao.stream.remote.md, section 5).  A decoded answer whose id
+   is not `safe-id?` is a diagnostic here, not an apply-level rejection.  The
+   number of outstanding requests is bounded by `:max-outstanding`."
+  (:require [dao.stream :as stream]
+            [dao.stream.apply :as apply2]))
 
 
 ;; =============================================================================
@@ -36,6 +44,11 @@
   "Bound on re-rolling a self-minted id after a collision, before allocation
    fails through the existing terminal path."
   8)
+
+
+(def default-max-outstanding
+  "Outstanding-request limit used when `client-state` is not given one."
+  64)
 
 
 (defn response-event
@@ -65,76 +78,31 @@
 
 
 ;; =============================================================================
-;; Request/answer value vocabulary owned by this namespace
+;; Request/answer values: thin aliases of the dao.stream.apply envelope
 ;; =============================================================================
 
-(defn request-value
-  [id op args]
-  {:dao.stream.rpc/id id :dao.stream.rpc/op op :dao.stream.rpc/args args})
-
-
-(defn request-value?
-  [v]
-  (and (map? v)
-       (safe-id? (:dao.stream.rpc/id v))
-       (keyword? (:dao.stream.rpc/op v))
-       (vector? (:dao.stream.rpc/args v))))
-
-
-(defn request-id
-  [v]
-  (:dao.stream.rpc/id v))
-
-
-(defn request-op
-  [v]
-  (:dao.stream.rpc/op v))
-
-
-(defn request-args
-  [v]
-  (:dao.stream.rpc/args v))
-
-
-(defn success-answer
-  [id value]
-  {:dao.stream.rpc/id id :dao.stream.rpc/ok value})
-
-
-(defn error-answer
-  [id code message]
-  {:dao.stream.rpc/id id
-   :dao.stream.rpc/error {:dao.stream.rpc/code code
-                          :dao.stream.rpc/message message}})
+(def request-value apply2/request)
+(def request-value? apply2/request?)
+(def request-id apply2/request-id)
+(def request-op apply2/request-op)
+(def request-args apply2/request-args)
+(def success-answer apply2/success-response)
+(def error-answer apply2/error-response)
+(def answer-id apply2/response-id)
+(def answer-ok apply2/response-ok)
+(def answer-error apply2/response-error)
 
 
 (defn answer?
+  "True for an apply response this client can correlate: `apply/response?`
+   (which validates an error body) plus this client's `safe-id?` policy."
   [v]
-  (and (map? v)
-       (safe-id? (:dao.stream.rpc/id v))
-       (let [ok? (contains? v :dao.stream.rpc/ok)
-             err? (contains? v :dao.stream.rpc/error)]
-         (and (or ok? err?) (not (and ok? err?))))))
-
-
-(defn answer-id
-  [answer]
-  (:dao.stream.rpc/id answer))
-
-
-(defn answer-ok
-  [answer]
-  (:dao.stream.rpc/ok answer))
-
-
-(defn answer-error
-  [answer]
-  (:dao.stream.rpc/error answer))
+  (and (apply2/response? v) (safe-id? (apply2/response-id v))))
 
 
 (defn answer-ok?
   [answer]
-  (contains? answer :dao.stream.rpc/ok))
+  (contains? answer apply2/ok-key))
 
 
 ;; =============================================================================
@@ -157,18 +125,28 @@
    (the request/response service's own mint, docs/design/
    dao.stream.remote.md section 5) and `poll!` resolves it, retrying
    while the reflection answers a retryable mint -- the same pattern
-   `dao.jing.content.step/mint-cursor` uses for the content client."
+   `dao.jing.content.step/mint-cursor` uses for the content client.
+
+   `opts` may carry `:max-outstanding`, a positive integer bounding accepted
+   requests awaiting an answer (default `default-max-outstanding`).  At the
+   limit `request!` answers `:dao.stream.rpc/backpressure` without allocating
+   an id or appending."
   ([writer reader response-cursor]
    (client-state writer reader response-cursor {}))
-  ([writer reader response-cursor _opts]
-   {:writer writer
-    :reader reader
-    :cursor response-cursor
-    :outstanding {}
-    :unsent nil
-    :completed []
-    :diagnostics []
-    :terminal nil}))
+  ([writer reader response-cursor opts]
+   (let [limit (get opts :max-outstanding default-max-outstanding)]
+     (when-not (and (integer? limit) (pos? limit))
+       (throw (ex-info "max-outstanding must be a positive integer"
+                       {:dao.stream.rpc/max-outstanding limit})))
+     {:writer writer
+      :reader reader
+      :cursor response-cursor
+      :max-outstanding limit
+      :outstanding {}
+      :unsent nil
+      :completed []
+      :diagnostics []
+      :terminal nil})))
 
 
 (def init-client client-state)
@@ -303,7 +281,10 @@
 
    If a previous append was full, this retries the exact already-allocated
    envelope and ignores `op`/`args`; it never allocates a replacement id.  The
-   function makes one append attempt at most and never spins on `:full`."
+   function makes one append attempt at most and never spins on `:full`.
+
+   With `:max-outstanding` requests already outstanding, a new request answers
+   `:dao.stream.rpc/backpressure`: no id is allocated and nothing is appended."
   [state op args]
   (cond
     (:terminal state)
@@ -317,6 +298,9 @@
                                    {:op op :args args})]
       (rpc-result :dao.stream.rpc/invalid-request state
                   :dao.stream.rpc/diagnostic (last (:diagnostics state))))
+
+    (>= (count (:outstanding state)) (:max-outstanding state))
+    (rpc-result :dao.stream.rpc/backpressure state)
 
     :else
     (let [allocated (allocate-request state op args)]
@@ -355,13 +339,24 @@
 ;; Response decoding and correlation
 ;; =============================================================================
 
+(defn- answer-diagnostic
+  "Diagnostic for a value that is not an answer this client accepts: an apply
+   response with an id outside `safe-id?` is `unsafe-response-id`; anything
+   else, including an invalid error body, is `malformed-response`."
+  [value]
+  (diagnostic-event (if (apply2/response? value)
+                      :dao.stream.rpc/unsafe-response-id
+                      :dao.stream.rpc/malformed-response)
+                    value))
+
+
 (defn- normalize-event
   [value]
   (cond
     (nil? value) (ignore-event)
     (answer? value) (response-event value)
     (and (map? value) (keyword? (get value event-key))) value
-    :else (diagnostic-event :dao.stream.rpc/malformed-response value)))
+    :else (answer-diagnostic value)))
 
 
 (defn- decode-value
@@ -412,7 +407,7 @@
       (= kind :dao.stream.rpc/response)
       (let [response (get event response-key)]
         (if-not (answer? response)
-          (handle-event state (diagnostic-event :dao.stream.rpc/malformed-response response))
+          (handle-event state (answer-diagnostic response))
           (let [id (answer-id response)]
             (if-let [request (get (:outstanding state) id)]
               (let [state (-> state
@@ -434,11 +429,17 @@
    terminal vocabulary, inspecting `:dao.stream.remote/reason` when the
    reflection supplied one (dao.stream.remote.cljc reasons a reflection's
    read failure this way).  A reason this translation does not recognize
-   still becomes the generic transport-error terminal, never left raw."
+   still becomes the generic transport-error terminal, never left raw.
+
+   Each remote reason keeps its own word: `no-surface` and `oversize` are not
+   collapsed into `transport-error`.  Only `detached` is rebindable (`rebind`);
+   every other reason is terminal for the binding."
   [read-result]
   (case (:dao.stream.remote/reason read-result)
     :dao.stream.remote/not-found :dao.stream.apply/not-found
     :dao.stream.remote/channel-gone :dao.stream.apply/detached
+    :dao.stream.remote/no-surface :dao.stream.apply/no-surface
+    :dao.stream.remote/oversize :dao.stream.apply/oversize
     :dao.stream.apply/transport-error))
 
 
