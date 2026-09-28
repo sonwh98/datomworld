@@ -18,7 +18,10 @@
    reading cursor on `in`'s reflection; when `next` there answers
    `:dao.stream/gap`, frames were lost and which cannot be said, so
    the reader answers `:dao.stream/end` from then on -- the gap is
-   never reported to an inner reader as a source's own gap. The outer
+   never reported to an inner reader as a source's own gap. An `in`
+   transport-error naming not-found or channel-gone -- a relay pair
+   reclaimed at its serving peer -- ends the channel the same way; a
+   retryable transport error does not. The outer
    link then runs its ordinary channel-loss path (2.4): outstanding
    ids are abandoned, each abandoned `append!` is reported
    `append-unknown`, and reattachment is the caller's, by `attach!` on
@@ -61,10 +64,12 @@
    is a live channel, not a history browse, and a reattachment's fresh
    cursor is the same mint this makes on first use. `next` follows
    `in`'s own cursor, an internal position no caller threads back
-   here; an `in` gap or end marks the reader ended in `ended?`, shared
-   with the caller so a retired pair end can be told from a live one,
-   and every further read, forever, answers `:dao.stream/end` without
-   asking `in` again."
+   here; an `in` gap or end, and an `in` transport-error naming
+   not-found or channel-gone -- a reclaimed relay pair -- mark the
+   reader ended in `ended?`, shared with the caller so a retired pair
+   end can be told from a live one, and every further read, forever,
+   answers `:dao.stream/end` without asking `in` again; any other
+   transport error passes through, the binding not ended."
   [in ended?]
   (let [cursor (atom nil)
         mint! (fn []
@@ -100,6 +105,14 @@
                     (:dao.stream/gap :dao.stream/end)
                     (do (reset! ended? true)
                         {:dao.stream/outcome :dao.stream/end})
+
+                    :dao.stream/transport-error
+                    (if (contains? #{:dao.stream.remote/not-found
+                                     :dao.stream.remote/channel-gone}
+                                   (:dao.stream.remote/reason r))
+                      (do (reset! ended? true)
+                          {:dao.stream/outcome :dao.stream/end})
+                      r)
 
                     r))))))
 

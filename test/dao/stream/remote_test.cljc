@@ -11,8 +11,10 @@
    context, and malformed input dropped; the remote descriptor
    dispatch; position errors only ever relayed; a send the writer
    refuses with full leaving nothing outstanding, a refused probe
-   kept and retried on a later drain; and the installed outcomes kept
-   to their own served stream."
+   kept and retried on a later drain; a well-formed answer carrying
+   the right id and another identity left outstanding as a
+   diagnostic; and the installed outcomes kept to their own served
+   stream."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.middleware :as middleware]
@@ -927,6 +929,41 @@
         (is (= (stream/cursor s :dao.stream/oldest) ans)
             "the real answer, filed under its own id; the rest dropped
              as diagnostics")))))
+
+
+(deftest a-wrong-identity-answer-leaves-its-request-outstanding
+  (let [t (toy)
+        s (ring 8)]
+    (stream/append! s "hello")
+    (let [peer (served-peer {"str-1" (entry s #{:reader})} t)
+          r (:dao.stream/handle (attach (:a-end t) "str-1" {}))]
+      (serve! peer)
+      (stream/descriptor r)
+      ;; the cursor request is outstanding, its answer not yet written
+      (stream/cursor r :dao.stream/oldest)
+      (let [id (:dao.stream.remote/id
+                 (last (wire-requests (:ab t))))]
+        (testing "a well-formed answer with the right id and another
+                  identity is a diagnostic: nothing filed, nothing
+                  marked, no duplicate sent"
+          (stream/append! (:ba t)
+                          {:dao.stream/identity "impostor"
+                           :dao.stream.remote/id id
+                           :dao.stream/outcome :dao.stream/ok
+                           :dao.stream/cursor :forged})
+          (let [sent (count (op-requests (:ab t) :dao.stream/cursor))]
+            (is (= {:dao.stream/outcome :dao.stream/transport-error
+                    :dao.stream/retry? true}
+                   (stream/cursor r :dao.stream/oldest))
+                "the forged answer completed nothing")
+            (is (= sent (count (op-requests (:ab t) :dao.stream/cursor)))
+                "the request remains outstanding: no duplicate crossed"))))
+      (serve! peer)
+      (testing "the correct answer arriving afterwards completes the
+                request normally"
+        (is (= (stream/cursor s :dao.stream/oldest)
+               (stream/cursor r :dao.stream/oldest))
+            "the source's own answer, never the forged one")))))
 
 
 ;; =============================================================================

@@ -2,12 +2,15 @@
   "The pair channel of dao.stream.remote.md (3.3): a gap on `in` ends
    the channel with the source's frames lost, not relayed as a
    source's own gap; the abandoned append! is reported append-
-   unknown; attach! on the same pair descriptor resumes with a fresh
-   cursor on `in`; two identities riding one pair descriptor share
-   its link, one lower attach! each; and a pair descriptor as a
-   channel reads a served stream verbatim through a third peer's two
-   ring buffers, the relay convention of section 4, proved here at
-   the channel layer, independent of the meeting board."
+   unknown; in's transport-error naming not-found or channel-gone --
+   a reclaimed relay pair -- ends the channel the same way, while a
+   retryable in transport-error passes through; attach! on the same
+   pair descriptor resumes with a fresh cursor on `in`; two
+   identities riding one pair descriptor share its link, one lower
+   attach! each; and a pair descriptor as a channel reads a served
+   stream verbatim through a third peer's two ring buffers, the relay
+   convention of section 4, proved here at the channel layer,
+   independent of the meeting board."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.remote :as remote]
@@ -88,6 +91,40 @@
         acc))))
 
 
+(defn- reclaimable-in
+  "A stand-in for `in`, a reflection whose relay pair the serving peer
+   reclaimed: its cursor mints ok at 0, its next answers blocked until
+   `reclaimed?` is set, then transport-error naming `reason`."
+  [reclaimed? reason]
+  (reify stream/IDaoStreamReader
+    (cursor
+      [_ _anchor]
+      {:dao.stream/outcome :dao.stream/ok :dao.stream/cursor 0})
+
+    (next
+      [_ _c]
+      (if @reclaimed?
+        {:dao.stream/outcome :dao.stream/transport-error
+         :dao.stream.remote/reason reason}
+        {:dao.stream/outcome :dao.stream/blocked}))))
+
+
+(defn- flaky-in
+  "A stand-in for `in` whose cursor mints ok at 0 and whose next
+   answers `answer`, an atom, counting every next it is asked in
+   `asks`."
+  [answer asks]
+  (reify stream/IDaoStreamReader
+    (cursor
+      [_ _anchor]
+      {:dao.stream/outcome :dao.stream/ok :dao.stream/cursor 0})
+
+    (next
+      [_ _c]
+      (swap! asks inc)
+      @answer)))
+
+
 ;; =============================================================================
 ;; 3.3's own rule: an in gap ends the channel
 ;; =============================================================================
@@ -127,6 +164,77 @@
           (is (= :dao.stream/transport-error (:dao.stream/outcome ans)))
           (is (= :dao.stream.remote/channel-gone
                  (:dao.stream.remote/reason ans))))))))
+
+
+;; =============================================================================
+;; A reclaimed relay pair ends the channel like a gap
+;; =============================================================================
+
+(deftest pair-not-found-ends-the-channel-test
+  (doseq [reason [:dao.stream.remote/not-found
+                  :dao.stream.remote/channel-gone]]
+    (let [ab (ring 8)
+          events (ring 16)
+          reclaimed? (atom false)
+          pcd (pair-descriptor "pair-1" "in-id" "ab-id")
+          attach! (pair/attacher
+                    {:dao.stream.remote.pair/attach!
+                     (lower-attach! {"in-id" (reclaimable-in reclaimed?
+                                                             reason)
+                                     "ab-id" ab})
+                     :dao.stream.remote/events events})
+          r (:dao.stream/handle (attach! (outer-descriptor "svc-1" pcd)))]
+      (testing "attach answers ok at once, in's cursor minted at :newest"
+        (is (= :dao.stream/ok
+               (:dao.stream/outcome (stream/descriptor r)))))
+      (let [sent (stream/append! r :v)]
+        (is (= :dao.stream/ok (:dao.stream/outcome sent))
+            "the append! request crossed on ab, unanswered -- it is
+             what the channel loss below abandons")
+        (testing "in's transport-error naming not-found or channel-gone
+                  ends the binding, like a gap"
+          (reset! reclaimed? true)
+          (let [ans (stream/next r 0)]
+            (is (= :dao.stream/transport-error
+                   (:dao.stream/outcome ans)))
+            (is (= :dao.stream.remote/channel-gone
+                   (:dao.stream.remote/reason ans))
+                "in's loss is never relayed raw: the reader ended, and
+                 the link ran its channel-loss path")))
+        (testing "the abandoned append! is reported append-unknown"
+          (is (some #(= :dao.stream.remote/append-unknown
+                        (:dao.stream.remote/event %))
+                    (values events))))
+        (testing "reads answer channel-gone, not retryable, from here on"
+          (let [ans (stream/cursor r :dao.stream/oldest)]
+            (is (= :dao.stream/transport-error
+                   (:dao.stream/outcome ans)))
+            (is (= :dao.stream.remote/channel-gone
+                   (:dao.stream.remote/reason ans)))))))))
+
+
+(deftest a-retryable-in-transport-error-does-not-end-the-binding-test
+  (let [ab (ring 8)
+        asks (atom 0)
+        in-next (atom {:dao.stream/outcome :dao.stream/transport-error
+                       :dao.stream/retry? true})
+        pcd (pair-descriptor "pair-1" "in-id" "ab-id")
+        attach! (pair/attacher
+                  {:dao.stream.remote.pair/attach!
+                   (lower-attach! {"in-id" (flaky-in in-next asks)
+                                   "ab-id" ab})})
+        r (:dao.stream/handle (attach! (outer-descriptor "svc-1" pcd)))]
+    (testing "the retryable transport-error passes through, the
+              binding not ended"
+      (is (= :dao.stream/blocked
+             (:dao.stream/outcome (stream/next r 0)))
+          "the outer link answers as though unanswered"))
+    (testing "in is asked again on the next drain: the binding lives"
+      (reset! in-next {:dao.stream/outcome :dao.stream/blocked})
+      (is (= :dao.stream/blocked
+             (:dao.stream/outcome (stream/next r 0))))
+      (is (= 2 @asks)
+          "a reader that had ended would never ask in again"))))
 
 
 ;; =============================================================================

@@ -400,13 +400,16 @@
 
 (defn- absorb!
   "Consume one value read off the channel. A well-formed answer whose
-   id is outstanding is taken: a not-found error marks the reflection
-   gone; the attach probe's ok records the source's descriptor and
-   declared surface; an append!'s source outcome is emitted on the
-   event writer, correlated by id; any other answer is filed under its
-   id and its more outcomes installed. Answers whose id is not
-   outstanding, and values that are not well-formed answers, are
-   dropped as diagnostics."
+   id is outstanding and whose identity is the outstanding entry's
+   reflection's own identity is taken: a not-found error marks the
+   reflection gone; the attach probe's ok records the source's
+   descriptor and declared surface; an append!'s source outcome is
+   emitted on the event writer, correlated by id; any other answer is
+   filed under its id and its more outcomes installed. Answers whose
+   id is not outstanding, answers whose identity is not the
+   reflection's own -- a mismatch never completes a request, which
+   stays outstanding -- and values that are not well-formed answers,
+   are dropped as diagnostics."
   [link v]
   (when (well-formed-answer? v)
     (let [id (:dao.stream.remote/id v)]
@@ -415,29 +418,30 @@
               req (:req entry)
               op (:dao.stream.remote/op req)
               e (:dao.stream.remote/error v)]
-          (swap! link update :outstanding dissoc id)
-          (swap! refl update :ids disj id)
-          (cond
-            (= :dao.stream.remote/not-found e)
-            (do (swap! refl assoc :gone? true)
-                (when (or (= :dao.stream/descriptor op)
-                          (= :dao.stream/append! op))
-                  (emit! link v)))
+          (when (= (:dao.stream/identity v) (:identity @refl))
+            (swap! link update :outstanding dissoc id)
+            (swap! refl update :ids disj id)
+            (cond
+              (= :dao.stream.remote/not-found e)
+              (do (swap! refl assoc :gone? true)
+                  (when (or (= :dao.stream/descriptor op)
+                            (= :dao.stream/append! op))
+                    (emit! link v)))
 
-            (= :dao.stream/descriptor op)
-            ;; The attach probe's confirmation. ok records; a
-            ;; no-surface or oversize error marks nothing.
-            (when (nil? e)
-              (learn! refl v)
-              (emit! link v))
+              (= :dao.stream/descriptor op)
+              ;; The attach probe's confirmation. ok records; a
+              ;; no-surface or oversize error marks nothing.
+              (when (nil? e)
+                (learn! refl v)
+                (emit! link v))
 
-            (= :dao.stream/append! op)
-            (emit! link v)
+              (= :dao.stream/append! op)
+              (emit! link v)
 
-            :else
-            (do (swap! link assoc-in
-                       [:filed id] {:req req :ans v :reflection refl})
-                (install-more! link v))))))))
+              :else
+              (do (swap! link assoc-in
+                         [:filed id] {:req req :ans v :reflection refl})
+                  (install-more! link v)))))))))
 
 
 (defn- channel-loss!
