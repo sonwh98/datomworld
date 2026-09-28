@@ -12,12 +12,14 @@
   (:require #?(:cljd [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
             [clojure.string :as str]
+            [dao.jing.mem :as jing.mem]
             [dao.pretty :as pretty]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yang.clojure :as yang.clojure]
             [yang.php :as yang.php]
             [yang.python :as yang.python]
+            [yin.repl.index :as index]
             [yin.repl.link :as link]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
@@ -480,7 +482,8 @@
 (defn- make-attachment
   "Create one composition-owned medium of `capacity` elements, the unary
    attachment entry bound to it for this medium's lifetime, and an observer
-   attached through that entry.
+   attached through that entry.  `:attach` attaches a further, independently
+   advanced observer through the same entry.
 
    The resolver maps the descriptor's identity to the owner handle this
    composition created, which is host composition around the ring buffer's own
@@ -496,7 +499,8 @@
         attach! (ring/make-attacher {(:dao.stream/identity descriptor) writer})]
     {:stream writer
      :identity identity
-     :observer (observer/attach attach! descriptor)}))
+     :observer (observer/attach attach! descriptor)
+     :attach #(observer/attach attach! descriptor)}))
 
 
 (defn- standard-store
@@ -531,14 +535,17 @@
    the expander observes `program-in` — `:program-stream`, watched by
    `:observer` — and appends each expanded tree packet to `program-out` —
    `:row-stream`, watched independently by the evaluator's `:row-observer`,
-   which loads each packet and runs it.
+   which loads each packet and runs it.  The code indexer's observer
+   (`yin.repl.index`) is a peer attached to `program-out` beside it; the
+   round advances each, and neither calls the other.  It records
+   `shell-token` as provenance and publishes into `index-store`.
 
    The link pair is the session's (`yin.repl.link/make-pair`): the VM's
    half lives in its private `:resources`, the interpreter's half beside
    it under `:link-pair`.  The content pair and the name environment the
    interpreter serves from are the shell's (`:link-source`), and outlive
    a session rebuild."
-  [vm-type output-stream extra-primitives]
+  [vm-type output-stream extra-primitives shell-token index-store]
   (let [pair (link/make-pair)
         vm (make-vm vm-type output-stream extra-primitives pair)
         program-in (make-attachment ingress-capacity)
@@ -551,6 +558,9 @@
      :expander (make-expander (:identity program-in) (:stream program-out))
      :row-stream (:stream program-out)
      :row-observer (:observer program-out)
+     :indexer (index/make-indexer {:observer ((:attach program-out))
+                                   :session-token shell-token
+                                   :content-store index-store})
      :link-pair pair}))
 
 
@@ -593,26 +603,33 @@
    only at `(abandon)`; a function `(fn [view])` is consulted when a
    require parks and after each re-check that leaves the run pending,
    answering `:keep`, `:abandon` or `{:abandon reason}`; `:lease` is
-   reserved for phase 2 and refused, as is anything else, at assembly."
+   reserved for phase 2 and refused, as is anything else, at assembly.
+
+   `index-store` is the `dao.jing` byte store the code indexer publishes
+   its covered indexes into (docs/design/yin.repl.dao.space-index.md); it
+   outlives a session rebuild, and defaults to a fresh in-memory store."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
-            content-store content-client name-env link-policy]
+            content-store content-client name-env link-policy index-store]
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
+         shell-token (str (random-uuid))
+         index-store (or index-store (jing.mem/create-content-mem))
          link-source (link/composition
                        {:name-env name-env
                         :content-store content-store
                         :content-client content-client})]
      (merge
-       (make-session vm-type output-stream primitives)
+       (make-session vm-type output-stream primitives shell-token index-store)
        {:lang lang
         :vm-type vm-type
         :extra-primitives primitives
         :output-stream output-stream
         :output-cursor output-cursor
         :ledger {:output :untried}
-        :shell-token (str (random-uuid))
+        :shell-token shell-token
+        :index-store index-store
         :round 0
         :ingress-loss? false
         :last-value nil
@@ -742,6 +759,14 @@
         (if (#{:ok :gap} status) (recur observer') observer')))))
 
 
+(defn- ingress-gaps
+  "Gaps the evaluation path's observers counted.  The code indexer's are
+   its own: an index loss is reported without refusing evaluation."
+  [state]
+  (+ (:ingress-gaps (:observer state) 0)
+     (:ingress-gaps (:row-observer state) 0)))
+
+
 (defn- consume-failed-round
   "Answer a round that threw with a recoverable shell state.
 
@@ -762,23 +787,35 @@
                           (= (:stream carried) (:stream observer)))
                    carried
                    observer))
-        program (drain-observer (resume (:observer state)))
-        rows (drain-observer (resume (:row-observer state)))
-        gaps-before (+ (:ingress-gaps (:observer state) 0)
-                       (:ingress-gaps (:row-observer state) 0))
-        gaps-after (+ (:ingress-gaps program 0) (:ingress-gaps rows 0))
+        drained (assoc state
+                       :observer (drain-observer (resume (:observer state)))
+                       :row-observer (drain-observer
+                                       (resume (:row-observer state)))
+                       :indexer (index/skip (:indexer state)))
         [state' output-text]
         (drain-output
-          (cond-> (assoc state :observer program :row-observer rows)
-            (> gaps-after gaps-before)
+          (cond-> drained
+            (> (ingress-gaps drained) (ingress-gaps state))
             (assoc :ingress-loss? true)))]
     [state' (str output-text (format-error error))]))
 
 
-(defn- ingress-gaps
+(defn- run-index-stage
+  "Drive the code indexer's observer over `program-out`: it commits each
+   forwarded packet as one transaction and publishes the covered indexes.
+   It runs before the evaluator, so a program is indexed whether its VM
+   returns, parks, or raises; the two observers meet only at the medium."
   [state]
-  (+ (:ingress-gaps (:observer state) 0)
-     (:ingress-gaps (:row-observer state) 0)))
+  (update state :indexer index/step (:round state)))
+
+
+(defn- with-index-notice
+  "Append what the round's index step lost, if anything, to its result
+   text; the evaluation's own answer is unchanged."
+  [[state text] notice]
+  (if notice
+    [state (if (str/blank? text) notice (str text "\n" notice))]
+    [state text]))
 
 
 (defn- run-expander-stage
@@ -1110,8 +1147,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    datom-literal program — through the §10.1 composition.  The encoder
    projects it to an input batch of canonical rows with its harvest and
    declaration rows; the shell appends that batch to `program-in`, drives
-   the expander, drains its summary, and drives the evaluator only when a
-   program was forwarded.  An expansion failure is reported as data: its
+   the expander, drains its summary, and drives the code indexer and then
+   the evaluator only when a program was forwarded.  An expansion failure is reported as data: its
    batch is consumed, the store keeps its previous macros, and the next
    input evaluates normally.  An encoding failure throws before anything
    is appended.
@@ -1142,16 +1179,22 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                            {:failed (consume-failed-round state error)}))]
           (if-let [failed (:failed expanded)]
             failed
-            (let [[expanded {:keys [errors forwarded]}] expanded]
-              (cond
-                (> (ingress-gaps expanded) (ingress-gaps state'))
-                [(assoc expanded :ingress-loss? true)
-                 (str "Error: " ingress-loss-text)]
+            (let [[expanded {:keys [errors forwarded]}] expanded
+                  indexed (cond-> expanded
+                            (pos? forwarded) run-index-stage)]
+              (with-index-notice
+                (cond
+                  (> (ingress-gaps indexed) (ingress-gaps state'))
+                  [(assoc indexed :ingress-loss? true)
+                   (str "Error: " ingress-loss-text)]
 
-                (pos? forwarded) (run-evaluation state expanded)
+                  (pos? forwarded) (run-evaluation state indexed)
 
-                :else [(assoc expanded :vm (:vm state))
-                       (format-expansion-errors errors)]))))))))
+                  :else [(assoc indexed :vm (:vm state))
+                         (format-expansion-errors errors)])
+                (when (pos? forwarded)
+                  (index/notice (:indexer expanded)
+                                (:indexer indexed)))))))))))
 
 
 (defn- compile-clojure-forms
@@ -1209,7 +1252,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   [state vm-type]
   (merge state
          (make-session vm-type (:output-stream state)
-                       (:extra-primitives state))
+                       (:extra-primitives state)
+                       (:shell-token state)
+                       (:index-store state))
          {:vm-type vm-type
           :ingress-loss? false
           :last-value nil
@@ -1421,7 +1466,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    name (`:manual` or `:fn`) and the pending run's `:checks`, so a host
    can display why a run is still waiting (yin.repl.link-policy.md
    section 3.5).  `:macros` maps each macro the expander's store holds
-   to its lambda's root address (yin.vm.macro.md §10.1)."
+   to its lambda's root address (yin.vm.macro.md §10.1).  `:index` is the
+   code indexer's `yin.repl.index/status`: whether every committed program
+   is published, whether a gap lost the indexer, and its last failure."
   [state]
   {:lang (:lang state)
    :macros (into (sorted-map-by #(compare (str %1) (str %2)))
@@ -1445,5 +1492,6 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                          :policy (if (fn? policy) :fn policy)
                          :checks (or (:checks parked) 0)})
                       (:links parked))))
+   :index (index/status (:indexer state))
    :telemetry {:supported? false :note telemetry-text}
    :remote {:connected? false}})
