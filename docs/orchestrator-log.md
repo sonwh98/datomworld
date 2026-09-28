@@ -8045,3 +8045,13 @@ any implementation; collab/ remainder + hygiene).
   forward: collab/ artifacts -- prompts, findings, AND raw logs --
   are part of the documentation trace and may be committed; no
   untracking, no history rewrite. Do not re-flag this.
+
+## 2026-09-28 13:55:00 +0700 — Owner addendum: collab/ is deliberate — it is the magit progress tracker
+
+- Owner: "i don't want the collab dir to be in .gitignore because
+  its a way for me to track progress in magit." The whole directory
+  tracked -- prompts, findings, raw logs -- is intentional: the
+  commit history of collab/ IS the progress view. Standing rule:
+  NEVER add collab/ (or its artifacts) to .gitignore, never
+  untrack. Confirmed .gitignore was never touched by the
+  orchestrator.
