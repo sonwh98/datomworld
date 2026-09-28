@@ -8113,3 +8113,123 @@ any implementation; collab/ remainder + hygiene).
   cap can kill a dispatched agent mid-flight, leaving half-applied
   work in the shared tree. Always re-derive tree state with fresh
   commands; never trust a narrative carried over an agent failure.
+
+## 2026-09-28 15:22:20 +0700 — One-envelope slice 2: fresh re-verification, gate GRANTED, committed 84bfb74d
+Completed-GMT: 2026-09-28 08:22:20 GMT
+Coding-Agent: glm (interactive orchestrator seat)
+Session-ID: sess_e57e8e19-522c-4d8b-8cca-5ca89a8e5117
+Tree: master@84bfb74d, committed (4 files: remote.cljc, remote_pair.cljc, remote_test.cljc, remote_pair_test.cljc)
+Done: Executed the 14:40 entry's required fresh re-verification pass as the
+new seat. Verified the dead-subagent diff against ruling 1790575143000
+("Identity": absorb! gates on id AND :dao.stream/identity vs the
+reflection's own (:identity @refl), check precedes every state change,
+mismatch = pure diagnostic; "Migration order" item 2: pair reader ends on
+in-stream not-found/channel-gone exactly as gap/end, retryable
+transport errors pass through raw) and the slice-2 brief's three test
+pins. Committed as 84bfb74d "fix(dao.stream): answer-identity gate in
+absorb!; pair reader ends on reclaimed pair (one-envelope slice 2)".
+Archived the slice-2 round artifacts (brief, gate prompt/findings/log,
+invalid slice2-one-envelope-jvm.log) to archive/collab/.
+Decisions: (1) Proved the full-suite failure pre-existing instead of
+trusting the log's "known intermittent" label: identical suite on a
+clean detached worktree at HEAD failed once then passed zero on
+consecutive runs; collab/slice8-r5-jvm-full.log (pre-diff) shows a
+DIFFERENT yin.repl.main-test test failing; main-test passes in
+isolation on the working tree. (2) Corrected a header timestamp I had
+first estimated in the gate findings file to the file's actual mtime
+(08:18:17 GMT) -- protocol: never fabricate. (3) Amended nothing in the
+diff itself: gate P3s (wrong-identity test's prose mentions "nothing
+emitted" without directly inspecting the event stream; behavior
+assertions do pin the ruling) recorded here as optional tightening,
+not fixed -- no behavior change justifies a re-gate round.
+Verification: mise exec -- clojure -M:test -n dao.stream.remote-test -n
+dao.stream.remote-pair-test => 28 tests / 194 assertions / 0 failures
+(ran pre- and post-commit). Full JVM mise exec -- clojure -M:test =>
+2282 / 183300 / 1 failure (the proven-pre-existing yin.repl.main-test
+intermittent, twice on the working tree). Node lane mise exec -- bb
+test:cljs => 2188 / 49928 / 0. cljstyle check on the four files clean
+(pre- and post-commit). Post-commit: git status clean for src+test;
+commit stat 205/43 identical to the reviewed staged diff (hook
+formatters changed nothing). Unrun checks: CLJD lane (not in the
+required pipeline; no cljd files touched).
+Delegates: Review gate gpt-6-sol via codex exec -s read-only, thread
+01a0e714-ff27-7762-9f3c-c47fc834de8f, prompt
+archive/collab/1790583264210-reviewer-one-envelope-slice2-gate.prompt.md,
+findings archive/collab/1790583264210-reviewer-one-envelope-slice2-gate.gpt-6-sol.findings.md
+-- verdict READY / Sign-off GRANTED, two P3 notes, no blocking findings.
+Implementation itself: the dead glm-flash subagent's partial diff
+(no session; its brief is archive/collab/1790577111000-...prompt.md).
+Next: Dispatch slice 1 (brief collab/1790577198000-vm-engineer-one-envelope-slice1.prompt.md,
+ready; GLM subagent per routing; brief's report path corrected to the
+glm agent). Same pipeline: local verify => sol gate (reviewer
+independence: GLM-authored) => commit on GRANTED => slice 3 after.
+Slice 1 is BREAKING (rpc wire vocabulary -> apply); its commit touches
+rpc.cljc + yin.repl consumers + their tests.
+
+## 2026-09-28 17:21:28 +0700 — One-envelope slice 1: implemented, gate r1 REQUEST CHANGES -> r2 GRANTED, committed afa01710
+Completed-GMT: 2026-09-28 10:21:28 GMT
+Coding-Agent: glm (interactive orchestrator seat)
+Session-ID: sess_e57e8e19-522c-4d8b-8cca-5ca89a8e5117
+Tree: master@afa01710, committed (6 files: rpc.cljc, adapter.cljc, serve.cljc, rpc_test.cljc, adapter_test.cljc, serve_test.cljc; 246 insertions / 93 deletions)
+Done: One-envelope migration slice 1 landed — rpc's wire vocabulary
+converged on dao.stream.apply envelopes (breaking, no shim): thin
+aliases for the old wire constructors/accessors, answer? =
+apply/response? + rpc safe-id?, :dao.stream.rpc/backpressure
+outstanding cap (caller-supplied positive limit, default 64) before
+any allocation, six distinct apply-qualified terminal words
+(no-surface/oversize own their words; channel-gone -> detached, the
+only rebindable; ended from :dao.stream/end; unrecognized -> generic
+transport-error), malformed-response vs unsafe-response-id
+diagnostics consumed once. yin.repl adapter/serve migrated; five new
+rpc pins plus a serve wire-envelope assertion. Committed afa01710.
+Decisions: (1) ABANDONED the GLM subagent route for this unit after
+THREE consecutive "model concurrency limit exceeded" kills (the prior
+seat's slice-2 dispatch + two from this seat, dying 19-41s in, no
+edits either time — tree verified clean each time); rerouted to
+claude-opus-5-5 via the claude CLI (flat plan, implementation
+authorized; strength table: code migration). Recorded in the brief's
+Implementers history. Reviewer independence held: Claude-authored,
+gpt-6-sol gate. (2) Gate round 1 returned REQUEST CHANGES on a real
+P1: the alias swap had silently dropped safe-id? enforcement on
+received requests in yin.repl.serve (an apply-shaped request with an
+opaque id would be evaluated). Verified the finding on the code,
+accepted, and applied the reviewer-prescribed mechanical fix directly
+as orchestrator (serve.cljc evaluate branch now requires
+request-value? AND safe-id?; boundary pin in serve_test; P3 rework of
+the invalid-error-body pin per the reviewer: valid apply error body
+completes / invalid rejected / consumed-once second poll). Round 2
+(same thread, resumed): READY / GRANTED. (3) Process slip caught and
+fixed in-run: my first rpc_test edit used `testing` without referring
+it in the ns form — the focused run caught it, fixed, re-verified.
+(4) Log-entry timestamps: caught myself writing estimated times into
+artifact headers twice; both corrected to actual clock reads — never
+fabricate.
+Verification: pre-fix lanes (orchestrator-run): focused 77/386/0;
+full JVM 2287/183331/0; Node 2193/49957/0; CLJD (clean cljd-out)
+2155 all-pass; cljstyle clean x6. Post-fix: focused 78/393/0; full
+JVM 2288/183338/0; Node 2194/49964/0; CLJD 2156 all-pass; cljstyle
+clean. Post-commit: no unstaged src/test residue (formatter hook
+neutral), cljstyle clean, focused 39/169/0 over rpc/serve/adapter.
+Unrun checks: none — all four lanes run on this exact diff.
+Operational note: the implementer rebuilt the stale gitignored
+build/yin-repl-peer (bb build:yin-repl-peer) — any Dart peer binary
+built before afa01710 speaks the old rpc wire keys and must be
+rebuilt before pairing with a new client.
+Delegates: Implementer claude-opus-5-5 via claude CLI, session
+ae26f3c6-a6a2-41ad-839e-3f5c615718d8, brief
+collab/1790577198000-vm-engineer-one-envelope-slice1.prompt.md,
+report
+collab/1790577198000-vm-engineer-one-envelope-slice1.claude-opus-5-5.report.md
+(archived post-commit). Gate gpt-6-sol via codex, thread
+01a0e731-6d8e-75b0-a570-44c871381a23, r1 prompt
+collab/1790585138891-reviewer-one-envelope-slice1-gate.prompt.md +
+findings .findings.md, r2 prompt collab/1790590760273-...-r2.prompt.md,
+logs .stdout.log/.stdout-r2.log (all archived post-commit).
+Next: Slice 3 — production FFI serving composition + the end-to-end
+VM case (ruling "Serving and end-to-end acceptance": stable per-handle
+serve! registry, lease lifecycle, rpc-driven responder on apply
+values, UCF retained-envelope round trip). No brief exists yet; write
+one from the ruling before dispatching. Pipeline unchanged: verify ->
+gpt-6-sol gate (author family varies) -> commit on GRANTED. Open
+risks: none blocking; yin.repl.main-test intermittent unchanged;
+stale dart peers need rebuild (above).
