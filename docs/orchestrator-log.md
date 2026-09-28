@@ -7978,3 +7978,60 @@ any implementation; collab/ remainder + hygiene).
 - State at push: master 19c44279 + this entry; tri-host JVM
   2279*/183279* (the one intermittent is the queued pre-existing
   main-test flake), Node 2185/49908/0, Dart 2147 all-pass.
+
+## 2026-09-28 13:05:00 +0700 — OWNER OPENS THE REMOTE-FFI REVISIT: one-envelope ruling ADOPTED WITH CHANGES (gpt-6-sol)
+
+- Owner thread: dao.stream.remote complete -> what does it mean for
+  dao.stream.apply -> "rpc and apply are doing similar things" ->
+  endorsed the convergence recommendation -> collab brief dispatched
+  (collab/1790575143000-architect-one-envelope-ruling.gpt-6-sol).
+- RULING (findings .findings.md in the same artifact set): converge
+  the WIRE VOCABULARY on dao.stream.apply; apply stays the open
+  envelope contract, rpc the client driver; namespaces separate.
+  ONE BREAKING COMMIT now (no shim -- a shim leaves two wire
+  languages and prolongs the drift).
+- Two corrections to the dispatched direction: (1) rpc has NO
+  numeric cap on outstanding -- ids-in-use? is an allocation retry
+  bound, not a size limit; ruling adds an explicit caller-supplied
+  outstanding limit with finite default, at-limit = local
+  backpressure outcome without allocating. (2) "plain apply
+  envelopes" describes stream VALUES; the lower remote protocol
+  still wraps operations in its own envelope and must carry the
+  apply value verbatim.
+- Contract: apply request/success/error shapes as-is; decode with
+  apply/response? then rpc's safe-ID check at the client boundary;
+  diagnostics stay rpc-local (embedded values must be apply
+  envelopes); correlation-id? stays (some? id); rpc keeps
+  random-safe-id + retry bound.
+- Errors: distinct stable apply-qualified words for not-found,
+  detached, ended, no-surface, oversize, transport-error;
+  no-surface/oversize NOT collapsed into transport-error (fable
+  P2-4 folded in); terminal-vs-rebind semantics named.
+- Identity: apply responses correlate by ID only (works over a
+  local pair); REMOTE protocol answers must match BOTH id AND
+  identity -- enforce in remote/absorb! before any outstanding
+  removal/answer filing (fable P3 ruled as correlation integrity,
+  not authentication); mismatch = diagnostic, request stays
+  outstanding.
+- Serving: UCF serve! specified idempotent per live handle within
+  one export binding; production composition owns the registry +
+  lease lifecycle (fable P2-3 addressed); end-to-end acceptance
+  spelled out (real VM call -> unchanged request -> rpc-driven
+  responder appends apply response -> VM resumes via
+  yin.vm.ffi/call-result; verify retries, full, gap, detach/rebind,
+  terminal not-found, UCF retained round trip).
+- Migration order: SLICE 1 contract+driver breaking commit (rpc
+  constructors/predicates/accessors -> apply equivalents; state
+  machine, events, allocator, cursor minting preserved; outstanding
+  cap + distinct reasons added; rpc + yin.repl tests migrated).
+  SLICE 2 remote correlation + channel loss (absorb! identity check;
+  pair reader not-found/channel-gone ends the binding -- fable P2-2;
+  independent, may land before slice 1). SLICE 3 production FFI
+  serving composition + end-to-end case (stable serve!, leases;
+  required before claiming remote FFI complete).
+- DO NOT: rename yin's dao.stream.apply/call syntax/AST; rebuild VM
+  requests from op/args; tighten apply's open predicates to rpc's
+  domain; add rpc event fields to the application envelope.
+- State: artifacts uncommitted in collab/; awaiting owner go to
+  dispatch migration slice 1 (GLM subagent per routing) and/or
+  slice 2 (independent).
