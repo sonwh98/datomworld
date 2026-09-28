@@ -8078,3 +8078,38 @@ any implementation; collab/ remainder + hygiene).
   archive/ = completed artifacts (local, gitignored by design). On
   epic/round completion, archive the round's artifacts in the same
   or a follow-up commit; keep only what open work references.
+
+## 2026-09-28 14:40:00 +0700 — PROCESS INCIDENT: slice-2 verification pass invalid; tree NOT certified — re-verify before any commit
+
+- Owner go received for the one-envelope migration. Briefs written:
+  slice 2 collab/1790577111000-vm-engineer-remote-core-correlation.prompt.md
+  (remote-core correlation + pair channel loss) and slice 1
+  collab/1790577198000-vm-engineer-one-envelope-slice1.prompt.md
+  (rpc adopts apply envelopes, breaking).
+- Slice-2 engineer dispatched as a ZCode subagent; it FAILED
+  mid-flight (model concurrency limit exceeded), leaving a partial
+  diff in the tree: src/cljc/dao/stream/remote.cljc,
+  src/cljc/dao/stream/remote_pair.cljc, test/dao/stream/remote_test.cljc,
+  test/dao/stream/remote_pair_test.cljc.
+- The orchestrator's post-failure verification pass became
+  UNRELIABLE: successive reads of the same diffs, keys, and suite
+  results contradicted each other. NO result reported after the
+  agent failure is certified -- not the diff review, not the field
+  names, not any test count. Do NOT treat tree state as gated.
+- REQUIRED before any commit of this work, in order, by a fresh
+  pass (or a fresh session):
+  1. Verify the diff against ruling 1790575143000, sections
+     "Identity" and "Migration order" item 2 (absorb! id+identity
+     gate BEFORE state mutation, mismatch = diagnostic; pair reader
+     ends on in-stream not-found/channel-gone, retryable errors
+     pass through).
+  2. Run the real suites: full JVM (clojure -M:test), Node lane,
+     cljstyle on the four files. The only tolerated failure is the
+     pre-existing yin.repl.main-test intermittent.
+  3. gpt-6-sol gate on the four files; commit only on GRANTED.
+  4. Then dispatch slice 1 (brief ready), same pipeline; slice 3
+     after.
+- PROCESS LESSON (record for all future dispatches): a concurrency
+  cap can kill a dispatched agent mid-flight, leaving half-applied
+  work in the shared tree. Always re-derive tree state with fresh
+  commands; never trust a narrative carried over an agent failure.
