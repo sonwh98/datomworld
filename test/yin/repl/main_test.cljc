@@ -6,9 +6,10 @@
                       [yin.repl.host :as host]]
                 :cljs [[yin.repl.connect :as connect]])
             [dao.stream :as stream]
-            [dao.stream.apply :as apply]
+            [dao.stream.rpc :as rpc]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
+            [dao.stream.ws-project :as ws-project]
             [yin.repl.main :as repl]
             [yin.repl :as shell]
             [yin.repl.driver :as driver]
@@ -133,21 +134,25 @@
      :socket {:send! (fn [text] (swap! sent conj text) nil)}}))
 
 
-(defn- reply-values
-  "The `:ws/value` frames a captured socket received, decoded."
-  [s]
-  (->> @(:sent s)
-       (mapv transit/decode)
-       (filter #(= :ws/value (:ws/frame %)))
-       (mapv :ws/value)))
+(defn- answer-values
+  "Every answer appended to the endpoint's shared answers medium, oldest
+   first."
+  [server]
+  (loop [cursor (:dao.stream/cursor (stream/cursor (:answers server)
+                                                   stream/anchor-oldest))
+         acc []]
+    (let [r (stream/next (:answers server) cursor)]
+      (if (= :dao.stream/ok (:dao.stream/outcome r))
+        (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))
+        acc))))
 
 
 (defn- remote-request!
-  "Deliver one `:op/eval` request through a connected socket handle."
-  [handle id source]
-  (ws/receive! handle (transit/encode
-                        {:ws/frame :ws/value
-                         :ws/value (apply/request id :op/eval [source])})))
+  "Append one `:op/eval` request directly onto the endpoint's requests
+   medium, as the mirror's own `:dao.stream/append!` answer would once a
+   reflection's write reaches it."
+  [server id source]
+  (stream/append! (:requests server) (rpc/request-value id :op/eval [source])))
 
 
 (deftest the-served-endpoint-shares-the-local-shells-shell
@@ -164,22 +169,22 @@
         [_ server _] (repl/step-all state server 3)
         [state server _] (repl/step-all state server 4)]
     (is (some? (:ws/handle accepted)))
-    (is (contains? (:sessions server) (:ws/attachment accepted)))
+    (is (contains? (ws-project/sessions (:acceptor server)) (:ws/attachment accepted)))
     (driver/submit-line! (:input state) "(defn twice [x] (* 2 x))")
     (let [[state server lines] (repl/step-all state server 5)]
       (is (str/includes? (str/join " " lines) ":closure")
           "the local prompt defined the function against its own shell")
       (testing "a definition typed at the local prompt answers a remote request"
-        (remote-request! (:ws/handle accepted) 0 "(twice 21)")
+        (remote-request! server 0 "(twice 21)")
         (let [[state server _] (repl/step-all state server 6)
-              response (last (reply-values s))]
-          (is (= 0 (apply/response-id response)))
-          (is (= "42" (apply/response-ok response))
+              response (last (answer-values server))]
+          (is (= 0 (rpc/answer-id response)))
+          (is (= "42" (rpc/answer-ok response))
               "the endpoint must evaluate against the shell the local prompt shares, not a private one")
           (testing "a remote definition answers the local prompt on a later tick"
-            (remote-request! (:ws/handle accepted) 1 "(def answer 7)")
+            (remote-request! server 1 "(def answer 7)")
             (let [[state server _] (repl/step-all state server 7)]
-              (is (= "7" (apply/response-ok (last (reply-values s)))))
+              (is (= "7" (rpc/answer-ok (last (answer-values server)))))
               (driver/submit-line! (:input state) "answer")
               (let [[_state _server lines] (repl/step-all state server 8)]
                 (is (some #(= "7" %) lines)
@@ -647,8 +652,10 @@
                                        event-ms))
                    "the reattachment never established")
                (let [after (ask! peer {:cmd :probe} :probe reply-ms)]
-                 (is (true? (:traffic-retained? after))
-                     "the deposit medium did not survive the socket's death")
+                 (is (false? (:traffic-retained? after))
+                     "a reattachment composes a fresh dial with a fresh cursor
+                      (dao.stream.ws-project/dial's own contract), never
+                      reusing the old one")
                  (is (not= first-attachment
                            (get-in after [:connection :attachment]))
                      "a new attachment id should name the new boundary"))
@@ -907,13 +914,13 @@
           [_ server _] (repl/step-all state server 3)
           [state server _] (repl/step-all state server 4)]
       (is (some? (:ws/handle accepted)))
-      (remote-request! (:ws/handle accepted) 0 "(+ 1 2)")
-      ;; A step with the writer gated full leaves the response pending, and
-      ;; the endpoint's own moved? — one input to the owner's bit — holds.
+      (remote-request! server 0 "(+ 1 2)")
+      ;; Nothing has stepped yet to notice the appended request, so the
+      ;; endpoint's own moved? — one input to the owner's bit — holds.
       (is (false? (serve/moved? server))
           "an empty idle endpoint reports no movement")
       (let [[_ server' _] (repl/step-all state server 5)]
-        (is (= "3" (apply/response-ok (last (reply-values s))))
+        (is (= "3" (rpc/answer-ok (last (answer-values server'))))
             "sanity: the request was served in the same step")
         (is (true? (serve/moved? server'))
             "the round that served moved — a probe woke and a notice printed")

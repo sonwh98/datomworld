@@ -4,9 +4,17 @@
    This layer deliberately owns no socket, scheduler, atom, promise, callback,
    retry policy, or transport registry.  A composition supplies two explicit
    handles (a request writer and a response reader), owns the returned state,
-   and chooses when to step `request!`, `poll!`, and `serve-once!`."
-  (:require [dao.stream :as stream]
-            [dao.stream.apply :as apply]))
+   and chooses when to step `request!` and `poll!`.
+
+   The request/answer vocabulary below is owned by this namespace, not by
+   `dao.stream.apply`: a request is `{:dao.stream.rpc/id
+   :dao.stream.rpc/op :dao.stream.rpc/args}` and an answer is `{:dao.stream.rpc/id
+   :dao.stream.rpc/ok <value>}` or `{:dao.stream.rpc/id
+   :dao.stream.rpc/error {:dao.stream.rpc/code :dao.stream.rpc/message}}`.
+   Ids are self-minted random safe integers, not a sequential counter: callers
+   sharing one answers stream must not collide on a caller-chosen id
+   (docs/design/dao.stream.remote.md, section 5)."
+  (:require [dao.stream :as stream]))
 
 
 ;; =============================================================================
@@ -20,30 +28,19 @@
 
 (def event-key :dao.stream.rpc/event)
 (def response-key :dao.stream.rpc/response)
-(def lifecycle-key :dao.stream.rpc/lifecycle)
 (def diagnostic-key :dao.stream.rpc/diagnostic)
 (def code-key :dao.stream.rpc/code)
 
 
-(def lifecycle-values
-  "The lifecycle vocabulary belongs to dao.stream.apply.  Transports decode
-   their local events into these values before the RPC core sees them."
-  #{:dao.stream.apply/established
-    :dao.stream.apply/detached
-    :dao.stream.apply/ended
-    :dao.stream.apply/not-found
-    :dao.stream.apply/transport-error
-    :dao.stream.apply/diagnostic})
+(def max-id-retries
+  "Bound on re-rolling a self-minted id after a collision, before allocation
+   fails through the existing terminal path."
+  8)
 
 
 (defn response-event
   [response]
   {event-key :dao.stream.rpc/response response-key response})
-
-
-(defn lifecycle-event
-  [lifecycle]
-  {event-key :dao.stream.rpc/lifecycle lifecycle-key lifecycle})
 
 
 (defn diagnostic-event
@@ -68,25 +65,105 @@
 
 
 ;; =============================================================================
+;; Request/answer value vocabulary owned by this namespace
+;; =============================================================================
+
+(defn request-value
+  [id op args]
+  {:dao.stream.rpc/id id :dao.stream.rpc/op op :dao.stream.rpc/args args})
+
+
+(defn request-value?
+  [v]
+  (and (map? v)
+       (safe-id? (:dao.stream.rpc/id v))
+       (keyword? (:dao.stream.rpc/op v))
+       (vector? (:dao.stream.rpc/args v))))
+
+
+(defn request-id
+  [v]
+  (:dao.stream.rpc/id v))
+
+
+(defn request-op
+  [v]
+  (:dao.stream.rpc/op v))
+
+
+(defn request-args
+  [v]
+  (:dao.stream.rpc/args v))
+
+
+(defn success-answer
+  [id value]
+  {:dao.stream.rpc/id id :dao.stream.rpc/ok value})
+
+
+(defn error-answer
+  [id code message]
+  {:dao.stream.rpc/id id
+   :dao.stream.rpc/error {:dao.stream.rpc/code code
+                          :dao.stream.rpc/message message}})
+
+
+(defn answer?
+  [v]
+  (and (map? v)
+       (safe-id? (:dao.stream.rpc/id v))
+       (let [ok? (contains? v :dao.stream.rpc/ok)
+             err? (contains? v :dao.stream.rpc/error)]
+         (and (or ok? err?) (not (and ok? err?))))))
+
+
+(defn answer-id
+  [answer]
+  (:dao.stream.rpc/id answer))
+
+
+(defn answer-ok
+  [answer]
+  (:dao.stream.rpc/ok answer))
+
+
+(defn answer-error
+  [answer]
+  (:dao.stream.rpc/error answer))
+
+
+(defn answer-ok?
+  [answer]
+  (contains? answer :dao.stream.rpc/ok))
+
+
+;; =============================================================================
 ;; Explicit client state
 ;; =============================================================================
+
+(defn- random-safe-id
+  []
+  #?(:clj (long (* max-safe-id (rand)))
+     :cljs (Math/floor (* max-safe-id (rand)))
+     :cljd (.floor ^double (* max-safe-id (rand)))))
+
 
 (defn client-state
   "Create caller-owned RPC client state.
 
    `writer` is the request path. `reader` and `response-cursor` are the
-   independent response path.  `:decode`, when present, transforms one raw
-   response-medium value into an RPC event made by this namespace; nil means a
-   bare apply response stream.  No cursor is fabricated here."
+   independent response path.  No cursor is fabricated here; a caller
+   over a dao.stream.remote reflection passes `stream/anchor-newest`
+   (the request/response service's own mint, docs/design/
+   dao.stream.remote.md section 5) and `poll!` resolves it, retrying
+   while the reflection answers a retryable mint -- the same pattern
+   `dao.jing.content.step/mint-cursor` uses for the content client."
   ([writer reader response-cursor]
    (client-state writer reader response-cursor {}))
-  ([writer reader response-cursor {:keys [me decode]}]
+  ([writer reader response-cursor _opts]
    {:writer writer
     :reader reader
     :cursor response-cursor
-    :me me
-    :decode decode
-    :next-id 0
     :outstanding {}
     :unsent nil
     :completed []
@@ -95,19 +172,6 @@
 
 
 (def init-client client-state)
-
-
-(defn server-state
-  "The server state is owned by dao.stream.apply, which owns the envelope."
-  [request-cursor]
-  (apply/server-state request-cursor))
-
-
-(defn serve-once!
-  "Advance one server request/response step.  This is an aliasing boundary, not
-   a second server implementation; apply remains the sole envelope owner."
-  [handlers request-handle response-handle state]
-  (apply/serve-once! handlers request-handle response-handle state))
 
 
 (defn- rpc-result
@@ -161,30 +225,30 @@
   [state code]
   (let [state (-> state
                   (lose-outstanding :dao.stream.rpc/allocator-error true)
-                  (append-diagnostic code (:next-id state)))]
+                  (append-diagnostic code nil))]
     (rpc-result :dao.stream.rpc/allocator-error state
                 :dao.stream.rpc/diagnostic (last (:diagnostics state)))))
 
 
 (defn- allocate-request
+  "Self-mint a random safe id in [0, max-safe-id], re-rolling on a collision
+   with an id already in use by this state, up to `max-id-retries` times.
+   This is the request/answer service's own id space (docs/design/
+   dao.stream.remote.md section 5): callers sharing one answers stream must
+   not collide on a caller-chosen id, so the id is not a sequential counter."
   [state op args]
-  (let [id (:next-id state)]
-    (cond
-      (not (safe-id? id))
-      (allocation-failure state :dao.stream.rpc/id-exhausted)
-
-      (ids-in-use? state id)
+  (loop [attempt 0]
+    (if (>= attempt max-id-retries)
       (allocation-failure state :dao.stream.rpc/id-collision)
-
-      :else
-      (let [request {:id id
-                     :op op
-                     :args args
-                     :encoded (apply/request id op args)}]
-        (rpc-result :dao.stream.rpc/allocated
-                    (-> state
-                        (assoc :unsent request)
-                        (update :next-id inc)))))))
+      (let [id (random-safe-id)]
+        (if (ids-in-use? state id)
+          (recur (inc attempt))
+          (let [request {:id id
+                         :op op
+                         :args args
+                         :encoded (request-value id op args)}]
+            (rpc-result :dao.stream.rpc/allocated
+                        (assoc state :unsent request))))))))
 
 
 (defn- accept-unsent
@@ -200,7 +264,7 @@
   (let [request (:unsent state)
         append-result (valid-operation-result
                         :append!
-                        (apply/put-request! (:writer state) (:encoded request)))
+                        (stream/append! (:writer state) (:encoded request)))
         outcome (:dao.stream/outcome append-result)]
     (case outcome
       :dao.stream/ok
@@ -277,8 +341,7 @@
    rebind onto a fresh attachment — owns the decision that the retained
    envelope no longer belongs to the new binding.  Abandoning it here reports
    the loss on the ordinary completion path, so it is neither silently dropped
-   nor resent in place of the caller's next request.  The id is retired with
-   it; `:next-id` never goes back."
+   nor resent in place of the caller's next request."
   ([state] (abandon-unsent state :dao.stream.rpc/abandoned))
   ([state reason]
    (if-let [request (:unsent state)]
@@ -296,16 +359,15 @@
   [value]
   (cond
     (nil? value) (ignore-event)
-    (apply/response? value) (response-event value)
-    (contains? lifecycle-values value) (lifecycle-event value)
+    (answer? value) (response-event value)
     (and (map? value) (keyword? (get value event-key))) value
     :else (diagnostic-event :dao.stream.rpc/malformed-response value)))
 
 
 (defn- decode-value
-  [state value]
+  [_state value]
   (try
-    (normalize-event (if-let [decode (:decode state)] (decode value) value))
+    (normalize-event value)
     (catch #?(:cljd Object :clj Throwable :cljs :default) _
       (diagnostic-event :dao.stream.rpc/decode-error value))))
 
@@ -323,10 +385,10 @@
 (defn handle-event
   "Apply one decoded RPC event to explicit client state.
 
-   Transport adapters use `response-event`, `lifecycle-event`,
-   `diagnostic-event`, and `ignore-event`; raw bare apply responses are also
-   accepted.  This function has no cursor operation and is useful for testing
-   adapters independently from a response medium."
+   `response-event`, `diagnostic-event`, and `ignore-event` are the events a
+   composition constructs; a bare answer value is also accepted.  This
+   function has no cursor operation and is useful for testing adapters
+   independently from a response medium."
   [state event]
   (let [event (normalize-event event)
         kind (get event event-key)]
@@ -349,9 +411,9 @@
 
       (= kind :dao.stream.rpc/response)
       (let [response (get event response-key)]
-        (if-not (apply/response? response)
+        (if-not (answer? response)
           (handle-event state (diagnostic-event :dao.stream.rpc/malformed-response response))
-          (let [id (apply/response-id response)]
+          (let [id (answer-id response)]
             (if-let [request (get (:outstanding state) id)]
               (let [state (-> state
                               (update :outstanding dissoc id)
@@ -363,29 +425,62 @@
               (handle-event state
                             (diagnostic-event :dao.stream.rpc/unsolicited-response response))))))
 
-      (= kind :dao.stream.rpc/lifecycle)
-      (let [lifecycle (get event lifecycle-key)]
-        (case lifecycle
-          :dao.stream.apply/established
-          (rpc-result :dao.stream.rpc/established state)
-
-          :dao.stream.apply/diagnostic
-          (handle-event state (diagnostic-event :dao.stream.rpc/transport-diagnostic event))
-
-          :dao.stream.apply/detached
-          (let [state (lose-outstanding state lifecycle true)]
-            (rpc-result :dao.stream.rpc/lost state :dao.stream.rpc/reason lifecycle))
-
-          (:dao.stream.apply/ended
-            :dao.stream.apply/not-found
-            :dao.stream.apply/transport-error)
-          (let [state (lose-outstanding state lifecycle true)]
-            (rpc-result :dao.stream.rpc/lost state :dao.stream.rpc/reason lifecycle))
-
-          (handle-event state (diagnostic-event :dao.stream.rpc/unhandled-event event))))
-
       :else
       (handle-event state (diagnostic-event :dao.stream.rpc/unhandled-event event)))))
+
+
+(defn- transport-error-reason
+  "Translate a reflection's `:dao.stream/transport-error` into the client
+   terminal vocabulary, inspecting `:dao.stream.remote/reason` when the
+   reflection supplied one (dao.stream.remote.cljc reasons a reflection's
+   read failure this way).  A reason this translation does not recognize
+   still becomes the generic transport-error terminal, never left raw."
+  [read-result]
+  (case (:dao.stream.remote/reason read-result)
+    :dao.stream.remote/not-found :dao.stream.apply/not-found
+    :dao.stream.remote/channel-gone :dao.stream.apply/detached
+    :dao.stream.apply/transport-error))
+
+
+(defn- terminal-lost
+  "Translate a non-ok, non-blocked, non-gap read or mint result into the
+   client's terminal vocabulary and complete every outstanding request
+   with it.  Shared by `poll-read`'s `next` failures and `mint-cursor`'s
+   terminal mint failures, so a reasoned not-found or channel-gone
+   reaches the terminal the same way regardless of which operation
+   the reflection answered it to."
+  [state result]
+  (let [reason (case (:dao.stream/outcome result)
+                 :dao.stream/end :dao.stream.apply/ended
+                 :dao.stream/transport-error (transport-error-reason result)
+                 :dao.stream.apply/transport-error)
+        state (lose-outstanding state reason true)]
+    (rpc-result :dao.stream.rpc/lost state
+                :dao.stream.rpc/reason reason
+                :dao.stream.rpc/read result)))
+
+
+(defn- mint-cursor
+  "Resolve an anchor-keyword cursor through the reader.  A retryable
+   answer -- `:dao.stream/transport-error` carrying `:dao.stream/retry?
+   true` -- leaves the anchor in place for a later poll (dao.jing.content.
+   step/mint-cursor is the precedent this mirrors).  Any other non-ok
+   outcome is a reasoned terminal failure: a reflection can answer
+   `not-found` or `channel-gone` while minting a cursor
+   (dao.stream.remote.cljc's `refl-cursor`), and that must not be
+   mistaken for still-pending.  Returns `[status cursor result]`, status
+   one of `:ok`, `:retry`, `:terminal`; `result` is retained for
+   diagnostics either way."
+  [reader anchor]
+  (let [r (stream/cursor reader anchor)
+        outcome (:dao.stream/outcome r)]
+    (cond
+      (= :dao.stream/ok outcome) [:ok (:dao.stream/cursor r) r]
+
+      (and (= :dao.stream/transport-error outcome) (:dao.stream/retry? r))
+      [:retry anchor r]
+
+      :else [:terminal anchor r])))
 
 
 (defn- poll-read
@@ -410,17 +505,7 @@
                     :dao.stream.rpc/reason :dao.stream/gap
                     :dao.stream.rpc/read read-result))
 
-      (:dao.stream/end :dao.stream/cursor-mismatch :dao.stream/invalid-cursor
-                       :dao.stream/transport-error)
-      (let [state (lose-outstanding state outcome true)]
-        (rpc-result :dao.stream.rpc/lost state
-                    :dao.stream.rpc/reason outcome
-                    :dao.stream.rpc/read read-result))
-
-      (let [state (lose-outstanding state :dao.stream/transport-error true)]
-        (rpc-result :dao.stream.rpc/lost state
-                    :dao.stream.rpc/reason :dao.stream/transport-error
-                    :dao.stream.rpc/read read-result)))))
+      (terminal-lost state read-result))))
 
 
 (defn poll!
@@ -439,8 +524,21 @@
      (loop [remaining budget
             state state
             last-result nil]
-       (if (zero? remaining)
-         (or last-result (rpc-result :dao.stream.rpc/idle state))
+       (cond
+         (zero? remaining) (or last-result (rpc-result :dao.stream.rpc/idle state))
+
+         ;; The response cursor is an unresolved anchor: settling it is not
+         ;; a read and does not spend the budget, exactly as
+         ;; dao.jing.content.step/poll's own anchor branch does not.
+         (contains? stream/standard-anchors (:cursor state))
+         (let [[status cursor r] (mint-cursor (:reader state) (:cursor state))]
+           (case status
+             :ok (recur remaining (assoc state :cursor cursor) last-result)
+             :retry (or last-result
+                        (rpc-result :dao.stream.rpc/idle state :dao.stream.rpc/read r))
+             :terminal (terminal-lost state r)))
+
+         :else
          (let [result (poll-read state)
                next-state (:dao.stream.rpc/state result)
                outcome (:dao.stream.rpc/outcome result)]
@@ -469,13 +567,13 @@
 
 (defn rebind
   "Replace a detached client's writer (and optionally reader) without creating
-   a cursor or replacing its monotonic id allocator. Only `/detached` is
+   a cursor or replacing the random id allocator. Only `/detached` is
    reconnectable; other terminal reasons remain terminal."
-  ([state writer me]
+  ([state writer]
    (if (= :dao.stream.apply/detached (:terminal state))
-     (assoc state :writer writer :me me :terminal nil)
+     (assoc state :writer writer :terminal nil)
      state))
-  ([state writer reader me]
+  ([state writer reader]
    (if (= :dao.stream.apply/detached (:terminal state))
-     (assoc state :writer writer :reader reader :me me :terminal nil)
+     (assoc state :writer writer :reader reader :terminal nil)
      state)))

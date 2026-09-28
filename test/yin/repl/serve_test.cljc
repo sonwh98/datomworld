@@ -1,14 +1,20 @@
 (ns yin.repl.serve-test
-  "Phase R4 — the serving composition, with the host listener injected.
+  "The server side of the DaoStream Yin REPL, over the request-and-response
+   service of docs/design/dao.stream.remote.md section 5.
 
    `:bind!` and `:unbind!` are ordinary functions that deposit lifecycle data;
-   connections are made by calling the transport's own upgrade entry with a
-   captured socket.  Nothing here binds a port."
+   a connection is made by calling the transport's own upgrade entry with a
+   captured socket, exactly as a real host adapter would.  Nothing here binds
+   a port.  The requests/answers round trip is tested at the level serve.cljc
+   itself owns -- the shared buffers `serve!` composes, never the wire -- since
+   the wire and the mirror answering it are dao.stream.ws-project's and
+   dao.stream.remote's own, already proven by their own test suites, and the
+   demo REPL flow over a real socket is proven end to end in
+   yin.repl.serve-connect-wire-test (JVM)."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [deftest is]]
             [dao.stream :as stream]
-            [dao.stream.apply :as apply]
-            [dao.stream.transit :as transit]
+            [dao.stream.rpc :as rpc]
             [dao.stream.ws :as ws]
             [yin.repl.serve :as serve]))
 
@@ -47,18 +53,6 @@
               :close! (fn [code reason] (swap! closed conj [code reason]) nil)}}))
 
 
-(defn- frames
-  [s]
-  (mapv transit/decode @(:sent s)))
-
-
-(defn- values
-  [s]
-  (->> (frames s)
-       (filter #(= :ws/value (:ws/frame %)))
-       (mapv :ws/value)))
-
-
 (defn- endpoint!
   ([] (endpoint! {}))
   ([extra]
@@ -76,22 +70,12 @@
 
 (defn- connect!
   "Make one connection through the transport's upgrade entry and drive the
-   composition until the session is accepted.  Returns [endpoint socket handle]."
+   composition until the session is accepted.  Returns [endpoint socket]."
   [endpoint s now]
-  (let [accepted (ws/accept-connection! (:ws-endpoint endpoint)
-                                        (:path endpoint)
-                                        (:socket s)
-                                        now)
-        endpoint (serve/step endpoint now)
+  (ws/accept-connection! (:ws-endpoint endpoint) (:path endpoint) (:socket s) now)
+  (let [endpoint (serve/step endpoint now)
         endpoint (serve/step endpoint (inc now))]
-    [endpoint (:ws/handle accepted) (:ws/attachment accepted)]))
-
-
-(defn- request!
-  [handle id source]
-  (ws/receive! handle (transit/encode
-                        {:ws/frame :ws/value
-                         :ws/value (apply/request id :op/eval [source])})))
+    [endpoint s]))
 
 
 ;; =============================================================================
@@ -102,17 +86,17 @@
   (let [{:keys [endpoint host]} (endpoint!)]
     (is (some? (:lifecycle endpoint)))
     (is (some? (:lifecycle-cursor endpoint)))
-    (is (some? (:service endpoint)))
+    (is (some? (:requests endpoint)))
+    (is (some? (:answers endpoint)))
     (is (= "/repl" (:path endpoint)))
     (is (= {"/repl" (:descriptor endpoint)} (:resolution endpoint)))
     (is (= :starting (:status endpoint))
         "serve! claims nothing about a bind it has not observed")
     (is (= 1 (count @(:bound host))))
-    (testing "the bind result is a fact the driver reads from the medium"
-      (let [endpoint (serve/step endpoint 1)]
-        (is (= :running (:status endpoint)))
-        (is (str/includes? (str/join " " (texts endpoint))
-                           "Serving daostream:ws://127.0.0.1:8080/repl"))))))
+    (let [endpoint (serve/step endpoint 1)]
+      (is (= :running (:status endpoint)))
+      (is (str/includes? (str/join " " (texts endpoint))
+                         "Serving daostream:ws://127.0.0.1:8080/repl")))))
 
 
 (deftest a-wildcard-bind-needs-an-explicit-advertised-host
@@ -130,27 +114,17 @@
     (is (str/includes? (str/join " " (texts endpoint)) "no-websocket-package"))))
 
 
-(deftest stop-closes-the-service-stream-and-completes-only-when-told
-  (let [{:keys [endpoint host]} (endpoint!)
-        endpoint (serve/step endpoint 1)
-        s (socket)
-        [endpoint _handle _attachment] (connect! endpoint s 2)
-        endpoint (serve/stop! endpoint)]
-    (is (= :stopping (:status endpoint)))
-    (is (false? (serve/stopped? endpoint)) "a bound listener is still owed a release")
-    (is (some? (:resolution endpoint)) "the entry is held until stop completes")
-    (let [endpoint (serve/step endpoint 4)]
-      (is (= [4000 "dao.stream/ended"] (last @(:closed s)))
-          "a closed service stream ends the attachment, it does not merely drop it")
-      (is (= 1 (count @(:released host))))
-      (let [endpoint (serve/step endpoint 5)]
-        (is (= :stopped (:status endpoint)))
-        (is (nil? (:resolution endpoint)))
-        (is (str/includes? (str/join " " (texts endpoint)) "Endpoint stopped"))))))
+(deftest an-ephemeral-bind-names-the-limit-instead-of-a-descriptor-refusal
+  (let [{:keys [endpoint host]} (endpoint! {:bind-port 0})]
+    (is (= :failed (:status endpoint)))
+    (is (empty? @(:bound host)) "nothing was bound")
+    (let [endpoint (serve/step endpoint 1)]
+      (is (str/includes? (str/join " " (texts endpoint))
+                         "ephemeral-port-unsupported")))))
 
 
 ;; =============================================================================
-;; One request/response round trip
+;; Stop
 ;; =============================================================================
 
 (deftest stopping-an-endpoint-that-never-bound-claims-nothing
@@ -197,102 +171,141 @@
     (is (str/includes? (str/join " " (texts endpoint)) "unbind-threw"))))
 
 
-(deftest a-request-round-trips-through-injected-host-functions
-  (let [{:keys [endpoint]} (endpoint!)
+(deftest stop-closes-every-accepted-sessions-socket-handle
+  (let [{:keys [endpoint host]} (endpoint!)
         endpoint (serve/step endpoint 1)
         s (socket)
-        [endpoint handle attachment] (connect! endpoint s 2)]
-    (is (= [{:ws/frame :ws/accept}] (frames s))
-        "no value is delivered before the acknowledged accept")
-    (is (contains? (:sessions endpoint) attachment))
-    (request! handle 0 "(+ 1 2)")
+        [endpoint _s] (connect! endpoint s 2)
+        endpoint (serve/stop! endpoint)]
+    (is (= :stopping (:status endpoint)))
+    (is (false? (serve/stopped? endpoint)) "a bound listener is still owed a release")
+    (is (some? (:resolution endpoint)) "the entry is held until stop completes")
+    ;; The socket closes only after a real-time grace period, so a client's
+    ;; outstanding read of the now-ended requests/answers media can be
+    ;; answered with the media's own `:dao.stream/end` before its socket
+    ;; also reports closed -- see `serve/stop-grace-ms`.
     (let [endpoint (serve/step endpoint 4)
-          response (last (values s))]
-      (is (= 0 (apply/response-id response)))
-      (is (= "3" (apply/response-ok response)))
-      (testing "the shared shell is threaded serially across requests"
-        (request! handle 1 "(def x 41)")
-        (let [endpoint (serve/step endpoint 5)]
-          (request! handle 2 "(+ x 1)")
-          (let [endpoint (serve/step endpoint 6)]
-            (is (= "42" (apply/response-ok (last (values s)))))
-            (is (= 3 (count (values s))))
-            (is (= :running (:status endpoint)))))))))
+          endpoint (serve/step endpoint (+ 4 serve/stop-grace-ms -1))]
+      (is (empty? @(:closed s)) "the socket has not closed yet: still in grace")
+      (let [endpoint (serve/step endpoint (+ 4 serve/stop-grace-ms))]
+        (is (= 1 (count @(:closed s)))
+            "the accepted connection's socket handle was closed directly, since
+             there is no forwarded source stream to end it")
+        (is (= 1 (count @(:released host))))
+        (let [endpoint (serve/step endpoint (+ 5 serve/stop-grace-ms))]
+          (is (= :stopped (:status endpoint)))
+          (is (nil? (:resolution endpoint)))
+          (is (str/includes? (str/join " " (texts endpoint)) "Endpoint stopped")))))))
 
 
-(deftest two-clients-each-get-their-own-answers
+;; =============================================================================
+;; The requests/answers round trip
+;; =============================================================================
+
+(defn- eval!
+  "Append one eval request directly onto the endpoint's requests medium,
+   as the mirror's own `:dao.stream/append!` answer would once a
+   reflection's write reaches it -- the wire and its answering are
+   dao.stream.ws-project's and dao.stream.remote's own concern, already
+   proven by their test suites."
+  [endpoint id source]
+  (stream/append! (:requests endpoint) (rpc/request-value id :op/eval [source])))
+
+
+(defn- answers-since
+  "Every answer appended after `cursor`, oldest first, as [answers
+   next-cursor]."
+  [endpoint cursor]
+  (loop [cursor cursor acc []]
+    (let [r (stream/next (:answers endpoint) cursor)]
+      (if (= :dao.stream/ok (:dao.stream/outcome r))
+        (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))
+        [acc cursor]))))
+
+
+(deftest a-request-evaluates-against-the-shared-shell-and-answers-once
   (let [{:keys [endpoint]} (endpoint!)
         endpoint (serve/step endpoint 1)
-        a (socket)
-        b (socket)
-        [endpoint handle-a _] (connect! endpoint a 2)
-        [endpoint handle-b _] (connect! endpoint b 4)]
-    (request! handle-a 7 "(+ 1 1)")
-    (request! handle-b 9 "(+ 2 2)")
-    (let [endpoint (serve/step endpoint 6)
-          endpoint (serve/step endpoint 7)]
-      (is (= 2 (count (:sessions endpoint))))
-      (is (= [{:dao.stream.apply/id 7 :dao.stream.apply/ok "2"}] (values a)))
-      (is (= [{:dao.stream.apply/id 9 :dao.stream.apply/ok "4"}] (values b))))))
+        answers-cursor (:dao.stream/cursor (stream/cursor (:answers endpoint)
+                                                          stream/anchor-oldest))]
+    (eval! endpoint 7 "(+ 1 2)")
+    (let [endpoint (serve/step endpoint 2)
+          [answers _cursor] (answers-since endpoint answers-cursor)]
+      (is (= [(rpc/success-answer 7 "3")] answers)))))
+
+
+(deftest the-shared-shell-is-threaded-serially-across-requests
+  (let [{:keys [endpoint]} (endpoint!)
+        endpoint (serve/step endpoint 1)
+        answers-cursor (:dao.stream/cursor (stream/cursor (:answers endpoint)
+                                                          stream/anchor-oldest))]
+    (eval! endpoint 1 "(def x 41)")
+    (let [endpoint (serve/step endpoint 2)]
+      (eval! endpoint 2 "(+ x 1)")
+      (let [endpoint (serve/step endpoint 3)
+            [answers _cursor] (answers-since endpoint answers-cursor)]
+        (is (= [(rpc/success-answer 1 "41") (rpc/success-answer 2 "42")]
+               answers))))))
 
 
 (deftest an-unknown-operation-is-a-portable-error-not-a-thrown-handler
   (let [{:keys [endpoint]} (endpoint!)
         endpoint (serve/step endpoint 1)
-        s (socket)
-        [endpoint handle _] (connect! endpoint s 2)]
-    (ws/receive! handle (transit/encode
-                          {:ws/frame :ws/value
-                           :ws/value (apply/request 3 :op/forward ["x"])}))
-    (let [_ (serve/step endpoint 4)
-          response (last (values s))]
-      (is (= 3 (apply/response-id response)))
+        answers-cursor (:dao.stream/cursor (stream/cursor (:answers endpoint)
+                                                          stream/anchor-oldest))]
+    (stream/append! (:requests endpoint) (rpc/request-value 3 :op/forward ["x"]))
+    (let [endpoint (serve/step endpoint 2)
+          [[answer] _cursor] (answers-since endpoint answers-cursor)]
+      (is (= 3 (rpc/answer-id answer)))
       (is (= :yin.repl.serve/unknown-operation
-             (:dao.stream.apply/code (apply/response-error response)))
+             (:dao.stream.rpc/code (rpc/answer-error answer)))
           "the server evaluates locally or says it does not proxy"))))
 
 
-(deftest incomplete-input-is-answered-and-never-crosses-an-attachment-boundary
+(deftest incomplete-input-is-answered-and-never-crosses-a-callers-boundary
   (let [{:keys [endpoint]} (endpoint!)
         endpoint (serve/step endpoint 1)
-        a (socket)
-        b (socket)
-        [endpoint handle-a _] (connect! endpoint a 2)
-        [endpoint handle-b _] (connect! endpoint b 4)]
-    (request! handle-a 1 "(+ 1")
-    (let [endpoint (serve/step endpoint 6)
-          response (last (values a))]
-      (is (= 1 (apply/response-id response)))
+        answers-cursor (:dao.stream/cursor (stream/cursor (:answers endpoint)
+                                                          stream/anchor-oldest))]
+    (eval! endpoint 1 "(+ 1")
+    (let [endpoint (serve/step endpoint 2)
+          [[answer] cursor] (answers-since endpoint answers-cursor)]
+      (is (= 1 (rpc/answer-id answer)))
       (is (= :yin.repl.serve/incomplete-input
-             (:dao.stream.apply/code (apply/response-error response)))
+             (:dao.stream.rpc/code (rpc/answer-error answer)))
           "the envelope was well formed; refusing the fragment is this server's decision")
       (is (nil? (:pending-input (:repl endpoint)))
           "line continuation is a terminal concern; the shell retains none of it")
-      (request! handle-b 2 "(+ 2 2)")
-      (serve/step endpoint 7)
-      (is (= "4" (apply/response-ok (last (values b))))
-          "one attachment's fragment cannot prefix another's request"))))
+      (eval! endpoint 2 "(+ 2 2)")
+      (let [endpoint (serve/step endpoint 3)
+            [[answer'] _cursor] (answers-since endpoint cursor)]
+        (is (= "4" (rpc/answer-ok answer'))
+            "one caller's fragment cannot prefix another's request")))))
 
 
-(deftest an-ephemeral-bind-names-the-limit-instead-of-a-descriptor-refusal
-  (let [{:keys [endpoint host]} (endpoint! {:bind-port 0})]
-    (is (= :failed (:status endpoint)))
-    (is (empty? @(:bound host)) "nothing was bound")
-    (let [endpoint (serve/step endpoint 1)]
-      (is (str/includes? (str/join " " (texts endpoint))
-                         "ephemeral-port-unsupported")))))
-
-
-(deftest a-departed-attachment-retires-its-session
+(deftest a-malformed-but-correlatable-request-is-answered-not-silently-dropped
   (let [{:keys [endpoint]} (endpoint!)
         endpoint (serve/step endpoint 1)
-        s (socket)
-        [endpoint handle attachment] (connect! endpoint s 2)]
-    (is (contains? (:sessions endpoint) attachment))
-    (ws/closed! handle 1000 "peer")
-    (let [endpoint (serve/step endpoint 4)]
-      (is (empty? (:sessions endpoint)))
-      (is (str/includes? (str/join " " (texts endpoint)) "left")))))
+        answers-cursor (:dao.stream/cursor (stream/cursor (:answers endpoint)
+                                                          stream/anchor-oldest))]
+    (stream/append! (:requests endpoint) {:dao.stream.rpc/id 9 :not :a-request})
+    (let [endpoint (serve/step endpoint 2)
+          [[answer] _cursor] (answers-since endpoint answers-cursor)]
+      (is (= 9 (rpc/answer-id answer)))
+      (is (= :yin.repl.serve/malformed-request
+             (:dao.stream.rpc/code (rpc/answer-error answer)))))))
+
+
+(deftest an-uncorrelatable-value-is-dropped-as-a-diagnostic
+  (let [{:keys [endpoint]} (endpoint!)
+        endpoint (serve/step endpoint 1)
+        answers-cursor (:dao.stream/cursor (stream/cursor (:answers endpoint)
+                                                          stream/anchor-oldest))]
+    (stream/append! (:requests endpoint) :not-even-a-map)
+    (let [endpoint (serve/step endpoint 2)
+          [answers _cursor] (answers-since endpoint answers-cursor)]
+      (is (empty? answers))
+      (is (str/includes? (str/join " " (texts endpoint)) "malformed request dropped")))))
 
 
 (deftest the-summary-is-plain-data
@@ -302,126 +315,3 @@
     (is (= "daostream:ws://127.0.0.1:8080/repl" (:url summary)))
     (is (true? (:serving? summary)))
     (is (= [] (:sessions summary)))))
-
-
-;; =============================================================================
-;; The request-medium probes (W4): one active waiter per session
-;; =============================================================================
-
-
-(defn- gated-writer
-  "A writer that answers `full` while `gate` holds true, recording everything
-   appended. A reified handle for an outcome the ring-buffer fixtures cannot
-   produce — `full` on demand."
-  [gate appended]
-  (reify
-    stream/IDaoStreamWriter
-
-    (append!
-      [_ value]
-      (if @gate
-        {:dao.stream/outcome :dao.stream/full}
-        (do (swap! appended conj value)
-            {:dao.stream/outcome :dao.stream/ok})))))
-
-
-(defn- waiting-probes
-  "The wait-set entries parked for `attachment`."
-  [endpoint attachment]
-  (filter #(= attachment (:attachment %)) (:waiting (:probes endpoint))))
-
-
-(deftest a-pending-response-is-retried-while-its-source-is-blocked
-  (let [{:keys [endpoint]} (endpoint!)
-        endpoint (serve/step endpoint 1)
-        s (socket)
-        [endpoint handle attachment] (connect! endpoint s 2)
-        gate (atom true)
-        appended (atom [])
-        endpoint (assoc-in endpoint [:sessions attachment :writer]
-                           (gated-writer gate appended))]
-    (request! handle 0 "(+ 1 2)")
-    (let [endpoint (serve/step endpoint 4)
-          session (get-in endpoint [:sessions attachment])]
-      (is (= 0 (apply/response-id (:pending-response session)))
-          "the writer answered full, so the response is retained, not dropped")
-      (is (some? (:pending-successor session))
-          "and the request cursor is not committed: delivery owns it")
-      (is (empty? (waiting-probes endpoint attachment))
-          "one active waiter: while the response is pending, no probe is parked")
-      (is (true? (serve/moved? endpoint))
-          "an outstanding pending write must never wait out a backoff ceiling"))
-    ;; The source stays blocked — no second request arrives — and the gate is
-    ;; lifted. The retry is host cadence: gated on nothing but the next step.
-    (reset! gate false)
-    (let [endpoint (serve/step endpoint 5)
-          session (get-in endpoint [:sessions attachment])]
-      (is (nil? (:pending-response session)) "the identical response was retried")
-      (is (= 1 (count @appended)) "and appended once, the first time it could")
-      (is (= 0 (apply/response-id (first @appended)))
-          "the appended value is the retained response the handler produced")
-      (is (seq (waiting-probes endpoint attachment))
-          "delivered: the session observes again and its probe is re-parked"))))
-
-
-(deftest a-terminal-session-leaves-no-probe-parked
-  (testing "a departed session's probe is retired, not left to poll a dead medium"
-    (let [{:keys [endpoint]} (endpoint!)
-          endpoint (serve/step endpoint 1)
-          s (socket)
-          [endpoint handle attachment] (connect! endpoint s 2)
-          endpoint (serve/step endpoint 4)]
-      (is (= 1 (count (waiting-probes endpoint attachment)))
-          "an observing session holds exactly one parked probe")
-      (ws/closed! handle 1000 "peer")
-      (let [endpoint (serve/step endpoint 6)]
-        (is (empty? (waiting-probes endpoint attachment))
-            "the departed session's probe left the wait set"))))
-  (testing "a session the driver marked terminal parks nothing"
-    (let [{:keys [endpoint]} (endpoint!)
-          endpoint (serve/step endpoint 1)
-          s (socket)
-          [endpoint _handle attachment] (connect! endpoint s 2)
-          endpoint (serve/step endpoint 4)
-          endpoint (assoc-in endpoint [:sessions attachment :terminal]
-                             :dao.stream.apply/detached)
-          endpoint (serve/step endpoint 5)]
-      (is (empty? (waiting-probes endpoint attachment))
-          "a terminal session observes nothing, so it holds no probe"))))
-
-
-(deftest a-probe-carries-no-cursor-state-and-wakes-on-the-current-position
-  (let [{:keys [endpoint]} (endpoint!)
-        endpoint (serve/step endpoint 1)
-        s (socket)
-        [endpoint handle attachment] (connect! endpoint s 2)
-        endpoint (serve/step endpoint 3)
-        probe-shape? (fn [endpoint]
-                       (every? #(= {:reason :next, :attachment attachment} %)
-                               (waiting-probes endpoint attachment)))]
-    (is (probe-shape? endpoint)
-        "a parked probe is exactly its reason and its session: no cursor, no
-         handle, no value — cursor state belongs to the session alone, so no
-         advancing hand-off can share what the probe never held")
-    (request! handle 0 "(def x 41)")
-    (let [endpoint (serve/step endpoint 4)]
-      (is (= "41" (apply/response-ok (last (values s))))
-          "the woken probe selected the session; its own re-read served it")
-      (is (probe-shape? endpoint)
-          "the re-parked probe is still the same cursorless shape")
-      (request! handle 1 "(+ x 1)")
-      (let [endpoint (serve/step endpoint 5)]
-        (is (= "42" (apply/response-ok (last (values s))))
-            "the re-parked probe resolved the session's committed cursor — it
-             woke on the second request, not a second copy of the first")
-        (is (= 2 (count (values s))) "each request answered exactly once")
-        (is (probe-shape? endpoint))
-        (testing "cursor-state isolation: only identity-advance probes wait here"
-          ;; Probe rule 3 holds by construction in this composition: the
-          ;; endpoint's wait set holds nothing but probes, whose :advance is
-          ;; identity — no advancing entry exists that could move a cursor
-          ;; state a probe aliases. The commit authority stays session-step.
-          (is (every? #(= :next (:reason %))
-                      (:waiting (:probes endpoint)))
-              "no entry in this wait set advances anything, so nothing an
-               entry's :advance could move is cursor state a probe reads"))))))

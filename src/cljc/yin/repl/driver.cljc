@@ -312,7 +312,8 @@
           ;; answering `full` after its peer is gone.
           (abandon-unsent :yin.repl.driver/abandoned-on-reattach)
           (assoc :outstanding nil :retrying nil)
-          (publish :yin.repl.driver/notice (str "Reattaching to " url))))))
+          (publish :yin.repl.driver/notice (str "Reattaching to " url))
+          (publish :yin.repl.connect/connected (str "Connected to " url))))))
 
 
 (defn- open-connection
@@ -331,7 +332,8 @@
           (assoc :connection (get result connect/connection-key))
           (attach-remote (adapter/state (get result connect/client-key)))
           (assoc :outstanding nil :retrying nil)
-          (publish :yin.repl.driver/notice (str "Attaching to " url))))))
+          (publish :yin.repl.driver/notice (str "Attaching to " url))
+          (publish :yin.repl.connect/connected (str "Connected to " url))))))
 
 
 (defn- connect-command
@@ -492,6 +494,8 @@
 
 (defn- poll-remote
   [state]
+  (when-let [connection (:connection state)]
+    (connect/step! connection))
   (if-not (:adapter state)
     state
     (let [result (adapter/poll-responses (:adapter state) response-budget)]
@@ -500,18 +504,18 @@
 
 
 (defn- observe-connection
-  "Publish the boundary's neutral lifecycle facts.  `Connected to …` is printed
-   here, when `/established` is observed, and never when `attach!` returned."
+  "Publish the connection's terminal fact, observed from the RPC client's
+   own `:terminal` rather than a separate lifecycle stream: `attach!` over
+   `dao.stream.remote` answers ok at once, so `Connected to …` is published
+   by `open-connection`/`reattach` directly, not observed here."
   [state]
   (if-not (:connection state)
     state
-    (let [[connection events] (connect/observe (:connection state))]
-      (reduce (fn [state event]
-                (publish state
-                         (get event connect/event-key)
-                         (get event connect/text-key)))
-              (assoc state :connection connection)
-              events))))
+    (let [[connection event] (connect/observe-terminal
+                               (:connection state) (remote-terminal state))]
+      (cond-> (assoc state :connection connection)
+        event (publish (get event connect/event-key)
+                       (get event connect/text-key))))))
 
 
 (defn- retry-unsent

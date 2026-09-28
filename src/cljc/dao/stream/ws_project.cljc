@@ -380,8 +380,24 @@
                                 {:dao.stream.remote/channels
                                  {cd {:reader ring :writer handle}}}))]
           (reset! channel {:attachment (:dao.stream/attachment r)
-                           :handle handle :project project})
+                           :handle handle :project project
+                           :reflect! reflect!})
           (reflect! descriptor))))))
+
+
+(defn dial-reflect!
+  "Attach a further reflection of `descriptor` through a dial's already
+   established channel, sharing the one link `dial-attach!` created for
+   it: dao.stream.remote.cljc keeps one link per channel descriptor,
+   shared by every reflection through that channel, and `attacher`'s
+   returned function is exactly that per-channel sharing boundary.  A
+   dial with no established channel yet answers `:dao.stream/invalid-
+   descriptor`, since there is no attacher to share."
+  [dial descriptor]
+  (let [{:keys [channel]} @dial]
+    (if-some [reflect! (:reflect! @channel)]
+      (reflect! descriptor)
+      {:dao.stream/outcome :dao.stream/invalid-descriptor})))
 
 
 (defn dial-step!

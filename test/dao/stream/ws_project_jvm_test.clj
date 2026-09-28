@@ -89,7 +89,7 @@
         acks (buffer 1)
         control (buffer 16)
         endpoint (ws/make-endpoint
-                   {:served {path descriptor}
+                   {:descriptor descriptor
                     :control {:dao.stream/handle control
                               :dao.stream/surface #{:writer}}
                     :control-admission admission

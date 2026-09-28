@@ -10,7 +10,6 @@
   (:require #?(:cljd [clojure.edn :as edn]
                :clj [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
-            [dao.stream.apply :as apply]
             [dao.stream.rpc :as rpc]))
 
 
@@ -44,10 +43,11 @@
 
 
 (defn eval-request
-  "Construct the apply value used for a non-local input.  Normal callers use
-   `submit-input`, which delegates id allocation and append handling to RPC."
+  "Construct the request value used for a non-local input.  Normal callers
+   use `submit-input`, which delegates id allocation and append handling to
+   RPC."
   [id input]
-  (apply/request id eval-operation [input]))
+  (rpc/request-value id eval-operation [input]))
 
 
 (defn- read-forms
@@ -170,13 +170,13 @@
               :yin.repl.adapter/op (:dao.stream.rpc/op completion)
               :yin.repl.adapter/args (:dao.stream.rpc/args completion)}]
     (if-let [response (:dao.stream.rpc/response completion)]
-      (if (contains? response apply/ok-key)
+      (if (rpc/answer-ok? response)
         (assoc base
                :yin.repl.adapter/event :yin.repl.adapter/response
-               :yin.repl.adapter/value (apply/response-ok response))
+               :yin.repl.adapter/value (rpc/answer-ok response))
         (assoc base
                :yin.repl.adapter/event :yin.repl.adapter/response
-               :yin.repl.adapter/error (apply/response-error response)))
+               :yin.repl.adapter/error (rpc/answer-error response)))
       (assoc base
              :yin.repl.adapter/event :yin.repl.adapter/lost
              :yin.repl.adapter/reason (:dao.stream.rpc/reason completion)))))

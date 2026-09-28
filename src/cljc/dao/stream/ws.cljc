@@ -22,7 +22,6 @@
 (def subprotocol "dao.stream.transit-json")
 (def ended-close-code 4000)
 (def protocol-close-code 4002)
-(def disclaim-close-code 4004)
 
 
 (defn codec-profile?
@@ -142,7 +141,7 @@
       (outcome :dao.stream/transport-error))))
 
 
-(declare receive! closed! opened! disclaimed!)
+(declare receive! closed! opened!)
 
 
 (defn- deposit!
@@ -265,8 +264,12 @@
 
 
 (defn opened!
-  "Adapter entry: the peer's accept control was received (client), or the
-   endpoint accepted a matching handoff acknowledgement (server)."
+  "Adapter entry: the host socket itself is open -- for a client, its own
+   `connect!` seam calls this the moment the underlying connection
+   establishes, with no wire frame of ours to wait for; for a server,
+   `accept-slot!` sets `:open` directly and this stays a guarded no-op
+   for it.  There is no admission handshake any more: a served identity's
+   presence is the mirror's own answer, per identity, once attached."
   [handle]
   (let [state (.-state ^WsHandle handle)
         attachment (.-attachment ^WsHandle handle)
@@ -278,44 +281,48 @@
     (when @emit? (emit! state attachment :ws/opened))))
 
 
-(defn disclaimed!
-  "Adapter entry for the authoritative first `:ws/disclaim` control frame."
-  [handle]
-  (let [state (.-state ^WsHandle handle)
-        attachment (.-attachment ^WsHandle handle)
-        emit? (volatile! false)]
-    (swap! state (fn [s]
-                   (if (and (= :connecting (:phase s)) (not (:resolution? s)))
-                     (do (vreset! emit? true) (assoc s :resolution? true :phase :closed))
-                     s)))
-    (when @emit?
-      (emit! state attachment :ws/not-found)
-      (invoke-close! (:socket @state) disclaim-close-code "dao.stream/not-found"))))
-
-
 (defn- deliver!
   "Decode one inbound frame payload with the handle's codec and dispatch its
-   envelope.  Wire validation only; application values are never judged."
+   envelope.  Wire validation only; application values are never judged.
+
+   There is no admission handshake any more, so a value frame can outrun
+   the server's own accept-slot! (the client's socket opens and its
+   append! gate is live from that moment, ahead of this endpoint's own
+   acceptor tick).  A frame arriving while still `:pending` is that race,
+   not a protocol violation: it is queued and replayed once `accept-slot!`
+   installs the real deposit target and opens the handle.
+
+   Deciding the phase and, when `:pending`, queuing the frame is one
+   `swap!`: reading the phase and mutating the queue as two separate
+   steps would let `accept-slot!` flip the phase and replay the queue
+   in between them, so this frame queues into a queue nobody replays
+   again and is lost.  The atomic decision instead tells this call
+   whether it must deposit itself (the phase had already opened by the
+   time the swap committed) or was safely filed for `accept-slot!`."
   [handle payload]
   (let [state (.-state ^WsHandle handle)
         attachment (.-attachment ^WsHandle handle)
         codec (.-codec ^WsHandle handle)]
     (try
       (let [frame ((:ws/decode codec) payload)]
-        (cond
-          (and (= :ws/accept (:ws/frame frame)) (= :connecting (:phase @state)))
-          (opened! handle)
-
-          (and (= :ws/disclaim (:ws/frame frame)) (= :connecting (:phase @state)))
-          (disclaimed! handle)
-
-          (and (= :ws/value (:ws/frame frame))
-               (contains? frame :ws/value)
-               (= :open (:phase @state))
-               ((:ws/portable-value? codec) (:ws/value frame)))
-          (emit! state attachment :ws/payload (:ws/value frame))
-
-          :else (protocol-failure! state attachment)))
+        (if-not (and (= :ws/value (:ws/frame frame))
+                     (contains? frame :ws/value)
+                     ((:ws/portable-value? codec) (:ws/value frame)))
+          (protocol-failure! state attachment)
+          (let [value (:ws/value frame)
+                action (volatile! nil)]
+            (swap! state
+                   (fn [s]
+                     (case (:phase s)
+                       :open (do (vreset! action :open) s)
+                       (:pending :replaying)
+                       (do (vreset! action :pending)
+                           (update s :pending-frames (fnil conj []) value))
+                       (do (vreset! action :else) s))))
+            (case @action
+              :open (emit! state attachment :ws/payload value)
+              :pending nil
+              :else (protocol-failure! state attachment)))))
       (catch #?(:cljd Object :clj Throwable :cljs :default) _
         (protocol-failure! state attachment)))))
 
@@ -357,13 +364,16 @@
 (defn adapter
   "The only callback-shaped value, for a host socket adapter while wiring its
    private listener.  It is not a DaoStream API and never reaches consumers.
-   `:message!` receives text frames and `:binary!` binary frames — the two
-   typed facts a host reports without inspecting content — and `:ws/codec`
-   is the connection's profile, so a host `:connect!` seam can negotiate the
-   selected subprotocol without any second channel."
+   `:opened!` is the host's own connection-established signal (a client's
+   `connect!` seam calls it once the socket opens, with no admission wire
+   frame to wait for; a server socket is already open when accepted, so
+   this stays a no-op there).  `:message!` receives text frames and
+   `:binary!` binary frames — the two typed facts a host reports without
+   inspecting content — and `:ws/codec` is the connection's profile, so a
+   host `:connect!` seam can negotiate the selected subprotocol without
+   any second channel."
   [handle]
   {:opened! #(opened! handle)
-   :disclaimed! #(disclaimed! handle)
    :message! #(receive! handle %)
    :binary! #(receive-binary! handle %)
    :closed! #(closed! handle %1 %2)
@@ -407,29 +417,27 @@
 
 ;; Server acceptance is intentionally an endpoint composition object, not a
 ;; global transport directory.  Its slots are supplied and owned by the host.
-;; Deferred retirement (dao.stream.remote.implementation-plan.md, slice 3,
-;; round 2): the :served table and the accept/disclaim handshake go once the
-;; mirror answers not-found per identity; they stay until dao.stream.serving,
-;; which routes accepted offers by these descriptors, is deleted with its
-;; consumers in slices 4 and 5.
+;; One descriptor, not a served-path table: the mirror answers not-found
+;; per identity now, so this transport no longer routes an upgrade by path
+;; at all -- every upgrade this endpoint's own codec negotiation accepts is
+;; accepted, and what a client can reach through it is entirely the
+;; mirror's own table.
 (defn make-endpoint
-  [{:keys [served control control-admission slots codecs] :as config}]
+  [{:keys [descriptor control control-admission slots codecs] :as config}]
   (let [control-target (checked-target control control-admission)
         codecs (or codecs [transit/profile])]
-    (when-not (and (map? served) (seq slots))
-      (throw (ex-info "WebSocket endpoint needs served paths and handoff slots" {:config config})))
+    (when-not (seq slots)
+      (throw (ex-info "WebSocket endpoint needs handoff slots" {:config config})))
     (when-not (and (seq codecs) (every? codec-profile? codecs))
       (throw (ex-info "WebSocket endpoint needs at least one codec profile" {:codecs codecs})))
     (when-not (apply distinct? (map :ws/subprotocol codecs))
       (throw (ex-info "WebSocket endpoint codec subprotocols must be distinct" {:codecs codecs})))
     (when-not (= :portable-values (:value-domain control-admission))
       (throw (ex-info "endpoint control medium must carry portable values" {:admission control-admission})))
-    (doseq [[path descriptor] served]
-      ;; A served descriptor crosses under every profile the endpoint speaks,
-      ;; or the profile that cannot carry it must not be offered.
-      (when-not (and (= path (:ws/path descriptor))
-                     (every? #(descriptor? descriptor %) codecs))
-        (throw (ex-info "invalid served descriptor" {:path path :descriptor descriptor}))))
+    ;; The one descriptor crosses under every profile the endpoint speaks,
+    ;; or the profile that cannot carry it must not be offered.
+    (when-not (every? #(descriptor? descriptor %) codecs)
+      (throw (ex-info "invalid served descriptor" {:descriptor descriptor})))
     (doseq [slot slots]
       (checked-target (:offer slot) (:offer-admission slot))
       (checked-target (:ack slot) (:ack-admission slot))
@@ -473,33 +481,33 @@
 
 
 (defn accept-connection!
-  "Bounded upgrade callback entry.  A bad path or exhausted slots is closed
-   immediately; a valid path deposits precisely one host-local offer and waits
-   for `endpoint-step` to consume a matching acknowledgement.
+  "Bounded upgrade callback entry.  An exhausted slot pool is closed
+   immediately; otherwise this deposits precisely one host-local offer and
+   waits for `endpoint-step` to consume a matching acknowledgement.  There
+   is no served-path lookup here any more: every upgrade this endpoint's
+   own codec negotiation accepts is accepted, and what a client can reach
+   through it is entirely the mirror's own table, answered per identity
+   after the connection opens.  `path` is the caller's own routing concern
+   (a host bound to more than one endpoint still dispatches an upgrade to
+   the right one by it); this transport no longer inspects it.
 
    The socket seam may carry `:ws/subprotocol`, the subprotocol the host
    negotiated for this upgrade.  An endpoint serves every profile it was
-   composed with, concurrently and through the same served paths; a named
-   subprotocol it does not speak is a refused handshake, never a downgrade,
-   and an absent name is the Transit default for sockets that negotiated
-   nothing (direct composition and tests)."
+   composed with, concurrently; a named subprotocol it does not speak is a
+   refused handshake, never a downgrade, and an absent name is the Transit
+   default for sockets that negotiated nothing (direct composition and
+   tests)."
   ([endpoint path socket] (accept-connection! endpoint path socket nil))
-  ([endpoint path socket now]
-   (let [{:keys [served]} (:config endpoint)
+  ([endpoint _path socket now]
+   (let [descriptor (:descriptor (:config endpoint))
          offered (:ws/subprotocol socket)
          codec (if (nil? offered)
                  transit/profile
-                 (get (:codec-index endpoint) offered))
-         descriptor (get served path)]
+                 (get (:codec-index endpoint) offered))]
      (cond
        (nil? codec)
        (do (invoke-close! socket protocol-close-code "dao.stream/subprotocol-unsupported")
            {:ws/status :ws/unsupported-subprotocol})
-
-       (nil? descriptor)
-       (do (send-result socket ((:ws/encode codec) {:ws/frame :ws/disclaim}))
-           (invoke-close! socket disclaim-close-code "dao.stream/not-found")
-           {:ws/status :ws/disclaimed})
 
        :else
        (let [state (:state endpoint)
@@ -550,24 +558,43 @@
        (admission? (:ws/admission ack))))
 
 
-;; Deferred retirement: the wire {:ws/frame :ws/accept} answer to an
-;; acknowledgement goes with the served-path table and the disclaim frame
-;; (slices 4 and 5); the copy path's clients still resolve on receiving it.
+(defn- drain-pending!
+  "Deposit queued frames in arrival order until the queue is empty, then
+   open the handle.  The handle stays `:replaying` throughout, so
+   `deliver!` keeps queuing rather than depositing; the swap that finds
+   the queue empty is the same one that opens the phase.  Only this
+   drainer deposits while replaying, so each frame deposits exactly once
+   and no later frame can pass an older one."
+  [hstate attachment]
+  (loop []
+    (let [batch (volatile! nil)]
+      (swap! hstate
+             (fn [s]
+               (let [queued (:pending-frames s)]
+                 (vreset! batch queued)
+                 (cond-> (assoc s :pending-frames [])
+                   (and (empty? queued) (= :replaying (:phase s)))
+                   (assoc :phase :open)))))
+      (when (seq @batch)
+        (doseq [value @batch]
+          (emit! hstate attachment :ws/payload value))
+        (recur)))))
+
+
 (defn- accept-slot!
+  "The client is never told over the wire: there is no admission frame any
+   more, and nothing needs one -- `opened!` already ran when its own
+   socket opened, ahead of any acknowledgement.  This installs the
+   deposit target the acknowledgement carries, replays the value frames
+   `deliver!` queued while still pending (the client's own socket can
+   outrun this endpoint's acceptor tick) via `drain-pending!`, and
+   releases the slot."
   [endpoint index slot ack]
-  (let [hstate (:handle-state slot)
-        socket (:socket @hstate)
-        codec (:codec slot)
-        target (:ws/deposit ack)]
-    (swap! hstate assoc :deposit target :phase :open :resolution? true)
-    (let [sent (send-result socket ((:ws/encode codec) {:ws/frame :ws/accept}))]
-      (when-not (= :dao.stream/ok (:dao.stream/outcome sent))
-        (swap! hstate assoc :phase :closed)
-        (invoke-close! socket 1011 "dao.stream/accept-failed")
-        (terminal! hstate (:attachment slot) :ws/closed))
-      ;; Either way the endpoint is done with this connection: the composition
-      ;; owns an accepted session, and a failed acceptance is already torn down.
-      (release-slot! endpoint index (:attachment slot)))))
+  (let [hstate (:handle-state slot)]
+    (swap! hstate assoc :deposit (:ws/deposit ack) :phase :replaying
+           :resolution? true)
+    (drain-pending! hstate (:attachment slot))
+    (release-slot! endpoint index (:attachment slot))))
 
 
 (defn endpoint-step

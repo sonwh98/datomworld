@@ -1,25 +1,34 @@
 (ns yin.repl.connect
-  "The client side of the DaoStream Yin REPL — Phase R3.
+  "The client side of the DaoStream Yin REPL, over the request-and-response
+   service of docs/design/dao.stream.remote.md section 5.
 
    One connection is one explicit value.  `open` canonicalizes the URL to the
-   request-target form `dao.stream.ws.md` defines, creates the boundary's single
-   capacity-8192 traffic medium, mints both of its cursors, composes the
-   WebSocket boundary, and only then calls `attach!`, receiving a handle at
-   once.  No promise, future, callback, atom, clock, or namespace global is
-   created here, and no open event can race ahead of a cursor.
+   request-target form `dao.stream.ws.md` defines, dials one WebSocket
+   channel through `dao.stream.ws-project`, and attaches two
+   `dao.stream.remote` reflections over it -- one of `\"yin.repl/requests\"`
+   (this end writes), one of `\"yin.repl/answers\"` (this end reads) -- both
+   sharing the one link the dial establishes.  `attach!` over
+   `dao.stream.remote` answers ok at once: that is the contract's deferred
+   remote confirmation, not a promise that the server has resolved anything,
+   so a connection is reported `:established` immediately rather than
+   waiting on an asynchronous transport event.
 
-   The traffic medium is reused across reconnects: `disconnect` is `close!`,
-   and reattaching is `attach!` plus `rebind`, which keeps the response cursor
-   and takes the new attachment id.  WebSocket spellings stay confined to the
-   R1 decoder in `dao.stream.rpc.ws`; everything observed here is the
-   neutral `:dao.stream.apply/…` lifecycle vocabulary."
+   The dial is reusable across reconnects: `close!` closes the underlying
+   channel handle, and reattaching redials the same `attach!` and repeats
+   both reflection attaches, then `rpc/rebind`s the retained RPC client onto
+   the fresh pair -- which keeps its response cursor and its outstanding
+   bookkeeping, exactly as before.  Terminal status
+   (`:detached`/`:ended`/`:not-found`/`:transport-error`) is observed from
+   the RPC client's own `:terminal`, translated by `dao.stream.rpc`'s
+   reflection-read translation; `observe-terminal` turns that into the one
+   connection notice each terminal reason publishes exactly once."
   (:require [clojure.string :as str]
             [dao.data :as data]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc :as rpc]
-            [dao.stream.rpc.ws :as rpc-ws]
             [dao.stream.ws :as ws]
+            [dao.stream.ws-project :as ws-project]
             [yin.repl.host.common :as host-common]))
 
 
@@ -40,12 +49,6 @@
    :value-domain :portable-values})
 
 
-(def lifecycle-budget
-  "Maximum lifecycle elements one observation reads, so a noisy medium cannot
-   make a single step unbounded."
-  32)
-
-
 (def url-prefix "daostream:")
 (def ws-scheme "ws://")
 (def secure-scheme "wss://")
@@ -59,10 +62,23 @@
 
 
 (def service-identity
-  "The logical identity of the stream a REPL endpoint serves.  A descriptor
-   names a served stream, so a client that only typed a URL still needs one;
-   a stable service name keeps `attach!` honest across endpoint restarts."
+  "The logical identity of the WebSocket channel a REPL endpoint serves.  A
+   descriptor names a served stream, so a client that only typed a URL still
+   needs one; a stable service name keeps `attach!` honest across endpoint
+   restarts."
   "yin.repl/repl")
+
+
+(def requests-identity
+  "The mirror table identity the server enters with surface #{:writer}: a
+   client's reflection of it writes eval requests."
+  "yin.repl/requests")
+
+
+(def answers-identity
+  "The mirror table identity the server enters with surface #{:reader}: a
+   client's reflection of it reads answers."
+  "yin.repl/answers")
 
 
 (def ^:private diagnostic-bounds
@@ -284,7 +300,7 @@
 
 
 ;; =============================================================================
-;; The boundary
+;; The two-reflection boundary
 ;; =============================================================================
 
 (defn- mint
@@ -294,23 +310,11 @@
       (:dao.stream/cursor result))))
 
 
-(defn boundary
-  "Create the client boundary's media and cursors, before any `attach!`.
-
-   One traffic medium carries every deposited event for the boundary's single
-   active attachment.  Two cursors are minted on it and both are owned by the
-   one step owner: the RPC client reads responses through the first, and
-   lifecycle observation reads through the second.  Neither is arithmetic and
-   neither is fabricated later."
-  ([] (boundary nil))
-  ([traffic]
-   (let [traffic (or traffic
-                     (:dao.stream/handle
-                       (ring/create! {:dao.stream/type ring/transport-type
-                                      ring/capacity-key traffic-capacity})))]
-     {:traffic traffic
-      :response-cursor (mint traffic stream/anchor-newest)
-      :lifecycle-cursor (mint traffic stream/anchor-newest)})))
+(defn- remote-descriptor
+  [channel identity]
+  {:dao.stream/type :dao.stream/remote
+   :dao.stream/identity identity
+   :dao.stream/channel channel})
 
 
 (defn- attacher
@@ -334,79 +338,131 @@
     (str "Attaching to " url " answered " (pr-str (:dao.stream/outcome result)))))
 
 
-(defn open
-  "Compose one client boundary and attach, returning immediately.
+(defn- fresh-dial
+  "Compose one dial over a fresh traffic medium, its own fresh `attach!`
+   bound to that medium, and a fresh channel ring, before any attach.  A
+   reattachment composes a fresh dial with a fresh cursor, per
+   `dao.stream.ws-project/dial`'s own contract, and `attach!` is scoped to
+   the traffic medium it deposits into, so it must be rebuilt alongside
+   it -- reusing an old `attach!` over a new traffic medium would deposit
+   into the wrong buffer."
+  [host]
+  (let [traffic (:dao.stream/handle
+                  (ring/create! {:dao.stream/type ring/transport-type
+                                 ring/capacity-key traffic-capacity}))
+        attach! (try (attacher traffic (:connect! host))
+                     (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))
+        cursor (mint traffic stream/anchor-newest)
+        ring (:dao.stream/handle
+               (ring/create! {:dao.stream/type ring/transport-type
+                              ring/capacity-key traffic-capacity}))]
+    (when (and (some? attach!) (some? cursor))
+      (ws-project/dial {:attach! attach!
+                        :traffic {:dao.stream/handle traffic}
+                        :cursor cursor
+                        :ring ring
+                        :table {}}))))
 
-   The order is the point and is observable: descriptor, then medium, then both
-   cursors, then the boundary, and only then `attach!`.  A successful result
-   carries the connection value and the RPC client state built from the *whole*
-   attach result, so the response decoder filters on the attachment the
-   transport minted."
-  [{:keys [url identity host traffic]}]
+
+(defn- attach-pair
+  "Attach both `requests`/`answers` reflections through `dial`'s one link,
+   sharing it exactly as `dao.stream.remote.cljc`'s attacher requires.
+   Returns `[requests-result answers-result]`, the second nil once the
+   first fails."
+  [dial channel]
+  (let [requests-result
+        (ws-project/dial-attach! dial (remote-descriptor channel
+                                                         requests-identity))]
+    (if-not (= :dao.stream/ok (:dao.stream/outcome requests-result))
+      [requests-result nil]
+      [requests-result
+       (ws-project/dial-reflect! dial (remote-descriptor channel
+                                                         answers-identity))])))
+
+
+(defn open
+  "Dial one WebSocket channel and attach both reflections, returning
+   immediately.  `attach!` over `dao.stream.remote` answers ok at once --
+   the contract's deferred remote confirmation -- so a successful result
+   is reported `:established` without waiting on any further transport
+   event.  The RPC client's response cursor is the `:dao.stream/newest`
+   anchor; `rpc/poll!` resolves it, retrying while the answers reflection
+   answers a retryable mint."
+  [{:keys [url identity host]}]
   (let [parsed (parse-url url {:identity identity})]
     (if-not (= :yin.repl.connect/parsed (get parsed outcome-key))
       parsed
-      (let [descriptor (get parsed descriptor-key)]
+      (let [channel (get parsed descriptor-key)]
         (if-not (host-common/adapter? host)
           (failure :yin.repl.connect/no-host-adapter
                    (host-common/missing-message "(connect …) is not wired"))
-          (let [{:keys [traffic response-cursor lifecycle-cursor]} (boundary traffic)
-                attach! (try (attacher traffic (:connect! host))
-                             (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))]
-            (cond
-              (nil? attach!)
+          (let [dial (fresh-dial host)]
+            (if-not dial
               (failure :yin.repl.connect/invalid-composition
                        "The client boundary composition was refused")
-
-              (or (nil? response-cursor) (nil? lifecycle-cursor))
-              (failure :yin.repl.connect/invalid-composition
-                       "The traffic medium minted no cursor")
-
-              :else
-              (let [result (attach! descriptor)
-                    attachment (:dao.stream/attachment result)]
-                (if-not (= :dao.stream/ok (:dao.stream/outcome result))
+              (let [[requests-result answers-result]
+                    (attach-pair dial channel)]
+                (cond
+                  (not= :dao.stream/ok (:dao.stream/outcome requests-result))
                   (failure :yin.repl.connect/attach-failed
-                           (attach-outcome-message url result))
+                           (attach-outcome-message url requests-result))
+
+                  (not= :dao.stream/ok (:dao.stream/outcome answers-result))
+                  (failure :yin.repl.connect/attach-failed
+                           (attach-outcome-message url answers-result))
+
+                  :else
                   {outcome-key :yin.repl.connect/attached
                    connection-key {:url url
-                                   :descriptor descriptor
-                                   :traffic traffic
-                                   :response-cursor response-cursor
-                                   :lifecycle-cursor lifecycle-cursor
-                                   :attach! attach!
-                                   :attachment attachment
-                                   :handle (:dao.stream/handle result)
-                                   :decode (rpc-ws/decoder attachment)
-                                   :status :connecting
-                                   :detached-by nil
-                                   :ledger :untried}
-                   client-key (rpc-ws/init-client result traffic response-cursor)})))))))))
+                                   :channel channel
+                                   :host host
+                                   :dial dial
+                                   :status :established
+                                   :detached-by nil}
+                   client-key (rpc/client-state
+                                (:dao.stream/handle requests-result)
+                                (:dao.stream/handle answers-result)
+                                stream/anchor-newest)})))))))))
+
+
+(defn step!
+  "Drive this connection's dial one tick: its projection, so wire bytes the
+   host deposited onto the traffic medium reach the reflections' local
+   channel ring, then this end's own mirror step (a REPL client serves
+   nothing through it, but the composition is symmetric).  A caller's own
+   cadence must call this every tick it also polls the RPC client, or the
+   channel ring never receives anything the server sent -- reading a
+   reflection drains only the ring, never the traffic medium directly."
+  [connection]
+  (when-let [dial (:dial connection)]
+    (ws-project/dial-step! dial))
+  connection)
 
 
 (def terminal-statuses
-  "Statuses the boundary itself reported.  They are conclusions, so a later
-   local action cannot overwrite them with an intention."
+  "Statuses observed from the RPC client's own `:terminal`.  They are
+   conclusions, so a later local action cannot overwrite them with an
+   intention."
   #{:detached :ended :not-found :transport-error})
 
 
 (defn close!
-  "Disconnect.  `close!` on the attachment handle ends the connection; the
-   terminal fact still arrives as a deposited event, which is what keeps the
-   connection reattachable and its cursor usable.
+  "Disconnect.  `close!` on the dialed channel's handle ends the connection;
+   the RPC client observes the loss on its next poll as `/detached`, which
+   is what keeps the connection reattachable.
 
    Who asked is recorded, because the two detachments mean different things to
    the shell: an operator `(disconnect)` returns ordinary input to local
    evaluation, while an uninvited drop queues it until a reattachment decision
-   is made.  The terminal event alone cannot tell them apart.
+   is made.  The terminal fact alone cannot tell them apart.
 
-   A status the boundary already reported is kept: `:closing` describes an
-   intention, and replacing an observed ending with it would lose the only
-   record of how the connection actually ended."
+   A status already observed is kept: `:closing` describes an intention, and
+   replacing an observed ending with it would lose the only record of how the
+   connection actually ended."
   ([connection] (close! connection :operator))
   ([connection by]
-   (when (:handle connection)
-     (stream/close! (:handle connection)))
+   (when-let [ch (some-> (:dial connection) ws-project/channel)]
+     (stream/close! (:handle ch)))
    (cond-> (assoc connection :detached-by by)
      (not (contains? terminal-statuses (:status connection)))
      (assoc :status :closing))))
@@ -426,39 +482,44 @@
 
 
 (defn reattach
-  "Reattach an existing connection: `attach!` plus `rebind`.
+  "Reattach an existing connection: a fresh dial through the same host
+   adapter, both reflections attached again, then `rpc/rebind`.
 
-   The traffic medium, both cursors, and the monotonic id allocator survive;
-   only the writer, the attachment id, and the decoder built around it change."
+   The RPC client's response cursor and its collision-checked random id
+   allocator survive; only the writer and reader reflections change."
   [connection client]
-  (cond
-    (not (fn? (:attach! connection)))
-    (failure :yin.repl.connect/invalid-composition
-             "This connection has no boundary to reattach through")
-
-    (not (reattachable? client))
+  (if-not (reattachable? client)
     (failure :yin.repl.connect/not-reattachable
              (str "Only a dropped connection reattaches; this one ended as "
                   (pr-str (:terminal client))))
+    (let [{:keys [url channel host]} connection
+          dial (fresh-dial host)]
+      (if-not dial
+        (failure :yin.repl.connect/invalid-composition
+                 "The traffic medium minted no cursor")
+        (let [[requests-result answers-result] (attach-pair dial channel)]
+          (cond
+            (not= :dao.stream/ok (:dao.stream/outcome requests-result))
+            (failure :yin.repl.connect/attach-failed
+                     (attach-outcome-message url requests-result))
 
-    :else
-    (let [result ((:attach! connection) (:descriptor connection))
-          attachment (:dao.stream/attachment result)]
-      (if-not (= :dao.stream/ok (:dao.stream/outcome result))
-        (failure :yin.repl.connect/attach-failed
-                 (attach-outcome-message (:url connection) result))
-        {outcome-key :yin.repl.connect/reattached
-         connection-key (assoc connection
-                               :attachment attachment
-                               :handle (:dao.stream/handle result)
-                               :decode (rpc-ws/decoder attachment)
-                               :status :connecting
-                               :detached-by nil)
-         client-key (rpc-ws/rebind client result)}))))
+            (not= :dao.stream/ok (:dao.stream/outcome answers-result))
+            (failure :yin.repl.connect/attach-failed
+                     (attach-outcome-message url answers-result))
+
+            :else
+            {outcome-key :yin.repl.connect/reattached
+             connection-key (assoc connection
+                                   :dial dial
+                                   :status :established
+                                   :detached-by nil)
+             client-key (rpc/rebind client
+                                    (:dao.stream/handle requests-result)
+                                    (:dao.stream/handle answers-result))}))))))
 
 
 ;; =============================================================================
-;; Neutral lifecycle observation
+;; Terminal status, observed from the RPC client
 ;; =============================================================================
 
 (defn- event
@@ -466,108 +527,48 @@
   {event-key kind text-key text})
 
 
-(defn- transition
-  [connection lifecycle]
-  (if (and (contains? terminal-statuses (:status connection))
-           (not= :dao.stream.apply/diagnostic lifecycle))
-    ;; The first terminal fact is the binding's conclusion.  Close/error races
-    ;; may deposit another lifecycle value afterwards, but it cannot rewrite
-    ;; the conclusion displayed by `(repl-state)` or used by reconnect policy.
+(defn- terminal-transition
+  [connection terminal]
+  (case terminal
+    :dao.stream.apply/detached
+    [:detached (event :yin.repl.connect/detached
+                      (str "Disconnected from " (:url connection)
+                           "; the served stream is untouched, so (connect "
+                           (pr-str (:url connection)) ") reattaches"))]
+
+    :dao.stream.apply/ended
+    [:ended (event :yin.repl.connect/ended
+                   (str "The stream served at " (:url connection)
+                        " ended; there is nothing to reattach to"))]
+
+    :dao.stream.apply/not-found
+    [:not-found (event :yin.repl.connect/not-found
+                       (str "No stream is served at "
+                            (:ws/path (:channel connection))
+                            ": the endpoint disclaimed it, so this is not "
+                            "retried"))]
+
+    :dao.stream.apply/transport-error
+    [:transport-error
+     (event :yin.repl.connect/transport-error
+            (str "Could not reach " (:url connection)
+                 "; this is a reachability failure and may succeed on retry"))]
+
+    nil))
+
+
+(defn observe-terminal
+  "Given `connection` and the RPC client's current `:terminal`, return
+   `[connection event]`.  The first terminal fact is the binding's
+   conclusion, published once: a connection already at a terminal status is
+   left alone, since a close/error race may repeat the same terminal on a
+   later poll."
+  [connection terminal]
+  (if (or (nil? terminal) (contains? terminal-statuses (:status connection)))
     [connection nil]
-    (case lifecycle
-      :dao.stream.apply/established
-      (if (= :established (:status connection))
-        [connection nil]
-        [(assoc connection :status :established)
-         (event :yin.repl.connect/connected (str "Connected to " (:url connection)))])
-
-      :dao.stream.apply/detached
-      [(assoc connection :status :detached)
-       (event :yin.repl.connect/detached
-              (str "Disconnected from " (:url connection)
-                   "; the served stream is untouched, so (connect "
-                   (pr-str (:url connection)) ") reattaches"))]
-
-      :dao.stream.apply/ended
-      [(assoc connection :status :ended)
-       (event :yin.repl.connect/ended
-              (str "The stream served at " (:url connection)
-                   " ended; there is nothing to reattach to"))]
-
-      :dao.stream.apply/not-found
-      [(assoc connection :status :not-found)
-       (event :yin.repl.connect/not-found
-              (str "No stream is served at " (:ws/path (:descriptor connection))
-                   ": the endpoint disclaimed it, so this is not retried"))]
-
-      :dao.stream.apply/transport-error
-      [(assoc connection :status :transport-error)
-       (event :yin.repl.connect/transport-error
-              (str "Could not reach " (:url connection)
-                   "; this is a reachability failure and may succeed on retry"))]
-
-      :dao.stream.apply/diagnostic
-      [connection (event :yin.repl.connect/diagnostic
-                         ";; connection diagnostic reported by the boundary")]
-
+    (if-let [[status ev] (terminal-transition connection terminal)]
+      [(assoc connection :status status) ev]
       [connection nil])))
-
-
-(defn- decode-lifecycle
-  [connection value]
-  (try
-    (let [decoded ((:decode connection) value)]
-      (when (= :dao.stream.rpc/lifecycle (get decoded rpc/event-key))
-        (get decoded rpc/lifecycle-key)))
-    (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
-
-
-(defn observe
-  "Advance the boundary's lifecycle cursor, returning `[connection events]`.
-
-   This is the whole of `Connected to …` and its failures: the R1 decoder
-   translates each deposited envelope, and only the neutral vocabulary is
-   interpreted here.  It is total over `next`: `ok` advances to the exact
-   successor, `gap` reports the loss and resumes at the recovery cursor, and
-   every other outcome is recorded in the ledger and ends the observation."
-  ([connection] (observe connection lifecycle-budget))
-  ([connection budget]
-   (if (or (nil? connection) (nil? (:lifecycle-cursor connection)))
-     [connection []]
-     (loop [remaining budget
-            connection connection
-            events []]
-       (if (zero? remaining)
-         [connection events]
-         (let [result (stream/next (:traffic connection) (:lifecycle-cursor connection))
-               outcome (:dao.stream/outcome result)]
-           (case outcome
-             :dao.stream/ok
-             (let [connection (assoc connection
-                                     :lifecycle-cursor (:dao.stream/cursor result)
-                                     :ledger outcome)
-                   lifecycle (decode-lifecycle connection (:dao.stream/value result))
-                   [connection' produced] (if lifecycle
-                                            (transition connection lifecycle)
-                                            [connection nil])]
-               (recur (dec remaining) connection' (cond-> events produced (conj produced))))
-
-             :dao.stream/gap
-             (recur (dec remaining)
-                    (assoc connection
-                           :lifecycle-cursor (:dao.stream/cursor result)
-                           :ledger outcome)
-                    (conj events
-                          (event :yin.repl.connect/notice
-                                 ";; connection events lost: resumed at the recovery cursor")))
-
-             :dao.stream/blocked
-             [(assoc connection :ledger outcome) events]
-
-             [(assoc connection :ledger outcome)
-              (conj events
-                    (event :yin.repl.connect/notice
-                           (str ";; connection events " (name outcome))))])))))))
 
 
 (defn summary
@@ -577,8 +578,7 @@
     {:connected? false}
     {:connected? (= :established (:status connection))
      :url (:url connection)
-     :path (:ws/path (:descriptor connection))
-     :identity (:dao.stream/identity (:descriptor connection))
-     :attachment (:attachment connection)
+     :path (:ws/path (:channel connection))
+     :identity (:dao.stream/identity (:channel connection))
      :status (:status connection)
-     :last-outcome (:ledger connection)}))
+     :attachment (:attachment (some-> (:dial connection) ws-project/channel))}))

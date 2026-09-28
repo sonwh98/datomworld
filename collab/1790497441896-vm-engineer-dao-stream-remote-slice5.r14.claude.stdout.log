@@ -1,0 +1,23 @@
+The gate r4 P1 is fixed, but not all three lanes are green: one test outside my change fails on every lane, so the required 0 failures isn't met.
+
+**The fix (`ws.cljc`):**
+- **Replay phase:** `accept-slot!` no longer opens the handle and then replays. It moves it to a `:replaying` phase, and a new `drain-pending!` deposits queued frames in arrival order.
+- **Handoff:** `deliver!` keeps queuing while the handle is `:pending` or `:replaying`. The swap that finds the queue empty is the same one that sets `:open`. Each frame therefore deposits exactly once and no newer frame can pass an older one.
+- **Overlap test (`ws_test.cljc`):** `a-frame-arriving-during-the-replay-deposits-after-older-frames` uses a reified deposit target that delivers a new frame during the replay's first deposit. It expects `[:early :mid :late]`. `dao.stream.ws-test` passes (12 tests, 46 assertions), and kondo is clean on both files.
+
+**Lane results:**
+
+| Lane | Tests | Assertions | Failures |
+|---|---|---|---|
+| JVM (first run) | 2278 | 183263 | 0 |
+| JVM (later runs) | 2278 | 183273 | 2 |
+| Node (repeated runs) | 2184 | 49902 | 1 |
+| Dart | 2145 | not reported | 1 |
+
+The one failure on all three lanes is `yin.vm.ucf.remote-test/shared-cursor-cells-lift-and-lower-shared` (`remote_test.cljc:832`). It is a shared-cursor-cell ordering assertion in the VM UCF code.
+
+That file and `src/cljc/yin/vm/ucf/remote.cljc` are untracked and not mine; I only touched `ws.cljc` and `ws_test.cljc`. `git status` shows a slice-8 agent working in them (the `remote_test.cljc` failure is in code with no WebSocket dependency). The test passed earlier today and started failing between runs. I did not touch it.
+
+The two later JVM failures were not investigated; I only confirmed the ucf one on the JVM. Dart's other 2144 tests passed.
+
+Status: BLOCKED - `yin.vm.ucf.remote-test/shared-cursor-cells-lift-and-lower-shared` fails on all three lanes; it comes from slice-8 work in progress outside `ws.cljc`.

@@ -2,7 +2,6 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
-            [dao.stream.apply :as apply]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc :as rpc]
             [yin.repl.adapter :as adapter]
@@ -109,11 +108,12 @@
     (driver/submit-line! (:input state) "(+ 2 2)")
     (let [stepped (driver/repl-step state 0)
           read (read-request fixture (:request-cursor fixture))
-          request (:dao.stream/value read)]
+          request (:dao.stream/value read)
+          id (rpc/request-id request)]
       (is (= :dao.stream/ok (:dao.stream/outcome read)))
-      (is (= :op/eval (apply/request-op request)))
-      (is (= ["(+ 1 2)"] (apply/request-args request)))
-      (is (= 0 (apply/request-id request)))
+      (is (= :op/eval (rpc/request-op request)))
+      (is (= ["(+ 1 2)"] (rpc/request-args request)))
+      (is (rpc/safe-id? id))
       (is (= ["(+ 2 2)"] (:queued stepped))
           "input typed while a request is outstanding is queued, not clobbered")
       (is (= :dao.stream/blocked
@@ -121,14 +121,14 @@
           "only one request is in flight")
 
       (testing "a correlated response publishes exactly once and releases the queue"
-        (stream/append! (:responses fixture) (apply/success-response 0 "3"))
+        (stream/append! (:responses fixture) (rpc/success-answer id "3"))
         (let [stepped' (driver/repl-step stepped 1)
               read' (read-request fixture (:dao.stream/cursor read))
               [entries drained] (driver/take-outbox stepped')]
           (is (= ["3"] (mapv :yin.repl.driver/text entries)))
           (is (empty? (:queued stepped')))
-          (is (= ["(+ 2 2)"] (apply/request-args (:dao.stream/value read'))))
-          (is (= 1 (apply/request-id (:dao.stream/value read')))
+          (is (= ["(+ 2 2)"] (rpc/request-args (:dao.stream/value read'))))
+          (is (not= id (rpc/request-id (:dao.stream/value read')))
               "ids are allocated, never reused")
           (is (empty? (texts (driver/repl-step drained 2)))
               "a published completion is never republished"))))))
@@ -140,7 +140,7 @@
     (let [stepped (driver/repl-step state 0)]
       (is (= :dao.stream/ok
              (:dao.stream/outcome (read-request fixture (:request-cursor fixture)))))
-      (stream/append! responses :dao.stream.apply/detached)
+      (stream/close! responses)
       (let [stepped' (driver/repl-step stepped 1)]
         (is (str/includes? (text-of stepped') "lost"))
         (is (nil? (:outstanding stepped')))))))

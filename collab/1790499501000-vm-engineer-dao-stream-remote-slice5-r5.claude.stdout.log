@@ -1,0 +1,2 @@
+Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.
+The relaunched agent is running directly against this (correct, current) tree, explicitly barred from creating a worktree. I'll wait for its completion notification before verifying and drafting the final report.

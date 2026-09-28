@@ -7,7 +7,7 @@
 
    Execution fixtures are the actual corpora, reused rather than copied:
    `yin.vm.parity-test/corpus` and `yin.vm-test/semantic-bytecode-corpus`
-   (the every-tag corpus content_test and completion_test reuse). Every
+   (the every-tag corpus mint_test and completion_test reuse). Every
    run is on a fresh VM (D4), and outcomes compare under B0's normalizer
    (`yin.vm.debruijn-vm-contract-test/normalize`).
 

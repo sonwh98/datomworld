@@ -1,0 +1,259 @@
+Completed-GMT: 2026-09-22 06:12:21 GMT
+Completed-Local: 2026-09-22 13:12:21 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: d3f7a2c9-1b8e-4a6f-9c5d-7e2b8f4a3d61
+
+New files:
+  src/cljc/yin/vm/debruijn_code.cljc
+  test/yin/vm/debruijn_code_test.cljc
+Existing edits: none (git status shows only these two files plus the
+collab prompt; `node_modules` was already untracked in this worktree, not
+touched by this work).
+
+## Descriptor and opcode table
+
+`opcode-table` is derived programmatically, not hand-copied: `carried-
+mnemonics` = `(disj code/mnemonics :var :closure)` (18 of the 21 named
+mnemonics), and each carried mnemonic's `[attribute kind]` slots are read
+straight off `code/vector-operand-table` and passed through `renamespace-
+slots`, which only rewrites the attribute's namespace to `:yin.debruijn.
+code/*`, keeping kind and order exactly as the named table states them. A
+future change to `vector-operand-table`'s shape for a carried mnemonic is
+inherited automatically. Only `:load-bound` ([depth :uint] [position
+:uint]), `:load-free` ([name :sym]), and `:closure` ([arity :uint] [body
+:pc]) are hand-declared, because their shapes are new by design, not
+carried. `opcode-table-derives-from-the-named-table` asserts, for every
+carried mnemonic, equal operand count, equal kind sequence, and that every
+attribute is renamespaced; it also asserts the three redefined mnemonics'
+exact shapes and that `:var` is gone.
+
+`mnemonics` = `(set (keys opcode-table))`, 22 entries (18 carried + load-
+bound + load-free + closure).
+
+`descriptor` is a small d3-triple vector, the same shape `yin.vm.debruijn/
+descriptor` uses for its own dimension: `:dim/lowering-contract-version`
+(1), `:dim/arity` (`(count opcode-table)`, 22), `:dim/slots` (the opcode
+table itself), `:dim/encoding` (a map naming the hash function, the H
+formula in prose, the scalar-class list, the framing rule, the two fixed-
+width kinds, and explicit `:nfc false` / `:integral-double-folding false`
+flags), and `:dim/lift-to` -- one entry naming `:yin.code/*` as the lift
+target and stating the rule in prose ("diagnostic binder names or
+synthesized names"), with no implementation: B1 declares this as a
+documented contract point only, per the file box; B2 owns the function.
+`descriptor-declares-the-contract` checks the version, the arity, the
+presence of the lift-to entry, and its target keyword.
+
+## Scalar encoder and what it copied from the projection
+
+Copied verbatim from `yin.vm.debruijn` (that namespace documents these as
+meant to be copied, not imported): `to-hex`, `code-unit-at`, `utf8-byte-
+length`, the `framed` shape (tag + 8-hex UTF-8 length + content, rebuilt
+here over this file's own `class-tag` table rather than the projection's),
+`int64-le-hex`, `double-le-hex`. None of `yin.vm.debruijn`'s private vars
+are referenced; `code/terminators` (public) is reused directly for the
+generic terminator rule, since :jump/:return/:halt are unchanged mnemonics.
+
+`well-formed-utf16?` and `ident-parts-ok?` are independently rewritten to
+the same rule (unpaired UTF-16 surrogates refused), not copied, per this
+phase's explicit instruction ("match the rule, not the code").
+
+`scalar-classes` = `[:nil :bool :long :double :ratio :bigint :char :string
+:keyword :symbol :vector :list :map :set]` (14 classes; tag = table
+index). `scalar-class` recursively classifies a value, with no
+normalization step anywhere: strings and identifier parts are checked for
+well-formed UTF-16 only, never NFC'd; integral doubles are never folded
+into :long. `encode-scalar` throws `{:rule :unsupported-value, :value v}`
+for anything `scalar-class` returns nil for (including a map/set whose
+canonical encoding collides -- reused from the projection's own collision-
+detection shape, independently written). Maps and sets sort their encoded
+entries as text (`sort` over the encoded hex strings), satisfying "ordered
+by encoded bytes, not host comparison."
+
+## Host-specific decisions
+
+- **1 vs 1.0 / long vs double**: `host-long?` mirrors the design's own
+  per-host rule exactly (JVM boxed-integer instance check; CLJS `js/
+  Number.isSafeInteger`; CLJD `int?`, the same predicate `yin.vm.debruijn/
+  numeric-class` already uses for this host). `host-double?` is the
+  portable residual: any number that is none of long/ratio/bigint. This
+  makes 1 and 1.0 classify :long/:double distinctly on JVM and Dart, and
+  identically on CLJS (both :long, since `1.0` is a safe integer there) --
+  exactly the design's stated CLJS limitation, and exactly why the CLJS-
+  vs-JVM/Dart split is enforced in the test with `#?(:cljs nil :default
+  ...)`, not asserted universally.
+
+- **Chars**: `host-char?` is `#?(:cljs false :default (char? v))`. The
+  design's S2 prose says "Dart and JS have no character type," but the
+  completion-criteria list explicitly demands a JVM-AND-Dart char-
+  distinctness test, which only makes sense if Dart's `char?` is a real,
+  unambiguous predicate (unlike CLJS's, which is `(and (string? x) (==
+  (.-length x) 1))` -- true for any length-1 string, which would silently
+  misclassify an ordinary short string as a char). I resolved this in
+  favor of the binding, testable completion-criteria list over the looser
+  summary prose: CLJS never returns :char (avoiding the misclassification
+  risk entirely, since I could not verify CLJS's `char?` semantics are
+  safe to rely on here), JVM and Dart both use `char?` directly. This
+  could not be verified on an actual CLJD build (see "what I could not
+  run"); if ClojureDart's `char?` turns out to be as ambiguous as CLJS's,
+  this decision needs revisiting on that host specifically.
+
+- **Ratios**: supported with their own :ratio tag on JVM and Dart
+  (`host-ratio?` = `#?(:cljs false :default (ratio? v))`), refused with
+  :unsupported-value on CLJS, which the design states has no ratio type.
+  Encoded as two framed :long parts (numerator, denominator). The CLJS
+  branch of `encode-scalar`'s :ratio case is host-gated to avoid
+  referencing `numerator`/`denominator` at all on CLJS, where shadow-cljs
+  correctly flagged them as undeclared vars even though the branch is
+  unreachable there (`case` compiles every branch regardless of
+  reachability) -- fixed by wrapping that one case arm in `#?(:cljs
+  (framed :ratio "") :default ...)`; confirmed 0 shadow-cljs warnings
+  afterward.
+
+- **Bigints**: supported only on JVM (`host-bigint?` checks `clojure.lang.
+  BigInt`/`BigInteger` specifically, since `int?` is true for both Long
+  and BigInt on the JVM and so cannot tell them apart). Refused on both
+  CLJS and CLJD. I looked for an existing repo pattern first, per the
+  prompt's instruction: `yin.vm.debruijn/numeric-class`'s `:cljd` branch
+  is `(if (int? v) :int64 (double-class v))` -- it does not attempt
+  bigint detection on Dart either, falling straight to double-class for
+  anything `int?` doesn't claim. I matched that absence rather than guess
+  an unverified ClojureDart class name (e.g. a `cljd.core/BigInt`-shaped
+  reference), which risks either silently misclassifying a value or
+  failing to compile outright -- a guess I could not check, since the
+  CLJD lane was denied (see below). This is stated as a documented,
+  reviewable choice, not a verified fact about ClojureDart's actual
+  bigint representation.
+
+`host-supported-scalar-classes` collects these into one set per host via
+a single `remove` over `scalar-classes`, keyed by a `#?()` of per-host
+exclusion sets, so the completion-criteria's "CLJS excludes :char/:ratio/
+:bigint, CLJD excludes :bigint, JVM excludes nothing" claim is one
+literal table rather than scattered conditionals.
+
+## No decode/receive path (a deviation, stated explicitly)
+
+S2's CLJS-refuses-on-decode discussion ("the refusal matters on DECODE/
+RECEIVE of a foreign image... implement it in the decode/load path, not
+encode") describes a receive-and-verify operation this phase's file box
+does not include: B1 only builds hand-built-fixture-level encode/hash/
+validate, no lowerer (B2) and no loader (B3/B6). I did not write a decode-
+from-wire-bytes function, since there is nothing in this file that would
+call it and nothing in the completion-criteria list asks for one --
+every listed criterion is phrased in terms of a Clojure-level image
+(`well-formed-image?`, `image-hash`, `encode-image`/`encode-scalar`), not
+raw bytes. `validate-host-support`/`image-scalar-classes` do implement the
+*other* half of item 5 (deriving used classes from an already-Clojure-
+level image's :const operands and refusing per host), which does not need
+a byte parser. This is a scope decision, not an oversight; flagging it so
+B2/B3/B6 know the CLJS-decode refusal is still unimplemented anywhere in
+the tree.
+
+## Completion criteria -> test
+
+- **Malformed rows rejected**: `malformed-rows-are-rejected` -- empty
+  vector, unknown mnemonic, wrong arity, wrong operand kind, un-saturated
+  operand, missing terminator; plus one shape-valid vector accepted as a
+  control case.
+- **Out-of-range bound operands rejected**: `out-of-range-bound-operands-
+  are-rejected` -- dangling :jump target, dangling :closure body, the
+  design's own `[5 0]` case (asserted shape-valid under `well-formed-
+  image?` alone, then rejected by `image-defect` via the scope rule),
+  out-of-range position, a negative depth/position (caught by the generic
+  :uint shape rule before scope even runs), a valid depth-0 reference
+  accepted, and a nested-closure case proving depth counts frames outward
+  through the enclosing chain (depth 1 reaches the outer frame; depth 2
+  has no third frame and is rejected).
+- **Exact scalar spelling preserved**: `exact-scalar-spelling-is-
+  preserved` (e-acute distinctness plus an exact-bytes assertion on a
+  plain string; the 1-vs-1.0 half of this criterion moved to its own
+  JVM/Dart-gated test once the CLJS run proved it cannot hold there).
+- **Composed/decomposed e-acute distinct**: inside the same test, plus
+  restated inside `ratios-and-chars-distinct-from-other-classes-on-jvm-
+  and-dart`'s own corpus indirectly via distinct string encodings.
+- **Ratio fixture encoded or refused, stated per host**: `ratio-fixture`
+  (JVM/Dart: encoded, own tag, `validate-host-support` accepts it; CLJS
+  branch is `nil`, i.e., not exercised, since the type cannot be
+  constructed there).
+- **1 vs 1.0 distinct on JVM/Dart**: `one-vs-one-point-zero-distinct-on-
+  jvm-and-dart`, `#?(:cljs nil :default ...)`.
+- **Ratios and chars distinct from other classes on JVM/Dart**: `ratios-
+  and-chars-distinct-from-other-classes-on-jvm-and-dart`.
+- **Identical bytes across hosts for the common domain**: `identical-
+  bytes-across-hosts-for-common-domain`, 9 pinned `encode-scalar` fixtures
+  (nil, true, false, a long, a string, a namespaced keyword, a namespaced
+  symbol, a vector, a set) asserted against literal expected hex, the same
+  literal on every host lane this file compiles for.
+- **Golden image bytes and H for a frozen corpus, on three lanes**:
+  `golden-corpus-bytes-and-hash`, 4 hand-built images (:const-long,
+  :const-string, a closure with a bound reference to its own parameter,
+  a free-name load), each asserted against a pinned `encode-image` hex
+  string and a pinned `image-hash`. I verified the "a layout change must
+  fail these fixtures" property directly: I reordered `scalar-classes`
+  (swapped :long and :double), re-ran `yin.vm.debruijn-code-test`, and
+  every golden fixture failed (wrong bytes, wrong H) along with the
+  common-domain-bytes test and the 1-vs-1.0 test, then reverted the
+  reorder and reran to confirm 0 failures again. The transcript of that
+  perturbation and its revert is in this session's tool history.
+
+## What I ran, exact counts
+
+- `clojure -M:test -n yin.vm.debruijn-code-test` (final state): 11 tests,
+  125 assertions, 0 failures, 0 errors.
+- `clojure -M:test` (full JVM suite, final state): 1722 tests, 172666
+  assertions, 0 failures, 0 errors.
+- `npx shadow-cljs compile test` (Node/CLJS lane, full suite including
+  this file): compiled clean, 0 warnings (after the :ratio-branch fix);
+  1639 tests, 42435 assertions, 5 failures -- all five in `dao.stream.
+  slice-test` ("process B never replied :ready"), a subprocess/socket
+  test unrelated to this file box; `yin.vm.debruijn-code-test` itself
+  reported no FAIL lines in that run. I did not attempt to isolate or fix
+  that failure since it is outside this phase's file box and outside
+  `yin.vm` entirely.
+- Layout-perturbation check (see above): one extra run with `scalar-
+  classes` reordered (8 failures, as expected), then reverted and rerun
+  clean.
+- `LC_ALL=C grep -n '[^\x00-\x7F]' src/cljc/yin/vm/debruijn_code.cljc`:
+  no match (pure ASCII). The test file is NOT pure ASCII by necessity --
+  it contains the literal composed (U+00E9, verified via `od -c` as the
+  2-byte UTF-8 sequence 0xC3 0xA9) and decomposed (e + U+0301, verified as
+  0x65 0xCC 0x81) e-acute strings the completion criterion itself names;
+  this is the test subject, not an oversight, and is called out here
+  explicitly since the prompt's "pure ASCII" instruction would otherwise
+  be silently violated without this note.
+
+## What I could not run
+
+- `clojure -M:kondo --lint ...`: denied by the harness's permission
+  system ("This command requires approval"). Not retried.
+- `clojure -M:fmt cljstyle check ...`: denied the same way. Not retried.
+- `clojure -M:cljd -m cljd.build`: denied the same way. Not retried. This
+  means the two ClojureDart-specific judgment calls above (`char?`
+  genuinely being unambiguous there, and the absence of a verified bigint
+  predicate) are unverified against an actual Dart compile; both are
+  called out by name above so a later phase (or a retry with the lane
+  permitted) can check them specifically rather than re-derive the whole
+  file's host reasoning from scratch.
+
+## Deviations
+
+1. No decode/receive path implemented (see the dedicated section above):
+   scope decision, not an oversight, and the file box does not ask for
+   one.
+2. The CLJD char/bigint host predicates are documented judgment calls,
+   not verified facts (see "Host-specific decisions" and "What I could
+   not run").
+3. `1` vs `1.0` distinctness is asserted only on JVM/Dart, not
+   universally, matching the design's own stated CLJS limitation -- an
+   initial draft of this test asserted it unconditionally and the CLJS
+   run caught the error (both encoded to the identical hash there, as
+   the design predicts); fixed by moving that assertion into the
+   properly host-gated test.
+4. `saturated-operands` includes `[:call 2]` (the carried :tail? slot)
+   but not an entry for `:ffi-call`'s argc or the new :uint-kinded
+   operands (depth, position, arity): those are already rejected by the
+   generic `:uint` operand-kind check (`nonneg-int?`, which is false for
+   nil), so a separate saturation entry for them would be redundant, not
+   a gap -- `bad-saturation`/`bad-operand-kind` test cases both exist and
+   pass, covering each path.
+
+Facts only; no promises about B2 or later phases.

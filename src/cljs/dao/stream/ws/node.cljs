@@ -145,14 +145,19 @@
 (defn wire!
   "Register the adapter callbacks as the sole subscriber of one host socket.
 
-   The socket's 'message', 'close', and 'error' events become adapter entries;
-   the 'open' event is deliberately not subscribed because an HTTP upgrade is
-   never a resolution -- the first `:ws/accept` or `:ws/disclaim` frame is.
-   Text arrives as the frame's UTF-8 string through `:message!`; a binary
-   frame's bytes reach `:binary!` untouched.  The host error object never
-   crosses: the adapter deposits nothing itself, the transport's diagnostic
-   entry does."
+   The socket's 'open', 'message', 'close', and 'error' events become
+   adapter entries.  'open' fires only for a dialing client socket -- a
+   server-accepted socket is already open when handed to this namespace,
+   so `:opened!`'s own phase guard makes a spurious call here harmless.
+   There is no admission wire frame any more: the mirror answers
+   not-found per identity once a reflection attaches, not this
+   transport's own accept/disclaim handshake.  Text arrives as the
+   frame's UTF-8 string through `:message!`; a binary frame's bytes
+   reach `:binary!` untouched.  The host error object never crosses: the
+   adapter deposits nothing itself, the transport's diagnostic entry
+   does."
   [socket adapter]
+  (.on ^js socket "open" (fn [] ((:opened! adapter))))
   (.on ^js socket "message"
        (fn [data is-binary]
          (if is-binary
@@ -272,15 +277,15 @@
               (.close ^js socket subprotocol-refusal-code
                       "dao.stream/subprotocol-required")
               (let [raw (raw-socket socket (.-protocol ^js socket))
-                    ;; Lookup is exact on the canonical form; an
-                    ;; uncanonicalizable target can match no canonical table
-                    ;; entry, so the raw target reaches the same disclaimer.
+                    ;; The endpoint no longer routes on the request target --
+                    ;; one endpoint speaks one descriptor -- so the canonical
+                    ;; path is passed on only for `accept!`'s own diagnostics.
                     path (or (canonical-path (.-url ^js request))
                              (.-url ^js request))
                     accepted (accept! path raw (clock))]
-                ;; Only a pending acceptance owns a handle to wire; a
-                ;; disclaimer, exhausted pool, or failed offer has already
-                ;; been answered by the transport itself.
+                ;; Only a pending acceptance owns a handle to wire; an
+                ;; exhausted pool or failed offer has already been answered
+                ;; by the transport itself.
                 (when-let [handle (:ws/handle accepted)]
                   (wire! socket (ws/adapter handle)))))))
      {:dao.stream/outcome :dao.stream/ok

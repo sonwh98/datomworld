@@ -221,6 +221,11 @@
             (swap! connection assoc :socket socket)
             (when-let [[code reason] (:close-request @connection)]
               (.sendClose ^WebSocket socket code reason))
+            ;; There is no admission wire frame any more: the mirror
+            ;; answers not-found per identity once a reflection attaches,
+            ;; not this transport's own accept/disclaim handshake, so the
+            ;; socket's own open is the resolution.
+            ((:opened! adapter))
             (.request ^WebSocket socket 1))
 
           (onText

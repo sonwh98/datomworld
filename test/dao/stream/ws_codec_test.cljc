@@ -64,7 +64,7 @@
        "A two-slot endpoint over both profiles."
        [codecs]
        (ws/make-endpoint
-         {:served {"/yin/repl" descriptor}
+         {:descriptor descriptor
           :codecs codecs
           :control {:dao.stream/handle (buffer) :dao.stream/surface #{:writer}}
           :control-admission admission
@@ -121,7 +121,7 @@
          (is (= :dao.stream/ok (:dao.stream/outcome result)))
          (is (= cbor/profile (:ws/codec @adapter)))
          (is (= :dao.stream/full (:dao.stream/outcome (stream/append! handle :early))))
-         ((:binary! @adapter) (cbor/encode {:ws/frame :ws/accept}))
+         ((:opened! @adapter))
          (is (= :ws/opened (:ws/event (first (values traffic)))))
          (let [value (with-meta [:a (list 1)] {:line 2})]
            (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! handle value))))
@@ -147,7 +147,7 @@
                                {:send! (fn [_] nil)
                                 :close! (fn [& args] (swap! closes conj args))})})
                 descriptor)]
-         ((:binary! @adapter) (cbor/encode {:ws/frame :ws/accept}))
+         ((:opened! @adapter))
          ((:message! @adapter) "a text frame the binary profile never asked for")
          ((:closed! @adapter) ws/protocol-close-code "dao.stream/protocol-error")
          (is (= [[:ws/opened nil] [:ws/error :ws/decode-failure] [:ws/closed nil]]
@@ -182,8 +182,19 @@
        (let [composed (dual-endpoint [transit/profile cbor/profile])
              transit-client (accept-and-ack! composed "dao.stream.transit-json")
              cbor-client (accept-and-ack! composed "dao.stream.cbor")]
-         (is (= {:ws/frame :ws/accept} (transit/decode (first @(:sent transit-client)))))
-         (is (= {:ws/frame :ws/accept} (cbor/decode (first @(:sent cbor-client)))))
+         ;; No admission wire frame is sent any more; each accepted handle
+         ;; is already open and speaks exactly its negotiated profile,
+         ;; proven below by its own outbound encoding.
+         (is (= :dao.stream/ok
+                (:dao.stream/outcome
+                  (stream/append! (:ws/handle (:accepted transit-client)) :out))))
+         (is (= {:ws/frame :ws/value :ws/value :out}
+                (transit/decode (first @(:sent transit-client)))))
+         (is (= :dao.stream/ok
+                (:dao.stream/outcome
+                  (stream/append! (:ws/handle (:accepted cbor-client)) :out))))
+         (is (= {:ws/frame :ws/value :ws/value :out}
+                (cbor/decode (first @(:sent cbor-client)))))
          (ws/receive! (:ws/handle (:accepted transit-client))
                       (transit/encode {:ws/frame :ws/value :ws/value :transit-payload}))
          (ws/receive-binary! (:ws/handle (:accepted cbor-client))
@@ -216,7 +227,7 @@
                    :ack {:dao.stream/handle ack :dao.stream/surface #{:writer}}
                    :ack-admission handoff-admission
                    :ack-cursor (:dao.stream/cursor (stream/cursor ack stream/anchor-newest))}
-             base {:served {"/yin/repl" descriptor}
+             base {:descriptor descriptor
                    :control {:dao.stream/handle (buffer) :dao.stream/surface #{:writer}}
                    :control-admission admission
                    :slots [slot]}]
@@ -234,4 +245,8 @@
        ;; Direct composition and unit tests pass a plain seam; it must keep
        ;; meaning the Transit profile, exactly as before the codec work.
        (let [client (accept-and-ack! (dual-endpoint [transit/profile cbor/profile]) nil)]
-         (is (= {:ws/frame :ws/accept} (transit/decode (first @(:sent client)))))))))
+         (is (= :dao.stream/ok
+                (:dao.stream/outcome
+                  (stream/append! (:ws/handle (:accepted client)) :out))))
+         (is (= {:ws/frame :ws/value :ws/value :out}
+                (transit/decode (first @(:sent client)))))))))

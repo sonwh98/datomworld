@@ -149,6 +149,11 @@
         (.then (fn [socket]
                  (reset! socket-ref socket)
                  (wire! socket adapter)
+                 ;; Dart's own connect future resolves only once the
+                 ;; handshake completes, so this is the socket's own
+                 ;; open: there is no admission wire frame any more, the
+                 ;; mirror answers not-found per identity instead.
+                 ((:opened! adapter))
                  (when-let [[code reason] @close-request]
                    (.close ^io/WebSocket socket code reason))))
         (.catchError (fn [_error]

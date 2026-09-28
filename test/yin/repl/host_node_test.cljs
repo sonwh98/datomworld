@@ -60,7 +60,8 @@
                                                 :ws/host host
                                                 :ws/port port
                                                 :ws/path "/repl"}
-                                               {:message! (fn [_] nil)
+                                               {:opened! (fn [] nil)
+                                                :message! (fn [_] nil)
                                                 :closed! (fn [& _] nil)
                                                 :error! (fn [] nil)})]
                            (wait-for #(first @accepted) 2000

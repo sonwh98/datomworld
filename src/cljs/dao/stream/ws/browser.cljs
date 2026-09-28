@@ -37,15 +37,19 @@
 (defn wire!
   "Register the adapter callbacks as the sole subscriber of one host socket.
 
-   The socket's `message`, `close`, and `error` events become adapter entries;
-   the DOM `open` event is deliberately not subscribed because an HTTP upgrade
-   is never a resolution -- the first `:ws/accept` or `:ws/disclaim` frame is.
-   A `MessageEvent`'s `data` is the frame's string for a text frame and
-   reaches `:message!`; anything else is an `ArrayBuffer` (`binaryType` is
-   pinned in `connect!`) whose bytes reach `:binary!` as a `Uint8Array` view.
-   The host `error` event carries no usable data and never crosses: the
-   adapter deposits nothing itself, the transport's diagnostic entry does."
+   The socket's `open`, `message`, `close`, and `error` events become
+   adapter entries.  There is no admission wire frame any more: the
+   mirror answers not-found per identity once a reflection attaches, not
+   this transport's own accept/disclaim handshake, so the DOM `open`
+   event is the resolution.  A `MessageEvent`'s `data` is the frame's
+   string for a text frame and reaches `:message!`; anything else is an
+   `ArrayBuffer` (`binaryType` is pinned in `connect!`) whose bytes reach
+   `:binary!` as a `Uint8Array` view.  The host `error` event carries no
+   usable data and never crosses: the adapter deposits nothing itself,
+   the transport's diagnostic entry does."
   [socket adapter]
+  (.addEventListener ^js socket "open"
+                     (fn [_event] ((:opened! adapter))))
   (.addEventListener ^js socket "message"
                      (fn [event]
                        (let [data (.-data ^js event)]

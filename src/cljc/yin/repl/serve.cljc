@@ -1,35 +1,36 @@
 (ns yin.repl.serve
-  "The server side of the DaoStream Yin REPL — Phase R4.
+  "The server side of the DaoStream Yin REPL, over the request-and-response
+   service of docs/design/dao.stream.remote.md section 5.
 
    `serve!` composes an endpoint and returns immediately with one explicit
-   value: the service-lifetime `/repl` stream created at start (D3), the
-   boundary control medium, the bounded acceptance handoff pool, the
-   composition-owned lifecycle medium with its already-minted cursor, and the
-   one shared shell every session evaluates against (D4).  Binding a listener is
-   host policy, injected through `yin.repl.host`; every fact about it —
+   value: the shared `\"yin.repl/requests\"` and `\"yin.repl/answers\"`
+   media a `dao.stream.remote` mirror table names, the boundary control
+   medium, the bounded acceptance handoff pool, the composition-owned
+   lifecycle medium with its already-minted cursor, and the one shared
+   shell every request evaluates against (D4).  Binding a listener is host
+   policy, injected through `yin.repl.host`; every fact about it —
    `:bind-succeeded`, `:bind-failed`, `:upgrade-failed`, `:listener-error`,
-   `:stopped` — arrives as plain data on the lifecycle medium, and no host error
-   object crosses the boundary.
+   `:stopped` — arrives as plain data on the lifecycle medium, and no host
+   error object crosses the boundary.
 
-   `step` is the single server driver: it observes lifecycle, calls the
-   transport's `endpoint-step` through `dao.stream.serving`, adopts accepted
-   sessions, and advances each one against a single serially threaded REPL
-   state.  It never loops on `blocked`, never waits, and never schedules
-   itself.
-
-   Each session's request medium is observed through a `dao.stream.waitset`
-   probe: a non-advancing `:next` entry whose wake selects the session for
-   its own `session-step` re-read.  A session holds one active waiter —
-   while a response append is pending, the retry belongs to the host's
-   cadence and no probe is parked."
+   `step` is the single server driver: it observes lifecycle, drives
+   `dao.stream.ws-project/accept-step!` (which itself adopts every accepted
+   connection's own private wire channel and runs `dao.stream.remote`'s
+   mirror over it, answering every `:dao.stream/cursor`, `/next`,
+   `/append!`, and `/descriptor` a connected client's reflections ask), and
+   advances the one shared requests/answers pair against a single serially
+   threaded REPL state.  It never loops on `blocked`, never waits, and
+   never schedules itself.  There is no per-attachment session pool here
+   any more: correlation is by the self-minted random id every request and
+   answer value carries (`dao.stream.rpc`), not by which WebSocket
+   connection carried it, so one shared pair serves every connected client
+   exactly as the service convention's toy peer S does."
   (:require [dao.data :as data]
             [dao.stream :as stream]
-            [dao.stream.apply :as apply]
             [dao.stream.ringbuffer :as ring]
-            [dao.stream.rpc.ws :as rpc-ws]
-            [dao.stream.serving :as serving]
-            [dao.stream.waitset :as waitset]
+            [dao.stream.rpc :as rpc]
             [dao.stream.ws :as ws]
+            [dao.stream.ws-project :as ws-project]
             [yin.repl.connect :as connect]
             [yin.repl :as repl]
             [yin.repl.host.common :as host-common]))
@@ -39,19 +40,13 @@
 ;; Composition constants
 ;; =============================================================================
 
-(def service-capacity
-  "The `/repl` service-lifetime stream carries no ordinary outbound value in
-   this slice, so capacity 1 cannot evict in a correct composition.  It exists
-   to anchor the served identity and to make `stop!` observable as `:ws/ended`."
-  1)
-
-
 (def control-capacity 1024)
 (def request-capacity 8192)
 (def lifecycle-capacity 256)
 (def default-slot-count 8)
 (def default-bind-host "127.0.0.1")
 (def lifecycle-budget 64)
+(def request-budget 64)
 
 
 (def ^:private diagnostic-bounds
@@ -175,16 +170,19 @@
         slots))
 
 
-(defn- make-traffic
-  "One request medium per accepted attachment, capacity 8192, with its cursor
-   minted before the acknowledgement is deposited.  One client's eviction
-   pressure therefore cannot create another client's request gap."
+(defn- make-media
+  "One request medium per accepted attachment, capacity 8192, with its
+   cursor minted before the acknowledgement is deposited, plus the fresh
+   channel ring `dao.stream.ws-project/accept-step!` projects deposited
+   payload onto and mirror-steps against.  One client's eviction pressure
+   therefore cannot create another client's request gap."
   [_offer]
   (let [traffic (buffer request-capacity)]
     {:traffic (writer-target traffic)
      :admission request-admission
      :reader traffic
-     :cursor (mint traffic stream/anchor-newest)}))
+     :cursor (mint traffic stream/anchor-newest)
+     :ring (buffer request-capacity)}))
 
 
 (defn- inert
@@ -199,15 +197,14 @@
   "Compose a REPL endpoint and return immediately.
 
    Every medium and every cursor exists before any binding is attempted:
-   the service stream, the boundary control medium, each handoff slot's offer
-   and acknowledgement media, and the lifecycle medium.  The returned value is
-   the whole of the endpoint's observable state; `step` is the only thing that
-   changes it."
+   the shared requests and answers media, the boundary control medium,
+   each handoff slot's offer and acknowledgement media, and the lifecycle
+   medium.  The returned value is the whole of the endpoint's observable
+   state; `step` is the only thing that changes it."
   [{:keys [bind-host bind-port advertised-host advertised-port path slots host
            repl identity expiry-ms]
     :or {bind-host default-bind-host slots default-slot-count}}]
   (let [path (connect/repl-target (or path ""))
-        service (buffer service-capacity)
         control (buffer control-capacity)
         lifecycle (buffer lifecycle-capacity)
         lifecycle-cursor (mint lifecycle stream/anchor-newest)
@@ -221,8 +218,12 @@
                     :ws/host (str advertised-host)
                     :ws/port (if (integer? advertised-port) advertised-port 0)
                     :ws/path path}
-        base {:service service
-              :control control
+        requests (buffer request-capacity)
+        answers (buffer request-capacity)
+        requests-cursor (mint requests stream/anchor-oldest)
+        table {connect/requests-identity {:handle requests :surface #{:writer}}
+               connect/answers-identity {:handle answers :surface #{:reader}}}
+        base {:control control
               :control-cursor control-cursor
               :lifecycle lifecycle
               :lifecycle-cursor lifecycle-cursor
@@ -233,8 +234,13 @@
               :bind-host bind-host
               :bind-port bind-port
               :resolution nil
-              :sessions {}
-              :probes (waitset/empty-waitset)
+              :requests requests
+              :answers answers
+              :requests-cursor requests-cursor
+              :pending-answer nil
+              :pending-successor nil
+              :host host
+              :resources (atom nil)
               :repl (or repl (repl/create-state))
               :status :new
               :stop-initiated? false
@@ -272,74 +278,53 @@
              (host-common/missing-message "--port is not served"))
 
       :else
-      (let [ws-endpoint (ws/make-endpoint {:served {path descriptor}
+      (let [ws-endpoint (ws/make-endpoint {:descriptor descriptor
                                            :control (writer-target control)
                                            :control-admission portable-admission
                                            :slots (endpoint-slots pool)
                                            :expiry-ms expiry-ms})
             deposit! (deposit-fn lifecycle)
-            resources (atom nil)
-            composition
-            (serving/make-serving
-              {:endpoint ws-endpoint
-               :served {path {:descriptor descriptor :stream service}}
-               :control-reader control
-               :control-cursor control-cursor
-               :slots (serving-slots pool)
-               :make-traffic make-traffic
-               :start-endpoint!
-               (fn [_]
-                 (try
-                   (let [bound ((:bind! host)
-                                {:endpoint ws-endpoint
-                                 :bind-host bind-host
-                                 :bind-port bind-port
-                                 :path path
-                                 ;; Exactly the 3-arity `yin.repl.host/websocket`
-                                 ;; documents.  A clock-omitting arity would let
-                                 ;; host glue stamp a pending acceptance with
-                                 ;; nil and silently disable expiry; the host
-                                 ;; owns the reading, so it must supply it.
-                                 :accept! (fn accept!
-                                            [request-path socket now]
-                                            (ws/accept-connection! ws-endpoint
-                                                                   request-path
-                                                                   socket now))
-                                 :deposit! deposit!})]
-                     (reset! resources bound)
-                     {:dao.stream/outcome :dao.stream/ok})
-                   (catch #?(:cljd Object :clj Throwable :cljs :default) _
-                     ;; A synchronous host bind failure is classified and
-                     ;; deposited here; no host error object crosses over.
-                     (deposit! :bind-failed
-                               {:code :yin.repl.endpoint/bind-threw
-                                :message "the host listener failed to bind"})
-                     {:dao.stream/outcome :dao.stream/transport-error})))
-               :stop-endpoint!
-               (fn [_]
-                 (if-let [bound @resources]
-                   (try
-                     ((:unbind! host) bound deposit!)
-                     {:dao.stream/outcome :dao.stream/ok}
-                     (catch #?(:cljd Object :clj Throwable :cljs :default) _
-                       (let [reason {:code :yin.repl.endpoint/unbind-threw
-                                     :message "the host listener failed to release"}]
-                         (deposit! :listener-error reason)
-                         {:dao.stream/outcome :dao.stream/transport-error
-                          :dao.stream/diagnostic reason})))
-                   ;; `bind!` threw before returning a resource.  No listener
-                   ;; exists to release or to deposit a close completion.
-                   {:dao.stream/outcome :dao.stream/transport-error
-                    :dao.stream/diagnostic
-                    {:code :yin.repl.endpoint/never-bound
-                     :message "the host listener never returned a resource"}}))})
+            resources (:resources base)
+            acceptor (ws-project/make-acceptor
+                       {:endpoint ws-endpoint
+                        :slots (serving-slots pool)
+                        :table table
+                        :make-media make-media})
+            bind-result
+            (try
+              (let [bound ((:bind! host)
+                           {:endpoint ws-endpoint
+                            :bind-host bind-host
+                            :bind-port bind-port
+                            :path path
+                            ;; Exactly the 3-arity `yin.repl.host/websocket`
+                            ;; documents.  A clock-omitting arity would let
+                            ;; host glue stamp a pending acceptance with
+                            ;; nil and silently disable expiry; the host
+                            ;; owns the reading, so it must supply it.
+                            :accept! (fn accept!
+                                       [request-path socket now]
+                                       (ws/accept-connection! ws-endpoint
+                                                              request-path
+                                                              socket now))
+                            :deposit! deposit!})]
+                (reset! resources bound)
+                {:dao.stream/outcome :dao.stream/ok})
+              (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                ;; A synchronous host bind failure is classified and
+                ;; deposited here; no host error object crosses over.
+                (deposit! :bind-failed
+                          {:code :yin.repl.endpoint/bind-threw
+                           :message "the host listener failed to bind"})
+                {:dao.stream/outcome :dao.stream/transport-error}))
             endpoint (assoc base
                             :ws-endpoint ws-endpoint
-                            :serving composition
+                            :acceptor acceptor
                             :deposit! deposit!
                             :resolution {path descriptor}
-                            :status :starting)]
-        (serving/start! composition)
+                            :status (if (= :dao.stream/ok
+                                           (:dao.stream/outcome bind-result))
+                                      :starting :failed))]
         endpoint))))
 
 
@@ -433,296 +418,141 @@
 
 
 ;; =============================================================================
-;; Sessions
+;; Requests
 ;; =============================================================================
-
-(defn- adopt
-  "Adopt one accepted session, minting this driver's own cursor on the
-   attachment's request medium.  The medium is created per attachment, so the
-   oldest anchor loses nothing that arrived before adoption."
-  [session]
-  {:reader (:traffic-reader session)
-   :cursor (mint (:traffic-reader session) stream/anchor-oldest)
-   :writer (:socket-handle session)
-   :pending-response nil
-   :pending-successor nil
-   :terminal nil})
-
-
-(def ^:private probe-resolver
-  "The waitset resolver for this endpoint's request-medium probes.  The
-   store is the endpoint itself — opaque to the library — and a probe's
-   `:resolve` reads the session's own *current* cursor each round, so a
-   cursor committed by a delivered response is what the next probe reads.
-   A session that cannot observe — terminal, holding a pending response,
-   or adopted with a nil cursor (a failed mint) — resolves to nil, so its
-   probe wakes once as a diagnostic and is not re-parked.  `:advance` is
-   identity: the probe is the non-advancing handoff of a compound step, and
-   `session-step` — which re-reads and commits `:pending-successor` only
-   when the response append answers ok — remains the sole commit
-   authority."
-  {:resolve (fn [endpoint entry]
-              (let [session (get-in endpoint [:sessions (:attachment entry)])]
-                (when (and session
-                           (nil? (:terminal session))
-                           (nil? (:pending-response session))
-                           (some? (:cursor session)))
-                  {:stream (:reader session)
-                   :cursor (:cursor session)})))
-   :advance (fn [endpoint _entry _cursor] endpoint)})
-
-
-(defn- retire-probe
-  "Remove `attachment`'s probe from the wait set: its session ended, or its
-   wait belongs to host cadence now."
-  [probes attachment]
-  (update probes :waiting (fn [waiting]
-                            (vec (remove #(= attachment (:attachment %))
-                                         waiting)))))
-
-
-(defn- maintain-probes
-  "Retire the probes of sessions that no longer observe — departed, terminal,
-   holding a pending response whose retry is the host's cadence, or adopted
-   with a nil cursor, which would spin a probe every round — and park one
-   for every session that still does.  A session holds exactly one active
-   waiter."
-  [endpoint]
-  (let [observing? (fn [session]
-                     (and (nil? (:terminal session))
-                          (nil? (:pending-response session))
-                          (some? (:cursor session))))
-        observing (set (keep (fn [[attachment session]]
-                               (when (observing? session) attachment))
-                             (:sessions endpoint)))
-        waiting (vec (filter #(contains? observing (:attachment %))
-                             (:waiting (:probes endpoint))))
-        probes (reduce (fn [probes attachment]
-                         (if (some #(= attachment (:attachment %))
-                                   (:waiting probes))
-                           probes
-                           (waitset/park probes
-                                         {:reason :next
-                                          :attachment attachment})))
-                       {:waiting waiting}
-                       (sort (seq observing)))]
-    (assoc endpoint :probes probes)))
-
-
-(defn- sync-sessions
-  [endpoint]
-  (let [live (:sessions (serving/state (:serving endpoint)))
-        known (:sessions endpoint)
-        next-sessions (reduce (fn [m [attachment session]]
-                                (assoc m attachment
-                                       (or (get known attachment) (adopt session))))
-                              {}
-                              live)
-        joined (remove #(contains? known %) (keys next-sessions))
-        departed (remove #(contains? next-sessions %) (keys known))]
-    (as-> (assoc endpoint :sessions next-sessions) endpoint
-          (reduce (fn [e a]
-                    (publish e :yin.repl.serve/notice
-                             (str ";; attachment " a " joined")))
-                  endpoint joined)
-          (reduce (fn [e a]
-                    (publish e :yin.repl.serve/notice
-                             (str ";; attachment " a " left")))
-                  endpoint departed)
-          ;; A fresh session is observable the moment it is adopted: its
-          ;; probe is parked before this step's sweep, so a request that
-          ;; arrived with the attachment is answered this same step.
-          (assoc endpoint :probes (reduce (fn [probes a]
-                                            (waitset/park probes
-                                                          {:reason :next
-                                                           :attachment a}))
-                                          (:probes endpoint) joined))
-          ;; A departed session observes nothing more; its probe leaves the
-          ;; wait set here, never by polling a dead medium.
-          (assoc endpoint :probes (reduce retire-probe
-                                          (:probes endpoint) departed)))))
-
-
-(defn- close-attachment!
-  [endpoint attachment reason]
-  (when-let [writer (get-in endpoint [:sessions attachment :writer])]
-    (stream/close! writer))
-  (-> endpoint
-      (assoc-in [:sessions attachment :terminal] reason)
-      (publish :yin.repl.serve/notice
-               (str ";; attachment " attachment " closed: " (name reason)))))
-
 
 (defn- evaluate
   "Answer one validated request against the one shared shell, serially."
   [repl request]
-  (let [id (apply/request-id request)]
+  (let [id (rpc/request-id request)]
     (cond
-      (not= eval-operation (apply/request-op request))
-      [repl (apply/error-response id :yin.repl.serve/unknown-operation
-                                  "This endpoint answers :op/eval only; it does not proxy")]
+      (not= eval-operation (rpc/request-op request))
+      [repl (rpc/error-answer id :yin.repl.serve/unknown-operation
+                              "This endpoint answers :op/eval only; it does not proxy")]
 
-      (not (string? (first (apply/request-args request))))
-      [repl (apply/error-response id :yin.repl.serve/invalid-arguments
-                                  "An :op/eval request carries one source string")]
+      (not (string? (first (rpc/request-args request))))
+      [repl (rpc/error-answer id :yin.repl.serve/invalid-arguments
+                              "An :op/eval request carries one source string")]
 
       :else
       (try
-        (let [[repl' text] (repl/eval-input repl (first (apply/request-args request)))]
+        (let [[repl' text] (repl/eval-input repl (first (rpc/request-args request)))]
           (if (:pending-input repl')
             ;; Line continuation is a terminal concern.  One shared shell means
             ;; an unbalanced request would otherwise prefix the *next*
-            ;; attachment's source, so the fragment is refused and dropped here
-            ;; rather than retained across an attachment boundary.  The envelope
+            ;; caller's source, so the fragment is refused and dropped here
+            ;; rather than retained across a caller boundary.  The envelope
             ;; was well formed, so the refusal is this server's decision and
             ;; carries this server's code: a client can tell it from a codec
             ;; defect.
             [(assoc repl' :pending-input nil)
-             (apply/error-response id incomplete-input-code
-                                   "Incomplete input: a request carries one complete form")]
-            [repl' (apply/success-response id text)]))
+             (rpc/error-answer id incomplete-input-code
+                               "Incomplete input: a request carries one complete form")]
+            [repl' (rpc/success-answer id text)]))
         (catch #?(:cljd Object :clj Throwable :cljs :default) _
-          [repl (apply/error-response id :dao.stream.apply/handler-error
-                                      "Handler failed")])))))
+          [repl (rpc/error-answer id :yin.repl.serve/handler-error "Handler failed")])))))
 
 
-(defn- deliver-response
-  "Append one retained response, advancing the request cursor only when the
-   append is accepted.  `full` retries the identical response on a later step
+(defn- deliver-answer
+  "Append one retained answer, advancing the requests cursor only when the
+   append is accepted.  `full` retries the identical answer on a later step
    without re-running the handler."
-  [endpoint attachment]
-  (let [session (get-in endpoint [:sessions attachment])
-        result (stream/append! (:writer session) (:pending-response session))
+  [endpoint]
+  (let [result (stream/append! (:answers endpoint) (:pending-answer endpoint))
         outcome (:dao.stream/outcome result)]
     (case outcome
       :dao.stream/ok
-      (update-in endpoint [:sessions attachment]
-                 assoc
-                 :cursor (:pending-successor session)
-                 :pending-response nil
-                 :pending-successor nil)
+      (assoc endpoint
+             :requests-cursor (:pending-successor endpoint)
+             :pending-answer nil
+             :pending-successor nil)
 
       :dao.stream/full
       endpoint
 
       (-> endpoint
-          (update-in [:sessions attachment]
-                     assoc
-                     :cursor (:pending-successor session)
-                     :pending-response nil
-                     :pending-successor nil)
+          (assoc :requests-cursor (:pending-successor endpoint)
+                 :pending-answer nil
+                 :pending-successor nil)
           (publish :yin.repl.serve/notice
-                   (str ";; response to " attachment " undeliverable: " (name outcome)))
-          (close-attachment! attachment outcome)))))
+                   (str ";; answer undeliverable: " (name outcome)))))))
 
 
-(defn- interpret-element
-  [endpoint attachment envelope successor]
-  (let [event (get envelope rpc-ws/envelope-event-key)
-        advance #(assoc-in % [:sessions attachment :cursor] successor)]
+(defn- advance-requests
+  "One bounded sweep of the shared requests/answers pair: a pending answer
+   is retried first (its retry runs on the host's cadence, gated on
+   nothing), then at most `request-budget` further request/answer cycles.
+   Correlation is by the self-minted random id every request and answer
+   carries (`dao.stream.rpc`), never by which connection carried it -- the
+   mirror already answered every wire-protocol question a reflection
+   asked; this is the interpreter over the local requests/answers ends the
+   service convention names."
+  [endpoint]
+  (loop [remaining request-budget
+         endpoint endpoint]
     (cond
-      (or (not (map? envelope))
-          (not= attachment (get envelope rpc-ws/envelope-attachment-key)))
-      (advance endpoint)
+      (zero? remaining) endpoint
 
-      (= rpc-ws/payload-event event)
-      (let [request (get envelope rpc-ws/envelope-value-key)]
-        (cond
-          (apply/request? request)
-          (let [[repl response] (evaluate (:repl endpoint) request)]
-            (-> endpoint
-                (assoc :repl repl)
-                (update-in [:sessions attachment] assoc
-                           :pending-response response
-                           :pending-successor successor)
-                (deliver-response attachment)))
+      (:pending-answer endpoint)
+      (let [endpoint (deliver-answer endpoint)]
+        (if (:pending-answer endpoint)
+          endpoint
+          (recur (dec remaining) endpoint)))
 
-          (apply/correlation-id? (apply/request-id request))
-          (-> endpoint
-              (update-in [:sessions attachment] assoc
-                         :pending-response
-                         (apply/error-response (apply/request-id request)
-                                               :dao.stream.apply/malformed-request
-                                               "Malformed request envelope")
-                         :pending-successor successor)
-              (deliver-response attachment))
-
-          :else
-          (-> endpoint
-              advance
-              (publish :yin.repl.serve/diagnostic
-                       (str ";; uncorrelatable request from " attachment)))))
-
-      ;; A terminal event for this attachment retires the session; the serving
-      ;; composition observes the same fact on its own cursor.
-      (contains? #{:dao.stream.apply/detached :dao.stream.apply/ended}
-                 (get rpc-ws/lifecycle-translation event))
-      (-> endpoint
-          advance
-          (assoc-in [:sessions attachment :terminal] event))
-
-      :else (advance endpoint))))
-
-
-(defn- session-step
-  "Advance one session one bounded step.  A session holding a pending
-   response is retried every round the host runs — its wait is host cadence,
-   never a probe, and while it holds one no probe is parked (one active
-   waiter per session).  A session whose probe woke is stepped through its
-   own read: `stream/next` re-reads from the session's cursor, because a
-   probe's value and cursor are advisory.  A session with nothing pending
-   and no wake keeps its probe parked — no unconditional read remains."
-  [endpoint attachment selected?]
-  (let [session (get-in endpoint [:sessions attachment])]
-    (cond
-      (or (nil? session) (:terminal session) (nil? (:cursor session))) endpoint
-
-      (:pending-response session) (deliver-response endpoint attachment)
-
-      selected?
-      (let [result (stream/next (:reader session) (:cursor session))
+      :else
+      (let [result (stream/next (:requests endpoint) (:requests-cursor endpoint))
             outcome (:dao.stream/outcome result)]
         (case outcome
           :dao.stream/ok
-          (interpret-element endpoint attachment
-                             (:dao.stream/value result)
-                             (:dao.stream/cursor result))
+          (let [request (:dao.stream/value result)
+                successor (:dao.stream/cursor result)]
+            (cond
+              (rpc/request-value? request)
+              (let [[repl' answer] (evaluate (:repl endpoint) request)]
+                (recur remaining
+                       (assoc endpoint
+                              :repl repl'
+                              :pending-answer answer
+                              :pending-successor successor)))
+
+              ;; Correlatable but malformed: an error answer at least tells
+              ;; the caller their own request failed, distinct from silence.
+              (and (map? request) (rpc/safe-id? (:dao.stream.rpc/id request)))
+              (recur remaining
+                     (assoc endpoint
+                            :pending-answer
+                            (rpc/error-answer (:dao.stream.rpc/id request)
+                                              :yin.repl.serve/malformed-request
+                                              "Malformed request envelope")
+                            :pending-successor successor))
+
+              :else
+              (recur (dec remaining)
+                     (-> endpoint
+                         (assoc :requests-cursor successor)
+                         (publish :yin.repl.serve/diagnostic
+                                  ";; malformed request dropped")))))
 
           :dao.stream/blocked endpoint
 
-          ;; A defective peer can still overrun its own request medium.  The
-          ;; session is closed rather than left with an unanswerable request.
           :dao.stream/gap
-          (-> endpoint
-              (assoc-in [:sessions attachment :cursor] (:dao.stream/cursor result))
-              (publish :yin.repl.serve/notice
-                       (str ";; requests lost from " attachment "; closing it"))
-              (close-attachment! attachment :dao.stream/gap))
+          (recur (dec remaining)
+                 (-> endpoint
+                     (assoc :requests-cursor (:dao.stream/cursor result))
+                     (publish :yin.repl.serve/notice
+                              ";; requests lost; resuming at the recovery cursor")))
 
-          (close-attachment! endpoint attachment outcome)))
-
-      :else endpoint)))
-
-
-(defn- advance-sessions
-  "One bounded step per session, in `:sessions` keys order — the same order
-   every prior form of this driver reduced in.  Pending responses first —
-   their retry runs on the host's cadence, gated on nothing — then the
-   sessions this sweep's probes woke; the rest keep their probes parked."
-  [endpoint selected]
-  (reduce (fn [endpoint attachment]
-            (session-step endpoint attachment (contains? selected attachment)))
-          endpoint
-          (keys (:sessions endpoint))))
+          (publish endpoint :yin.repl.serve/notice
+                   (str ";; requests " (name outcome))))))))
 
 
 ;; =============================================================================
-;; The driver step
+;; Stop
 ;; =============================================================================
 
 (defn stopped?
   "True when nothing more is owed to this endpoint's shutdown: it reported
-   `:stopped`, or it never composed a serving driver at all.
+   `:stopped`, or it never composed an acceptor at all.
 
    A refused bind configuration or a missing host package leaves an endpoint
    that owns its media and its reason and nothing else.  No host close
@@ -732,39 +562,74 @@
   [endpoint]
   (or (nil? endpoint)
       (= :stopped (:status endpoint))
-      (nil? (:serving endpoint))))
+      (nil? (:acceptor endpoint))))
 
 
 (defn stop!
   "Initiate stop, claiming nothing about completion.
 
-   Closing the service stream is what makes a connected client deposit
-   `:ws/ended` rather than `:ws/closed`; the serving composition performs that
-   transport-specific close on its next step.  Only the host close completion
-   deposits `:stopped`, and only `step` consuming it marks the stop complete and
-   releases the resolution-table entry.
+   Closing the shared requests and answers media is what makes a connected
+   client observe `:dao.stream/end` -- the bare source outcome the mirror
+   relays verbatim -- on its next read, translated to `:dao.stream.apply/
+   ended`: a permanent conclusion, never a reattachable detach.  Every
+   accepted session's own socket closes later, in `finish-stop`, once this
+   step's mirror pass has had the chance to deliver that answer over the
+   wire; closing it here would race that delivery.  Only the host close
+   completion deposits `:stopped`, and only `step` consuming it marks the
+   stop complete and releases the resolution-table entry.
 
-   An endpoint with no serving driver is left exactly as it is: it holds no
+   An endpoint with no acceptor is left exactly as it is: it holds no
    listener and no attachment, so there is nothing to initiate, and marking it
    `:stopping` would both claim a stop nobody can complete and erase the status
    that says why it never started."
   [endpoint]
   (if (or (contains? #{:stopping :stopped} (:status endpoint))
-          (nil? (:serving endpoint)))
+          (nil? (:acceptor endpoint)))
     endpoint
     (do
-      (when (:service endpoint)
-        (stream/close! (:service endpoint)))
+      (stream/close! (:answers endpoint))
+      (stream/close! (:requests endpoint))
       (assoc endpoint :status :stopping))))
 
 
-(defn- finish-stop
+(def stop-grace-ms
+  "How long, in the caller's clock domain, `finish-stop` waits after
+   `stop!` closed the shared requests/answers media before it closes any
+   accepted session's socket.  Closing the socket too soon would race the
+   wire answer a client's outstanding read of the now-ended media is
+   owed: that read answers with the media's own `:dao.stream/end`, and
+   the client must see that -- `:ended`, never reattachable -- before its
+   socket also reports `:ws/closed`, which alone would read as a
+   reattachable detach.  A fixed step count cannot bound this: it says
+   nothing about the client's own independent poll cadence or the network
+   round trip its read takes."
+  500)
+
+
+(defn- finish-stop*
   [endpoint]
-  (if (and (= :stopping (:status endpoint))
-           (not (:stop-initiated? endpoint))
-           (:serving endpoint))
-    (let [result (serving/stop! (:serving endpoint))
-          endpoint (assoc endpoint :stop-initiated? true)]
+  (if (:stop-initiated? endpoint)
+    endpoint
+    (let [endpoint (assoc endpoint :stop-initiated? true)
+          endpoint (do (doseq [[_ session] (ws-project/sessions (:acceptor endpoint))]
+                         (stream/close! (:handle session)))
+                       endpoint)
+          bound @(:resources endpoint)
+          result
+          (if bound
+            (try
+              ((:unbind! (:host endpoint)) bound (:deposit! endpoint))
+              {:dao.stream/outcome :dao.stream/ok}
+              (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                (let [reason {:code :yin.repl.endpoint/unbind-threw
+                              :message "the host listener failed to release"}]
+                  ((:deposit! endpoint) :listener-error reason)
+                  {:dao.stream/outcome :dao.stream/transport-error
+                   :dao.stream/diagnostic reason})))
+            {:dao.stream/outcome :dao.stream/transport-error
+             :dao.stream/diagnostic
+             {:code :yin.repl.endpoint/never-bound
+              :message "the host listener never returned a resource"}})]
       (if (= :dao.stream/transport-error (:dao.stream/outcome result))
         ;; A synchronous release failure has no later host completion to
         ;; observe.  The composition owns that fact and resolves locally,
@@ -773,59 +638,79 @@
             (assoc :status :stopped :resolution nil)
             (publish :yin.repl.serve/notice
                      (str "Endpoint stopped without host completion: "
-                          (pr-str (data/summarize (:dao.stream/diagnostic result) diagnostic-bounds)))))
-        endpoint))
-    endpoint))
+                          (pr-str (data/summarize (:dao.stream/diagnostic result)
+                                                  diagnostic-bounds)))))
+        endpoint))))
 
+
+(defn- finish-stop
+  [endpoint now]
+  (cond
+    (not= :stopping (:status endpoint)) endpoint
+    (nil? (:acceptor endpoint)) endpoint
+
+    ;; Nothing to wait for: skip the grace period entirely rather than
+    ;; delay a stop with no accepted session to deliver anything to.
+    (empty? (ws-project/sessions (:acceptor endpoint))) (finish-stop* endpoint)
+
+    ;; Real elapsed time, not a step count: a fixed number of this
+    ;; endpoint's own ticks says nothing about whether a client's
+    ;; independent poll cadence -- and the network round trip its own
+    ;; read takes -- has actually had the chance to run in that time.
+    (nil? (:stop-requested-at endpoint))
+    (assoc endpoint :stop-requested-at now)
+
+    (< (- now (:stop-requested-at endpoint)) stop-grace-ms)
+    endpoint
+
+    :else
+    (finish-stop* endpoint)))
+
+
+;; =============================================================================
+;; The driver step
+;; =============================================================================
 
 (defn step
   "Advance the endpoint once at `now`, returning the next endpoint value.
 
    Ordering is intentional: lifecycle first, so a bind result is known before
-   anything claims to be serving; then the transport and serving composition;
-   then session adoption, parking each new session's request-medium probe;
-   then one sweep of the probe wait set, whose wakes select the sessions
-   that read this step; then one bounded step per session — a pending
-   response first, a selected session's own re-read — against the single
-   shared REPL state; then probe maintenance, so a session holds exactly one
-   active waiter."
+   anything claims to be serving; then the accepting composition's own
+   transport/offer/mirror step; then one bounded sweep of the shared
+   requests/answers pair against the single shared REPL state."
   [endpoint now]
   (if-not endpoint
     endpoint
     (let [outbox-before (count (:outbox endpoint))
           endpoint (drain-lifecycle endpoint)]
-      (if-not (:serving endpoint)
-        ;; An endpoint that never composed a serving driver — a refused bind
-        ;; configuration or a missing host package — still owns and reports its
-        ;; lifecycle medium; it simply has no sessions to advance.
+      (if-not (:acceptor endpoint)
+        ;; An endpoint that never composed an acceptor -- a refused bind
+        ;; configuration or a missing host package -- still owns and reports
+        ;; its lifecycle medium; it simply has no requests to advance.
         endpoint
-        (do
-          (serving/step! (:serving endpoint) now)
-          (let [endpoint (sync-sessions endpoint)
-                {:keys [woken], :as result}
-                (waitset/check (:probes endpoint) probe-resolver endpoint)
-                endpoint (assoc endpoint :probes (:waitset result))
-                selected (set (map #(:attachment (:entry %)) woken))
-                endpoint (advance-sessions endpoint selected)]
-            (-> endpoint
-                maintain-probes
-                (assoc :step-moved? (boolean (or (seq woken)
-                                                 (> (count (:outbox endpoint))
-                                                    outbox-before))))
-                finish-stop)))))))
+        (let [before (set (keys (ws-project/sessions (:acceptor endpoint))))
+              _ (ws-project/accept-step! (:acceptor endpoint) now)
+              departed (remove (ws-project/sessions (:acceptor endpoint)) before)
+              endpoint (reduce (fn [endpoint attachment]
+                                 (publish endpoint :yin.repl.serve/notice
+                                          (str ";; attachment " attachment " left")))
+                               endpoint departed)
+              cursor-before (:requests-cursor endpoint)
+              endpoint (advance-requests endpoint)]
+          (-> endpoint
+              (assoc :step-moved?
+                     (boolean (or (some? (:pending-answer endpoint))
+                                  (not= cursor-before (:requests-cursor endpoint))
+                                  (> (count (:outbox endpoint)) outbox-before))))
+              (finish-stop now)))))))
 
 
 (defn moved?
   "True when the last `step` moved something a caller's cadence must not
-   sleep through: a probe woke, or a notice was published — or a session
-   still owes a response append, which must never wait out a backoff
-   ceiling."
+   sleep through: a notice was published, or a computed answer still owes
+   an append, which must never wait out a backoff ceiling."
   [endpoint]
-  (boolean (or (:step-moved? endpoint)
-               (some (fn [session]
-                       (or (:pending-response session)
-                           (:pending-successor session)))
-                     (vals (:sessions endpoint))))))
+  (boolean (or (:step-moved? endpoint) (:pending-answer endpoint))))
 
 
 (defn summary
@@ -837,6 +722,8 @@
      :path (:path endpoint)
      :identity (:dao.stream/identity (:descriptor endpoint))
      :serving? (some? (:resolution endpoint))
-     :sessions (vec (sort (keys (:sessions endpoint))))
+     :sessions (if (:acceptor endpoint)
+                 (vec (sort (keys (ws-project/sessions (:acceptor endpoint)))))
+                 [])
      :lifecycle {:cursor (:lifecycle-cursor endpoint)
                  :last-outcome (:lifecycle-ledger endpoint)}}))

@@ -34,6 +34,7 @@
   (:require [clojure.string :as str]
             [dao.stream :as stream]
             [dao.stream.transit :as transit]
+            [dao.stream.ws-project :as ws-project]
             [yin.repl.main :as repl]
             [yin.repl.connect :as connect]
             [yin.repl.driver :as driver]
@@ -211,19 +212,25 @@
 
 
 (defn- record-first-traffic!
-  "Remember the first connection's deposit medium, so a later probe can prove
-   the same object survived the socket's death and carries the reattachment."
+  "Remember the first connection's dial, so a later probe can tell whether a
+   reattachment reused it or -- as `dao.stream.ws-project/dial`'s own
+   contract requires -- composed a fresh one."
   [box first-traffic]
   (when (and (:connection @box) (nil? @first-traffic))
-    (reset! first-traffic (:traffic (:connection @box))))
+    (reset! first-traffic (:dial (:connection @box))))
   first-traffic)
+
+
+(defn- channel-handle
+  [connection]
+  (some-> connection :dial ws-project/channel :handle))
 
 
 (defn- probe
   "One serializable observation of the client composition.
 
    `:handle-outcome` exists for Phase R5's second fact: once the boundary has
-   reported a terminal status, appending through the attachment handle answers
+   reported a terminal status, appending through the channel handle answers
    `:dao.stream/closed` — the client-side proof that the connection died.  A
    live connection is never probed this way, because the append would inject a
    payload frame into the protocol."
@@ -236,23 +243,12 @@
      :undriven-outbox (count (:outbox @box))
      :traffic-retained?
      (boolean (when (and connection @first-traffic)
-                (identical? @first-traffic (:traffic connection))))
-     :traffic-events
-     (when connection
-       (let [h (:traffic connection)]
-         (loop [c (:dao.stream/cursor (stream/cursor h stream/anchor-oldest))
-                acc []]
-           (let [r (stream/next h c)]
-             (if (= :dao.stream/ok (:dao.stream/outcome r))
-               (recur (:dao.stream/cursor r)
-                      (conj acc (select-keys (:dao.stream/value r)
-                                             [:ws/event :ws/attachment])))
-               (vec acc))))))
+                (identical? @first-traffic (:dial connection))))
      :handle-outcome
      (when (and connection
-                (:handle connection)
+                (channel-handle connection)
                 (contains? connect/terminal-statuses (:status connection)))
-       (:dao.stream/outcome (stream/append! (:handle connection) ::closed-probe)))}))
+       (:dao.stream/outcome (stream/append! (channel-handle connection) ::closed-probe)))}))
 
 
 (defn- handle-command!
@@ -276,9 +272,7 @@
                (emit-reply!
                  {:reply :trace
                   :summary (when connection (connect/summary connection))
-                  :history @history
-                  :lifecycle-cursor (when connection (:lifecycle-cursor connection))
-                  :response-cursor (when connection (:response-cursor connection))}))
+                  :history @history}))
              true)
     :quit (do (stop-ticker)
               (exit!)

@@ -85,7 +85,7 @@
         offer-cursor (cursor offer)
         ack-cursor (cursor ack)
         endpoint (ws/make-endpoint
-                   {:served {"/repl" descriptor}
+                   {:descriptor descriptor
                     :control (target control)
                     :control-admission portable-admission
                     :slots [{:offer (target offer)

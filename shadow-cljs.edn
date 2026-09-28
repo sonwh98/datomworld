@@ -23,10 +23,6 @@
                      :main bench.yin-vm-bench/-main
                      :output-to "target/vm-bench.js"}
 
-          :slice-peer {:target :node-script
-                       :main dao.stream.slice-peer/-main
-                       :output-to "target/slice-peer.js"}
-
           :yin-repl {:target :node-script
                         :main yin.repl.main/-main
                         :output-to "target/yin-repl.js"}}}

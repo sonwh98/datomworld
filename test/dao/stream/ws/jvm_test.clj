@@ -395,7 +395,7 @@
                                               (stream/cursor ack stream/anchor-newest))}}))
                     (range 2))]
     [(ws/make-endpoint
-       {:served {"/yin/repl" dual-descriptor}
+       {:descriptor dual-descriptor
         :codecs [transit/profile cbor/profile]
         :control {:dao.stream/handle (dual-buffer 16)
                   :dao.stream/surface #{:writer}}
@@ -407,8 +407,8 @@
 
 (defn- accept-and-ack-slot!
   "Synchronously drive one handoff: take the pending slot's offer, ack it
-   with a fresh traffic medium, and step the endpoint so the accept frame
-   is sent.  Returns the traffic handle.
+   with a fresh traffic medium, and step the endpoint so the slot
+   installs it.  Returns the traffic handle.
 
    The client's handshake completes when it reads the 101, but the listener
    accepts in its on-open callback, after the 101 is sent: the pending slot
@@ -462,8 +462,9 @@
             cbor-client (collecting-listener)
             transit-socket (connect-raw port "dao.stream.transit-json" transit-client)
             transit-traffic (accept-and-ack-slot! endpoint slots)]
-        (is (= {:ws/frame :ws/accept}
-               (transit/decode (eventually #(first @(:text transit-client)) 5000))))
+        ;; No admission wire frame is sent any more: the accepted socket
+        ;; already speaks its negotiated profile, proven below by the
+        ;; deposit its own traffic round-trips.
         (.join (.sendText ^WebSocket transit-socket
                           (transit/encode {:ws/frame :ws/value :ws/value [:text :frame]})
                           true))
@@ -472,8 +473,6 @@
         (let [cbor-socket (connect-raw port "dao.stream.cbor" cbor-client)
               cbor-traffic (accept-and-ack-slot! endpoint slots)
               value (with-meta [:binary :frame] {:line 9})]
-          (is (= {:ws/frame :ws/accept}
-                 (cbor/decode (eventually #(first @(:binary cbor-client)) 5000))))
           (.join (.sendBinary ^WebSocket cbor-socket
                               (ByteBuffer/wrap ^bytes (cbor/encode
                                                         {:ws/frame :ws/value :ws/value value}))

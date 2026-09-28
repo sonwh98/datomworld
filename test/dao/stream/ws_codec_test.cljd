@@ -56,7 +56,7 @@
 (defn- dual-endpoint
   [codecs]
   (ws/make-endpoint
-    {:served {"/yin/repl" descriptor}
+    {:descriptor descriptor
      :codecs codecs
      :control {:dao.stream/handle (buffer) :dao.stream/surface #{:writer}}
      :control-admission admission
@@ -108,7 +108,7 @@
     (is (= :dao.stream/ok (:dao.stream/outcome result)))
     (is (= cbor/profile (:ws/codec @adapter)))
     (is (= :dao.stream/full (:dao.stream/outcome (stream/append! handle :early))))
-    ((:binary! @adapter) (cbor/encode {:ws/frame :ws/accept}))
+    ((:opened! @adapter))
     (is (= :ws/opened (:ws/event (first (values traffic)))))
     (let [value (with-meta [:a (list 1)] {:line 2})]
       (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! handle value))))
@@ -135,7 +135,7 @@
                            :close! (fn [code reason]
                                      (swap! closes conj [code reason]))})})
            descriptor)]
-    ((:binary! @adapter) (cbor/encode {:ws/frame :ws/accept}))
+    ((:opened! @adapter))
     ((:message! @adapter) "a text frame the binary profile never asked for")
     ((:closed! @adapter) ws/protocol-close-code "dao.stream/protocol-error")
     (is (= [[:ws/opened nil] [:ws/error :ws/decode-failure] [:ws/closed nil]]
@@ -147,8 +147,19 @@
   (let [endpoint (dual-endpoint [transit/profile cbor/profile])
         transit-client (accept-and-ack! endpoint "dao.stream.transit-json")
         cbor-client (accept-and-ack! endpoint "dao.stream.cbor")]
-    (is (= {:ws/frame :ws/accept} (transit/decode (first @(:sent transit-client)))))
-    (is (= {:ws/frame :ws/accept} (cbor/decode (first @(:sent cbor-client)))))
+    ;; No admission wire frame is sent any more; each accepted handle is
+    ;; already open and speaks exactly its negotiated profile, proven
+    ;; below by its own outbound encoding.
+    (is (= :dao.stream/ok
+           (:dao.stream/outcome
+             (stream/append! (:ws/handle (:accepted transit-client)) :out))))
+    (is (= {:ws/frame :ws/value :ws/value :out}
+           (transit/decode (first @(:sent transit-client)))))
+    (is (= :dao.stream/ok
+           (:dao.stream/outcome
+             (stream/append! (:ws/handle (:accepted cbor-client)) :out))))
+    (is (= {:ws/frame :ws/value :ws/value :out}
+           (cbor/decode (first @(:sent cbor-client)))))
     (ws/receive! (:ws/handle (:accepted transit-client))
                  (transit/encode {:ws/frame :ws/value :ws/value :transit-payload}))
     (ws/receive-binary! (:ws/handle (:accepted cbor-client))

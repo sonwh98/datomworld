@@ -319,12 +319,12 @@
   (let [offers (ring 1)
         acks (ring 1)
         endpoint (ws/make-endpoint
-                   {:served {"/toy"
-                             {:dao.stream/type :dao.stream/ws
-                              :dao.stream/identity "toy"
-                              :ws/host "127.0.0.1"
-                              :ws/port 1
-                              :ws/path "/toy"}}
+                   {:descriptor
+                    {:dao.stream/type :dao.stream/ws
+                     :dao.stream/identity "toy"
+                     :ws/host "127.0.0.1"
+                     :ws/port 1
+                     :ws/path "/toy"}
                     :control {:dao.stream/handle (ring 16)
                               :dao.stream/surface #{:writer}}
                     :control-admission

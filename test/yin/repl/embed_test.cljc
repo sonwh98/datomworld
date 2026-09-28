@@ -3,8 +3,8 @@
    listener injected as in `yin.repl.serve-test`.  Nothing here binds a port."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dao.stream.apply :as apply]
-            [dao.stream.transit :as transit]
+            [dao.stream :as stream]
+            [dao.stream.rpc :as rpc]
             [dao.stream.ws :as ws]
             [yin.repl.embed :as embed]))
 
@@ -28,20 +28,24 @@
               :close! (fn [_code _reason] nil)}}))
 
 
-(defn- last-value
-  [s]
-  (->> @(:sent s)
-       (map transit/decode)
-       (filter #(= :ws/value (:ws/frame %)))
-       last
-       :ws/value))
+(defn- last-answer
+  "The last answer appended to the endpoint's shared answers medium."
+  [endpoint]
+  (loop [cursor (:dao.stream/cursor (stream/cursor (:answers endpoint)
+                                                   stream/anchor-oldest))
+         last-value nil]
+    (let [r (stream/next (:answers endpoint) cursor)]
+      (if (= :dao.stream/ok (:dao.stream/outcome r))
+        (recur (:dao.stream/cursor r) (:dao.stream/value r))
+        last-value))))
 
 
 (defn- request!
-  [handle id source]
-  (ws/receive! handle (transit/encode
-                        {:ws/frame :ws/value
-                         :ws/value (apply/request id :op/eval [source])})))
+  "Append one eval request directly onto the endpoint's requests medium,
+   as the mirror's own `:dao.stream/append!` answer would once a
+   reflection's write reaches it."
+  [endpoint id source]
+  (stream/append! (:requests endpoint) (rpc/request-value id :op/eval [source])))
 
 
 (defn- start
@@ -66,23 +70,22 @@
 (deftest a-host-primitive-is-served-and-survives-reset
   (let [[endpoint _] (embed/step (start) 1)
         s (socket)
-        accepted (ws/accept-connection! (:ws-endpoint endpoint) (:path endpoint)
-                                        (:socket s) 2)
-        handle (:ws/handle accepted)
+        _accepted (ws/accept-connection! (:ws-endpoint endpoint) (:path endpoint)
+                                         (:socket s) 2)
         [endpoint _] (embed/step endpoint 2)
         [endpoint _] (embed/step endpoint 3)]
     (is (= 1 (:clients (embed/status endpoint))) "the session was adopted")
     (is (= "client connected" (embed/status-text (embed/status endpoint))))
-    (request! handle 0 "(answer)")
+    (request! endpoint 0 "(answer)")
     (let [[endpoint _] (embed/step endpoint 4)]
-      (is (= "42" (apply/response-ok (last-value s))))
+      (is (= "42" (rpc/answer-ok (last-answer endpoint))))
       (testing "(reset) through the same session keeps the host primitive"
-        (request! handle 1 "(reset)")
+        (request! endpoint 1 "(reset)")
         (let [[endpoint _] (embed/step endpoint 5)]
-          (request! handle 2 "(answer)")
-          (embed/step endpoint 6)
-          (is (= 2 (apply/response-id (last-value s))))
-          (is (= "42" (apply/response-ok (last-value s)))))))))
+          (request! endpoint 2 "(answer)")
+          (let [[endpoint _] (embed/step endpoint 6)]
+            (is (= 2 (rpc/answer-id (last-answer endpoint))))
+            (is (= "42" (rpc/answer-ok (last-answer endpoint))))))))))
 
 
 (deftest stop-then-stepping-reaches-stopped

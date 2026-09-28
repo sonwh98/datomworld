@@ -16,15 +16,12 @@
             [cljs.test :refer [async deftest is]]
             [clojure.string :as str]
             [dao.stream :as stream]
-            [dao.stream.apply :as apply]
             [dao.stream.cbor :as cbor]
             [dao.stream.ringbuffer :as ring]
-            [dao.stream.rpc :as rpc]
-            [dao.stream.rpc.ws :as rpc-ws]
-            [dao.stream.serving :as serving]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
-            [dao.stream.ws.node :as node]))
+            [dao.stream.ws.node :as node]
+            [dao.stream.ws-project :as project]))
 
 
 ;; =============================================================================
@@ -38,10 +35,6 @@
 
 (def handoff-admission
   {:retention :evict-oldest :capacity 1 :value-domain :host-values})
-
-
-(def echo-handlers
-  {:op/echo (fn [value] [:echo value])})
 
 
 (defn- buffer
@@ -70,6 +63,12 @@
 (defn- event-kinds
   [handle]
   (mapv (juxt :ws/event :ws/reason) (drain handle)))
+
+
+(defn- payload-values
+  "The :ws/value of every :ws/payload envelope, in deposit order."
+  [events]
+  (mapv :ws/value (filter #(= :ws/payload (:ws/event %)) events)))
 
 
 (defn- descriptor
@@ -191,15 +190,15 @@
         me (:dao.stream/attachment result)]
     (is (= :dao.stream/ok (:dao.stream/outcome result)))
     (is (string? me))
-    ;; The HTTP upgrade is never a resolution signal: only the three host
-    ;; events the boundary translates are subscribed, and 'open' is not among
-    ;; them.  The adapter is the socket's sole subscriber.
-    (is (= #{"message" "close" "error"} (set (keys @(:handlers fake)))))
+    ;; The four host events the boundary translates are subscribed; the
+    ;; adapter is the socket's sole subscriber.
+    (is (= #{"open" "message" "close" "error"} (set (keys @(:handlers fake)))))
     ;; While establishing, append! answers full and nothing is sent.
     (is (= :dao.stream/full (:dao.stream/outcome (stream/append! handle :early))))
     (is (empty? @(:sent fake)))
-    ;; The first accept frame resolves the attachment; then append! frames.
-    (fire-text! fake {:ws/frame :ws/accept})
+    ;; The host's own open resolves the attachment; there is no admission
+    ;; wire frame any more.
+    ((:fire fake) "open")
     (is (= [[:ws/opened nil]] (event-kinds traffic)))
     (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! handle {:a 1}))))
     (is (= [{:ws/frame :ws/value :ws/value {:a 1}}]
@@ -226,49 +225,16 @@
     (let [fresh (fake-socket)
           traffic-2 (buffer)
           handle-2 (:dao.stream/handle (attach-with-fake traffic-2 fresh))]
-      (fire-text! fresh {:ws/frame :ws/accept})
+      ((:fire fresh) "open")
       (is (= :dao.stream/ok (:dao.stream/outcome (stream/close! handle-2))))
       (is (= [1000 "dao.stream/detached"] (last @(:closes fresh)))))))
 
 
-(deftest rpc-client-over-the-wired-boundary-distinguishes-attachments
-  ;; The deposit cursor is minted before attach! so no event can outrun it.
-  (let [traffic (buffer)
-        cursor (newest traffic)
-        fake (fake-socket)
-        attacher (ws/make-attacher
-                   {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
-                    :admission admission
-                    :connect! (fake-connect! fake)})]
-    (is (map? cursor))
-    (let [attach (attacher (descriptor))
-          client (rpc-ws/init-client attach traffic cursor)]
-      (fire-text! fake {:ws/frame :ws/accept})
-      ;; Another attachment's events on the shared medium are consumed by the
-      ;; cursor and never mistaken for this client's responses.
-      (stream/append! traffic
-                      {:ws/attachment "someone-else" :ws/event :ws/payload
-                       :ws/value (apply/success-response 0 :wrong)})
-      (let [polled (rpc/poll! client 4)]
-        (is (= :dao.stream.rpc/idle (:dao.stream.rpc/outcome polled)))
-        (is (nil? (:terminal (:dao.stream.rpc/state polled))))
-        (is (empty? (:completed (:dao.stream.rpc/state polled))))
-        (let [requested (rpc/request! (:dao.stream.rpc/state polled)
-                                      :op/echo ["hi"])]
-          (is (= :dao.stream.rpc/requested (:dao.stream.rpc/outcome requested)))
-          (is (= {:ws/frame :ws/value
-                  :ws/value (apply/request 0 :op/echo ["hi"])}
-                 (transit/decode (last @(:sent fake)))))
-          (fire-text! fake {:ws/frame :ws/value
-                            :ws/value (apply/success-response 0 [:echo "hi"])})
-          (let [answered (rpc/poll! (:dao.stream.rpc/state requested) 4)
-                [completions next-state] (rpc/take-completed
-                                           (:dao.stream.rpc/state answered))]
-            (is (= 1 (count completions)))
-            (is (= 0 (:dao.stream.rpc/id (first completions))))
-            (is (= [:echo "hi"]
-                   (apply/response-ok (:dao.stream.rpc/response (first completions)))))
-            (is (empty? (:completed next-state)))))))))
+;; A dao.stream.remote reflection over the wired boundary is proven
+;; portably (no host, no socket) in dao.stream.ws-project-test's own
+;; attachment-filtering and dial/reflection tests; nothing Node-specific
+;; remains to prove here once the wire is a channel rather than an RPC
+;; envelope.
 
 
 ;; =============================================================================
@@ -304,7 +270,7 @@
   [fixture clients & tickers]
   (doseq [t tickers] (js/clearInterval t))
   (doseq [c clients] (stream/close! (:handle c)))
-  (serving/stop! (:composition fixture)))
+  (node/stop-listening! @(:listener fixture)))
 
 
 (defn- run-step
@@ -319,10 +285,10 @@
 
 
 (defn- after-bound
-  "Start the fixture's listener and invoke (step port) once the server reports
-   its bound port.  A bind that never completes fails, tears down, finishes."
+  "Invoke (step port) once the server reports its bound port -- `server-
+   fixture` already started listening.  A bind that never completes
+   fails, tears down, finishes."
   [fixture ticker finish step]
-  (serving/start! (:composition fixture))
   (wait-for #(node/listener-port @(:listener fixture)) 2000
             (fn [port]
               (if (number? port)
@@ -367,12 +333,12 @@
    from the bound address, exactly as the R4 bind/advertised split prescribes."
   ([] (server-fixture {}))
   ([{:keys [codecs slot-count] :or {slot-count 1} :as _options}]
-   (let [served (buffer)
+   (let [echo (buffer)
          control (buffer)
          handoffs (mapv (fn [_] {:offer (buffer 1) :ack (buffer 1)}) (range slot-count))
          table-descriptor (assoc (descriptor) :ws/port 1)
          endpoint (ws/make-endpoint
-                    (cond-> {:served {"/yin/repl" table-descriptor}
+                    (cond-> {:descriptor table-descriptor
                              :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
                              :control-admission admission
                              :slots (mapv (fn [{:keys [offer ack]}]
@@ -387,114 +353,86 @@
                              :expiry-ms nil}
                       codecs (assoc :codecs codecs)))
          traffic-media (atom {})
-         services (atom {})
          listener-errors (atom [])
-         listener (atom nil)
-         composition (serving/make-serving
-                       {:endpoint endpoint
-                        :served {"/yin/repl" {:descriptor table-descriptor :stream served}}
-                        :control-reader control
-                        :control-cursor (newest control)
-                        :slots (mapv (fn [{:keys [offer ack]}]
-                                       {:offer-reader offer
-                                        :offer-cursor (newest offer)
-                                        :ack-writer {:dao.stream/handle ack
-                                                     :dao.stream/surface #{:writer}}})
-                                     handoffs)
-                        :make-traffic (fn [offer-event]
-                                        (let [traffic (buffer)]
-                                          (swap! traffic-media
-                                                 assoc (:ws/attachment offer-event) traffic)
-                                          {:traffic {:dao.stream/handle traffic
-                                                     :dao.stream/surface #{:writer}}
-                                           :admission admission
-                                           :reader traffic
-                                           :cursor (newest traffic)}))
-                        :inbound-step (fn [session event]
-                                        (when (and (= :ws/payload (:ws/event event))
-                                                   (apply/request? (:ws/value event)))
-                                          (let [attachment (:ws/attachment event)]
-                                            (when-not (get @services attachment)
-                                              (let [requests (buffer)]
-                                                (swap! services assoc attachment
-                                                       {:requests requests
-                                                        :service (apply/server-state
-                                                                   (newest requests))
-                                                        :socket (:socket-handle session)})))
-                                            (stream/append!
-                                              (:requests (get @services attachment))
-                                              (:ws/value event)))))
-                        :start-endpoint! (fn [ep]
-                                           (let [l (node/listen! ep
-                                                                 {:host "127.0.0.1" :port 0
-                                                                  :on-error #(swap! listener-errors conj :listener-error)
-                                                                  ;; The listener negotiates exactly the
-                                                                  ;; endpoint's own codec table.
-                                                                  :codecs (:codecs ep)})]
-                                             (reset! listener l)
-                                             {:dao.stream/outcome :dao.stream/ok}))
-                        :stop-endpoint! (fn [_]
-                                          (node/stop-listening! @listener)
-                                          {:dao.stream/outcome :dao.stream/ok})})]
-     {:served served
+         acceptor (project/make-acceptor
+                    {:endpoint endpoint
+                     :slots (mapv (fn [{:keys [offer ack]}]
+                                    {:offer-reader offer
+                                     :offer-cursor (newest offer)
+                                     :ack-writer {:dao.stream/handle ack
+                                                  :dao.stream/surface #{:writer}}})
+                                  handoffs)
+                     :table {"echo" {:handle echo :surface #{:reader :writer}}}
+                     :make-media (fn [offer-event]
+                                   (let [traffic (buffer)]
+                                     (swap! traffic-media
+                                            assoc (:ws/attachment offer-event) traffic)
+                                     {:traffic {:dao.stream/handle traffic
+                                                :dao.stream/surface #{:writer}}
+                                      :admission admission
+                                      :reader traffic
+                                      :cursor (newest traffic)
+                                      :ring (buffer)}))})
+         listener (atom (node/listen! endpoint
+                                      {:host "127.0.0.1" :port 0
+                                       :on-error #(swap! listener-errors conj :listener-error)
+                                       ;; The listener negotiates exactly the
+                                       ;; endpoint's own codec table.
+                                       :codecs codecs}))]
+     {:echo echo
       :control control
       :offer (:offer (first handoffs))
       :listener listener
       :listener-errors listener-errors
       :traffic-media traffic-media
-      :services services
-      :composition composition
+      :acceptor acceptor
       :descriptor table-descriptor})))
 
 
 (defn- server-tick
-  "One explicit driver tick: advance the composition, then every registered
-   RPC service by one request/response step.  `now` stays in the caller's
-   clock domain; the adapter never supplies one."
+  "One explicit driver tick: transport, offer and mirror, over the
+   `\"echo\"` identity every accepted connection's reflection reads and
+   writes directly -- there is no handler to step, since `append!` and
+   `next` are the mirror's own primitives."
   [fixture now]
-  (serving/step! (:composition fixture) now)
-  (doseq [[attachment {:keys [requests socket] :as entry}] @(:services fixture)]
-    (let [result (apply/serve-once! echo-handlers requests socket (:service entry))]
-      (swap! (:services fixture) assoc-in [attachment :service]
-             (:dao.stream.apply/state result)))))
+  (project/accept-step! (:acceptor fixture) now))
 
 
 (defn- make-client
-  "The R3 client boundary: create the deposit medium, mint its newest cursor,
-   compose the boundary, and only then attach.  RPC client state is built from
-   the whole attach result, so `:me` is the transport-minted attachment id.
-   The optional map arity selects the wire codec profile (default Transit)."
+  "Dial the endpoint and attach one reflection of `\"echo\"`, over a fresh
+   traffic medium and channel ring, before any attach! -- the boundary
+   composition discipline of dao.stream.ws.md.  The optional map arity
+   selects the wire codec profile (default Transit)."
   ([client-descriptor] (make-client client-descriptor {}))
   ([client-descriptor {:keys [codec] :as _options}]
    (let [traffic (buffer)
          cursor (newest traffic)
-         attach ((ws/make-attacher
+         ring (buffer)
+         attach! (ws/make-attacher
                    (cond-> {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
                             :admission admission
                             :connect! node/connect!}
                      codec (assoc :codec codec)))
-                 client-descriptor)]
+         dial (project/dial {:attach! attach!
+                             :traffic {:dao.stream/handle traffic}
+                             :cursor cursor
+                             :ring ring
+                             :table {}})
+         attach (project/dial-attach!
+                  dial {:dao.stream/type :dao.stream/remote
+                        :dao.stream/identity "echo"
+                        :dao.stream/channel client-descriptor})]
      {:traffic traffic
       :cursor cursor
+      :dial dial
       :attach attach
       :handle (:dao.stream/handle attach)
-      :rpc-atom (atom (rpc-ws/init-client attach traffic cursor))
       :completed (atom [])})))
 
 
 (defn- client-tick!
   [client]
-  (let [st @(:rpc-atom client)]
-    (when (:unsent st)
-      ;; A pending unsent request retries the exact allocated envelope; the
-      ;; op/args arguments are ignored by rpc/request! on this path.
-      (reset! (:rpc-atom client)
-              (:dao.stream.rpc/state (rpc/request! st ::retry nil))))
-    (let [polled (rpc/poll! @(:rpc-atom client) 16)]
-      (reset! (:rpc-atom client) (:dao.stream.rpc/state polled))
-      (let [[completions next-state] (rpc/take-completed @(:rpc-atom client))]
-        (reset! (:rpc-atom client) next-state)
-        (swap! (:completed client) into completions)))))
+  (project/dial-step! (:dial client)))
 
 
 (defn- client-ticker
@@ -502,51 +440,123 @@
   (js/setInterval (fn [] (client-tick! client)) 10))
 
 
+(defn- channel-attachment
+  "The channel's ws attachment identity -- the id every envelope the wire
+   deposits for this connection carries, as distinct from the remote
+   attacher's own attachment id on the reflection dial-attach! answered."
+  [client]
+  (:attachment (project/channel (:dial client))))
+
+
+(defn- channel-handle
+  "The channel's ws handle -- the socket writer a detachment closes -- as
+   distinct from the reflection handle dial-attach! answered."
+  [client]
+  (:handle (project/channel (:dial client))))
+
+
 ;; =============================================================================
 ;; End to end over real loopback sockets
 ;; =============================================================================
 
 
-(deftest rpc-round-trips-through-a-real-node-listener
+(defn- read-oldest
+  "Mint the oldest cursor (retrying while the reflection answers a
+   retryable mint) then read one value past it.  Returns the read
+   result, or nil while either step is still pending."
+  [handle]
+  (let [c (stream/cursor handle stream/anchor-oldest)]
+    (when (= :dao.stream/ok (:dao.stream/outcome c))
+      (let [r (stream/next handle (:dao.stream/cursor c))]
+        (when (= :dao.stream/ok (:dao.stream/outcome r)) r)))))
+
+
+(defn- read-next-ok
+  "One next read past `cursor`, answered only on `:dao.stream/ok` --
+   while the reflection's own ask is in flight it answers blocked, so a
+   caller polling this until truthy is the retry that op never gets for
+   itself.  Returns the read result, or nil while still pending."
+  [handle cursor]
+  (let [r (stream/next handle cursor)]
+    (when (= :dao.stream/ok (:dao.stream/outcome r)) r)))
+
+
+(defn- append-ok
+  "One append attempt, answered only on `:dao.stream/ok` -- a reflection's
+   append! answers `:dao.stream/full` (never retried on its own) while the
+   underlying socket is still `:connecting`, exactly as the descriptor
+   probe is; a caller polling this until truthy is the retry that op
+   never gets for itself.  Returns the outcome map, or nil while still
+   pending."
+  [handle value]
+  (let [r (stream/append! handle value)]
+    (when (= :dao.stream/ok (:dao.stream/outcome r)) r)))
+
+
+(defn- a-reflection-verified
+  "The round trip's assertions: the reflected value, the real new-flow
+   event sequence on the client medium, and the per-attachment
+   correlation."
+  [fixture server ticker client finish result]
+  (is (= "hello" (:dao.stream/value result)))
+  (let [events (drain (:traffic client))
+        answers (payload-values events)
+        me (channel-attachment client)]
+    ;; The new flow's real sequence: the accept event, then one envelope
+    ;; per mirror answer -- the descriptor probe's ok (the link's first
+    ;; asker-minted id 0, carrying the served surface), the append!'s
+    ;; source ok, the cursor mint, and the next with the echoed value.
+    (is (= [[:ws/opened nil] [:ws/payload nil] [:ws/payload nil]
+            [:ws/payload nil] [:ws/payload nil]]
+           (mapv (juxt :ws/event :ws/reason) events)))
+    (is (= 0 (:dao.stream.remote/id (first answers))))
+    (is (= #{:writer :reader}
+           (:dao.stream.remote/surface (first answers))))
+    (is (some? (:dao.stream/cursor (nth answers 2))))
+    (is (= "echo" (:dao.stream/identity (last answers))))
+    (is (= "hello" (:dao.stream/value (last answers))))
+    ;; Every deposited envelope on the client medium is attributed to
+    ;; this attachment: demultiplexing survived the real wire.
+    (is (every? #(= me (:ws/attachment %)) events)))
+  (is (= 1 (count @(:traffic-media fixture))))
+  (is (empty? (drain (:control fixture))))
+  (teardown! fixture [client] server ticker)
+  (finish))
+
+
+(defn- a-reflection-read-back
+  "One accepted append: read the echo back through the reflection."
+  [fixture server ticker client finish appended]
+  (is (= :dao.stream/ok (:dao.stream/outcome appended)))
+  (after 4000 #(read-oldest (:handle client))
+         "the echoed value never arrived" fixture server [client] finish
+         (fn [result]
+           (a-reflection-verified fixture server ticker client finish
+                                  result))))
+
+
+(deftest a-reflection-round-trips-append-and-next-through-a-real-node-listener
   (async done
          (let [fixture (server-fixture)
                finish (finish-once done)
-               server (js/setInterval (fn [] (server-tick fixture (.now js/Date))) 10)]
+               server (js/setInterval
+                        (fn [] (server-tick fixture (.now js/Date))) 10)]
            (after-bound fixture server finish
                         (fn [port]
-                          (let [client (make-client (assoc (:descriptor fixture) :ws/port port))
+                          (let [client (make-client
+                                         (assoc (:descriptor fixture)
+                                                :ws/port port))
                                 ticker (client-ticker client)]
-                            ;; The request is made before resolution and stays unsent until
-                            ;; the wire accept arrives; the ticker retries it.
-                            (let [initial (rpc/request! @(:rpc-atom client) :op/echo ["hello"])]
-                              (is (= :dao.stream.rpc/pending-request
-                                     (:dao.stream.rpc/outcome initial)))
-                              (reset! (:rpc-atom client) (:dao.stream.rpc/state initial)))
-                            (after 4000 (fn [] (seq @(:completed client)))
-                                   "no completion arrived" fixture server [client] finish
-                                   (fn [_]
-                                     (let [result (first @(:completed client))]
-                                       (is (= 0 (:dao.stream.rpc/id result)))
-                                       (is (= [:echo "hello"]
-                                              (apply/response-ok (:dao.stream.rpc/response result))))
-                                       (is (string? (:dao.stream/attachment (:attach client))))
-                                       ;; Every deposited envelope on the client medium is
-                                       ;; attributed to this attachment: demultiplexing survived
-                                       ;; the real wire.
-                                       (is (= [[:ws/opened nil] [:ws/payload nil]]
-                                              (event-kinds (:traffic client))))
-                                       (is (every? #(= (:dao.stream/attachment (:attach client))
-                                                       (:ws/attachment %))
-                                                   (drain (:traffic client))))
-                                       ;; The server answered from its own acknowledged
-                                       ;; per-attachment medium, not from the control path.
-                                       (is (= 1 (count @(:traffic-media fixture))))
-                                       (is (empty? (drain (:control fixture))))
-                                       (teardown! fixture [client] server ticker)
-                                       (finish))))))))))
+                            (after 4000 #(append-ok (:handle client) "hello")
+                                   "append! never accepted" fixture server
+                                   [client] finish
+                                   (fn [appended]
+                                     (a-reflection-read-back
+                                       fixture server ticker client finish
+                                       appended)))))))))
 
 
-(deftest closing-the-served-stream-ends-rather-than-detaches-clients
+(deftest closing-the-served-streams-source-ends-reads-not-the-channel
   (async done
          (let [fixture (server-fixture)
                finish (finish-once done)
@@ -560,84 +570,75 @@
                                                 (drain (:traffic client))))
                                    "attachment never opened" fixture server [client] finish
                                    (fn [_]
-                                     ;; The served stream's owner closes it; the forwarder reports
-                                     ;; source-ended and the composition performs the 4000 close.
-                                     (stream/close! (:served fixture))
-                                     (after 4000 (fn []
-                                                   (= :dao.stream.apply/ended
-                                                      (:terminal @(:rpc-atom client))))
-                                            "no ended terminal" fixture server [client] finish
-                                            (fn [terminal]
-                                              (is (= :ws/ended (:ws/event (last (drain (:traffic client))))))
-                                              ;; Ended is terminal, never reattachable.
-                                              (is (not= :dao.stream.apply/detached terminal))
+                                     ;; The echo identity's own source ends; the mirror relays
+                                     ;; the source's bare outcome, never a protocol error, and
+                                     ;; the channel itself -- the socket -- stays open.
+                                     (stream/close! (:echo fixture))
+                                     (after 4000
+                                            (fn []
+                                              (let [c (stream/cursor (:handle client)
+                                                                     stream/anchor-oldest)]
+                                                (when (= :dao.stream/ok (:dao.stream/outcome c))
+                                                  (let [r (stream/next (:handle client)
+                                                                       (:dao.stream/cursor c))]
+                                                    (when (= :dao.stream/end (:dao.stream/outcome r))
+                                                      r)))))
+                                            "the reflection never observed the source's end"
+                                            fixture server [client] finish
+                                            (fn [_]
+                                              (is (not (some #(= :ws/closed (:ws/event %))
+                                                             (drain (:traffic client))))
+                                                  "the channel is untouched by its served
+                                                   identity's own end")
                                               (teardown! fixture [client] server ticker)
                                               (finish)))))))))))
 
 
-(deftest unknown-paths-are-authoritatively-disclaimed
-  (async done
-         (let [fixture (server-fixture)
-               finish (finish-once done)
-               server (js/setInterval (fn [] (server-tick fixture (.now js/Date))) 10)]
-           (after-bound fixture server finish
-                        (fn [port]
-                          (let [client (make-client (assoc (:descriptor fixture)
-                                                           :ws/port port :ws/path "/yin/absent"))
-                                ticker (client-ticker client)]
-                            (reset! (:rpc-atom client)
-                                    (:dao.stream.rpc/state
-                                      (rpc/request! @(:rpc-atom client) :op/echo ["lost"])))
-                            (after 4000 (fn []
-                                          (= :dao.stream.apply/not-found
-                                             (:terminal @(:rpc-atom client))))
-                                   "no not-found terminal" fixture server [client] finish
-                                   (fn [_]
-                                     ;; A disclaimer is one resolution plus one terminal lifecycle
-                                     ;; event.  The request stayed unsent until the attachment
-                                     ;; closed, so the retry's append is refused with the
-                                     ;; transport's closed outcome and the request completes
-                                     ;; undelivered exactly once -- reported, never pending.
-                                     (is (= [[:ws/not-found nil] [:ws/closed nil]]
-                                            (event-kinds (:traffic client))))
-                                     (is (= 1 (count @(:completed client))))
-                                     (is (= :dao.stream/closed
-                                            (:dao.stream.rpc/reason (first @(:completed client)))))
-                                     (is (nil? (:unsent @(:rpc-atom client))))
-                                     ;; Not-found never occupies a handoff slot and creates no
-                                     ;; traffic medium.
-                                     (is (empty? (drain (:offer fixture))))
-                                     (is (empty? @(:traffic-media fixture)))
-                                     (teardown! fixture [client] server ticker)
-                                     (finish)))))))))
+(defn- channel-gone-outcome
+  "Poll `handle`'s `cursor` op until it answers the reflection's own
+   channel-loss translation, or nil."
+  [handle]
+  (let [r (stream/cursor handle stream/anchor-oldest)]
+    (when (and (= :dao.stream/transport-error (:dao.stream/outcome r))
+               (= :dao.stream.remote/channel-gone (:dao.stream.remote/reason r)))
+      r)))
 
 
-(deftest unreachable-endpoints-resolve-as-retryable-transport-errors
+(defn- lost-next-outcome
+  "Ask one more `next` at `cursor` -- a position already read, so the ask
+   is a fresh wire round trip while the channel lives -- until the
+   reflection answers its own channel-loss translation (2.4), or nil.
+   This is the observation the RPC client itself polls: next answering
+   channel-gone is what translates to the reattachable /detached."
+  [handle cursor]
+  (let [r (stream/next handle cursor)]
+    (when (and (= :dao.stream/transport-error (:dao.stream/outcome r))
+               (= :dao.stream.remote/channel-gone
+                  (:dao.stream.remote/reason r)))
+      r)))
+
+
+;; There is no more path table at the wire boundary: one endpoint owns
+;; exactly one descriptor, and every accepted socket speaks it regardless
+;; of the request target it upgraded from, so no path can be wire-level
+;; disclaimed any more.  An unknown *identity* now answers not-found from
+;; the mirror's own table instead, proven portably (no host, no socket)
+;; in dao.stream.ws-project-test.
+
+
+(deftest unreachable-endpoints-resolve-as-retryable-channel-loss
   (async done
          (let [fixture (server-fixture)
                finish (finish-once done)
                client (make-client (assoc (:descriptor fixture) :ws/port 1))
                ticker (client-ticker client)]
-           (reset! (:rpc-atom client)
-                   (:dao.stream.rpc/state
-                     (rpc/request! @(:rpc-atom client) :op/echo ["unreachable"])))
-           (after 4000 (fn []
-                         (= :dao.stream.apply/transport-error
-                            (:terminal @(:rpc-atom client))))
-                  "no transport-error terminal" fixture ticker [client] finish
+           (after 4000 #(channel-gone-outcome (:handle client))
+                  "no channel-gone outcome" fixture ticker [client] finish
                   (fn [_]
                     (is (= [[:ws/error :ws/socket-error]
                             [:ws/transport-error nil]
                             [:ws/closed nil]]
                            (event-kinds (:traffic client))))
-                    ;; The unsent request is retried into a closed attachment and
-                    ;; completes undelivered with the transport's closed outcome;
-                    ;; retrying the descriptor is interpreter policy, not the
-                    ;; transport's.
-                    (is (= 1 (count @(:completed client))))
-                    (is (= :dao.stream/closed
-                           (:dao.stream.rpc/reason (first @(:completed client)))))
-                    (is (nil? (:unsent @(:rpc-atom client))))
                     (teardown! fixture [client] ticker)
                     (finish))))))
 
@@ -652,7 +653,9 @@
                           (let [raw ^js (new (.-WebSocket ws-package)
                                              (str "ws://127.0.0.1:" port "/yin/repl")
                                              ws/subprotocol)
-                                frames (atom [])]
+                                frames (atom [])
+                                opened (atom false)]
+                            (.on raw "open" (fn [] (reset! opened true)))
                             (.on raw "message"
                                  (fn [data is-binary]
                                    (swap! frames conj
@@ -661,13 +664,8 @@
                                  (fn [code reason]
                                    (swap! frames conj
                                           [::close code (.toString reason "utf8")])))
-                            (after 4000 (fn []
-                                          (some (fn [text]
-                                                  (and (string? text)
-                                                       (= :ws/accept
-                                                          (:ws/frame (transit/decode text)))))
-                                                @frames))
-                                   "raw client never accepted" fixture server [] finish
+                            (after 4000 (fn [] @opened)
+                                   "raw client never opened" fixture server [] finish
                                    (fn [_]
                                      ;; A binary frame cannot be a payload: it is a protocol
                                      ;; failure torn down with close 4002.
@@ -727,7 +725,7 @@
                ;; Nothing acknowledges this endpoint's offers, so an accepted
                ;; connection stays pending until admission expiry releases it.
                endpoint (ws/make-endpoint
-                          {:served {"/yin/repl" table-descriptor}
+                          {:descriptor table-descriptor
                            :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
                            :control-admission admission
                            :slots [{:offer {:dao.stream/handle offer :dao.stream/surface #{:writer}}
@@ -768,77 +766,108 @@
                                                    (finish))))))))))))
 
 
-(deftest detachment-reattaches-with-a-new-attachment-and-kept-cursor
+(defn- first-traffic-medium
+  "The first accepted attachment's own serving medium."
+  [fixture]
+  (first (vals @(:traffic-media fixture))))
+
+
+(defn- detach-second-round-trip
+  "The reattached session's reads: the fresh attachment first sees the
+   stream's retained history, then its own append behind it."
+  [fixture server finish ticker ticker-2 client-2 _appended]
+  (after 4000 #(read-oldest (:handle client-2))
+         "reattached round trip never completed" fixture server
+         [client-2] finish
+         (fn [result]
+           (is (= "first" (:dao.stream/value result)))
+           (after 4000 #(read-next-ok (:handle client-2)
+                                      (:dao.stream/cursor result))
+                  "the reattached append never arrived" fixture server
+                  [client-2] finish
+                  (fn [appended-result]
+                    (is (= "again" (:dao.stream/value appended-result)))
+                    (is (= 2 (count @(:traffic-media fixture)))
+                        "the fresh dial is a second, distinct accepted
+                         connection")
+                    (teardown! fixture [client-2] server ticker ticker-2)
+                    (finish))))))
+
+
+(defn- detach-reattach
+  "Reattach: `dial`'s own contract is a fresh dial with a fresh cursor,
+   never a rebind of the old one -- its ring and traffic cursor already
+   belong to the dead attachment."
+  [fixture server finish port client ticker]
+  (let [client-2 (make-client (assoc (:descriptor fixture) :ws/port port))
+        ticker-2 (client-ticker client-2)
+        first-me (channel-attachment client)
+        second-me (channel-attachment client-2)]
+    (is (string? second-me))
+    (is (not= first-me second-me))
+    (after 4000 #(append-ok (:handle client-2) "again")
+           "append! never accepted" fixture server [client-2] finish
+           (fn [_appended]
+             (detach-second-round-trip fixture server finish ticker ticker-2
+                                       client-2 _appended)))))
+
+
+(defn- detach-verify-loss
+  "After the channel-gone observation: the client saw its own close, and
+   the server observed the departure on that attachment's own medium."
+  [fixture server finish port client ticker]
+  (is (= :ws/closed (:ws/event (last (drain (:traffic client))))))
+  (is (= :ws/closed
+         (:ws/event (last (drain (first-traffic-medium fixture)))))
+      "the server observed the departure")
+  (detach-reattach fixture server finish port client ticker))
+
+
+(defn- detach-own-attachment
+  "The client detaches its own attachment: the channel's ws handle
+   closes, its close completion deposits :ws/closed, and the projection
+   ends the ring -- the link's next read then observes the loss as
+   channel-gone.  A consumed position is asked again, so the
+   reflection's cursor op cannot observe the loss: its idempotent mint
+   answer stays filed by design."
+  [fixture server finish port client ticker first-result]
+  (stream/close! (channel-handle client))
+  (after 4000
+         #(lost-next-outcome (:handle client)
+                             (:dao.stream/cursor first-result))
+         "no channel-gone outcome" fixture server [] finish
+         (fn [_]
+           (detach-verify-loss fixture server finish port client ticker))))
+
+
+(deftest detachment-reattaches-with-a-fresh-dial-and-a-new-attachment
   (async done
          (let [fixture (server-fixture)
                finish (finish-once done)
-               server (js/setInterval (fn [] (server-tick fixture (.now js/Date))) 10)]
+               server (js/setInterval
+                        (fn [] (server-tick fixture (.now js/Date))) 10)]
            (after-bound fixture server finish
                         (fn [port]
-                          (let [client (make-client (assoc (:descriptor fixture) :ws/port port))
+                          (let [client (make-client
+                                         (assoc (:descriptor fixture)
+                                                :ws/port port))
                                 ticker (client-ticker client)]
-                            (reset! (:rpc-atom client)
-                                    (:dao.stream.rpc/state
-                                      (rpc/request! @(:rpc-atom client) :op/echo ["first"])))
-                            (after 4000 (fn [] (seq @(:completed client)))
-                                   "first round trip never completed" fixture server [client] finish
-                                   (fn [_]
-                                     (let [first-me (:dao.stream/attachment (:attach client))]
-                                       (is (= 1 (count @(:completed client))))
-                                       ;; The client detaches its own attachment.
-                                       (stream/close! (:handle client))
-                                       (after 4000 (fn []
-                                                     (= :dao.stream.apply/detached
-                                                        (:terminal @(:rpc-atom client))))
-                                              "no detached terminal" fixture server [] finish
-                                              (fn [_]
-                                                (is (= :ws/closed
-                                                       (:ws/event (last (drain (:traffic client))))))
-                                                ;; The server observed the departure on that
-                                                ;; attachment's own medium.
-                                                (is (= :ws/closed
-                                                       (:ws/event (last (drain (first (vals @(:traffic-media fixture))))))))
-                                                ;; Reattach: same descriptor, same medium, kept cursor,
-                                                ;; new attachment id.
-                                                (let [detached-state @(:rpc-atom client)
-                                                      attach-2 ((ws/make-attacher
-                                                                  {:traffic {:dao.stream/handle (:traffic client)
-                                                                             :dao.stream/surface #{:writer}}
-                                                                   :admission admission
-                                                                   :connect! node/connect!})
-                                                                (assoc (:descriptor fixture) :ws/port port))
-                                                      rebound (rpc-ws/rebind detached-state attach-2)
-                                                      second-me (:dao.stream/attachment attach-2)]
-                                                  (is (string? second-me))
-                                                  (is (not= first-me second-me))
-                                                  ;; The rebind keeps the deposit reader and its
-                                                  ;; already-advanced cursor; only the writer and the
-                                                  ;; attachment identity change.
-                                                  (is (= (:reader detached-state) (:reader rebound)))
-                                                  (is (= (:cursor detached-state) (:cursor rebound)))
-                                                  (reset! (:rpc-atom client) rebound)
-                                                  (reset! (:rpc-atom client)
-                                                          (:dao.stream.rpc/state
-                                                            (rpc/request! @(:rpc-atom client) :op/echo ["again"])))
-                                                  (after 4000 (fn [] (<= 2 (count @(:completed client))))
-                                                         "reattached round trip never completed"
-                                                         fixture server [] finish
-                                                         (fn [_]
-                                                           (let [last-done (last @(:completed client))
-                                                                 openings (filter #(= :ws/opened (:ws/event %))
-                                                                                  (drain (:traffic client)))]
-                                                             (is (= 1 (:dao.stream.rpc/id last-done)))
-                                                             (is (= [:echo "again"]
-                                                                    (apply/response-ok
-                                                                      (:dao.stream.rpc/response last-done))))
-                                                             ;; The one deposit medium carries both
-                                                             ;; attachments' events, each attributed to its
-                                                             ;; own.
-                                                             (is (= first-me (:ws/attachment (first openings))))
-                                                             (is (= second-me (:ws/attachment (second openings))))
-                                                             (stream/close! (:dao.stream/handle attach-2))
-                                                             (teardown! fixture [] server ticker)
-                                                             (finish))))))))))))))))
+                            (after 4000 #(append-ok (:handle client) "first")
+                                   "append! never accepted" fixture server
+                                   [client] finish
+                                   (fn [_appended]
+                                     (after 4000 #(read-oldest (:handle client))
+                                            "first round trip never
+                                             completed"
+                                            fixture server [client] finish
+                                            (fn [first-result]
+                                              (is (= "first"
+                                                     (:dao.stream/value
+                                                       first-result)))
+                                              (detach-own-attachment
+                                                fixture server finish port
+                                                client ticker
+                                                first-result)))))))))))
 
 
 ;; =============================================================================
@@ -846,61 +875,122 @@
 ;; =============================================================================
 
 
+(defn- dual-both-sent
+  "Send one payload per client until each first succeeds, the Transit
+   send strictly before the CBOR one is attempted, so the shared served
+   stream's value order is deterministic.  Metadata rides the CBOR
+   profile only: if the binary session were silently downgraded to the
+   Transit text wire, the echoed reader position would come back
+   stripped.  Each client's own send is attempted at most until it
+   first succeeds -- retrying a client that already sent would append a
+   duplicate."
+  [transit-client cbor-client transit-sent cbor-sent]
+  (when-not @transit-sent
+    (when (append-ok (:handle transit-client) "text-payload")
+      (reset! transit-sent true)))
+  (when @transit-sent
+    (when-not @cbor-sent
+      (when (append-ok (:handle cbor-client)
+                       (with-meta [:bin-payload] {:line 5}))
+        (reset! cbor-sent true))))
+  (and @transit-sent @cbor-sent))
+
+
+(defn- dual-both-read
+  "Capture the reads the assertions need, or nil while any is still
+   pending.  Both sessions reflect the same served identity, so each
+   client's oldest read answers with the shared stream's retained
+   history (the Transit payload); the CBOR session's own append is read
+   past it.  A reflection's next read files its answer once -- a
+   consumed position asked again is a fresh wire round trip -- so each
+   read is captured exactly once and asserted by `dual-verify`, never
+   re-read."
+  [transit-client cbor-client transit-read cbor-read cbor-read-2]
+  (when-not @transit-read
+    (when-some [r (read-oldest (:handle transit-client))]
+      (reset! transit-read r)))
+  (when-not @cbor-read
+    (when-some [r (read-oldest (:handle cbor-client))]
+      (reset! cbor-read r)))
+  (when (and @cbor-read (not @cbor-read-2))
+    (when-some [r (read-next-ok (:handle cbor-client)
+                                (:dao.stream/cursor @cbor-read))]
+      (reset! cbor-read-2 r)))
+  (and @transit-read @cbor-read @cbor-read-2))
+
+
+(defn- dual-verify
+  "The dual round trips' assertions, then both channels' teardown."
+  [fixture server finish transit-ticker cbor-ticker transit-client
+   cbor-client transit-read cbor-read cbor-read-2]
+  (is (= "text-payload" (:dao.stream/value @transit-read)))
+  (is (= "text-payload" (:dao.stream/value @cbor-read)))
+  (let [echoed (:dao.stream/value @cbor-read-2)]
+    (is (= [:bin-payload] echoed)
+        (str "cbor client saw "
+             (pr-str (event-kinds (:traffic cbor-client)))))
+    (is (= {:line 5} (meta echoed))
+        "the CBOR session kept its metadata end to end; a downgrade to
+         the text wire would strip it"))
+  ;; The negotiated profile rides the channel's own ws handle: the
+  ;; dual-profile listener wired the CBOR adapter for the binary session.
+  (is (= cbor/profile
+         (:ws/codec (ws/adapter (channel-handle cbor-client)))))
+  (stream/close! (channel-handle transit-client))
+  (stream/close! (channel-handle cbor-client))
+  (teardown! fixture [] server transit-ticker cbor-ticker)
+  (finish))
+
+
 (deftest transit-and-cbor-clients-round-trip-through-one-listener
   ;; Dual-client compatibility: one Node listener negotiates both profiles,
   ;; a Transit client and a CBOR client attach concurrently to the same
   ;; served path, and each completes an RPC round trip over its own frame
-  ;; kind — text frames for one, binary frames for the other, no sniffing.
+  ;; kind -- text frames for one, binary frames for the other, no sniffing.
   (async done
          ;; Two handoff slots: both sessions hand off concurrently rather than
          ;; racing one slot's release.
          (let [fixture (server-fixture {:codecs [transit/profile cbor/profile]
                                         :slot-count 2})
                finish (finish-once done)
-               server (js/setInterval (fn [] (server-tick fixture (.now js/Date))) 10)]
+               server (js/setInterval
+                        (fn [] (server-tick fixture (.now js/Date))) 10)]
            (after-bound fixture server finish
                         (fn [port]
                           (let [d (assoc (:descriptor fixture) :ws/port port)
                                 transit-client (make-client d)
-                                cbor-client (make-client d {:codec cbor/profile})
+                                cbor-client (make-client
+                                              d {:codec cbor/profile})
                                 transit-ticker (client-ticker transit-client)
-                                cbor-ticker (client-ticker cbor-client)]
-                            (reset! (:rpc-atom transit-client)
-                                    (:dao.stream.rpc/state
-                                      (rpc/request! @(:rpc-atom transit-client)
-                                                    :op/echo ["text-payload"])))
-                            ;; Metadata rides the CBOR profile only: if the
-                            ;; binary session were silently downgraded to the
-                            ;; Transit text wire, the echoed reader position
-                            ;; would come back stripped.
-                            (reset! (:rpc-atom cbor-client)
-                                    (:dao.stream.rpc/state
-                                      (rpc/request! @(:rpc-atom cbor-client) :op/echo
-                                                    [(with-meta [:bin-payload] {:line 5})])))
-                            (after 4000 (fn []
-                                          (and (seq @(:completed transit-client))
-                                               (seq @(:completed cbor-client))))
-                                   "both round trips never completed"
-                                   fixture server [transit-client cbor-client] finish
-                                   (fn [_]
-                                     (let [response (fn [c]
-                                                      (apply/response-ok
-                                                        (:dao.stream.rpc/response
-                                                          (first @(:completed c)))))]
-                                       (is (= [:echo "text-payload"] (response transit-client)))
-                                       (is (= [:echo [:bin-payload]] (response cbor-client))
-                                           (str "cbor client saw "
-                                                (pr-str (event-kinds (:traffic cbor-client)))))
-                                       (is (= {:line 5}
-                                              (meta (second (response cbor-client))))
-                                           "the CBOR session kept its metadata end to end; a
-                                            downgrade to the text wire would strip it"))
-                                     (is (= cbor/profile
-                                            (:ws/codec (ws/adapter (:handle cbor-client)))))
-                                     (stream/close! (:handle transit-client))
-                                     (stream/close! (:handle cbor-client))
-                                     (teardown! fixture [] server transit-ticker cbor-ticker)
-                                     (finish)))))))))
+                                cbor-ticker (client-ticker cbor-client)
+                                transit-sent (atom false)
+                                cbor-sent (atom false)
+                                transit-read (atom nil)
+                                cbor-read (atom nil)
+                                cbor-read-2 (atom nil)]
+                            (after 4000
+                                   #(dual-both-sent transit-client cbor-client
+                                                    transit-sent cbor-sent)
+                                   "append! never accepted on both clients"
+                                   fixture server
+                                   [transit-client cbor-client] finish
+                                   (fn [_appended]
+                                     (after 4000
+                                            #(dual-both-read transit-client
+                                                             cbor-client
+                                                             transit-read
+                                                             cbor-read
+                                                             cbor-read-2)
+                                            "both round trips never completed"
+                                            fixture server
+                                            [transit-client cbor-client] finish
+                                            (fn [_]
+                                              (dual-verify
+                                                fixture server finish
+                                                transit-ticker cbor-ticker
+                                                transit-client cbor-client
+                                                transit-read cbor-read
+                                                cbor-read-2)))))))))))
 
 
 (deftest a-cbor-client-is-refused-by-a-transit-only-endpoint

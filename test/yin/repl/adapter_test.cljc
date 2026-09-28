@@ -1,7 +1,6 @@
 (ns yin.repl.adapter-test
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
-            [dao.stream.apply :as apply]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc :as rpc]
             [yin.repl.adapter :as adapter]))
@@ -25,6 +24,11 @@
     (rpc/client-state request-handle response-handle (cursor response-handle))))
 
 
+(defn- outstanding-id
+  [state]
+  (first (keys (get-in state [:yin.repl.adapter/rpc :outstanding]))))
+
+
 (deftest local-commands-remain-local-events
   (let [request-handle (handle)
         response-handle (handle)
@@ -38,7 +42,8 @@
              :yin.repl.adapter/command 'help
              :yin.repl.adapter/input "(help)"}]
            events))
-    (is (zero? (get-in state [:yin.repl.adapter/rpc :next-id])))
+    (is (empty? (get-in state [:yin.repl.adapter/rpc :outstanding]))
+        "nothing was allocated for a local command")
     (is (= :dao.stream/blocked
            (:dao.stream/outcome (stream/next request-handle (cursor request-handle)))))
     (is (empty? (:yin.repl.adapter/events consumed)))))
@@ -60,7 +65,7 @@
              :yin.repl.adapter/input "(telemetry)"}]
            events))
     (is (nil? (adapter/local-command "(telemetry)")))
-    (is (zero? (get-in state [:yin.repl.adapter/rpc :next-id])))
+    (is (empty? (get-in state [:yin.repl.adapter/rpc :outstanding])))
     (is (= :dao.stream/blocked
            (:dao.stream/outcome (stream/next request-handle (cursor request-handle)))))))
 
@@ -81,14 +86,16 @@
         submitted (adapter/submit-input (adapter-state request-handle response-handle)
                                         "(+ 20 22)")
         state (:yin.repl.adapter/state submitted)
+        id (outstanding-id state)
         request-value (:dao.stream/value
                         (stream/next request-handle (cursor request-handle)))]
     (is (= :yin.repl.adapter/requested
            (:yin.repl.adapter/outcome submitted)))
-    (is (= (apply/request 0 :op/eval ["(+ 20 22)"])
+    (is (rpc/safe-id? id))
+    (is (= (rpc/request-value id :op/eval ["(+ 20 22)"])
            request-value))
     (is (= {:op :op/eval :args ["(+ 20 22)"]}
-           (get-in state [:yin.repl.adapter/rpc :outstanding 0])))))
+           (get-in state [:yin.repl.adapter/rpc :outstanding id])))))
 
 
 (deftest polling-publishes-each-correlated-response-once
@@ -96,14 +103,15 @@
         response-handle (handle)
         submitted (adapter/submit-input (adapter-state request-handle response-handle)
                                         "(+ 20 22)")
-        _ (stream/append! response-handle (apply/success-response 0 "42"))
+        id (outstanding-id (:yin.repl.adapter/state submitted))
+        _ (stream/append! response-handle (rpc/success-answer id "42"))
         polled (adapter/poll-responses (:yin.repl.adapter/state submitted))
         state (:yin.repl.adapter/state polled)
         [events consumed] (adapter/take-events state)]
     (is (= :yin.repl.adapter/responded
            (:yin.repl.adapter/outcome polled)))
     (is (= [{:yin.repl.adapter/event :yin.repl.adapter/response
-             :yin.repl.adapter/id 0
+             :yin.repl.adapter/id id
              :yin.repl.adapter/op :op/eval
              :yin.repl.adapter/args ["(+ 20 22)"]
              :yin.repl.adapter/value "42"}]
@@ -119,26 +127,33 @@
     (let [request-handle (handle)
           response-handle (handle)
           submitted (adapter/submit-input (adapter-state request-handle response-handle) "bad")
-          error (apply/error-response 0 :yin/eval-error "Invalid input")
+          id (outstanding-id (:yin.repl.adapter/state submitted))
+          error (rpc/error-answer id :yin/eval-error "Invalid input")
           _ (stream/append! response-handle error)
           polled (adapter/poll-responses (:yin.repl.adapter/state submitted))
           [events _] (adapter/take-events (:yin.repl.adapter/state polled))]
-      (is (= (apply/response-error error)
+      (is (= (rpc/answer-error error)
              (:yin.repl.adapter/error (first events))))))
-  (testing "a detached binding emits one loss event for an outstanding input"
+  (testing "a lost binding emits one loss event for an outstanding input"
     (let [request-handle (handle)
           response-handle (handle)
           submitted (adapter/submit-input (adapter-state request-handle response-handle) "x")
-          detached (rpc/handle-event (get-in submitted [:yin.repl.adapter/state
-                                                        :yin.repl.adapter/rpc])
-                                     (rpc/lifecycle-event :dao.stream.apply/detached))
+          id (outstanding-id (:yin.repl.adapter/state submitted))
+          lost-reader (reify stream/IDaoStreamReader
+                        (cursor [_ _] {:dao.stream/outcome :dao.stream/ok})
+
+                        (next [_ _] {:dao.stream/outcome :dao.stream/end}))
+          rpc-state (assoc (get-in submitted [:yin.repl.adapter/state
+                                              :yin.repl.adapter/rpc])
+                           :reader lost-reader)
+          polled (rpc/poll! rpc-state)
           state (assoc (:yin.repl.adapter/state submitted)
-                       :yin.repl.adapter/rpc (:dao.stream.rpc/state detached))
+                       :yin.repl.adapter/rpc (:dao.stream.rpc/state polled))
           published (adapter/publish-completions state)
           [events _] (adapter/take-events (:yin.repl.adapter/state published))]
       (is (= [{:yin.repl.adapter/event :yin.repl.adapter/lost
-               :yin.repl.adapter/id 0
+               :yin.repl.adapter/id id
                :yin.repl.adapter/op :op/eval
                :yin.repl.adapter/args ["x"]
-               :yin.repl.adapter/reason :dao.stream.apply/detached}]
+               :yin.repl.adapter/reason :dao.stream.apply/ended}]
              events)))))

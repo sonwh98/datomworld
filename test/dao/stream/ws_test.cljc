@@ -204,7 +204,7 @@
 (defn- one-slot-endpoint
   [offer ack control]
   (ws/make-endpoint
-    {:served {"/yin/repl" descriptor}
+    {:descriptor descriptor
      :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
      :control-admission admission
      :slots [{:offer {:dao.stream/handle offer :dao.stream/surface #{:writer}}
@@ -257,7 +257,7 @@
         control (buffer)
         sent (atom [])
         endpoint (ws/make-endpoint
-                   {:served {"/yin/repl" descriptor}
+                   {:descriptor descriptor
                     :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
                     :control-admission admission
                     :slots [{:offer {:dao.stream/handle offer :dao.stream/surface #{:writer}}
@@ -284,7 +284,75 @@
                          :ws/deposit {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
                          :ws/admission admission})
     (ws/endpoint-step endpoint 11)
-    (is (= {:ws/frame :ws/accept} (transit/decode (first @sent))))
+    ;; The endpoint sends no admission wire frame any more: the accepted
+    ;; handle is already `:open` once its acknowledgement is consumed.
+    (is (empty? @sent))
     (ws/receive! (:ws/handle accepted) (transit/encode {:ws/frame :ws/value :ws/value :inbound}))
     (is (= [{:ws/attachment attachment :ws/event :ws/payload :ws/value :inbound}]
            (values traffic)))))
+
+
+(deftest a-frame-before-acknowledgement-is-queued-and-replays-in-order
+  (let [offer (buffer)
+        ack (buffer)
+        control (buffer)
+        endpoint (one-slot-endpoint offer ack control)
+        sent (atom [])
+        accepted (ws/accept-connection! endpoint "/yin/repl"
+                                        {:send! #(do (swap! sent conj %) nil)
+                                         :close! (fn [& _] nil)})
+        offer-event (first (values offer))
+        attachment (:ws/attachment offer-event)
+        traffic (buffer)]
+    (is (= :ws/pending (:ws/status accepted)))
+    ;; The client's own socket is open and its append! gate is live from
+    ;; that moment, ahead of this endpoint's own acceptor tick -- there
+    ;; is no admission handshake to hold it back any more, so a value
+    ;; frame can reach this handle while the server side is still
+    ;; pending.
+    (ws/receive! (:ws/handle accepted)
+                 (transit/encode {:ws/frame :ws/value :ws/value :early}))
+    (is (empty? (values traffic))
+        "nothing to deposit yet: the real target exists only after the ack")
+    (stream/append! ack {:ws/attachment attachment :ws/command :ws/accept
+                         :ws/deposit {:dao.stream/handle traffic
+                                      :dao.stream/surface #{:writer}}
+                         :ws/admission admission})
+    (ws/endpoint-step endpoint 1)
+    ;; A frame received after the ack must not deposit ahead of the
+    ;; queued one: the grab-and-replay is atomic with the phase flip.
+    (ws/receive! (:ws/handle accepted)
+                 (transit/encode {:ws/frame :ws/value :ws/value :late}))
+    (is (= [:early :late] (mapv :ws/value (values traffic))))))
+
+
+(deftest a-frame-arriving-during-the-replay-deposits-after-older-frames
+  (let [offer (buffer)
+        ack (buffer)
+        endpoint (one-slot-endpoint offer ack (buffer))
+        accepted (ws/accept-connection! endpoint "/yin/repl"
+                                        {:send! (fn [_] nil)
+                                         :close! (fn [& _] nil)})
+        handle (:ws/handle accepted)
+        attachment (:ws/attachment (first (values offer)))
+        traffic (buffer)
+        injected (atom false)
+        frame #(transit/encode {:ws/frame :ws/value :ws/value %})
+        ;; The first deposit of the replay itself delivers a new frame,
+        ;; forcing delivery to overlap the acknowledgement's replay.
+        target (reify stream/IDaoStreamWriter
+                 (append!
+                   [_ event]
+                   (when-not @injected
+                     (reset! injected true)
+                     (ws/receive! handle (frame :mid)))
+                   (stream/append! traffic event)))]
+    (ws/receive! handle (frame :early))
+    (stream/append! ack {:ws/attachment attachment :ws/command :ws/accept
+                         :ws/deposit {:dao.stream/handle target
+                                      :dao.stream/surface #{:writer}}
+                         :ws/admission admission})
+    (ws/endpoint-step endpoint 1)
+    (ws/receive! handle (frame :late))
+    (is (true? @injected))
+    (is (= [:early :mid :late] (mapv :ws/value (values traffic))))))

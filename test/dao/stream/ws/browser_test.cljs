@@ -95,11 +95,6 @@
    :after (fn [] (set-global-websocket! @original-websocket))})
 
 
-(defn- fire-text!
-  [fake value]
-  ((:fire fake) "message" (js-obj "data" (transit/encode value))))
-
-
 ;; =============================================================================
 ;; connect! returns synchronously and never blocks
 ;; =============================================================================
@@ -122,9 +117,8 @@
       ;; fires.
       (is (= :dao.stream/ok (:dao.stream/outcome attach)))
       (is (string? (:dao.stream/attachment attach)))
-      ;; Only the three translated DOM events are subscribed; `open` is
-      ;; deliberately not among them.
-      (is (= #{"message" "close" "error"} (set (keys @(:handlers fake))))))))
+      ;; The four translated DOM events are subscribed.
+      (is (= #{"open" "message" "close" "error"} (set (keys @(:handlers fake))))))))
 
 
 (deftest raw-socket-shape-is-exactly-send-and-close
@@ -155,9 +149,10 @@
       ;; adapter never blocked waiting for the peer.
       (is (= :dao.stream/full (:dao.stream/outcome (stream/append! handle :early))))
       (is (empty? @(:sent fake)))
-      ;; The first accept frame resolves the attachment and deposits
-      ;; `:ws/opened` through the boundary.
-      (fire-text! fake {:ws/frame :ws/accept})
+      ;; The DOM's own open event resolves the attachment and deposits
+      ;; `:ws/opened` through the boundary; there is no admission wire
+      ;; frame any more.
+      ((:fire fake) "open" nil)
       (is (= [[:ws/opened nil]] (event-kinds traffic)))
       (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! handle {:a 1}))))
       (is (= [{:ws/frame :ws/value :ws/value {:a 1}}]

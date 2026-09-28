@@ -2,7 +2,6 @@
   (:require [clojure.test :refer [deftest is]]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
-            [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
             [dao.stream.ws.dart :as dart]
             [yin.repl.host :as host]))
@@ -70,7 +69,7 @@
         attached (attach! descriptor)
         handle (:dao.stream/handle attached)
         adapter @adapter-ref]
-    ((:message! adapter) (transit/encode {:ws/frame :ws/accept}))
+    ((:opened! adapter))
     ((:error! adapter))
     ((:closed! adapter) 1006 "gone")
     (is (= [[:ws/opened nil] [:ws/error :ws/socket-error] [:ws/closed nil]]
@@ -91,7 +90,7 @@
                               (fn [code reason]
                                 (swap! closes conj [code reason])))
         endpoint (ws/make-endpoint
-                   {:served {"/repl" descriptor}
+                   {:descriptor descriptor
                     :control {:dao.stream/handle control
                               :dao.stream/surface #{:writer}}
                     :control-admission admission

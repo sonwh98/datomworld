@@ -3,20 +3,20 @@
   implementation plan's §4.4 prove list: the refusal matrix, the
   process-scoped fallback, the end-to-end grant->renew->lapse cycle
   through make-judge with a hand-turned tick stream, the non-ok :lapsed
-  append leaving the lease pending, and the three use-case sketches as
+  append leaving the lease pending, and the use-case sketches as
   commented compositions -- runnable wirings, not products.
 
   Everything is scripted as in lease_test: hand-appended ticks and facts
   over ring buffers, per-author-media attribution, no host clock anywhere
   in this file (the reference tick driver and its host clock live in
-  lease_test, the test tree's host policy). The real serving session in
-  the served-connection sketch is JVM-only, gated #?(:cljd nil :clj ...)."
+  lease_test, the test tree's host policy). The served-entry sketch
+  drives a real dao.stream.remote reflection over two in-process ring
+  buffers as the channel (docs/design/dao.stream.remote.md section 5)."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.lease :as lease]
             [dao.stream :as ds]
-            [dao.stream.ringbuffer :as ringbuffer]
-            [dao.stream.serving :as serving]
-            [dao.stream.ws :as ws]))
+            [dao.stream.remote :as remote]
+            [dao.stream.ringbuffer :as ringbuffer]))
 
 
 ;; =============================================================================
@@ -139,15 +139,15 @@
   (r4-P3)."
   [config]
   (try (lease/make-judge config) :assembled
-    (catch #?(:cljd Object :clj Exception :cljs :default) e
-      (:refused (ex-data e)))))
+       (catch #?(:cljd Object :clj Exception :cljs :default) e
+         (:refused (ex-data e)))))
 
 
 (defn- holder-refusal-key
   [config]
   (try (lease/make-holder config) :assembled
-    (catch #?(:cljd Object :clj Exception :cljs :default) e
-      (:refused (ex-data e)))))
+       (catch #?(:cljd Object :clj Exception :cljs :default) e
+         (:refused (ex-data e)))))
 
 
 (defn- composed
@@ -221,15 +221,19 @@
                  [:medium-entry
                   (fn [c] (assoc-in c [:media 0] {:handle 1 :cursor 2}))]
                  [:medium (fn [c] (assoc-in c [:media 0 :medium] nil))]
-                 [:medium (fn [c] (update-in c [:media 0 :medium]
-                                             dissoc :retention))]
-                 [:medium (fn [c] (assoc-in c [:media 0 :medium :retention]
-                                            :neither))]
+                 [:medium (fn [c]
+                            (update-in c [:media 0 :medium]
+                                       dissoc :retention))]
+                 [:medium (fn [c]
+                            (assoc-in c [:media 0 :medium :retention]
+                                      :neither))]
                  [:medium (fn [c] (assoc-in c [:media 0 :medium :capacity] 0))]
-                 [:medium (fn [c] (assoc-in c [:media 0 :medium :value-domain]
-                                            :anything))]
-                 [:medium (fn [c] (assoc-in c [:media 0 :medium :attribution]
-                                            :wire))]
+                 [:medium (fn [c]
+                            (assoc-in c [:media 0 :medium :value-domain]
+                                      :anything))]
+                 [:medium (fn [c]
+                            (assoc-in c [:media 0 :medium :attribution]
+                                      :wire))]
                  [:tolerance (fn [c] (assoc c :tolerance {:hr 3}))]
                  [:tolerance (fn [c] (dissoc c :tolerance))]
                  [:self (fn [c] (dissoc c :self))]
@@ -255,8 +259,9 @@
                  [:incarnation-rule
                   (fn [c] (assoc c :durable? true :durable-judge :dj))]
                  [:fencing
-                  (fn [c] (assoc c :durable? true :durable-judge :dj
-                                 :incarnation-rule :ir))]]]
+                  (fn [c]
+                    (assoc c :durable? true :durable-judge :dj
+                           :incarnation-rule :ir))]]]
       (doseq [[expected modify] cases]
         (is (= expected (refusal-key (modify (judge-config {}))))
             (str "the config refusing with " expected))))
@@ -292,12 +297,13 @@
                   (fn [c] (assoc c :resolver-bindings #{:attachment-identity}))]
                  [:renewal-interval (fn [c] (dissoc c :renewal-interval))]
                  [:host-values
-                  (fn [c] (assoc-in (assoc c :durable? true
-                                           :durable-judge :dj
-                                           :incarnation-rule :ir
-                                           :fencing :f)
-                                     [:fact :medium :value-domain]
-                                     :host-values))]
+                  (fn [c]
+                    (assoc-in (assoc c :durable? true
+                                     :durable-judge :dj
+                                     :incarnation-rule :ir
+                                     :fencing :f)
+                              [:fact :medium :value-domain]
+                              :host-values))]
                  [:durable-judge (fn [c] (assoc c :durable? true))]]]
       (doseq [[expected modify] cases]
         (is (= expected (holder-refusal-key (modify (holder-config {}))))
@@ -325,11 +331,11 @@
       (is (= :durable (:scope (lease/make-holder (holder-config prereqs)))))))
   (testing "C4: a :durable? config without all three does not construct at all"
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/make-judge (judge-config {:durable? true}))))
+          (lease/make-judge (judge-config {:durable? true}))))
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-                 (lease/make-holder (holder-config
-                                      {:durable? true
-                                       :durable-judge :only-one}))))))
+          (lease/make-holder (holder-config
+                               {:durable? true
+                                :durable-judge :only-one}))))))
 
 
 ;; =============================================================================
@@ -369,6 +375,7 @@
             (is (= [:db] @log)
                 "no later pass reclaims or re-records a completed lapse")
             (is (= [(lease/lapsed :l1 :silence)] (records system)))))))))
+
 
 (deftest non-ok-lapsed-append-leaves-lease-pending-test
   (testing "J8: a :lapsed append answering a non-ok outcome leaves the lease
@@ -449,11 +456,11 @@
             through its own wiring"
     (let [log (atom [])
           judge-ticks (new-buffer 16)
-          facts (new-buffer 16)         ;; the holder's outbound medium:
-                                        ;; what the judge reads
-          writer (new-buffer 16)        ;; the grantor's record stream
-          holder-facts (new-buffer 16)  ;; where the holder observes grants
-          holder-ticks (new-buffer 16)  ;; the holder's OWN tick stream
+          facts (new-buffer 16)         ; the holder's outbound medium:
+          ;; what the judge reads
+          writer (new-buffer 16)        ; the grantor's record stream
+          holder-facts (new-buffer 16)  ; where the holder observes grants
+          holder-ticks (new-buffer 16)  ; the holder's OWN tick stream
           composed-judge
           (lease/make-judge
             {:cadence {:ms 5}
@@ -577,84 +584,6 @@
       (is (= [(lease/lapsed :l1 :silence)] (records system))))))
 
 
-(defn- buffer
-  "A plain ring-buffer handle (the serving fixture's transport)."
-  [capacity]
-  (:dao.stream/handle
-    (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type
-                         ringbuffer/capacity-key capacity})))
-
-
-(def ^:private ws-admission
-  {:retention :evict-oldest :capacity 16 :value-domain :portable-values})
-
-
-(def ^:private handoff-admission
-  {:retention :evict-oldest :capacity 1 :value-domain :host-values})
-
-
-(def ^:private served-descriptor
-  {:dao.stream/type :dao.stream/ws
-   :dao.stream/identity "lease-composition-sketch"
-   :ws/host "127.0.0.1"
-   :ws/port 9183
-   :ws/path "/lease/sketch"})
-
-
-(defn- serving-fixture
-  "One real serving composition over in-memory buffers -- the serving
-  test's fixture shape, pared to what the sketch drives. The endpoint
-  never binds a listener (:start-endpoint! is a stub); the connection is
-  accepted in-process."
-  [{:keys [service traffic]}]
-  (let [offer (buffer 1)
-        ack (buffer 1)
-        control (buffer 16)
-        newest (fn [handle]
-                 (:dao.stream/cursor (ds/cursor handle ds/anchor-newest)))
-        endpoint (ws/make-endpoint
-                   {:served {"/lease/sketch" served-descriptor}
-                    :control {:dao.stream/handle control
-                              :dao.stream/surface #{:writer}}
-                    :control-admission ws-admission
-                    :slots [{:offer {:dao.stream/handle offer
-                                     :dao.stream/surface #{:writer}}
-                             :offer-admission handoff-admission
-                             :ack {:dao.stream/handle ack
-                                   :dao.stream/surface #{:writer}}
-                             :ack-admission handoff-admission
-                             :ack-cursor (newest ack)}]
-                    :expiry-ms nil})
-        ended (atom [])
-        composition (serving/make-serving
-                      {:endpoint endpoint
-                       :served {"/lease/sketch"
-                                {:descriptor served-descriptor
-                                 :stream service}}
-                       :control-reader control
-                       :control-cursor (newest control)
-                       :slots [{:offer-reader offer
-                                :offer-cursor (newest offer)
-                                :ack-writer {:dao.stream/handle ack
-                                             :dao.stream/surface #{:writer}}}]
-                       :make-traffic (fn [_]
-                                       {:traffic {:dao.stream/handle traffic
-                                                  :dao.stream/surface
-                                                  #{:writer}}
-                                        :admission ws-admission
-                                        :reader traffic
-                                        :cursor (newest traffic)})
-                       :forward-options {:batch-budget 8 :gap-policy :terminate}
-                       :start-endpoint! (fn [_ep] {:host :started})
-                       :stop-endpoint! (fn [_ep] {:host :stopped})
-                       :close-ended! (fn [handle]
-                                       (swap! ended conj handle)
-                                       {:dao.stream/outcome :dao.stream/ok})})]
-    {:endpoint endpoint
-     :composition composition
-     :ended ended}))
-
-
 (defn- carriage
   "A composition's carry step from a grantor's stream to a recipient's
   inbound medium: copies every fact EXCEPT :lapsed -- :lapsed does not
@@ -735,87 +664,73 @@
                holder observes the reclaim as the connection's closing --
                the resource event -- never as the grantor's record"))))))
 
-#?(:cljd nil
-   :clj
-   (deftest served-connection-real-close-path-sketch-test
-     (testing "sketch (JVM): one real serving session, reclaimed through the
-               real close path"
-       ;; The served-connection sketch against the real transport: one
-       ;; ws endpoint, one accepted connection, the serving driver
-       ;; stepping it. The lease's subject is the served stream; the
-       ;; reclaim is the real close -- close the served stream, then one
-       ;; serving step retires the session and runs the WebSocket close
-       ;; (:close-ended!).
-       ;;
-       ;; OWED (r4-r3/F2, recorded by the orchestrator in the plan's
-       ;; §6): the envelope shape flattened onto the renewal below is
-       ;; not the transport's -- ws.cljc deposits {:ws/attachment <id>
-       ;; :ws/event ... :ws/value <payload>}, so a real composition
-       ;; unwraps :ws/value before the judge sees a lease fact, and the
-       ;; :ws/attachment key, as modelled here, is SELF-ASSERTED:
-       ;; whoever appends to the traffic medium chooses it. The
-       ;; transport's authoritativeness is the connection's, not the
-       ;; key's -- an unwrap seam and a trusted binding are owed work.
-       (let [service (buffer 16)
-             traffic (buffer 16)
-             {:keys [endpoint composition ended]}
-             (serving-fixture {:service service :traffic traffic})
-             accepted (ws/accept-connection! endpoint "/lease/sketch"
-                                             {:send! (fn [_])
-                                              :close! (fn [& _] nil)}
-                                             10)
-             attachment (:ws/attachment accepted)
-             writer (new-buffer 16)
-             ticks (buffer 8)
-             envelope-resolver (fn [_source fact]
-                                 (get fact :ws/attachment))
-             composed-judge
-             (lease/make-judge
-               {:cadence {:ms 5}
-                :units {:ms 1}
-                :tolerance {:ms 0}
-                :resolver envelope-resolver
-                :resolver-bindings #{:envelope-key}
-                :reclaim (fn [_subject]
-                           (= :dao.stream/ok
-                              (:dao.stream/outcome (ds/close! service))))
-                :writer writer
-                :self :grantor
-                :ticks [{:handle ticks :cursor (oldest-cursor ticks)}]
-                :media [{:handle traffic
-                         :cursor (oldest-cursor traffic)
-                         :source :traffic
-                         :medium (assoc standard-medium
-                                        :attribution :envelope-key)}]})
-             judge (atom (lease/author-grant
-                          (:judge composed-judge)
-                          (lease/grant :l1 :served-session attachment {:ms 10})))
-             judge-tick! (fn [ms]
-                           (append-ok! ticks (lease/tick {:ms ms})))
-             step-judge! (fn [] (reset! judge ((:step composed-judge) @judge)))]
-         (serving/start! composition)
-         (serving/step! composition 10)
-         (is (contains? (:sessions (serving/state composition)) attachment)
-             "the session was accepted and is being served")
-         (judge-tick! 1) (step-judge!)
-         ;; the holder's renewal rides its attachment envelope
-         (append-ok! traffic (assoc (lease/renewal :l1)
-                                    :ws/attachment attachment))
-         (judge-tick! 7) (step-judge!)
-         (is (= {:ms 7} (get-in @judge [:ledger :l1 :last-observation]))
-             "the renewal counted through the real traffic medium")
-         ;; silence past duration: the reclaim closes the served stream
-         (judge-tick! 18) (step-judge!)
-         (is (= [(lease/lapsed :l1 :silence)]
-                (rest (drain-values writer)))
-             "the lease lapsed and was recorded")
-         ;; one serving step drives the real close: the session retires
-         ;; and the WebSocket close runs
-         (serving/step! composition 19)
-         (is (empty? (:sessions (serving/state composition)))
-             "the session was retired by the real close path")
-         (is (= 1 (count @ended))
-             "and the WebSocket close (:close-ended!) ran")))))
+
+(deftest served-entry-reclaim-through-reflection-test
+  (testing "sketch: a served ring-buffer entry is granted as a lease
+            subject and held through a real dao.stream.remote reflection
+            over two in-process ring buffers as the channel; a separate
+            per-author renewal medium is wired to the judge; the judge's
+            idempotent reclaim removes the table entry and reports
+            success, and the holder observes the loss as :not-found on
+            its reflection, never as the grantor's :lapsed record"
+    (let [ab (new-buffer 64)
+          ba (new-buffer 64)
+          channel {:dao.stream/type :dao.stream.test/channel
+                   :dao.stream/identity "lease-composition-channel"}
+          served (new-buffer 8)
+          _ (append-ok! served :v1)
+          table (atom {"served-1" {:handle served :surface #{:reader}}})
+          mirror (atom (:dao.stream/cursor (ds/cursor ab ds/anchor-oldest)))
+          serve! (fn [] (swap! mirror #(remote/mirror-step @table ab % ba)))
+          attach! (remote/attacher
+                    {:dao.stream.remote/channels {channel {:reader ba
+                                                           :writer ab}}})
+          refl (:dao.stream/handle
+                 (attach! {:dao.stream/type :dao.stream/remote
+                           :dao.stream/identity "served-1"
+                           :dao.stream/channel channel}))
+          system (composed {:reclaim (fn [subject]
+                                       (swap! table dissoc subject)
+                                       true)})
+          system (-> system
+                     (update :judge lease/author-grant
+                             (lease/grant :l1 "served-1" :holder-a {:ms 10}))
+                     (tick! 1)
+                     step!)]
+      ;; after the initial tick: the holder's reflection resolves and
+      ;; reads the served entry
+      (serve!)
+      (ds/cursor refl :dao.stream/oldest)
+      (serve!)
+      (let [c0 (:dao.stream/cursor (ds/cursor refl :dao.stream/oldest))]
+        (is (= :dao.stream/blocked (:dao.stream/outcome (ds/next refl c0))))
+        (serve!)
+        (is (= :v1 (:dao.stream/value (ds/next refl c0)))
+            "the reflection resolved and reads the served entry")
+        (let [system (-> system (fact! (lease/renewal :l1)) (tick! 7) step!)]
+          (is (= {:ms 7} (get-in system [:judge :ledger :l1 :last-observation]))
+              "the renewal on the per-author medium counted as evidence")
+          (let [system (-> system (tick! 18) step!)]
+            (is (not (contains? @table "served-1"))
+                "the idempotent reclaim removed the entry")
+            (is (= [(lease/lapsed :l1 :silence)] (records system))
+                "the :lapsed record is on the grantor's writer")
+            (is (not (contains? (get-in system [:judge :ledger]) :l1))
+                "the ledger no longer holds the lease")
+            ;; one more reflection request and mirror step: the mirror
+            ;; answers not-found, the reflection becomes gone
+            (is (= :dao.stream/blocked (:dao.stream/outcome (ds/next refl c0))))
+            (serve!)
+            (let [ans (ds/next refl c0)]
+              (is (= :dao.stream/transport-error (:dao.stream/outcome ans)))
+              (is (= :dao.stream.remote/not-found
+                     (:dao.stream.remote/reason ans))))
+            (let [ans (ds/append! refl :x)]
+              (is (= :dao.stream/transport-error (:dao.stream/outcome ans)))
+              (is (= :dao.stream.remote/not-found
+                     (:dao.stream.remote/reason ans))
+                  "a subsequent handle operation observes the same
+                   transport error"))))))))
 
 
 (deftest shared-work-claim-sketch-test

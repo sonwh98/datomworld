@@ -14,7 +14,7 @@
    nested values too.
 
    The corpus is `yin.vm.parity-test/corpus` (the v2 parity corpus) plus
-   `yin.vm-test/semantic-bytecode-corpus` (content_test's own every-tag
+   `yin.vm-test/semantic-bytecode-corpus` (mint_test's own every-tag
    reuse target, already proved by `yin.vm-test/semantic-bytecode-corpus-
    covers-every-tag` to cover every `semantic-bytecode-grammar` tag).
    `yin.vm.completion-test`'s own extra fixtures (`scoping-corpus`,
@@ -89,11 +89,11 @@
 ;; =============================================================================
 ;; Reused, not duplicated: the v2 parity corpus and the codec's every-tag
 ;; corpus, both already public and already exercised elsewhere for exactly
-;; this purpose (content_test.cljc requires both under the same names).
+;; this purpose (mint_test.cljc requires both under the same names).
 
 (def ^:private tag-corpus
   "Every AST the emitter's grammar defines a tag for, reused from
-   `yin.vm-test/semantic-bytecode-corpus` -- content_test's own reuse
+   `yin.vm-test/semantic-bytecode-corpus` -- mint_test's own reuse
    target for the same claim."
   vm-test/semantic-bytecode-corpus)
 
