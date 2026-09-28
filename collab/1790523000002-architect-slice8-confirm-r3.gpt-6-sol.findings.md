@@ -1,1 +1,0 @@
-I’m applying the `code-review-pr` review checklist. The earlier gate notes and the current source will be the basis for the verdict; I’ll treat the fix report as a claim to check.

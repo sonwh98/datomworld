@@ -8055,3 +8055,26 @@ any implementation; collab/ remainder + hygiene).
   NEVER add collab/ (or its artifacts) to .gitignore, never
   untrack. Confirmed .gitignore was never touched by the
   orchestrator.
+
+## 2026-09-28 14:05:00 +0700 — Owner direction: archive unused collab; 112 artifacts moved to local archive/collab/
+
+- Owner: "archieve unused collab". Executed: artifacts from
+  COMPLETED work (debruijn, hash-registry, U16/macro eras; all
+  dao.stream.remote slice dispatches, gate/confirm/fix rounds;
+  settled rulings and handoff notes) untracked from git and moved to
+  archive/collab/ (archive/ is the repo's designated gitignored
+  local archive). 112 files. Everything remains recoverable from git
+  history (the commits that carried them are untouched).
+- KEPT TRACKED (active/queued work references them by path or they
+  govern open work): one-envelope ruling (1790575143000, migration
+  in flight), FFI-migration-semantics ruling (1790533100000,
+  governs the UCF facade + slice 3), apply-envelope ruling A
+  (1790505601000 findings + 1790515147519 prompt/log; yin.vm.ffi
+  stays), fable final sign-off (1790568188000; the punch-list
+  source until the list clears), slice8-r5-jvm-full.log +
+  slice8-r5-dart.log (referenced by the queued main-test
+  intermittent diagnosis).
+- Standing rule refined: collab/ = the ACTIVE progress view (magit);
+  archive/ = completed artifacts (local, gitignored by design). On
+  epic/round completion, archive the round's artifacts in the same
+  or a follow-up commit; keep only what open work references.
