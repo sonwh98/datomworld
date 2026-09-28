@@ -8035,3 +8035,13 @@ any implementation; collab/ remainder + hygiene).
 - State: artifacts uncommitted in collab/; awaiting owner go to
   dispatch migration slice 1 (GLM subagent per routing) and/or
   slice 2 (independent).
+
+## 2026-09-28 13:40:00 +0700 — OWNER RULING: collab/ artifacts stay committed as-is (incl. raw logs)
+
+- Owner flagged that collab/ got committed wholesale (slice 5 swept
+  118 files incl. 51 raw .stdout.log transcripts + .zcode/.opencode
+  tool-state; later commits followed). Offered forward-fix untrack
+  vs history scrub vs leave. OWNER: LEAVE AS IS. Convention going
+  forward: collab/ artifacts -- prompts, findings, AND raw logs --
+  are part of the documentation trace and may be committed; no
+  untracking, no history rewrite. Do not re-flag this.
