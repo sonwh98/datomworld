@@ -16,6 +16,7 @@
             [dao.stream :as stream]
             [dao.stream.rpc :as rpc]
             [dao.stream.ws :as ws]
+            [yin.repl :as repl]
             [yin.repl.serve :as serve]))
 
 
@@ -246,6 +247,30 @@
             [answers _cursor] (answers-since endpoint answers-cursor)]
         (is (= [(rpc/success-answer 1 "41") (rpc/success-answer 2 "42")]
                answers))))))
+
+
+(deftest a-served-host-function-renders-as-the-local-marker
+  (let [{:keys [endpoint]} (endpoint!)
+        endpoint (serve/step endpoint 1)
+        answers-cursor (:dao.stream/cursor (stream/cursor (:answers endpoint)
+                                                          stream/anchor-oldest))
+        lines ["+" "(require (quote dao.space.query))" "dao.space.query/q"]
+        local (second (reduce (fn [[state texts] line]
+                                (let [[state' text] (repl/eval-input state line)]
+                                  [state' (conj texts text)]))
+                              [(repl/create-state) []]
+                              lines))
+        endpoint (reduce (fn [endpoint [i line]]
+                           (eval! endpoint i line)
+                           (serve/step endpoint (+ 2 i)))
+                         endpoint
+                         (map-indexed vector lines))
+        [answers _cursor] (answers-since endpoint answers-cursor)]
+    (is (= "{:type :host-fn, :name '+}" (first local)))
+    (is (= "{:type :host-fn, :name 'dao.space.query/q}" (last local)))
+    (is (= (map-indexed rpc/success-answer local) answers)
+        "a served session renders every host function as a local one does")
+    (is (not-any? #(str/includes? % "#object[") (map :dao.stream.apply/ok answers)))))
 
 
 (deftest an-unknown-operation-is-a-portable-error-not-a-thrown-handler

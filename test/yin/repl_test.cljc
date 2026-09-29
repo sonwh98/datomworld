@@ -573,3 +573,69 @@
         (testing "then PHP, on the same session"
           (let [[_ texts] (results state' ["(lang :php)" "twice(21);" "inc2(3);"])]
             (is (= ["42" "5"] (rest texts)))))))))
+
+
+(deftest a-host-function-renders-as-a-named-portable-marker
+  (doseq [vm-type (keys repl/vm-constructors)]
+    (testing (str vm-type)
+      (let [[_ [plus _ q nested alias _ closure]]
+            (results (repl/create-state {:vm-type vm-type})
+                     ["+"
+                      "(require (quote dao.space.query))"
+                      "dao.space.query/q"
+                      "(conj [] + (assoc {} :f -))"
+                      "=="
+                      "(defn inc [i] (+ i 1))"
+                      "inc"])]
+        (is (= "{:type :host-fn, :name '+}" plus))
+        (is (= "{:type :host-fn, :name 'dao.space.query/q}" q))
+        (is (= "[{:type :host-fn, :name '+} {:f {:type :host-fn, :name '-}}]"
+               nested))
+        (is (= "{:type :host-fn, :name '=}" alias)
+            "an alias renders under its canonical name")
+        (is (str/starts-with? closure "{:type :closure")
+            "a data closure keeps its own rendering")
+        (is (not-any? #(str/includes? % "#object[")
+                      [plus q nested alias closure]))))))
+
+
+(deftest a-typed-value-renders-in-one-key-order-on-every-host
+  ;; kept under dao.pretty's 60-column ClojureDart budget, so every host
+  ;; prints it on one line
+  (is (= "{:type :closure, :entry 3, :params ['i], :segment -1}"
+         (repl/format-value
+           {:type :closure, :params ['i], :entry 3, :segment -1}))
+      ":type first, then the other keys in printed order, whatever the
+       host's map iteration order")
+  (is (= "{:b {:type :x, :z 2}}"
+         (repl/format-value (sorted-map :b {:z 2 :type :x})))
+      "a typed map nested in an untyped one is ordered too")
+  (is (= "{1 2}" (repl/format-value (sorted-map 1 2)))
+      "a sorted map whose keys don't compare with :type still renders"))
+
+
+(deftest a-host-function-without-a-known-name-renders-nameless
+  (is (= "{:type :host-fn}" (repl/format-value inc)))
+  (is (= "[{:type :host-fn} 1]" (repl/format-value [inc 1]))))
+
+
+(deftest a-host-function-inside-a-quoted-form-renders-as-the-marker
+  (is (= "'{:type :host-fn}" (repl/format-value (list 'quote inc))))
+  (is (= "'[a {:type :host-fn} {:k '{:type :host-fn}}]"
+         (repl/format-value (list 'quote ['a inc {:k (list 'quote dec)}])))
+      "symbols inside the quote stay as they are; host functions at any
+       depth, nested quotes included, become the marker"))
+
+
+(deftest map-entries-whose-rendered-keys-coincide-all-render
+  (is (= "{{:type :host-fn} 1, {:type :host-fn} 2}"
+         (repl/format-value {inc 1, dec 2}))
+      "two distinct nameless host functions as keys")
+  (is (= "{:type :x, {:type :host-fn} 1, {:type :host-fn} 2}"
+         (repl/format-value {:type :x, inc 1, dec 2}))
+      "the same inside a typed map")
+  (is (= "{'a 1, 'a 2}" (repl/format-value {'a 1, (list 'quote 'a) 2}))
+      "a symbol and a quoted-symbol list render alike")
+  (is (= "{:type :x, 'a 1, 'a 2}"
+         (repl/format-value {:type :x, 'a 1, (list 'quote 'a) 2}))
+      "the same inside a typed map"))

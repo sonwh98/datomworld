@@ -281,20 +281,137 @@
 ;; Rendering
 ;; =============================================================================
 
-(defn- quote-symbols
+(defn- host-fn-namer
+  "A function from a host function to the name `vm` binds it under — a
+   primitive's name, or `module/export` for a host module's export — or nil.
+   Lookup is by identity against the VM's own tables, never host
+   reflection, so every host names a function the same way."
+  [vm]
+  (let [primitives (:primitives vm)
+        canonical (:primitive-canonical-names vm vm/primitive-canonical-names)
+        exports (for [[module-name entry] (module/module-entries (:modules vm))
+                      [sym f] (if (contains? entry :bindings)
+                                (:bindings entry)
+                                (:slice entry))
+                      :when (fn? f)]
+                  [f (symbol (str module-name) (str sym))])]
+    (fn [f]
+      (let [n (when primitives (vm/name-of primitives canonical f))]
+        (if (symbol? n)
+          n
+          (some (fn [[g export-name]] (when (identical? f g) export-name))
+                exports))))))
+
+
+(defn- typed-key-compare
+  [a b]
+  (cond (= a b) 0
+        (= :type a) -1
+        (= :type b) 1
+        :else (compare (pr-str a) (pr-str b))))
+
+
+(defn- typed-map
+  "A `:type`-tagged value — `{:type :closure ...}`, `{:type :host-fn ...}` —
+   prints `:type` first, then its other keys in printed order. Map
+   iteration order is host-dependent (ClojureDart's small maps don't keep
+   insertion order), so a fixed order is what makes the rendered text the
+   same on every host."
+  [entries]
+  (into (sorted-map-by typed-key-compare) entries))
+
+
+(defn- host-fn-marker
+  "A host function renders as `{:type :host-fn :name '<name>}`, shaped like
+   a data closure's `{:type :closure ...}` so the two read side by side and
+   `:type` tells them apart. The host object itself never prints: its form
+   differs per host and leaks class names and addresses."
+  [namer f]
+  (let [n (when namer (namer f))]
+    (typed-map (cond-> [[:type :host-fn]] n (conj [:name (list 'quote n)])))))
+
+
+(defn- rendered-text
   [x]
-  (cond (symbol? x) (list 'quote x)
-        (vector? x) (mapv quote-symbols x)
+  (str/trimr (pretty/pp-str x)))
+
+
+(deftype DisplayKey
+  [text rank]
+  #?@(:cljd [cljd.core/IPrint (-print [_ sink] (.write sink text))]
+      :cljs [IPrintWithWriter (-pr-writer [_ writer _opts] (-write writer text))]))
+
+
+#?(:cljd nil
+   :clj (defmethod print-method DisplayKey
+          [k ^java.io.Writer w]
+          (.write w ^String (.-text ^DisplayKey k))))
+
+
+(defn- display-order
+  [[type-a key-a value-a] [type-b key-b value-b]]
+  (let [c (compare type-a type-b)]
+    (if-not (zero? c)
+      c
+      (let [c (compare key-a key-b)]
+        (if (zero? c) (compare value-a value-b) c)))))
+
+
+(defn- display-map
+  "Rendering can make distinct keys coincide — two nameless host functions
+   become one marker, a symbol and a quoted-symbol list print alike — and a
+   map built on the rendered keys would drop entries. Here each key becomes
+   a `DisplayKey` that prints its rendered text and orders by its rank:
+   `:type` first, then key text, then value text."
+  [entries]
+  (let [rows (sort display-order
+                   (map (fn [[k v]]
+                          [(if (= :type k) 0 1) (rendered-text k) (rendered-text v) v])
+                        entries))]
+    (into (sorted-map-by #(compare (.-rank ^DisplayKey %1)
+                                   (.-rank ^DisplayKey %2)))
+          (map-indexed (fn [i [_ text _ v]] [(DisplayKey. text i) v]) rows))))
+
+
+(defn- render-map
+  [typed? entries]
+  (let [ks (map first entries)]
+    (cond (and (seq entries)
+               (not (and (apply distinct? ks)
+                         (apply distinct? (map pr-str ks)))))
+          (display-map entries)
+          typed? (typed-map entries)
+          :else (into {} entries))))
+
+
+(defn- quote-symbols
+  "`quoted?` is true inside a `(quote ...)` form: its symbols print as they
+   are, but host functions at any depth still become the marker."
+  [namer quoted? x]
+  (cond (symbol? x) (if quoted? x (list 'quote x))
+        (fn? x) (host-fn-marker namer x)
+        (vector? x) (mapv #(quote-symbols namer quoted? %) x)
         (map? x)
-        (into {} (map (fn [[k v]] [(quote-symbols k) (quote-symbols v)]) x))
+        (render-map
+          ;; not `contains?`: on a sorted map with non-keyword keys it throws
+          (some #(= :type (key %)) x)
+          (map (fn [[k v]]
+                 [(quote-symbols namer quoted? k)
+                  (quote-symbols namer quoted? v)])
+               x))
         (or (list? x) (seq? x))
-        (if (= 'quote (first x)) x (map quote-symbols x))
+        (if (= 'quote (first x))
+          (apply list (map #(quote-symbols namer true %) x))
+          (map #(quote-symbols namer quoted? %) x))
         :else x))
 
 
 (defn format-value
-  [value]
-  (str/trimr (pretty/pp-str (quote-symbols value))))
+  "Render `value` for the REPL. `namer` (see `host-fn-namer`) names host
+   functions; without one they render nameless."
+  ([value] (format-value value nil))
+  ([value namer]
+   (rendered-text (quote-symbols namer false value))))
 
 
 (defn format-error
@@ -813,7 +930,7 @@
     (if (seq current)
       (let [value (:value (peek current))]
         [(record-last-value state state'' value)
-         (str output-text (format-value value))])
+         (str output-text (format-value value (host-fn-namer (:vm state''))))])
       [state''
        (str output-text "Error: " result-loss-text
             (when (and append (not= :dao.stream/ok append))
