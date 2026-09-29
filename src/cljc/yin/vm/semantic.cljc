@@ -459,11 +459,12 @@
                        {:keys [call-in]}
                        (ffi/require-call-pair! (:resources vm) ffi-op)
                        vm' (put-registers vm seg pc val St' E K)
+                       call-id (ffi/call-id vm' (engine/park-id vm'))
                        parked (engine/park-continuation
                                 vm'
                                 {:segment seg, :pc (inc pc),
-                                 :env E, :stack St', :k K})
-                       call-id (get-in parked [:value :id])
+                                 :env E, :stack St', :k K}
+                                call-id)
                        request (apply2/request call-id ffi-op args)
                        result (apply2/put-request! call-in request)]
                    (case (:dao.stream/outcome result)
@@ -889,6 +890,7 @@
      :make-stream   (fn [capacity] -> create outcome); no default
      :call-in       explicit inbound request handle
      :call-out      explicit outbound response handle
+     :call-out-cursor, :ffi-caller-id  `yin.vm/empty-state`'s
      :call-capacity capacity for a constructed FFI pair
      :bridge        host FFI handlers
 
@@ -908,6 +910,7 @@
                                     [:primitives :primitive-profiles
                                      :primitive-canonical-names :modules
                                      :make-stream :call-in :call-out
+                                     :call-out-cursor :ffi-caller-id
                                      :call-capacity :link-request
                                      :link-response :origin :ancestry
                                      :capability-secret :secret-source

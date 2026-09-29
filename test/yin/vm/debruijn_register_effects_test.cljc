@@ -417,6 +417,25 @@
       (is (= :wait-resource (:rule (effects/wait-entry-defect bad-op))))
       (is (= :wait-resource (:rule (effects/wait-entry-defect bad-call-id))))))
 
+  (testing "ffi entries accept a composite [caller-token local-id] call id"
+    (let [{:keys [ffi-writer ffi-reader]} (make-valid-wait-entries)
+          id ["tenure-1" :parked-0]
+          writer (assoc ffi-writer
+                        :call-id id
+                        :datom (apply2/request id :math/add [1 2]))]
+      (is (nil? (effects/wait-entry-defect writer)))
+      (is (nil? (effects/wait-entry-defect (assoc ffi-reader :call-id id))))
+      (doseq [bad [["tenure-1" 0] ["" :parked-0] [:t :parked-0 :x] "call-1"]]
+        (is (= {:rule :wait-resource, :field :call-id}
+               (effects/wait-entry-defect (assoc ffi-reader :call-id bad)))
+            (pr-str bad))
+        (is (= {:rule :wait-resource, :field :call-id}
+               (effects/wait-entry-defect
+                 (assoc writer
+                        :call-id bad
+                        :datom (apply2/request bad :math/add [1 2]))))
+            (pr-str bad)))))
+
   (testing "ffi entries require correct reason"
     (let [entries (make-valid-wait-entries)
           writer (:ffi-writer entries)

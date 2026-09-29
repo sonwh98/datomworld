@@ -227,7 +227,8 @@
    defaults to `{}` here whereas `yin.vm/empty-state` populates the full
    primitive table; callers pass `yin.vm/primitives` when they want the
    standard registry), `:make-stream` (the host's stream constructor; no
-   for every v2 VM), `:call-in`/`:call-out`/`:call-capacity` (the FFI pair,
+   for every v2 VM), `:call-in`/`:call-out`/`:call-out-cursor`/
+   `:ffi-caller-id`/`:call-capacity` (the FFI pair,
    built by `yin.vm/empty-state` exactly as the semantic VM's is), and
    `:bridge` (host FFI handlers, attached by `yin.vm.ffi/attach`), and
    `:contract`, the segment's stamp, required when `segment` is non-empty
@@ -246,7 +247,8 @@
   ([segment opts]
    (let [base (vm/empty-state
                 (assoc (select-keys opts [:modules :make-stream :call-in
-                                          :call-out :call-capacity
+                                          :call-out :call-out-cursor
+                                          :ffi-caller-id :call-capacity
                                           :link-request :link-response
                                           :origin :ancestry
                                           :capability-secret :secret-source
@@ -276,6 +278,7 @@
             :ready-queue [],
             :parked {},
             :id-counter 0,
+            :ffi-caller-id (:ffi-caller-id base),
             :value nil,
             :make-stream (:make-stream base),
             :bridge nil,
@@ -470,9 +473,10 @@
         ;; consume an id counter.
         {:keys [call-in]} (ffi/require-call-pair! resources op)
         regs (registers vm (inc pc) stack')
+        call-id (ffi/call-id vm (engine/park-id vm))
         parked (engine/park-continuation (assoc vm :pc (inc pc) :stack stack')
-                                         regs)
-        call-id (get-in parked [:value :id])
+                                         regs
+                                         call-id)
         request (apply2/request call-id op args)
         result (apply2/put-request! call-in request)
         blocked (fn [entry]

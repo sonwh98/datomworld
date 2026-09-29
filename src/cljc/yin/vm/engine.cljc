@@ -30,8 +30,10 @@
   (:require [clojure.set]
             [dao.jing :as jing]
             [dao.stream :as stream]
+            [dao.stream.apply :as apply2]
             [dao.stream.waitset :as waitset]
             [yin.vm :as vm]
+            [yin.vm.ffi :as ffi]
             [yin.vm.linker :as linker]
             [yin.vm.module :as module]
             [yin.vm.telemetry :as telemetry]))
@@ -1308,6 +1310,180 @@
           (keys (:installs state))))
 
 
+;; =============================================================================
+;; FFI response routing
+;; =============================================================================
+;;
+;; Several callers may read one call-out, and one VM may wait on several
+;; response cells (its own call-out cursor, and the carried cells of
+;; lowered retained calls). The generic sweep delivers positionally -- a
+;; woken reader takes whatever value its cell holds next -- and
+;; `yin.vm.ffi/call-result` could only check the id after the value was
+;; consumed. The router matches before consuming: per response cell it
+;; reads a bounded run of values, advances the cell on every `ok`, and
+;; wakes only the waiter whose call id the response names. A response
+;; for no live waiter is discarded with a diagnostic; `call-result`
+;; stays the final validation of the matched envelope.
+
+(def ffi-response-budget
+  "How many values the router reads from one response cell per wait-set
+   check. A run of other callers' responses longer than this is read
+   across later checks."
+  64)
+
+
+(def ^:private ffi-diagnostics-cap
+  "How many unmatched-response diagnostics a VM keeps. A shared call-out
+   carries every caller's responses, so skipping others' is ordinary
+   traffic: the record is bounded, oldest dropped."
+  64)
+
+
+(defn- ffi-response-entry?
+  "True for a parked FFI response reader the router polls."
+  [entry]
+  (and (some? (ffi/response-call-id entry))
+       (map? (:cursor-ref entry))))
+
+
+(defn- ffi-skip
+  "Record a response read off `cell` that no live waiter owns."
+  [state cell v]
+  (let [id (apply2/response-id v)
+        d (if (some? id)
+            {:kind :unmatched, :response-id id, :cell cell}
+            {:kind :malformed, :cell cell})]
+    (-> state
+        (update :ffi-diagnostics
+                (fn [ds]
+                  (let [ds (conj (vec ds) d)]
+                    (if (> (count ds) ffi-diagnostics-cap)
+                      (subvec ds (- (count ds) ffi-diagnostics-cap))
+                      ds))))
+        (telemetry/emit-snapshot :ffi-skip d))))
+
+
+(defn take-ffi-diagnostics
+  "Return `[diagnostics state']`: the responses the router discarded
+   since the last take, oldest first, and the state without them."
+  [state]
+  [(vec (:ffi-diagnostics state)) (dissoc state :ffi-diagnostics)])
+
+
+(defn- read-response
+  "One read of a response cell, folded as `dao.stream.waitset` folds its
+   own reads: an answer the contract cannot vouch for, or a throw, is
+   `:dao.stream.waitset/invalid-answer`."
+  [handle cursor]
+  (try
+    (let [r (stream/next handle cursor)
+          defect (stream/validate-outcome :next r)]
+      (if (and defect (not= :unauthorized-outcome (:error defect)))
+        {:dao.stream/outcome :dao.stream.waitset/invalid-answer}
+        r))
+    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+      {:dao.stream/outcome :dao.stream.waitset/invalid-answer})))
+
+
+(defn- poll-ffi-cell
+  "Route one response cell: read at most `budget` values from its
+   cursor, waking each waiter in `entries` whose call id a response
+   names. A response whose id belongs to a woken request writer that has
+   not yet become a reader (`pending`) stops the run without being
+   consumed, so it is read again once that reader waits. `end` wakes the
+   remaining waiters as `::ffi/response-ended`, `gap` as
+   `::ffi/response-gap`; any other outcome wakes them under its own
+   keyword, as the generic sweep would. Returns `[state waiting woken]`,
+   woken as `dao.stream.waitset` results."
+  [state cell-key entries pending budget]
+  (let [cell (get (:resources state) cell-key)
+        handle (when (map? cell) (get (:resources state) (:stream-id cell)))]
+    (if (nil? handle)
+      [state []
+       (mapv (fn [e] {:entry e, :status :dao.stream.waitset/unresolved})
+             entries)]
+      (loop [state state
+             cursor (:cursor cell)
+             waiting entries
+             woken []
+             n 0]
+        (let [done (fn [state cursor waiting woken]
+                     [(assoc-in state [:resources cell-key :cursor] cursor)
+                      waiting woken])
+              wake-all (fn [status value]
+                         (into woken
+                               (map (fn [e]
+                                      {:entry e,
+                                       :status status,
+                                       :value value}))
+                               waiting))]
+          (if (or (empty? waiting) (>= n budget))
+            (done state cursor waiting woken)
+            (let [r (read-response handle cursor)
+                  o (outcome r)]
+              (case o
+                :dao.stream/ok
+                (let [v (:dao.stream/value r)
+                      id (apply2/response-id v)
+                      owner (when (some? id)
+                              (first (filter #(= id (ffi/response-call-id %))
+                                             waiting)))]
+                  (cond
+                    owner (recur state
+                                 (:dao.stream/cursor r)
+                                 (filterv #(not (identical? owner %)) waiting)
+                                 (conj woken
+                                       {:entry owner, :status :ok, :value v})
+                                 (inc n))
+                    (and (some? id) (contains? pending id))
+                    (done state cursor waiting woken)
+                    :else (recur (ffi-skip state cell-key v)
+                                 (:dao.stream/cursor r)
+                                 waiting
+                                 woken
+                                 (inc n))))
+                :dao.stream/blocked (done state cursor waiting woken)
+                :dao.stream/end
+                (done state cursor [] (wake-all ::ffi/response-ended nil))
+                :dao.stream/gap
+                (done state
+                      (:dao.stream/cursor r)
+                      []
+                      (wake-all ::ffi/response-gap :dao.stream/gap))
+                (done state cursor [] (wake-all o o))))))))))
+
+
+(defn- poll-ffi-responses
+  "Route every parked FFI response reader, per response cell in wait-set
+   order -- the call-out cursor and the carried cells of lowered
+   retained calls alike. Returns the state with the still-waiting readers
+   appended to `others` and the woken ones queued."
+  [state entries others]
+  (if (empty? entries)
+    state
+    (let [pending (into #{}
+                        (keep ffi/request-call-id)
+                        (:ready-queue state))
+          cells (distinct (map #(:id (:cursor-ref %)) entries))
+          [state waiting woken]
+          (reduce (fn [[state waiting woken] cell-key]
+                    (let [[state w k] (poll-ffi-cell
+                                        state
+                                        cell-key
+                                        (filterv #(= cell-key
+                                                     (:id (:cursor-ref %)))
+                                                 entries)
+                                        pending
+                                        ffi-response-budget)]
+                      [state (into waiting w) (into woken k)]))
+                  [state [] []]
+                  cells)]
+      (-> state
+          (assoc :wait-set (into (vec others) waiting))
+          (update :ready-queue (fnil into [])
+                  (make-woken-run-queue-entries state woken))))))
+
+
 (defn check-wait-set
   "Check wait-set entries against their transports.
 
@@ -1338,7 +1514,11 @@
    own kept cursor to the response carrying its id, and an `:install`
    waits on its install child. The install children are then stepped in
    this same round (section 7.3), so a child that halts restores its
-   waiters here; nothing about a child runs inside a restore."
+   waiters here; nothing about a child runs inside a restore.
+
+   The FFI response readers are routed next, also outside the stream
+   sweep (`poll-ffi-responses`): a response wakes the reader whose call
+   id it names, never whichever reader its cell reached first."
   [state]
   (let [wait-set (:wait-set state)]
     (if (and (empty? wait-set) (empty? (:installs state)))
@@ -1347,7 +1527,12 @@
                               (filterv link-entry? wait-set)
                               (remove link-entry? wait-set))
             wait-set (:wait-set state)
-            streams (filterv (complement link-entry?) wait-set)
+            state (poll-ffi-responses state
+                                      (filterv ffi-response-entry? wait-set)
+                                      (remove ffi-response-entry? wait-set))
+            wait-set (:wait-set state)
+            engine-polled? (some-fn link-entry? ffi-response-entry?)
+            streams (filterv (complement engine-polled?) wait-set)
             {:keys [woken store], :as result}
             (waitset/check {:waiting streams}
                            waitset-resolver
@@ -1355,7 +1540,7 @@
             v (assoc state
                      :resources store
                      :wait-set (into (:waiting (:waitset result))
-                                     (filter link-entry?)
+                                     (filter engine-polled?)
                                      wait-set))]
         (update v
                 :ready-queue (fnil into [])
@@ -1409,6 +1594,7 @@
     (cond
       (contains? waitset-diagnostics status) status
       (= :link-refused status) status
+      (contains? ffi/response-loss-statuses status) status
       (contains? #{:next :put} (:reason entry))
       (when (contains? (get wake-error-outcomes (:reason entry)) status)
         status))))
@@ -1427,6 +1613,9 @@
     (fail (str "Module link refused: "
                (clojure.core/name (or (:reason (:refusal entry)) :refused)))
           (assoc (:refusal entry) :link-module (:name entry)))
+    ;; an FFI response stream that can no longer answer this call
+    (contains? ffi/response-loss-statuses o)
+    (ffi/throw-response-lost! (ffi/response-call-id entry) o)
     (= :next (:reason entry))
     (fail "Stream read failed"
           {:outcome o,
@@ -1485,18 +1674,30 @@
     (or (resume-from-run-queue v' restore-fn) v')))
 
 
+(defn park-id
+  "The local park id the next `park-continuation` mints: `:parked-N` from
+   this VM's own counter, unique within the VM only."
+  [state]
+  (keyword (str "parked-" (or (:id-counter state) 0))))
+
+
 (defn park-continuation
-  "Add a parked continuation entry and halt the VM."
-  [state cont-fields]
-  (let [id-counter (or (:id-counter state) 0)
-        park-id (keyword (str "parked-" id-counter))
-        parked (merge {:type :parked-continuation, :id park-id} cont-fields)]
-    (-> state
-        (update :parked assoc park-id parked)
-        (assoc :value parked
-               :halted? true
-               :id-counter (inc id-counter))
-        (telemetry/emit-snapshot :park {:parked-id park-id}))))
+  "Add a parked continuation entry and halt the VM.
+
+   With `id`, that id is both the `:parked` map key and the entry's `:id`
+   -- an FFI call parks under its call id (`yin.vm.ffi/call-id`), so one
+   id is retained and correlated, never a second mapping. The counter
+   advances either way, so the local half of the next id stays fresh."
+  ([state cont-fields] (park-continuation state cont-fields (park-id state)))
+  ([state cont-fields id]
+   (let [id-counter (or (:id-counter state) 0)
+         parked (merge {:type :parked-continuation, :id id} cont-fields)]
+     (-> state
+         (update :parked assoc id parked)
+         (assoc :value parked
+                :halted? true
+                :id-counter (inc id-counter))
+         (telemetry/emit-snapshot :park {:parked-id id})))))
 
 
 (defn resume-continuation

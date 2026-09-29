@@ -76,6 +76,8 @@
    capability-secret ; this task's secret; every reference is sealed by it
    secret-source  ; the composition's minting of child task secrets
    attach-stream  ; the composition's attacher for lowered streams
+   ffi-caller-id  ; caller token of this VM's FFI call ids, or nil
+   ffi-diagnostics ; FFI responses the router skipped, not yet taken
    ])
 
 
@@ -127,7 +129,9 @@
                    (:link-diagnostics vm)
                    (:capability-secret vm)
                    (:secret-source vm)
-                   (:attach-stream vm))))
+                   (:attach-stream vm)
+                   (:ffi-caller-id vm)
+                   (:ffi-diagnostics vm))))
 
 
 (defn- closure-of
@@ -197,8 +201,10 @@
   [state op args k env]
   (let [{:keys [call-in]} (ffi/require-call-pair! (:resources state) op)
         response-cont {:type :dao.stream.apply/eval-call, :next k, :env env}
-        parked (engine/park-continuation state {:k response-cont, :env env})
-        parked-id (get-in parked [:value :id])
+        parked-id (ffi/call-id state (engine/park-id state))
+        parked (engine/park-continuation state
+                                         {:k response-cont, :env env}
+                                         parked-id)
         request (apply2/request parked-id op (vec args))
         result (apply2/put-request! call-in request)]
     (case (:dao.stream/outcome result)
@@ -1023,6 +1029,7 @@
      :make-stream   (fn [capacity] -> create outcome); no default
      :call-in       explicit inbound request handle
      :call-out      explicit outbound response handle
+     :call-out-cursor, :ffi-caller-id  `yin.vm/empty-state`'s
      :call-capacity capacity for a constructed FFI pair
      :bridge        host FFI handlers
 
@@ -1046,6 +1053,7 @@
                                     [:primitives :primitive-profiles
                                      :primitive-canonical-names :modules
                                      :make-stream :call-in :call-out
+                                     :call-out-cursor :ffi-caller-id
                                      :call-capacity :link-request
                                      :link-response :origin :ancestry
                                      :capability-secret :secret-source

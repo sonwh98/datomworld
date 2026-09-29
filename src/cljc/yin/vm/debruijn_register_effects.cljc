@@ -409,7 +409,7 @@
                         {:rule :wait-resource, :field :reason})
                       (when-not (= vm/call-in-stream-key (:stream-id entry))
                         {:rule :wait-resource, :field :stream-id})
-                      (when-not (keyword? (:call-id entry))
+                      (when-not (vm/ffi-call-id? (:call-id entry))
                         {:rule :wait-resource, :field :call-id})
                       (when-not (keyword? (:op entry))
                         {:rule :wait-resource, :field :op})
@@ -429,7 +429,7 @@
                         {:rule :wait-resource, :field :reason})
                       (when-not (= vm/call-out-stream-key (:stream-id entry))
                         {:rule :wait-resource, :field :stream-id})
-                      (when-not (keyword? (:call-id entry))
+                      (when-not (vm/ffi-call-id? (:call-id entry))
                         {:rule :wait-resource, :field :call-id})
                       (let [c (:cursor-ref entry)]
                         (when-not (and (map? c)

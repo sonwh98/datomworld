@@ -300,6 +300,8 @@
      :capability-secret secret,
      :call-in call-in,
      :call-out call-out,
+     ;; the composition mints a supplied call-out's cursor
+     :call-out-cursor (vm/mint-oldest call-out :test),
      :bridge bridge}))
 
 

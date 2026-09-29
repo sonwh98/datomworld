@@ -62,11 +62,16 @@
   ([segment] (make-vm segment {}))
   ([segment opts]
    (dvm/create-vm segment
-                  (merge {:make-stream tu/make-stream,
-                          :capability-secret tu/secret
-                          :primitives vm/primitives,
-                          :contract vm/stack-contract}
-                         opts))))
+                  (cond-> (merge {:make-stream tu/make-stream,
+                                  :capability-secret tu/secret
+                                  :primitives vm/primitives,
+                                  :contract vm/stack-contract}
+                                 opts)
+                    ;; a supplied call-out needs the cursor a composition
+                    ;; mints: `:oldest`, as construction minted it before
+                    (:call-out opts)
+                    (assoc :call-out-cursor
+                           (vm/mint-oldest (:call-out opts) :test))))))
 
 
 (defn- run-segment
@@ -539,9 +544,11 @@
           call-out (get (:resources parked) vm/call-out-stream-key)]
       (apply2/put-response! call-out
                             (apply2/success-response [:other call-id] 1))
-      (let [data (throws-ex-data (fn [] (vm/run parked)))]
-        (is (= call-id (:call-id data)))
-        (is (= [:other call-id] (:response-id data)))))))
+      (let [still (vm/run parked)]
+        (is (vm/blocked? still) "skipped, never this call's value")
+        (is (= call-id (:call-id (first (:wait-set still)))))
+        (apply2/put-response! call-out (apply2/success-response call-id 2))
+        (is (= 2 (vm/value (vm/run still))) "its own response resumes it")))))
 
 
 (defn- gated-call-in

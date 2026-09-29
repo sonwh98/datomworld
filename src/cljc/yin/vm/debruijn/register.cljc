@@ -250,7 +250,8 @@
 (defn create-vm
   "Build a fresh `DebruijnRegisterVM` over `segment`.
    Options: `:free-env`, `:store`, `:primitives`, `:modules`, `:make-stream`,
-   `:call-in`/`:call-out`/`:call-capacity`, `:bridge`, and `:contract`, the
+   `:call-in`/`:call-out`/`:call-out-cursor`/`:ffi-caller-id`/
+   `:call-capacity`, `:bridge`, and `:contract`, the
    segment's stamp, required when `segment` is non-empty (`load-image`). A
    `:free-env`, `:store`, or `:primitives` binding a reserved name is
    refused (Rule R). `:link-request`/`:link-response` (the link pair
@@ -260,7 +261,8 @@
   ([segment opts]
    (let [base (vm/empty-state
                 (assoc (select-keys opts [:modules :make-stream :call-in
-                                          :call-out :call-capacity
+                                          :call-out :call-out-cursor
+                                          :ffi-caller-id :call-capacity
                                           :link-request :link-response
                                           :origin :ancestry
                                           :capability-secret :secret-source
@@ -290,6 +292,7 @@
             :ready-queue [],
             :parked {},
             :id-counter 0,
+            :ffi-caller-id (:ffi-caller-id base),
             :value nil,
             :make-stream (:make-stream base),
             :bridge nil,
@@ -477,8 +480,8 @@
         args (mapv #(nth registers %) arg-regs)
         {:keys [call-in]} (ffi/require-call-pair! resources op)
         payload (payload-of vm inst)
-        parked (engine/park-continuation (assoc vm :pc (inc pc)) payload)
-        call-id (get-in parked [:value :id])
+        call-id (ffi/call-id vm (engine/park-id vm))
+        parked (engine/park-continuation (assoc vm :pc (inc pc)) payload call-id)
         request (apply2/request call-id op args)
         result (apply2/put-request! call-in request)
         blocked (fn [entry]

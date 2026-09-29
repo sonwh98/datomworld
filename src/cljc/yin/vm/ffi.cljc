@@ -22,7 +22,9 @@
      it beats hanging.
 
    Waiters are gone: `park-and-call` places its continuation in the polling
-   wait set and the ordinary scheduler wakes it when the response lands."
+   wait set, and the engine's FFI response router wakes it when the
+   response naming its call id lands. A call id is scoped to its caller
+   (`call-id`), since one call-out may carry several callers' responses."
   (:require [dao.data :as data]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
@@ -48,6 +50,75 @@
   (or (call-pair resources)
       (throw (ex-info "This VM was constructed without an FFI call pair, so it cannot make a dao.stream.apply call"
                       {:what what}))))
+
+
+(defn call-id
+  "The id of the FFI call a VM is about to park, given the local park id
+   `yin.vm.engine/park-id` answers for it: `[caller-token local-id]` when
+   the VM was built with `:ffi-caller-id`, else `local-id` itself. The
+   call parks under this id and its request carries it, so a response on
+   a call-out shared by several callers correlates to exactly one call."
+  [state local-id]
+  (if-some [token (:ffi-caller-id state)]
+    [token local-id]
+    local-id))
+
+
+(defn response-call-id
+  "The call id a parked FFI response reader waits for, or nil when
+   `entry` is no such reader. Both VM shapes: semantic, stack and
+   register place `:call-id` on the entry; the walker nests it in its
+   `:dao.stream.apply/eval-call` continuation."
+  [entry]
+  (when (= :next (:reason entry))
+    (let [k (:k entry)]
+      (or (:call-id entry)
+          (when (and (map? k) (= :dao.stream.apply/eval-call (:type k)))
+            (:call-id k))))))
+
+
+(defn request-call-id
+  "The call id of a retained FFI request writer, or nil: the entry that,
+   once its append lands and it is restored, becomes the reader for that
+   id. Both VM shapes, as `response-call-id`."
+  [entry]
+  (let [k (:k entry)]
+    (cond (:request-sent entry) (:call-id entry)
+          (and (map? k) (= :dao.stream.apply/request-sent (:type k)))
+          (:parked-id k))))
+
+
+(def response-loss-statuses
+  "The wake statuses of an FFI response reader whose response stream
+   can no longer answer it: it ended, or it lost values to a gap."
+  #{::response-ended ::response-gap})
+
+
+(defn response-lost
+  "The portable apply error for a call whose response stream ended
+   (`::response-ended`) or skipped over evicted values (`::response-gap`)
+   before this call was answered. Both carry the terminal code
+   `:dao.stream.apply/ended`; `::loss` tells them apart. The caller
+   reports only the loss it observed -- it cannot know why the responder
+   closed the stream or what the gap held."
+  [call-id status]
+  (let [gap? (= ::response-gap status)]
+    {:call-id call-id,
+     :error {:dao.stream.apply/code :dao.stream.apply/ended,
+             :dao.stream.apply/message
+             (if gap?
+               "FFI response stream lost values to a gap before this call was answered"
+               "FFI response stream ended before this call was answered"),
+             ::loss (if gap? :dao.stream/gap :dao.stream/end)}}))
+
+
+(defn throw-response-lost!
+  "Raise `response-lost` as `call-result` raises an apply error."
+  [call-id status]
+  (let [data (response-lost call-id status)]
+    (throw (ex-info (str "FFI call failed: "
+                         (get-in data [:error :dao.stream.apply/message]))
+                    data))))
 
 
 (defn call-response-wait-entry

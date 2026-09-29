@@ -487,6 +487,30 @@
   :yin/call-out-cursor)
 
 
+(defn ffi-caller-id?
+  "True when `x` is a caller token a composition may pass as
+   `:ffi-caller-id`: a non-blank string or a keyword. The token is the
+   first half of every FFI call id this VM mints, so it travels in apply
+   request and response maps and in UCF frames -- it must be plain data
+   (`plain-data?`) and survive the channel codec, which rules out host
+   objects and uuids."
+  [x]
+  (or (keyword? x)
+      (and (string? x) (some? (re-find #"\S" x)))))
+
+
+(defn ffi-call-id?
+  "True when `x` is an FFI call id a VM mints: the bare local park id
+   (a keyword) of a VM built without `:ffi-caller-id`, or the composite
+   `[caller-token local-park-id]` of one built with it."
+  [x]
+  (or (keyword? x)
+      (and (vector? x)
+           (= 2 (count x))
+           (ffi-caller-id? (nth x 0))
+           (keyword? (nth x 1)))))
+
+
 (def default-call-capacity
   "Capacity of the FFI request/response pair when the composition does not
    declare one.
@@ -1935,6 +1959,19 @@
      :make-stream  (fn [capacity] -> create outcome); no default
      :call-in      explicit inbound request handle
      :call-out     explicit outbound response handle
+     :call-out-cursor the opaque cursor this VM reads a supplied `:call-out`
+                   from, minted by the composition (trusted, installed
+                   as is). Required with a supplied `:call-out`: a
+                   supplied response stream may be shared and remote,
+                   and an implicit `:oldest` mint there would scan
+                   history that is not this caller's
+                   (`yin.vm.ffi.remote-serve.caller` obtains a
+                   `:newest` one). Refused without a supplied `:call-out`.
+     :ffi-caller-id this VM's caller token (`ffi-caller-id?`), minted by
+                   the composition, unique per caller tenure of a call
+                   pair. With it every FFI call id is
+                   `[caller-token local-park-id]`; without it, the bare
+                   local park id
      :call-capacity capacity for a constructed FFI pair
      :vm-model     telemetry model keyword
      :telemetry    telemetry config {:stream <dao.stream writer> :vm-id <id>};
@@ -2014,6 +2051,17 @@
        (throw (ex-info "Half a call pair is not a call pair: supply both :call-in and :call-out, or :make-stream, or neither"
                        {:call-in? (some? supplied-in),
                         :call-out? (some? supplied-out)})))
+     (when (and supplied-out (not (contains? opts :call-out-cursor)))
+       (throw (ex-info "A supplied :call-out needs :call-out-cursor: the composition mints the cursor this VM reads a supplied response stream from"
+                       {:rule :call-out-cursor})))
+     (when (and (contains? opts :call-out-cursor) (nil? supplied-out))
+       (throw (ex-info ":call-out-cursor names a cursor on a supplied :call-out, and none was supplied"
+                       {:rule :call-out-cursor})))
+     (when (and (contains? opts :ffi-caller-id)
+                (not (ffi-caller-id? (:ffi-caller-id opts))))
+       (throw (ex-info ":ffi-caller-id must be a non-blank string or a keyword"
+                       {:rule :ffi-caller-id,
+                        :ffi-caller-id (:ffi-caller-id opts)})))
      (let [pair? (or (and supplied-in supplied-out) (fn? make-stream))
            close-quietly
            (fn [handle]
@@ -2042,9 +2090,12 @@
                                       h))]
                    {call-in-stream-key call-in,
                     call-out-stream-key call-out,
-                    call-out-cursor-key (cursor-entry call-out-stream-key
-                                                      (mint-oldest call-out
-                                                                   :call-out))})
+                    call-out-cursor-key (cursor-entry
+                                          call-out-stream-key
+                                          (if supplied-out
+                                            (:call-out-cursor opts)
+                                            (mint-oldest call-out
+                                                         :call-out)))})
                  (catch #?(:cljd Object :clj Throwable :cljs :default) e
                    (doseq [h @created] (close-quietly h))
                    (throw e)))))]
@@ -2059,6 +2110,7 @@
         :capability-secret (:capability-secret opts),
         :secret-source (:secret-source opts),
         :attach-stream (:attach-stream opts),
+        :ffi-caller-id (:ffi-caller-id opts),
         :parked {},
         :id-counter 0,
         :ready-queue [],

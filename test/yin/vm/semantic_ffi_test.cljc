@@ -8,6 +8,7 @@
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
+            [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
             [yin.vm.linearize :as linearize]
             [yin.vm.semantic :as semantic]
@@ -20,13 +21,6 @@
        (catch #?(:clj Exception :cljs js/Error :cljd Object) _ true)))
 
 
-(defn- throws-ex-data
-  [thunk]
-  (try (thunk) nil
-       (catch #?(:clj Exception :cljs js/Error :cljd Object) e
-         (or (ex-data e) {}))))
-
-
 ;; this suite is the AST's only producer: the trusted fresh path
 (def ^:private load-ast
   (vm/fresh-code-loader
@@ -36,8 +30,14 @@
 
 (defn- make-vm
   ([] (make-vm {}))
-  ([opts] (semantic/create-vm (merge {:make-stream tu/make-stream,
-                                      :capability-secret tu/secret} opts))))
+  ([opts] (semantic/create-vm
+            (cond-> (merge {:make-stream tu/make-stream,
+                            :capability-secret tu/secret} opts)
+              ;; a supplied call-out needs the cursor a composition mints:
+              ;; `:oldest`, as construction minted it before
+              (:call-out opts)
+              (assoc :call-out-cursor
+                     (vm/mint-oldest (:call-out opts) :test))))))
 
 
 (defn- run-ast
@@ -122,10 +122,40 @@
         call-id (:call-id (first (:wait-set parked)))
         call-out (get (:resources parked) vm/call-out-stream-key)]
     (apply2/put-response! call-out (apply2/success-response [:other call-id] 1))
-    (let [data (throws-ex-data (fn [] (resume parked)))]
-      (is (some? data) "A mis-correlated response is an error, not a value")
-      (is (= call-id (:call-id data)))
-      (is (= [:other call-id] (:response-id data))))))
+    (let [still (resume parked)]
+      (is (vm/blocked? still)
+          "A mis-correlated response is skipped, never this call's value")
+      (is (= call-id (:call-id (first (:wait-set still)))))
+      (is (= [{:kind :unmatched, :response-id [:other call-id],
+               :cell vm/call-out-cursor-key}]
+             (first (engine/take-ffi-diagnostics still))))
+      (apply2/put-response! call-out (apply2/success-response call-id 2))
+      (is (= 2 (vm/value (resume still))) "Its own response resumes it"))))
+
+
+(deftest a-response-for-a-woken-writer-is-left-for-its-reader-test
+  (let [parked (run-ast (make-vm {:ffi-caller-id "t"}) (call-ast :op/echo [1]))
+        mine (:call-id (first (:wait-set parked)))
+        other ["t" :parked-9]
+        call-out (get (:resources parked) vm/call-out-stream-key)
+        cell (get-in parked [:resources vm/call-out-cursor-key :cursor])
+        ;; a retained writer the sweep already woke: its request landed,
+        ;; and it is not yet restored as the reader of `other`
+        woken-writer {:request-sent true, :call-id other, :reason :put}]
+    (apply2/put-response! call-out (apply2/success-response other 9))
+    (apply2/put-response! call-out (apply2/success-response mine 1))
+    (let [checked (engine/check-wait-set
+                    (assoc parked :ready-queue [woken-writer]))]
+      (is (= [mine] (map :call-id (:wait-set checked)))
+          "the reader behind it keeps waiting")
+      (is (= cell (get-in checked [:resources vm/call-out-cursor-key :cursor]))
+          "the writer's response was not consumed")
+      (is (empty? (first (engine/take-ffi-diagnostics checked)))))
+    (let [checked (engine/check-wait-set parked)]
+      (is (empty? (:wait-set checked)) "with no such writer, it is skipped")
+      (is (= [mine] (map :call-id (:ready-queue checked))))
+      (is (= [other] (map :response-id
+                          (first (engine/take-ffi-diagnostics checked))))))))
 
 
 ;; =============================================================================

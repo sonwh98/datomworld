@@ -1,10 +1,17 @@
 (ns yin.vm.ffi-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.edn :as edn]
+            [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.debruijn-linearize :as dl]
+            [yin.vm.debruijn-register-compile :as rc]
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
             [yin.vm.ffi :as ffi]
+            [yin.vm.linearize :as linearize]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -12,6 +19,17 @@
   [thunk]
   (try (thunk) false
        (catch #?(:clj Exception :cljs js/Error :cljd Object) _ true)))
+
+
+(defn- create-vm-for-caller
+  "`ast-walker/create-vm`, handing a supplied `:call-out` the cursor its
+   caller's composition must now mint for it: `:oldest`, as construction
+   minted before the cursor became a composition input."
+  [opts]
+  (ast-walker/create-vm
+    (cond-> opts
+      (:call-out opts)
+      (assoc :call-out-cursor (vm/mint-oldest (:call-out opts) :test)))))
 
 
 (defn- call-ast
@@ -99,7 +117,7 @@
         outcomes (atom [:dao.stream/full :dao.stream/ok])
         call-in (tu/new-stream 8)
         call-out (scripted-writer outcomes)
-        vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+        vm0 (create-vm-for-caller {:make-stream tu/make-stream,
                                    :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out call-out})
@@ -128,7 +146,7 @@
 (deftest terminal-append-outcome-ends-the-bridge-test
   (let [call-in (tu/new-stream 8)
         call-out (scripted-writer (atom [:dao.stream/closed]))
-        vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+        vm0 (create-vm-for-caller {:make-stream tu/make-stream,
                                    :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out call-out})
@@ -150,7 +168,7 @@
 (deftest gap-at-the-bridge-cursor-is-fatal-test
   (testing "An evicted request can never be answered, so it is reported"
     (let [call-in (tu/new-stream 2)
-          vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+          vm0 (create-vm-for-caller {:make-stream tu/make-stream,
                                      :capability-secret tu/secret
                                      :call-in call-in,
                                      :call-out (tu/new-stream 8),
@@ -161,7 +179,7 @@
 
 (deftest end-on-the-request-stream-terminates-test
   (let [call-in (tu/new-stream 4)
-        vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+        vm0 (create-vm-for-caller {:make-stream tu/make-stream,
                                    :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out (tu/new-stream 4),
@@ -173,7 +191,7 @@
 (deftest malformed-request-without-an-id-is-a-diagnostic-test
   (let [call-in (tu/new-stream 4)
         call-out (tu/new-stream 4)
-        vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+        vm0 (create-vm-for-caller {:make-stream tu/make-stream,
                                    :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out call-out,
@@ -230,7 +248,7 @@
   (testing "A pre-filled call-in is read from oldest, not from newest"
     (let [call-in (tu/new-stream 8)
           _ (stream/append! call-in (apply2/request :pre :op/echo [:early]))
-          vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+          vm0 (create-vm-for-caller {:make-stream tu/make-stream,
                                      :capability-secret tu/secret
                                      :call-in call-in,
                                      :call-out (tu/new-stream 8),
@@ -286,7 +304,7 @@
                     (swap! attempts conj v)
                     {:dao.stream/outcome :dao.stream/full}))
         call-out (tu/new-stream 8)
-        vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+        vm0 (create-vm-for-caller {:make-stream tu/make-stream,
                                    :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out call-out})
@@ -316,7 +334,7 @@
   (let [delegate (tu/new-stream 8)
         call-in (gated-call-in delegate 1)
         call-out (tu/new-stream 8)
-        vm0 (ast-walker/create-vm {:make-stream tu/make-stream,
+        vm0 (create-vm-for-caller {:make-stream tu/make-stream,
                                    :capability-secret tu/secret
                                    :call-in call-in,
                                    :call-out call-out})
@@ -348,3 +366,152 @@
         (is (= 2 (vm/value second-done)))
         (is (empty? (:parked second-done))
             "Repeated host calls do not accumulate in :parked")))))
+
+
+;; =============================================================================
+;; Caller-scoped call ids
+;; =============================================================================
+
+(def ^:private load-semantic
+  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+                        vm/ast-contract))
+
+
+(def ^:private vm-kinds
+  "Each VM kind's run of `ast` on a fresh VM built from `opts`."
+  {:ast-walker (fn [opts ast] (vm/eval (ast-walker/create-vm opts) ast)),
+   :semantic (fn [opts ast]
+               (vm/run (load-semantic (semantic/create-vm opts)
+                                      (vm/ast->datoms ast)))),
+   :debruijn-stack
+   (fn [opts ast]
+     (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+                            (assoc opts
+                                   :contract vm/stack-contract
+                                   :primitives vm/primitives)))),
+   :debruijn-register
+   (fn [opts ast]
+     (vm/run (rvm/create-vm (:image (rc/adapt (second
+                                                (vm/ast->datoms-with-root
+                                                  ast))))
+                            (assoc opts :contract vm/register-contract))))})
+
+
+(deftest every-vm-kind-parks-and-resumes-under-a-composite-id-test
+  (doseq [[kind run] vm-kinds]
+    (testing (str kind)
+      (let [parked (run {:make-stream tu/make-stream,
+                         :capability-secret tu/secret,
+                         :ffi-caller-id "tenure-1"}
+                        (call-ast :op/echo [7]))
+            call-id ["tenure-1" :parked-0]
+            waiter (first (:wait-set parked))]
+        (is (vm/blocked? parked))
+        (is (= [call-id] (keys (:parked parked)))
+            "the composite id is the parked map key: one id, no mapping")
+        (is (= call-id (ffi/response-call-id waiter))
+            "the response reader waits for the composite id")
+        (testing "a vector parked key survives a round trip as a key"
+          (is (contains? (:parked parked) (edn/read-string (pr-str call-id))))
+          (is (= :v (get (edn/read-string (pr-str {call-id :v}))
+                         ["tenure-1" :parked-0]))))
+        (let [{:keys [handled? request-id vm]}
+              (ffi/bridge-step (ffi/attach parked {:op/echo identity}))
+              done (vm/run vm)]
+          (is (true? handled?))
+          (is (= call-id request-id) "the request carried the composite id")
+          (is (vm/halted? done))
+          (is (= 7 (vm/value done)))
+          (is (empty? (:parked done))))))))
+
+
+(deftest a-vm-without-a-caller-token-keeps-its-local-ids-test
+  (let [parked (vm/eval (tu/create-vm) (call-ast :op/echo [1]))]
+    (is (= [:parked-0] (keys (:parked parked))))
+    (is (= :parked-0 (ffi/response-call-id (first (:wait-set parked)))))))
+
+
+(deftest a-caller-token-is-plain-portable-data-test
+  (is (vm/ffi-caller-id? "tenure-1"))
+  (is (vm/ffi-caller-id? :tenure/one))
+  (doseq [bad [nil "" "  " 7 [:a] (random-uuid)]]
+    (is (not (vm/ffi-caller-id? bad)) (pr-str bad))
+    (is (throws? #(ast-walker/create-vm {:ffi-caller-id bad}))))
+  (is (vm/ffi-call-id? :parked-0))
+  (is (vm/ffi-call-id? ["tenure-1" :parked-0]))
+  (is (not (vm/ffi-call-id? ["tenure-1" 0])))
+  (is (not (vm/ffi-call-id? ["" :parked-0])))
+  (is (not (vm/ffi-call-id? ["tenure-1" :parked-0 :x]))))
+
+
+(defn- raised-data
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj Exception :cljs js/Error :cljd Object) e
+         {:message (ex-message e), :data (ex-data e)})))
+
+
+(deftest a-lost-response-raises-the-portable-ended-error-test
+  (let [call-id ["tenure-1" :parked-0]
+        parked-on (fn [call-out]
+                    (vm/eval (create-vm-for-caller
+                               {:make-stream tu/make-stream,
+                                :capability-secret tu/secret,
+                                :ffi-caller-id "tenure-1",
+                                :call-in (tu/new-stream 8),
+                                :call-out call-out})
+                             (call-ast :op/echo [1])))]
+    (testing "end: the response stream closed before this call was answered"
+      (let [call-out (tu/new-stream 8)
+            parked (parked-on call-out)
+            _ (stream/close! call-out)
+            {:keys [message data]} (raised-data #(vm/eval parked nil))]
+        (is (= {:call-id call-id,
+                :error {:dao.stream.apply/code :dao.stream.apply/ended,
+                        :dao.stream.apply/message
+                        "FFI response stream ended before this call was answered",
+                        ::ffi/loss :dao.stream/end}}
+               data))
+        (is (apply2/error? (:error data)) "a valid portable apply error")
+        (is (not= "FFI response envelope is malformed" message))))
+    (testing "gap: responses were evicted before this call read them"
+      (let [call-out (tu/new-stream 2)
+            parked (parked-on call-out)
+            _ (dotimes [n 3]
+                (apply2/put-response! call-out
+                                      (apply2/success-response [:other n] n)))
+            {:keys [message data]} (raised-data #(vm/eval parked nil))]
+        (is (= call-id (:call-id data)))
+        (is (= :dao.stream.apply/ended
+               (get-in data [:error :dao.stream.apply/code]))
+            "the same terminal code")
+        (is (= :dao.stream/gap (get-in data [:error ::ffi/loss]))
+            "a machine key tells the gap from an end")
+        (is (= "FFI response stream lost values to a gap before this call was answered"
+               (get-in data [:error :dao.stream.apply/message])))
+        (is (apply2/error? (:error data)))
+        (is (not= "FFI response envelope is malformed" message))))))
+
+
+(deftest a-supplied-call-out-needs-a-composition-cursor-test
+  (let [call-in (tu/new-stream 4)
+        call-out (tu/new-stream 4)]
+    (testing "refused without :call-out-cursor"
+      (is (throws? #(ast-walker/create-vm {:call-in call-in,
+                                           :call-out call-out}))))
+    (testing "refused with a cursor on no supplied call-out"
+      (is (throws? #(ast-walker/create-vm
+                      {:make-stream tu/make-stream,
+                       :call-out-cursor (vm/mint-oldest call-out :test)}))))
+    (testing "installed as given"
+      (stream/append! call-out :before)
+      (let [c (:dao.stream/cursor (stream/cursor call-out
+                                                 stream/anchor-newest))
+            built (ast-walker/create-vm {:call-in call-in,
+                                         :call-out call-out,
+                                         :call-out-cursor c})]
+        (is (= c (get-in built [:resources vm/call-out-cursor-key
+                                :cursor])))))
+    (testing "a locally made pair still mints its own"
+      (is (some? (get-in (tu/create-vm) [:resources vm/call-out-cursor-key
+                                         :cursor]))))))
