@@ -21,6 +21,7 @@
             [yang.python :as yang.python]
             [yin.repl.index :as index]
             [yin.repl.link :as link]
+            [yin.repl.query :as query]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.debruijn-code :as dcode]
@@ -75,6 +76,60 @@
    `:pending`, which the shell then reports as its own non-blocking state
    instead of wedging on."
   40)
+
+
+(def query-row-limit
+  "The most rows one `dao.space.query/q` answer may carry: members of a
+   relation or collection, one for a scalar or tuple.  An answer is a
+   value the REPL prints whole, so a result past a thousand rows is a
+   query to narrow rather than one to read; a `def` of ordinary size
+   projects to tens or hundreds of facts, so every fact of a few
+   definitions still fits."
+  1000)
+
+
+(def query-byte-limit
+  "The most canonical CBOR bytes one `dao.space.query/q` answer may
+   encode to, 256 KiB.  Rows bound the count, not the size: one row can
+   hold a long string literal.  The byte bound keeps every answer on the
+   bounded call-out a fixed size, so the medium's retention is bounded by
+   `query-pair-capacity` times this, 16 MiB."
+  262144)
+
+
+(def query-pair-capacity
+  "Declared capacity of each medium of the session's query call pair, in
+   elements.  A VM makes one call at a time and the shell answers it in
+   the same drive round, so a request and its response each occupy one
+   element, read before the next is made.  A rollback moves the base
+   VM's call-out cursor to the newest response
+   (`yin.repl.query/discard-answers`), so no reader ever falls behind by
+   more than one call."
+  64)
+
+
+(def query-serve-budget
+  "Requests one query serve round answers.  A VM parks on one call at a
+   time, so a round that spends it is answering requests the shell's VM
+   did not make."
+  64)
+
+
+(def query-drive-budget
+  "The most `dao.space.query/q` calls one drive answers: one evaluation,
+   or one re-check of a pending run.  A query is answered in the round
+   it is asked, so without a bound a program that calls `q` without end
+   would hold its input round in the drive forever.  Each call re-reads
+   the published index, so a thousand calls is already a long round; a
+   program past the bound is stopped with `query-call-limit-text` as its
+   error and its round rolls back like any failed round."
+  1024)
+
+
+(def query-call-limit-text
+  (str "the evaluation called dao.space.query/q more than "
+       query-drive-budget
+       " times and was stopped (:yin.repl.query/call-limit)"))
 
 
 (def vm-constructors
@@ -436,11 +491,18 @@
    `link-pair` is the link pair `(require ...)` lowers to
    (yin.vm.linker.md section 6.1), held in the VM's private `:resources`
    table; `make-session` composes one per VM, and the install children
-   the VM starts inherit it."
-  ([vm-type output-stream] (make-vm vm-type output-stream nil nil))
+   the VM starts inherit it.
+
+   `query-pair` is the session's query call pair
+   (`yin.repl.query/make-pair`), supplied as the VM's FFI pair with its
+   call-out cursor; with it the registry carries the query bridge, so
+   `(require 'dao.space.query)` activates `dao.space.query/q`."
+  ([vm-type output-stream] (make-vm vm-type output-stream nil nil nil))
   ([vm-type output-stream extra-primitives]
-   (make-vm vm-type output-stream extra-primitives nil))
+   (make-vm vm-type output-stream extra-primitives nil nil))
   ([vm-type output-stream extra-primitives link-pair]
+   (make-vm vm-type output-stream extra-primitives link-pair nil))
+  ([vm-type output-stream extra-primitives link-pair query-pair]
    (when-not (contains? vm-constructors vm-type)
      (throw (ex-info "Unknown Yin REPL VM type"
                      {:vm-type vm-type
@@ -448,8 +510,9 @@
    ((get vm-constructors vm-type)
     (cond-> {:primitives (merge (make-repl-primitives output-stream)
                                 extra-primitives)
-             :modules (module/register-stream-module
-                        (module/default-registry))
+             :modules (cond-> (module/register-stream-module
+                                (module/default-registry))
+                        query-pair query/register)
              :make-stream make-ring-stream
              ;; the task's capability secret (yin.vm.linker.md 7.3, r10):
              ;; the REPL is the composition, so it mints one from its own
@@ -458,7 +521,10 @@
              :capability-secret (str (random-uuid))
              :secret-source (fn [_origin] (str (random-uuid)))}
       link-pair (assoc :link-request (:requests link-pair)
-                       :link-response (:responses link-pair))))))
+                       :link-response (:responses link-pair))
+      query-pair (assoc :call-in (:call-in query-pair)
+                        :call-out (:call-out query-pair)
+                        :call-out-cursor (:out-cursor query-pair))))))
 
 
 (defn- make-runner
@@ -544,10 +610,16 @@
    half lives in its private `:resources`, the interpreter's half beside
    it under `:link-pair`.  The content pair and the name environment the
    interpreter serves from are the shell's (`:link-source`), and outlive
-   a session rebuild."
+   a session rebuild.
+
+   The query call pair is the session's too (`yin.repl.query/make-pair`):
+   the VM's half is its FFI pair, the interpreter's half with its request
+   cursor sits under `:query-pair`, and the interpreter answers from the
+   session's `:indexer` as it stands when it serves."
   [vm-type output-stream extra-primitives shell-token index-store]
   (let [pair (link/make-pair)
-        vm (make-vm vm-type output-stream extra-primitives pair)
+        query-pair (query/make-pair query-pair-capacity)
+        vm (make-vm vm-type output-stream extra-primitives pair query-pair)
         program-in (make-attachment ingress-capacity)
         program-out (make-attachment ingress-capacity)]
     {:vm vm
@@ -561,7 +633,8 @@
      :indexer (index/make-indexer {:observer ((:attach program-out))
                                    :session-token shell-token
                                    :content-store index-store})
-     :link-pair pair}))
+     :link-pair pair
+     :query-pair (dissoc query-pair :out-cursor)}))
 
 
 (defn- checked-link-policy
@@ -882,12 +955,14 @@
   "The raise of a resumed link wait, carrying the identity the parked
    evaluation has minted so far -- the counters of the VM the raise
    interrupted, whose every earlier run is in them -- so a rollback
-   cannot reuse it."
-  [error vm]
+   cannot reuse it.  It carries the query interpreter's pair too: the
+   requests it has answered stay answered when the shell rolls back."
+  [error vm state]
   (ex-info (or (ex-message error) "Link failed")
            (assoc (or (ex-data error) {})
                   ::link-counter (:id-counter vm)
-                  ::link-origins (:origins vm))))
+                  ::link-origins (:origins vm)
+                  ::query-pair (:query-pair state))))
 
 
 (defn- drive-links
@@ -901,29 +976,64 @@
    completed an install -- the fact the pending run's `:checks` resets
    on (yin.repl.link-policy.md section 3.1).  A refused or lost link
    raises as the VM's own, carrying the interrupted VM's minted
-   identity."
+   identity.
+
+   A VM waiting on a `dao.space.query/q` call is driven the same way: the
+   query interpreter (`yin.repl.query/serve`) answers from the session's
+   indexer and the VM runs on.  Only a round the VM spends waiting on a
+   link counts against `link-round-budget`; a query is answered in the
+   round it is asked, so its rounds are bounded by `query-drive-budget`
+   calls instead: a VM still waiting on a call once the drive has
+   answered that many raises `query-call-limit-text` as its own error,
+   the unanswered request abandoned with it."
   [state vm]
   (loop [i 0
+         calls 0
          vm vm
          state state
          pending []
          progress? false]
-    (cond
-      (or (vm/halted? vm) (not (link-waiting? vm)) (>= i link-round-budget))
-      [state vm pending progress?]
+    (let [link? (link-waiting? vm)
+          query? (query/waiting? vm)]
+      (cond
+        (or (vm/halted? vm) (not (or link? query?)) (>= i link-round-budget))
+        [state vm pending progress?]
 
-      :else
-      (let [served (link/serve {:pair (:link-pair state)
-                                :source (:link-source state)})
-            state (assoc state :link-pair (:pair served))
-            pending (if (seq (:pending served)) (:pending served) pending)]
-        (if (:progress? served)
-          (let [vm' (try (vm/run vm)
-                         (catch #?(:cljd Object :clj Exception :cljs js/Error)
-                                error
-                           (throw (link-raise error vm))))]
-            (recur (inc i) vm' state pending true))
-          [state vm pending progress?])))))
+        (and query? (>= calls query-drive-budget))
+        (throw (link-raise (ex-info query-call-limit-text
+                                    {:reason :yin.repl.query/call-limit
+                                     :limit query-drive-budget})
+                           vm
+                           (update state :query-pair query/abandon-requests)))
+
+        :else
+        (let [served (when link?
+                       (link/serve {:pair (:link-pair state)
+                                    :source (:link-source state)}))
+              answered (when query?
+                         (query/serve {:pair (:query-pair state)
+                                       :indexer (:indexer state)
+                                       :limits {:row-limit query-row-limit
+                                                :byte-limit query-byte-limit}
+                                       :budget (min query-serve-budget
+                                                    (- query-drive-budget
+                                                       calls))}))
+              state (cond-> state
+                      served (assoc :link-pair (:pair served))
+                      answered (assoc :query-pair (:pair answered)))
+              pending (if (seq (:pending served)) (:pending served) pending)]
+          (if (or (:progress? served) (:progress? answered))
+            (let [vm' (try (vm/run vm)
+                           (catch #?(:cljd Object :clj Exception :cljs js/Error)
+                                  error
+                             (throw (link-raise error vm state))))]
+              (recur (if link? (inc i) i)
+                     (+ calls (:answered answered 0))
+                     vm'
+                     state
+                     pending
+                     true))
+            [state vm pending progress?]))))))
 
 
 (defn- tokenize
@@ -996,7 +1106,9 @@
                    (catch #?(:cljd Object :clj Exception :cljs js/Error) e
                      e))]
        [(assoc state'
-               :vm (carry-link-identity (:base parked) vm)
+               :vm (query/discard-answers
+                     (carry-link-identity (:base parked) vm)
+                     (:query-pair state'))
                :pending-run nil)
         (str text
              ended-text
@@ -1112,7 +1224,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
         (finalize-eval state evaluated
                        (engine/restore-initial-env (:env (:vm expanded)) vm))
 
-        (link-waiting? vm)
+        (or (link-waiting? vm) (query/waiting? vm))
         (let [[state' vm' pending] (drive-links evaluated vm)]
           (cond
             (vm/halted? vm')
@@ -1133,13 +1245,18 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       ;; identity the interrupted VM had minted rides on it, so nothing
       ;; is minted twice on the surviving pair
       (let [d (ex-data error)
-            base (if (or (::link-counter d) (::link-origins d))
-                   (carry-link-identity
-                     (:vm state)
-                     {:id-counter (::link-counter d)
-                      :origins (::link-origins d)})
-                   (:vm state))]
-        (consume-failed-round (assoc expanded :vm base) error)))))
+            base (query/discard-answers
+                   (if (or (::link-counter d) (::link-origins d))
+                     (carry-link-identity
+                       (:vm state)
+                       {:id-counter (::link-counter d)
+                        :origins (::link-origins d)})
+                     (:vm state))
+                   (:query-pair expanded))]
+        (consume-failed-round (cond-> (assoc expanded :vm base)
+                                (::query-pair d) (assoc :query-pair
+                                                        (::query-pair d)))
+                              error)))))
 
 
 (defn- eval-program
@@ -1377,12 +1494,15 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
         (let [[st text] (drain-output state)
               d (ex-data error)]
           (fold-queued
-            [(assoc st
-                    :vm (carry-link-identity
-                          (:base parked)
-                          {:id-counter (::link-counter d)
-                           :origins (::link-origins d)})
-                    :pending-run nil)
+            [(cond-> (assoc st
+                            :vm (query/discard-answers
+                                  (carry-link-identity
+                                    (:base parked)
+                                    {:id-counter (::link-counter d)
+                                     :origins (::link-origins d)})
+                                  (:query-pair st))
+                            :pending-run nil)
+               (::query-pair d) (assoc :query-pair (::query-pair d)))
              (str text
                   (format-error error)
                   (dropped-lines-text (count (:pending-lines parked))))]
