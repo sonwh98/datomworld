@@ -8,7 +8,7 @@
 Its only dependency should be `dao.stream`.
 
 **Related documents:**
-- `docs/design/daostream-design.md` — the stream abstraction and transport model that underpins this protocol
+- `docs/design/daostream-design.md` — the stream abstraction and medium model that underpins this protocol
 - `docs/design/yin.vm.ffi.md` — how Yin VM uses this protocol to implement FFI
 
 The protocol reifies function application as explicit stream traffic:
@@ -21,7 +21,7 @@ This is broader than Yin VM FFI. The Yin VM is one consumer of the protocol, not
 - between a plain caller and callee in one process
 - across linked processes or nodes
 - as a host bridge substrate for Yin VM FFI
-- as a testable transport-independent request/response layer
+- as a testable medium-independent request/response layer
 
 The protocol is async by construction: emitting a request and receiving its response are
 distinct stream events, separated in time and not coupled to one synchronous host stack.
@@ -38,7 +38,7 @@ Everything is a stream. Apply across a boundary is asynchronous stream I/O.
 `dao.stream.apply` exists to make application explicit:
 - no hidden callback boundary
 - no implicit host call stack crossing
-- no transport-specific interface at the semantic layer
+- no medium-specific interface at the semantic layer
 
 The protocol is deliberately small:
 - one endpoint descriptor
@@ -69,7 +69,7 @@ The request descriptor names the stream the callee reads from.
 The response descriptor names the stream the caller reads from.
 
 Both descriptors are plain data. They can be stored, transmitted, and opened
-wherever the corresponding DaoStream transports are available.
+wherever the corresponding DaoStream media are available.
 
 Example endpoint descriptor:
 
@@ -192,15 +192,15 @@ Result:
 The key point is that no VM is involved. The protocol is complete enough to model
 request/response application by itself.
 
-### Transport Independence
+### Medium Independence
 
-The same request and response shapes work over any DaoStream transport:
+The same request and response shapes work over any DaoStream medium:
 - in-memory ring buffers
 - linked streams
 - websocket-backed streams
-- future transports that satisfy the DaoStream interfaces
+- a framebuffer, or any future medium that satisfies the DaoStream interfaces
 
-Transport changes only how the streams are opened and delivered.
+The medium changes only how the streams are opened and delivered.
 It does not change the `dao.stream.apply` data model.
 
 ---
@@ -334,7 +334,7 @@ The tag should stay `:dao.stream.apply/call`, not collapse to `:dao.stream.apply
 
 ---
 
-## Transport Examples
+## Medium Examples
 
 ### In-Process RingBuffer
 
@@ -364,7 +364,7 @@ Caller and callee can also communicate over remote streams:
   :url "ws://localhost:8000/out"}}
 ```
 
-The request and response values are unchanged. Only the stream transport changes.
+The request and response values are unchanged. Only the stream medium changes.
 
 ---
 
@@ -404,7 +404,7 @@ Yin VM tests should prove that the VM consumes the protocol correctly:
 1. `:dao.stream.apply/call` emits the expected request shape.
 2. The VM resumes with `:dao.stream.apply/value` from the matching response.
 3. Stack, register, semantic, and AST-walker paths preserve the same protocol behavior.
-4. Waitable and non-waitable transports remain VM scheduling concerns, not protocol changes.
+4. Waitable and non-waitable media remain VM scheduling concerns, not protocol changes.
 
 ---
 
@@ -432,13 +432,13 @@ Different consumers can choose different id schemes:
 - Yin parked continuation ids
 - UUIDs
 - sequence numbers
-- transport-specific correlation ids
+- medium-specific correlation ids
 
 The protocol should not privilege one choice.
 
 ### Why Errors Are Values
 
-A stream protocol should transport facts, not implicit control transfers.
+A stream protocol should carry facts, not implicit control transfers.
 Representing failures as values keeps causality explicit and works across process boundaries.
 
 ---
@@ -453,4 +453,4 @@ The following protocol-surface items are now implemented:
 ## Still Deferred
 
 - Add optional metadata fields such as timeout or tracing without making them mandatory.
-- Implement push-based wakeup for remote transports where appropriate, but keep that as a transport or runtime concern, not a protocol concern.
+- Implement push-based wakeup for remote media where appropriate, but keep that as a medium or runtime concern, not a protocol concern.
