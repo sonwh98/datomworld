@@ -838,6 +838,34 @@
           "a judge not assembled by make-judge has no bindings to check against"))))
 
 
+(deftest a-judge-wires-and-reads-its-own-grantor-authored-medium-test
+  (testing "source authority lives at the composition boundary, not in
+            dao.lease: a medium attributed to the judge's own :self is its
+            own ledger, wired at assembly or after, and its grants count"
+    (let [ledger (new-buffer 8)
+          own {:handle ledger
+               :cursor (oldest-cursor ledger)
+               :source :grantor
+               :medium standard-medium}
+          config (judge-config {})
+          assembled (lease/make-judge
+                      (update config :media conj own))
+          wired (lease/wire-declared-facts
+                  (:judge (lease/make-judge config)) own)]
+      (is (= [:holder-a :grantor] (mapv :source (get-in assembled [:judge :facts])))
+          "make-judge wires a medium sourced as its own :self")
+      (is (= [:holder-a :grantor] (mapv :source (:facts wired)))
+          "wire-declared-facts wires one after assembly")
+      (append-ok! ledger (lease/grant :l1 :db :holder-a {:ms 10}))
+      (append-ok! (get-in config [:ticks 0 :handle]) (lease/tick {:ms 1}))
+      (doseq [[how judge] [[:assembled (:judge assembled)] [:wired wired]]]
+        (testing (str how ": the grant it reads there seeds tenure")
+          (let [judge ((:step assembled) judge)]
+            (is (= {:ms 1} (get-in judge [:ledger :l1 :tenure-start])))
+            (is (= :holder-a (get-in judge [:ledger :l1 :holder]))
+                "the lease's holder is the one the grant names")))))))
+
+
 (deftest unwire-facts-test
   (testing "unwiring removes exactly that medium, idempotently, and its
             facts no longer reach the pass"
