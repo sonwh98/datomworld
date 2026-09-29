@@ -11,8 +11,10 @@
    export behind.
 
    Slice 3b, the lease wiring: every served identity is granted to a
-   renewal medium served beside it; a remote holder composed with
-   dao.lease/make-holder renews and releases through a real
+   renewal medium served beside it; the production remote holder
+   (yin.vm.ffi.remote-serve.holder, composed with
+   dao.lease/make-holder) reads its grant through the served
+   lease-grants entry and renews and releases through a real
    dao.stream.remote reflection; the judge runs in step on tick data the
    test deposits (no clock); expiry and release reclaim through the same
    retire! transition, unpublishing before :lapsed is recorded; a
@@ -29,6 +31,7 @@
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
             [yin.vm.ffi.remote-serve :as rs]
+            [yin.vm.ffi.remote-serve.holder :as h]
             [yin.vm.ucf.remote :as ucf.remote]))
 
 
@@ -94,6 +97,7 @@
                       :source :lease-proposals
                       :medium per-author-medium}]
    ::rs/lease-writer (:grants t)
+   ::rs/lease-grants (:grants t)
    ::rs/lease-renewal-capacity 16})
 
 
@@ -140,6 +144,13 @@
    entries beside them."
   [b]
   (select-keys (rs/table b) (map :identity (rs/entries b))))
+
+
+(defn- exports
+  "The published table without the grantor's standing `lease-grants`
+   entry: what serving put there."
+  [b]
+  (dissoc (rs/table b) (:dao.stream/identity (rs/lease-grants b))))
 
 
 (defn- tick!
@@ -267,105 +278,37 @@
           (values (:events p))))
 
 
-(def ^:private renewal-medium
-  {:retention :evict-oldest
-   :capacity 16
-   :value-domain :portable-values
-   :attribution :per-author-media})
-
-
 (defn- holder
-  "The remote holder, composed with dao.lease/make-holder on peer A. Its
-   grant reaches its own fact medium by carriage (the composition
-   delivers the grantor's grant); its OWN tick stream is fed by the same
-   host drive; its outbound medium is a reflection of the served
-   renewal medium, the medium that attributes its renewals to it."
-  [p grant]
+  "The remote holder on peer A, the production one
+   (`yin.vm.ffi.remote-serve.holder`): it reads its grant through a
+   reflection of the binding's served `lease-grants` entry -- nothing
+   carries the grant to it -- and renews over a reflection of its
+   renewal medium. Its OWN tick stream is fed by the same host drive;
+   it reads peer A's event writer for its renewals' source outcomes."
+  [p b subject]
   (let [ticks (ring 256)
-        facts (ring 16)
-        refl (reflect p (:dao.lease/holder grant))
-        composed (lease/make-holder
-                   {:self (:dao.lease/holder grant)
-                    :grantor rs/grantor
-                    :units rs/lease-units
-                    :resolver (fn [source _fact] source)
-                    :resolver-bindings #{:per-author-media}
-                    :renewal-interval (lease/renewal-interval
-                                        rs/lease-units
-                                        (:dao.lease/duration grant)
-                                        {:ms 3}
-                                        {:ms 1})
-                    :subject (:dao.lease/subject grant)
-                    :tick {:handle ticks :cursor (oldest ticks)}
-                    :fact {:handle facts
-                           :cursor (oldest facts)
-                           :source rs/grantor
-                           :medium per-author-medium}
-                    :writer {:handle refl :medium renewal-medium}})]
-    (stream/append! facts grant)
-    (atom {:composed composed
-           :state (:holder composed)
-           :peer p
-           :refl refl
-           :tick-cursor (oldest ticks)
-           :fact-cursor (oldest facts)
-           :seen 0
-           :pending []
-           :renewals 0})))
-
-
-(defn- drain-newest!
-  "The holder's control flow drains its own tick cursor: the newest
-   reading, or nil."
-  [h]
-  (let [ticks (get-in @h [:composed :tick :handle])]
-    (loop [c (:tick-cursor @h)
-           newest nil]
-      (let [r (stream/next ticks c)]
-        (if (= :dao.stream/ok (:dao.stream/outcome r))
-          (recur (:dao.stream/cursor r)
-                 (:dao.lease/reading (:dao.stream/value r)))
-          (do (swap! h assoc :tick-cursor c) newest))))))
+        r (h/open! {::h/attach! (:attach! p)
+                    ::h/lease-grants (rs/lease-grants b)
+                    ::h/subject subject
+                    ::h/ticks {:handle ticks :cursor (oldest ticks)}
+                    ::h/events {:handle (:events p)
+                                :cursor (oldest (:events p))}
+                    ::h/renewal-interval (lease/renewal-interval
+                                           rs/lease-units {:ms 10}
+                                           {:ms 3} {:ms 1})
+                    ::h/budget 16
+                    ::h/grants-medium (assoc per-author-medium :capacity 256)
+                    ::h/renewal-medium (rs/renewal-declaration 16)})]
+    (assert (not (contains? r ::h/status)) (pr-str r))
+    (atom r)))
 
 
 (defn- holder-pass!
-  "One pass of the holder's own control flow at reading `ms`: observe
-   the grant, settle renewals whose SOURCE outcome arrived on the event
-   writer (the reflection's ok is outbound acceptance only), and renew
-   when due."
-  [h ms]
-  (stream/append! (get-in @h [:composed :tick :handle]) (lease/tick {:ms ms}))
-  (let [reading (drain-newest! h)
-        facts (get-in @h [:composed :fact :handle])
-        refl (:refl @h)
-        rid (get-in @h [:state :self])]
-    (when (nil? (get-in @h [:state :grant]))
-      (let [r (stream/next facts (:fact-cursor @h))]
-        (when (= :dao.stream/ok (:dao.stream/outcome r))
-          (swap! h update :state lease/observe-grant
-                 rs/grantor (:dao.stream/value r) reading))))
-    (stream/descriptor refl)
-    (let [answers (drop (:seen @h) (events-of (:peer @h) rid))]
-      (doseq [a answers]
-        (let [at (first (:pending @h))]
-          (swap! h #(-> %
-                        (update :pending (comp vec rest))
-                        (update :seen inc)
-                        (update :state lease/observe-renewal at
-                                (if (:dao.stream.remote/error a)
-                                  {:dao.stream/outcome
-                                   :dao.stream/transport-error}
-                                  a)))))))
-    (when (and (lease/due-to-renew? (:state @h) reading)
-               (empty? (:pending @h)))
-      (let [o (stream/append! refl (lease/renewal
-                                     (get-in @h [:state :grant
-                                                 :dao.lease/lease])))]
-        (when (= :dao.stream/ok (:dao.stream/outcome o))
-          (swap! h #(-> %
-                        (update :pending conj reading)
-                        (update :renewals inc))))))
-    reading))
+  "One pass of the holder's own control flow at reading `ms`: the host
+   drive deposits the reading on the holder's own tick stream."
+  [hd ms]
+  (stream/append! (get-in @hd [::h/ticks :handle]) (lease/tick {:ms ms}))
+  (swap! hd h/step))
 
 
 ;; =============================================================================
@@ -419,7 +362,7 @@
                         (::rs/refusals (rs/open! o))))]
     (doseq [k [::rs/lease-duration ::rs/lease-tolerance ::rs/lease-cadence
                ::rs/lease-ticks ::rs/lease-media ::rs/lease-writer
-               ::rs/lease-renewal-capacity]]
+               ::rs/lease-grants ::rs/lease-renewal-capacity]]
       (testing (str "without " k ": no default invents the policy")
         (is (= [{::rs/option k, ::rs/reason ::rs/missing}]
                (refused (dissoc full k))))))
@@ -448,6 +391,11 @@
               "a medium declared neither retaining nor evict-oldest"]
              [::rs/lease-writer nil "no grantor stream"]
              [::rs/lease-writer (->ValueHandle "r") "not a writer"]
+             [::rs/lease-grants nil "no grants reader"]
+             [::rs/lease-grants (reify
+                                  stream/IDaoStreamWriter
+                                  (append! [_ _] {:dao.stream/outcome :dao.stream/ok}))
+              "a grants stream that cannot be read remotely"]
              [::rs/lease-renewal-capacity 0 "no renewal medium can be made"]
              [::rs/lease-max {:ms 0} "an optional cap, malformed"]
              [::rs/lease-drain-budget 0 "an optional drain budget, malformed"]]]
@@ -551,7 +499,7 @@
     (is (= {:dao.stream/outcome :dao.stream/ok, ::rs/retired? true}
            (rs/retire! b id)))
     (is (not (contains? (rs/table b) id)) "unpublished")
-    (is (empty? (rs/table b)) "its renewal entry with it")
+    (is (empty? (exports b)) "its renewal entry with it")
     (is (empty? (rs/entries b)) "and released")
     (is (= :dao.stream.remote/not-found
            (:dao.stream.remote/error
@@ -677,12 +625,24 @@
       (append! [_ _] {:dao.stream/outcome :dao.stream/ok}))))
 
 
+(defn- refusing-codec
+  "A channel codec that refuses to carry ring `h`'s cursors alone -- a
+   ring cursor names its stream's identity."
+  [h]
+  (let [hid (:dao.stream.ringbuffer/identity (oldest h))]
+    {:encode (fn [c]
+               (if (= hid (:dao.stream.ringbuffer/identity c))
+                 (throw (ex-info "uncarried" {}))
+                 c))
+     :decode identity}))
+
+
 (deftest a-reader-whose-cursors-are-not-portable-is-never-entered
   (let [t (toy)]
     (testing "a host object in the cursor"
       (let [b (rs/open! (opts t (constantly #{:reader}) 8))]
         (is (nil? (rs/serve! b (host-cursor-reader))))
-        (is (empty? (rs/table b)))
+        (is (empty? (exports b)))
         (is (empty? (rs/entries b)))))
     (testing "a writer-only surface names no cursors"
       (let [b (rs/open! (opts t (constantly #{:writer}) 8))
@@ -695,12 +655,16 @@
                (dissoc (get (rs/table b) (:dao.stream/identity served))
                        :dao.lease/lease)))))
     (testing "the binding's own codec judges"
-      (let [refusing {:encode (fn [_] (throw (ex-info "uncarried" {})))
-                      :decode identity}
+      (let [h (ring 2)
             b (rs/open! (assoc (opts t (constantly #{:reader}) 8)
-                               ::rs/codec refusing))]
-        (is (nil? (rs/serve! b (ring 2))))
-        (is (empty? (rs/table b)))))))
+                               ::rs/codec (refusing-codec h)))]
+        (is (nil? (rs/serve! b h)))
+        (is (empty? (exports b)))))
+    (testing "the lease-grants stream too: refused at open!, nothing served"
+      (is (= [{::rs/option ::rs/lease-grants, ::rs/reason ::rs/malformed}]
+             (::rs/refusals
+               (rs/open! (assoc (opts t)
+                                ::rs/codec (refusing-codec (:grants t))))))))))
 
 
 (deftest serve-refuses-what-policy-refuses
@@ -709,7 +673,7 @@
     (testing "the authority gate"
       (let [b (rs/open! (assoc (opts t) ::rs/admit? (constantly false)))]
         (is (nil? (rs/serve! b h)))
-        (is (empty? (rs/table b)))))
+        (is (empty? (exports b)))))
     (testing "the surface policy"
       (let [b (rs/open! (opts t (constantly nil) 8))]
         (is (nil? (rs/serve! b h))))
@@ -737,7 +701,7 @@
                          [retained-entry])]
     (is (= :yin.k/unsatisfied (:yin.k/status r)))
     (is (not (contains? r :yin.k/pending)) "no lift is published")
-    (is (empty? (rs/table b))
+    (is (empty? (exports b))
         "call-in, served before call-out refused, was retired")
     (is (empty? (rs/entries b))))
   (testing "a handle served before the lift stays served"
@@ -790,12 +754,15 @@
         l (:dao.lease/lease (rs/lease-of b id))
         _ (tick-step! t b 1)
         p (peer (:a-end t))
-        hd (holder p (grant-of t id))]
+        hd (holder p b id)]
     (doseq [ms (range 2 61)]
       (holder-pass! hd ms)
       (tick-step! t b ms))
-    (is (< 10 (:renewals @hd)) "the holder renewed throughout")
-    (is (lease/holding? (:state @hd) {:ms 60})
+    (is (= (grant-of t id) (h/grant @hd))
+        "the grant it holds is the one on the grantor's stream, read
+         through the served lease-grants entry")
+    (is (< 10 (::h/renewals @hd)) "the holder renewed throughout")
+    (is (h/holding? @hd)
         "its bound advanced only on the source's ok")
     (is (empty? (lapses t)) "no reclaim over 60 lease ticks: 5 durations")
     (is (= l (:dao.lease/lease (rs/lease-of b id))))
@@ -894,16 +861,16 @@
         _ (remember!)
         _ (tick-step! t b 1)
         p (peer (:a-end t))
-        hd (holder p (grant-of t id))]
+        hd (holder p b id)]
     (doseq [ms (range 2 6)]
       (holder-pass! hd ms)
       (tick-step! t b ms))
     (is (contains? (rs/table b) id))
-    (let [{holder' :holder release :release} (lease/stop (:state @hd))]
-      (swap! hd assoc :state holder')
-      (is (= :dao.stream/ok
-             (:dao.stream/outcome (stream/append! (:refl @hd) release)))
-          "the release is appended on the holder's attributed medium"))
+    (is (= (grant-of t id) (h/grant @hd)) "observed through lease-grants")
+    (swap! hd h/release!)
+    (is (nil? (::h/release @hd))
+        "the release was accepted on the holder's attributed medium")
+    (is (false? (h/holding? @hd)) "released: the holder acts no more")
     (tick-step! t b 6)
     (is (= [(lease/lapsed l :release)] (lapses t))
         "reclaimed for :release in the pass that read it")
@@ -919,7 +886,37 @@
     (testing "the holder observes the reclaim as not-found"
       (is (= :dao.stream.remote/not-found
              (:dao.stream.remote/reason
-               (gone-after-step b (:refl @hd) (lease/renewal l))))))))
+               (gone-after-step b (::h/renewal @hd) (lease/renewal l))))))))
+
+
+(deftest an-evicted-grant-is-terminal-loss-for-the-holder
+  (let [t (assoc (toy) :grants (ring 2))
+        b (rs/open! (opts t))
+        id (:dao.stream/identity (rs/serve! b (ring 4)))
+        _ (tick-step! t b 1)
+        _ (is (some? (grant-of t id)) "the grant is on the grantor's stream")
+        p (peer (:a-end t))
+        hd (holder p b id)]
+    ;; first pass: the grants cursor is asked for, not yet answered
+    (holder-pass! hd 2)
+    (rs/step b)
+    ;; the grantor's stream moves on past the unread grant
+    (stream/append! (:grants t) (lease/renewal "other-1"))
+    (stream/append! (:grants t) (lease/renewal "other-2"))
+    (is (nil? (grant-of t id)) "evicted before the holder read it")
+    (doseq [ms (range 3 7)]
+      (holder-pass! hd ms)
+      (rs/step b))
+    (is (= :dao.stream/gap (h/lost @hd))
+        "the gap is reported as terminal loss, named")
+    (is (nil? (h/grant @hd)) "no grant observed")
+    (is (false? (h/holding? @hd)))
+    (let [sent (count (values (:ab t)))]
+      (doseq [ms (range 7 12)]
+        (holder-pass! hd ms)
+        (rs/step b))
+      (is (= sent (count (values (:ab t))))
+          "terminal: no further read of the gapped cursor is sent"))))
 
 
 (deftest detach-without-expiry-keeps-entry-and-lease
@@ -1089,7 +1086,7 @@
       (is (= #{:silence :policy} (set (map :dao.lease/cause (lapses t)))))
       (is (= 2 (count (lapses t))) "each recorded exactly once")
       (is (empty? (:ledger (rs/judge b))))
-      (is (empty? (rs/table b)))))
+      (is (empty? (exports b)))))
   (testing "a reclaim after close! is harmless, and the leases still end"
     (let [t (toy)
           b (rs/open! (opts t))

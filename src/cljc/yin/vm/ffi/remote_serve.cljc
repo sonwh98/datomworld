@@ -36,7 +36,11 @@
    identity and whose holder is a fresh renewal medium: a ring buffer
    entered in the table with surface #{:writer} under its own identity,
    attributed to the holder by the medium (per-author media). The
-   remote holder appends renewals and its release there; the judge
+   grantor's writer is served as the S6 `lease-grants` entry, surface
+   #{:reader}, under the grantor's own policy: a remote holder
+   (`yin.vm.ffi.remote-serve.holder`) reads its grant there through a
+   reflection. It appends renewals and its release on the renewal
+   medium; the judge
    reads it with a local cursor. The judge is `dao.lease/make-judge`
    over the composition's tick and fact media and writer; `step` runs
    one judge pass after its mirror pass, reading ticks the host drive
@@ -130,6 +134,14 @@
   (and (vector? v) (seq v)))
 
 
+(defn- grants-reader?
+  "A handle the binding can serve as `lease-grants`: a reader that
+   answers descriptor. Its cursors' portability is judged against the
+   channel codec once the options pass."
+  [h]
+  (and (stream/reader? h) (stream/descriptor? h)))
+
+
 (def ^:private required
   "Each required option, the check its value must pass, and the reason
    a present value that fails it is refused with (::malformed unless
@@ -147,6 +159,7 @@
    [::lease-ticks non-empty-vector?]
    [::lease-media non-empty-vector?]
    [::lease-writer stream/writer?]
+   [::lease-grants grants-reader?]
    [::lease-renewal-capacity capacity?]])
 
 
@@ -200,6 +213,28 @@
    :host-values ::lease-media
    :writer ::lease-writer
    :drain-budget ::lease-drain-budget})
+
+
+(defn- round-trips?
+  "True when cursor `c` survives `codec` -- encoded, decoded back, and
+   equal: the rule `yin.vm.ucf.remote`'s lift applies to a kept cursor,
+   plain data in the channel's portable domain."
+  [codec c]
+  (try (= c ((:decode codec) ((:encode codec) c)))
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _ false)))
+
+
+(defn- portable-cursors?
+  "True when `h`'s cursors survive the channel codec: the cursor it
+   mints at each standard anchor answers ok and round-trips. A handle
+   whose cursors hold a host object cannot be served, and is never
+   entered into the table (`dao.stream.remote.md` S2.3)."
+  [codec h]
+  (every? (fn [anchor]
+            (let [r (stream/cursor h anchor)]
+              (and (= :dao.stream/ok (:dao.stream/outcome r))
+                   (round-trips? codec (:dao.stream/cursor r)))))
+          [:dao.stream/oldest :dao.stream/newest]))
 
 
 (defn binding?
@@ -339,6 +374,12 @@
                           ::grantor-source: per-author attribution
                           would make its facts the grantor's own
      ::lease-writer       the grantor's stream: grants and :lapsed
+     ::lease-grants       a reader of that same stream, served as S6's
+                          `lease-grants` entry with surface #{:reader}
+                          under the grantor's own policy (no lease): a
+                          remote holder reads its grant through a
+                          reflection of it (`lease-grants`). Its
+                          cursors must round-trip the channel codec
      ::lease-renewal-capacity the ring-buffer capacity of each renewal
                           medium (it evicts oldest at that bound)
 
@@ -359,7 +400,12 @@
    channel reader, only after every option passes, and a reader that
    will not mint it refuses too."
   [opts]
-  (let [rs (refusals opts)]
+  (let [codec (get opts ::codec ucf.remote/cursor-codec)
+        rs (refusals opts)
+        rs (if (and (empty? rs)
+                    (not (portable-cursors? codec (::lease-grants opts))))
+             [{::option ::lease-grants, ::reason ::malformed}]
+             rs)]
     (if (seq rs)
       {::status ::refused, ::refusals rs}
       (let [state (atom nil)
@@ -367,23 +413,28 @@
             end (::channel opts)]
         (if (= ::refused (::status composed))
           composed
-          (let [c (stream/cursor (:reader end) :dao.stream/oldest)]
+          (let [c (stream/cursor (:reader end) :dao.stream/oldest)
+                gid (str (random-uuid))]
             (if-not (= :dao.stream/ok (:dao.stream/outcome c))
               {::status ::refused,
                ::refusals [{::option ::channel, ::reason ::no-cursor,
                             ::outcome c}]}
               (do (reset! state {:registry []
-                                 :table {}
+                                 ;; the grantor's own standing entry, by
+                                 ;; its own policy: no lease (S6)
+                                 :table {gid {:handle (::lease-grants opts)
+                                              :surface #{:reader}}}
+                                 :grants gid
                                  :channel end
                                  :cursor (:dao.stream/cursor c)
                                  :detached? false
                                  :judge (:judge composed)
                                  :renewals {}
                                  :closed? false})
-                  {::policy (merge {::codec ucf.remote/cursor-codec}
+                  {::policy (merge {::codec codec}
                                    (select-keys opts [::surface ::admit?
                                                       ::capacity ::step-budget
-                                                      ::codec ::lease-duration
+                                                      ::lease-duration
                                                       ::lease-max
                                                       ::lease-renewal-capacity]))
                    ::channel-descriptor (::channel-descriptor opts)
@@ -405,28 +456,6 @@
 (defn- live-count
   [state]
   (count (filter #(= :live (:status %)) (:registry state))))
-
-
-(defn- round-trips?
-  "True when cursor `c` survives `codec` -- encoded, decoded back, and
-   equal: the rule `yin.vm.ucf.remote`'s lift applies to a kept cursor,
-   plain data in the channel's portable domain."
-  [codec c]
-  (try (= c ((:decode codec) ((:encode codec) c)))
-       (catch #?(:cljd Object :clj Throwable :cljs :default) _ false)))
-
-
-(defn- portable-cursors?
-  "True when `h`'s cursors survive the channel codec: the cursor it
-   mints at each standard anchor answers ok and round-trips. A handle
-   whose cursors hold a host object cannot be served, and is never
-   entered into the table (`dao.stream.remote.md` S2.3)."
-  [codec h]
-  (every? (fn [anchor]
-            (let [r (stream/cursor h anchor)]
-              (and (= :dao.stream/ok (:dao.stream/outcome r))
-                   (round-trips? codec (:dao.stream/cursor r)))))
-          [:dao.stream/oldest :dao.stream/newest]))
 
 
 (defn- servable-surface
@@ -457,8 +486,9 @@
   "The published table as the mirror reads it: `{served-identity
    {:handle h :surface S :dao.lease/lease L}}` (`dao.stream.remote.md`
    S2.3, S6) -- each served identity and, beside it, its renewal
-   medium's entry under the same lease. A snapshot, plain data;
-   retiring an identity removes both here first."
+   medium's entry under the same lease, and the unleased `lease-grants`
+   entry. A snapshot, plain data; retiring an identity removes both of
+   its entries here first."
   [binding]
   (:table @(::state binding)))
 
@@ -476,7 +506,8 @@
    L ::renewal {:dao.stream/identity rid :dao.stream/channel cd}}` --
    the lease identity and the served renewal medium a remote holder
    renews and releases on. The grant itself is on the grantor's
-   writer. Nil when `identity` is not live in this binding."
+   writer, which a remote holder reads through `lease-grants`. Nil
+   when `identity` is not live in this binding."
   [binding identity]
   (when-some [e (live-by-identity @(::state binding) identity)]
     {:dao.lease/lease (:lease e)
@@ -489,6 +520,25 @@
    queue and wired media."
   [binding]
   (:judge @(::state binding)))
+
+
+(defn lease-grants
+  "The served `lease-grants` entry (`dao.stream.remote.md` S6): `{:dao.stream/identity
+   gid :dao.stream/channel cd}`, the marker a remote holder attaches a
+   reflection to and reads every grant and :lapsed on -- the grantor's
+   own stream observed, not carried. Nil once the binding is closed."
+  [binding]
+  (let [s @(::state binding)]
+    (when-not (:closed? s)
+      {:dao.stream/identity (:grants s)
+       :dao.stream/channel (::channel-descriptor binding)})))
+
+
+(defn served?
+  "True when `identity` is live in this binding: served and not yet
+   retired, whether by `retire!`, `close!` or a lease reclaim."
+  [binding identity]
+  (some? (live-by-identity @(::state binding) identity)))
 
 
 (defn- renewal-medium
@@ -618,7 +668,8 @@
 
 
 (defn close!
-  "Retire every live entry, then close the channel writer when it is
+  "Retire every live entry and unpublish `lease-grants`, then close the
+   channel writer when it is
    closable: the remote peer's channel reader answers end, and its link
    reports every append! still outstanding as append-unknown -- the
    transport's own close/loss path, nothing settled silently. Closing
@@ -635,6 +686,7 @@
       (swap! state assoc :closed? true)
       (doseq [e (:registry @state)]
         (retire-in! state (:identity e)))
+      (swap! state (fn [s] (update s :table dissoc (:grants s))))
       (let [w (:writer (:channel @state))]
         (when (stream/closable? w)
           (stream/close! w))))
