@@ -304,13 +304,54 @@
     (catch #?(:cljd Object :clj Exception :cljs :default) _ nil)))
 
 
+(defn- in-patterns
+  "The patterns `query` declares under `:in`, nil when it declares none."
+  [query]
+  (if (map? query)
+    (some-> (:in query) vec)
+    (let [[marker & after] (drop-while #(not= :in %) query)]
+      (when marker (vec (take-while (complement keyword?) after))))))
+
+
+(defn- caller-patterns
+  "The `:in` patterns the caller's inputs fill: every declared pattern but
+   the implicit index `$`."
+  [query]
+  (vec (remove #{'$} (in-patterns query))))
+
+
 (defn- split-args
-  "`[inputs options]` of the arguments after the query: a final map is
-   the options map, and every argument before it an `:in` input."
-  [args]
-  (if (map? (last args))
-    [(vec (butlast args)) (last args)]
-    [(vec args) nil]))
+  "`[inputs options]` of the arguments after the query: one input per
+   pattern of `caller-patterns`, a map among them included, then at most
+   one options map.  A refusal when the arguments do not fit."
+  [query args]
+  (let [n (count (caller-patterns query))
+        [inputs more] (split-at n args)]
+    (if (and (= n (count inputs))
+             (or (empty? more) (and (= 1 (count more)) (map? (first more)))))
+      [(vec inputs) (first more)]
+      (refusal ::query-failed
+               (str "query failed: query input arity must match :in, " n
+                    " :in inputs and an optional options map expected, got "
+                    (count args) " arguments")
+               nil))))
+
+
+(defn- with-index
+  "`query` with the index bound to `$`, the first database input it names.
+   The index is implicit: a query's `:in` names only the caller's inputs,
+   with or without `$` among them, and those inputs fill the other
+   patterns in order.  A query without `:in` takes none."
+  [query]
+  (let [declared (in-patterns query)
+        in (into ['$] (caller-patterns query))]
+    (cond (nil? declared) query
+          (map? query) (assoc query :in in)
+          :else (let [[before [_ & after]] (split-with #(not= :in %) query)]
+                  (-> (vec before)
+                      (conj :in)
+                      (into in)
+                      (into (drop-while (complement keyword?) after)))))))
 
 
 (defn- view-of
@@ -396,13 +437,17 @@
                                (pr-str query)))
 
                  :else
-                 (let [[inputs options] (split-args more)
-                       view (view-of options)
-                       db (when-not (refused? view) (snapshot indexer))]
+                 (let [split (split-args query more)
+                       [inputs options] (when-not (refused? split) split)
+                       view (when-not (refused? split) (view-of options))
+                       db (when-not (or (refused? split) (refused? view))
+                            (snapshot indexer))]
                    (cond
+                     (refused? split) split
                      (refused? view) view
                      (refused? db) db
-                     :else (evaluate db view query inputs limits))))]
+                     :else (evaluate db view (with-index query) inputs
+                                     limits))))]
     (if (refused? answer)
       {apply2/id-key id, apply2/error-key answer}
       (apply2/success-response id (:ok answer)))))

@@ -933,8 +933,13 @@
 
 
 (defn- resolve-binding
+  "The value a pattern, fn-argument or rule-argument term stands for: a
+   ?-variable's bound value (FREE while unbound), FREE for the blank `_`,
+   and any other term, a bare symbol included, as the constant it is."
   [binding sym]
-  (if (symbol? sym) (get binding sym FREE) sym))
+  (cond (query-var-symbol? sym) (get binding sym FREE)
+        (= '_ sym) FREE
+        :else sym))
 
 
 (defn- binding-key
@@ -977,10 +982,11 @@
    it kind-strictly (dao.jing.cbor/content=): per the owner ruling in
    docs/design/dao.jing.cbor.md (Numeric identity) a value unifies only with
    a value of the same numeric kind, scale and zero sign, as content
-   addressing identifies it."
+   addressing identifies it. Only a ?-symbol is a variable: a bare symbol
+   is a constant matching that symbol value."
   [binding sym val]
   (cond (or (= sym FREE) (= sym '_)) binding
-        (not (symbol? sym)) (when (cbor/content= sym val) binding)
+        (not (query-var-symbol? sym)) (when (cbor/content= sym val) binding)
         (contains? binding sym) (when (cbor/content= (get binding sym) val) binding)
         :else (assoc binding sym val)))
 
@@ -1601,6 +1607,32 @@
     relation))
 
 
+(defn- check-declared-symbols
+  "Refuse a bare symbol where `:in` or `:find` declares a term. Under the
+   term rule a bare symbol is a constant, so there it would silently bind
+   no variable or project nil. `:in` also admits the blank `_`, a
+   `$`-source, the `%` rule set and the `...` collection marker."
+  [in find]
+  (let [refuse (fn [clause sym]
+                 (throw (ex-info (str "A bare symbol in " clause
+                                      " is not a query variable: " sym
+                                      " (only ?-symbols are variables)")
+                                 {:clause clause, :symbol sym})))]
+    (doseq [pattern in]
+      (if (symbol? pattern)
+        (when-not (or (query-var-symbol? pattern) (db-sym? pattern)
+                      (= '% pattern) (= '_ pattern))
+          (refuse :in pattern))
+        (doseq [s (filter symbol? (tree-seq coll? seq pattern))]
+          (when-not (or (query-var-symbol? s) (= '_ s) (= '... s))
+            (refuse :in s)))))
+    (doseq [element (:find-vars (parse-find find))]
+      (let [{:keys [var arg pull-var]} (parse-find-element element)]
+        (doseq [s [var arg pull-var]]
+          (when (and (symbol? s) (not (query-var-symbol? s)))
+            (refuse :find s)))))))
+
+
 (defn q
   "Datalog: (q query & inputs) where $ binds to the first input. Each
    database input is a query value (a relation value, a datom view over one,
@@ -1611,6 +1643,7 @@
   [query & inputs]
   (let [{:keys [find in with where keys syms strs]} (normalize-query query)
         in-patterns (or in '[$])
+        _ (check-declared-symbols in-patterns find)
         extra-count (- (count inputs) (count in-patterns))
         _ (when (> extra-count 1)
             (throw (ex-info "query input arity permits at most one options map"

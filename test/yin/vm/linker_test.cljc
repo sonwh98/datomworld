@@ -1345,7 +1345,12 @@
          operands, where the engine writes the key")
     (is (= [{:name 'x, :at [root [[3 1]]], :in-body? false}]
            ((:obligations-fn linker/ast-format) tree))
-        "the definition operator is never an occurrence")))
+        "the definition operator is never an occurrence")
+    (is (= []
+           ((:definitions-fn linker/ast-format)
+            (vm/ast->semantic-bytecode (app (v '+) (lit 'k) (lit 2)))))
+        "only the yin/def operator defines: a two-operand application of
+         another operator with a literal first operand is not a definition")))
 
 
 (deftest vector-definitions-read-the-define-instruction

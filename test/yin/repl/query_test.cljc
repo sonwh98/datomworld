@@ -145,6 +145,92 @@
             "the current view binds [e a v]; its extra slots match nothing")))))
 
 
+(def ^:private bump-lines
+  "A session with three call sites of `bump`, then the require."
+  ["(def bump (fn [i] (+ i 1)))" "(bump 41)" "(bump (bump 1))" require-line])
+
+
+(def ^:private calls-of-f
+  '[:find (count ?app) :in ?f :where [?app :yin/operator ?op] [?op :yin/name ?f]])
+
+
+(deftest scalar-in-inputs-bind-beside-the-implicit-index
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[_ texts]
+            (evaluate (repl/create-state {:vm-type vm-type})
+                      (into bump-lines
+                            [(q-line calls-of-f "(quote bump)")
+                             (q-line calls-of-f "(quote bump)" "{:view :current}")
+                             (q-line '[:find (count ?app) :in $ ?f
+                                       :where [?app :yin/operator ?op]
+                                       [?op :yin/name ?f]]
+                                     "(quote bump)")
+                             (q-line '[:find (count ?app) :in ?f
+                                       :where [?app :yin/operator ?op ?t ?m]
+                                       [?op :yin/name ?f ?t1 ?m1]]
+                                     "(quote bump)" "{:view :history}")
+                             (q-line calls-of-f)
+                             (q-line calls-of-f "(quote bump)" "(quote +)")]))
+            [bare with-options explicit history too-few too-many]
+            (drop (count bump-lines) texts)]
+        (is (= "#{[3]}" bare) "the index is implicit; ?f is the first input")
+        (is (= "#{[3]}" with-options) "an options map follows the inputs")
+        (is (= "#{[3]}" explicit) "a declared $ is the index")
+        (is (= "#{[3]}" history) "a history view takes inputs too")
+        (doseq [text [too-few too-many]]
+          (is (str/includes? text "(:yin.repl.query/query-failed)") text)
+          (is (str/includes? text "input arity") text))))))
+
+
+(deftest a-map-input-is-an-input-and-one-more-map-is-options
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [by-key '[:find ?v . :in ?m :where [(get ?m :k) ?v]]
+            [_ [_ bare with-options bad-view too-many]]
+            (evaluate (repl/create-state {:vm-type vm-type})
+                      [require-line
+                       (q-line by-key "{:k 1}")
+                       (q-line by-key "{:k 1}" "{:view :current}")
+                       (q-line by-key "{:k 1}" "{:view :sideways}")
+                       (q-line by-key "{:k 1}" "{:view :current}" "{:k 2}")])]
+        (is (= "1" bare) "the declared :in arity makes the map an input")
+        (is (= "1" with-options) "the map after the inputs is the options")
+        (is (str/includes? bad-view "(:yin.repl.query/invalid-input)")
+            "the options map is validated as before")
+        (is (str/includes? too-many "(:yin.repl.query/query-failed)"))
+        (is (str/includes? too-many "input arity"))))))
+
+
+(deftest a-bare-symbol-in-in-or-find-refuses-the-query
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[_ texts]
+            (evaluate (repl/create-state {:vm-type vm-type})
+                      (into bump-lines
+                            [(q-line '[:find (count ?app) :in f
+                                       :where [?app :yin/operator ?op]
+                                       [?op :yin/name f]]
+                                     "(quote bump)")
+                             (q-line '[:find op :where [?app :yin/operator ?op]])]))]
+        (doseq [text (drop (count bump-lines) texts)]
+          (is (str/includes? text "(:yin.repl.query/query-failed)") text)
+          (is (str/includes? text "bare symbol") text))))))
+
+
+(deftest a-bare-symbol-in-a-pattern-is-the-symbol-constant
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[_ texts]
+            (evaluate (repl/create-state {:vm-type vm-type})
+                      (conj bump-lines
+                            (q-line '[:find (count ?app)
+                                      :where [?app :yin/operator ?op]
+                                      [?op :yin/name bump]])))
+            text (peek texts)]
+        (is (= "#{[3]}" text) "bump names the three call sites of bump")))))
+
+
 (defn- stream-values
   "Every value currently on a stream, read from its oldest cursor."
   [s]

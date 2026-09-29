@@ -347,6 +347,23 @@ cardinality-one schema or automatic supersession.
 
 `q` implements Datalog over one or more immutable relations:
 
+- **Terms** — as in Datomic, only a symbol starting with `?` is a
+  variable. `_` is the blank: it matches anything and binds nothing (it is
+  not an fn argument). A `$`-prefixed symbol names a source, and `%` the
+  rule set. Every other symbol is a constant matching that symbol value:
+  `[?op :yin/name inc]` selects the rows whose value is the symbol `inc`.
+  The rule applies to pattern positions and to the arguments of function,
+  predicate, special-form, and rule-invocation clauses; the fn-name and
+  rule-name positions keep naming the fn or rule. A bare symbol as a fn
+  clause's result binding (`[(f ?a) out]`) is likewise a constant: the
+  clause keeps the binding only when the result is content-equal to the
+  symbol `out`, and binds nothing. A bare symbol where `:in` or `:find`
+  declares a term — an `:in` pattern or a symbol inside a tuple,
+  collection, or relation binding form, a `:find` variable, an aggregate
+  argument, or a `pull` variable — is refused as an invalid declaration
+  with an informative error, since it would otherwise silently bind no
+  variable or project nil. `:in` admits `?`-variables, `_`, `$`-sources,
+  `%`, and the `...` marker.
 - **Positive-conjunction pattern clauses** — arbitrary mixed-dimensional
   tuples. A plain clause matches exact arity. `[fixed ... & _]` explicitly
   ignores the remaining positions; `[fixed ... & ?tail]` binds them as a

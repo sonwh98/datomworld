@@ -330,6 +330,87 @@
                  datoms)))))
 
 
+(def ^:private symbol-datoms
+  [[1 :a 'foo 1 1] [2 :a 'bar 1 1] [3 'foo 'bar 1 1]])
+
+
+(deftest a-bare-symbol-in-a-pattern-is-a-constant
+  (testing "only ?-symbols are variables; foo matches the symbol foo"
+    (is (= #{[1]} (qcur '[:find ?e :where [?e :a foo]] symbol-datoms)))
+    (is (= '#{[3 bar]} (qcur '[:find ?e ?v :where [?e foo ?v]] symbol-datoms)))
+    (is (= #{} (qcur '[:find ?e :where [?e :a baz]] symbol-datoms))))
+  (testing "a repeated constant does not join like a variable"
+    (is (= #{[1 3]}
+           (qcur '[:find ?e ?f :where [?e :a foo] [?f foo bar]]
+                 symbol-datoms)))))
+
+
+(deftest a-bare-symbol-fn-argument-is-a-constant
+  (is (= #{[1]}
+         (qcur '[:find ?e :where [?e :a ?v] [(= ?v foo)]] symbol-datoms)))
+  (is (= #{["foo"]} (qcur '[:find ?s :where [(str foo) ?s]] symbol-datoms))
+      "the fn position keeps naming the fn; the argument is the symbol"))
+
+
+(deftest a-bare-symbol-rule-argument-is-a-constant
+  (let [rules '[[(has ?e ?v) [?e :a ?v]]]]
+    (is (= #{[1]}
+           (qq '[:find ?e :in $ % :where (has ?e foo)]
+               (query/current (rel symbol-datoms))
+               rules)))
+    (is (= '#{[1 foo] [2 bar]}
+           (qq '[:find ?e ?v :in $ % :where (has ?e ?v)]
+               (query/current (rel symbol-datoms))
+               rules))
+        "the rule name keeps naming the rule; ?-arguments still bind")))
+
+
+(deftest a-bare-symbol-in-in-or-find-is-refused
+  (let [src (query/current (rel symbol-datoms))]
+    (doseq [[label query inputs]
+            [[":in scalar" '[:find ?e :in $ foo :where [?e :a foo]] ['foo]]
+             [":in tuple" '[:find ?e :in $ [?v w] :where [?e :a ?v]] [['foo 1]]]
+             [":in collection" '[:find ?e :in $ [v ...] :where [?e :a ?v]]
+              [['foo]]]
+             [":in relation" '[:find ?e :in $ [[?v w]] :where [?e :a ?v]]
+              [[['foo 1]]]]
+             [":find variable" '[:find ?e foo :where [?e :a foo]] []]
+             [":find scalar" '[:find foo . :where [?e :a foo]] []]
+             [":find collection" '[:find [foo ...] :where [?e :a foo]] []]
+             [":find aggregate" '[:find (count e) :where [?e :a foo]] []]
+             [":find pull" '[:find (pull e [*]) :where [?e :a foo]] []]]]
+      (testing label
+        (is (thrown-with-msg?
+              #?(:cljs js/Error
+                 :cljd Object
+                 :default Exception)
+              #"bare symbol"
+              (apply qq query src inputs)))))
+    (testing "declared variables, sources, rules, blanks and markers pass"
+      (is (= #{[1]}
+             (qq '[:find ?e :in $ % _ [?v ...]
+                   :where [?e :a ?v]]
+                 src [] :ignored ['foo]))))))
+
+
+(deftest variables-and-the-blank-are-unchanged
+  (testing "a ?-variable binds and joins"
+    (is (= '#{[1 foo] [2 bar]}
+           (qcur '[:find ?e ?v :where [?e :a ?v]] symbol-datoms)))
+    (is (= #{[2]}
+           (qcur '[:find ?e :where [?e :a ?v] [3 _ ?v]] symbol-datoms))))
+  (testing "_ matches anything and binds nothing"
+    (is (= #{[1] [2]} (qcur '[:find ?e :where [?e :a _]] symbol-datoms)))
+    (is (= #{[1] [2] [3]} (qcur '[:find ?e :where [?e _ _]] symbol-datoms))))
+  (testing "_ is still not an fn argument"
+    (is (thrown-with-msg?
+          #?(:cljs js/Error
+             :cljd Object
+             :default Exception)
+          #"Unbound variable in fn clause"
+          (qcur '[:find ?e :where [?e :a ?v] [(= ?v _)]] symbol-datoms)))))
+
+
 ;; ---------------------------------------------------------------------------
 ;; O: ownership — the caller owns every handle (proved with the published
 ;; helpers further down; deftest bodies resolve at run time)
