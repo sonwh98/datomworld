@@ -8267,3 +8267,141 @@ real-VM end-to-end + UCF retained round trip. Parallel in flight: REPL code inde
 /Users/sto/workspace/datomworld-repl-index (branch repl-code-index), gate r1 REQUEST CHANGES (P1 publish overflow of
 4096 intake, P2 failure not surfaced) + OWNER RULING "Report, keep evaluating" on index gaps; fix round running,
 implementer session 7fcb4501-80b2-43a3-8511-32424dd6f0d4, gate thread 01a0e802-49fe-77e1-bfc2-20092d11eacb.
+
+## 2026-09-28 22:45:34 +07 — REPL code indexing landed fd3f0edd; Slice 3b lease wiring committed c2417899
+Completed-GMT: 2026-09-28 15:45:34 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@c2417899, committed; uncommitted: this log entry; unpushed: b34643c0, ada3f200, fd3f0edd, c2417899
+Done: (1) yin.repl automatic code indexing (owner request; design docs/design/yin.repl.dao.space-index.md): new
+yin.repl.index + repl.cljc wiring; a second observer on program-out projects each expanded packet to [e a v t m]
+facts (ast->datoms, :yin/address links, per-program provenance entity in m), one dao.space transaction per program,
+transactor/publish! to dao.jing every round with manifest read-back; fresh intake per round (bounded memory);
+status/failure in repl-state :index and a round Warning line; an index gap marks the indexer lost until (reset) but
+never stops evaluation. Deferred: $ast row relation, q on require. (2) Slice 3b: dao.lease lease per served
+identity, judge pass in step on host ticks, reclaim via retire!, reattach!, lease options required in open!,
+grantor-source refusal; dao.lease gains public wire-declared-facts / unwire-facts (additive).
+Decisions (owner, verbatim selected options): indexing stream "program-out (Recommended)"; publish "Every eval round
+(Recommended)"; index gap "Report, keep evaluating (Recommended)"; intake "Fresh intake per round (Recommended)";
+landing "One commit on master (Recommended)" + cleanup "Yes, remove all"; 3b P2 dao.lease API "Authorize
+(Recommended)"; commits authorized per unit. Indexing was built in worktree datomworld-repl-index (branch
+repl-code-index), committed there 7571830a, cherry-picked to master fd3f0edd (content diff verified empty), then both
+worktrees (+ scratch wt-master) and the branch removed; neither worktree held unique collab/ files.
+Verification: indexing final worktree tree JVM 2298/183452/0, Node 2204/50062/0, CLJD 2166; combined master
+fd3f0edd + 3b JVM 2316/183723/0, Node 2222/50291/0, CLJD 2184. 3b final: kondo 0 errors (1 pre-existing warning,
+lease_composition_test.cljc:627, identical on HEAD), cljstyle clean, focused 142/1243/0, JVM 2318/183749/0, Node
+2224/50312/0, CLJD 2186. yin.repl.main-test flake recurred once in a 3b JVM run (killing-the-connection...), reruns
+1 fail/2 pass; pre-existing (A/B'd on clean master earlier) — still on the post-epic queue.
+Delegates: indexing implementer claude-opus-5-5 session 7fcb4501-80b2-43a3-8511-32424dd6f0d4
+(collab/1790597280000-vm-engineer-repl-code-index.*, r1-r3); gate gpt-6-sol thread
+01a0e802-49fe-77e1-bfc2-20092d11eacb (collab/1790598850000-reviewer-repl-code-index-gate.*, r1 REQUEST CHANGES P1
+intake overflow + P2 invisible failures + Q1 owner, r2 P2 retention + Q6 owner, r3 READY/GRANTED). 3b implementer
+claude-opus-5-5 session 7d111381-2e90-40d2-9519-0a15d8ccca19 (collab/1790606567000-vm-engineer-ffi-lease-wiring.*,
+r1-r2); gate gpt-6-sol thread 01a0e89c-b231-7910-bc49-84d9be2eb768 (collab/1790608971000-reviewer-ffi-lease-wiring-
+gate.*, r1 REQUEST CHANGES P1 grantor collision + P2 private :facts access, r2 READY/GRANTED).
+Next: Slice 3c — apply responder over the exported call pair (apply/serve-once!), production holder + lease-grants
+delivery (S6), real-VM end-to-end via yin.vm.ffi/call-result, UCF retained-envelope round trip; acceptance tests 1-10
+of the slice-3 design. Open follow-ups: renewal authority is open until ShiBi (gate: documented S6 seam; owner policy);
+dao.lease :self-source media accepted by make-judge (pre-existing); index publish time grows with history (accepted
+cost; incremental publish would fix); push awaits owner.
+
+## 2026-09-29 12:07:32 +07 — REMOTE FFI COMPLETE: slice 3c c9313ee0 (server + holder composition), slice 3d 3cf3c6de (caller correlation)
+Completed-GMT: 2026-09-29 05:07:32 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@3cf3c6de, committed; uncommitted: this log (two entries); unpushed: b34643c0 ada3f200 fd3f0edd c2417899 c9313ee0 3cf3c6de
+Done: 3c — yin.vm.ffi.remote-serve.responder (apply/serve-once! over the exported call pair; call-in gap ->
+::request-lost + close call-out; retired pair -> ::retired) and .holder (production dao.lease holder reading its grant
+via the new ::lease-grants entry; grant-cursor gap is terminal ::lost). 3d — composite FFI call ids [caller-token
+park-id] (also the parked key) at all four VM call sites; FFI response router in yin.vm.engine (per cell incl. carried
+cells, bounded 64, wakes only the matching waiter); :dao.stream.apply/ended loss error with :yin.vm.ffi/loss end|gap;
+yin.vm.ffi.remote-serve.caller readiness step + trusted :call-out-cursor option; supplied pair without cursor refused.
+Gate Q7 (3d r2): remote FFI meets the one-envelope ruling's end-to-end definition.
+Decisions: 3c gate r1 P1 (cross-caller correlation) routed to the Architect (gpt-6-sol thread 01a0e7c5, r3 ruling:
+composite ids + router + readiness + ended error, as its own slice 3d; 3c commits as server/holder only). OWNER chose
+"Architect review first" -> glm-5.3 second opinion via glm CLI (session d56323dc-e84f-4304-a382-8fdddf13ac85; ZCode
+discount route unavailable from this Claude Code seat, full GLM quota used): CONCUR WITH CHANGES (missed 8th file
+debruijn_register_effects; supplied-pair policy; end/gap key; router details; token constraints). OWNER then:
+"Authorize all 8 (Recommended)" and supplied-pair "Refuse (Recommended)". 3d gate r1 P2 (caller readiness leaked
+reflections) -> fix -> r2 READY/GRANTED. Accepted as designed: gap wakes all waiters on the cell as lost; a woken-but-
+unrestored writer stalls only its own cell; token = non-blank string or keyword; fixed per-cell budget 64.
+Verification (orchestrator): 3c final JVM 2331/183899/1 (known main-test flake; reruns 1 fail/2 pass) Node 2237/50428/0
+CLJD 2199. 3d final kondo 0 errors (5 pre-existing warnings in untouched regions), cljstyle clean, JVM 2342/184058/0,
+Node 2248/50583/0, CLJD 2210 (vector parked keys round-trip on Dart). Both commits: formatter hook neutral.
+Delegates: 3c implementer claude-opus-5-5 session 715a2230-3f6e-48b5-9260-4e2225debf68
+(collab/1790610416000-vm-engineer-ffi-responder-e2e.*, r1-r2); 3c gate gpt-6-sol thread
+01a0e8c9-ba64-71d3-988e-fbacc14e5a82 (collab/1790611924000-reviewer-ffi-responder-e2e-gate.*, r1-r2); Architect r3
+collab/1790594862000-architect-ffi-serving-slice3-r3.*; second opinion collab/1790654484000-architect-ffi-correlation-
+second-opinion.*; 3d implementer claude-opus-5-5 session 08d36f7d-b33d-404e-adcb-dc04d5b907ef
+(collab/1790655248000-vm-engineer-ffi-caller-correlation.*, r1-r2); 3d gate gpt-6-sol thread
+01a0eb77-8192-7580-968c-b65f6ec8facb (collab/1790656866000-reviewer-ffi-caller-correlation-gate.*, r1-r2).
+Next: owner decisions on deployment policy (caller-token minting authority, handler authority beyond ::admit?,
+renewal authority until ShiBi, channel adapter, capacities, lease timing); lease-proposals not served; push awaits
+owner; post-epic queue (yin.repl.main-test flake; incremental index publish; dao.lease :self-source media).
+Archive: slice-3 and indexing collab/ artifacts can move to archive/ (all their work is committed) once the owner
+confirms, per Workflow step 11.
+
+## 2026-09-29 16:47:00 +07 — Post-epic queue: main-test flake fixed dce6282c; lease authority test f0cb37aa; q on require landed 643b1ba6
+Completed-GMT: 2026-09-29 09:47:00 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@643b1ba6, committed; uncommitted: this log (three entries); unpushed: b34643c0 ada3f200 fd3f0edd c2417899 c9313ee0 3cf3c6de dce6282c f0cb37aa 643b1ba6
+Done: (1) yin.repl.main-test flake ROOT-CAUSED: after attach the driver sent an eval request while its rpc response
+cursor was still the unresolved :newest anchor; the cursor resolved one past the answer (instrumented: send at tick 10,
+cursor resolved tick 19 to pos 5, answer at pos 4). Fix in yin.repl.driver (response-cursor-unminted? guard) +
+deterministic driver_test; 4/20 failing before, 0/36 after; build/yin-repl-peer rebuilt. (2) Architect post-epic
+rulings (collab/1790665619000-architect-post-epic-queue.gpt-6-sol.findings.md): incremental index publish DO LATER
+(measure first; equality of datoms/queries, NOT manifest address); dao.lease :self-source DON'T refuse (own-ledger
+reading is legitimate; refusal stays at composition boundary) -> one regression test; lease-proposals DO LATER as a
+separate proposal-driven composition. (3) q on require: session-scoped host module dao.space.query activated by the
+:module/require effect handler; dao.space.query/q over a dao.stream.apply call pair answered by a shell interpreter from
+the latest published manifest snapshot (current / {:view :history}); refuses unless published/not lost/not failed.
+Decisions (owner, verbatim selected options): queue "5"; retry after network failure ("retry"); q name
+"dao.space.query/q (Recommended)"; limits "Implementer proposes (Recommended)" then "Approve (Recommended)" (1000 rows,
+256 KiB CBOR) and "Approve and land (Recommended)" (incl. query-drive-budget 1024); error code "Add query-failed
+(Recommended)"; commits "Yes, two commits". Orchestrator extended the flake brief's file scope to driver_test.cljc for
+the regression test (recorded in the brief's Round 3 addendum). q built in worktree datomworld-q-require (branch
+repl-q-require, commit 4a76ffae), cherry-picked to master 643b1ba6 (content diff empty); worktree + branch removed (no
+unique collab/ files).
+Verification: flake+lease final JVM 2344/184072/0, Node 2250/50596/0, CLJD 2212 (with rebuilt Dart peer). q worktree
+final JVM 2355/184256/2 (both main-test = the driver race absent from that base), Node 2261/50744/0, CLJD 2223. Master
+after landing 643b1ba6: JVM 2357/184270/0, Node 2263/50757/0, CLJD 2225.
+Delegates: flake claude-opus-5-5 session f9fe29ab-85ec-4a4d-8667-ca972a237a16 (collab/1790665619000-qa-engineer-repl-
+main-test-flake.*, r1 network ENOTFOUND failure, r2, r3); lease test claude-opus-5-5 session
+067152df-fd04-4aff-859e-8aa524ba524d (collab/1790665745000-qa-engineer-lease-authority-regressions.*); flake+lease gate
+gpt-6-sol thread 01a0ec41-a5c7-7a40-bbcf-6f99a869d582 (READY/GRANTED r1); Architect queue thread
+01a0ebfd-1cf8-7c82-a5d2-700e6a293c1e; q Architect thread 01a0ec33-7bb8-7710-b294-bb0533691020; q implementer
+claude-opus-5-5 session c2557c35-ba40-4377-b51a-aad2152a95cb (r1-r2); q gate gpt-6-sol thread
+01a0ec5b-fe43-77e1-9534-4ab9f6458cfc (r1 REQUEST CHANGES rollback eviction + unbounded drive, r2 READY/GRANTED).
+Next: dao.stream.rpc root fix (request! returns :dao.stream.rpc/cursor-pending while its cursor is an anchor) — an
+Architect item, not dispatched; the $ast row relation (structural queries) still deferred; owner: push, log commit,
+collab/ archive, deployment policy, DO-LATER thresholds (incremental publish, proposals).
+
+## 2026-09-29 18:30:07 +07 — dao.stream.apply independent of rpc (owner invariant) committed aa928ab5; apply design doc reworded
+Completed-GMT: 2026-09-29 11:30:07 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@aa928ab5 before this entry's docs commits; pushed with them (owner: "commit the docs and push master")
+Done: OWNER INVARIANT, verbatim: "dao.stream.apply needs to be independent of the concept of rpc because it can use a
+framebuffer" (recorded in memory as a governing invariant). Architect gpt-6-sol (owner choice) ruled, superseding its
+own one-envelope ruling's apply-qualified reason words: apply keeps medium-neutral envelopes, serve-once! and its own
+validation/observation words (incl. gap); rpc owns :dao.stream.rpc/{not-found,detached,ended,no-surface,oversize,
+transport-error} translated at its boundary; rpc/request! returns :dao.stream.rpc/cursor-pending (no id/allocation/
+append) while its response cursor is an anchor, also before unsent retry — the REPL driver's own guard (dce6282c)
+folded into rpc/cursor-pending?; VM FFI loss code -> :yin.vm.ffi/response-lost; apply docstrings stripped of
+transport/rpc wording; tests pin apply's rpc-free vocabulary and apply over a framebuffer-like medium. One breaking
+commit aa928ab5 (17 files). Owner follow-up: docs/design/dao.stream.apply.md reworded to medium-neutral language
+(orchestrator-direct, docs only, 14 lines; "Transport Independence" -> "Medium Independence", framebuffer listed).
+Decisions (owner, verbatim selected options): Architect "gpt-6-sol"; "Dispatch now (Recommended)"; commit "Yes,
+commit"; follow-ups "Reword dao.stream.apply.md" (same-tick queue ordering NOT selected, left open).
+Verification: kondo 0/0; cljstyle clean; residual grep for the six old :dao.stream.apply/* reason words in src/test/docs
+empty; build/yin-repl-peer rebuilt from the changed driver; JVM 2362/184307/0 (main-test passed via the rpc gate);
+Node 2267/50789/0; CLJD 2229. Gate READY/GRANTED ("Owner invariant: satisfied"); Q1 doc wording and Q3 queue
+ordering marked owner decisions; Q2 keep the terminal-mint path.
+Delegates: Architect gpt-6-sol thread 01a0ec92-d475-7172-ade6-a6321090db0b
+(collab/1790675432000-architect-apply-independent-of-rpc.*); implementer claude-opus-5-5 session
+e2ea0334-6c5f-4339-bd39-f3b0c39625b8 (collab/1790676940000-stream-engineer-apply-independent-of-rpc.*); gate gpt-6-sol
+thread 01a0ecbd-959c-7de1-af34-1feb70855f89 (collab/1790678232000-reviewer-apply-independent-of-rpc-gate.*).
+Next: open items — pre-existing same-tick REPL queue ordering (owner has not selected); $ast row relation deferred;
+incremental index publish and lease-proposals DO LATER pending owner thresholds; deployment policy for remote FFI;
+archive completed collab/ artifacts (owner confirmation).
