@@ -194,6 +194,17 @@
   (rpc/unsent? (rpc-client state)))
 
 
+(defn- response-cursor-unminted?
+  "True while the RPC client's response cursor is still the `newest` anchor
+   `connect/open` composed it with.  Over a remote reflection the anchor is
+   resolved by the server when the mint request reaches it, so a request that
+   crosses first can be answered at a position the resolved cursor already
+   lies past: that answer is never read.  A request must not be sent until
+   this is false."
+  [state]
+  (contains? stream/standard-anchors (:cursor (rpc-client state))))
+
+
 (defn pending-write?
   "True while a remote write the operator is owed remains in flight: a
    request awaiting its response, a line held for a full writer, or an
@@ -203,7 +214,8 @@
   [state]
   (boolean (or (:outstanding state)
                (:retrying state)
-               (remote-unsent? state))))
+               (remote-unsent? state)
+               (and (seq (:queued state)) (response-cursor-unminted? state)))))
 
 
 (def queueable-terminals
@@ -435,8 +447,10 @@
         ;; `:unsent` is the RPC client's own retained envelope, and the
         ;; authority on whether the request path is free: submitting here would
         ;; resend it and discard this line.  `:retrying` is only the driver's
-        ;; record of which line that envelope carries.
-        (or (:outstanding state) (:retrying state) (remote-unsent? state))
+        ;; record of which line that envelope carries.  An unminted response
+        ;; cursor holds the line too: its answer could land before the cursor.
+        (or (:outstanding state) (:retrying state) (remote-unsent? state)
+            (response-cursor-unminted? state))
         (update state :queued conj line)
 
         :else (submit-remote state line))
@@ -538,7 +552,8 @@
            (seq (:queued state))
            (not (:outstanding state))
            (not (:retrying state))
-           (not (remote-unsent? state)))
+           (not (remote-unsent? state))
+           (not (response-cursor-unminted? state)))
     (let [[line & rest-lines] (:queued state)]
       (-> state
           (assoc :queued (vec rest-lines))

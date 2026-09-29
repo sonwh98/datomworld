@@ -189,6 +189,58 @@
     (is (str/includes? (text-of (driver/repl-step state 0)) "daostream:ws://"))))
 
 
+(defn- unminted-reflection
+  "A response reader shaped like a dao.stream.remote reflection: minting the
+   `newest` anchor answers the retryable transport-error until `minted?` is
+   set, as it does while the server has not yet answered the cursor request.
+   Once minted, it resolves `newest` against `responses` at that moment,
+   exactly as the server resolves it when the request reaches it."
+  [responses minted?]
+  (reify stream/IDaoStreamReader
+    (cursor
+      [_ anchor]
+      (if @minted?
+        (stream/cursor responses anchor)
+        {:dao.stream/outcome :dao.stream/transport-error
+         :dao.stream/retry? true}))
+
+    (next [_ c] (stream/next responses c))))
+
+
+(deftest no-request-crosses-before-its-response-cursor-is-minted
+  ;; The R5 flake: a request sent while `newest` was unminted was answered
+  ;; at a position the later-resolved cursor lay past, so its answer was
+  ;; never read.
+  (let [requests (handle 8)
+        responses (handle 8)
+        minted? (atom false)
+        state (-> (driver/create-state)
+                  (driver/attach-remote
+                    (adapter/state (rpc/client-state
+                                     requests
+                                     (unminted-reflection responses minted?)
+                                     stream/anchor-newest))))]
+    (driver/submit-line! (:input state) "(+ 1 2)")
+    (let [stepped (driver/repl-step state 0)]
+      (is (= :dao.stream/blocked
+             (:dao.stream/outcome (stream/next requests (oldest requests))))
+          "nothing is appended while the response cursor is an anchor")
+      (is (= ["(+ 1 2)"] (:queued stepped)) "the line waits in the queue")
+      (is (true? (driver/pending-write? stepped))
+          "a line held for the mint keeps the cadence at the base interval")
+      (testing "once the mint answers, the line is sent on that step"
+        (reset! minted? true)
+        (let [stepped' (driver/repl-step stepped 1)
+              read (stream/next requests (oldest requests))
+              id (rpc/request-id (:dao.stream/value read))]
+          (is (= :dao.stream/ok (:dao.stream/outcome read)))
+          (is (= ["(+ 1 2)"] (rpc/request-args (:dao.stream/value read))))
+          (is (empty? (:queued stepped')))
+          (testing "and its answer, appended after the mint, is read"
+            (stream/append! responses (rpc/success-answer id "3"))
+            (is (= ["3"] (texts (driver/repl-step stepped' 2))))))))))
+
+
 (deftest pending-write?-names-every-write-the-operator-is-owed
   (testing "a fresh driver owes nothing, and neither does an idle step"
     (is (false? (driver/pending-write? (driver/create-state))))
