@@ -921,7 +921,13 @@ currently published in three shapes:
 - **Stepped.** `dao.jing.remote.step` is "a pure function over explicit data…
   no socket, atom, promise, callback, or scheduler": `request-get`, `step`,
   `abandon` over `dao.stream.rpc`. This is the third model, and the only one of
-  the three shapes that is the same on every host.
+  the three shapes that is the same on every host. The boundary inside it
+  matters: `dao.stream.rpc` owns the client lifecycle (id allocation, the
+  pending response cursor, and its `:dao.stream.rpc/*` completion and
+  terminal reasons), while the `dao.stream.apply` request and response values
+  it carries are independent of RPC. Apply is envelopes plus one explicit
+  server step over two caller-supplied handles, and it runs as well over a
+  framebuffer as over a socket.
 
 `dao.jing.md` already lists the consequences as deferred items (*The content
 write path as an effect stream*, *Async hydration*). What is undecided is not

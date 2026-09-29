@@ -30,9 +30,9 @@
      `yin.vm.ffi/bridge-step` treats it locally): a request was evicted
      and the parked call that made it could never be answered. The
      responder reports `::request-lost` and closes call-out, so every
-     VM waiting on that pair reads end and raises the portable
-     `:dao.stream.apply/ended` loss (`yin.vm.ffi/response-lost`)
-     instead of parking forever.
+     VM waiting on that pair reads end and raises its own
+     `:yin.vm.ffi/response-lost` error (`yin.vm.ffi/response-lost`, with
+     `:yin.vm.ffi/loss :dao.stream/end`) instead of parking forever.
    - Once the binding no longer serves call-in or call-out -- retired,
      closed, or reclaimed by its lease -- the responder is terminal
      (`::retired`) and invokes no further handler for that tenure.

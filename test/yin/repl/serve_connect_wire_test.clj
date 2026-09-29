@@ -115,7 +115,7 @@
                    (connect/step! @connection)
                    (let [polled (adapter/poll-responses @adapter-state 8)]
                      (reset! adapter-state (:yin.repl.adapter/state polled))
-                     (= :dao.stream.apply/detached
+                     (= :dao.stream.rpc/detached
                         (:terminal (:yin.repl.adapter/rpc @adapter-state)))))))
 
           (let [reattached (connect/reattach

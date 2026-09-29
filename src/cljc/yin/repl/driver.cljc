@@ -194,17 +194,6 @@
   (rpc/unsent? (rpc-client state)))
 
 
-(defn- response-cursor-unminted?
-  "True while the RPC client's response cursor is still the `newest` anchor
-   `connect/open` composed it with.  Over a remote reflection the anchor is
-   resolved by the server when the mint request reaches it, so a request that
-   crosses first can be answered at a position the resolved cursor already
-   lies past: that answer is never read.  A request must not be sent until
-   this is false."
-  [state]
-  (contains? stream/standard-anchors (:cursor (rpc-client state))))
-
-
 (defn pending-write?
   "True while a remote write the operator is owed remains in flight: a
    request awaiting its response, a line held for a full writer, or an
@@ -215,7 +204,10 @@
   (boolean (or (:outstanding state)
                (:retrying state)
                (remote-unsent? state)
-               (and (seq (:queued state)) (response-cursor-unminted? state)))))
+               ;; RPC holds every request until its response cursor is minted;
+               ;; a line queued behind that mint is still owed a prompt send.
+               (and (seq (:queued state))
+                    (rpc/cursor-pending? (rpc-client state))))))
 
 
 (def queueable-terminals
@@ -224,7 +216,7 @@
    may succeed through a *fresh* connection, but that connection cannot inherit
    this binding's queued lines, so promising to deliver them would be false.
    Every other terminal returns input to the local shell."
-  #{:dao.stream.apply/detached})
+  #{:dao.stream.rpc/detached})
 
 
 (defn- remote-routed?
@@ -384,8 +376,20 @@
       :else (open-connection state url))))
 
 
-(defn- submit-remote
+(defn- queue-line
   [state line]
+  (update state :queued conj line))
+
+
+(defn- requeue-line
+  [state line]
+  (update state :queued #(into [line] %)))
+
+
+(defn- submit-remote
+  "Offer `line` to RPC once.  `hold` puts the line back where it came from
+   when RPC refuses to send before its response cursor is minted."
+  [state line hold]
   (let [result (adapter/submit-input (:adapter state) line)
         state (assoc state :adapter (:yin.repl.adapter/state result))]
     (case (:yin.repl.adapter/outcome result)
@@ -399,6 +403,11 @@
       ;; encoded request, with the same id, is retried on a later step.
       :yin.repl.adapter/pending-request
       (assoc state :retrying line)
+
+      ;; Nothing was allocated or sent: the answer could land before the
+      ;; response cursor, so RPC holds the request until `poll!` mints it.
+      :yin.repl.adapter/cursor-pending
+      (hold state line)
 
       (-> state
           (assoc :retrying nil)
@@ -447,13 +456,11 @@
         ;; `:unsent` is the RPC client's own retained envelope, and the
         ;; authority on whether the request path is free: submitting here would
         ;; resend it and discard this line.  `:retrying` is only the driver's
-        ;; record of which line that envelope carries.  An unminted response
-        ;; cursor holds the line too: its answer could land before the cursor.
-        (or (:outstanding state) (:retrying state) (remote-unsent? state)
-            (response-cursor-unminted? state))
-        (update state :queued conj line)
+        ;; record of which line that envelope carries.
+        (or (:outstanding state) (:retrying state) (remote-unsent? state))
+        (queue-line state line)
 
-        :else (submit-remote state line))
+        :else (submit-remote state line queue-line))
 
       :else (evaluate-locally state line))))
 
@@ -541,7 +548,7 @@
            (remote-unsent? state)
            (:retrying state)
            (not (remote-terminal state)))
-    (submit-remote state (:retrying state))
+    (submit-remote state (:retrying state) (fn [state _] state))
     state))
 
 
@@ -552,12 +559,11 @@
            (seq (:queued state))
            (not (:outstanding state))
            (not (:retrying state))
-           (not (remote-unsent? state))
-           (not (response-cursor-unminted? state)))
+           (not (remote-unsent? state)))
     (let [[line & rest-lines] (:queued state)]
       (-> state
           (assoc :queued (vec rest-lines))
-          (submit-remote line)))
+          (submit-remote line requeue-line)))
     state))
 
 

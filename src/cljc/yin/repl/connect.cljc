@@ -478,7 +478,7 @@
 (defn reattachable?
   "True when the RPC client's terminal reason is the one reconnectable one."
   [client]
-  (= :dao.stream.apply/detached (:terminal client)))
+  (= :dao.stream.rpc/detached (:terminal client)))
 
 
 (defn reattach
@@ -530,25 +530,25 @@
 (defn- terminal-transition
   [connection terminal]
   (case terminal
-    :dao.stream.apply/detached
+    :dao.stream.rpc/detached
     [:detached (event :yin.repl.connect/detached
                       (str "Disconnected from " (:url connection)
                            "; the served stream is untouched, so (connect "
                            (pr-str (:url connection)) ") reattaches"))]
 
-    :dao.stream.apply/ended
+    :dao.stream.rpc/ended
     [:ended (event :yin.repl.connect/ended
                    (str "The stream served at " (:url connection)
                         " ended; there is nothing to reattach to"))]
 
-    :dao.stream.apply/not-found
+    :dao.stream.rpc/not-found
     [:not-found (event :yin.repl.connect/not-found
                        (str "No stream is served at "
                             (:ws/path (:channel connection))
                             ": the endpoint disclaimed it, so this is not "
                             "retried"))]
 
-    :dao.stream.apply/transport-error
+    :dao.stream.rpc/transport-error
     [:transport-error
      (event :yin.repl.connect/transport-error
             (str "Could not reach " (:url connection)

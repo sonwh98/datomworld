@@ -276,6 +276,13 @@
                     :dao.stream.rpc/append append-result)))))
 
 
+(defn cursor-pending?
+  "True while the response cursor is an unresolved standard anchor that
+   `poll!` has not yet minted.  `request!` sends nothing while it holds."
+  [state]
+  (contains? stream/standard-anchors (:cursor state)))
+
+
 (defn request!
   "Attempt one request append, returning an explicit next state.
 
@@ -284,11 +291,21 @@
    function makes one append attempt at most and never spins on `:full`.
 
    With `:max-outstanding` requests already outstanding, a new request answers
-   `:dao.stream.rpc/backpressure`: no id is allocated and nothing is appended."
+   `:dao.stream.rpc/backpressure`: no id is allocated and nothing is appended.
+
+   While the response cursor is still an unresolved anchor (`cursor-pending?`)
+   a request answers `:dao.stream.rpc/cursor-pending` with the identical state:
+   no id is allocated, nothing is appended, and an unsent envelope is not
+   retried.  A request that crossed before the reader position is established
+   could be answered before `poll!` mints the cursor past its answer.  `poll!`
+   resolves the anchor; a terminal mint ends the binding."
   [state op args]
   (cond
     (:terminal state)
     (rpc-result :dao.stream.rpc/terminal state)
+
+    (cursor-pending? state)
+    (rpc-result :dao.stream.rpc/cursor-pending state)
 
     (:unsent state)
     (attempt-unsent state)
@@ -436,11 +453,11 @@
    every other reason is terminal for the binding."
   [read-result]
   (case (:dao.stream.remote/reason read-result)
-    :dao.stream.remote/not-found :dao.stream.apply/not-found
-    :dao.stream.remote/channel-gone :dao.stream.apply/detached
-    :dao.stream.remote/no-surface :dao.stream.apply/no-surface
-    :dao.stream.remote/oversize :dao.stream.apply/oversize
-    :dao.stream.apply/transport-error))
+    :dao.stream.remote/not-found :dao.stream.rpc/not-found
+    :dao.stream.remote/channel-gone :dao.stream.rpc/detached
+    :dao.stream.remote/no-surface :dao.stream.rpc/no-surface
+    :dao.stream.remote/oversize :dao.stream.rpc/oversize
+    :dao.stream.rpc/transport-error))
 
 
 (defn- terminal-lost
@@ -452,9 +469,9 @@
    the reflection answered it to."
   [state result]
   (let [reason (case (:dao.stream/outcome result)
-                 :dao.stream/end :dao.stream.apply/ended
+                 :dao.stream/end :dao.stream.rpc/ended
                  :dao.stream/transport-error (transport-error-reason result)
-                 :dao.stream.apply/transport-error)
+                 :dao.stream.rpc/transport-error)
         state (lose-outstanding state reason true)]
     (rpc-result :dao.stream.rpc/lost state
                 :dao.stream.rpc/reason reason
@@ -531,7 +548,7 @@
          ;; The response cursor is an unresolved anchor: settling it is not
          ;; a read and does not spend the budget, exactly as
          ;; dao.jing.content.step/poll's own anchor branch does not.
-         (contains? stream/standard-anchors (:cursor state))
+         (cursor-pending? state)
          (let [[status cursor r] (mint-cursor (:reader state) (:cursor state))]
            (case status
              :ok (recur remaining (assoc state :cursor cursor) last-result)
@@ -571,10 +588,10 @@
    a cursor or replacing the random id allocator. Only `/detached` is
    reconnectable; other terminal reasons remain terminal."
   ([state writer]
-   (if (= :dao.stream.apply/detached (:terminal state))
+   (if (= :dao.stream.rpc/detached (:terminal state))
      (assoc state :writer writer :terminal nil)
      state))
   ([state writer reader]
-   (if (= :dao.stream.apply/detached (:terminal state))
+   (if (= :dao.stream.rpc/detached (:terminal state))
      (assoc state :writer writer :reader reader :terminal nil)
      state)))

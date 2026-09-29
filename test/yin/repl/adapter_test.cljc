@@ -50,6 +50,22 @@
     (is (empty? (:yin.repl.adapter/events consumed)))))
 
 
+(deftest an-unminted-response-cursor-is-a-cursor-pending-outcome
+  (let [request-handle (handle)
+        response-handle (handle)
+        rpc-state (rpc/client-state request-handle response-handle
+                                    stream/anchor-newest)
+        submitted (adapter/submit-input (adapter/state rpc-state) "(+ 1 2)")]
+    (is (= :yin.repl.adapter/cursor-pending
+           (:yin.repl.adapter/outcome submitted)))
+    (is (identical? rpc-state
+                    (get-in submitted [:yin.repl.adapter/state
+                                       :yin.repl.adapter/rpc])))
+    (is (= :dao.stream/blocked
+           (:dao.stream/outcome (stream/next request-handle (cursor request-handle))))
+        "nothing is sent while the cursor is unminted")))
+
+
 (deftest telemetry-is-rejected-rather-than-evaluated-anywhere
   ;; The REPL has no (telemetry) command in any form, so the adapter names
   ;; the rejection instead of running it locally or sending it to the remote.
@@ -157,5 +173,5 @@
                :yin.repl.adapter/id id
                :yin.repl.adapter/op :op/eval
                :yin.repl.adapter/args ["x"]
-               :yin.repl.adapter/reason :dao.stream.apply/ended}]
+               :yin.repl.adapter/reason :dao.stream.rpc/ended}]
              events)))))

@@ -586,7 +586,7 @@
           e (raised #(settle pb parked))]
       (is (some? e) "the parked VM raises instead of waiting forever")
       (is (= {:call-id call-id,
-              :error {:dao.stream.apply/code :dao.stream.apply/ended,
+              :error {:dao.stream.apply/code ::ffi/response-lost,
                       :dao.stream.apply/message
                       "FFI response stream ended before this call was answered",
                       ::ffi/loss :dao.stream/end}}

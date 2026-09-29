@@ -48,7 +48,7 @@
                  {:dao.stream.apply/id :id
                   :dao.stream.apply/ok :one
                   :dao.stream.apply/error {:dao.stream.apply/code :x/y
-                                              :dao.stream.apply/message "no"}}))))))
+                                           :dao.stream.apply/message "no"}}))))))
 
 
 (deftest endpoint-and-explicit-cursor-helpers
@@ -139,3 +139,90 @@
            (apply/response-id
              (:dao.stream/value
                (apply/next-response response-handle response-cursor)))))))
+
+
+;; =============================================================================
+;; Apply is independent of RPC: it can run over a framebuffer
+;; =============================================================================
+
+(defn- framebuffer
+  "A framebuffer-like medium: a fixed array of cells written in order and
+   read by cell index.  It knows nothing of requests, clients, or ids; a full
+   frame refuses further writes."
+  [size]
+  (let [cells (atom [])]
+    (reify
+      stream/IDaoStreamReader
+      (cursor
+        [_ anchor]
+        (case anchor
+          :dao.stream/oldest {:dao.stream/outcome :dao.stream/ok
+                              :dao.stream/cursor 0}
+          :dao.stream/newest {:dao.stream/outcome :dao.stream/ok
+                              :dao.stream/cursor (count @cells)}
+          {:dao.stream/outcome :dao.stream/invalid-anchor}))
+
+      (next
+        [_ cell]
+        (if (< cell (count @cells))
+          {:dao.stream/outcome :dao.stream/ok
+           :dao.stream/value (nth @cells cell)
+           :dao.stream/cursor (inc cell)}
+          {:dao.stream/outcome :dao.stream/blocked}))
+
+
+      stream/IDaoStreamWriter
+
+      (append!
+        [_ value]
+        (if (< (count @cells) size)
+          (do (swap! cells conj value)
+              {:dao.stream/outcome :dao.stream/ok})
+          {:dao.stream/outcome :dao.stream/full})))))
+
+
+(deftest apply-serves-over-a-framebuffer-with-opaque-ids
+  (let [requests (framebuffer 4)
+        responses (framebuffer 4)
+        request-cursor (:dao.stream/cursor (stream/cursor requests :dao.stream/oldest))
+        response-cursor (:dao.stream/cursor (stream/cursor responses :dao.stream/oldest))
+        id {:frame 3 :pixel [10 20]}
+        put (apply/put-request! requests (apply/request id :pixel/shade [21]))
+        step (apply/serve-once! {:pixel/shade (fn [x] (* 2 x))}
+                                requests responses
+                                (apply/server-state request-cursor))
+        read (apply/next-response responses response-cursor)]
+    (is (= :dao.stream/ok (:dao.stream/outcome put)))
+    (is (= :dao.stream.apply/responded (:dao.stream.apply/outcome step)))
+    (is (= :dao.stream/ok (:dao.stream/outcome read)))
+    (is (= id (apply/response-id (:dao.stream/value read)))
+        "a non-numeric opaque id is carried and correlated unchanged")
+    (is (= 42 (apply/response-ok (:dao.stream/value read))))
+    (testing "an application-owned error code is carried as given"
+      (let [error (apply/error-response :frame-7 :pixel/out-of-gamut "no")]
+        (is (apply/response? error))
+        (is (= :pixel/out-of-gamut
+               (get-in error [:dao.stream.apply/error
+                              :dao.stream.apply/code])))))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest apply-has-no-rpc-dependency-or-vocabulary
+     (let [source (slurp (.getResource (clojure.lang.RT/baseLoader)
+                                       "dao/stream/apply.cljc"))
+           ns-form (read {:read-cond :allow :features #{:clj}}
+                         (java.io.PushbackReader. (java.io.StringReader. source)))
+           requires (->> ns-form
+                         (filter #(and (seq? %) (= :require (first %))))
+                         (mapcat rest)
+                         (map #(if (vector? %) (first %) %))
+                         set)
+           texts (cons (:doc (meta (the-ns 'dao.stream.apply)))
+                       (keep (comp :doc meta) (vals (ns-publics 'dao.stream.apply))))
+           forbidden #"(?i)rpc|transport|client|remote|socket|wire|network"]
+       (is (= #{'dao.stream} requires)
+           "apply depends on the stream contract alone")
+       (is (< 10 (count texts)) "the docstrings are actually inspected")
+       (is (= [] (filterv #(re-find forbidden %) texts))
+           "apply's namespace text and docstrings name no rpc or transport concept"))))

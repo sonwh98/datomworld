@@ -97,14 +97,14 @@
 (defn response-lost
   "The portable apply error for a call whose response stream ended
    (`::response-ended`) or skipped over evicted values (`::response-gap`)
-   before this call was answered. Both carry the terminal code
-   `:dao.stream.apply/ended`; `::loss` tells them apart. The caller
-   reports only the loss it observed -- it cannot know why the responder
-   closed the stream or what the gap held."
+   before this call was answered. Both carry the VM's own code
+   `::response-lost`; `::loss` (`:dao.stream/end` or `:dao.stream/gap`)
+   tells them apart. The caller reports only the loss it observed -- it
+   cannot know why the responder closed the stream or what the gap held."
   [call-id status]
   (let [gap? (= ::response-gap status)]
     {:call-id call-id,
-     :error {:dao.stream.apply/code :dao.stream.apply/ended,
+     :error {:dao.stream.apply/code ::response-lost,
              :dao.stream.apply/message
              (if gap?
                "FFI response stream lost values to a gap before this call was answered"

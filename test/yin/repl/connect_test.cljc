@@ -143,12 +143,12 @@
                                        :host (:adapter h)})
                         connect/connection-key)
         [detached event] (connect/observe-terminal
-                           connection :dao.stream.apply/detached)]
+                           connection :dao.stream.rpc/detached)]
     (is (= :detached (:status detached)))
     (is (= :yin.repl.connect/detached (connect/event-key event)))
     (is (str/includes? (connect/text-key event) "reattaches"))
     (let [[again nothing] (connect/observe-terminal
-                            detached :dao.stream.apply/detached)]
+                            detached :dao.stream.rpc/detached)]
       (is (= detached again))
       (is (nil? nothing) "a terminal status is not republished"))))
 
@@ -159,9 +159,9 @@
                                  :host (:adapter h)})
                   connect/connection-key)]
     (doseq [[reason status fragment]
-            [[:dao.stream.apply/ended :ended "nothing to reattach"]
-             [:dao.stream.apply/not-found :not-found "not retried"]
-             [:dao.stream.apply/transport-error :transport-error
+            [[:dao.stream.rpc/ended :ended "nothing to reattach"]
+             [:dao.stream.rpc/not-found :not-found "not retried"]
+             [:dao.stream.rpc/transport-error :transport-error
               "reachability failure"]]]
       (let [[connection event] (connect/observe-terminal base reason)]
         (is (= status (:status connection)) reason)
@@ -169,6 +169,6 @@
 
 
 (deftest reattachable-is-true-for-a-detached-client-only
-  (is (true? (connect/reattachable? {:terminal :dao.stream.apply/detached})))
-  (is (false? (connect/reattachable? {:terminal :dao.stream.apply/ended})))
+  (is (true? (connect/reattachable? {:terminal :dao.stream.rpc/detached})))
+  (is (false? (connect/reattachable? {:terminal :dao.stream.rpc/ended})))
   (is (false? (connect/reattachable? {:terminal nil}))))

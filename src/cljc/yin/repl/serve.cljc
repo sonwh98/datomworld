@@ -574,8 +574,8 @@
 
    Closing the shared requests and answers media is what makes a connected
    client observe `:dao.stream/end` -- the bare source outcome the mirror
-   relays verbatim -- on its next read, translated to `:dao.stream.apply/
-   ended`: a permanent conclusion, never a reattachable detach.  Every
+   relays verbatim -- on its next read, translated by its RPC client to
+   `:dao.stream.rpc/ended`: a permanent conclusion, never a reattachable detach.  Every
    accepted session's own socket closes later, in `finish-stop`, once this
    step's mirror pass has had the chance to deliver that answer over the
    wire; closing it here would race that delivery.  Only the host close

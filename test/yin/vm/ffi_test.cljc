@@ -467,7 +467,7 @@
             _ (stream/close! call-out)
             {:keys [message data]} (raised-data #(vm/eval parked nil))]
         (is (= {:call-id call-id,
-                :error {:dao.stream.apply/code :dao.stream.apply/ended,
+                :error {:dao.stream.apply/code ::ffi/response-lost,
                         :dao.stream.apply/message
                         "FFI response stream ended before this call was answered",
                         ::ffi/loss :dao.stream/end}}
@@ -482,9 +482,9 @@
                                       (apply2/success-response [:other n] n)))
             {:keys [message data]} (raised-data #(vm/eval parked nil))]
         (is (= call-id (:call-id data)))
-        (is (= :dao.stream.apply/ended
+        (is (= ::ffi/response-lost
                (get-in data [:error :dao.stream.apply/code]))
-            "the same terminal code")
+            "the same VM-owned loss code")
         (is (= :dao.stream/gap (get-in data [:error ::ffi/loss]))
             "a machine key tells the gap from an end")
         (is (= "FFI response stream lost values to a gap before this call was answered"

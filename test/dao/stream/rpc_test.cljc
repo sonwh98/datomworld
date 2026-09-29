@@ -167,15 +167,15 @@
                                          (transport-error-reader nil)
                                          :c))]
     (is (= :dao.stream.rpc/lost (:dao.stream.rpc/outcome not-found)))
-    (is (= :dao.stream.apply/not-found
+    (is (= :dao.stream.rpc/not-found
            (:dao.stream.rpc/reason not-found)))
-    (is (= :dao.stream.apply/not-found
+    (is (= :dao.stream.rpc/not-found
            (:terminal (:dao.stream.rpc/state not-found))))
-    (is (= :dao.stream.apply/detached
+    (is (= :dao.stream.rpc/detached
            (:terminal (:dao.stream.rpc/state detached))))
-    (is (= :dao.stream.apply/ended
+    (is (= :dao.stream.rpc/ended
            (:terminal (:dao.stream.rpc/state ended))))
-    (is (= :dao.stream.apply/transport-error
+    (is (= :dao.stream.rpc/transport-error
            (:terminal (:dao.stream.rpc/state unrecognized))))))
 
 
@@ -210,29 +210,114 @@
         polled-ended (rpc/poll! (rpc/client-state request-handle ended
                                                   :dao.stream/newest))]
     (is (= :dao.stream.rpc/lost (:dao.stream.rpc/outcome polled-not-found)))
-    (is (= :dao.stream.apply/not-found
+    (is (= :dao.stream.rpc/not-found
            (:terminal (:dao.stream.rpc/state polled-not-found))))
-    (is (= :dao.stream.apply/detached
+    (is (= :dao.stream.rpc/detached
            (:terminal (:dao.stream.rpc/state polled-channel-gone))))
-    (is (= :dao.stream.apply/ended
+    (is (= :dao.stream.rpc/ended
            (:terminal (:dao.stream.rpc/state polled-ended))))))
 
 
-(deftest a-mint-failure-loses-an-already-outstanding-request-too
+(defn- appended-ops
+  [h]
+  (loop [c (cursor h) ops []]
+    (let [r (stream/next h c)]
+      (if (= :dao.stream/ok (:dao.stream/outcome r))
+        (recur (:dao.stream/cursor r) (conj ops (rpc/request-op (:dao.stream/value r))))
+        ops))))
+
+
+(defn- mintable-reader
+  "A reader shaped like a remote reflection: minting answers `@mint` (a
+   retryable transport-error until the test resets it), and once the mint is
+   ok it resolves the anchor against `responses`."
+  [responses mint]
+  (reify stream/IDaoStreamReader
+    (cursor
+      [_ anchor]
+      (if (= :ok @mint)
+        (stream/cursor responses anchor)
+        @mint))
+
+    (next [_ c] (stream/next responses c))))
+
+
+(def ^:private retryable-mint
+  {:dao.stream/outcome :dao.stream/transport-error
+   :dao.stream/retry? true})
+
+
+(deftest request-on-an-unresolved-anchor-is-cursor-pending-and-changes-nothing
+  (let [request-handle (handle)
+        response-handle (handle)
+        mint (atom retryable-mint)
+        initial (rpc/client-state request-handle
+                                  (mintable-reader response-handle mint)
+                                  :dao.stream/newest)
+        pending (rpc/request! initial :op/a [])]
+    (is (true? (rpc/cursor-pending? initial)))
+    (is (= :dao.stream.rpc/cursor-pending (:dao.stream.rpc/outcome pending)))
+    (is (identical? initial (:dao.stream.rpc/state pending))
+        "the identical state: no id allocated, nothing retained")
+    (is (nil? (:dao.stream.rpc/id pending)))
+    (is (= [] (appended-ops request-handle)) "nothing was appended")
+    (testing "a retryable mint leaves the anchor pending"
+      (let [polled (:dao.stream.rpc/state (rpc/poll! initial))]
+        (is (true? (rpc/cursor-pending? polled)))
+        (is (= :dao.stream.rpc/cursor-pending
+               (:dao.stream.rpc/outcome (rpc/request! polled :op/a []))))
+        (is (= [] (appended-ops request-handle)))))
+    (testing "a successful mint permits exactly one request"
+      (reset! mint :ok)
+      (let [minted (:dao.stream.rpc/state (rpc/poll! initial))
+            requested (rpc/request! minted :op/a [])]
+        (is (false? (rpc/cursor-pending? minted)))
+        (is (= :dao.stream.rpc/requested (:dao.stream.rpc/outcome requested)))
+        (is (= [:op/a] (appended-ops request-handle)))
+        (testing "and its answer, appended after the mint, completes it"
+          (stream/append! response-handle
+                          (rpc/success-answer (:dao.stream.rpc/id requested) :v))
+          (is (= :dao.stream.rpc/responded
+                 (:dao.stream.rpc/outcome
+                   (rpc/poll! (:dao.stream.rpc/state requested))))))))))
+
+
+(deftest an-unsent-envelope-is-not-retried-before-the-cursor-is-minted
+  (let [request-handle (handle)
+        response-handle (handle)
+        full-writer (reify stream/IDaoStreamWriter
+                      (append! [_ _] {:dao.stream/outcome :dao.stream/full}))
+        unsent (:dao.stream.rpc/state
+                 (rpc/request! (rpc/client-state full-writer response-handle
+                                                 (cursor response-handle))
+                               :op/a []))
+        ;; A state holding an unsent envelope over an unresolved anchor: the
+        ;; gate comes before the retry, so the envelope does not cross.
+        gated (assoc unsent :writer request-handle :cursor :dao.stream/newest)
+        result (rpc/request! gated :op/ignored [])]
+    (is (true? (rpc/unsent? gated)))
+    (is (= :dao.stream.rpc/cursor-pending (:dao.stream.rpc/outcome result)))
+    (is (identical? gated (:dao.stream.rpc/state result)))
+    (is (= [] (appended-ops request-handle)))))
+
+
+(deftest a-terminal-mint-prevents-sending
   (let [request-handle (handle)
         not-found (mint-answering-reader
                     {:dao.stream/outcome :dao.stream/transport-error
                      :dao.stream.remote/reason :dao.stream.remote/not-found})
-        requested (rpc/request! (rpc/client-state request-handle not-found
-                                                  :dao.stream/newest)
-                                :op/a [])
-        polled (rpc/poll! (:dao.stream.rpc/state requested))
-        state (:dao.stream.rpc/state polled)]
-    (is (= :dao.stream.apply/not-found (:terminal state)))
+        initial (rpc/client-state request-handle not-found :dao.stream/newest)
+        pending (rpc/request! initial :op/a [])
+        polled (rpc/poll! (:dao.stream.rpc/state pending))
+        state (:dao.stream.rpc/state polled)
+        after (rpc/request! state :op/a [])]
+    (is (= :dao.stream.rpc/cursor-pending (:dao.stream.rpc/outcome pending)))
+    (is (= :dao.stream.rpc/lost (:dao.stream.rpc/outcome polled)))
+    (is (= :dao.stream.rpc/not-found (:terminal state)))
     (is (empty? (:outstanding state)))
-    (is (= 1 (count (:completed state))))
-    (is (= :dao.stream.apply/not-found
-           (:dao.stream.rpc/reason (first (:completed state)))))))
+    (is (empty? (:completed state)) "nothing was ever sent, so nothing is lost")
+    (is (= :dao.stream.rpc/terminal (:dao.stream.rpc/outcome after)))
+    (is (= [] (appended-ops request-handle)) "no request ever crossed")))
 
 
 (deftest append-terminal-outcome-completes-unsent-without-marking-it-outstanding
@@ -292,11 +377,11 @@
         polled (:dao.stream.rpc/state (rpc/poll! detached))
         rebound (rpc/rebind polled request-handle)
         allocated (rpc/request! rebound :op/b [])]
-    (is (= :dao.stream.apply/detached (:terminal polled)))
+    (is (= :dao.stream.rpc/detached (:terminal polled)))
     (is (nil? (:terminal rebound)))
     (is (rpc/safe-id? (:dao.stream.rpc/id allocated)))
-    (is (= (assoc polled :terminal :dao.stream.apply/ended)
-           (rpc/rebind (assoc polled :terminal :dao.stream.apply/ended)
+    (is (= (assoc polled :terminal :dao.stream.rpc/ended)
+           (rpc/rebind (assoc polled :terminal :dao.stream.rpc/ended)
                        request-handle))
         "only a /detached terminal is reconnectable")))
 
@@ -394,12 +479,7 @@
         "no id allocated, no unsent retained, prior outstanding unaffected")
     (is (nil? (:dao.stream.rpc/id pressed)))
     (is (= 1 (count (:outstanding state))))
-    (is (= [:op/a]
-           (loop [c (cursor request-handle) ops []]
-             (let [r (stream/next request-handle c)]
-               (if (= :dao.stream/ok (:dao.stream/outcome r))
-                 (recur (:dao.stream/cursor r) (conj ops (rpc/request-op (:dao.stream/value r))))
-                 ops))))
+    (is (= [:op/a] (appended-ops request-handle))
         "nothing was appended for the refused request")
     (is (= rpc/default-max-outstanding
            (:max-outstanding (client request-handle response-handle))))
@@ -419,8 +499,12 @@
         oversize (poll-with :dao.stream.remote/oversize)
         not-found (poll-with :dao.stream.remote/not-found)
         detached (poll-with :dao.stream.remote/channel-gone)]
-    (is (= :dao.stream.apply/no-surface (:terminal no-surface)))
-    (is (= :dao.stream.apply/oversize (:terminal oversize)))
+    (is (= :dao.stream.rpc/no-surface (:terminal no-surface)))
+    (is (= :dao.stream.rpc/oversize (:terminal oversize)))
+    (is (= :dao.stream.rpc/not-found (:terminal not-found)))
+    (is (= :dao.stream.rpc/detached (:terminal detached)))
+    (is (= 4 (count (set (map :terminal [no-surface oversize not-found detached]))))
+        "each remote reason maps to its own rpc word")
     (doseq [terminal [no-surface oversize not-found]]
       (is (= terminal (rpc/rebind terminal request-handle))
           "terminal for the binding: rebind refuses it"))

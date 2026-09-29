@@ -1,5 +1,5 @@
 (ns dao.stream.apply
-  "The transport-neutral request/response envelope for DaoStream v2.
+  "The request/response envelope for DaoStream v2.
 
    This namespace owns only application data and one explicit server step.  It
    neither creates streams nor retains handles, cursors, handlers, or requests
@@ -22,8 +22,8 @@
 
 
 (defn correlation-id?
-  "True for a usable opaque correlation id.  Allocation policy (including the
-   cross-host safe-integer bound) belongs to the RPC client, not this envelope."
+  "True for a usable correlation id: any non-nil opaque value.  Its allocation
+   policy belongs to whoever uses the envelope, not to this namespace."
   [id]
   (some? id))
 
@@ -351,6 +351,6 @@
                          :dao.stream/transport-error)
         (terminal-result state outcome read-result)
 
-        ;; A malformed transport implementation is terminal at this consumer;
+        ;; A malformed stream implementation is terminal at this consumer;
         ;; retrying an unknown answer could spin forever.
         (terminal-result state outcome read-result)))))

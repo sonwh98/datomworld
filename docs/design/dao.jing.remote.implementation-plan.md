@@ -746,7 +746,7 @@ neutral: nothing existing changes, three lanes stay green by construction.
    `apply/dispatch-request` over `default-handlers` on a memory store appends
    the response; `call-step` → `:done`, `completion-value` → the presence
    envelope. Then: an error response → throws N9's `{:operation :error}`;
-   a bare `:dao.stream.apply/detached` appended to the reader →
+   a bare `:dao.stream.rpc/detached` appended to the reader →
    `:terminal` with reason **when nothing is outstanding**; with an awaited
    call in flight the same event yields `:done` carrying a loss completion
    (N9), because the step reports the call's own fate before the
@@ -876,7 +876,7 @@ namespace and that is the seam.
 5. `connect-throws-on-a-refused-endpoint` — bind a `java.net.ServerSocket` on
    port 0, read its port, close it; `connect-content!` to that port with
    `:connect-timeout-ms 2000` throws with reason
-   `:dao.stream.apply/transport-error` (`jvm/connect!`'s `whenComplete`
+   `:dao.stream.rpc/transport-error` (`jvm/connect!`'s `whenComplete`
    error → `closed! 1006` → `:ws/transport-error`), and no handle escaped.
    This is N2's real establishment-failure pin; `network-invalid-url-test`
    stays as the validation pin it always was.
