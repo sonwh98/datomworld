@@ -66,6 +66,7 @@
    row-index      ; {[body-node params] lambda-row-id} over `rows`
    row-nodes      ; {row-id node}: each held row decoded once
    resources      ; private engine resources: the link pair
+   heap           ; {cell-id {:value v :seal s}}: the task's cells
    origin         ; this task's origin tag for link ids
    origins        ; counter for the origin tags of install children
    ancestry       ; the modules installing on this task's install chain
@@ -121,6 +122,7 @@
                    (:row-index vm)
                    (:row-nodes vm)
                    (:resources vm)
+                   (:heap vm)
                    (:origin vm)
                    (:origins vm)
                    (:ancestry vm)

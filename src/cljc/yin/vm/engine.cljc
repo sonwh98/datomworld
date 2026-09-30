@@ -271,8 +271,9 @@
 
 
 (defn issue-ref
-  "A reference of `kind` (`:stream-ref` or `:cursor-ref`) to resource
-   `id`, sealed under the task's capability secret. A task composed
+  "A reference of `kind` (`:stream-ref`, `:cursor-ref`, or `:cell-ref`) to
+   resource or heap cell `id`, sealed under the task's capability secret.
+   A task composed
    without a secret cannot issue one: it fails closed rather than issue a
    reference anyone could forge."
   [state kind id]
@@ -287,16 +288,24 @@
 (defn authentic-ref?
   "True when `ref` is a `kind` reference this task issued: its seal
    verifies under the task's secret, and it names a live resource of that
-   kind."
+   kind. A `:cell-ref` is checked against `:heap` instead: its id is live
+   by `contains?` (a cell may hold nil) and its seal equals the one the
+   heap entry recorded at allocation, so no hash is computed per access."
   [state kind ref]
   (let [secret (:capability-secret state)
-        id (when (map? ref) (:id ref))
-        resource (get (:resources state) id)]
-    (boolean (and (some? secret)
-                  (= kind (:type ref))
-                  (some? resource)
-                  (= (:seal ref) (seal-of secret kind id))
-                  (= (= :cursor-ref kind) (cursor-cell? resource))))))
+        id (when (map? ref) (:id ref))]
+    (if (= :cell-ref kind)
+      (let [heap (:heap state)]
+        (boolean (and (some? secret)
+                      (= kind (:type ref))
+                      (contains? heap id)
+                      (= (:seal ref) (:seal (get heap id))))))
+      (let [resource (get (:resources state) id)]
+        (boolean (and (some? secret)
+                      (= kind (:type ref))
+                      (some? resource)
+                      (= (:seal ref) (seal-of secret kind id))
+                      (= (= :cursor-ref kind) (cursor-cell? resource))))))))
 
 
 (defn check-ref!
@@ -630,7 +639,8 @@
    refuses as `:forged-resource-reference`; only then is it encoded,
    without its seal, as a stream marker or a cell reference. A
    continuation, a host object, and an unnamed host function refuse as
-   UCF 7.5.4 kinds."
+   UCF 7.5.4 kinds; a heap `:cell-ref` refuses as `:cell` until the heap
+   slice lifts."
   [vm own found]
   (letfn [(encode
             [x]
@@ -657,6 +667,10 @@
                          :yin.k/cell (cell-for! vm found (:id x))})
                 (:reified-continuation :parked-continuation)
                 (non-portable! :non-canonicalizable {:yin.k/hint (:type x)})
+                ;; slice 1 refuses every cell-bearing lift; copy-on-lift
+                ;; of the heap slice is slice 2
+                :cell-ref
+                (non-portable! :cell {:yin.k/hint (:id x)})
                 {:yin.k/tag :yin.k/literal,
                  :yin.k/entries (into []
                                       (mapcat (fn [[k v]]
@@ -1793,6 +1807,13 @@
       state)))
 
 
+(defn- heap-write
+  "`state` with heap cell `id` holding `v` under `seal`: allocation when the
+   cell is new, a write (the seal unchanged) when it is live."
+  [state id seal v]
+  (assoc-in state [:heap id] {:value v, :seal seal}))
+
+
 (defn handle-effect
   "Dispatch an effect and return {:state updated-state :value v :blocked? bool}.
    park-entry-fns maps :stream/put and :stream/next to functions that build
@@ -1851,6 +1872,26 @@
           :stream/close
           (let [close-result (handle-close state effect)]
             {:state (:state close-result), :value nil, :blocked? false})
+          ;; `:heap` is VM state, not continuation state: a write is seen
+          ;; by every holder of the ref and survives continuation invocation
+          :cell/new
+          (let [[id s'] (gensym state "cell")
+                ref (issue-ref s' :cell-ref id)]
+            {:state (heap-write s' id (:seal ref) (:val effect)),
+             :value ref,
+             :blocked? false})
+          :cell/get
+          (let [id (check-ref! state :cell/get :cell-ref (:cell effect))]
+            ;; the content is answered as data, never re-interpreted
+            {:state state,
+             :value (get-in state [:heap id :value]),
+             :blocked? false})
+          :cell/set!
+          (let [id (check-ref! state :cell/set! :cell-ref (:cell effect))]
+            {:state (heap-write state id (get-in state [:heap id :seal])
+                                (:val effect)),
+             :value (:val effect),
+             :blocked? false})
           (let [[id s'] (gensym state "effect")
                 handler (module/get-effect-handler (:modules state)
                                                    (:effect effect))]

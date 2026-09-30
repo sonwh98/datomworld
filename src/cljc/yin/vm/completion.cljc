@@ -95,6 +95,14 @@
       (typed? v :cursor-ref) #{[:cursor (:id v)]}
       (typed? v :parked-continuation) #{[:parked (:id v)]}
 
+      ;; slice 1: a heap cell's contents are not pulled, so no completion
+      ;; over it can be `:complete`; refuse as the encoder does
+      (typed? v :cell-ref)
+      (throw (ex-info "Value is not portable"
+                      {:yin.k/status :yin.k/non-portable,
+                       :yin.k/kind :cell,
+                       :yin.k/hint (:id v)}))
+
       (typed? v :reified-continuation)
       (if-let [a (addr (:segment v))]
         #{[:k a (:pc v) (context-of env (:env v))

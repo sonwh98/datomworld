@@ -277,6 +277,7 @@
             :wait-set [],
             :ready-queue [],
             :parked {},
+            :heap (:heap base),
             :id-counter 0,
             :ffi-caller-id (:ffi-caller-id base),
             :value nil,

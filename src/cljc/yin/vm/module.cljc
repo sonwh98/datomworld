@@ -314,6 +314,51 @@
 
 
 ;; =============================================================================
+;; The `cell` module
+;; =============================================================================
+;;
+;; A cell is a mutable location in the task's `:heap`, reached by a sealed
+;; `:cell-ref` (Architect cell ruling, slice 1). These are pure effect
+;; constructors like the stream module's: they touch no heap, and the engine
+;; interprets the effects they return. The heap is VM state, so a mutation
+;; is shared by every closure over the ref and is never rolled back when a
+;; continuation is invoked (box semantics).
+
+(defn new-cell
+  [v]
+  (make-effect :cell/new {:val v}))
+
+
+(defn get-cell
+  [c]
+  (make-effect :cell/get {:cell c}))
+
+
+(defn set-cell!
+  [c v]
+  (make-effect :cell/set! {:cell c, :val v}))
+
+
+(def cell-module
+  "The `cell` module definition. Registering it is a composition step."
+  {'new new-cell, 'get get-cell, 'set! set-cell!})
+
+
+(def cell-profiles
+  "UCF 7.5.2 profiles for the `cell` module's bindings: each an
+   `:effectful` pure effect constructor declaring its one effect kind."
+  {'new (vm/primitive-profile 'new :effectful [1] #{:cell/new} :none)
+   'get (vm/primitive-profile 'get :effectful [1] #{:cell/get} :none)
+   'set! (vm/primitive-profile 'set! :effectful [2] #{:cell/set!} :none)})
+
+
+(defn register-cell-module
+  "Return registry with the `cell` module registered."
+  [registry]
+  (register-host-module registry 'cell cell-module cell-profiles))
+
+
+;; =============================================================================
 ;; Built-in effect handlers
 ;; =============================================================================
 

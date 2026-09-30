@@ -2147,6 +2147,7 @@
         :attach-stream (:attach-stream opts),
         :ffi-caller-id (:ffi-caller-id opts),
         :parked {},
+        :heap {},
         :id-counter 0,
         :ready-queue [],
         :wait-set [],
