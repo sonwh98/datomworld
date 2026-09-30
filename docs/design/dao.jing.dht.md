@@ -1,8 +1,8 @@
 # DaoJing DHT: Content-Addressed Segment Distribution
 
-Status: **contract frozen 2026-09-30 (DHT epic slice S0); sections 2 to 9 are
-the design target, not yet implemented.** Section 10 records what the source
-tree holds today and what each slice deletes. Subordinate to
+Status: **contract frozen 2026-09-30 (DHT epic slice S0); S1 through S4 are
+implemented, S5 is pending.** Section 10 records the starting tree and the
+slice plan. Subordinate to
 [`dao.stream.md`](./dao.stream.md), [`dao.jing.md`](./dao.jing.md) and
 [`datom.world.md`](./datom.world.md). In sections 2 to 9 every sentence is a
 rule.
@@ -67,6 +67,7 @@ The composition supplies, as data:
 | `:dao.jing.dht/publish?` | Publication declaration, default `false` (section 4.4). |
 | `:dao.jing.dht/ack-peers` | Peers a write must be sent to before it is acknowledged. Default 2, floor 2, ceiling `k` (section 4). |
 | limits and tick budgets | Section 9. |
+| `:dao.jing.dht/bind-host` | Local socket bind IP literal for rejecting opposite-family peer destinations before appending a datagram. Defaults to `127.0.0.1` in loopback S3. |
 
 `(dao.jing.dht/state composition) -> state` validates the composition and
 throws on a composition defect (an `ack-peers` below 2 or above `k`, a missing
@@ -420,7 +421,7 @@ not Transit. This is a clean break from today's wire; no fleet exists.
 ## 8. Hardening
 
 Implemented where the DHT reads raw events, never in the raw layer. Non-loopback
-exposure waits for all of it (slice S4).
+exposure requires the S4 secret and inbound bound in the socket composition.
 
 - **Cookie protocol.** Every reply carries a cookie for the requester's
   observed address. A requester keeps the newest cookie each peer gave it and
@@ -437,8 +438,10 @@ exposure waits for all of it (slice S4).
   - *S4 replacement:* the first 16 bytes of `MAC(epoch-secret, observed-host |
     observed-port)` with `epoch-secret = MAC(:dao.jing.dht/secret, epoch)`.
     The MAC is HMAC-SHA-256 from each host's library; nothing is
-    hand-rolled. From S4 a socket composition without a secret is a
-    composition defect.
+    hand-rolled. The root secret is, per node, at least 32 random bytes
+    from the host CSPRNG, minted at composition, in-memory only, never
+    persisted or shared. Note that the tests share one secret for predictability.
+    From S4 a socket composition without a secret is a composition defect.
   The wire, the state and every other rule are identical under both.
 - **The gate.** A request or request chunk without a valid cookie causes no
   work: no lookup, no storage, no reassembly, no routing entry. The only
@@ -456,8 +459,11 @@ exposure waits for all of it (slice S4).
   than 256 bytes. A request carrying a cookie carries no `:pad`. A request
   without a cookie is only ever a padded `:ping`: a requester never sends
   `:find`, `:store`, `:fetch` or a chunk to a peer it holds no cookie for.
-- **Recovery.** On a need-cookie reply the requester stores the new cookie
-  and re-sends the query once; that re-send does not consume a try. A query
+- **Recovery.** On a need-cookie reply the requester re-sends the query
+  once carrying the new cookie; that re-send does not consume a try. The
+  need-cookie reply's cookie is untrusted: it rides that one re-send, and
+  the requester stores a peer's cookie only when a full reply carries it. A
+  re-send the socket refuses is a failed send. A query
   that times out against a peer may have been dropped in silence (an expired
   cookie on a small datagram), so the requester discards that peer's cookie
   and sends a padded `:ping` before the next try.
@@ -487,6 +493,14 @@ exposure waits for all of it (slice S4).
 | `:dao.jing.dht/cookie-epoch-ticks` | 60000 | |
 | `:dao.jing.dht/max-inbound-bytes` | composition's | Inbound `:store` bound; S4. |
 | datagram budget | 1200 | The socket's `:max-bytes`. |
+| `:dao.jing.dht/bind-host` | `127.0.0.1` | Must match the composed socket's bind family. |
+
+S3 measured a real `dao.space.index/publish-index!` build at the default
+branching factor of 512 over 512 distinct datoms. It emitted two covered
+index node blobs and one manifest; the largest canonical value was 26,497
+bytes, and its maximal-cookie `:store` wire value was 26,720 bytes. The
+65,536-byte default therefore covers this measured build. Larger application
+values still require an explicit composition limit or refusal.
 
 Every stream the DHT is composed over is an evicting ring: requests,
 answers, facts, raw traffic. None is a complete-history log.
@@ -498,7 +512,7 @@ compatibility path:
 
 | Today | Fate |
 |---|---|
-| `dao.jing.dht/IDhtNet`, `lookup`, `create-content-dht` (a waiting transport protocol; put replicates and get fetches synchronously) | Deleted in S2. |
+| `dao.jing.dht/IDhtNet`, `lookup`, `create-content-dht` (a waiting transport protocol; put replicates and get fetches synchronously) | Deleted in S3, together with `dao.jing.dht.node`, which implements and calls them (Architect ruling on the S2 sign-off). S2's core does not use them. |
 | `dao.jing.dht.node` (`create-node`, `create-content-dht-udp`; JVM only, own `DatagramSocket` and receiver thread, one Transit-JSON map per datagram, node id `sha256(host:port)`, claimed `:from` observed unvalidated, replies matched by id alone, oversize dropped silently) | Deleted in S3. |
 | `dao.jing.dht.kad` | Kept. |
 | `test/dao/jing/dht_test.cljc`, `test/dao/jing/dht/node_test.cljc`, the fake net in `test/yin/vm/linker_test.cljc` | Rewritten in S2 and S3. |

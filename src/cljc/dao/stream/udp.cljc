@@ -1,16 +1,30 @@
 (ns dao.stream.udp
-  "The UDP channel of dao.stream.remote.md (3.2): the WebSocket deposit
-   model over a socket that retains nothing.
+  "The UDP channel of dao.stream.remote.md (3.2), rebuilt on the raw
+   datagram layer (docs/design/dao.stream.datagram.md 7): the WebSocket
+   deposit model over a socket that retains nothing, with the raw layer
+   beneath it feeding and carrying it.
 
-   `make-port` composes the local socket's protocol state, host-free: a
-   host adapter feeds every received datagram to `receive!` with its
-   raw bytes and the source address the socket saw. One CBOR value,
-   canonical profile, rides one datagram, at most `max-datagram` bytes,
-   fragment envelope included -- the figure `dao.jing.dht.node` already
-   uses to clear common path MTUs. An encoded message over that budget
-   is split into fragment envelopes, channel-internal: neither the
-   mirror step nor the link (dao.stream.remote) ever sees one, only the
-   complete decoded message `receive!` reassembles and deposits.
+   `make-port` composes the local socket's protocol state, host-free.
+   What feeds it is the raw layer: `:send!` is composed by the
+   composition as a closure that encodes the bytes as Base64 and appends
+   one outbound value to the raw writer handle
+   (dao.stream.datagram/writer over a bound host seam), and `send-value!`
+   answers that raw writer's first non-ok outcome instead of discarding
+   it. `port-step!` is the reading side: one step reading the raw traffic
+   ring from the port's own raw cursor to blocked, skipping lifecycle
+   events and :dao.jing.dht/v maps (the DHT interpreter sharing the
+   socket, dao.stream.datagram.md 6), decoding each datagram event's
+   Base64 and calling `receive!` with the source address and bytes. The
+   composition drives it, one owner per port, before the projections'
+   `step!`.
+
+   One CBOR value, canonical profile, rides one datagram, at most
+   `max-datagram` bytes, fragment envelope included -- the figure
+   the DHT also uses to clear common path MTUs. An
+   encoded message over that budget is split into fragment envelopes,
+   channel-internal: neither the mirror step nor the link
+   (dao.stream.remote) ever sees one, only the complete decoded message
+   `receive!` reassembles and deposits.
 
    Reassembly key, per 3.2: [attachment identity, source address,
    direction, id]. For UDP the attachment identity a socket serves IS
@@ -48,7 +62,10 @@
    read, and every deposited event carries the address the socket
    itself saw it arrive from."
   (:require [dao.stream :as stream]
-            [dao.stream.cbor :as cbor])
+            [dao.stream.base64 :as base64]
+            [dao.stream.chunks :as chunks]
+            [dao.stream.cbor :as cbor]
+            [dao.stream.datagram :as datagram])
   #?(:cljd (:import ["dart:typed_data" Uint8List])))
 
 
@@ -57,7 +74,7 @@
 
 (def max-datagram
   "The whole encoded datagram's budget, fragment envelope included: the
-   1200-byte figure dao.jing.dht.node already uses to clear common path
+   1200-byte figure dao.jing.dht also uses to clear common path
    MTUs (docs/design/dao.stream.remote.md 3.2)."
   1200)
 
@@ -103,39 +120,6 @@
      :default (alength bs)))
 
 
-(defn- balloc
-  [n]
-  #?(:cljd (Uint8List. n)
-     :clj (byte-array n)
-     :cljs (js/Uint8Array. n)))
-
-
-(defn- bslice
-  [bs start end]
-  #?(:cljd (Uint8List.fromList (.sublist ^Uint8List bs start end))
-     :clj (java.util.Arrays/copyOfRange ^bytes bs (int start) (int end))
-     :cljs (.slice bs start end)))
-
-
-(defn- bconcat
-  [chunks]
-  (let [total (reduce + (map blen chunks))
-        out (balloc total)]
-    (reduce (fn [off c]
-              (let [n (blen c)]
-                #?(:cljd (.setRange ^Uint8List out off (+ off n) c)
-                   :clj (System/arraycopy c 0 out off n)
-                   :cljs (.set out c off))
-                (+ off n)))
-            0 chunks)
-    out))
-
-
-(defn- ceil-div
-  [a b]
-  (quot (+ a (dec b)) b))
-
-
 ;; =============================================================================
 ;; Fragmentation (write side)
 ;; =============================================================================
@@ -157,42 +141,12 @@
    :dao.stream.udp/bytes chunk})
 
 
-(defn- fits?
-  [id part parts direction chunk-len]
-  (<= (blen (cbor/encode
-              (fragment-envelope id part parts direction
-                                 (balloc chunk-len))))
-      max-datagram))
-
-
-(defn- chunk-size
-  "The largest chunk length whose fragment envelope, at the highest
-   part index (the widest of the small integers), still fits the
-   datagram budget; backs off from an optimistic start."
-  [id parts direction]
-  (loop [size (- max-datagram 16)]
-    (when (pos? size)
-      (if (fits? id (dec parts) parts direction size)
-        size
-        (recur (dec size))))))
-
-
 (defn- fragments
-  "Split encoded `payload` for message `id`, direction `direction`,
-   into fragment envelopes that each fit the datagram budget."
   [payload id direction]
-  (let [total (blen payload)
-        parts (max 1 (ceil-div total (- max-datagram 16)))
-        size (or (chunk-size id parts direction)
-                 (throw (ex-info
-                          "dao.stream.udp: no chunk size fits the budget"
-                          {:id id :parts parts})))
-        parts (max parts (ceil-div total size))
-        size (or (chunk-size id parts direction) size)]
-    (for [i (range parts)
-          :let [start (* i size)
-                end (min total (+ start size))]]
-      (fragment-envelope id i parts direction (bslice payload start end)))))
+  (chunks/split payload max-datagram
+                (fn [part parts bytes]
+                  (fragment-envelope id part parts direction bytes))
+                cbor/encode))
 
 
 ;; =============================================================================
@@ -200,20 +154,34 @@
 ;; =============================================================================
 
 (defn make-port
-  "Compose one local socket's protocol state. `:send!` is the host
-   seam, `(send! host port bytes) -> nil`, called once per outbound
-   datagram; it must not wait or throw for an ordinary transport
-   failure. `:traffic` is the shared deposit target the composition
-   wires -- a writer every reassembled datagram's event is appended to
-   (`dao.stream/writer?`). `:max-message-bytes` and
-   `:max-partial-messages` are the two reassembly bounds (defaults
+  "Compose one local socket's protocol state. `:send!` is the host seam,
+   `(send! host port bytes) -> an outcome map or nothing`, called once per
+   outbound datagram; it must not wait, and a transport failure it answers
+   travels up as `send-value!`'s outcome -- the raw writer's first non-ok
+   outcome, not discarded. The composition composes it, over the raw
+   datagram layer, as the Base64 closure appending one outbound value to
+   `dao.stream.datagram/writer` (dao.stream.datagram.md 7). `:traffic` is
+   the shared deposit target the composition wires -- a writer every
+   reassembled datagram's event is appended to (`dao.stream/writer?`).
+   `:raw-traffic` is the raw datagram layer's traffic ring the port reads
+   itself a cursor on, minted :oldest at composition time so a raw gap
+   reports lost datagrams -- `port-step!` requires it. `:max-message-bytes`
+   and `:max-partial-messages` are the two reassembly bounds (defaults
    above)."
-  [{:keys [send! traffic max-message-bytes max-partial-messages]}]
+  [{:keys [send! traffic raw-traffic max-message-bytes
+           max-partial-messages]}]
   (when-not (and (fn? send!) (stream/writer? traffic))
     (throw (ex-info "invalid dao.stream.udp port composition"
                     {:send! send! :traffic traffic})))
+  (when (and (some? raw-traffic) (not (stream/reader? raw-traffic)))
+    (throw (ex-info "invalid dao.stream.udp raw traffic composition"
+                    {:raw-traffic raw-traffic})))
   (atom {:send! send!
          :traffic traffic
+         :raw-traffic raw-traffic
+         :raw-cursor (when raw-traffic
+                       (:dao.stream/cursor
+                         (stream/cursor raw-traffic stream/anchor-oldest)))
          :max-message-bytes (or max-message-bytes
                                 default-max-message-bytes)
          :max-partial-messages (or max-partial-messages
@@ -223,8 +191,14 @@
 
 
 (defn- send-datagram!
+  "One datagram out through the composed :send! seam: the seam's own
+   outcome map travels up -- the raw writer's first non-ok outcome, not
+   discarded -- and a fire-and-forget seam answering nothing is ok."
   [port host dest-port bytes]
-  ((:send! @port) host dest-port bytes))
+  (let [r ((:send! @port) host dest-port bytes)]
+    (if (and (map? r) (contains? r :dao.stream/outcome))
+      r
+      {:dao.stream/outcome :dao.stream/ok})))
 
 
 (defn send-value!
@@ -232,7 +206,8 @@
    a single datagram when it fits the budget, fragments when it does
    not, transport-error naming oversize when the encoded message
    exceeds :dao.stream.udp/max-message-bytes -- never sent, torn or
-   partially sent."
+   partially sent. The seam's first non-ok outcome is the answer: a
+   fragment run stops there, cleanly, nothing torn following it."
   [port host dest-port v]
   (let [payload (cbor/encode v)
         n (blen payload)]
@@ -242,15 +217,19 @@
        :dao.stream.remote/reason :dao.stream.remote/oversize}
 
       (<= n max-datagram)
-      (do (send-datagram! port host dest-port payload)
-          {:dao.stream/outcome :dao.stream/ok})
+      (send-datagram! port host dest-port payload)
 
       :else
       (let [id (:dao.stream.remote/id v)
             direction (direction-of v)]
-        (doseq [frag (fragments payload id direction)]
-          (send-datagram! port host dest-port (cbor/encode frag)))
-        {:dao.stream/outcome :dao.stream/ok}))))
+        (loop [frags (fragments payload id direction)]
+          (if (empty? frags)
+            {:dao.stream/outcome :dao.stream/ok}
+            (let [r (send-datagram! port host dest-port
+                                    (cbor/encode (first frags)))]
+              (if (= :dao.stream/ok (:dao.stream/outcome r))
+                (recur (rest frags))
+                r))))))))
 
 
 (defn send-to!
@@ -296,69 +275,17 @@
          (cbor/byte-payload? bytes))))
 
 
-(defn- forget-partial!
-  "Drop the partial message keyed `k` from the port's reassembly
-   state, its order entry with it."
-  [port k]
-  (swap! port (fn [s]
-                (-> s
-                    (update :partial dissoc k)
-                    (update :partial-order
-                            (fn [order] (vec (remove #{k} order))))))))
-
-
-(defn- evict-oldest!
-  [port]
-  (when-some [k (first (:partial-order @port))]
-    (forget-partial! port k)))
-
-
 (defn- absorb-fragment!
-  "Fold one well-formed fragment envelope into the port's reassembly
-   state, keyed by [attachment direction id]; returns the complete
-   encoded payload once every part has arrived, else nil. The
-   max-message-bytes bound is the accumulated chunk bytes themselves,
-   as they arrive: a message whose parts add up past the bound is
-   dropped the moment they say so, and a completed payload is
-   delivered only if its own actual length is within the bound -- no
-   declared-parts arithmetic stands in for the real bytes, so a valid
-   message near the limit delivers. A duplicate part is ignored, and
-   a fragment disagreeing with the parts count a partial already
-   holds is dropped, so the state held is never torn."
   [port attachment frag]
   (let [{:dao.stream.remote/keys [id]
          :dao.stream.udp/keys [part parts direction bytes]} frag
         k [attachment direction id]
-        bound (:max-message-bytes @port)]
-    (when-not (contains? (:partial @port) k)
-      (swap! port (fn [s]
-                    (-> s
-                        (assoc-in [:partial k]
-                                  {:parts {} :parts-count parts
-                                   :bytes-total 0})
-                        (update :partial-order conj k))))
-      (when (> (count (:partial @port))
-               (:max-partial-messages @port))
-        (evict-oldest! port)))
-    (when-some [held (get (:partial @port) k)]
-      (when (and (= parts (:parts-count held))
-                 (not (contains? (:parts held) part)))
-        (let [total (+ (:bytes-total held) (blen bytes))]
-          (if (> total bound)
-            ;; even completed, this message is over the bound: its
-            ;; partial state goes now, it can never deliver
-            (forget-partial! port k)
-            (do (swap! port (fn [s]
-                              (-> s
-                                  (assoc-in [:partial k :parts part] bytes)
-                                  (assoc-in [:partial k :bytes-total] total))))
-                (let [held (get (:partial @port) k)]
-                  (when (= (count (:parts held)) (:parts-count held))
-                    (forget-partial! port k)
-                    (let [payload (bconcat (mapv (:parts held)
-                                                 (range (:parts-count held))))]
-                      (when (<= (blen payload) bound)
-                        payload)))))))))))
+        [next-state payload]
+        (chunks/absorb @port k part parts bytes
+                       (:max-message-bytes @port)
+                       (:max-partial-messages @port))]
+    (reset! port next-state)
+    payload))
 
 
 (defn- deposit!
@@ -451,6 +378,74 @@
 (defn reading-cursor
   [project]
   (:cursor @project))
+
+
+;; =============================================================================
+;; Reading the raw datagram layer: port-step! (dao.stream.datagram.md 7)
+;; =============================================================================
+
+
+(def default-step-budget
+  "The default `port-step!` budget: raw values consumed in one step when
+   the composition names no bound."
+  64)
+
+
+(defn- dht-owned?
+  "True when `bytes` decode to a map carrying :dao.jing.dht/v -- the DHT
+   interpreter's own datagram on a shared socket
+   (dao.stream.datagram.md 6), dropped by this channel before its
+   deposit. This one decode is the price of `receive!`'s fixed
+   bytes-taking shape; receive! decodes again."
+  [bytes]
+  (when-some [v (try (cbor/decode bytes)
+                     (catch #?(:cljd Object :clj Throwable :cljs :default)
+                            _
+                       nil))]
+    (and (map? v) (contains? v :dao.jing.dht/v))))
+
+
+(defn port-step!
+  "One step reading the raw datagram layer's traffic ring into this port:
+   read to `blocked` from the port's own raw cursor, bounded by `budget`
+   values, skip lifecycle events and `:dao.jing.dht/v` maps, decode each
+   datagram event's Base64 and call `receive!` with the source address
+   the socket observed and the bytes. A raw `gap` adopts the recovery
+   cursor: those datagrams are lost, indistinguishable from network
+   loss, and the link's resend rule recovers them exactly as it does for
+   it. A value that is neither a datagram event nor a lifecycle event is
+   not the raw layer's and is skipped. One owner per port drives this,
+   and the composition drives it before the projections' `step!`."
+  ([port] (port-step! port default-step-budget))
+  ([port budget]
+   (let [{:keys [raw-traffic]} @port]
+     (when-not raw-traffic
+       (throw (ex-info "dao.stream.udp port-step! needs :raw-traffic"
+                       {})))
+     (loop [left budget]
+       (if (pos? left)
+         (let [r (stream/next raw-traffic (:raw-cursor @port))]
+           (case (:dao.stream/outcome r)
+             :dao.stream/ok
+             (do (swap! port assoc :raw-cursor (:dao.stream/cursor r))
+                 (let [v (:dao.stream/value r)]
+                   (when (datagram/datagram-event? v)
+                     (let [bytes (base64/decode
+                                   (:dao.stream.datagram/bytes v))]
+                       (when-not (dht-owned? bytes)
+                         (let [source (:dao.stream.datagram/source v)]
+                           (receive! port
+                                     (:dao.stream.datagram/host source)
+                                     (:dao.stream.datagram/port source)
+                                     bytes))))))
+                 (recur (dec left)))
+
+             :dao.stream/gap
+             (do (swap! port assoc :raw-cursor (:dao.stream/cursor r))
+                 (recur (dec left)))
+
+             port))
+         port)))))
 
 
 ;; =============================================================================

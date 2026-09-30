@@ -1,6 +1,6 @@
 # DaoStream Datagram: The Raw Datagram Layer
 
-Status: design target, not implemented (DHT epic slice S1). Subordinate to
+Status: S1 implemented; S2 and S3 remain planned. Subordinate to
 [`dao.stream.md`](./dao.stream.md), which is the contract and wins on any
 disagreement, and to the Host Boundaries section of
 [`datom.world.md`](./datom.world.md). Every sentence below is a rule.
@@ -69,6 +69,7 @@ survives any `dao.stream` codec, Transit-JSON included.
   resolution can wait, and no operation waits. Resolution is a separate
   interpreter or host policy that produces literals.
 - `:dao.stream.datagram/port` is an integer in 1..65535.
+- Scoped link-local IPv6 addresses with zone ids are out of scope for S1.
 - A datagram event carries `:dao.stream.datagram/bytes` and
   `:dao.stream.datagram/source`; a lifecycle event carries
   `:dao.stream.datagram/event`. A value carrying neither is not this layer's.
@@ -143,10 +144,22 @@ declared nature, not a refusal; `refused`, because no policy is composed in
 this layer (a gate composed over the handle may produce it,
 `dao.stream.middleware.md`).
 
-A host whose send reports failure only later (Node, Dart) deposits
-`:dao.stream.datagram/send-failed` on the traffic stream; that is the channel
-this transport declares for an answer it cannot give at call time
-(`dao.stream.md`, Writing).
+Every send failure the seam observes deposits
+`:dao.stream.datagram/send-failed` on the traffic stream. A synchronous
+failure also answers `transport-error` to the caller. A failure reported
+later has only the event channel (`dao.stream.md`, Writing). These events
+carry no send correlation, so a caller must not count both the answer and
+the event as separate failures. Each failed send occupies one traffic-ring
+slot; repeated failures can evict inbound datagrams.
+
+An address whose IP family differs from the bound socket's family is
+refused before the host send as `transport-error` plus `send-failed`;
+the socket remains usable.
+
+On Dart, a zero-length send is refused cleanly as `transport-error` before
+the host is touched, with no `send-failed` event: a zero return cannot
+distinguish an empty send from a failed one. S3 cross-host tests must not
+originate empty datagrams from Dart.
 
 `close!` answers `ok`, closes the host socket, and is idempotent. The seam
 deposits `:dao.stream.datagram/closed` when it still can; the irreducible
@@ -154,7 +167,7 @@ corner of `dao.stream.md` (Surfaces, observably gone) applies when it cannot.
 
 `:max-bytes` is composition data, default 1200, and is symmetric: an inbound
 datagram longer than it is dropped below the transform as protocol
-validation, counted and never deposited. 1200 clears the IPv6 minimum path
+validation, never deposited. 1200 clears the IPv6 minimum path
 MTU with headers to spare.
 
 ## 5. The traffic stream

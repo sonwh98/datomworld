@@ -107,9 +107,9 @@ are in `docs/agents/build-n-test.md`.
 |    | `dao.stream.rpc`.                                          | envelope it requires is deleted here.                        |               |
 +----+------------------------------------------------------------+--------------------------------------------------------------+---------------+
 | 6  | UDP channel: `dao.stream.udp` with fragmentation keyed by  | The toy over UDP with a 48 KiB value (inside the default     | clj cljs cljd |
-|    | attachment, address, direction and id; adapters            | 64 KiB maximum); loss injection recovers by resend;          |               |
-|    | `src/clj/dao/stream/udp/jvm.clj`, `src/cljs/dao/           | oversize beyond the maximum answers `transport-error`        |               |
-|    | stream/udp/node.cljs`, `src/cljd/dao/stream/udp/dart.cljd`.| with reason `oversize`.                                      |               |
+|    | attachment, address, direction and id; host seams          | 64 KiB maximum); loss injection recovers by resend;          |               |
+|    | `dao.stream.datagram.jvm`, `.node`, and `.dart`.           | oversize beyond the maximum answers `transport-error`        |               |
+|    |                                                            | with reason `oversize`.                                      |               |
 +----+------------------------------------------------------------+--------------------------------------------------------------+---------------+
 | 7  | Pair channel and the meeting and relay conventions with    | Two peers behind a simulated restricted NAT punch; behind    | clj           |
 |    | leases: `dao.stream.remote.pair`, `dao.stream.remote.meet`;| a simulated symmetric NAT they relay; a pair whose holder    |               |

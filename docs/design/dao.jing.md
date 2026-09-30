@@ -486,9 +486,22 @@ Implemented backends:
   session, releases the listener, and is idempotent; handlers run in the
   server's single driver thread, so a handler that never returns stalls
   every session.
-- `dao.jing.dht/create-content-dht` and
-  `dao.jing.dht.node/create-content-dht-udp` — the distributed backend over an
-  `IDhtNet` transport; see `docs/design/dao.jing.dht.md`.
+- `dao.jing.dht` — the distributed backend, a caller-stepped interpreter
+  (`state` / `step`) over a raw datagram socket and the `dao.jing.content`
+  request medium (`docs/design/dao.jing.dht.md`). Its byte-store handle,
+  `dao.jing.dht/store-handle`, is portable: put inserts into the composed
+  `:local` store, appends a replicate request and returns the local verdict
+  at once (the network acknowledgement is the `:dao.jing.dht/sent` fact);
+  get reads `:local` only. A remote miss is a `:jing/get` through
+  `dao.jing.content.step`, answered on a later step, or, on the JVM,
+  `dao.jing.dht.facade/start!`, whose driver thread steps the DHT and whose
+  get waits on `dao.jing.content.driver`. **Status 2026-10-01 (slice S4):**
+  the core, the whole section-8 cookie protocol (including the keyed MAC
+  `cookie-for`), pending writes and gets, solo mode and the JVM facade are
+  built and tested over in-memory sockets; single-datagram messages and
+  chunks are supported. Exposure is gated by the secret and the bound.
+  The former waiting surface (`IDhtNet`, `lookup`, `create-content-dht`) is
+  gone.
 
 **The observer is implemented.** `observer-state` and `observe-step!` provide
 the explicit intake-pool walk described in *Cursor tracking and recovery*,
@@ -514,9 +527,9 @@ verifies them by hash and byte for byte. `get` hash-verifies the backend's
 bytes and decodes them. `dao.jing.content` (succeeding `dao.jing.remote`) and
 `dao.jing.dht` carry the bytes
 as padded standard-alphabet Base64 text in the application value, on the
-channel codec's message boundaries (`dao.jing.content`) and in its own
-datagram envelope (`dao.jing.dht`; `dao.jing.cbor.md`, Remote and DHT),
-and run the one ingress canonicality check (strict
+channel codec's message boundaries (`dao.jing.content`) and in every
+stream-visible value (`dao.jing.dht`, whose own wire carries them as CBOR
+byte strings; `dao.jing.dht.md`, The wire), and run the one ingress canonicality check (strict
 Base64, digest, canonical decode) before any received bytes are stored or
 served. That check is one shared function, `dao.jing/accept-bytes!` (the
 target; today it is the private `dao.jing.remote/accept-bytes!`), used by

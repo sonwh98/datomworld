@@ -26,10 +26,10 @@
   (:refer-clojure :exclude [get])
   (:require [clojure.string :as str]
             [dao.stream :as stream]
+            [dao.stream.base64 :as stream-base64]
             [dao.stream.observe :as observe]
             [dao.jing.cbor :as cbor]
             #?@(:cljs [[goog.crypt :as crypt]
-                       [goog.crypt.base64 :as base64]
                        goog.crypt.Sha256
                        ["@noble/hashes/blake3.js" :as noble-blake3]
                        ["@noble/hashes/utils.js" :as noble-utils]])
@@ -409,31 +409,17 @@
     false))
 
 
-(def ^:private base64-pattern
-  "Padded standard-alphabet Base64: no whitespace, no URL-safe alphabet."
-  #"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
-
-
 (defn bytes->base64
-  "The padded standard-alphabet Base64 text of host bytes bs: the transport
-   representation of canonical payload bytes inside Transit envelopes
-   (docs/design/dao.jing.cbor.md, Remote and DHT)."
+  "The shared strict padded Base64 text of host bytes."
   [bs]
-  #?(:clj (.encodeToString (java.util.Base64/getEncoder) ^bytes bs)
-     :cljs (base64/encodeByteArray bs)
-     :cljd (convert/base64Encode bs)))
+  (stream-base64/encode bs))
 
 
 (defn base64->bytes
-  "The host bytes of padded standard-alphabet Base64 text s, decoded
-   strictly: anything else (whitespace, the URL-safe alphabet, missing
-   padding, a non-string) throws."
+  "Decode strict padded Base64 or throw for an invalid value."
   [s]
-  (when-not (and (string? s) (re-matches base64-pattern s))
-    (throw (ex-info "not padded standard-alphabet Base64" {:text s})))
-  #?(:clj (.decode (java.util.Base64/getDecoder) ^String s)
-     :cljs (base64/decodeStringToUint8Array s)
-     :cljd (convert/base64Decode s)))
+  (or (stream-base64/decode s)
+      (throw (ex-info "not padded standard-alphabet Base64" {:text s}))))
 
 
 (defn segment-bytes
