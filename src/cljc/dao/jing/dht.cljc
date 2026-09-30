@@ -19,7 +19,7 @@
    and verifies what a peer hands it (section 4.5).
 
    The wire is section 7's, one CBOR value per datagram through
-   dao.stream.cbor, single-datagram messages only (chunks are S3). The
+   dao.stream.cbor, with bounded chunk records for larger messages. The
    cookie protocol of section 8 is implemented whole with the S2 stand-in
    cookie-for, which is unkeyed and forgeable: exposure stays loopback.
 
@@ -27,10 +27,12 @@
    same composition: its put returns the local verdict at once and appends
    a replicate request; its get reads :local only."
   (:require #?@(:cljd [["dart:typed_data" :as typed]])
+            [clojure.string :as str]
             [dao.jing :as jing]
-            [dao.jing.cbor :as cbor]
             [dao.jing.dht.kad :as kad]
             [dao.stream :as stream]
+            [dao.stream.chunks :as chunks]
+            [dao.stream.datagram :as datagram]
             [dao.stream.cbor :as wire]))
 
 
@@ -77,6 +79,8 @@
    ::query-ticks 500
    ::tries 3
    ::max-message-bytes 65536
+   ::max-datagram 1200
+   ::bind-host "127.0.0.1"
    ::max-partial-messages 64
    ::max-pending-writes 64
    ::max-pending-gets 64
@@ -218,17 +222,44 @@
   (> (store-message-size address bs) max-message-bytes))
 
 
-(defn- send-datagram!
-  "Hand one encoded message to the socket toward host and port; the
-   writer's outcome keyword."
-  [state host port m]
+(defn- send-bytes!
+  [state host port bs]
   (:dao.stream/outcome
     (stream/append! (:datagrams state)
                     {:dao.stream.datagram/destination
                      {:dao.stream.datagram/host host
                       :dao.stream.datagram/port port}
                      :dao.stream.datagram/bytes
-                     (jing/bytes->base64 (wire/encode m))})))
+                     (jing/bytes->base64 bs)})))
+
+
+(defn- send-datagram!
+  "Refuse an overbound message before sending any datagram. A chunk run
+   counts only if every raw writer append answered ok."
+  [state host port m]
+  (let [bs (wire/encode m)
+        length (chunks/length bs)]
+    (cond
+      (not (datagram/ip-literal? host)) :dao.stream/transport-error
+      (not= (str/includes? (::bind-host state) ":")
+            (str/includes? host ":")) :dao.stream/transport-error
+      (> length (::max-message-bytes state)) :dao.stream/transport-error
+      (<= length (::max-datagram state)) (send-bytes! state host port bs)
+      :else
+      (let [frames (chunks/split bs (::max-datagram state)
+                                 (fn [part parts piece]
+                                   (cond-> {::v 1 :op :chunk :q (:q m)
+                                            :dir (if (= :reply (:op m)) :reply :request)
+                                            :part part :parts parts :bytes piece}
+                                     (and (not= :reply (:op m)) (:cookie m))
+                                     (assoc :cookie (:cookie m))))
+                                 wire/encode)]
+        (reduce (fn [_ frame]
+                  (let [outcome (send-bytes! state host port (wire/encode frame))]
+                    (if (= :dao.stream/ok outcome)
+                      outcome
+                      (reduced outcome))))
+                :dao.stream/ok frames)))))
 
 
 ;; =============================================================================
@@ -748,7 +779,7 @@
   (reduce (fn [state p]
             (let [[id h pt] (when (vector? p) p)]
               (if (and (bytes-of? id id-length)
-                       (string? h)
+                       (datagram/ip-literal? h)
                        (integer? pt)
                        (not= (bytes->hex id) (::id state))
                        (not (get-in state (conj owner :cands [h pt]))))
@@ -839,6 +870,54 @@
           (route-reply query m)))))
 
 
+(defn- on-chunk
+  [state host port m size]
+  (let [{:keys [q dir part parts bytes]} m
+        pending? (contains? (:queries state) [host port q])
+        request? (= :request dir)
+        need {::v 1 :op :reply :q q :id (hex->bytes (::id state))
+              :cookie (cookie-for (epoch state) host port)
+              :need-cookie true}]
+    (cond
+      (not (and (safe-q? q) (#{:request :reply} dir)
+                (wire/byte-payload? bytes))) state
+      (and request? (not (valid-cookie? state host port (:cookie m))))
+      (do (when (<= (chunks/length (wire/encode need)) size)
+            (send-datagram! state host port need))
+          state)
+      (and (= :reply dir) (not pending?)) state
+      :else
+      (let [key [host port dir q]
+            [next-state payload]
+            (chunks/absorb state key part parts bytes
+                           (::max-message-bytes state)
+                           (::max-partial-messages state))
+            source-keys (filterv (fn [[h p _ _]]
+                                   (and (= h host) (= p port)))
+                                 (:partial-order next-state))
+            share (max 1 (quot (::max-partial-messages state) 4))
+            evicted (take (max 0 (- (count source-keys) share)) source-keys)
+            next-state (if (seq evicted)
+                         (-> next-state
+                             (update :partial #(apply dissoc % evicted))
+                             (update :partial-order
+                                     #(vec (remove (set evicted) %))))
+                         next-state)
+            next-state (if (and (not (contains? (:partial state) key))
+                                (contains? (:partial next-state) key))
+                         (assoc-in next-state [:partial key :created] (:now state))
+                         next-state)
+            whole (when payload (decode-message payload))]
+        (if (and whole (= 1 (::v whole)) (= q (:q whole))
+                 (if request?
+                   (#{:ping :find :store :fetch} (:op whole))
+                   (= :reply (:op whole))))
+          (if request?
+            (on-request next-state host port whole (chunks/length payload))
+            (on-reply next-state host port whole))
+          next-state)))))
+
+
 (defn- on-traffic
   [state v]
   (let [source (:dao.stream.datagram/source v)
@@ -855,7 +934,7 @@
         :reply (on-reply state host port m)
         (:ping :find :store :fetch)
         (on-request state host port m (byte-count bs))
-        ;; :chunk and anything else: chunks are S3
+        :chunk (on-chunk state host port m (byte-count bs))
         state)
       state)))
 
@@ -1008,7 +1087,18 @@
   (let [n (when (and (map? v) (= :dao.lease/tick (:dao.lease/event v)))
             (:dao.lease/reading v))]
     (if (number? n)
-      (update state :now #(if (and % (> % n)) % n))
+      (let [state (update state :now #(if (and % (> % n)) % n))
+            expired (->> (:partial state)
+                         (keep (fn [[key held]]
+                                 (when (and (:created held)
+                                            (>= (- (:now state) (:created held))
+                                                (::query-ticks state))) key)))
+                         set)]
+        (if (seq expired)
+          (-> state
+              (update :partial #(apply dissoc % expired))
+              (update :partial-order #(vec (remove expired %))))
+          state))
       state)))
 
 
@@ -1158,6 +1248,9 @@
     (when-not (node-id? (::id c))
       (throw (defect "the node id must be 64 lowercase hex characters"
                {:id (::id c)})))
+    (when-not (datagram/ip-literal? (::bind-host c))
+      (throw (defect "bind-host must be an IP literal"
+               {:bind-host (::bind-host c)})))
     (when-not (and (integer? ack-peers) (<= 2 ack-peers kad/k))
       (throw (defect "ack-peers must be an integer from 2 to k"
                {:ack-peers ack-peers, :k kad/k})))
@@ -1171,6 +1264,8 @@
             :seen {}
             :queries {}
             :query-index {}
+            :partial {}
+            :partial-order []
             :writes {}
             :gets {}
             :advance-cursor nil
@@ -1229,297 +1324,3 @@
      :get-bytes-fn (fn [address not-found]
                      ((:get-bytes-fn local) address not-found))
      :close-fn (fn [] (jing/close! local))}))
-
-
-;; =============================================================================
-;; LEGACY, deleted in S3: the waiting transport surface. dao.jing.dht.node
-;; implements IDhtNet and calls lookup and create-content-dht; S3 deletes
-;; them together (docs/design/dao.jing.dht.md section 10). The stepped core
-;; above does not use any of it.
-;; =============================================================================
-
-;; =============================================================================
-;; Routing identity
-;; =============================================================================
-
-(defn node-id
-  "Deterministic node id: SHA-256 of host:port."
-  [host port]
-  (jing/sha256 (str host ":" port)))
-
-
-(defn- content-target
-  "The routing target for a strict segment content address: its
-   content digest. Non-segment addresses are outside the DHT and throw; there
-   is no root class, so nothing is ever hashed by key name."
-  [address]
-  (when-not (jing/segment-address? address)
-    (throw (ex-info "dao.jing.dht: not a segment content address"
-                    {:address address})))
-  (jing/segment-hash address))
-
-
-;; =============================================================================
-;; Transport boundary
-;; =============================================================================
-
-(defprotocol IDhtNet
-  "The per-peer RPC surface dao.jing.dht requires of a transport."
-
-  (self-peer
-    [net]
-    "This node's own {:id :host :port} peer map.")
-
-  (known-peers
-    [net target-id n]
-    "The n locally-known peers nearest target-id, nearest first. No IO.")
-
-  (find-closer
-    [net peer target-id]
-    "Ask peer for the peers it knows nearest target-id.
-     Returns a seq of peer maps, or nil when unreachable.")
-
-  (store-content!
-    [net peer address payload]
-    "Ask peer to hold content address under payload. Best effort; returns a
-     boolean acknowledgement (false or nil when the peer is unreachable or
-     refuses).
-     Implementations must own bounded transport timeouts and return false/nil
-     when unreachable.")
-
-  (fetch-content
-    [net peer address]
-    "Ask peer for the content stored at address. Returns
-     {:found? bool :value v} when reachable, or nil when unreachable.
-     Implementations must own bounded transport timeouts and return nil
-     when unreachable.")
-
-  (close-net!
-    [net]
-    "Release the transport's local resources (socket, threads)."))
-
-
-(def ^:private content-missing
-  "Internal not-found sentinel for local read-backs, never exposed. An
-   opaque per-host identity object, never a keyword: a keyword sentinel
-   could be confused with a genuinely stored payload."
-  #?(:cljd (Object.)
-     :clj (Object.)
-     :cljs (js-obj)))
-
-
-;; =============================================================================
-;; Iterative lookup
-;; =============================================================================
-
-(defn lookup
-  "Iteratively converge on the kad/k known non-self peers nearest target-id. Queried
-   peer ids are deduplicated, so a peer is never asked twice in the same
-   lookup even when different routes return it with different metadata."
-  [net target-id]
-  (let [self (self-peer net)]
-    (loop [discovered (into {}
-                            (comp (remove #(= (:id self) (:id %)))
-                                  (map (juxt :id identity)))
-                            (known-peers net target-id kad/k))
-           queried-ids #{(:id self)}]
-      (let [closest-k (->> (vals discovered)
-                           (sort-by #(kad/distance (:id %) target-id))
-                           (take kad/k))
-            candidates (->> closest-k
-                            (remove #(contains? queried-ids (:id %)))
-                            (take alpha))]
-        (if (empty? candidates)
-          (vec closest-k)
-          (recur (into discovered
-                       (comp (mapcat #(find-closer net % target-id))
-                             (remove #(= (:id self) (:id %)))
-                             (map (juxt :id identity)))
-                       candidates)
-                 (into queried-ids (map :id) candidates)))))))
-
-
-;; =============================================================================
-;; Content-store effects
-;; =============================================================================
-
-#_{:clj-kondo/ignore [:unused-binding]}
-
-
-(defn- with-lock
-  "Run f under lock on hosts with a monitor primitive; direct call elsewhere."
-  [lock f]
-  #?(:clj (locking lock (f))
-     :default (f)))
-
-
-(defn- ensure-open
-  [{:keys [closed-atom]}]
-  (when @closed-atom
-    (throw (ex-info "dao.jing.dht: DHT content store is closed"
-                    {:closed true}))))
-
-
-(defn- validate-address-bytes!
-  "Reject a put before any local or network action: the address must be a
-   valid segment content address whose digest is the hash of the bytes."
-  [address bs]
-  (when-not (jing/segment-address? address)
-    (throw (ex-info "dao.jing.dht: not a segment content address"
-                    {:address address})))
-  (when-not (jing/segment-bytes-match? address bs)
-    (throw (ex-info "dao.jing.dht: content address does not match the bytes"
-                    {:address address}))))
-
-
-(defn- accept-bytes
-  "The canonical bytes of the Base64 text a peer answered for address, or
-   nil when the text, the digest, or the payload's canonicality fails: a
-   peer is untrusted, so this is the one ingress check before caching."
-  [address b64]
-  (try (let [bs (jing/base64->bytes b64)]
-         (when (jing/segment-bytes-match? address bs)
-           (cbor/decode bs)
-           bs))
-       (catch #?(:clj Throwable
-                 :cljs :default
-                 :cljd Object)
-              _
-         nil)))
-
-
-(defn- safe-store-content!
-  [net peer address payload]
-  (try (store-content! net peer address payload)
-       (catch #?(:clj Throwable
-                 :cljs :default
-                 :cljd Object)
-              _
-         false)))
-
-
-(defn- safe-fetch-content
-  [net peer address]
-  (try (fetch-content net peer address)
-       (catch #?(:clj Throwable
-                 :cljs :default
-                 :cljd Object)
-              _
-         nil)))
-
-
-(defn- make-put
-  [{:keys [net local], :as handle}]
-  (fn [address bs]
-    (validate-address-bytes! address bs)
-    (ensure-open handle)
-    (let [result ((:put-bytes-fn local) address bs)]
-      (when-not (#{:inserted :present} result)
-        (throw (ex-info "dao.jing.dht: invalid local put result"
-                        {:result result, :address address})))
-      (let [self-id (:id (self-peer net))
-            b64 (jing/bytes->base64 bs)
-            peers (remove #(= self-id (:id %))
-                          (lookup net (content-target address)))]
-        #?(:clj (run! deref
-                      (mapv (fn [peer]
-                              (future
-                                (safe-store-content! net peer address b64)))
-                            peers))
-           :default (run! (fn [peer]
-                            (safe-store-content! net peer address b64))
-                          peers)))
-      result)))
-
-
-(defn- make-get
-  [{:keys [net local], :as handle}]
-  (fn [address not-found]
-    (ensure-open handle)
-    (let [v ((:get-bytes-fn local) address content-missing)]
-      (if (not (identical? v content-missing))
-        v
-        (let [self-id (:id (self-peer net))
-              fetched
-              (some (fn [peer]
-                      (when (not= self-id (:id peer))
-                        (when-let [res (safe-fetch-content net peer address)]
-                          (when (:found? res)
-                            (when-let [bs (accept-bytes address (:value res))]
-                              [bs])))))
-                    (lookup net (content-target address)))]
-          (if fetched
-            (let [bs (first fetched)
-                  result ((:put-bytes-fn local) address bs)]
-              (when-not (#{:inserted :present} result)
-                (throw
-                  (ex-info
-                    "dao.jing.dht: fetched content could not be cached"
-                    {:address address, :result result})))
-              bs)
-            not-found))))))
-
-
-(defn- make-close
-  [{:keys [net local closed-atom]}]
-  (fn []
-    (with-lock closed-atom
-      (fn []
-        (when-not @closed-atom
-          (let [err-net (try (close-net! net)
-                             nil
-                             (catch #?(:clj Throwable
-                                       :cljs :default
-                                       :cljd Object)
-                                    e
-                               e))
-                err-local (try (jing/close! local)
-                               nil
-                               (catch #?(:clj Throwable
-                                         :cljs :default
-                                         :cljd Object)
-                                      e
-                                 e))]
-            (if (or err-net err-local)
-              (throw (or err-net err-local))
-              (reset! closed-atom true))))
-        nil))))
-
-
-;; =============================================================================
-;; Handle constructor
-;; =============================================================================
-
-(defn create-content-dht
-  "Wrap an IDhtNet transport and a local content handle as a DHT
-   content-store handle.
-
-   The returned handle is plain data:
-     {:net net, :local local, :closed-atom a,
-      :put-bytes-fn f, :get-bytes-fn g, :close-fn c}
-
-   and works with dao.jing/materialize!, dao.jing/get, and dao.jing/close!.
-   :net is an IDhtNet transport; :local is a content handle carrying
-   :put-bytes-fn and :get-bytes-fn (dao.jing.mem/create-content-mem or
-   equivalent); :closed-atom is the store's explicit private state and close
-   lock.
-
-   The DHT routes only registered :segment/<algorithm>-... content addresses
-   and records no source identity: there are no roots, CAS records, deletes,
-   or intake streams."
-  [{:keys [net local]}]
-  (when-not (and net local)
-    (throw (ex-info "dao.jing.dht requires :net and :local"
-                    {:net net, :local local})))
-  (when-not (fn? (:put-bytes-fn local))
-    (throw (ex-info "dao.jing.dht local requires :put-bytes-fn"
-                    {:local local})))
-  (when-not (fn? (:get-bytes-fn local))
-    (throw (ex-info "dao.jing.dht local requires :get-bytes-fn"
-                    {:local local})))
-  (let [closed-atom (atom false)
-        handle {:net net, :local local, :closed-atom closed-atom}]
-    (assoc handle
-           :put-bytes-fn (make-put handle)
-           :get-bytes-fn (make-get handle)
-           :close-fn (make-close handle))))

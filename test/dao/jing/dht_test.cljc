@@ -902,3 +902,164 @@
         (is (some #(and (= :reply (get-in % [:message :op]))
                         (contains? (:message %) :peers))
                   (mesh/sent-from net 1)))))))
+
+
+(deftest chunked-store-crosses-multiple-datagrams
+  (let [{:keys [net comps states]} (warm)
+        a (comps 1)
+        value (apply str (repeat 4000 "chunk"))
+        address (jing/segment-key value)
+        before (mesh/log-size net)]
+    (mesh/request! a (put-request "chunked" value))
+    (drive states comps 1 8)
+    (is (= 2 (::dht/peers (last (fact-of a ::dht/sent)))))
+    (is (> (- (mesh/log-size net) before) 2))
+    (is (= value (jing/get (:local (comps 2)) address nil)))))
+
+
+(deftest largest-find-reply-fits-one-datagram
+  (let [id (dht/hex->bytes (apply str (repeat 64 "f")))
+        peers (mapv (fn [port] [id "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff" port])
+                    (range 65528 65536))
+        reply {::dht/v 1 :op :reply :q 9007199254740991
+               :id id :cookie (dht/cookie-for 0 "127.0.0.1" 65535)
+               :peers peers}]
+    (is (= 8 (count peers)))
+    (is (<= #?(:cljd (.-length (wire/encode reply))
+               :clj (alength ^bytes (wire/encode reply))
+               :cljs (.-length (wire/encode reply)))
+            1200))))
+
+
+(deftest a-refused-later-chunk-does-not-count-the-peer
+  (let [net (mesh/mesh)
+        comps (grid net [1 2 3] {})
+        a (comps 1)
+        _ (mesh/request! a (put-request "warm" [:warm]))
+        states (drive (start comps) comps 0 8)
+        value (apply str (repeat 3000 "refuse"))
+        address (jing/segment-key value)]
+    (swap! net assoc :refuse-datagram?
+           (fn [_ to m]
+             (and (= to [mesh/host 2]) (= :chunk (:op m))
+                  (= :request (:dir m)) (= 1 (:part m)))))
+    (mesh/request! a (put-request "refused" value))
+    (drive states comps 1 8)
+    (is (empty? (filter #(= address (::dht/address %))
+                        (fact-of a ::dht/sent))))
+    (is (nil? (jing/get (:local (comps 2)) address nil)))))
+
+
+(deftest wrong-ip-family-is-dropped-before-the-socket
+  (let [net (mesh/mesh)
+        c (mesh/join! net 1 {::dht/publish? true
+                             ::dht/bootstrap [{:host "::1" :port 5555}]})]
+    (mesh/request! c (put-request "family" [:family]))
+    (dht/step (dht/state c) 64)
+    (is (zero? (mesh/log-size net)))))
+
+
+(deftest hostname-peer-is-dropped-before-the-socket
+  (let [net (mesh/mesh)
+        c (mesh/join! net 1 {::dht/publish? true
+                             ::dht/bootstrap [{:host "localhost" :port 5555}]})]
+    (mesh/request! c (put-request "hostname" [:hostname]))
+    (dht/step (dht/state c) 64)
+    (is (zero? (mesh/log-size net)))))
+
+
+(deftest reordered-request-chunks-reassemble
+  (let [{:keys [net comps states]} (warm)
+        a (comps 1)
+        value (apply str (repeat 3000 "reorder"))
+        address (jing/segment-key value)]
+    (swap! net assoc :hold?
+           (fn [from _ m]
+             (and (= from [mesh/host 1]) (= :chunk (:op m))
+                  (= :request (:dir m)))))
+    (mesh/request! a (put-request "reordered" value))
+    (let [states (drive states comps 1 1)]
+      (is (> (count (:held @net)) 1))
+      (swap! net assoc :hold? nil)
+      (mesh/release-held! net)
+      (drive states comps 1 8)
+      (is (= value (jing/get (:local (comps 2)) address nil))))))
+
+
+(deftest lost-request-chunk-never-materializes-a-partial-store
+  (let [{:keys [net comps states]} (warm)
+        a (comps 1)
+        value (apply str (repeat 3000 "lost"))
+        address (jing/segment-key value)]
+    (swap! net assoc :drop-datagram?
+           (fn [from to m]
+             (and (= from [mesh/host 1]) (= to [mesh/host 2])
+                  (= :chunk (:op m)) (= :request (:dir m))
+                  (= 1 (:part m)))))
+    (mesh/request! a (put-request "lost" value))
+    (drive states comps 1 8)
+    (is (nil? (jing/get (:local (comps 2)) address nil)))
+    (is (= value (jing/get (:local (comps 3)) address nil)))))
+
+
+(deftest chunk-partials-have-a-per-source-share
+  (let [net (mesh/mesh)
+        c (mesh/join! net 1 {::dht/max-partial-messages 8})
+        cookie (dht/cookie-for 0 mesh/host 9000)
+        piece (wire/encode :piece)]
+    (mesh/tick! c 0)
+    (doseq [q (range 3)]
+      (stream/append! (:traffic c)
+                      {:dao.stream.datagram/source
+                       {:dao.stream.datagram/host mesh/host
+                        :dao.stream.datagram/port 9000}
+                       :dao.stream.datagram/bytes
+                       (jing/bytes->base64
+                         (wire/encode {::dht/v 1 :op :chunk :q q
+                                       :dir :request :part 0 :parts 2
+                                       :cookie cookie :bytes piece}))}))
+    (let [state (dht/step (dht/state c) 64)]
+      (is (= 2 (count (:partial state))))
+      (is (not (contains? (:partial state) [mesh/host 9000 :request 0]))))))
+
+
+(deftest chunk-partials-are-evicted-by-tick-age
+  (let [net (mesh/mesh)
+        c (mesh/join! net 1 {::dht/query-ticks 10})
+        source-port 9000
+        chunk {::dht/v 1 :op :chunk :q 1 :dir :request
+               :part 0 :parts 2
+               :cookie (dht/cookie-for 0 mesh/host source-port)
+               :bytes (wire/encode :piece)}]
+    (mesh/tick! c 0)
+    (stream/append! (:traffic c)
+                    {:dao.stream.datagram/source
+                     {:dao.stream.datagram/host mesh/host
+                      :dao.stream.datagram/port source-port}
+                     :dao.stream.datagram/bytes
+                     (jing/bytes->base64 (wire/encode chunk))})
+    (let [held (dht/step (dht/state c) 64)]
+      (is (= 1 (count (:partial held))))
+      (is (= [[mesh/host source-port :request 1]] (:partial-order held)))
+      (mesh/tick! c 9)
+      (let [young (dht/step held 64)]
+        (is (= 1 (count (:partial young))))
+        (mesh/tick! c 10)
+        (let [expired (dht/step young 64)]
+          (is (empty? (:partial expired)))
+          (is (empty? (:partial-order expired))))))))
+
+
+(deftest canonical-chunk-wire-vector-is-identical-on-all-hosts
+  (let [message {::dht/v 1 :op :chunk :q 17 :dir :request
+                 :part 0 :parts 2
+                 :cookie (dht/hex->bytes (apply str (repeat 32 "1")))
+                 :bytes (wire/encode "payload")}
+        expected "qNgnYjpxEdgnYzpvcNgnZjpjaHVua9gnZDpkaXLYJ2g6cmVxdWVzdNgnZTpwYXJ0ANgnZjpieXRlc0hncGF5bG9hZNgnZjpwYXJ0cwLYJ2c6Y29va2llUBERERERERERERERERERERHYJ286ZGFvLmppbmcuZGh0L3YB"
+        encoded (wire/encode message)
+        decoded (wire/decode (jing/base64->bytes expected))]
+    (is (= expected (jing/bytes->base64 encoded)))
+    (is (= (dissoc message :cookie :bytes)
+           (dissoc decoded :cookie :bytes)))
+    (is (= (hex (:cookie message)) (hex (:cookie decoded))))
+    (is (= (hex (:bytes message)) (hex (:bytes decoded))))))

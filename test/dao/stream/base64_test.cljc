@@ -6,6 +6,7 @@
    (dao.jing.dht.md 10, Base64 seam)."
 
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
             [dao.stream.base64 :as base64]
             [dao.stream.cbor :as cbor])
   #?(:cljd (:import ["dart:typed_data" Uint8List])))
@@ -56,7 +57,9 @@
 (deftest rfc-4648-round-trips
   (doseq [[octets text] rfc-4648-vectors]
     (is (= text (base64/encode (apply b octets))))
-    (is (bytes= (apply b octets) (base64/decode text)))))
+    (is (= text (jing/bytes->base64 (apply b octets))))
+    (is (bytes= (apply b octets) (base64/decode text)))
+    (is (bytes= (base64/decode text) (jing/base64->bytes text)))))
 
 
 (deftest decode-is-total-and-strict

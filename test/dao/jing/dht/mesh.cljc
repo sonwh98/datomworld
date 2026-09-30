@@ -38,7 +38,8 @@
 (defn mesh
   "A fresh, empty in-memory network."
   []
-  (atom {:traffic {}, :log [], :drop? nil, :refuse? nil}))
+  (atom {:traffic {}, :log [], :drop? nil, :refuse? nil
+         :hold? nil, :held []}))
 
 
 (deftype MeshSocket
@@ -57,24 +58,44 @@
                   (string? b64)))
         {:dao.stream/outcome :dao.stream/invalid-value}
 
-        (when-let [f (:refuse? @net)] (f [from-host from-port] [to-host to-port]))
+        (or (when-let [f (:refuse? @net)]
+              (f [from-host from-port] [to-host to-port]))
+            (when-let [f (:refuse-datagram? @net)]
+              (f [from-host from-port] [to-host to-port]
+                 (dht/decode-message (jing/base64->bytes b64)))))
         {:dao.stream/outcome :dao.stream/transport-error}
 
         :else
         (let [from [from-host from-port]
               to [to-host to-port]
               m (swap! net update :log conj {:from from, :to to, :bytes b64})
-              dropped? (when-let [f (:drop? m)] (f from to))
+              dropped? (or (when-let [f (:drop? m)] (f from to))
+                           (when-let [f (:drop-datagram? m)]
+                             (f from to (dht/decode-message
+                                          (jing/base64->bytes b64)))))
+              held? (when-let [f (:hold? m)]
+                      (f from to (dht/decode-message
+                                   (jing/base64->bytes b64))))
               traffic (get-in m [:traffic to])]
           (when (and traffic (not dropped?))
-            (stream/append! traffic
-                            {:dao.stream.datagram/socket (str to-host ":"
-                                                              to-port)
-                             :dao.stream.datagram/source
-                             {:dao.stream.datagram/host from-host
-                              :dao.stream.datagram/port from-port}
-                             :dao.stream.datagram/bytes b64}))
+            (let [event {:dao.stream.datagram/socket (str to-host ":" to-port)
+                         :dao.stream.datagram/source
+                         {:dao.stream.datagram/host from-host
+                          :dao.stream.datagram/port from-port}
+                         :dao.stream.datagram/bytes b64}]
+              (if held?
+                (swap! net update :held conj [traffic event])
+                (stream/append! traffic event))))
           {:dao.stream/outcome :dao.stream/ok})))))
+
+
+(defn release-held!
+  "Deposit held datagrams in reverse send order to inject reordering."
+  [net]
+  (let [held (:held @net)]
+    (swap! net assoc :held [])
+    (doseq [[traffic event] (reverse held)]
+      (stream/append! traffic event))))
 
 
 (defn node-id

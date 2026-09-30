@@ -462,36 +462,35 @@ over externally supplied bytes.
 ### Remote and DHT
 
 Carry canonical payload bytes as padded standard-alphabet Base64 strings
-(no whitespace or URL-safe alphabet) in the application value, one
-application value per channel-codec message: `dao.jing.content` rides a
-`dao.stream.remote.md` channel (Transit-JSON text or canonical CBOR
-binary per WebSocket message, canonical CBOR per datagram on UDP), while
-`dao.jing.dht` keeps its own one-Transit-JSON-value-per-datagram envelope.
-Encode and decode this transport representation at
-Jing's network boundaries; leave general DaoStream Transit unchanged.
-Remote and DHT APIs above the byte-store wrapper remain value-facing.
+(no whitespace or URL-safe alphabet) in stream-visible request, answer, and
+raw datagram values. `dao.jing.content` over `dao.stream.remote` uses the
+channel codec: Transit-JSON text or canonical CBOR binary on WebSocket,
+canonical CBOR on UDP. `dao.jing.dht` uses one canonical `dao.stream.cbor`
+value per raw datagram. Its wire payloads, node ids, targets, cookies, and
+chunk pieces are CBOR byte strings; Base64 appears only on the stream side of
+the raw socket. Both Jing Base64 functions delegate to `dao.stream.base64`.
 
-Decode Base64 strictly, hash-verify received bytes against the claimed
-address, and perform the one ingress canonicality check before accepting or
-caching them. Preserve explicit presence indicators, idempotent writes,
-correlated remote errors, and DHT refusal/next-candidate behavior. A found
-nil travels as Base64 of CBOR nil; an absent envelope keeps its explicit
-false indicator and nil placeholder, which is not Base64-decoded.
+The DHT wire v1 uses `:dao.jing.dht/v 1` and `:op :ping`, `:find`, `:store`,
+`:fetch`, `:reply`, or `:chunk`. Queries correlate by observed source plus
+`:q`. Replies carry the cookie for that observed address; requests echo it.
+Large encoded messages use bounded `:chunk` records with `:q`, `:dir`,
+`:part`, `:parts`, and `:bytes`; request chunks also carry `:cookie`.
+The encoded whole is bounded by `:dao.jing.dht/max-message-bytes` (default
+65536) before any chunk is sent. Each datagram fits the socket budget
+(default 1200). Reassembly is source-qualified and bounded by message bytes,
+partial count, and tick age. A short unproven request receives only a
+non-amplifying need-cookie reply or silence.
 
-The only current Jing application-level message byte cap is the DHT UDP
-budget of 1200 bytes (verified against `src/cljc/dao/jing/dht/node.cljc`,
-`max-datagram`); the WebSocket path enforces no byte cap today (verified
-against `src/cljc/dao/jing/remote.cljc`). For n payload bytes, Base64 occupies
-`4 × ceil(n / 3)` bytes, roughly 33% overhead. With E bytes of actual
-Transit envelope overhead, require `E + 4 × ceil(n / 3) ≤ 1200`, giving at
-most `3 × floor((1200 - E) / 4)` payload bytes; E varies by request/reply
-and coordinates, so check the final UTF-8 message size, not a fixed raw
-payload allowance. Oversized sends are refused and oversized replies
-dropped; DHT writes still acknowledge the local durable insert and degrade
-to local-only storage, while remote fetch attempts time out. Decide to keep
-WebSocket without a Jing byte cap in this migration: arbitrary payload
-length is limited by host resources, not a new codec-domain limit. This
-adds no UDP fragmentation or general-purpose transport protocol.
+On receipt, decode Base64 strictly at the raw boundary, hash-verify received
+bytes against the claimed address, and perform the one ingress canonicality
+check before accepting or caching them. Preserve explicit presence
+indicators, idempotent writes, correlated remote errors, and DHT
+refusal/next-candidate behavior. A found nil travels as Base64 of CBOR nil;
+an absent envelope keeps its explicit false indicator and nil placeholder.
+The WebSocket path enforces no Jing byte cap today. The DHT refuses an
+overbound write before local insertion or any network send. Acknowledgement
+requires a successful local insert and complete socket handoff to at least
+two peers. Its cookie gate uses the S2 deterministic stand-in until S4.
 
 The clean break requires coordinated peer upgrades; no version negotiation
 exists. A new-client put to an old server fails as an address mismatch

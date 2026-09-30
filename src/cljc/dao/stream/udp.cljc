@@ -20,7 +20,7 @@
 
    One CBOR value, canonical profile, rides one datagram, at most
    `max-datagram` bytes, fragment envelope included -- the figure
-   `dao.jing.dht.node` already uses to clear common path MTUs. An
+   the DHT also uses to clear common path MTUs. An
    encoded message over that budget is split into fragment envelopes,
    channel-internal: neither the mirror step nor the link
    (dao.stream.remote) ever sees one, only the complete decoded message
@@ -63,6 +63,7 @@
    itself saw it arrive from."
   (:require [dao.stream :as stream]
             [dao.stream.base64 :as base64]
+            [dao.stream.chunks :as chunks]
             [dao.stream.cbor :as cbor]
             [dao.stream.datagram :as datagram])
   #?(:cljd (:import ["dart:typed_data" Uint8List])))
@@ -73,7 +74,7 @@
 
 (def max-datagram
   "The whole encoded datagram's budget, fragment envelope included: the
-   1200-byte figure dao.jing.dht.node already uses to clear common path
+   1200-byte figure dao.jing.dht also uses to clear common path
    MTUs (docs/design/dao.stream.remote.md 3.2)."
   1200)
 
@@ -119,39 +120,6 @@
      :default (alength bs)))
 
 
-(defn- balloc
-  [n]
-  #?(:cljd (Uint8List. n)
-     :clj (byte-array n)
-     :cljs (js/Uint8Array. n)))
-
-
-(defn- bslice
-  [bs start end]
-  #?(:cljd (Uint8List.fromList (.sublist ^Uint8List bs start end))
-     :clj (java.util.Arrays/copyOfRange ^bytes bs (int start) (int end))
-     :cljs (.slice bs start end)))
-
-
-(defn- bconcat
-  [chunks]
-  (let [total (reduce + (map blen chunks))
-        out (balloc total)]
-    (reduce (fn [off c]
-              (let [n (blen c)]
-                #?(:cljd (.setRange ^Uint8List out off (+ off n) c)
-                   :clj (System/arraycopy c 0 out off n)
-                   :cljs (.set out c off))
-                (+ off n)))
-            0 chunks)
-    out))
-
-
-(defn- ceil-div
-  [a b]
-  (quot (+ a (dec b)) b))
-
-
 ;; =============================================================================
 ;; Fragmentation (write side)
 ;; =============================================================================
@@ -173,42 +141,12 @@
    :dao.stream.udp/bytes chunk})
 
 
-(defn- fits?
-  [id part parts direction chunk-len]
-  (<= (blen (cbor/encode
-              (fragment-envelope id part parts direction
-                                 (balloc chunk-len))))
-      max-datagram))
-
-
-(defn- chunk-size
-  "The largest chunk length whose fragment envelope, at the highest
-   part index (the widest of the small integers), still fits the
-   datagram budget; backs off from an optimistic start."
-  [id parts direction]
-  (loop [size (- max-datagram 16)]
-    (when (pos? size)
-      (if (fits? id (dec parts) parts direction size)
-        size
-        (recur (dec size))))))
-
-
 (defn- fragments
-  "Split encoded `payload` for message `id`, direction `direction`,
-   into fragment envelopes that each fit the datagram budget."
   [payload id direction]
-  (let [total (blen payload)
-        parts (max 1 (ceil-div total (- max-datagram 16)))
-        size (or (chunk-size id parts direction)
-                 (throw (ex-info
-                          "dao.stream.udp: no chunk size fits the budget"
-                          {:id id :parts parts})))
-        parts (max parts (ceil-div total size))
-        size (or (chunk-size id parts direction) size)]
-    (for [i (range parts)
-          :let [start (* i size)
-                end (min total (+ start size))]]
-      (fragment-envelope id i parts direction (bslice payload start end)))))
+  (chunks/split payload max-datagram
+                (fn [part parts bytes]
+                  (fragment-envelope id part parts direction bytes))
+                cbor/encode))
 
 
 ;; =============================================================================
@@ -337,69 +275,17 @@
          (cbor/byte-payload? bytes))))
 
 
-(defn- forget-partial!
-  "Drop the partial message keyed `k` from the port's reassembly
-   state, its order entry with it."
-  [port k]
-  (swap! port (fn [s]
-                (-> s
-                    (update :partial dissoc k)
-                    (update :partial-order
-                            (fn [order] (vec (remove #{k} order))))))))
-
-
-(defn- evict-oldest!
-  [port]
-  (when-some [k (first (:partial-order @port))]
-    (forget-partial! port k)))
-
-
 (defn- absorb-fragment!
-  "Fold one well-formed fragment envelope into the port's reassembly
-   state, keyed by [attachment direction id]; returns the complete
-   encoded payload once every part has arrived, else nil. The
-   max-message-bytes bound is the accumulated chunk bytes themselves,
-   as they arrive: a message whose parts add up past the bound is
-   dropped the moment they say so, and a completed payload is
-   delivered only if its own actual length is within the bound -- no
-   declared-parts arithmetic stands in for the real bytes, so a valid
-   message near the limit delivers. A duplicate part is ignored, and
-   a fragment disagreeing with the parts count a partial already
-   holds is dropped, so the state held is never torn."
   [port attachment frag]
   (let [{:dao.stream.remote/keys [id]
          :dao.stream.udp/keys [part parts direction bytes]} frag
         k [attachment direction id]
-        bound (:max-message-bytes @port)]
-    (when-not (contains? (:partial @port) k)
-      (swap! port (fn [s]
-                    (-> s
-                        (assoc-in [:partial k]
-                                  {:parts {} :parts-count parts
-                                   :bytes-total 0})
-                        (update :partial-order conj k))))
-      (when (> (count (:partial @port))
-               (:max-partial-messages @port))
-        (evict-oldest! port)))
-    (when-some [held (get (:partial @port) k)]
-      (when (and (= parts (:parts-count held))
-                 (not (contains? (:parts held) part)))
-        (let [total (+ (:bytes-total held) (blen bytes))]
-          (if (> total bound)
-            ;; even completed, this message is over the bound: its
-            ;; partial state goes now, it can never deliver
-            (forget-partial! port k)
-            (do (swap! port (fn [s]
-                              (-> s
-                                  (assoc-in [:partial k :parts part] bytes)
-                                  (assoc-in [:partial k :bytes-total] total))))
-                (let [held (get (:partial @port) k)]
-                  (when (= (count (:parts held)) (:parts-count held))
-                    (forget-partial! port k)
-                    (let [payload (bconcat (mapv (:parts held)
-                                                 (range (:parts-count held))))]
-                      (when (<= (blen payload) bound)
-                        payload)))))))))))
+        [next-state payload]
+        (chunks/absorb @port k part parts bytes
+                       (:max-message-bytes @port)
+                       (:max-partial-messages @port))]
+    (reset! port next-state)
+    payload))
 
 
 (defn- deposit!

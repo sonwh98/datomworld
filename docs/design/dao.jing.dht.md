@@ -67,6 +67,7 @@ The composition supplies, as data:
 | `:dao.jing.dht/publish?` | Publication declaration, default `false` (section 4.4). |
 | `:dao.jing.dht/ack-peers` | Peers a write must be sent to before it is acknowledged. Default 2, floor 2, ceiling `k` (section 4). |
 | limits and tick budgets | Section 9. |
+| `:dao.jing.dht/bind-host` | Local socket bind IP literal for rejecting opposite-family peer destinations before appending a datagram. Defaults to `127.0.0.1` in loopback S3. |
 
 `(dao.jing.dht/state composition) -> state` validates the composition and
 throws on a composition defect (an `ack-peers` below 2 or above `k`, a missing
@@ -490,6 +491,14 @@ exposure waits for all of it (slice S4).
 | `:dao.jing.dht/cookie-epoch-ticks` | 60000 | |
 | `:dao.jing.dht/max-inbound-bytes` | composition's | Inbound `:store` bound; S4. |
 | datagram budget | 1200 | The socket's `:max-bytes`. |
+| `:dao.jing.dht/bind-host` | `127.0.0.1` | Must match the composed socket's bind family. |
+
+S3 measured a real `dao.space.index/publish-index!` build at the default
+branching factor of 512 over 512 distinct datoms. It emitted two covered
+index node blobs and one manifest; the largest canonical value was 26,497
+bytes, and its maximal-cookie `:store` wire value was 26,720 bytes. The
+65,536-byte default therefore covers this measured build. Larger application
+values still require an explicit composition limit or refusal.
 
 Every stream the DHT is composed over is an evicting ring: requests,
 answers, facts, raw traffic. None is a complete-history log.
