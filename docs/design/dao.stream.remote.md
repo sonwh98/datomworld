@@ -354,7 +354,11 @@ cljs in a browser may only dial (`src/cljs/dao/stream/ws/browser.cljs`).
 `dao.stream.udp` is a new channel with the WebSocket deposit model: a socket
 retains nothing, so it has no reader surface, and its adapter deposits every
 datagram as an event carrying the datagram's source address and its decoded
-value onto the medium the composition wired.
+value onto the medium the composition wired. The socket itself, as raw
+addressed datagrams, is the layer beneath this channel:
+[`dao.stream.datagram.md`](./dao.stream.datagram.md), whose section 7 says how
+this channel is fed from it and whose `bind-host`/`bind-port` descriptor keys
+name the local socket, not the destination named here.
 
 - Descriptor: `{:dao.stream/type :dao.stream/udp :dao.stream/identity
   <channel identity> :dao.stream.udp/host h :dao.stream.udp/port p}`.
