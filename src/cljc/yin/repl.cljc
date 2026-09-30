@@ -19,6 +19,7 @@
             [yang.clojure :as yang.clojure]
             [yang.php :as yang.php]
             [yang.python :as yang.python]
+            [yin.repl.ast-index :as ast-index]
             [yin.repl.index :as index]
             [yin.repl.link :as link]
             [yin.repl.query :as query]
@@ -721,7 +722,9 @@
    which loads each packet and runs it.  The code indexer's observer
    (`yin.repl.index`) is a peer attached to `program-out` beside it; the
    round advances each, and neither calls the other.  It records
-   `shell-token` as provenance and publishes into `index-store`.
+   `shell-token` as provenance and publishes into `index-store`.  The AST
+   indexer (`yin.repl.ast-index`), holding the session's `$ast` and `$occ`
+   relations, is a third such peer.
 
    The link pair is the session's (`yin.repl.link/make-pair`): the VM's
    half lives in its private `:resources`, the interpreter's half beside
@@ -750,6 +753,7 @@
      :indexer (index/make-indexer {:observer ((:attach program-out))
                                    :session-token shell-token
                                    :content-store index-store})
+     :ast-indexer (ast-index/make-indexer {:observer ((:attach program-out))})
      :link-pair pair
      :query-pair (dissoc query-pair :out-cursor)}))
 
@@ -981,7 +985,8 @@
                        :observer (drain-observer (resume (:observer state)))
                        :row-observer (drain-observer
                                        (resume (:row-observer state)))
-                       :indexer (index/skip (:indexer state)))
+                       :indexer (index/skip (:indexer state))
+                       :ast-indexer (ast-index/skip (:ast-indexer state)))
         [state' output-text]
         (drain-output
           (cond-> drained
@@ -999,11 +1004,21 @@
   (update state :indexer index/step (:round state)))
 
 
+(defn- run-ast-index-stage
+  "Drive the AST indexer's observer over `program-out`: it adds each
+   forwarded packet's rows and occurrences to the session's `$ast` and
+   `$occ` relations.  It runs before the evaluator for the same reason the
+   code indexer does, and neither indexer reads the other."
+  [state]
+  (update state :ast-indexer ast-index/step))
+
+
 (defn- with-index-notice
-  "Append what the round's index step lost, if anything, to its result
-   text; the evaluation's own answer is unchanged."
-  [[state text] notice]
-  (if notice
+  "Append what the round's index steps lost, if anything, to its result
+   text, one line per notice in the order given; the evaluation's own
+   answer is unchanged."
+  [[state text] notices]
+  (if-let [notice (some->> (remove nil? notices) seq (str/join "\n"))]
     [state (if (str/blank? text) notice (str text "\n" notice))]
     [state text]))
 
@@ -1381,7 +1396,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    datom-literal program — through the §10.1 composition.  The encoder
    projects it to an input batch of canonical rows with its harvest and
    declaration rows; the shell appends that batch to `program-in`, drives
-   the expander, drains its summary, and drives the code indexer and then
+   the expander, drains its summary, and drives the code and AST indexers and then
    the evaluator only when a program was forwarded.  An expansion failure is reported as data: its
    batch is consumed, the store keeps its previous macros, and the next
    input evaluates normally.  An encoding failure throws before anything
@@ -1415,7 +1430,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
             failed
             (let [[expanded {:keys [errors forwarded]}] expanded
                   indexed (cond-> expanded
-                            (pos? forwarded) run-index-stage)]
+                            (pos? forwarded) (-> run-index-stage
+                                                 run-ast-index-stage))]
               (with-index-notice
                 (cond
                   (> (ingress-gaps indexed) (ingress-gaps state'))
@@ -1427,8 +1443,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                   :else [(assoc indexed :vm (:vm state))
                          (format-expansion-errors errors)])
                 (when (pos? forwarded)
-                  (index/notice (:indexer expanded)
-                                (:indexer indexed)))))))))))
+                  [(index/notice (:indexer expanded) (:indexer indexed))
+                   (ast-index/notice (:ast-indexer indexed))])))))))))
 
 
 (defn- compile-clojure-forms
@@ -1705,7 +1721,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    section 3.5).  `:macros` maps each macro the expander's store holds
    to its lambda's root address (yin.vm.macro.md §10.1).  `:index` is the
    code indexer's `yin.repl.index/status`: whether every committed program
-   is published, whether a gap lost the indexer, and its last failure."
+   is published, whether a gap lost the indexer, and its last failure.
+   `:ast-index` is the AST indexer's `yin.repl.ast-index/status`: the sizes
+   of its `$ast` and `$occ` relations, whether a gap lost it, and why it
+   failed."
   [state]
   {:lang (:lang state)
    :macros (into (sorted-map-by #(compare (str %1) (str %2)))
@@ -1730,5 +1749,6 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                          :checks (or (:checks parked) 0)})
                       (:links parked))))
    :index (index/status (:indexer state))
+   :ast-index (ast-index/status (:ast-indexer state))
    :telemetry {:supported? false :note telemetry-text}
    :remote {:connected? false}})
