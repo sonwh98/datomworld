@@ -1,8 +1,8 @@
 # DaoJing DHT: Content-Addressed Segment Distribution
 
-Status: **contract frozen 2026-09-30 (DHT epic slice S0); S1 through S4 are
-implemented, S5 is pending.** Section 10 records the starting tree and the
-slice plan. Subordinate to
+Status: **contract frozen 2026-09-30 (DHT epic slice S0); S1 through S5 are
+implemented.** Section 10 records the starting tree, the slice plan, and the
+plain Clojure path S5 added. Subordinate to
 [`dao.stream.md`](./dao.stream.md), [`dao.jing.md`](./dao.jing.md) and
 [`datom.world.md`](./datom.world.md). In sections 2 to 9 every sentence is a
 rule.
@@ -491,7 +491,7 @@ exposure requires the S4 secret and inbound bound in the socket composition.
 | `:dao.jing.dht/max-partial-messages` | 64 | Global; per-source share is a quarter. |
 | `:dao.jing.dht/max-pending-writes`, `/max-pending-gets` | 64, 64 | Beyond: `/busy`, or not found with a `/miss`. |
 | `:dao.jing.dht/cookie-epoch-ticks` | 60000 | |
-| `:dao.jing.dht/max-inbound-bytes` | composition's | Inbound `:store` bound; S4. |
+| `:dao.jing.dht/max-inbound-bytes` | composition's | Inbound `:store` bound; S4. `dao.space.dht` and the REPL default it to 64 MiB (`--dht-max-inbound-bytes`). |
 | datagram budget | 1200 | The socket's `:max-bytes`. |
 | `:dao.jing.dht/bind-host` | `127.0.0.1` | Must match the composed socket's bind family. |
 
@@ -615,6 +615,53 @@ HEAD, lock, recovery). Acceptance:
   peers) or not and why; no round waits on the network.
 - Two processes with separate locked directories exchange content.
 - A reader given a manifest address hydrates and queries a remote index.
+
+### The plain Clojure path (S5, owner direction 2026-10-01)
+
+Owner, verbatim: "plain clojure code should be able to query for code in the
+dht. the yin.repl should use the same path as the clojure repl via
+host-functions".
+
+`dao.space.dht` (CLJC; JVM, Node, Dart) is that path. It lives under
+`dao.space` because it joins a `dao.jing.dht` node to `dao.space.index` and
+`dao.space.query`; putting it under `dao.jing` would make the
+payload-agnostic well aware of index structure. It has no `yin.repl`
+dependency.
+
+- `(join opts)` composes a node over `:local` (a `dao.jing` store the
+  caller has opened, and locked if it is a directory) or `:dir`, which
+  `join` opens as the durable directory store `dao.space.store/open`:
+  exclusively, under its directory lock (OS locks on the JVM and Dart,
+  claim entries on Node, and the in-process registry), so a second owner in
+  this or another process is refused naming the directory; `close!`
+  releases it. The REPL's `file:<dir>` and `dht:<dir>` stores open the
+  same store, so a REPL and a plain node never share a directory. Options:
+  `:peers`
+  (none is solo: no socket, no secret), `:publish?` (default false, never
+  implied by peers), `:bind-host` (default `127.0.0.1`), `:bind-port`
+  (default 0), `:max-inbound-bytes` (default 64 MiB), `:bind!` (the host
+  datagram seam; each build's own by default). A node with peers mints its
+  root secret at join: 32 CSPRNG bytes, held only in the node value.
+- `(step node now)` is the node's only advance; `now` is its owner's
+  nondecreasing millisecond reading, appended as a tick. It answers
+  `[node events]`: `:bound`, `:bind-failed`, `:published` (per announced
+  publication: acknowledged with the peers sent to, or not with the reason
+  and peers reached, from the `/sent` and `/unacknowledged` facts),
+  `:publication-unknown`, `:loaded`, `:load-failed`.
+- `(store node)` is the node's byte-store handle (5.1); `(announce! node
+  manifest)` closes the publication its puts made.
+- `(load-index node manifest)` starts a load; `step` walks the index through
+  the local store with `dao.space.index/read-manifest` and fetches each
+  missing blob with a `:jing/get` through `dao.jing.content.step`, until all
+  four covered indexes read back and cover the manifest's count.
+- `(db node manifest)` is `dao.space.query/published-db` over the loaded
+  index (`restored-indexes`); `(q node manifest query & inputs)` is
+  `dao.space.query/q` over its current view.
+
+`yin.repl` composes its `dht:<dir>` store with `join` (over its locked
+durable store), and its `dao.space.dht` host module answers `load-index`,
+`load-status` and `q` with these functions (`yin.repl.dao.space-index.md`,
+"DHT store").
 
 Out of this epic: pinning, garbage collection, availability repair and
 reconciliation sweeps, NAT meeting, a browser transport, latest-root

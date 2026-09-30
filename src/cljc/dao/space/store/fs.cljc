@@ -1,7 +1,7 @@
-(ns yin.repl.store.fs
+(ns dao.space.store.fs
   "Explicit host file operations for the durable index store directory
-   (docs/design/yin.repl.dao.space-index.md, the durable-store design's
-   host section): an exclusive directory lock held by the one process
+   (dao.space.store; docs/design/yin.repl.dao.space-index.md, the
+   durable-store design's host section): an exclusive directory lock held by the one process
    that owns the store, and an atomic write-temp, sync, rename
    replacement for HEAD. CLJ, Node, and Dart each implement them with
    their own primitives; nothing here falls back silently.

@@ -229,6 +229,19 @@
 ;; Published indexes: open-published! / close-published! (Decision 1)
 ;; =============================================================================
 
+(defn published-db
+  "A query value over the manifest at `manifest-address` in `store`, a
+   live `dao.jing` handle the caller owns: the covered sets restored
+   lazily (`index/restored-indexes`), the EAVT rows deferred.  The value
+   owns nothing, so `close-published!` closes nothing; `open-published!`
+   is this over a store it opens from a coordinate."
+  [store manifest-address]
+  (let [manifest (index/read-manifest store manifest-address)]
+    {:dao.space.query/published {:manifest-address manifest-address}
+     :indexes (index/restored-indexes store manifest)
+     :rows (delay (index/read-datoms store manifest-address))}))
+
+
 (defn open-published!
   "Open a published covered-index coordinate — the serializable map
    `index/published-index` builds — as a query value the caller owns: the
@@ -254,10 +267,10 @@
                        {:coordinate coordinate, :expected expected})))
      (let [store (jing-coordinate/open! content-store opts)]
        (try
-         (let [manifest (index/read-manifest store manifest-address)]
+         (let [{:keys [indexes rows]} (published-db store manifest-address)]
            {:dao.space.query/published coordinate
-            :indexes (index/restored-indexes store manifest)
-            :rows (delay (index/read-datoms store manifest-address))
+            :indexes indexes
+            :rows rows
             :store store
             :close-guard (atom false)})
          (catch #?(:cljd Object

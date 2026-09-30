@@ -92,6 +92,12 @@ together — each refuses before any shell or server composes, with its
 reason; nothing falls back to memory silently. There is no runtime
 switching.
 
+The durable directory store is `dao.space.store` (its host file
+operations, the lock among them, are `dao.space.store.fs`): the shell is
+one consumer through `yin.repl.store`, and `dao.space.dht/join {:dir …}`
+is another, so the lock below holds between REPLs and plain Clojure
+nodes alike.
+
 A durable directory holds three things: `content.jing` — the
 `dao.jing.file` content log the indexer's publications materialize into,
 exactly as the memory store receives them; `HEAD` — a versioned record
@@ -192,3 +198,60 @@ one's log, entity allocation, counts, and published manifest
 allocation, and the published index stays queryable once
 `dao.space.query` is required again. With the default memory store they
 start an empty index, exactly as before.
+
+## DHT store: `dht:<dir>` (DHT epic S5)
+
+`--index-store dht:<dir>` (or `{:type :dht :dir dir ...}` as
+`:index-store-spec`) is an explicit third choice; `mem` stays the
+default. It opens `<dir>` exactly as `file:<dir>` does (lock, content
+log, HEAD, validated recovery) and joins a `dao.space.dht` node with that
+locked store as the node's local store (`dao.jing.dht.md`, "The plain
+Clojure path"). The indexer publishes through the node's store: each put
+inserts locally and asks the node to replicate, and the manifest reads
+back locally, so no round waits on the network. The HEAD write then
+announces the publication to the node.
+
+Its options are their own flags, each refused without `dht:<dir>`:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--dht-peer host:port` (repeatable; `[v6]:port`) | none | Bootstrap contacts, IP literals only. None means solo: no socket is opened, no secret minted, nothing sent. |
+| `--dht-publish` | off | The separate publication declaration. Peers alone declare nothing: without it the node fetches only. |
+| `--dht-bind ip` | `127.0.0.1` | The socket's bind address; anything but loopback only by this flag. Refused when solo. |
+| `--dht-port p` | 0 (ephemeral) | The socket's port. Refused when solo. |
+| `--dht-max-inbound-bytes n` | 67108864 (64 MiB) | The inbound `:store` bound a publishing node enforces. |
+| `--dht-manifest address` | none | A remote index to hydrate before the first evaluation. Needs a peer. |
+
+The root secret is minted per process at startup (32 CSPRNG bytes), held
+only in the node value, never written or reported.
+
+Before the node steps once, the startup banner states what will be
+shared: with `--dht-publish`, everything in `<dir>/content.jing` (every
+program recovered from HEAD and every program evaluated from now on) to
+any peer that asks; without it, that the node is fetch-only; solo, that
+no socket is opened.
+
+The host's single ticker steps the node first in each tick
+(`yin.repl.main/step-all`) with its clock reading, and prints its lines:
+where the socket bound, and for every publication `dht: published
+<manifest> (<n> blobs) — acknowledged: sent to N peers`, or `— NOT
+acknowledged: <why>` (solo, publication off, too few peers with how many
+were reached, oversize, busy); the local copy is durable either way.
+
+A reader started with `--dht-manifest` loads that index through
+`dao.space.dht/load-index` before it admits any evaluation, exactly as a
+restart installs its recovery: typed lines wait in the input medium, and
+once the whole index is local and validated it becomes the directory's
+HEAD and the indexer is rehydrated from it, so `q` answers the remote
+run's facts. A directory whose HEAD already names another manifest is
+refused. A load no peer can complete, or a socket that cannot bind,
+stops the shell with its reason and a failing exit status; it never
+starts over an empty index.
+
+At the prompt, `(require 'dao.space.dht)` binds the same plain path as
+host functions over the shell's node, on the query call pair:
+`(dao.space.dht/load-index m)` starts a load and answers its status at
+once (`:loading`, `:loaded`, `:failed`); `(dao.space.dht/load-status m)`
+answers the status map; `(dao.space.dht/q m query & inputs)` answers
+`dao.space.dht/q`, refused until the index is loaded. The node prints
+`dht: loaded <m>` when a load completes.

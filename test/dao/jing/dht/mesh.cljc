@@ -18,6 +18,8 @@
             [dao.jing.dht :as dht]
             [dao.jing.mem :as mem]
             [dao.stream :as stream]
+            [dao.stream.base64 :as base64]
+            [dao.stream.datagram :as datagram]
             [dao.stream.ringbuffer :as ringbuffer]))
 
 
@@ -92,6 +94,32 @@
                 (swap! net update :held conj [traffic event])
                 (stream/append! traffic event))))
           {:dao.stream/outcome :dao.stream/ok})))))
+
+
+(defn seam
+  "A dao.stream.datagram host seam (dao.stream.datagram.md section 3)
+   bound at `port` of the mesh `net`, for compositions that bind their
+   own socket (dao.space.dht/join's `:bind!`): binding registers the
+   deposit ring as the port's traffic and deposits the bound event, and
+   every send lands on the destination's traffic ring as a received
+   datagram from this address, logged like MeshSocket's.  `binds`, an
+   atom, counts the calls."
+  ([net port] (seam net port (atom 0)))
+  ([net port binds]
+   (fn [{:keys [identity deposit bind-host]}]
+     (swap! binds inc)
+     (swap! net assoc-in [:traffic [bind-host port]] deposit)
+     (stream/append! deposit (datagram/bound-event identity bind-host port))
+     {:send! (fn [to-host to-port bs]
+               (swap! net update :log conj {:from [bind-host port]
+                                            :to [to-host to-port]
+                                            :bytes (base64/encode bs)})
+               (when-let [traffic (get-in @net [:traffic [to-host to-port]])]
+                 (stream/append! traffic (datagram/datagram-event
+                                           (str to-host ":" to-port)
+                                           bind-host port bs)))
+               {:dao.stream/outcome :dao.stream/ok})
+      :close! (fn [] (swap! net update :traffic dissoc [bind-host port]))})))
 
 
 (defn release-held!

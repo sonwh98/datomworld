@@ -16,8 +16,7 @@
    Closing before the listening event deposits no closed event because
    this socket has not announced a bound identity. A Node Buffer already
    satisfies dao.stream.base64's input (it extends Uint8Array)."
-  (:require ["dgram" :as dgram]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [dao.stream :as stream]
             [dao.stream.datagram :as datagram]))
 
@@ -43,7 +42,10 @@
           (try (stream/append! deposit event)
                (catch :default _ nil)))
         family (if (str/includes? bind-host ":") "udp6" "udp4")
-        socket (.createSocket dgram family)]
+        ;; `dgram` is required at bind, not at load, so a browser build
+        ;; that carries the REPL's host seams compiles; only binding needs
+        ;; Node.
+        socket (.createSocket (js/require "dgram") family)]
     (.on socket "listening"
          (fn []
            (let [address (.address socket)]

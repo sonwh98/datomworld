@@ -19,6 +19,7 @@
             [yang.php :as yang.php]
             [yang.python :as yang.python]
             [yin.repl.ast-index :as ast-index]
+            [yin.repl.dht :as repl.dht]
             [yin.repl.index :as index]
             [yin.repl.link :as link]
             [yin.repl.query :as query]
@@ -826,7 +827,13 @@
    run's facts, which keep their own session tokens, while this process
    mints a new token for its own.  In durable mode `(reset)` and `(vm …)`
    carry the index across the rebuild; with the memory store they start
-   an empty one, as they always have."
+   an empty one, as they always have.
+
+   `{:type :dht :dir dir ...}` is the DHT store (yin.repl.dht): that
+   durable directory store with a `dao.jing.dht` node composed over it.
+   Its step-owner value is `:dht`, advanced only by `yin.repl.dht/step`
+   from the host's ticker; a round publishes against the local store and
+   never waits on it."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
             content-store content-client name-env link-policy index-store
@@ -848,7 +855,10 @@
                             index-store nil
 
                             :else (store/checked-spec index-store-spec))
-         index-store (or index-store (store/open index-store-spec))
+         index-store (or index-store
+                         (if (= :dht (:type index-store-spec))
+                           (repl.dht/open index-store-spec)
+                           (store/open index-store-spec)))
          link-source (link/composition
                        {:name-env name-env
                         :content-store content-store
@@ -864,8 +874,9 @@
         :output-cursor output-cursor
         :ledger {:output :untried}
         :shell-token shell-token
-        :index-store index-store
+        :index-store (repl.dht/without-runner index-store)
         :index-store-spec index-store-spec
+        :dht (:dht index-store)
         :index-recovery (or (:recovery index-store)
                             {:manifest nil :datoms nil})
         :round 0
@@ -1325,6 +1336,7 @@
                          (query/serve {:pair (:query-pair state)
                                        :indexer (:indexer state)
                                        :ast-indexer (:ast-indexer state)
+                                       :dht (:dht state)
                                        :limits {:row-limit query-row-limit
                                                 :byte-limit query-byte-limit}
                                        :budget (min query-serve-budget
@@ -1332,7 +1344,8 @@
                                                        calls))}))
               state (cond-> state
                       served (assoc :link-pair (:pair served))
-                      answered (assoc :query-pair (:pair answered)))
+                      answered (assoc :query-pair (:pair answered)
+                                      :dht (:dht answered)))
               pending (if (seq (:pending served)) (:pending served) pending)]
           (if (or (:progress? served) (:progress? answered))
             (let [vm' (try (vm/run vm)

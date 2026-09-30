@@ -8,6 +8,7 @@
             [dao.jing.file :as jing.file]
             [dao.space.index :as index]
             [dao.space.query :as query]
+            [dao.space.store :as durable]
             [dao.stream :as stream]
             [dao.stream.observer :as observer]
             [dao.stream.ringbuffer :as ring]
@@ -426,7 +427,7 @@
           (is (nil? (head-text dir))
               "no manifest read-back, no HEAD — never a HEAD naming an
                unreadable snapshot")
-          (is (pos? (count (jing.file/records (store/content-path dir))))
+          (is (pos? (count (jing.file/records (durable/content-path dir))))
               "the blobs themselves did land"))
         (finally
           (store/close! opened)

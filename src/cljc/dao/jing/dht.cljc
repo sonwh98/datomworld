@@ -26,8 +26,7 @@
    same composition: its put returns the local verdict at once and appends
    a replicate request; its get reads :local only."
   (:require #?@(:cljd [["dart:typed_data" :as typed]
-                       ["package:crypto/crypto.dart" :as crypto]]
-                :cljs [["node:crypto" :as node-crypto]])
+                       ["package:crypto/crypto.dart" :as crypto]])
             [clojure.string :as str]
             [dao.jing :as jing]
             [dao.jing.dht.kad :as kad]
@@ -167,8 +166,13 @@
      :clj (let [mac (javax.crypto.Mac/getInstance "HmacSHA256")]
             (.init mac (javax.crypto.spec.SecretKeySpec. ^bytes key "HmacSHA256"))
             (.doFinal mac ^bytes data))
+     ;; Node's crypto is required when a cookie is computed, not when the
+     ;; namespace loads, so a browser build that composes the REPL without
+     ;; ever opening a DHT socket still compiles (as dao.space.store.fs
+     ;; reaches `fs`).
      :cljs (js/Uint8Array.from
-             (.digest (.update (.createHmac node-crypto "sha256" key) data)))))
+             (.digest (.update (.createHmac (js/require "crypto") "sha256" key)
+                               data)))))
 
 
 (defn cookie-for

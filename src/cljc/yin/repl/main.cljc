@@ -12,9 +12,12 @@
                        ["dart:convert" :as convert]
                        ["dart:core" :as dart-core]
                        ["dart:io" :as io]])
+            [clojure.string :as str]
+            [dao.stream.datagram :as datagram]
             [dao.stream.waitset.cadence :as cadence]
             [dao.stream.waitset.driver :as wake]
             [yin.repl :as shell]
+            [yin.repl.dht :as repl.dht]
             [yin.repl.driver :as driver]
             [yin.repl.host :as host]
             [yin.repl.serve :as serve]
@@ -49,34 +52,148 @@
        "this shell is not, so the flags are rejected rather than ignored"))
 
 
+(defn- parse-int
+  "The decimal integer `text` names, or nil."
+  [text]
+  (when (and (string? text) (re-matches #"-?\d+" text))
+    #?(:cljd (int/parse text)
+       :cljs (js/parseInt text 10)
+       :clj (Long/parseLong text))))
+
+
+(defn parse-peer
+  "A `--dht-peer` value, `host:port` or `[v6-host]:port`, as the DHT's
+   bootstrap contact `{:host h :port p}`.  The host must be an IP
+   literal: the DHT resolves no names."
+  [text]
+  (let [[_ v6 v4 port] (re-matches #"(?:\[([^\]]+)\]|([^:\[\]]+)):(\d+)"
+                                   (str text))
+        host (or v6 v4)
+        port (parse-int port)]
+    (cond
+      (not (datagram/valid-port? port))
+      (throw (ex-info (str "--dht-peer takes host:port with a port from 1 "
+                           "to 65535, not " (pr-str text))
+                      {:value text}))
+
+      (not (datagram/ip-literal? host))
+      (throw (ex-info (str "--dht-peer host must be an IP literal, not "
+                           (pr-str host))
+                      {:value text}))
+
+      :else {:host host :port port})))
+
+
+(defn- parse-manifest
+  "A `--dht-manifest` value — the address as printed, with or without its
+   leading colon — as the segment address keyword."
+  [text]
+  (when (string? text)
+    (keyword (if (str/starts-with? text ":") (subs text 1) text))))
+
+
+(def ^:private dht-flags
+  #{"--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
+    "--dht-max-inbound-bytes" "--dht-manifest"})
+
+
+(defn- dht-spec
+  "Fold the `--dht-*` flags into the `dht:<dir>` spec, checked by
+   `yin.repl.store/checked-spec`.  They mean nothing to any other store,
+   and a bind address means nothing to a solo node, so each such use is
+   refused rather than ignored."
+  [spec {:keys [flags peers publish? bind-host bind-port max-inbound-bytes
+                manifest]}]
+  (cond
+    (and (seq flags) (not= :dht (:type spec)))
+    (throw (ex-info (str (str/join ", " (sort flags))
+                         " need --index-store dht:<dir>")
+                    {:flags (vec (sort flags))}))
+
+    (not= :dht (:type spec)) spec
+
+    (and (empty? peers) (or bind-host bind-port))
+    (throw (ex-info (str "--dht-bind and --dht-port need a --dht-peer: "
+                         "with no peers the DHT store is solo and opens "
+                         "no socket")
+                    {}))
+
+    (and bind-host (not (datagram/ip-literal? bind-host)))
+    (throw (ex-info (str "--dht-bind must be an IP literal, not "
+                         (pr-str bind-host))
+                    {:value bind-host}))
+
+    :else
+    (store/checked-spec
+      (cond-> (assoc spec :peers (vec peers) :publish? (boolean publish?))
+        bind-host (assoc :bind-host bind-host)
+        bind-port (assoc :bind-port bind-port)
+        max-inbound-bytes (assoc :max-inbound-bytes max-inbound-bytes)
+        manifest (assoc :manifest manifest)))))
+
+
+(defn- dht-number
+  [flag text]
+  (or (parse-int text)
+      (throw (ex-info (str flag " takes an integer, not " (pr-str text))
+                      {:value text}))))
+
+
 (defn parse-args
   "Parse the host arguments.  `--telemetry` and `--telemetry-stream` are
    rejected rather than ignored.  `--index-store` is parsed into
-   `:index-store-spec` — `:mem` (also what omission means) or
-   `{:type :file :dir dir}` — and a missing value, an unknown scheme, or
-   an empty directory is refused here, by `yin.repl.store/parse-arg`,
-   before any host composes."
+   `:index-store-spec` — `:mem` (also what omission means),
+   `{:type :file :dir dir}`, or the DHT store `{:type :dht :dir dir ...}`
+   — and a missing value, an unknown scheme, or an empty directory is
+   refused here, by `yin.repl.store/parse-arg`, before any host composes.
+
+   The DHT store's options are their own flags (yin.repl.dht):
+   `--dht-peer host:port`, repeatable, the bootstrap contacts — none
+   means solo, with no socket; `--dht-publish`, the separate declaration
+   that shares the store; `--dht-bind ip` and `--dht-port p`, the
+   socket's address, loopback and ephemeral unless given;
+   `--dht-max-inbound-bytes n`, the inbound storage bound; and
+   `--dht-manifest address`, a remote index to hydrate before the first
+   evaluation.  Any of them without `dht:<dir>` is refused."
   [args]
   (loop [args (seq args)
          opts {:headless? false :host nil :port nil :rejected []
-               :index-store-spec :mem}]
+               :index-store-spec :mem}
+         dht {:flags #{} :peers []}]
     (if-let [arg (first args)]
-      (case arg
-        "--port" (recur (nnext args)
-                        (assoc opts :port (when-let [p (second args)]
-                                            #?(:cljd (int/parse p)
-                                               :cljs (js/parseInt p 10)
-                                               :clj (Long/parseLong p)))))
-        "--host" (recur (nnext args) (assoc opts :host (second args)))
-        "--headless" (recur (next args) (assoc opts :headless? true))
-        "--index-store" (recur (nnext args)
-                               (assoc opts
-                                      :index-store-spec
-                                      (store/parse-arg (second args))))
-        "--telemetry" (recur (next args) (update opts :rejected conj arg))
-        "--telemetry-stream" (recur (nnext args) (update opts :rejected conj arg))
-        (recur (next args) (update opts :extra (fnil conj []) arg)))
-      opts)))
+      (let [dht (cond-> dht (dht-flags arg) (update :flags conj arg))
+            value (second args)]
+        (case arg
+          "--port" (recur (nnext args)
+                          (assoc opts :port (when-let [p (second args)]
+                                              #?(:cljd (int/parse p)
+                                                 :cljs (js/parseInt p 10)
+                                                 :clj (Long/parseLong p))))
+                          dht)
+          "--host" (recur (nnext args) (assoc opts :host (second args)) dht)
+          "--headless" (recur (next args) (assoc opts :headless? true) dht)
+          "--index-store" (recur (nnext args)
+                                 (assoc opts
+                                        :index-store-spec
+                                        (store/parse-arg (second args)))
+                                 dht)
+          "--dht-peer" (recur (nnext args) opts
+                              (update dht :peers conj (parse-peer value)))
+          "--dht-publish" (recur (next args) opts (assoc dht :publish? true))
+          "--dht-bind" (recur (nnext args) opts
+                              (assoc dht :bind-host (str value)))
+          "--dht-port" (recur (nnext args) opts
+                              (assoc dht :bind-port (dht-number arg value)))
+          "--dht-max-inbound-bytes" (recur (nnext args) opts
+                                           (assoc dht :max-inbound-bytes
+                                                  (dht-number arg value)))
+          "--dht-manifest" (recur (nnext args) opts
+                                  (assoc dht :manifest (parse-manifest value)))
+          "--telemetry" (recur (next args) (update opts :rejected conj arg) dht)
+          "--telemetry-stream" (recur (nnext args)
+                                      (update opts :rejected conj arg) dht)
+          (recur (next args) (update opts :extra (fnil conj []) arg) dht)))
+      (update opts :index-store-spec dht-spec dht))))
 
 
 (defn boot
@@ -153,32 +270,53 @@
 
 
 (defn banner
-  "Text the composition prints before the first prompt, given parsed options."
+  "Text the composition prints before the first prompt, given parsed
+   options.  A DHT store states here — before its node steps once, so
+   before anything is shared — what it will share: the whole store when
+   `--dht-publish` is given, nothing otherwise (yin.repl.dht/banner)."
   [opts]
-  (cond-> []
-    (seq (:rejected opts)) (conj telemetry-text)
-    (and (:headless? opts) (not (:port opts)))
-    (conj "--headless has nothing to attend without a served endpoint")))
+  (let [spec (:index-store-spec opts)]
+    (cond-> []
+      (seq (:rejected opts)) (conj telemetry-text)
+      (and (:headless? opts) (not (:port opts)))
+      (conj "--headless has nothing to attend without a served endpoint")
+      (= :dht (:type spec)) (into (repl.dht/banner spec)))))
 
 
 (defn step-all
   "One tick of the single step owner: the local shell first, then the served
-   endpoint — against the same shell value.  A `--port` process serves one
-   shared shell, as v1's atom made it: the driver evaluates this tick's local
+   endpoint — against the same shell value.  A DHT index store's node is stepped
+   first (yin.repl.dht/step): its lines print before the shell's, a
+   hydration still outstanding leaves every typed line waiting in the
+   input medium, and a refused one stops the shell.  A `--port` process
+   serves one shared shell, as v1's atom made it: the driver evaluates this tick's local
    lines first, so a definition typed at the local prompt is already in the
    shell the endpoint evaluates remote requests against in the same tick, and
    the endpoint's shell — remote definitions included — is threaded back before
    the next tick.  Returns `[state server lines]`; the caller only prints."
   [state server now]
-  (let [stepped (driver/repl-step state now)
-        [entries state'] (driver/take-outbox stepped)
-        server' (when server (serve/step (assoc-in server [:repl] (:repl state'))
-                                         now))
-        [server-entries server''] (if server'
-                                    (serve/take-outbox server')
-                                    [[] nil])
-        state'' (if server'' (assoc state' :repl (:repl server'')) state')]
-    [state'' server'' (mapv entry-text (into (vec entries) server-entries))]))
+  (let [[repl dht-lines] (repl.dht/step (:repl state) now)
+        state (assoc state :repl repl)]
+    (cond
+      (repl.dht/refusal repl)
+      [(assoc state :running? false) server dht-lines]
+
+      (not (repl.dht/admitting? repl))
+      [state server dht-lines]
+
+      :else
+      (let [stepped (driver/repl-step state now)
+            [entries state'] (driver/take-outbox stepped)
+            server' (when server
+                      (serve/step (assoc-in server [:repl] (:repl state'))
+                                  now))
+            [server-entries server''] (if server'
+                                        (serve/take-outbox server')
+                                        [[] nil])
+            state'' (if server'' (assoc state' :repl (:repl server'')) state')]
+        [state'' server'' (into dht-lines
+                                (map entry-text)
+                                (into (vec entries) server-entries))]))))
 
 
 (defn moved?
@@ -190,7 +328,16 @@
   [state server lines]
   (boolean (or (seq lines)
                (driver/pending-write? state)
+               (repl.dht/busy? (:repl state))
                (and server (serve/moved? server)))))
+
+
+(defn exit-status
+  "The process status a host exits with once the shell stops: 1 when the
+   DHT store refused after startup (a failed bind, a hydration that could
+   not complete), else 0."
+  [state]
+  (if (repl.dht/refusal (:repl state)) 1 0))
 
 
 ;; =============================================================================
@@ -317,7 +464,10 @@
               (do (drain-server! server' w)
                   (println)
                   (close-index-store! state')
-                  (exit!)))))))
+                  (let [status (exit-status state')]
+                    (if (zero? status)
+                      (exit!)
+                      (.halt (Runtime/getRuntime) (int status))))))))))
 
      (defn- read-loop!
        "The reader parks in `read-line` and appends, nudging the step owner's
@@ -397,7 +547,7 @@
                        (wake/disarm! @wake-ref)
                        (when rl (.close rl))
                        (close-index-store! (:state @box))
-                       (js/process.exit 0))
+                       (js/process.exit (exit-status (:state @box))))
              tick (fn []
                     ;; The interval timer this namespace replaced fired
                     ;; again whatever happened, so a tick whose body throws
@@ -514,7 +664,7 @@
              finish! (fn []
                        (wake/disarm! @wake-ref)
                        (close-index-store! (:state @box))
-                       (io/exit 0)
+                       (io/exit (exit-status (:state @box)))
                        nil)
              tick (fn []
                     ;; The periodic timer this namespace replaced fired

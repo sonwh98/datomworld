@@ -1,47 +1,30 @@
 (ns yin.repl.store
-  "Startup selection and durable lifecycle of the code index's store
+  "Startup selection of the code index's store
    (docs/design/yin.repl.dao.space-index.md; the durable-store startup
-   contract, slices 1-3).
+   contract, slices 1-3, and the DHT store of epic S5).
 
    The store is chosen once, before the shell composes: `mem` — a fresh
-   in-memory `dao.jing` store, today's behaviour — or `file:<dir>`, the
-   durable `dao.jing.file` content log at `<dir>/content.jing`.  This
-   namespace parses the `--index-store` value, validates the
-   `:index-store-spec` an embedder may hand `yin.repl/create-state`, and
-   opens the store the resolved spec names.  Every bad spec — a missing
-   value, an unknown scheme, an empty directory, a directory that cannot
-   be opened, a host build without file support — is refused with its
-   reason; nothing falls back to memory silently.
+   in-memory `dao.jing` store, today's behaviour — `file:<dir>`, the
+   durable directory store (dao.space.store), or `dht:<dir>`, that store
+   with a DHT node composed over it (yin.repl.dht).  This namespace parses
+   the `--index-store` value, validates the `:index-store-spec` an
+   embedder may hand `yin.repl/create-state`, and opens the store the
+   resolved spec names.  Every bad spec — a missing value, an unknown
+   scheme, an empty directory, a directory that cannot be opened, a host
+   build without file support — is refused with its reason; nothing falls
+   back to memory silently.
 
-   Opening a durable directory is exclusive and validating
-   (yin.repl.store.fs): the directory lock is acquired before anything
-   else in it is touched and held until `close!`; HEAD — the versioned
-   record naming the latest published manifest — is read and the
-   snapshot it names walked in full through the opened store, so an
-   absent HEAD is an empty index while a malformed HEAD, a missing
-   manifest, or an unreadable index node refuses startup rather than
-   starting empty.  A round that publishes moves HEAD only after its
-   manifest is read back (`:head-fn`), and what the open recovered is
-   `:recovery`.
-
-   The shell installs that recovery before it admits any evaluation
-   (`yin.repl.index/rehydrate`): the indexer's log, entity allocation,
-   counts, and published manifest continue the previous run's, so `q`
-   answers the old facts, new transactions continue `t`, and the next
-   HEAD covers old and new facts.  A durable store (`durable?`) also
-   carries the index across `(reset)` and VM selection; the memory store
-   keeps today's empty rebuild."
-  (:require #?@(:cljd [["dart:io" :as dart-io]
-                       [clojure.edn :as edn]])
-            #?(:cljd nil
-               :clj [clojure.edn :as edn]
-               :cljs [cljs.reader :as reader])
-            [clojure.string :as str]
+   The durable directory itself — the exclusive lock, HEAD, the validated
+   snapshot, `:recovery` — is dao.space.store's; this namespace is one of
+   its consumers.  The shell installs the recovery before it admits any
+   evaluation (`yin.repl.index/rehydrate`), and a durable store
+   (`durable?`) also carries the index across `(reset)` and VM
+   selection; the memory store keeps today's empty rebuild."
+  (:require [clojure.string :as str]
             [dao.jing :as jing]
-            [dao.jing.file :as jing.file]
             [dao.jing.mem :as jing.mem]
-            [dao.space.index :as dao.index]
-            [yin.repl.store.fs :as fs]))
+            [dao.space.store :as durable]
+            [dao.stream.datagram :as datagram]))
 
 
 (def file-scheme
@@ -49,31 +32,15 @@
   "file:")
 
 
-(def content-name
-  "The content log's own file name inside a durable store directory."
-  "content.jing")
+(def dht-scheme
+  "The `--index-store` scheme prefix naming the DHT store: the durable
+   directory store of `file:<dir>` composed under a `dao.jing.dht` node
+   (yin.repl.dht)."
+  "dht:")
 
 
-(def head-name
-  "The durable root pointer's own file name inside a durable store
-   directory: the versioned record naming the latest published
-   manifest."
-  "HEAD")
-
-
-(def head-version
-  "The HEAD record version this store writes and accepts."
-  1)
-
-
-(def unsupported-host-text
-  "The refusal for `file:<dir>` on a host build that cannot open files.
-   Refusing is the contract: a build without a filesystem must never be
-   answered with an in-memory store the operator did not choose."
-  (str "--index-store file:<dir> is not supported on this host: opening "
-       "the content log needs a filesystem, and this build has none.  "
-       "Start without the flag — the in-memory store is the default — or "
-       "run on a host with file support (the JVM, Node, or Dart)."))
+(def ^:private supported-args
+  ["mem" (str file-scheme "<dir>") (str dht-scheme "<dir>")])
 
 
 (defn parse-arg
@@ -84,8 +51,8 @@
   [value]
   (cond
     (nil? value)
-    (throw (ex-info "--index-store needs a value: mem or file:<dir>"
-                    {:supported ["mem" (str file-scheme "<dir>")]}))
+    (throw (ex-info "--index-store needs a value: mem, file:<dir> or dht:<dir>"
+                    {:supported supported-args}))
 
     (= value "mem")
     :mem
@@ -95,21 +62,92 @@
       (if (str/blank? dir)
         (throw (ex-info "--index-store file:<dir> needs a directory"
                         {:value value
-                         :supported ["mem" (str file-scheme "<dir>")]}))
+                         :supported supported-args}))
         {:type :file :dir dir}))
+
+    (str/starts-with? value dht-scheme)
+    (let [dir (subs value (count dht-scheme))]
+      (if (str/blank? dir)
+        (throw (ex-info "--index-store dht:<dir> needs a directory"
+                        {:value value
+                         :supported supported-args}))
+        {:type :dht :dir dir}))
 
     :else
     (throw (ex-info (str "Unknown --index-store " (pr-str value)
-                         "; supported: mem, file:<dir>")
+                         "; supported: mem, file:<dir>, dht:<dir>")
                     {:value value
-                     :supported ["mem" (str file-scheme "<dir>")]}))))
+                     :supported supported-args}))))
+
+
+(defn- dht-refusal
+  "Why a `{:type :dht ...}` spec is not a DHT store composition, or nil.
+   A spec with no peers is solo: it opens no socket, so a manifest to
+   fetch has nothing to fetch through and is refused rather than
+   ignored."
+  [{:keys [dir peers publish? bind-host bind-port max-inbound-bytes manifest
+           bind!]}]
+  (cond
+    (not (and (string? dir) (not (str/blank? dir))))
+    "--index-store dht:<dir> needs a directory"
+
+    (not (and (vector? peers)
+              (every? #(and (map? %)
+                            (datagram/ip-literal? (:host %))
+                            (datagram/valid-port? (:port %)))
+                      peers)))
+    "DHT peers must be {:host <IP literal> :port <1 to 65535>}"
+
+    (not (boolean? publish?))
+    "the DHT publication declaration must be true or false"
+
+    (not (datagram/ip-literal? bind-host))
+    "the DHT bind host must be an IP literal"
+
+    (not (and (integer? bind-port) (<= 0 bind-port 65535)))
+    "the DHT bind port must be 0 (ephemeral) or 1 to 65535"
+
+    (not (and (integer? max-inbound-bytes) (<= 0 max-inbound-bytes)))
+    "--dht-max-inbound-bytes must be a nonnegative integer"
+
+    (and (empty? peers) (some? manifest))
+    (str "--dht-manifest needs a --dht-peer to fetch from: with no peers "
+         "the DHT store is solo and opens no socket")
+
+    (not (or (nil? manifest) (jing/segment-address? manifest)))
+    "--dht-manifest must be a segment manifest address"
+
+    (not (or (nil? bind!) (fn? bind!)))
+    ":bind! must be a dao.stream.datagram host seam function"))
+
+
+(def default-max-inbound-bytes
+  "The CLI default of the DHT store's inbound storage bound
+   (`:dao.jing.dht/max-inbound-bytes`): 64 MiB of payload a publishing
+   node accepts from peers' `:store` requests before it refuses them
+   explicitly.  `--dht-max-inbound-bytes` overrides it."
+  (* 64 1024 1024))
+
+
+(def dht-defaults
+  "The DHT store spec's defaults: solo (no peers), publishing off, bound
+   to loopback on an ephemeral port, the default inbound bound, and no
+   manifest to hydrate."
+  {:peers []
+   :publish? false
+   :bind-host "127.0.0.1"
+   :bind-port 0
+   :max-inbound-bytes default-max-inbound-bytes
+   :manifest nil})
 
 
 (defn checked-spec
   "Validate an `:index-store-spec` as `yin.repl/create-state` receives it:
    nil means the `mem` default, `:mem` names it, and a file store is the
-   map `{:type :file :dir dir}` with a non-empty directory string.
-   Anything else is refused with the supported forms named."
+   map `{:type :file :dir dir}` with a non-empty directory string.  A DHT
+   store is `{:type :dht :dir dir}` plus its options, `dht-defaults`
+   filled in; see yin.repl.dht.  Anything else is refused with the
+   supported forms named."
   [spec]
   (cond
     (nil? spec) :mem
@@ -119,290 +157,50 @@
          (string? (:dir spec))
          (not (str/blank? (:dir spec))))
     spec
+
+    (and (map? spec) (= :dht (:type spec)))
+    (let [spec (merge dht-defaults spec)]
+      (if-some [refusal (dht-refusal spec)]
+        (throw (ex-info refusal {:spec (dissoc spec :bind!)}))
+        spec))
+
     :else
     (throw (ex-info (str "Unknown :index-store-spec " (pr-str spec)
-                         "; supported: :mem, {:type :file :dir <dir>}")
+                         "; supported: :mem, {:type :file :dir <dir>}, "
+                         "{:type :dht :dir <dir> ...}")
                     {:spec spec
-                     :supported [:mem {:type :file :dir "<dir>"}]}))))
-
-
-(defn host-file-support
-  "True when this build can open a file-backed store: the JVM, Node, and
-   Dart can; a CLJS build without `js/require` cannot."
-  []
-  #?(:cljd true
-     :cljs (exists? js/require)
-     :clj true))
-
-
-(defn- without-trailing-separator
-  "The directory path with any trailing `/` removed, so the content log's
-   path is joined exactly once.  A path of only separators names the root,
-   which is preserved."
-  [dir]
-  (loop [s dir]
-    (if (and (pos? (count s)) (= "/" (subs s (dec (count s)))))
-      (recur (subs s 0 (dec (count s))))
-      s)))
-
-
-(defn content-path
-  "The content log's own path inside the store directory:
-   `<dir>/content.jing`."
-  [dir]
-  (let [base (without-trailing-separator dir)]
-    (if (str/blank? base)
-      (str "/" content-name)
-      (str base "/" content-name))))
-
-
-(defn- error-text
-  "The host error's own message, for the tail of a refusal."
-  [e]
-  #?(:cljd (str e)
-     :clj (or (ex-message e) (str e))
-     :cljs (or (ex-message e) (str e))))
-
-
-(defn- dir-refusal
-  "Why `dir` cannot hold the durable content log, or nil when it can: a
-   path occupied by something that is not a directory, a directory this
-   process cannot write, or a directory that cannot be created.  Nothing
-   is opened here — the content log itself is opened later, and its open
-   failure is refused with its own reason."
-  [dir]
-  #?(:cljd (let [d (dart-io/Directory. dir)
-                 f (dart-io/File. dir)]
-             (cond
-               (.existsSync d) nil
-               (.existsSync f) (str dir " is not a directory")
-               :else (try (.createSync d .recursive true)
-                          nil
-                          (catch Object e
-                            (str "cannot create " dir ": " (error-text e))))))
-     :clj (let [f (java.io.File. dir)]
-            (cond
-              (and (.exists f) (not (.isDirectory f)))
-              (str dir " is not a directory")
-
-              (and (.isDirectory f) (not (.canWrite f)))
-              (str dir " is not writable")
-
-              :else
-              (try (when (and (not (.isDirectory f)) (not (.mkdirs f)))
-                     (str "cannot create " dir))
-                   (catch Exception e
-                     (str "cannot create " dir ": " (error-text e))))))
-     :cljs (let [fs (js/require "fs")]
-             (if (.existsSync fs dir)
-               (when-not (.isDirectory (.statSync fs dir))
-                 (str dir " is not a directory"))
-               (try (.mkdirSync fs dir #js {:recursive true})
-                    nil
-                    (catch :default e
-                      (str "cannot create " dir ": " (error-text e))))))))
-
-
-(defn file-refusal
-  "Why a `file:<dir>` store cannot open, or nil when it can: a host without
-   file support is named first — never answered with a memory fallback —
-   then the directory's own refusal.  The one-argument arity asks this
-   build's own capability; the two-argument one answers for the capability
-   it is handed, which is how the unsupported-host refusal is tested on
-   hosts that do have file support."
-  ([dir] (file-refusal (host-file-support) dir))
-  ([capable? dir]
-   (or (when-not capable? unsupported-host-text)
-       (dir-refusal dir))))
-
-
-;; =============================================================================
-;; HEAD — the durable root pointer, and the snapshot it names
-;; =============================================================================
-
-(defn- head-record
-  "The text of one HEAD record: the version and the manifest address,
-   written whole and replaced whole."
-  [manifest-address]
-  (str (pr-str {:version head-version :manifest manifest-address}) "\n"))
-
-
-(defn- read-edn
-  [text]
-  #?(:cljd (edn/read-string text)
-     :clj (edn/read-string text)
-     :cljs (reader/read-string text)))
-
-
-(defn- recovered-head
-  "The manifest address HEAD names, or nil for an empty index.  A missing
-   file is an empty index; a file that is not exactly the versioned
-   record naming a content address is a corrupt pointer, and a corrupt
-   pointer refuses startup rather than pretending there was no index."
-  [dir]
-  (if-some [text (fs/read-file-text dir head-name)]
-    (let [head (try (read-edn text)
-                    (catch #?(:cljd Object
-                              :clj Exception
-                              :cljs :default)
-                           e
-                      (throw (ex-info (str "the HEAD at " dir
-                                           " is not a readable record: "
-                                           (error-text e))
-                                      {:dir dir :head text}
-                                      e))))]
-      (when-not (and (map? head)
-                     (= head-version (:version head))
-                     (jing/segment-address? (:manifest head)))
-        (throw (ex-info (str "the HEAD at " dir " is not a version-"
-                             head-version
-                             " record naming a manifest address")
-                        {:dir dir :head head})))
-      (:manifest head))
-    nil))
-
-
-(defn- validated-snapshot
-  "The datoms of the snapshot HEAD names, walked eagerly through the
-   opened store — the design's full read-manifest and read-datoms
-   traversal, over every index root the manifest names, not only EAVT:
-   each of the four trees must read back whole and cover exactly the
-   manifest's `:count` datoms.  A missing or invalid manifest, or any
-   unreadable index node, refuses startup here; never a silent empty
-   index."
-  [store dir manifest-address]
-  (try
-    (let [manifest (dao.index/read-manifest store manifest-address)
-          walked (into {}
-                       (map (fn [[index root]]
-                              [index (vec (dao.index/walk-index-datoms
-                                            store root))]))
-                       (:indexes manifest))]
-      (doseq [[index datoms] walked]
-        (when-not (= (:count manifest) (count datoms))
-          (throw (ex-info (str "the " (name index) " index covers "
-                               (count datoms) " datoms, not the manifest's "
-                               (:count manifest))
-                          {:index index}))))
-      (:eavt walked))
-    (catch #?(:cljd Object
-              :clj Throwable
-              :cljs :default)
-           e
-      (throw (ex-info (str "the durable index at " dir " is corrupt: "
-                           (error-text e))
-                      {:dir dir :manifest manifest-address}
-                      e)))))
-
-
-(defn- open-locked-dir
-  "Open the durable directory as its one owner: take the lock before
-   anything else in the directory is touched, then open the content log,
-   read HEAD, and walk the snapshot it names.  Every failure after the
-   lock closes the content log it opened and releases the lock again, so
-   a refused startup never leaves this process holding a directory it
-   did not open."
-  [dir]
-  (let [lock (fs/lock! dir)
-        opened (volatile! nil)]
-    (try
-      (let [handle (try (jing.file/create-content-file (content-path dir))
-                        (catch #?(:cljd Object
-                                  :clj Exception
-                                  :cljs :default)
-                               e
-                          (throw (ex-info (str "cannot open the index store at "
-                                               (content-path dir) ": "
-                                               (error-text e))
-                                          {:dir dir}
-                                          e))))
-            _ (vreset! opened handle)
-            manifest (recovered-head dir)
-            datoms (when manifest
-                     (validated-snapshot handle dir manifest))]
-        {:handle handle
-         :lock lock
-         :recovery {:manifest manifest
-                    :datoms datoms}})
-      (catch #?(:cljd Object
-                :clj Throwable
-                :cljs :default)
-             e
-        (when-some [close-content! (:close-fn @opened)]
-          (try (close-content!)
-               (catch #?(:cljd Object
-                         :clj Throwable
-                         :cljs :default)
-                      _
-                 nil)))
-        (fs/unlock! lock)
-        (throw e)))))
-
-
-(defn lock-releasing-close
-  "The durable handle's `:close-fn`: close the content log, then release
-   the directory lock `lock` — released even when the close throws, so a
-   failed close never keeps a live process holding the directory."
-  [close-content! lock]
-  (fn []
-    (try
-      (close-content!)
-      (finally
-        (fs/unlock! lock)))))
+                     :supported [:mem {:type :file :dir "<dir>"}
+                                 {:type :dht :dir "<dir>"}]}))))
 
 
 (defn open
   "Open the store `spec` names and keep it plain: `:mem` (or nil) is a
    fresh in-memory `dao.jing` store; `{:type :file :dir dir}` is the
-   durable content log at `<dir>/content.jing`, opened once here and
-   carried by the shell for its lifetime.  A spec this build cannot open
-   is refused with its reason.
-
-   The durable open is exclusive and validating.  The directory lock is
-   acquired before the content log or HEAD is touched — a second owner
-   is refused naming the directory — and every failure after it releases
-   the lock again.  HEAD is read and the snapshot it names walked in
-   full: an absent HEAD is an empty index; a malformed HEAD or a corrupt
-   snapshot refuses startup rather than starting empty.
-
-   Beside the plain byte-store fns, the durable handle carries what its
-   lifecycle owns: `:close-fn`, wrapped to release the lock with the
-   content log; `:head-fn`, `(fn [manifest-address])`, the atomic HEAD
-   write a round performs after its manifest is read back; `:recovery`,
-   `{:manifest <address or nil> :datoms <the walked snapshot or nil>}`,
-   which the shell rehydrates its indexer from; and `:durable-dir`, the directory
-   an operator's refusal can name."
+   durable directory store at `dir` (dao.space.store/open): exclusive,
+   validating, its HEAD writer, recovery and lock on the handle.  A spec
+   this build cannot open is refused with its reason; a `dht:<dir>` spec
+   is opened by yin.repl.dht, which composes its node over the same
+   durable store."
   [spec]
   (let [checked (checked-spec spec)]
-    (if (= :mem checked)
-      (jing.mem/create-content-mem)
-      (let [dir (:dir checked)]
-        (if-some [refusal (file-refusal dir)]
-          (throw (ex-info refusal {:dir dir}))
-          (let [{:keys [handle lock recovery]} (open-locked-dir dir)]
-            (assoc handle
-                   :close-fn (lock-releasing-close (:close-fn handle) lock)
-                   :head-fn (fn publish-head!
-                              [manifest-address]
-                              (fs/atomic-replace!
-                                dir head-name
-                                (head-record manifest-address)))
-                   :recovery recovery
-                   :durable-dir dir)))))))
+    (case (if (map? checked) (:type checked) checked)
+      :mem (jing.mem/create-content-mem)
+      :file (durable/open (:dir checked))
+      :dht (throw (ex-info (str "a dht:<dir> store is opened by "
+                                "yin.repl.dht/open, which composes its node")
+                           {:spec (dissoc checked :bind!)})))))
 
 
 (defn durable?
-  "True when `store` is a durable directory store `open` answered: its
-   published index outlives the process, so a session rebuild continues
-   it rather than starting an empty one."
+  "True when `store` is a durable directory store: its published index
+   outlives the process, so a session rebuild continues it rather than
+   starting an empty one (dao.space.store/durable?)."
   [store]
-  (some? (:durable-dir store)))
+  (durable/durable? store))
 
 
 (defn close!
-  "Release the store's lifecycle resources — the content log handle and,
-   in durable mode, the directory lock.  Nothing further can be read or
-   written through the handle afterwards.  Idempotent."
+  "Release the store's lifecycle resources (dao.space.store/close!): the
+   content log and, in durable mode, the directory lock.  Idempotent."
   [store]
-  (when-let [close! (:close-fn store)]
-    (close!)))
+  (durable/close! store))

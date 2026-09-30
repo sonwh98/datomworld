@@ -26,9 +26,10 @@
             [dao.space.transactor :as transactor]
             [dao.stream :as dao.stream]
             [dao.stream.memory-log :as memory-log]
+            [dao.space.store :as durable]
             [yin.repl :as repl]
             [yin.repl.store :as store]
-            [yin.repl.store.fs :as fs]))
+            [dao.space.store.fs :as fs]))
 
 
 ;; =============================================================================
@@ -341,14 +342,14 @@
 
 
 (deftest a-host-without-file-support-is-refused-not-fallen-back
-  (is (store/host-file-support)
+  (is (durable/host-file-support)
       "the JVM, Node, and Dart lanes this suite runs on can all open files")
   (testing "the refusal names the host, whatever the directory"
-    (is (str/includes? (str (store/file-refusal false "/any/dir"))
+    (is (str/includes? (str (durable/file-refusal false "/any/dir"))
                        "not supported on this host")))
   (let [dir (temp-dir)]
     (try
-      (is (nil? (store/file-refusal true dir))
+      (is (nil? (durable/file-refusal true dir))
           "a capable host is refused only by the directory itself")
       (finally
         (cleanup-dir! dir)))))
@@ -401,7 +402,7 @@
         (is (= {:type :file :dir dir} (:index-store-spec state)))
         (is (some? manifest) "the round published")
         (testing "the publication is on disk, at <dir>/content.jing"
-          (let [on-disk (dao.jing.file/records (store/content-path dir))]
+          (let [on-disk (dao.jing.file/records (durable/content-path dir))]
             (is (pos? (count on-disk)))
             (is (contains? (into #{} (map first) on-disk) manifest)
                 "the manifest blob is one of the file's records")))
@@ -638,8 +639,8 @@
    :cljs
    (def ^:private worker-contender-js
      "One Node worker thread contending for the directory with this build's
-      own `yin.repl.store.fs/lock!`.  It loads the compiled test bundle's
-      namespaces up to `yin.repl.store.fs` — skipping the test namespaces
+      own `dao.space.store.fs/lock!`.  It loads the compiled test bundle's
+      namespaces up to `dao.space.store.fs` — skipping the test namespaces
       and the runner's autorun — so the worker has its own `held`
       registry and shares the process's pid, exactly like a second worker
       in a real process.  Flags (an Int32Array over a SharedArrayBuffer):
@@ -653,13 +654,13 @@
        "const {sab, bundle, dir, id} = workerData;\n"
        "const flags = new Int32Array(sab);\n"
        "const pause = new Int32Array(new SharedArrayBuffer(4));\n"
-       "const last = 'SHADOW_IMPORT(\"yin.repl.store.fs.js\");';\n"
+       "const last = 'SHADOW_IMPORT(\"dao.space.store.fs.js\");';\n"
        "let text = nodeFs.readFileSync(bundle, 'utf8');\n"
        "text = text.slice(text.indexOf('\\n') + 1, text.indexOf(last) + last.length);\n"
        "text = text.split('\\n').filter(l => !(l.startsWith('SHADOW_IMPORT(') && l.includes('_test.js'))).join('\\n') + '\\n})();';\n"
        "new Function('require', 'module', '__filename', '__dirname', text)"
        "(require, module, bundle, nodePath.dirname(bundle));\n"
-       "const fsns = global.yin.repl.store.fs;\n"
+       "const fsns = global.dao.space.store.fs;\n"
        "Atomics.store(flags, id, 1); Atomics.notify(flags, id);\n"
        "while (Atomics.load(flags, 0) === 0) Atomics.wait(flags, 0, 0, 100);\n"
        "let held = null;\n"
@@ -807,9 +808,9 @@
                                                     manifest)
                            [:indexes index])]
           (store/close! (:index-store state))
-          (drop-frame-with-address! (store/content-path dir) root)
+          (drop-frame-with-address! (durable/content-path dir) root)
           (let [content (dao.jing.file/create-content-file
-                          (store/content-path dir))]
+                          (durable/content-path dir))]
             (is (seq (dao.index/read-datoms content manifest))
                 (str "only the " index " tree is damaged; EAVT still reads"))
             ((:close-fn content)))
@@ -824,7 +825,7 @@
   (let [dir (temp-dir)]
     (try
       (store/close! (store/open {:type :file :dir dir}))
-      (let [close! (store/lock-releasing-close
+      (let [close! (durable/lock-releasing-close
                      (fn [] (throw (ex-info "disk gone" {})))
                      (fs/lock! dir))]
         (is (some? (refusal-of close!)) "the close failure is still reported")
@@ -934,7 +935,7 @@
             crashing (assoc store
                             :head-fn (fn [address]
                                        (fs/atomic-replace!
-                                         dir store/head-name
+                                         dir durable/head-name
                                          (str (pr-str {:version 1
                                                        :manifest address})
                                               "\n")
@@ -1057,7 +1058,7 @@
                            [:indexes :eavt]))]
         (is (some? eavt) "the round published a non-empty EAVT root")
         (store/close! (:index-store state))
-        (drop-frame-with-address! (store/content-path dir) eavt)
+        (drop-frame-with-address! (durable/content-path dir) eavt)
         (let [refusal (refusal-of #(store/open {:type :file :dir dir}))]
           (is (str/includes? (ex-message refusal) "corrupt")
               "every remaining frame is valid, so only the traversal over
@@ -1072,7 +1073,7 @@
     (try
       (let [[state _] (repl/eval-input (durable-shell! dir) "(+ 1 2)")]
         (store/close! (:index-store state))
-        (corrupt-payload-byte! (store/content-path dir))
+        (corrupt-payload-byte! (durable/content-path dir))
         (let [refusal (refusal-of #(store/open {:type :file :dir dir}))]
           (is (str/includes? (ex-message refusal) dir))
           (is (some? (ex-data refusal))

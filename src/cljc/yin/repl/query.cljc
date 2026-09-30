@@ -51,7 +51,9 @@
    and checks both before it appends a response."
   (:require #?@(:cljd [["dart:typed_data" :refer [Uint8List]]]
                 :default [])
+            [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
+            [dao.space.dht :as dht]
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.stream :as stream]
@@ -73,6 +75,21 @@
 (def op
   "The `dao.stream.apply` operation a `q` call requests."
   ::q)
+
+
+(def dht-module-name
+  "The module `(require 'dao.space.dht)` activates: the plain Clojure DHT
+   path (`dao.space.dht`) as host functions over the shell's own DHT node."
+  'dao.space.dht)
+
+
+(def dht-ops
+  "The `dao.stream.apply` operations the `dao.space.dht` module requests:
+   `load-index`, `load-status` and `q`, each answered by the
+   `dao.space.dht` function of that name."
+  {'load-index ::dht-load-index
+   'load-status ::dht-load-status
+   'q ::dht-q})
 
 
 (def views
@@ -107,18 +124,48 @@
   (module/register-host-module registry module-name exports profiles))
 
 
+(defn- dht-export
+  "A `dao.space.dht` export: a data constructor whose effect parks the
+   caller on the call pair under the operation `dht-ops` names."
+  [sym]
+  (fn [& args]
+    (module/make-effect ::call {:op (get dht-ops sym), :args (vec args)})))
+
+
+(def ^:private dht-arities
+  {'load-index [1] 'load-status [1] 'q [2 :variadic]})
+
+
+(defn activate-dht
+  "`registry` with the `dao.space.dht` host module installed."
+  [registry]
+  (module/register-host-module
+    registry dht-module-name
+    (into {} (map (fn [sym] [sym (dht-export sym)])) (keys dht-ops))
+    (into {} (map (fn [[sym arity]]
+                    [sym (vm/primitive-profile sym :effectful arity #{::call}
+                                               :none)]))
+          dht-arities)))
+
+
+(def ^:private host-modules
+  {module-name activate
+   dht-module-name activate-dht})
+
+
 (defn- require-handler
   "`:module/require` for a session with the query bridge: the first
-   require of `dao.space.query` installs the module into the requiring
-   VM's registry value and answers at once; every other require, and a
-   repeated one, is `module/require-handler`'s."
+   require of `dao.space.query` or `dao.space.dht` installs that module
+   into the requiring VM's registry value and answers at once; every
+   other require, and a repeated one, is `module/require-handler`'s."
   [state effect opts]
-  (if (and (= module-name (:module effect))
-           (nil? (module/resolve-module (:modules state) module-name)))
-    {:value module-name,
-     :state (update state :modules activate),
-     :blocked? false}
-    (module/require-handler state effect opts)))
+  (let [activate (get host-modules (:module effect))]
+    (if (and activate
+             (nil? (module/resolve-module (:modules state) (:module effect))))
+      {:value (:module effect),
+       :state (update state :modules activate),
+       :blocked? false}
+      (module/require-handler state effect opts))))
 
 
 (defn- blocked
@@ -161,7 +208,8 @@
                  call-id)
         outcome (:dao.stream/outcome
                   (apply2/put-request! call-in
-                                       (apply2/request call-id op
+                                       (apply2/request call-id
+                                                       (:op effect op)
                                                        (vec (:args effect)))))]
     (when-not (= :dao.stream/ok outcome)
       (throw (ex-info "dao.space.query/q request could not be appended"
@@ -429,11 +477,13 @@
     1))
 
 
-(defn- evaluate
-  [db view query inputs {:keys [row-limit byte-limit]}]
+(defn- bounded
+  "The collected result `run` answers, `{:ok value}`, or a refusal: a
+   query the engine rejects, a result over `limits`, or one that is not
+   portable Yin data."
+  [run {:keys [row-limit byte-limit]}]
   (let [result (try
-                 {:value (query/collect
-                           (apply query/q query (view db) inputs))}
+                 {:value (run)}
                  (catch #?(:cljd Object :clj Exception :cljs :default) e
                    {:refusal (refusal ::query-failed
                                       (str "query failed: "
@@ -463,6 +513,11 @@
                    {::limit {:bytes byte-limit}})
 
           :else {:ok value})))))
+
+
+(defn- evaluate
+  [db view query inputs limits]
+  (bounded #(query/collect (apply query/q query (view db) inputs)) limits))
 
 
 (defn answer
@@ -512,6 +567,59 @@
        (apply2/success-response id (:ok answer))))))
 
 
+(defn- dht-answer
+  "The response to one `dao.space.dht` call, answered from `node` — the
+   shell's DHT node — by the `dao.space.dht` function the operation
+   names, and the node after it: `load-index` starts a load and answers
+   its status at once, never waiting; `load-status` answers the load's
+   status map; `q` answers `dao.space.dht/q` under `limits`, refused
+   until the index is loaded.  Answers `[node response]`."
+  [node limits request]
+  (let [id (apply2/request-id request)
+        [manifest & more] (apply2/request-args request)
+        [node answer]
+        (cond
+          (nil? node)
+          [node (unavailable (str "the shell has no DHT node; start it with "
+                                  "--index-store dht:<dir> and --dht-peer"))]
+
+          (nil? (encoded-size (apply2/request-args request)))
+          [node (invalid "dao.space.dht takes portable Yin data only")]
+
+          (not (jing/segment-address? manifest))
+          [node (invalid (str "dao.space.dht expects a manifest address, got "
+                              (pr-str manifest)))]
+
+          :else
+          (case (apply2/request-op request)
+            ::dht-load-index
+            (let [node (dht/load-index node manifest)]
+              [node {:ok (:status (dht/load-status node manifest))}])
+
+            ::dht-load-status
+            [node {:ok (dht/load-status node manifest)}]
+
+            ::dht-q
+            (let [status (dht/load-status node manifest)
+                  [query & inputs] more]
+              [node (if (= :loaded (:status status))
+                      (bounded #(apply dht/q node manifest query inputs) limits)
+                      (refusal ::index-unavailable
+                               (str "the index " manifest " is not loaded ("
+                                    (if status (name (:status status)) "never asked")
+                                    "); (dao.space.dht/load-index " manifest
+                                    ") loads it")
+                               nil))])))]
+    [node (if (refused? answer)
+            {apply2/id-key id, apply2/error-key answer}
+            (apply2/success-response id (:ok answer)))]))
+
+
+(defn- dht-op?
+  [request]
+  (contains? (set (vals dht-ops)) (apply2/request-op request)))
+
+
 ;; =============================================================================
 ;; The interpreter
 ;; =============================================================================
@@ -522,21 +630,26 @@
    as they stand now, at most `budget` of them.  A response is appended before the cursor
    moves past its request; one the call-out refuses leaves the request to
    be re-read.  A value that is not a request envelope is consumed
-   unanswered: no call made it.  Returns
-   `{:pair pair :progress? bool :answered n}`, `n` the responses
-   appended."
-  [{:keys [pair indexer ast-indexer limits budget]}]
+   unanswered: no call made it.  A `dao.space.dht` call is answered from
+   `dht`, the shell's DHT node, which a `load-index` advances.  Returns
+   `{:pair pair :dht node :progress? bool :answered n}`, `n` the
+   responses appended."
+  [{:keys [pair indexer ast-indexer dht limits budget]}]
   (loop [pair pair
+         node dht
          remaining budget
          progress? false
          answered 0]
     (let [r (when (pos? remaining)
               (stream/next (:call-in pair) (:cursor pair)))]
       (if-not (= :dao.stream/ok (:dao.stream/outcome r))
-        {:pair pair, :progress? progress?, :answered answered}
+        {:pair pair, :dht node, :progress? progress?, :answered answered}
         (let [request (:dao.stream/value r)
-              response (when (apply2/request? request)
-                         (answer indexer ast-indexer limits request))
+              [node' response] (cond
+                                 (not (apply2/request? request)) [node nil]
+                                 (dht-op? request) (dht-answer node limits request)
+                                 :else [node (answer indexer ast-indexer limits
+                                                     request)])
               landed? (or (nil? response)
                           (= :dao.stream/ok
                              (:dao.stream/outcome
@@ -544,7 +657,9 @@
                                                      response))))]
           (if landed?
             (recur (assoc pair :cursor (:dao.stream/cursor r))
+                   node'
                    (dec remaining)
                    true
                    (cond-> answered response inc))
-            {:pair pair, :progress? progress?, :answered answered}))))))
+            {:pair pair, :dht node, :progress? progress?,
+             :answered answered}))))))

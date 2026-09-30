@@ -14,6 +14,12 @@ bb test:cljs         # ClojureScript / Node tests (via shadow-cljs :cljs alias)
 bb test:cljd         # ClojureDart tests (requires flutter on PATH)
 npm test             # Node.js tests
 
+# Cross-host peers the JVM lane spawns (bb test and bb test:clj build them)
+bb build:yin-repl-peer   # Dart exe build/yin-repl-peer (yin.repl R5 pairs)
+bb build:yin-repl-node   # Node REPL target/yin-repl.js; REQUIRED by
+                         # yin.repl.dht-process-test (JVM-to-Node DHT reader):
+                         # `clojure -M:test` without it fails that test
+
 # ClojureScript / shadow-cljs (always via deps.edn :cljs alias, never npx)
 clj -M:cljs -m shadow.cljs.devtools.cli watch <build-id>    # e.g. watch demo
 clj -M:cljs -m shadow.cljs.devtools.cli compile <build-id>  # e.g. compile demo

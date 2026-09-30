@@ -1,6 +1,13 @@
 {:tasks
- {test:clj {:doc "Run JVM tests (via clj)"
+ {test:clj {:doc "Run JVM tests (via clj); the DHT process test needs the Node REPL build"
+            :depends [build:yin-repl-node]
             :task (shell "clojure -M:test")}
+
+  build:yin-repl-node
+  {:doc "Compile the Node yin.repl (shadow-cljs build :yin-repl) to target/yin-repl.js"
+   ;; yin.repl.dht-process-test spawns it as the JVM-to-Node reader of
+   ;; DHT epic S5, a required leg: a missing build fails that test.
+   :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile yin-repl")}
 
   test:cljs {:doc "Run Node tests (via shadow-cljs with :cljs alias)"
              :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile test")}
@@ -24,5 +31,5 @@
              :depends [build:yin-repl-peer]
              :task (shell "clojure -M:cljd test")}
 
-  test {:doc "Run all tests (cross-host R5 pairs need the Dart peer, so build it first)"
-        :depends [build:yin-repl-peer test:clj test:cljs test:cljd]}}}
+  test {:doc "Run all tests (cross-host R5 pairs need the Dart peer, and the DHT process test the Node REPL, so build them first)"
+        :depends [build:yin-repl-peer build:yin-repl-node test:clj test:cljs test:cljd]}}}
