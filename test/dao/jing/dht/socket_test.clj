@@ -23,7 +23,9 @@
                     :dao.stream.datagram/bind-port port}
         composition (merge (mesh/solo {::dht/id (mesh/node-id n)
                                        ::dht/publish? true})
-                           {:traffic traffic
+                           {::dht/secret mesh/secret
+                            ::dht/max-inbound-bytes 1048576
+                            :traffic traffic
                             :datagrams (datagram/writer seam descriptor 1200)})]
     {:port port :composition composition :seam seam}))
 

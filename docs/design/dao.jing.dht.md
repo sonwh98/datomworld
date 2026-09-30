@@ -1,8 +1,8 @@
 # DaoJing DHT: Content-Addressed Segment Distribution
 
-Status: **contract frozen 2026-09-30 (DHT epic slice S0); sections 2 to 9 are
-the design target, not yet implemented.** Section 10 records what the source
-tree holds today and what each slice deletes. Subordinate to
+Status: **contract frozen 2026-09-30 (DHT epic slice S0); S1 through S4 are
+implemented, S5 is pending.** Section 10 records the starting tree and the
+slice plan. Subordinate to
 [`dao.stream.md`](./dao.stream.md), [`dao.jing.md`](./dao.jing.md) and
 [`datom.world.md`](./datom.world.md). In sections 2 to 9 every sentence is a
 rule.
@@ -421,7 +421,7 @@ not Transit. This is a clean break from today's wire; no fleet exists.
 ## 8. Hardening
 
 Implemented where the DHT reads raw events, never in the raw layer. Non-loopback
-exposure waits for all of it (slice S4).
+exposure requires the S4 secret and inbound bound in the socket composition.
 
 - **Cookie protocol.** Every reply carries a cookie for the requester's
   observed address. A requester keeps the newest cookie each peer gave it and
@@ -438,8 +438,10 @@ exposure waits for all of it (slice S4).
   - *S4 replacement:* the first 16 bytes of `MAC(epoch-secret, observed-host |
     observed-port)` with `epoch-secret = MAC(:dao.jing.dht/secret, epoch)`.
     The MAC is HMAC-SHA-256 from each host's library; nothing is
-    hand-rolled. From S4 a socket composition without a secret is a
-    composition defect.
+    hand-rolled. The root secret is, per node, at least 32 random bytes
+    from the host CSPRNG, minted at composition, in-memory only, never
+    persisted or shared. Note that the tests share one secret for predictability.
+    From S4 a socket composition without a secret is a composition defect.
   The wire, the state and every other rule are identical under both.
 - **The gate.** A request or request chunk without a valid cookie causes no
   work: no lookup, no storage, no reassembly, no routing entry. The only

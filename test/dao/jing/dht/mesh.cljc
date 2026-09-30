@@ -26,6 +26,11 @@
   "127.0.0.1")
 
 
+(def secret
+  "Test-only shared root secret; production compositions supply random bytes."
+  (dht/hex->bytes (apply str (repeat 64 "a"))))
+
+
 (defn ring
   "A fresh evicting ring handle (owner: reader, writer, closable)."
   ([] (ring 4096))
@@ -131,7 +136,9 @@
    (let [traffic (ring)]
      (swap! net assoc-in [:traffic [host port]] traffic)
      (merge (solo {::dht/id (node-id port)})
-            {:traffic traffic
+            {::dht/secret secret
+             ::dht/max-inbound-bytes 1048576
+             :traffic traffic
              :datagrams (->MeshSocket net host port)}
             opts))))
 

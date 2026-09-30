@@ -20,13 +20,14 @@
 
    The wire is section 7's, one CBOR value per datagram through
    dao.stream.cbor, with bounded chunk records for larger messages. The
-   cookie protocol of section 8 is implemented whole with the S2 stand-in
-   cookie-for, which is unkeyed and forgeable: exposure stays loopback.
+   cookie protocol of section 8 uses host HMAC-SHA-256.
 
    (store-handle ...) is the portable dao.jing byte-store handle over the
    same composition: its put returns the local verdict at once and appends
    a replicate request; its get reads :local only."
-  (:require #?@(:cljd [["dart:typed_data" :as typed]])
+  (:require #?@(:cljd [["dart:typed_data" :as typed]
+                       ["package:crypto/crypto.dart" :as crypto]]
+                :cljs [["node:crypto" :as node-crypto]])
             [clojure.string :as str]
             [dao.jing :as jing]
             [dao.jing.dht.kad :as kad]
@@ -159,15 +160,25 @@
 ;; Section 8: cookies
 ;; =============================================================================
 
+(defn- hmac-sha256
+  [key data]
+  #?(:cljd (typed/Uint8List.fromList
+             (.-bytes (.convert (crypto/Hmac. crypto/sha256 key) data)))
+     :clj (let [mac (javax.crypto.Mac/getInstance "HmacSHA256")]
+            (.init mac (javax.crypto.spec.SecretKeySpec. ^bytes key "HmacSHA256"))
+            (.doFinal mac ^bytes data))
+     :cljs (js/Uint8Array.from
+             (.digest (.update (.createHmac node-crypto "sha256" key) data)))))
+
+
 (defn cookie-for
-  "The S2 stand-in: the first 16 bytes of SHA-256(epoch | observed-host |
-   observed-port). Unkeyed and deterministic, so tests can predict it, and
-   forgeable, which is why exposure stays loopback-only. S4 replaces this
-   function alone with the keyed MAC."
-  [epoch host port]
-  (hex->bytes (subs (jing/sha256 (str epoch "|" host "|" port))
-                    0
-                    (* 2 cookie-length))))
+  "First 16 bytes of HMAC(epoch-secret, observed address). Epoch secrets
+   derive from the composition's root secret and rotate only with ticks."
+  [secret epoch host port]
+  (ints->bytes
+    (take cookie-length
+          (byte-ints (hmac-sha256 (hmac-sha256 secret (wire/encode epoch))
+                                  (wire/encode [host port]))))))
 
 
 (defn- epoch
@@ -182,8 +193,8 @@
   (and (bytes-of? c cookie-length)
        (let [e (epoch state)
              seen (bytes->hex c)]
-         (or (= seen (bytes->hex (cookie-for e host port)))
-             (= seen (bytes->hex (cookie-for (dec e) host port)))))))
+         (or (= seen (bytes->hex (cookie-for (::secret state) e host port)))
+             (= seen (bytes->hex (cookie-for (::secret state) (dec e) host port)))))))
 
 
 ;; =============================================================================
@@ -699,7 +710,7 @@
   (send-datagram! state host port
                   (merge {::v 1, :op :reply, :q q,
                           :id (hex->bytes (::id state)),
-                          :cookie (cookie-for (epoch state) host port)}
+                          :cookie (cookie-for (::secret state) (epoch state) host port)}
                          body))
   state)
 
@@ -738,8 +749,11 @@
         {:ok (boolean
                (when (::publish? state)
                  (when-let [bs (verified-bytes address (:bytes m))]
-                   (contains? #{:inserted :present}
-                              ((:put-bytes-fn local) address bs)))))})
+                   (when (or (contains? (:inbound-addresses state) address)
+                             (<= (+ (:inbound-bytes state) (byte-count bs))
+                                 (::max-inbound-bytes state)))
+                     (contains? #{:inserted :present}
+                                ((:put-bytes-fn local) address bs))))))})
 
       :fetch
       (when (jing/segment-address? address)
@@ -761,7 +775,7 @@
 
       (not (valid-cookie? state host port (:cookie m)))
       (let [need {::v 1, :op :reply, :q q, :id (hex->bytes (::id state)),
-                  :cookie (cookie-for (epoch state) host port),
+                  :cookie (cookie-for (::secret state) (epoch state) host port),
                   :need-cookie true}]
         (when (<= (byte-count (wire/encode need)) size)
           (send-datagram! state host port need))
@@ -769,7 +783,13 @@
 
       :else
       (let [state (prove state (bytes->hex (:id m)) host port)
-            body (serve-body state host port m)]
+            body (serve-body state host port m)
+            state (if (and (= :store (:op m)) (true? (:ok body))
+                           (not (contains? (:inbound-addresses state) (:address m))))
+                    (-> state
+                        (update :inbound-bytes + (byte-count (:bytes m)))
+                        (update :inbound-addresses conj (:address m)))
+                    state)]
         (if body (reply! state host port q body) state)))))
 
 
@@ -876,7 +896,7 @@
         pending? (contains? (:queries state) [host port q])
         request? (= :request dir)
         need {::v 1 :op :reply :q q :id (hex->bytes (::id state))
-              :cookie (cookie-for (epoch state) host port)
+              :cookie (cookie-for (::secret state) (epoch state) host port)
               :need-cookie true}]
     (cond
       (not (and (safe-q? q) (#{:request :reply} dir)
@@ -1245,6 +1265,14 @@
     (when (and traffic
                (not (and (stream/reader? traffic) (stream/writer? datagrams))))
       (throw (defect ":traffic must be a reader and :datagrams a writer" {})))
+    (when (and traffic
+               (not (and (wire/byte-payload? (::secret c))
+                         (<= 32 (byte-count (::secret c))))))
+      (throw (defect "socket composition needs a secret of at least 32 bytes" {})))
+    (when (and traffic
+               (not (and (integer? (::max-inbound-bytes c))
+                         (<= 0 (::max-inbound-bytes c)))))
+      (throw (defect "socket composition needs a nonnegative max-inbound-bytes" {})))
     (when-not (node-id? (::id c))
       (throw (defect "the node id must be 64 lowercase hex characters"
                {:id (::id c)})))
@@ -1266,6 +1294,8 @@
             :query-index {}
             :partial {}
             :partial-order []
+            :inbound-bytes 0
+            :inbound-addresses #{}
             :writes {}
             :gets {}
             :advance-cursor nil

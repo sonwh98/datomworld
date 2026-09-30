@@ -490,7 +490,7 @@ an absent envelope keeps its explicit false indicator and nil placeholder.
 The WebSocket path enforces no Jing byte cap today. The DHT refuses an
 overbound write before local insertion or any network send. Acknowledgement
 requires a successful local insert and complete socket handoff to at least
-two peers. Its cookie gate uses the S2 deterministic stand-in until S4.
+two peers. Its cookie gate uses the keyed MAC (S4).
 
 The clean break requires coordinated peer upgrades; no version negotiation
 exists. A new-client put to an old server fails as an address mismatch

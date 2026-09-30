@@ -2,7 +2,7 @@
   "Acceptance tests for the caller-stepped DHT core, slice S2
    (docs/design/dao.jing.dht.md section 10): dao.jing.dht state and step
    over in-memory sockets (dao.jing.dht.mesh), the section 8 cookie
-   protocol with the S2 stand-in cookie-for, pending writes and gets, the
+   protocol with keyed cookie-for, pending writes and gets, the
    byte-store handle, and solo mode. Requests and answers are driven by the
    unmodified content clients (dao.jing.content.step). Time advances only
    by appended ticks; nothing here sleeps."
@@ -11,6 +11,7 @@
             [dao.jing.content :as content]
             [dao.jing.content.step :as client]
             [dao.jing.dht :as dht]
+            [dao.jing.dht.kad :as kad]
             [dao.jing.dht.mesh :as mesh]
             [dao.jing.file :as jing-file]
             [dao.jing.mem :as mem]
@@ -110,7 +111,9 @@
       (is (map? (throws-data #(dht/state (dissoc c :answers)))))
       (is (map? (throws-data #(dht/state (dissoc c :datagrams)))))
       (is (map? (throws-data #(dht/state (dissoc c :traffic)))))
-      (is (map? (throws-data #(dht/state (assoc c ::dht/id "not-hex"))))))
+      (is (map? (throws-data #(dht/state (assoc c ::dht/id "not-hex")))))
+      (is (map? (throws-data #(dht/state (assoc c ::dht/secret (dht/hex->bytes (apply str (repeat 62 "0"))))))))
+      (is (map? (throws-data #(dht/state (dissoc c ::dht/max-inbound-bytes))))))
     (testing "publish? defaults to false"
       (is (false? (::dht/publish? (dht/state c)))))
     (testing "state performs no stream operation"
@@ -119,24 +122,32 @@
       (is (= [] (mesh/facts c) (mesh/answers c))))))
 
 
+(deftest socket-requires-a-secret-and-cookies-depend-on-it
+  (let [c (mesh/join! (mesh/mesh) 77)]
+    (is (map? (throws-data #(dht/state (dissoc c ::dht/secret)))))
+    (is (not= (hex (dht/cookie-for (dht/hex->bytes (apply str (repeat 64 "0")))
+                                   3 mesh/host 77))
+              (hex (dht/cookie-for (dht/hex->bytes (apply str (repeat 64 "1")))
+                                   3 mesh/host 77))))))
+
+
 ;; ---------------------------------------------------------------------------
 ;; Section 8: cookies, the gate, the size rule, padding
 ;; ---------------------------------------------------------------------------
 
-(deftest cookie-for-is-the-s2-stand-in
-  (let [c (dht/cookie-for 3 "127.0.0.1" 4100)]
+(deftest cookie-for-is-keyed-and-epoch-scoped
+  (let [c (dht/cookie-for mesh/secret 3 "127.0.0.1" 4100)]
     (is (= 16 (mesh/byte-count c)))
-    (is (= (subs (jing/sha256 "3|127.0.0.1|4100") 0 32) (hex c))
-        "first 16 bytes of SHA-256(epoch | host | port)")
-    (is (not= (hex c) (hex (dht/cookie-for 4 "127.0.0.1" 4100))))
-    (is (not= (hex c) (hex (dht/cookie-for 3 "127.0.0.1" 4101))))))
+    (is (not= (subs (jing/sha256 "3|127.0.0.1|4100") 0 32) (hex c)))
+    (is (not= (hex c) (hex (dht/cookie-for mesh/secret 4 "127.0.0.1" 4100))))
+    (is (not= (hex c) (hex (dht/cookie-for mesh/secret 3 "127.0.0.1" 4101))))))
 
 
 (deftest need-cookie-reply-never-exceeds-first-contact-bytes
   (is (= 256 dht/first-contact-bytes))
   (let [largest {::dht/v 1, :op :reply, :q 9007199254740991,
                  :id (dht/hex->bytes (mesh/node-id 1)),
-                 :cookie (dht/cookie-for 999999999999 "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff" 65535),
+                 :cookie (dht/cookie-for mesh/secret 999999999999 "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff" 65535),
                  :need-cookie true}]
     (is (<= (mesh/byte-count (wire/encode largest)) dht/first-contact-bytes))))
 
@@ -183,7 +194,7 @@
             (is (= #{::dht/v :op :q :id :cookie :need-cookie} (set (keys m))))
             (is (= [1 :reply 7 true] [(::dht/v m) (:op m) (:q m) (:need-cookie m)]))
             (is (= (mesh/node-id 2) (hex (:id m))))
-            (is (= (hex (dht/cookie-for 0 mesh/host 9)) (hex (:cookie m))))
+            (is (= (hex (dht/cookie-for mesh/secret 0 mesh/host 9)) (hex (:cookie m))))
             (is (<= (:size reply) dht/first-contact-bytes))
             (is (empty? (dht/routing-entries s)) "no routing entry")
             (testing "a store with a missing or wrong cookie causes no work"
@@ -206,13 +217,35 @@
                         _ (inject! b 9 (-> store
                                            (dissoc :pad)
                                            (assoc :cookie (dht/cookie-for
-                                                            0 mesh/host 9))))
+                                                            mesh/secret 0 mesh/host 9))))
                         s (dht/step s 64)
                         [m] (map :message (drop before (mesh/sent net)))]
                     (is (= true (:ok m)))
                     (is (= v (jing/get (:local b) address nil)))
                     (is (= [{:id (mesh/node-id 9), :host mesh/host, :port 9}]
                            (dht/routing-entries s)))))))))))))
+
+
+(deftest unexpected-reply-source-and-claimed-peers-are-not-proven
+  (let [net (mesh/mesh)
+        c (mesh/join! net 1 {::dht/bootstrap [(mesh/contact 2)]})
+        _ (mesh/request! c (get-request "source" [:absent]))
+        s (dht/step (dht/state c) 64)
+        q (:q (:message (last (mesh/sent net))))
+        forged {::dht/v 1 :op :reply :q q
+                :id (dht/hex->bytes (mesh/node-id 9))
+                :cookie (dht/cookie-for mesh/secret 0 mesh/host 1)
+                :peers [[(dht/hex->bytes (mesh/node-id 8)) mesh/host 8]]}]
+    (inject! c 9 forged)
+    (let [s (dht/step s 64)]
+      (is (empty? (dht/routing-entries s)))
+      (is (empty? (:cookies s)))
+      (is (not-any? #(= 8 (:port %)) (dht/routing-entries s)))
+      (testing "a matched find reply keeps claimed contacts as candidates only"
+        (inject! c 2 (assoc forged :id (dht/hex->bytes (mesh/node-id 2))))
+        (let [s (dht/step (assoc-in s [:queries [mesh/host 2 q] :op] :find) 64)]
+          (is (some #(= 2 (:port %)) (dht/routing-entries s)))
+          (is (not-any? #(= 8 (:port %)) (dht/routing-entries s))))))))
 
 
 (deftest first-contact-is-a-padded-ping
@@ -276,7 +309,7 @@
             (is (some? reply))
             (is (= (hex (get-in reply [:message :cookie]))
                    (hex (get-in st [:message :cookie]))))
-            (is (= (hex (dht/cookie-for 0 mesh/host 1))
+            (is (= (hex (dht/cookie-for mesh/secret 0 mesh/host 1))
                    (hex (get-in st [:message :cookie])))))))
       (testing "replication continues after the acknowledgement"
         (let [states (mesh/step-all (assoc states 1 s) 6)
@@ -383,6 +416,36 @@
                  ::dht/reason ::dht/too-few-peers, ::dht/peers 1,
                  ::dht/local :inserted}]
                (fact-of a ::dht/unacknowledged)))))))
+
+
+(deftest lookup-reaches-the-next-peer-beyond-dead-nearest-twenty
+  (let [net (mesh/mesh)
+        a (mesh/join! net 1 {::dht/tries 1 ::dht/query-ticks 2
+                             ::dht/get-ticks 100})
+        value [:next-nearest]
+        address (jing/segment-key value)
+        target (jing/segment-hash address)
+        peers (mapv (fn [p] {:id (mesh/node-id p) :host mesh/host :port p})
+                    (range 2 23))
+        table (reduce #(kad/observe %1 (::dht/id (dht/state a)) %2) {} peers)
+        live (last (kad/nearest table target 21))
+        b (mesh/join! net (:port live) {::dht/publish? true})
+        _ (jing/materialize! (:local b) value)]
+    (mesh/request! a (get-request "next" value))
+    (loop [sa (assoc (dht/state a) :table table)
+           sb (dht/state b)
+           tick 0]
+      (if (or (> tick 80) (seq (mesh/answers a)))
+        (do
+          (is (= 21 (count (kad/nearest table target 21))))
+          (is (= {:jing/request "next" :jing/found? true :jing/bytes (b64 value)}
+                 (last (mesh/answers a))))
+          (is (some #(= [mesh/host (:port live)] (:to %)) (mesh/sent net)))
+          (is (not-any? (at-port? (:port (first (kad/nearest table target 21))))
+                        (dht/routing-entries sa))))
+        (do (mesh/tick! a tick)
+            (mesh/tick! b tick)
+            (recur (dht/step sa 64) (dht/step sb 64) (inc tick)))))))
 
 
 (deftest every-at-once-unacknowledged-reason
@@ -797,7 +860,7 @@
       (doseq [[[_ port q] _] late]
         (inject! c port {::dht/v 1, :op :reply, :q q,
                          :id (dht/hex->bytes (mesh/node-id port)),
-                         :cookie (dht/cookie-for 0 mesh/host 1),
+                         :cookie (dht/cookie-for mesh/secret 0 mesh/host 1),
                          :ok true}))
       ;; budget 2: both late replies are read, and the round robin advances
       ;; the skipped write first
@@ -904,6 +967,55 @@
                   (mesh/sent-from net 1)))))))
 
 
+(deftest inbound-storage-bound-refuses-explicitly
+  (let [net (mesh/mesh)
+        val-a [:bound-test "A"]
+        val-c [:bound-test "C"]
+        val-b [:bound-test "BB"]
+        addr-a (jing/segment-key val-a)
+        addr-b (jing/segment-key val-b)
+        addr-c (jing/segment-key val-c)
+        bs-a (jing/canonical-bytes val-a)
+        bs-b (jing/canonical-bytes val-b)
+        bs-c (jing/canonical-bytes val-c)
+        sz-a (mesh/byte-count bs-a)
+        sz-b (mesh/byte-count bs-b)
+        sz-c (mesh/byte-count bs-c)
+        bound (* 2 sz-a)
+        a (mesh/join! net 1 {::dht/publish? true ::dht/max-inbound-bytes bound})
+        _ (mesh/join! net 9)
+        cookie (dht/cookie-for mesh/secret 0 mesh/host 9)
+        id (dht/hex->bytes (mesh/node-id 9))
+        req (fn [q addr bs]
+              {::dht/v 1 :op :store :q q
+               :id id :cookie cookie :address addr :bytes bs})]
+    (is (<= sz-b bound) "B fits the whole bound by itself")
+    (is (> (+ sz-a sz-b) bound) "B does not fit after A is stored")
+    (is (= (+ sz-a sz-c) bound) "C is exactly the remaining capacity after A")
+    (testing "store A ok"
+      (inject! a 9 (req 1 addr-a bs-a))
+      (dht/step (dht/state a) 64)
+      (is (true? (:ok (:message (last (mesh/sent net))))))
+      (is (= val-a (jing/get (:local a) addr-a nil))))
+    (testing "A again ok"
+      (inject! a 9 (req 2 addr-a bs-a))
+      (dht/step (dht/state a) 64)
+      (is (true? (:ok (:message (last (mesh/sent net)))))))
+    (testing "B refused"
+      (inject! a 9 (req 3 addr-b bs-b))
+      (dht/step (dht/state a) 64)
+      (is (false? (:ok (:message (last (mesh/sent net))))))
+      (is (nil? (jing/get (:local a) addr-b nil))))
+    (testing "local holds A only"
+      (is (= val-a (jing/get (:local a) addr-a nil)))
+      (is (nil? (jing/get (:local a) addr-b nil))))
+    (testing "plus a store at exactly the bound -> accepted"
+      (inject! a 9 (req 4 addr-c bs-c))
+      (dht/step (dht/state a) 64)
+      (is (true? (:ok (:message (last (mesh/sent net))))))
+      (is (= val-c (jing/get (:local a) addr-c nil))))))
+
+
 (deftest chunked-store-crosses-multiple-datagrams
   (let [{:keys [net comps states]} (warm)
         a (comps 1)
@@ -922,7 +1034,7 @@
         peers (mapv (fn [port] [id "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff" port])
                     (range 65528 65536))
         reply {::dht/v 1 :op :reply :q 9007199254740991
-               :id id :cookie (dht/cookie-for 0 "127.0.0.1" 65535)
+               :id id :cookie (dht/cookie-for mesh/secret 0 "127.0.0.1" 65535)
                :peers peers}]
     (is (= 8 (count peers)))
     (is (<= #?(:cljd (.-length (wire/encode reply))
@@ -1005,7 +1117,7 @@
 (deftest chunk-partials-have-a-per-source-share
   (let [net (mesh/mesh)
         c (mesh/join! net 1 {::dht/max-partial-messages 8})
-        cookie (dht/cookie-for 0 mesh/host 9000)
+        cookie (dht/cookie-for mesh/secret 0 mesh/host 9000)
         piece (wire/encode :piece)]
     (mesh/tick! c 0)
     (doseq [q (range 3)]
@@ -1023,13 +1135,64 @@
       (is (not (contains? (:partial state) [mesh/host 9000 :request 0]))))))
 
 
+(deftest unproven-chunks-never-amplify-or-allocate
+  (let [net (mesh/mesh)
+        c (mesh/join! net 1)
+        result
+        (loop [n 1, s (dht/state c), checked 0, safe? true, replied 0]
+          (if (> n 1200)
+            [checked safe? replied]
+            (let [m {::dht/v 1 :op :chunk :q n :dir :request
+                     :part 0 :parts 2 :bytes (zeros (max 0 (- n 120)))}
+                  bs (wire/encode m)]
+              (if (> (mesh/byte-count bs) 1200)
+                (recur (inc n) s checked safe? replied)
+                (do
+                  (inject! c 9000 m)
+                  (let [before (mesh/log-size net)
+                        next (dht/step s 1)
+                        replies (drop before (mesh/sent net))]
+                    (recur (inc n) next (inc checked)
+                           (and safe?
+                                (<= (count replies) 1)
+                                (every? #(<= (:size %) (mesh/byte-count bs)) replies)
+                                (empty? (:partial next))
+                                (empty? (dht/routing-entries next)))
+                           (+ replied (count replies)))))))))]
+    (is (pos? (nth result 0)))
+    (is (true? (nth result 1)))
+    (is (pos? (nth result 2)) "At least one iteration produced a reply when it fit")))
+
+
+(deftest every-raw-datagram-size-through-the-budget-is-silent-when-unproven
+  (let [net (mesh/mesh)
+        c (mesh/join! net 1)]
+    (is
+      (true?
+        (loop [n 1, s (dht/state c), safe? true]
+          (if (> n 1200)
+            safe?
+            (do
+              (stream/append! (:traffic c)
+                              {:dao.stream.datagram/source
+                               {:dao.stream.datagram/host mesh/host
+                                :dao.stream.datagram/port 9000}
+                               :dao.stream.datagram/bytes
+                               (jing/bytes->base64 (zeros n))})
+              (let [next (dht/step s 1)]
+                (recur (inc n) next
+                       (and safe?
+                            (zero? (mesh/log-size net))
+                            (empty? (:partial next))))))))))))
+
+
 (deftest chunk-partials-are-evicted-by-tick-age
   (let [net (mesh/mesh)
         c (mesh/join! net 1 {::dht/query-ticks 10})
         source-port 9000
         chunk {::dht/v 1 :op :chunk :q 1 :dir :request
                :part 0 :parts 2
-               :cookie (dht/cookie-for 0 mesh/host source-port)
+               :cookie (dht/cookie-for mesh/secret 0 mesh/host source-port)
                :bytes (wire/encode :piece)}]
     (mesh/tick! c 0)
     (stream/append! (:traffic c)

@@ -495,15 +495,13 @@ Implemented backends:
   get reads `:local` only. A remote miss is a `:jing/get` through
   `dao.jing.content.step`, answered on a later step, or, on the JVM,
   `dao.jing.dht.facade/start!`, whose driver thread steps the DHT and whose
-  get waits on `dao.jing.content.driver`. **Status 2026-09-30 (slice S2):**
-  the core, the whole section-8 cookie protocol with the S2 stand-in
-  `cookie-for`, pending writes and gets, solo mode and the JVM facade are
-  built and tested over in-memory sockets (ring buffers carrying raw
-  datagram values); single-datagram messages only. Real sockets and chunks
-  are S3, the keyed cookie S4; non-loopback exposure waits for S4. The
-  former waiting surface (`IDhtNet`, `lookup`, `create-content-dht`) stays
-  until S3, which deletes it together with `dao.jing.dht.node`, the
-  transport that implements and calls it; the S2 core does not use it.
+  get waits on `dao.jing.content.driver`. **Status 2026-10-01 (slice S4):**
+  the core, the whole section-8 cookie protocol (including the keyed MAC
+  `cookie-for`), pending writes and gets, solo mode and the JVM facade are
+  built and tested over in-memory sockets; single-datagram messages and
+  chunks are supported. Exposure is gated by the secret and the bound.
+  The former waiting surface (`IDhtNet`, `lookup`, `create-content-dht`) is
+  gone.
 
 **The observer is implemented.** `observer-state` and `observe-step!` provide
 the explicit intake-pool walk described in *Cursor tracking and recovery*,
