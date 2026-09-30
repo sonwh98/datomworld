@@ -735,7 +735,8 @@
    The query call pair is the session's too (`yin.repl.query/make-pair`):
    the VM's half is its FFI pair, the interpreter's half with its request
    cursor sits under `:query-pair`, and the interpreter answers from the
-   session's `:indexer` as it stands when it serves."
+   session's `:indexer`, and `:ast-indexer` for `$ast` and `$occ`, as they
+   stand when it serves."
   [vm-type output-stream extra-primitives shell-token index-store]
   (let [pair (link/make-pair)
         query-pair (query/make-pair query-pair-capacity)
@@ -1145,6 +1146,7 @@
               answered (when query?
                          (query/serve {:pair (:query-pair state)
                                        :indexer (:indexer state)
+                                       :ast-indexer (:ast-indexer state)
                                        :limits {:row-limit query-row-limit
                                                 :byte-limit query-byte-limit}
                                        :budget (min query-serve-budget

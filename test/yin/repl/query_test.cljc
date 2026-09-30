@@ -11,6 +11,7 @@
             [dao.stream.observer :as observer]
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
+            [yin.repl.ast-index :as ast-index]
             [yin.repl.index :as repl.index]
             [yin.repl.query :as query]
             [yin.vm.macro :as macro]))
@@ -453,6 +454,174 @@
           (is (str/starts-with? text "Error: FFI call failed: "))
           (is (str/includes? text "(:yin.repl.query/invalid-input)")))
         (is (str/includes? host-fn "portable Yin data only"))))))
+
+
+;; =============================================================================
+;; $ast and $occ
+;; =============================================================================
+
+(def ^:private ast-names
+  '[:find ?name :in $ast :where [$ast ?id :variable ?name]])
+
+
+(def ^:private inc-lines
+  ["(defn inc [i] (+ i 1))" require-line])
+
+
+(defn- evaluate-after-inc
+  "The texts of `lines` evaluated after `inc-lines` on `vm-type`, and the
+   final state."
+  [vm-type lines]
+  (let [[state texts] (evaluate (repl/create-state {:vm-type vm-type})
+                                (into inc-lines lines))]
+    [state (vec (drop (count inc-lines) texts))]))
+
+
+(deftest ast-and-occ-are-supplied-when-named-in-in
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[state [names history map-form tag i-path joined sources-late
+                    occ-count]]
+            (evaluate-after-inc
+              vm-type
+              [(q-line ast-names)
+               (q-line ast-names "{:view :history}")
+               (q-line '{:find [?name] :in [$ast]
+                         :where [[$ast ?id :variable ?name]]})
+               (q-line '[:find ?tag . :in $ast ?n :where [$ast ?id ?tag ?n]]
+                       "(quote inc)")
+               (q-line '[:find ?path :in $occ $ast
+                         :where [$ast ?node :variable i]
+                         [$occ ?root ?path ?node]])
+               (q-line '[:find ?path :in $ $ast $occ ?n
+                         :where [?e :yin/type :variable] [?e :yin/name ?n]
+                         [$ast ?node :variable ?n] [$occ ?root ?path ?node]]
+                       "(quote i)")
+               (q-line '[:find ?path :in ?n $occ $ast
+                         :where [?e :yin/name ?n]
+                         [$ast ?node :variable ?n] [$occ ?root ?path ?node]]
+                       "(quote i)")
+               (q-line '[:find (count ?path) . :with ?root :in $occ
+                         :where [$occ ?root ?path ?node]])])
+            occurrences (:occ (ast-index/relations (:ast-indexer state)))]
+        (is (every? #(str/includes? names (pr-str [%])) '[yin/def + i])
+            "the variable rows of (defn inc ...) are $ast rows")
+        (is (= names history map-form)
+            "$ast is the same relation under either view and either query form")
+        (is (= ":literal" tag) "a caller input follows the named source")
+        (is (= (str (count occurrences)) occ-count)
+            "$occ holds every [root path node] the session observed, the
+             asking program's own included")
+        (is (= "#{[[[3 1] 3 [3 0]]]}" i-path)
+            "the one place of i, joined through $ast")
+        (is (= i-path joined) "$, $ast and $occ join in one query")
+        (is (= i-path sources-late)
+            "sources declared after a caller input are still the session's")))))
+
+
+(deftest ast-sources-are-not-caller-inputs
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[_ [too-few too-many unnamed]]
+            (evaluate-after-inc
+              vm-type
+              [(q-line '[:find ?tag . :in $ast ?n :where [$ast ?id ?tag ?n]])
+               (q-line '[:find ?tag . :in $ast ?n :where [$ast ?id ?tag ?n]]
+                       "(quote inc)" "(quote i)")
+               (q-line '[:find ?name :where [$ast ?id :variable ?name]])])]
+        (doseq [text [too-few too-many]]
+          (is (str/includes? text "(:yin.repl.query/query-failed)") text)
+          (is (str/includes? text "input arity") text))
+        (is (= "#{}" unnamed)
+            "a query without :in has only the implicit $; $ast binds nothing")))))
+
+
+(defn- lossy-observer
+  "An observer that reports a gap on its first read."
+  []
+  (let [writer (:dao.stream/handle
+                 (ring/create! {:dao.stream/type ring/transport-type
+                                ring/capacity-key 1}))
+        descriptor (:dao.stream/descriptor (stream/descriptor writer))
+        lossy (observer/attach
+                (ring/make-attacher {(:dao.stream/identity descriptor)
+                                     writer})
+                descriptor)]
+    (doseq [v [1 2]]
+      (stream/append! writer (macro/ast->packet {:type :literal, :value v})))
+    lossy))
+
+
+(deftest an-unavailable-ast-index-refuses-only-ast-queries
+  (doseq [[label break] [["a lost AST indexer"
+                          #(assoc-in % [:ast-indexer :observer]
+                                     (lossy-observer))]
+                         ["a failed AST indexer"
+                          #(assoc-in % [:ast-indexer :failure]
+                                     {:stage :packet, :reason :shape})]]
+          vm-type vm-types]
+    (testing (str label " " vm-type)
+      (let [[state _] (evaluate (repl/create-state {:vm-type vm-type})
+                                inc-lines)
+            [_ [ast occ datoms]]
+            (evaluate (break state)
+                      [(q-line ast-names)
+                       (q-line '[:find ?p :in $occ :where [$occ ?r ?p ?n]])
+                       (q-line '[:find ?e . :where [?e :yin/value inc]])])]
+        (doseq [text [ast occ]]
+          (is (str/starts-with? text "Error: FFI call failed: $ast and $occ are unavailable")
+              text)
+          (is (str/includes? text "(:yin.repl.query/index-unavailable)") text))
+        (is (re-matches #"\d+\nWarning: the AST index .*" datoms)
+            "a datom-only query still answers, carrying the round's warning")))))
+
+
+(deftest ast-results-over-a-limit-refuse-naming-it
+  (testing "the shell's row limit, on every VM"
+    (doseq [vm-type vm-types]
+      (testing (str vm-type)
+        (let [[_ [_ _ text]]
+              (evaluate (repl/create-state {:vm-type vm-type})
+                        [require-line
+                         (str "(+ " (str/join " " (range 1100)) ")")
+                         (q-line '[:find ?v :in $ast
+                                   :where [$ast ?id :literal ?v]])])]
+          (is (str/includes? text "(:yin.repl.query/result-limit)"))
+          (is (str/includes? text (str "over the limit of " repl/query-row-limit)))))))
+  (let [[state _] (evaluate (repl/create-state) ["(defn inc [i] (+ i 1))"])
+        ask (fn [limits query]
+              (apply2/response-error
+                (query/answer (:indexer state) (:ast-indexer state) limits
+                              (apply2/request 1 query/op [query]))))
+        mixed '[:find ?n ?path :in $ $ast $occ
+                :where [?e :yin/name ?n] [$ast ?node :variable ?n]
+                [$occ ?root ?path ?node]]]
+    (is (= {:rows 2}
+           (:yin.repl.query/limit (ask {:row-limit 2, :byte-limit 100000} mixed)))
+        "a mixed-source result is bound by the row limit")
+    (is (= {:bytes 8}
+           (:yin.repl.query/limit (ask {:row-limit 1000, :byte-limit 8} mixed)))
+        "and by the byte limit")
+    (is (nil? (ask {:row-limit 1000, :byte-limit 100000} mixed)))))
+
+
+(deftest ast-sources-are-read-when-the-call-is-answered
+  (let [[state _] (evaluate (repl/create-state) ["(defn inc [i] (+ i 1))"])
+        ask (fn [ast-indexer]
+              (query/answer (:indexer state) ast-indexer
+                            {:row-limit 1000, :byte-limit 100000}
+                            (apply2/request 1 query/op [ast-names])))
+        [later _] (evaluate state ["(def x y)"])]
+    (is (contains? (apply2/response-ok (ask (:ast-indexer later))) '[y])
+        "the answer reflects the AST indexer it is handed")
+    (is (not (contains? (apply2/response-ok (ask (:ast-indexer state))) '[y])))
+    (is (= :yin.repl.query/index-unavailable
+           (:dao.stream.apply/code
+             (apply2/response-error
+               (query/answer (:indexer state)
+                             {:row-limit 1000, :byte-limit 100000}
+                             (apply2/request 1 query/op [ast-names])))))
+        "a bridge handed no AST indexer refuses $ast")))
 
 
 ;; =============================================================================

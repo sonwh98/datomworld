@@ -30,6 +30,14 @@
    call, because an older manifest must not be presented as complete.  A
    session that has committed nothing is a valid empty database.
 
+   A query that names `$ast` or `$occ` under `:in` is also given the AST
+   indexer's relations (`yin.repl.ast-index`), after `$` and in declared
+   order: `$ast` rows match `[id tag & slots]` at their exact arity, `$occ`
+   tuples `[root path node]`.  They are the same session-to-date relations
+   under either view; `:view` selects only the `$` datom view.  They are
+   read from the AST indexer the shell holds when it serves, and a lost or
+   failed one refuses such a query while datom-only queries still answer.
+
    Answers and refusals are portable data.  Refusals use the FFI error
    envelope under a stable code: `::index-unavailable`, `::invalid-input`,
    `::result-limit`, or `::query-failed` for a query the engine rejects.
@@ -43,6 +51,7 @@
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [dao.stream.ringbuffer :as ring]
+            [yin.repl.ast-index :as ast-index]
             [yin.repl.index :as repl.index]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
@@ -290,6 +299,28 @@
                             (or (ex-message e) (str e)))))))))
 
 
+(defn- ast-relations
+  "The relations `patterns` name, in order, from `ast-indexer` as it
+   stands, or a refusal when it is absent, lost or failed.  They are the
+   same session-to-date relations under either view."
+  [ast-indexer patterns]
+  (if (empty? patterns)
+    []
+    (if-let [{:keys [ast occ]} (some-> ast-indexer ast-index/relations)]
+      (mapv {'$ast (query/relation ast), '$occ (query/relation occ)} patterns)
+      (let [{:keys [lost? failure]} (some-> ast-indexer ast-index/status)]
+        (refusal ::index-unavailable
+                 (str "$ast and $occ are unavailable: "
+                      (cond (nil? ast-indexer) "the session has no AST index"
+                            lost? "a program batch was lost before it was indexed"
+                            :else (str "a program was refused ("
+                                       (name (or (:reason failure)
+                                                 (:stage failure)))
+                                       ")"))
+                      "; (reset) rebuilds them")
+                 nil)))))
+
+
 (defn- byte-length
   [bs]
   #?(:cljd (.-length ^Uint8List bs)
@@ -313,11 +344,23 @@
       (when marker (vec (take-while (complement keyword?) after))))))
 
 
+(def ^:private ast-sources
+  "The AST relations a query names under `:in` to have the shell supply
+   them (yin.repl.ast-index)."
+  #{'$ast '$occ})
+
+
 (defn- caller-patterns
   "The `:in` patterns the caller's inputs fill: every declared pattern but
-   the implicit index `$`."
+   the session's sources, the implicit index `$` and the AST relations."
   [query]
-  (vec (remove #{'$} (in-patterns query))))
+  (vec (remove #(or (= '$ %) (contains? ast-sources %)) (in-patterns query))))
+
+
+(defn- ast-patterns
+  "The AST relations `query` names under `:in`, in declared order."
+  [query]
+  (filterv #(contains? ast-sources %) (in-patterns query)))
 
 
 (defn- split-args
@@ -338,13 +381,14 @@
 
 
 (defn- with-index
-  "`query` with the index bound to `$`, the first database input it names.
-   The index is implicit: a query's `:in` names only the caller's inputs,
-   with or without `$` among them, and those inputs fill the other
-   patterns in order.  A query without `:in` takes none."
+  "`query` with the index bound to `$`, the first database input it names,
+   then the AST relations it names, in declared order.  The index is
+   implicit: a query's `:in` names only the caller's inputs, with or
+   without `$` among them, and those inputs fill the other patterns in
+   order.  A query without `:in` takes none."
   [query]
   (let [declared (in-patterns query)
-        in (into ['$] (caller-patterns query))]
+        in (-> ['$] (into (ast-patterns query)) (into (caller-patterns query)))]
     (cond (nil? declared) query
           (map? query) (assoc query :in in)
           :else (let [[before [_ & after]] (split-with #(not= :in %) query)]
@@ -416,41 +460,50 @@
 
 
 (defn answer
-  "The response to one call-pair `request`, answered from `indexer`
-   under `limits` (`{:row-limit n :byte-limit n}`)."
-  [indexer limits request]
-  (let [id (apply2/request-id request)
-        [query & more] (apply2/request-args request)
-        answer (cond
-                 (not= op (apply2/request-op request))
-                 (refusal :dao.stream.apply/unknown-operation
-                          "No handler for operation"
-                          nil)
+  "The response to one call-pair `request`, answered from `indexer`, and
+   from `ast-indexer` for a query naming `$ast` or `$occ`, under `limits`
+   (`{:row-limit n :byte-limit n}`).  Without an AST indexer such a query
+   is refused."
+  ([indexer limits request]
+   (answer indexer nil limits request))
+  ([indexer ast-indexer limits request]
+   (let [id (apply2/request-id request)
+         [query & more] (apply2/request-args request)
+         answer (cond
+                  (not= op (apply2/request-op request))
+                  (refusal :dao.stream.apply/unknown-operation
+                           "No handler for operation"
+                           nil)
 
-                 (nil? (encoded-size (apply2/request-args request)))
-                 (invalid (str "q takes portable Yin data only: nil, booleans,"
-                               " numbers, strings, keywords, symbols, and"
-                               " vectors, lists, sets and maps of them"))
+                  (nil? (encoded-size (apply2/request-args request)))
+                  (invalid (str "q takes portable Yin data only: nil, booleans,"
+                                " numbers, strings, keywords, symbols, and"
+                                " vectors, lists, sets and maps of them"))
 
-                 (not (or (vector? query) (map? query)))
-                 (invalid (str "q expects a query vector or map, got "
-                               (pr-str query)))
+                  (not (or (vector? query) (map? query)))
+                  (invalid (str "q expects a query vector or map, got "
+                                (pr-str query)))
 
-                 :else
-                 (let [split (split-args query more)
-                       [inputs options] (when-not (refused? split) split)
-                       view (when-not (refused? split) (view-of options))
-                       db (when-not (or (refused? split) (refused? view))
-                            (snapshot indexer))]
-                   (cond
-                     (refused? split) split
-                     (refused? view) view
-                     (refused? db) db
-                     :else (evaluate db view (with-index query) inputs
-                                     limits))))]
-    (if (refused? answer)
-      {apply2/id-key id, apply2/error-key answer}
-      (apply2/success-response id (:ok answer)))))
+                  :else
+                  (let [split (split-args query more)
+                        [inputs options] (when-not (refused? split) split)
+                        view (when-not (refused? split) (view-of options))
+                        db (when-not (or (refused? split) (refused? view))
+                             (snapshot indexer))
+                        sources (when-not (or (refused? split) (refused? view)
+                                              (refused? db))
+                                  (ast-relations ast-indexer
+                                                 (ast-patterns query)))]
+                    (cond
+                      (refused? split) split
+                      (refused? view) view
+                      (refused? db) db
+                      (refused? sources) sources
+                      :else (evaluate db view (with-index query)
+                                      (into sources inputs) limits))))]
+     (if (refused? answer)
+       {apply2/id-key id, apply2/error-key answer}
+       (apply2/success-response id (:ok answer))))))
 
 
 ;; =============================================================================
@@ -459,14 +512,14 @@
 
 (defn serve
   "One serve round of the query interpreter over `pair`: answer every
-   request its cursor has not consumed, from `indexer` as it stands now,
-   at most `budget` of them.  A response is appended before the cursor
+   request its cursor has not consumed, from `indexer` and `ast-indexer`
+   as they stand now, at most `budget` of them.  A response is appended before the cursor
    moves past its request; one the call-out refuses leaves the request to
    be re-read.  A value that is not a request envelope is consumed
    unanswered: no call made it.  Returns
    `{:pair pair :progress? bool :answered n}`, `n` the responses
    appended."
-  [{:keys [pair indexer limits budget]}]
+  [{:keys [pair indexer ast-indexer limits budget]}]
   (loop [pair pair
          remaining budget
          progress? false
@@ -477,7 +530,7 @@
         {:pair pair, :progress? progress?, :answered answered}
         (let [request (:dao.stream/value r)
               response (when (apply2/request? request)
-                         (answer indexer limits request))
+                         (answer indexer ast-indexer limits request))
               landed? (or (nil? response)
                           (= :dao.stream/ok
                              (:dao.stream/outcome
