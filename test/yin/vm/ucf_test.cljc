@@ -11,6 +11,7 @@
             [dao.jing :as jing]
             [dao.stream :as stream]
             [yin.vm :as vm]
+            [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.ucf :as ucf]))
@@ -678,7 +679,8 @@
 
 
 (deftest effectful-call-conformance-test
-  (let [blocking-next (fn [cursor] {:effect :stream/next, :cursor cursor})
+  (let [blocking-next (fn [cursor]
+                        (module/make-effect :stream/next {:cursor cursor}))
         batch (assemble (segment 7)
                         (instruction 0 :var :yin.code/name 'blocking-next)
                         (instruction 1 :push)

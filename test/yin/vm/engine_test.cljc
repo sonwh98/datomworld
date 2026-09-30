@@ -250,9 +250,10 @@
   (testing "A :stream/take effect reaches no branch and no registered handler"
     (is (throws? (fn []
                    (engine/handle-effect (state {:modules (module/default-registry)})
-                                         {:effect :stream/take,
-                                          :stream {:type :stream-ref,
-                                                   :id :stream-0}}
+                                         (module/make-effect
+                                           :stream/take
+                                           {:stream {:type :stream-ref,
+                                                     :id :stream-0}})
                                          {}))))))
 
 
@@ -299,14 +300,14 @@
                      :test/ping
                      (fn [s _e _o] {:state s, :value :pong, :blocked? false}))
           r (engine/handle-effect (state {:modules registry})
-                                  {:effect :test/ping}
+                                  (module/make-effect :test/ping)
                                   {})]
       (is (= :pong (:value r)))))
   (testing "An unknown effect is an error"
     (is (throws? (fn []
                    (engine/handle-effect (state {:modules
                                                  (module/empty-registry)})
-                                         {:effect :test/nope}
+                                         (module/make-effect :test/nope)
                                          {}))))))
 
 
@@ -793,7 +794,8 @@
 (deftest handle-effect-emits-an-effect-snapshot-test
   (let [sink (tu/new-memory-log)
         r (engine/handle-effect (state {:telemetry {:stream sink}})
-                                {:effect :vm/store-put, :key :probe, :val 42}
+                                (module/make-effect :vm/store-put
+                                                    {:key :probe, :val 42})
                                 {})]
     (testing "A handled effect emits exactly one :effect snapshot"
       (is (= 42 (:value r)))

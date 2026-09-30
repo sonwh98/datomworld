@@ -1,6 +1,7 @@
 (ns yin.vm.module-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
+            [yin.vm.effect :as effect]
             [yin.vm.module :as module]))
 
 
@@ -44,7 +45,7 @@
     (let [r (module/register-host-module
               (module/empty-registry)
               'my.lib
-              {'inc* inc, 'emit (fn [x] {:effect :test/x, :val x})}
+              {'inc* inc, 'emit (fn [x] (module/make-effect :test/x {:val x}))}
               {'inc* (profile 'inc* [1]),
                'emit (profile 'emit [1] #{:test/x})})]
       (is (= inc (module/resolve-module r 'my.lib.inc*)))
@@ -122,12 +123,21 @@
 
 (deftest stream-module-test
   (testing "The stream module is pure effect constructors"
-    (is (= {:effect :stream/put, :stream :s, :val 1} (module/put! :s 1)))
-    (is (= {:effect :stream/cursor, :stream :s} (module/cursor :s)))
-    (is (= {:effect :stream/next, :cursor :c} (module/next! :c)))
-    (is (= {:effect :stream/close, :stream :s} (module/close! :s)))
-    (is (= {:effect :stream/make, :capacity nil} (module/make)))
-    (is (= {:effect :stream/make, :capacity 8} (module/make 8))))
+    (is (every? module/effect?
+                [(module/put! :s 1) (module/cursor :s) (module/next! :c)
+                 (module/close! :s) (module/make) (module/make 8)]))
+    (is (= {:effect :stream/put, :stream :s, :val 1}
+           (effect/descriptor (module/put! :s 1))))
+    (is (= {:effect :stream/cursor, :stream :s}
+           (effect/descriptor (module/cursor :s))))
+    (is (= {:effect :stream/next, :cursor :c}
+           (effect/descriptor (module/next! :c))))
+    (is (= {:effect :stream/close, :stream :s}
+           (effect/descriptor (module/close! :s))))
+    (is (= {:effect :stream/make, :capacity nil}
+           (effect/descriptor (module/make))))
+    (is (= {:effect :stream/make, :capacity 8}
+           (effect/descriptor (module/make 8)))))
   (testing "take! is deliberately absent"
     (is (nil? (get module/stream-module 'take!)))
     (is (= #{'make 'put! 'cursor 'next! 'close!}
@@ -156,17 +166,18 @@
                                          {'a (constantly 1)}
                                          {'a (profile 'a [0])})
           {:keys [value blocked?]} (module/require-handler {:modules r}
-                                                           {:effect
-                                                            :module/require,
-                                                            :module 'my.lib}
+                                                           (module/make-effect
+                                                             :module/require
+                                                             {:module 'my.lib})
                                                            {})]
       (is (= 'my.lib value))
       (is (false? blocked?))))
   (testing "An absent module is an error; the host require does not survive"
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
           (module/require-handler {:modules (module/empty-registry)}
-                                  {:effect :module/require,
-                                   :module 'clojure.string}
+                                  (module/make-effect
+                                    :module/require
+                                    {:module 'clojure.string})
                                   {})))))
 
 

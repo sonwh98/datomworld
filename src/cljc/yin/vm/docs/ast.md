@@ -782,7 +782,7 @@ polls; the scheduler drains the wait set on its own pass (see
 **Implementation (from `ast_walker.cljc`):**
 ```clojure
 :stream/make (let [capacity (or (:buffer node) vm/default-stream-capacity)
-                   effect {:effect :stream/make, :capacity capacity}
+                   effect (module/make-effect :stream/make {:capacity capacity})
                    {:keys [state value]} (engine/handle-effect state effect
                                           {:restore-fn ast-walker-restore})]
                (cesk-return state nil env k value))
@@ -826,7 +826,7 @@ room.
 :eval-stream-put-val
 (let [val (:value state)
       stream-ref (:stream-ref k)
-      effect {:effect :stream/put, :stream stream-ref, :val val}
+      effect (module/make-effect :stream/put {:stream stream-ref, :val val})
       {:keys [state value blocked?]}
       (engine/handle-effect state effect
         {:restore-fn ast-walker-restore,
@@ -859,7 +859,7 @@ room.
 
 :eval-stream-cursor-source
 (let [stream-ref (:value state)
-      effect {:effect :stream/cursor, :stream stream-ref}
+      effect (module/make-effect :stream/cursor {:stream stream-ref})
       {:keys [state value]} (engine/handle-effect state effect
                              {:restore-fn ast-walker-restore})]
   (cesk-return state nil env (:next k) value))
@@ -891,7 +891,7 @@ the transport's own outcome carries it forward.
 
 :eval-stream-next-cursor
 (let [cursor-ref (:value state)
-      effect {:effect :stream/next, :cursor cursor-ref}
+      effect (module/make-effect :stream/next {:cursor cursor-ref})
       {:keys [state value blocked?]}
       (engine/handle-effect state effect
         {:restore-fn ast-walker-restore,
@@ -920,8 +920,8 @@ the transport's own outcome carries it forward.
 > The walker's `case` has no `:stream/close` arm — evaluating this node
 > throws `"Unknown AST node type"`. `docs/design/yin.vm.code-as-tuples.md`
 > §3.2 specifies the frame this arm needs (shaped like
-> `:eval-stream-cursor-source` above, raising `{:effect :stream/close
-> :stream ref}` through `engine/handle-effect`), and its own
+> `:eval-stream-cursor-source` above, raising `(module/make-effect :stream/close
+> {:stream ref})` through `engine/handle-effect`), and its own
 > implementation plan schedules it as unit U1 — an afternoon of work, no
 > decision pending. Do not write code against this node type until that
 > unit lands; it will throw today.

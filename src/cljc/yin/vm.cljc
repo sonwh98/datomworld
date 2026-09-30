@@ -26,7 +26,8 @@
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.space.query :as query]
-            [dao.stream :as stream]))
+            [dao.stream :as stream]
+            [yin.vm.effect :as effect]))
 
 
 ;; =============================================================================
@@ -387,7 +388,7 @@
                        'require
                        (fn [spec]
                          (let [ns-sym (if (vector? spec) (first spec) spec)]
-                           {:effect :module/require, :module ns-sym}))
+                           (effect/make :module/require {:module ns-sym})))
                        :effectful [1] #{:module/require})]])))
 
 
@@ -1943,6 +1944,43 @@
                 reserved-names)))))
 
 
+(defn callable-effects
+  "The identity-keyed map from each profiled primitive's host function to
+   its declared effect set (D4): `primitives` maps name to entry,
+   `profiles` name to profile. A function published under several names
+   declares the union of their sets. Built at installation, so the
+   engine checks an effect's kind against its callee without a reverse
+   lookup."
+  [primitives profiles]
+  (reduce-kv (fn [m name profile]
+               (if-let [f (primitive-function (get primitives name))]
+                 (update m f (fnil into #{}) (:yin.k/effects profile))
+                 m))
+             {}
+             (or profiles {})))
+
+
+(defn primitive-effects-index
+  "A VM's `:callable-effects`: `{:primitives p :index i}`, where `i` is
+   `callable-effects` over primitives map `p`, each name profiled by
+   `profiles` or else by its own entry. `p` is the map the index was
+   built from; the engine rebuilds the index when a VM's `:primitives`
+   is no longer `identical?` to it, so a primitive added later is
+   checked too."
+  [primitives profiles]
+  {:primitives primitives,
+   :index (callable-effects primitives
+                            (merge (into {}
+                                         (keep (fn [[name _]]
+                                                 (when-let [profile
+                                                            (profile-of
+                                                              primitives
+                                                              name)]
+                                                   [name profile])))
+                                         primitives)
+                                   profiles))})
+
+
 (defn empty-state
   "Return an initial immutable VM state map.
 
@@ -2019,6 +2057,8 @@
                                                               name)]
                                                    [name profile])))
                                       installed-primitives))
+         callable-effects (primitive-effects-index installed-primitives
+                                                   installed-profiles)
          standard-aliases (into {}
                                 (filter
                                   (fn [[alias canonical]]
@@ -2112,6 +2152,7 @@
         :wait-set [],
         :primitives installed-primitives,
         :primitive-profiles installed-profiles,
+        :callable-effects callable-effects,
         :primitive-canonical-names canonical-names,
         :modules (:modules opts),
         :make-stream make-stream,

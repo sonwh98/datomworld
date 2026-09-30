@@ -29,7 +29,11 @@
   "Purely construct a normalized engine effect descriptor from a register
    instruction and the current body's complete register vector, or nil when
    the instruction produces no engine effect.
-   Precondition: `instruction` came from a validator-approved image."
+   Precondition: `instruction` came from a validator-approved image.
+
+   The descriptor is plain portable data, not an in-machine effect (D4):
+   a map is never dispatched. A kernel that dispatches it mints the effect
+   at that boundary with `module/make-effect`."
   [instruction registers]
   (case (first instruction)
     :store-put

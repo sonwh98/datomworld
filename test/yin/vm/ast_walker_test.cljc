@@ -11,6 +11,7 @@
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.module :as module]
             [yin.vm.test-utils :as tu :refer [compile-and-run create-vm
                                               queue-ast!]]))
 
@@ -225,7 +226,8 @@
     (let [calls (atom 0)
           emit! (fn []
                   (let [n (swap! calls inc)]
-                    {:effect :vm/store-put, :key :effect/calls, :val n}))
+                    (module/make-effect :vm/store-put
+                                        {:key :effect/calls, :val n})))
           result (vm/eval (create-vm {:env {'emit! emit!}})
                           {:type :application,
                            :operator {:type :variable, :name 'emit!},
@@ -243,7 +245,8 @@
                        {:type :stream/cursor,
                         :source {:type :literal, :value stream-ref}})
           cursor-ref (vm/value vm1)
-          block-next (fn [cursor] {:effect :stream/next, :cursor cursor})
+          block-next (fn [cursor]
+                       (module/make-effect :stream/next {:cursor cursor}))
           vm-with-primitive
           (assoc vm1 :env (assoc (vm/environment vm1) 'block-next block-next))
           result (vm/eval vm-with-primitive

@@ -16,7 +16,8 @@
     [clojure.string :as str]
     [dao.jing :as jing]
     [dao.stream :as stream]
-    [yin.vm :as vm]))
+    [yin.vm :as vm]
+    [yin.vm.effect :as effect]))
 
 
 ;; =============================================================================
@@ -196,9 +197,12 @@
    profile record in the shape of `yin.vm/primitive-profiles`. Every
    binding must carry a profile, and the profile's class must be `:pure`,
    or `:effectful` with a declared, non-empty `:yin.k/effects` set, with
-   `:yin.k/host-state` `:none`. An `:effectful` export returns plain
-   effect data for the engine to interpret and performs no IO itself;
-   `stream/make` is exactly such a constructor.
+   `:yin.k/host-state` `:none`. An `:effectful` export returns an
+   effect minted by `make-effect` for the engine to interpret and
+   performs no IO itself; `stream/make` is exactly such a constructor.
+   Each export's declared effect set is also entered in the registry's
+   identity-keyed `:callable-effects`, which the engine checks an
+   effect's kind against (D4).
 
    The module is entered as an already-linked manifest with
    `:yin.module/tree` absent, `:yin.module/derivations {}`, and its
@@ -209,70 +213,76 @@
   [registry module-name fns profiles]
   (doseq [sym (sort-by str (keys fns))]
     (check-binding! module-name sym (get profiles sym)))
-  (assoc-in (or registry (empty-registry))
-            (into [:modules] (symbol->path module-name))
-            {:manifest {:yin.module/name module-name,
-                        :yin.module/derivations {},
-                        :yin.module/primitives
-                        (into {} (map (fn [[sym _f]]
-                                        [sym (:yin.k/profile
-                                               (get profiles sym))]))
-                              fns)},
-             :address nil,
-             :derivation nil,
-             :slice fns,
-             :stores {}}))
+  (-> (or registry (empty-registry))
+      (update :callable-effects
+              (partial merge-with into)
+              (vm/callable-effects fns profiles))
+      (assoc-in (into [:modules] (symbol->path module-name))
+                {:manifest {:yin.module/name module-name,
+                            :yin.module/derivations {},
+                            :yin.module/primitives
+                            (into {} (map (fn [[sym _f]]
+                                            [sym (:yin.k/profile
+                                                   (get profiles sym))]))
+                                  fns)},
+                 :address nil,
+                 :derivation nil,
+                 :slice fns,
+                 :stores {}})))
 
 
 ;; =============================================================================
 ;; Effect descriptors
 ;; =============================================================================
 
-(defn effect?
-  "Check if a value is an effect descriptor."
-  [x]
-  (and (map? x) (contains? x :effect)))
+;; An effect is the host type `yin.vm.effect/Effect` (D4): `effect?` is a
+;; type test, and a map is data whatever keys it carries. `make-effect` is
+;; the trusted constructor for host code; it is never a guest primitive or
+;; module export.
+
+(def effect?
+  "True when a value is an effect minted by `make-effect`."
+  effect/effect?)
 
 
-(defn make-effect
-  "Create an effect descriptor."
-  [effect-type & {:as params}]
-  (assoc params :effect effect-type))
+(def make-effect
+  "Mint an effect: `(make-effect kind)` or `(make-effect kind params-map)`."
+  effect/make)
 
 
 ;; =============================================================================
 ;; The `stream` module
 ;; =============================================================================
 ;;
-;; These are pure data constructors. They touch no stream: Yin source calls
-;; them through the module system, they return effect maps, and the engine
+;; These are pure effect constructors. They touch no stream: Yin source calls
+;; them through the module system, they return effects, and the engine
 ;; interprets those. `take!` is deliberately absent: destructive read is one
 ;; reader's progress and every other reader's data loss, and a v2 `take!` would
 ;; need the reader-position-in-the-medium the contract retired.
 
 (defn make
   ([] (make nil))
-  ([cap] {:effect :stream/make, :capacity cap}))
+  ([cap] (make-effect :stream/make {:capacity cap})))
 
 
 (defn put!
   [s v]
-  {:effect :stream/put, :stream s, :val v})
+  (make-effect :stream/put {:stream s, :val v}))
 
 
 (defn cursor
   [s]
-  {:effect :stream/cursor, :stream s})
+  (make-effect :stream/cursor {:stream s}))
 
 
 (defn next!
   [c]
-  {:effect :stream/next, :cursor c})
+  (make-effect :stream/next {:cursor c}))
 
 
 (defn close!
   [s]
-  {:effect :stream/close, :stream s})
+  (make-effect :stream/close {:stream s}))
 
 
 (def stream-module
@@ -282,8 +292,8 @@
 
 (def stream-profiles
   "UCF 7.5.2 profiles for the v2 `stream` module's bindings. Each binding
-   is an `:effectful` pure effect constructor: it returns plain effect
-   data declaring the one effect kind the engine interprets, and touches
+   is an `:effectful` pure effect constructor: it returns an effect
+   declaring the one effect kind the engine interprets, and touches
    no stream itself."
   {'make (vm/primitive-profile 'make :effectful [0 1] #{:stream/make}
                                :none)

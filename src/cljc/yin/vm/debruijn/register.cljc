@@ -297,6 +297,7 @@
             :make-stream (:make-stream base),
             :bridge nil,
             :primitives (:primitives base),
+            :callable-effects (:callable-effects base),
             :modules (or (:modules opts) {})})
          (load-image segment (:contract opts))
          (ffi/attach (:bridge opts))))))
@@ -608,7 +609,9 @@
           (fn? f)
           (let [result (apply f args)]
             (if (module/effect? result)
-              (run-call-effect vm result inst)
+              (run-call-effect (engine/check-callee-effect! vm f result)
+                               result
+                               inst)
               (if tail?
                 (return-transition vm result)
                 (assoc vm
@@ -679,24 +682,24 @@
 
       :stream-make
       (let [cap (or (nth inst 2) vm/default-stream-capacity)]
-        (run-effect vm {:effect :stream/make, :capacity cap} inst))
+        (run-effect vm (module/make-effect :stream/make {:capacity cap}) inst))
 
       :stream-put
       (let [sr (nth registers (nth inst 2))
             vr (nth registers (nth inst 3))]
-        (run-effect vm {:effect :stream/put, :stream sr, :val vr} inst))
+        (run-effect vm (module/make-effect :stream/put {:stream sr, :val vr}) inst))
 
       :stream-cursor
       (let [sr (nth registers (nth inst 2))]
-        (run-effect vm {:effect :stream/cursor, :stream sr} inst))
+        (run-effect vm (module/make-effect :stream/cursor {:stream sr}) inst))
 
       :stream-next
       (let [cr (nth registers (nth inst 2))]
-        (run-effect vm {:effect :stream/next, :cursor cr} inst))
+        (run-effect vm (module/make-effect :stream/next {:cursor cr}) inst))
 
       :stream-close
       (let [sr (nth registers (nth inst 2))]
-        (run-effect vm {:effect :stream/close, :stream sr} inst))
+        (run-effect vm (module/make-effect :stream/close {:stream sr}) inst))
 
       :current-continuation
       (let [payload (payload-of vm inst)

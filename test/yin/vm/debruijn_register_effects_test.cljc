@@ -11,6 +11,7 @@
             [yin.vm.debruijn-register-code :as rcode]
             [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn-register-effects :as effects]
+            [yin.vm.effect :as effect]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]))
 
@@ -499,9 +500,14 @@
   (let [put-inst [:store-put 0 :counter 42]
         desc (effects/effect-descriptor put-inst [])
         init-state {:store {:counter 0}}
-        result (engine/handle-effect init-state desc {})]
+        result (engine/handle-effect init-state
+                                     (effect/from-descriptor desc)
+                                     {})]
     (testing "store-put descriptor matches engine expectations"
       (is (= {:effect :vm/store-put, :key :counter, :val 42} desc))
+      (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+            (engine/handle-effect init-state desc {}))
+          "the plain descriptor is data: only the minted effect dispatches")
       (is (= 42 (get-in result [:state :store :counter])))
       (is (= 42 (:value result)))
       (is (false? (:blocked? result))))))

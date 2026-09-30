@@ -431,7 +431,7 @@
                             {:modules registry})]
       (is (= 42 (vm/value done)))))
   (testing "an unknown effect is an error naming it"
-    (let [prims (assoc vm/primitives 'weird (fn [] {:effect :test/nope}))]
+    (let [prims (assoc vm/primitives 'weird (fn [] (module/make-effect :test/nope)))]
       (is (= {:message "Unknown effect", :data {:effect :test/nope}}
              (caught #(run-segment [[:load-free 'weird] [:call 0 false] [:halt]]
                                    {:primitives prims})))))))

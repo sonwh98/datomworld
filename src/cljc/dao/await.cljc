@@ -56,7 +56,7 @@
   "Stream cursor effect descriptor. Inside (await/go ...) this produces a
    :stream/cursor effect handled by the yin.vm engine."
   [stream-ref]
-  {:effect :stream/cursor, :stream stream-ref})
+  (module/make-effect :stream/cursor {:stream stream-ref}))
 
 
 (defn <!
@@ -64,7 +64,7 @@
    :stream/next effect; the engine returns the value at the cursor or parks
    the continuation when the transport answers blocked."
   [cursor-ref]
-  {:effect :stream/next, :cursor cursor-ref})
+  (module/make-effect :stream/next {:cursor cursor-ref}))
 
 
 (defn >!
@@ -72,7 +72,7 @@
    :stream/put effect; the engine appends val to the stream, parking the
    continuation when the transport answers full."
   [stream-ref val]
-  {:effect :stream/put, :stream stream-ref, :val val})
+  (module/make-effect :stream/put {:stream stream-ref, :val val}))
 
 
 (def ^:private await-bindings {'cursor cursor, '<! <!, '>! >!})

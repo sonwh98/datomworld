@@ -78,6 +78,7 @@
    attach-stream  ; the composition's attacher for lowered streams
    ffi-caller-id  ; caller token of this VM's FFI call ids, or nil
    ffi-diagnostics ; FFI responses the router skipped, not yet taken
+   callable-effects ; primitive effect index (D4), vm/primitive-effects-index
    ])
 
 
@@ -131,7 +132,8 @@
                    (:secret-source vm)
                    (:attach-stream vm)
                    (:ffi-caller-id vm)
-                   (:ffi-diagnostics vm))))
+                   (:ffi-diagnostics vm)
+                   (:callable-effects vm))))
 
 
 (defn- closure-of
@@ -155,12 +157,13 @@
 
 (defn- handle-primitive-result
   "Shared logic for handling the result of a primitive function application.
-   Handles effect dispatch and blocking via engine/handle-effect."
-  [state result k env]
+   Handles effect dispatch and blocking via engine/handle-effect; an
+   effect is first checked against callee `f`'s declared profile."
+  [state f result k env]
   (if (module/effect? result)
     (let [{:keys [state value blocked?]}
           (engine/handle-effect
-            state
+            (engine/check-callee-effect! state f result)
             result
             {:restore-fn ast-walker-restore,
              :park-entry-fns {:stream/put (fn [_s _e r]
@@ -250,6 +253,7 @@
   [state fn-value evaluated-operands k env]
   (cond (fn? fn-value)
         (handle-primitive-result state
+                                 fn-value
                                  (apply fn-value evaluated-operands)
                                  k
                                  env)
@@ -372,7 +376,7 @@
           :eval-stream-put-val
           (let [val (:value state)
                 stream-ref (:stream-ref k)
-                effect {:effect :stream/put, :stream stream-ref, :val val}
+                effect (module/make-effect :stream/put {:stream stream-ref, :val val})
                 {:keys [state value blocked?]}
                 (engine/handle-effect state
                                       effect
@@ -393,7 +397,7 @@
               (cesk-return state nil env (:next k) value)))
           :eval-stream-close-source
           (let [stream-ref (:value state)
-                effect {:effect :stream/close, :stream stream-ref}
+                effect (module/make-effect :stream/close {:stream stream-ref})
                 {:keys [state value]} (engine/handle-effect
                                         state
                                         effect
@@ -401,7 +405,7 @@
             (cesk-return state nil env (:next k) value))
           :eval-stream-cursor-source
           (let [stream-ref (:value state)
-                effect {:effect :stream/cursor, :stream stream-ref}
+                effect (module/make-effect :stream/cursor {:stream stream-ref})
                 {:keys [state value]} (engine/handle-effect
                                         state
                                         effect
@@ -409,7 +413,7 @@
             (cesk-return state nil env (:next k) value))
           :eval-stream-next-cursor
           (let [cursor-ref (:value state)
-                effect {:effect :stream/next, :cursor cursor-ref}
+                effect (module/make-effect :stream/next {:cursor cursor-ref})
                 {:keys [state value blocked?]}
                 (engine/handle-effect
                   state
@@ -546,7 +550,7 @@
                                 (:value state))
         :stream/make (let [capacity (or (:buffer node)
                                         vm/default-stream-capacity)
-                           effect {:effect :stream/make, :capacity capacity}
+                           effect (module/make-effect :stream/make {:capacity capacity})
                            {:keys [state value]} (engine/handle-effect
                                                    state
                                                    effect
@@ -631,6 +635,7 @@
                         (if (module/effect? result)
                           (let [state (cesk-return vm control env k val)
                                 res (handle-primitive-result state
+                                                             fn-value
                                                              result
                                                              (:next k)
                                                              saved-env)]
@@ -674,6 +679,7 @@
                           (if (module/effect? result)
                             (let [state (cesk-return vm control env k val)
                                   res (handle-primitive-result state
+                                                               fn-value
                                                                result
                                                                (:next k)
                                                                saved-env)]

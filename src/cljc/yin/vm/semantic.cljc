@@ -239,7 +239,8 @@
       (if (module/effect? result)
         (let [{:keys [state value blocked?]}
               (engine/handle-effect
-                (put-registers vm seg pc val St E K)
+                (put-registers (engine/check-callee-effect! vm f result)
+                               seg pc val St E K)
                 result
                 {:park-entry-fns (call-park-entries seg pc E St K)})]
           (if blocked?
@@ -411,9 +412,8 @@
                      (:stop r)))
               ;; :stream-make — effect :stream/make (12)
               12 (let [r (run-effect vm seg pc val St E K
-                                     {:effect :stream/make,
-                                      :capacity (or (nth inst 1)
-                                                    vm/default-stream-capacity)}
+                                     (module/make-effect :stream/make {:capacity (or (nth inst 1)
+                                                                                     vm/default-stream-capacity)})
                                      nil)]
                    (if-let [[vm' val'] (:continue r)]
                      (recur seg (inc pc) val' St E K vm' image
@@ -422,9 +422,8 @@
               ;; :stream-put — target popped from St, value in val (13)
               13 (let [St' (pop St)
                        r (run-effect vm seg pc val St' E K
-                                     {:effect :stream/put,
-                                      :stream (peek St),
-                                      :val val}
+                                     (module/make-effect :stream/put {:stream (peek St),
+                                                                      :val val})
                                      (call-park-entries seg pc E St' K))]
                    (if-let [[vm' val'] (:continue r)]
                      (recur seg (inc pc) val' St' E K vm' image
@@ -432,7 +431,7 @@
                      (:stop r)))
               ;; :stream-cursor — source ref in val (14)
               14 (let [r (run-effect vm seg pc val St E K
-                                     {:effect :stream/cursor, :stream val}
+                                     (module/make-effect :stream/cursor {:stream val})
                                      nil)]
                    (if-let [[vm' val'] (:continue r)]
                      (recur seg (inc pc) val' St E K vm' image
@@ -440,7 +439,7 @@
                      (:stop r)))
               ;; :stream-next — cursor ref in val (15)
               15 (let [r (run-effect vm seg pc val St E K
-                                     {:effect :stream/next, :cursor val}
+                                     (module/make-effect :stream/next {:cursor val})
                                      (call-park-entries seg pc E St K))]
                    (if-let [[vm' val'] (:continue r)]
                      (recur seg (inc pc) val' St E K vm' image
@@ -448,7 +447,7 @@
                      (:stop r)))
               ;; :stream-close — source ref in val (16)
               16 (let [r (run-effect vm seg pc val St E K
-                                     {:effect :stream/close, :stream val}
+                                     (module/make-effect :stream/close {:stream val})
                                      nil)]
                    (if-let [[vm' val'] (:continue r)]
                      (recur seg (inc pc) val' St E K vm' image

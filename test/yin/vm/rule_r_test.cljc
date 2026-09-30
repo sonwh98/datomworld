@@ -390,7 +390,8 @@
     (is (= :reserved-name
            (rule-of #(engine/handle-effect
                        (tu/create-vm)
-                       {:effect :vm/store-put, :key 'yin/def, :val 1}
+                       (module/make-effect :vm/store-put
+                                           {:key 'yin/def, :val 1})
                        {}))))))
 
 

@@ -1752,10 +1752,54 @@
     {:state (:state result), :value (:value result), :blocked? false}))
 
 
+(defn- with-primitive-effects
+  "`state` whose `:callable-effects` index was built from its current
+   `:primitives` map: the held index when that map is `identical?` to
+   the one it was built from, else a rebuilt one."
+  [state]
+  (let [primitives (:primitives state)]
+    (if (identical? primitives (:primitives (:callable-effects state)))
+      state
+      (assoc state
+             :callable-effects
+             (vm/primitive-effects-index primitives
+                                         (:primitive-profiles state))))))
+
+
+(defn check-callee-effect!
+  "Refuse `effect`, the result of applying host callable `f`, when `f`
+   carries a profile whose declared effect set lacks the effect's kind
+   (D4, layered on the host type). `f`'s declared set is the union of
+   its primitive and module declarations, read from identity-keyed
+   indexes: the VM's `:callable-effects`, rebuilt here when `:primitives`
+   changed since it was built, and the registry's, which
+   `module/register-host-module` maintains. The check runs only on an
+   effect result and costs nothing on an ordinary call. A callable with
+   no profile is the composition's trusted value and passes. Returns
+   `state`, carrying the index it checked against, for the caller to
+   dispatch the effect on."
+  [state f effect]
+  (let [state (with-primitive-effects state)
+        from-primitives (get (:index (:callable-effects state)) f)
+        from-modules (get (:callable-effects (:modules state)) f)
+        declared (if (and from-primitives from-modules)
+                   (into from-primitives from-modules)
+                   (or from-primitives from-modules))]
+    (if (and declared (not (contains? declared (:effect effect))))
+      (fail "Effect outside the callee's declared profile"
+            {:yin.k/status :yin.k/undeclared-effect,
+             :yin.k/effect (:effect effect),
+             :yin.k/effects declared})
+      state)))
+
+
 (defn handle-effect
   "Dispatch an effect and return {:state updated-state :value v :blocked? bool}.
    park-entry-fns maps :stream/put and :stream/next to functions that build
    wait entries.
+
+   `effect` must be a `yin.vm.effect` value minted by `module/make-effect`
+   (D4); a map, whatever its keys, is data and is refused here.
 
    A parked entry is stored as the builder left it plus, for a writer, the
    `:datom` it retries: registers and resource ids only. Neither the live
@@ -1764,6 +1808,8 @@
    a woken entry dispatches restoration itself — so a blocked entry is pure
    data and survives serialization."
   [state effect {:keys [park-entry-fns], :as opts}]
+  (when-not (module/effect? effect)
+    (fail "Not an effect" {:reason :not-an-effect}))
   (let [park-entry (get park-entry-fns (:effect effect))
         result
         (case (:effect effect)

@@ -283,6 +283,7 @@
             :make-stream (:make-stream base),
             :bridge nil,
             :primitives (:primitives base),
+            :callable-effects (:callable-effects base),
             :modules (or (:modules opts) {})})
          (load-image segment (:contract opts))
          (ffi/attach (:bridge opts))))))
@@ -590,7 +591,9 @@
           (fn? f)
           (let [result (apply f args)]
             (if (module/effect? result)
-              (run-effect vm result stack')
+              (run-effect (engine/check-callee-effect! vm f result)
+                          result
+                          stack')
               (assoc vm :pc (inc pc) :stack (conj stack' result))))
 
           ;; A captured continuation: abortive, so the call site's stack,
@@ -660,8 +663,7 @@
       ;; :stream-make -- the composition's :make-stream, through the engine
       :stream-make
       (run-effect vm
-                  {:effect :stream/make,
-                   :capacity (or (nth inst 1) vm/default-stream-capacity)}
+                  (module/make-effect :stream/make {:capacity (or (nth inst 1) vm/default-stream-capacity)})
                   stack)
 
       ;; :stream-put -- the value on top, its target stream ref beneath
@@ -669,20 +671,20 @@
       :stream-put
       (let [val (peek stack), stack' (pop stack), target (peek stack')]
         (run-effect vm
-                    {:effect :stream/put, :stream target, :val val}
+                    (module/make-effect :stream/put {:stream target, :val val})
                     (pop stack')))
 
       ;; :stream-cursor -- the source stream ref on top
       :stream-cursor
-      (run-effect vm {:effect :stream/cursor, :stream (peek stack)} (pop stack))
+      (run-effect vm (module/make-effect :stream/cursor {:stream (peek stack)}) (pop stack))
 
       ;; :stream-next -- the cursor ref on top; may park as a reader
       :stream-next
-      (run-effect vm {:effect :stream/next, :cursor (peek stack)} (pop stack))
+      (run-effect vm (module/make-effect :stream/next {:cursor (peek stack)}) (pop stack))
 
       ;; :stream-close -- the source stream ref on top; yields nil
       :stream-close
-      (run-effect vm {:effect :stream/close, :stream (peek stack)} (pop stack))
+      (run-effect vm (module/make-effect :stream/close {:stream (peek stack)}) (pop stack))
 
       ;; :current-continuation -- the continuation after this instruction,
       ;; as a value: the register payload under the shared tag the B0

@@ -90,7 +90,7 @@
   "The export: a data constructor.  The effect it returns is answered by
    `call-handler`, which parks the caller on the call pair."
   [& args]
-  {:effect ::call, :args (vec args)})
+  (module/make-effect ::call {:args (vec args)}))
 
 
 (def ^:private exports
