@@ -14,9 +14,11 @@
                        ["dart:io" :as io]])
             [dao.stream.waitset.cadence :as cadence]
             [dao.stream.waitset.driver :as wake]
+            [yin.repl :as shell]
             [yin.repl.driver :as driver]
             [yin.repl.host :as host]
-            [yin.repl.serve :as serve]))
+            [yin.repl.serve :as serve]
+            [yin.repl.store :as store]))
 
 
 (def tick-millis
@@ -49,10 +51,15 @@
 
 (defn parse-args
   "Parse the host arguments.  `--telemetry` and `--telemetry-stream` are
-   rejected rather than ignored."
+   rejected rather than ignored.  `--index-store` is parsed into
+   `:index-store-spec` — `:mem` (also what omission means) or
+   `{:type :file :dir dir}` — and a missing value, an unknown scheme, or
+   an empty directory is refused here, by `yin.repl.store/parse-arg`,
+   before any host composes."
   [args]
   (loop [args (seq args)
-         opts {:headless? false :host nil :port nil :rejected []}]
+         opts {:headless? false :host nil :port nil :rejected []
+               :index-store-spec :mem}]
     (if-let [arg (first args)]
       (case arg
         "--port" (recur (nnext args)
@@ -62,6 +69,10 @@
                                                :clj (Long/parseLong p)))))
         "--host" (recur (nnext args) (assoc opts :host (second args)))
         "--headless" (recur (next args) (assoc opts :headless? true))
+        "--index-store" (recur (nnext args)
+                               (assoc opts
+                                      :index-store-spec
+                                      (store/parse-arg (second args))))
         "--telemetry" (recur (next args) (update opts :rejected conj arg))
         "--telemetry-stream" (recur (nnext args) (update opts :rejected conj arg))
         (recur (next args) (update opts :extra (fnil conj []) arg)))
@@ -71,9 +82,13 @@
 (defn boot
   "Create the composition: one shell, one input medium, one cursor held only by
    the step owner, and the host WebSocket adapter `(connect …)` attaches
-   through."
+   through.  The parsed `:index-store-spec` reaches the shell's store
+   selection, which resolves and opens it once at construction."
   ([] (boot {}))
-  ([opts] (driver/create-state {:host (or (:adapter opts) (host/websocket))})))
+  ([opts] (driver/create-state
+            {:host (or (:adapter opts) (host/websocket))
+             :repl (shell/create-state {:index-store-spec
+                                        (:index-store-spec opts)})})))
 
 
 (defn boot-server
@@ -86,6 +101,41 @@
     (serve/serve! {:bind-port (:port opts)
                    :bind-host (or (:host opts) serve/default-bind-host)
                    :host (or (:adapter opts) (host/websocket))})))
+
+
+(defn startup
+  "Parse the arguments and compose the whole shell — the store the parsed
+   `:index-store-spec` names included — or answer the refusal text.  This
+   is the one gate every host's `-main` passes through before it prints a
+   banner or starts a loop, so an invalid `--index-store`, an unsupported
+   host for it, or a directory that cannot be opened refuses startup with
+   its reason rather than composing a shell around a fallback store.
+
+   Only a designed refusal is answered: an error carrying no ex-info
+   keeps its stack trace, because it is a defect, not an operator error."
+  [args]
+  (try
+    (let [opts (parse-args args)]
+      {:opts opts
+       :state (boot opts)
+       :server (boot-server opts)})
+    (catch #?(:cljd Object
+              :clj Throwable
+              :cljs :default)
+           e
+      (if (ex-data e)
+        {:refusal (or (ex-message e) (str e))}
+        (throw e)))))
+
+
+(defn- refuse!
+  "Print why the composition refused to start and end the process with a
+   failing status, so a refused startup never looks like a working shell."
+  [refusal]
+  (println refusal)
+  #?(:cljd (io/exit 1)
+     :clj (.halt (Runtime/getRuntime) 1)
+     :cljs (.exit js/process 1)))
 
 
 (defn- entry-text
@@ -273,40 +323,41 @@
 
      (defn -main
        [& args]
-       (let [opts (parse-args args)
-             state (boot opts)
-             server (boot-server opts)
-             headless? (boolean (:headless? opts))
-             w (wake/make-wake)]
-         (doseq [line (banner opts)]
-           (println line))
-         (let [poller (Thread. ^Runnable (fn []
-                                           (poll-loop! state
-                                                       server
-                                                       headless?
-                                                       #(.halt (Runtime/getRuntime) 0)
-                                                       w)))]
-           (.setDaemon poller true)
-           (.start poller)
-           ;; Headless attends the endpoint only: there is no reader, so the
-           ;; step owner is joined until it stops, and the explicit stop trigger
-           ;; is the host signal a shutdown hook observes.  The hook appends a
-           ;; line like any producer, nudges, and then waits for the one step
-           ;; owner.
-           (if headless?
-             (do (.addShutdownHook
-                   (Runtime/getRuntime)
-                   (Thread. ^Runnable (fn []
-                                        (request-stop! state w)
-                                        (.join poller ^long stop-join-millis))))
-                 (.join poller))
-             (do (print-prompt!)
-                 ;; End-of-input is one way to stop; a typed `(quit)` is the
-                 ;; other, and the step owner has already exited the process by
-                 ;; the time this join is reached in that case.
-                 (read-loop! (:input state) w)
-                 (.join poller ^long stop-join-millis))))
-         (.halt (Runtime/getRuntime) 0)))))
+       (let [started (startup args)]
+         (if-some [refusal (:refusal started)]
+           (refuse! refusal)
+           (let [{:keys [opts state server]} started
+                 headless? (boolean (:headless? opts))
+                 w (wake/make-wake)]
+             (doseq [line (banner opts)]
+               (println line))
+             (let [poller (Thread. ^Runnable (fn []
+                                               (poll-loop! state
+                                                           server
+                                                           headless?
+                                                           #(.halt (Runtime/getRuntime) 0)
+                                                           w)))]
+               (.setDaemon poller true)
+               (.start poller)
+               ;; Headless attends the endpoint only: there is no reader, so the
+               ;; step owner is joined until it stops, and the explicit stop trigger
+               ;; is the host signal a shutdown hook observes.  The hook appends a
+               ;; line like any producer, nudges, and then waits for the one step
+               ;; owner.
+               (if headless?
+                 (do (.addShutdownHook
+                       (Runtime/getRuntime)
+                       (Thread. ^Runnable (fn []
+                                            (request-stop! state w)
+                                            (.join poller ^long stop-join-millis))))
+                     (.join poller))
+                 (do (print-prompt!)
+                     ;; End-of-input is one way to stop; a typed `(quit)` is the
+                     ;; other, and the step owner has already exited the process by
+                     ;; the time this join is reached in that case.
+                     (read-loop! (:input state) w)
+                     (.join poller ^long stop-join-millis))))
+             (.halt (Runtime/getRuntime) 0)))))))
 
 
 ;; =============================================================================
@@ -387,34 +438,35 @@
 
      (defn -main
        [& args]
-       (let [opts (parse-args args)
-             state (boot opts)
-             server (boot-server opts)
-             readline (when-not (:headless? opts) (js/require "readline"))
-             rl (when readline
-                  (.createInterface readline
-                                    #js {:input (.-stdin js/process)
-                                         :output (.-stdout js/process)
-                                         :prompt prompt}))]
-         (doseq [line (banner opts)]
-           (js/console.log line))
-         ;; The tick owner arms its first round, and the composition wires the
-         ;; deposit it hands each line producer with the nudge: a typed line
-         ;; ends the idle sleep at once.
-         (let [w (run-node! state server rl)]
-           (if rl
-             (do (.on rl "line" (fn [line]
-                                  (driver/submit-line! (:input state) line)
-                                  (wake/nudge! w)))
-                 (.on rl "close" (fn []
-                                   (driver/submit-line! (:input state) "(quit)")
-                                   (wake/nudge! w)))
-                 (.prompt rl))
-             ;; Headless has no reader, so the explicit stop trigger is the host
-             ;; signal: it appends a line, nudges, and returns, like any
-             ;; producer.
-             (doseq [signal ["SIGINT" "SIGTERM"]]
-               (.on js/process signal (fn [] (request-stop! state w))))))))))
+       (let [started (startup args)]
+         (if-some [refusal (:refusal started)]
+           (refuse! refusal)
+           (let [{:keys [opts state server]} started
+                 readline (when-not (:headless? opts) (js/require "readline"))
+                 rl (when readline
+                      (.createInterface readline
+                                        #js {:input (.-stdin js/process)
+                                             :output (.-stdout js/process)
+                                             :prompt prompt}))]
+             (doseq [line (banner opts)]
+               (js/console.log line))
+             ;; The tick owner arms its first round, and the composition wires the
+             ;; deposit it hands each line producer with the nudge: a typed line
+             ;; ends the idle sleep at once.
+             (let [w (run-node! state server rl)]
+               (if rl
+                 (do (.on rl "line" (fn [line]
+                                      (driver/submit-line! (:input state) line)
+                                      (wake/nudge! w)))
+                     (.on rl "close" (fn []
+                                       (driver/submit-line! (:input state) "(quit)")
+                                       (wake/nudge! w)))
+                     (.prompt rl))
+                 ;; Headless has no reader, so the explicit stop trigger is the host
+                 ;; signal: it appends a line, nudges, and returns, like any
+                 ;; producer.
+                 (doseq [signal ["SIGINT" "SIGTERM"]]
+                   (.on js/process signal (fn [] (request-stop! state w))))))))))))
 
 
 ;; =============================================================================
@@ -505,33 +557,34 @@
 
      (defn -main
        [& args]
-       (let [opts (parse-args args)
-             state (boot opts)
-             server (boot-server opts)
-             headless? (boolean (:headless? opts))]
-         (doseq [line (banner opts)]
-           (write-line! line))
-         ;; The tick owner arms its first round, and the composition wires the
-         ;; deposit it hands each line producer with the nudge: a typed line
-         ;; ends the idle sleep at once.  A timer fires only on the event
-         ;; loop, so arming before the producers are wired races nothing.
-         (let [w (run-dart! state server headless?)]
-           (if headless?
-             ;; Headless has no reader, so the explicit stop trigger is the
-             ;; host signal: it appends a line, nudges, and returns, like any
-             ;; producer.
-             (-> (.watch io/ProcessSignal.sigint)
-                 (.listen (fn [_signal] (request-stop! state w))))
-             (do (-> io/stdin
-                     (.transform (.-decoder convert/utf8))
-                     (.transform (convert/LineSplitter.))
-                     (.listen (fn [line]
-                                (driver/submit-line! (:input state) line)
-                                (wake/nudge! w))
-                              .onDone (fn []
-                                        (driver/submit-line! (:input state) "(quit)")
-                                        (wake/nudge! w))))
-                 (print-prompt!))))))
+       (let [started (startup args)]
+         (if-some [refusal (:refusal started)]
+           (refuse! refusal)
+           (let [{:keys [opts state server]} started
+                 headless? (boolean (:headless? opts))]
+             (doseq [line (banner opts)]
+               (write-line! line))
+             ;; The tick owner arms its first round, and the composition wires the
+             ;; deposit it hands each line producer with the nudge: a typed line
+             ;; ends the idle sleep at once.  A timer fires only on the event
+             ;; loop, so arming before the producers are wired races nothing.
+             (let [w (run-dart! state server headless?)]
+               (if headless?
+                 ;; Headless has no reader, so the explicit stop trigger is the
+                 ;; host signal: it appends a line, nudges, and returns, like any
+                 ;; producer.
+                 (-> (.watch io/ProcessSignal.sigint)
+                     (.listen (fn [_signal] (request-stop! state w))))
+                 (do (-> io/stdin
+                         (.transform (.-decoder convert/utf8))
+                         (.transform (convert/LineSplitter.))
+                         (.listen (fn [line]
+                                    (driver/submit-line! (:input state) line)
+                                    (wake/nudge! w))
+                                  .onDone (fn []
+                                            (driver/submit-line! (:input state) "(quit)")
+                                            (wake/nudge! w))))
+                     (print-prompt!))))))))
 
      (defn ^{:dart/name main} run-main
        [args]

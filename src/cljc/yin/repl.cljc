@@ -12,7 +12,6 @@
   (:require #?(:cljd [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
             [clojure.string :as str]
-            [dao.jing.mem :as jing.mem]
             [dao.pretty :as pretty]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
@@ -23,6 +22,7 @@
             [yin.repl.index :as index]
             [yin.repl.link :as link]
             [yin.repl.query :as query]
+            [yin.repl.store :as store]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.debruijn-code :as dcode]
@@ -802,15 +802,39 @@
 
    `index-store` is the `dao.jing` byte store the code indexer publishes
    its covered indexes into (docs/design/yin.repl.dao.space-index.md); it
-   outlives a session rebuild, and defaults to a fresh in-memory store."
+   outlives a session rebuild, and defaults to a fresh in-memory store.
+
+   `index-store-spec` is the startup selection of that store
+   (yin.repl.store): `:mem` — the default, today's behaviour — or
+   `{:type :file :dir dir}`, the durable content log at
+   `<dir>/content.jing`.  The spec is resolved and the store opened once
+   here, never switched at runtime, and supplying it together with
+   `index-store` (a handle injected directly) is refused.  Restart
+   recovery from a file store is not implemented yet: it receives this
+   session's publications like the memory store does, and nothing
+   rehydrates a previous run's facts (slices 2-3)."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
-            content-store content-client name-env link-policy index-store]
+            content-store content-client name-env link-policy index-store
+            index-store-spec]
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
          shell-token (str (random-uuid))
-         index-store (or index-store (jing.mem/create-content-mem))
+         index-store-spec (cond
+                            (and index-store index-store-spec)
+                            (throw (ex-info
+                                     (str "yin.repl/create-state takes one "
+                                          "index store: :index-store-spec "
+                                          "(mem or a file directory) or "
+                                          ":index-store (a dao.jing handle), "
+                                          "not both")
+                                     {:index-store-spec index-store-spec}))
+
+                            index-store nil
+
+                            :else (store/checked-spec index-store-spec))
+         index-store (or index-store (store/open index-store-spec))
          link-source (link/composition
                        {:name-env name-env
                         :content-store content-store
@@ -825,6 +849,7 @@
         :ledger {:output :untried}
         :shell-token shell-token
         :index-store index-store
+        :index-store-spec index-store-spec
         :round 0
         :ingress-loss? false
         :last-value nil

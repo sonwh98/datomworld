@@ -1,7 +1,7 @@
 (ns yin.repl.main-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            #?@(:cljd []
+            #?@(:cljd [["dart:io" :as dart-io]]
                 :clj [[clojure.java.io :as io]
                       [yin.repl.host :as host]]
                 :cljs [[yin.repl.connect :as connect]])
@@ -15,6 +15,75 @@
             [yin.repl.driver :as driver]
             [yin.repl.host.common :as host-common]
             [yin.repl.serve :as serve]))
+
+
+;; =============================================================================
+;; Host scratch paths for the startup-contract tests below.
+;; =============================================================================
+
+(defn- temp-dir
+  []
+  (str "target/test-main-index-" (random-uuid)))
+
+
+(defn- temp-file
+  []
+  (str "target/test-main-blocker-" (random-uuid) ".tmp"))
+
+
+(defn- write-file!
+  [path]
+  #?(:cljd (let [f (dart-io/File. path)]
+             (when-not (.existsSync (.-parent f))
+               (.createSync (.-parent f) .recursive true))
+             (.writeAsStringSync f ""))
+     :clj (do (.mkdirs (.getParentFile (java.io.File. path)))
+              (spit path ""))
+     :cljs (let [fs (js/require "fs")
+                 path-module (js/require "path")]
+             (.mkdirSync fs (.dirname path-module path) #js {:recursive true})
+             (.writeFileSync fs path ""))))
+
+
+(defn- cleanup-file!
+  [path]
+  #?(:cljd (try (let [f (dart-io/File. path)]
+                  (when (.existsSync f) (.deleteSync f)))
+                (catch Object _ nil))
+     :clj (let [f (java.io.File. path)]
+            (when (.exists f) (.delete f)))
+     :cljs (try (.unlinkSync (js/require "fs") path)
+                (catch :default _ nil))))
+
+
+(defn- cleanup-dir!
+  [dir]
+  #?(:cljd (try (.deleteSync (dart-io/Directory. dir) .recursive true)
+                (catch Object _ nil))
+     :clj (let [f (java.io.File. dir)]
+            (when (.isDirectory f)
+              (doseq [child (.listFiles f)]
+                (.delete child))
+              (.delete f)))
+     :cljs (try (.rmSync (js/require "fs") dir #js {:recursive true :force true})
+                (catch :default _ nil))))
+
+
+(defn- refusal-of
+  "The error `thunk` throws, or nil when it does not.  The error itself,
+   not its message: on the shadow-cljs test build, `(str (this-helper …))`
+   at an assertion site is compile-time evaluated and its constant
+   embedded, so a refusal's message would never be checked at runtime —
+   `(ex-message (refusal-of …))`, with the helper one level down, is the
+   shape that runs."
+  [thunk]
+  (try (thunk)
+       nil
+       (catch #?(:cljd Object
+                 :clj Exception
+                 :cljs :default)
+              e
+         e)))
 
 
 (defn- host-adapter
@@ -42,6 +111,69 @@
       (is (str/includes? (first (repl/banner opts))
                          "yin.vm.telemetry.implementation-plan.md"))
       (is (not (str/includes? (first (repl/banner opts)) "yin.repl"))))))
+
+
+;; =============================================================================
+;; The durable index store's startup contract: one flag, parsed by the one
+;; shared parser every host's -main uses, resolved once before any shell,
+;; server, or host loop composes (yin.repl.store).
+;; =============================================================================
+
+(deftest the-index-store-flag-parses-on-every-hosts-arguments
+  (testing "omission means mem, today's behaviour"
+    (is (= :mem (:index-store-spec (repl/parse-args [])))))
+  (testing "the flag's values parse to specs"
+    (is (= :mem (:index-store-spec (repl/parse-args ["--index-store" "mem"]))))
+    (is (= {:type :file :dir "idx"}
+           (:index-store-spec (repl/parse-args ["--index-store" "file:idx"])))))
+  (testing "a missing value, an unknown scheme, and an empty dir are refused"
+    (is (str/includes? (ex-message (refusal-of #(repl/parse-args
+                                                  ["--index-store"])))
+                       "--index-store needs a value"))
+    (is (str/includes? (ex-message (refusal-of
+                                     #(repl/parse-args
+                                        ["--index-store" "bogus"])))
+                       "Unknown --index-store"))
+    (is (str/includes? (ex-message (refusal-of
+                                     #(repl/parse-args
+                                        ["--index-store" "file:"])))
+                       "--index-store file:<dir> needs a directory"))))
+
+
+(deftest startup-composes-or-refuses-before-any-shell-or-server
+  (testing "no flag composes the memory store of today"
+    (let [started (repl/startup [])]
+      (is (nil? (:refusal started)))
+      (is (= :mem (get-in started [:state :repl :index-store-spec])))
+      (is (some? (get-in started [:state :input])))
+      (is (nil? (:server started)) "no port was asked for")))
+  (testing "every refused spec composes nothing"
+    (doseq [args [["--index-store"]
+                  ["--index-store" "bogus"]
+                  ["--index-store" "file:"]]]
+      (let [started (repl/startup args)]
+        (is (string? (:refusal started)) (pr-str args))
+        (is (nil? (:state started)) (pr-str args))
+        (is (nil? (:server started)) (pr-str args))
+        (is (str/includes? (:refusal started) "--index-store") (pr-str args)))))
+  (testing "an unopenable directory refuses startup the same way"
+    (let [blocker (temp-file)]
+      (try
+        (write-file! blocker)
+        (let [started (repl/startup ["--index-store" (str "file:" blocker)])]
+          (is (str/includes? (:refusal started) "not a directory"))
+          (is (nil? (:state started))))
+        (finally
+          (cleanup-file! blocker)))))
+  (testing "a valid file:<dir> composes a shell whose store is that file"
+    (let [dir (temp-dir)]
+      (try
+        (let [started (repl/startup ["--index-store" (str "file:" dir)])]
+          (is (nil? (:refusal started)))
+          (is (= {:type :file :dir dir}
+                 (get-in started [:state :repl :index-store-spec]))))
+        (finally
+          (cleanup-dir! dir))))))
 
 
 (deftest booting-yields-one-shell-one-input-medium-and-one-cursor
