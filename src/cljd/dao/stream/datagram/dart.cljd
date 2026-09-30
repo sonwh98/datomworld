@@ -1,0 +1,173 @@
+(ns dao.stream.datagram.dart
+  "The dart:io host seam of docs/design/dao.stream.datagram.md 3: one
+   RawDatagramSocket, bound once, whose read events deposit every received
+   datagram on the composition's deposit writer as plain
+   dao.stream.datagram values. The seam takes {:identity id :deposit w
+   :bind-host h :bind-port p :max-bytes n} -- a deposit writer and nothing
+   else, no function to invoke -- and returns at once {:send! f :close!
+   f}; binding is asynchronous here, so the bound event arrives when the
+   bind Future completes and a failed bind is deposited as bind-failed
+   from its error. The max-bytes drop is protocol validation below the
+   transform: never deposited. The asynchronous onError path is not
+   exercised by a host-error test in S1. This adapter creates no timer and
+   schedules nothing; the composition drives every read of what it
+   deposits."
+  (:require ["dart:io" :as io]
+            [clojure.string :as str]
+            [dao.stream :as stream]
+            [dao.stream.datagram :as datagram])
+  (:import ["dart:typed_data" Uint8List]))
+
+
+(defn- deposit-event!
+  "One event onto the composition's deposit writer, total even if the
+   composition behind it is broken."
+  [deposit event]
+  (try (stream/append! deposit event)
+       (catch Object _ nil)))
+
+
+(defn- receive!
+  "The socket's read transform: one deposited datagram event per datagram
+   the socket hands over, sourced from the address it observed, dropped
+   over the budget. It judges no datagram and invokes nothing above
+   itself."
+  [deposit identity max-bytes socket]
+  (when-some [^io/Datagram datagram (.receive ^io/RawDatagramSocket socket)]
+    (when (<= (.-length ^Uint8List (.-data datagram)) max-bytes)
+      (deposit-event!
+        deposit
+        (datagram/datagram-event
+          identity
+          (.-address ^io/InternetAddress (.-address datagram))
+          (.-port datagram)
+          (.-data datagram))))))
+
+
+(defn bind!
+  "Bind one RawDatagramSocket per the seam contract. `:bind-host` is the
+   local interface address (the wildcard address is legal), `:bind-port` 0
+   asks for an ephemeral port, `:max-bytes` defaults to 1200 and is the
+   symmetric datagram budget. Returns {:send! f :close! f} at once, before
+   the asynchronous bind completes: `:send!` is (send! host port bytes) ->
+   an outcome map -- a synchronous host failure is clean, nothing was
+   sent, and on a bound socket it is also deposited as a send-failed
+   event, the channel this transport declares for a failure it cannot
+   report at call time. Two dart:io facts this seam classifies itself,
+   because the host reports neither as an error: a send on a closed
+   socket is a silent zero (a real send failure, refused and deposited),
+   and a zero return cannot distinguish an empty send from a failed one
+   (the request is refused cleanly, so the caller learns at
+   call time that nothing crossed); `:close!` closes the host socket,
+   deposits closed while the deposit writer still can (also when a
+   pending bind completes into an already-closed seam), and is
+   idempotent."
+  [{:keys [identity deposit bind-host bind-port max-bytes]
+    :or {bind-host "0.0.0.0" bind-port 0}}]
+  (let [max-bytes (or max-bytes datagram/default-max-bytes)
+        state (atom {:socket nil :bound false :failed false :closed false})
+        announced-failure (atom false)
+        mark-closed!
+        (fn []
+          (when-not (:closed @state)
+            (swap! state assoc :closed true)
+            (when (:bound @state)
+              (deposit-event! deposit (datagram/closed-event identity)))))
+        attach!
+        (fn [socket]
+          (swap! state assoc :socket socket)
+          (.listen ^io/RawDatagramSocket socket
+                   (fn [event]
+                     (cond
+                       (= event io/RawSocketEvent.read)
+                       (receive! deposit identity max-bytes socket)
+
+                       (= event io/RawSocketEvent.closed)
+                       (mark-closed!)))
+                   .onError
+                   (fn [e]
+                     (deposit-event! deposit
+                                     (datagram/send-failed-event identity
+                                                                 (str e)))
+                     (mark-closed!)
+                     (.close ^io/RawDatagramSocket socket))))]
+    (-> (io/RawDatagramSocket.bind bind-host bind-port)
+        (.then
+          (fn [socket]
+            (if (:closed @state)
+              (do (.close ^io/RawDatagramSocket socket)
+                  (deposit-event! deposit
+                                  (datagram/closed-event identity)))
+              (do (attach! socket)
+                  (swap! state assoc :bound true)
+                  (deposit-event!
+                    deposit
+                    (datagram/bound-event
+                      identity
+                      (.-address ^io/InternetAddress
+                       (.-address ^io/RawDatagramSocket socket))
+                      (.-port ^io/RawDatagramSocket socket)))))))
+        (.catchError
+          (fn [e]
+            (when (compare-and-set! announced-failure false true)
+              (swap! state assoc :failed true)
+              (deposit-event! deposit
+                              (datagram/bind-failed-event
+                                identity (str e)))))))
+    {:send!
+     (fn [host port bytes]
+       (let [s @state
+             socket (:socket s)]
+         (cond
+           (nil? socket)
+           {:dao.stream/outcome :dao.stream/transport-error
+            :dao.stream.datagram/reason "not bound"}
+
+           ;; dart:io reports a send on a closed socket as a silent zero,
+           ;; so the seam classifies from its own state: a real send
+           ;; failure, deposited as the lifecycle event for observers
+           (:closed s)
+           (do (deposit-event!
+                 deposit
+                 (datagram/send-failed-event identity "socket closed"))
+               {:dao.stream/outcome :dao.stream/transport-error
+                :dao.stream.datagram/reason "socket closed"})
+
+           ;; A zero return cannot distinguish an empty send from a
+           ;; failed one; refuse before touching the host.
+           (zero? (.-length ^Uint8List bytes))
+           {:dao.stream/outcome :dao.stream/transport-error
+            :dao.stream.datagram/reason
+            "dart:io cannot confirm an empty datagram"}
+
+           (not= (str/includes? bind-host ":") (str/includes? host ":"))
+           (do (deposit-event!
+                 deposit
+                 (datagram/send-failed-event identity "IP family mismatch"))
+               {:dao.stream/outcome :dao.stream/transport-error
+                :dao.stream.datagram/reason "IP family mismatch"})
+
+           :else
+           (try
+             (let [n (.send ^io/RawDatagramSocket socket bytes
+                            (io/InternetAddress. host) port)]
+               (if (pos? n)
+                 {:dao.stream/outcome :dao.stream/ok}
+                 (do (deposit-event!
+                       deposit
+                       (datagram/send-failed-event identity "send wrote nothing"))
+                     {:dao.stream/outcome :dao.stream/transport-error
+                      :dao.stream.datagram/reason "send wrote nothing"})))
+             (catch Object e
+               (deposit-event!
+                 deposit (datagram/send-failed-event identity (str e)))
+               {:dao.stream/outcome :dao.stream/transport-error
+                :dao.stream.datagram/reason (str e)})))))
+     :close!
+     (fn []
+       (let [s @state]
+         (when-not (:closed s)
+           (mark-closed!)
+           (when-some [socket (:socket s)]
+             (.close ^io/RawDatagramSocket socket))))
+       nil)}))
