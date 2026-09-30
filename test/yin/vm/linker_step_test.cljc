@@ -354,7 +354,9 @@
 ;; The DHT behind the served boundary (section 6.1)
 ;; =============================================================================
 
-(deftest the-dht-handle-behind-the-served-boundary-answers-a-link
+(deftest the-dht-behind-the-served-boundary-answers-a-link
+  ;; the stepped DHT is itself the serving half of the content pair: its
+  ;; answers arrive on a later step, after it verified what a peer handed it
   (doseq [[label format mint] lt/formats]
     (testing label
       (let [image (mint lt/worked-example)
@@ -363,23 +365,24 @@
             index (if (lt/storage-derived? format)
                     {identity identity}
                     {identity (jing/segment-key image)})
+            at (index identity)
             payload (lt/stored-payload format image)
             honest-value (if (= :yin.ast/code kw)
                            (into {}
                                  (map (fn [[id row]] [id (subvec row 1)]))
                                  (:rows image))
-                           {lt/any-address payload})
-            forged (lt/grid-handle {2 {lt/any-address (lt/tamper payload)}})
-            honest (lt/grid-handle {2 {lt/any-address (lt/tamper payload)},
-                                    3 honest-value})
+                           {at payload})
+            opts {:formats all-formats, :indexes {kw index}}
+            forged (lt/dht-runtime {2 {at (lt/tamper payload)}} opts)
+            honest (lt/dht-runtime {2 {at (lt/tamper payload)}
+                                    3 honest-value}
+                                   opts)
             request (request-for format identity)]
-        (is (= :absent (:reason (link (runtime forged {kw index}) request)))
-            "the DHT filters the forged payload behind the server")
-        (let [c (link (runtime honest {kw index}) request)]
+        (is (= :absent (:reason (link forged request)))
+            "the DHT filters the forged payload behind the pair")
+        (let [c (link honest request)]
           (is (= :ok (:status c)) "a later honest peer answers the link")
-          (is (= image (:value (:image c)))))
-        (jing/close! forged)
-        (jing/close! honest)))))
+          (is (= image (:value (:image c)))))))))
 
 
 ;; =============================================================================

@@ -11,6 +11,7 @@
             [dao.jing.cbor :as cbor]
             [dao.jing.content :as jing-content]
             [dao.jing.dht :as dht]
+            [dao.jing.dht.mesh :as dht-mesh]
             [dao.jing.mem :as mem]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
@@ -851,60 +852,39 @@
 ;; DHT: a peer serving mismatched content is rejected before load (S11.6)
 ;; =============================================================================
 
-(def any-address
-  "A GridNet serving key for a peer that answers every address with one
-   payload -- never a real address, so a per-address map and an
-   any-address payload cannot collide."
-  ::any-address)
-
-
-(defrecord ^:private GridNet
-  [self peers served]
-
-  dht/IDhtNet
-
-  (self-peer [_] self)
-
-
-  (known-peers [_ _target n] (vec (take n peers)))
-
-
-  (find-closer [_ _peer _target] peers)
-
-
-  (store-content! [_ _peer _address _payload] false)
-
-
-  (fetch-content
-    [_ peer address]
-    (if-let [pair (find served (:id peer))]
-      (if-let [at (or (find (val pair) address)
-                      (find (val pair) any-address))]
-        {:found? true,
-         :value (jing/bytes->base64 (jing/canonical-bytes (val at)))}
-        {:found? false, :value nil})
-      {:found? false, :value nil}))
-
-
-  (close-net! [_] nil))
-
-
-(defn- peer
-  [port]
-  {:id (dht/node-id "127.0.0.1" port), :host "127.0.0.1", :port port})
-
-
-(defn grid-handle
-  "A DHT handle over an empty local store whose peers serve `served`
-   (peer port -> an address -> payload map; the `any-address` key makes a
-   peer answer every address with one payload)."
-  [served]
-  (let [self (peer 1)
-        peers (mapv peer (keys served))]
-    (dht/create-content-dht
-      {:net (->GridNet self peers
-                       (into {} (map (fn [[p x]] [(:id (peer p)) x])) served)),
-       :local (mem/create-content-mem)})))
+(defn dht-runtime
+  "A link runtime over a caller-stepped DHT (docs/design/dao.jing.dht.md,
+   S2): node 1's request/answer pair is the linker's content pair, and
+   its peers `served` (peer port -> address -> payload, seeded verbatim
+   and unverified, so a peer can hold forged bytes behind an address)
+   publish what they hold. Each drive steps every node one round over
+   in-memory sockets; `:local` is node 1's own store."
+  [served opts]
+  (let [net (dht-mesh/mesh)
+        a (dht-mesh/join! net 1 {:dao.jing.dht/bootstrap
+                                 (mapv dht-mesh/contact (keys served))})
+        comps (into {1 a}
+                    (map (fn [[port at]]
+                           [port
+                            (dht-mesh/join!
+                              net port
+                              {:dao.jing.dht/publish? true
+                               :local (mem/create-content-mem
+                                        (into {}
+                                              (map (fn [[address v]]
+                                                     [address
+                                                      (jing/canonical-bytes
+                                                        v)]))
+                                              at))})]))
+                    served)
+        states (atom (into {} (map (fn [[p c]] [p (dht/state c)])) comps))]
+    {:state (linker/link-state
+              (assoc opts
+                     :content {:requests (:requests a)
+                               :answers (:answers a)
+                               :cursor (oldest (:answers a))})),
+     :drive (fn [state] (swap! states dht-mesh/step-all 1) state),
+     :local (:local a)}))
 
 
 (deftest dht-peer-with-mismatched-content-is-absent
@@ -915,29 +895,31 @@
             index (if (storage-derived? format)
                     {identity identity}
                     {identity (jing/segment-key image)})
+            at (index identity)
             payload (stored-payload format image)
             ;; a multi-part format needs each row served at its own
-            ;; address; a single payload is served for any address
+            ;; address; a single payload is served at the indexed one
             honest-value (if (= :yin.ast/code (:format format))
                            (into {}
                                  (map (fn [[id row]] [id (subvec row 1)]))
                                  (:rows image))
-                           {any-address payload})
-            forged (grid-handle {2 {any-address (tamper payload)}})
-            honest (grid-handle {2 {any-address (tamper payload)}
-                                 3 honest-value})]
+                           {at payload})
+            opts {:formats {(:format format) format},
+                  :indexes {(:format format) index},
+                  :bounds {}}
+            forged (dht-runtime {2 {at (tamper payload)}} opts)
+            honest (dht-runtime {2 {at (tamper payload)}
+                                 3 honest-value}
+                                opts)]
         (is (= :absent
-               (:reason (fetch-local forged index format identity
-                                     receiver (requested format))))
-            "make-get filters the forged payload; no peer has valid data")
-        (is (linker/ok? (fetch-local honest index format identity
-                                     receiver (requested format)))
+               (:reason (linker/fetch forged (:format format) identity
+                                      receiver (requested format))))
+            "the DHT discards the forged payload; no peer has valid data")
+        (is (linker/ok? (linker/fetch honest (:format format) identity
+                                      receiver (requested format)))
             "a later honest peer is accepted")
-        (is (= payload
-               (jing/get (:local honest) (index identity) nil))
-            "the verified payload is cached by the DHT, not by the linker")
-        (jing/close! forged)
-        (jing/close! honest)))))
+        (is (= payload (jing/get (:local honest) at nil))
+            "the verified payload is cached by the DHT, not by the linker")))))
 
 
 ;; =============================================================================
