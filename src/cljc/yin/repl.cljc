@@ -821,9 +821,12 @@
 
    `:index-recovery` carries what the durable open recovered —
    `{:manifest <address or nil> :datoms <the validated snapshot or nil>}`
-   — exposed for the rehydration slice; nothing installs it yet, so `q`
-   answers from this session's own publications and `(reset)` keeps
-   today's rebuild semantics."
+   — and the indexer is rehydrated from it here, before any evaluation
+   is admitted (`yin.repl.index/rehydrate`): `q` answers the previous
+   run's facts, which keep their own session tokens, while this process
+   mints a new token for its own.  In durable mode `(reset)` and `(vm …)`
+   carry the index across the rebuild; with the memory store they start
+   an empty one, as they always have."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
             content-store content-client name-env link-policy index-store
@@ -851,7 +854,9 @@
                         :content-store content-store
                         :content-client content-client})]
      (merge
-       (make-session vm-type output-stream primitives shell-token index-store)
+       (update (make-session vm-type output-stream primitives shell-token
+                             index-store)
+               :indexer index/rehydrate (:recovery index-store))
        {:lang lang
         :vm-type vm-type
         :extra-primitives primitives
@@ -1673,13 +1678,20 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    names a code segment the old VM held, which the new one does not.  The
    new expander holds only the standard forms.  A require still pending
    on the old VM is dropped with it: its link pair is the session's, and
-   the new session answers from its own."
+   the new session answers from its own.
+
+   Over a durable store the code index is not the session's to drop: the
+   new indexer continues the old one's log, entity allocation, and
+   published manifest (`yin.repl.index/carry-over`), so a rebuild never
+   resets `t`.  Over the memory store it starts empty, as it always has."
   [state vm-type]
   (merge state
-         (make-session vm-type (:output-stream state)
-                       (:extra-primitives state)
-                       (:shell-token state)
-                       (:index-store state))
+         (cond-> (make-session vm-type (:output-stream state)
+                               (:extra-primitives state)
+                               (:shell-token state)
+                               (:index-store state))
+           (store/durable? (:index-store state))
+           (update :indexer index/carry-over (:indexer state)))
          {:vm-type vm-type
           :ingress-loss? false
           :last-value nil
@@ -1700,7 +1712,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       vm (let [vm-type (first args)]
            (if (contains? vm-constructors vm-type)
              [(rebuild-session state vm-type)
-              (str "Switched to " (get vm-labels vm-type) " (store cleared)")]
+              (str "Switched to " (get vm-labels vm-type)
+                   (if (store/durable? (:index-store state))
+                     " (VM store cleared; durable code index kept)"
+                     " (store cleared)"))]
              [state (str "Error: Unknown Yin REPL VM type " (pr-str vm-type)
                          "; supported: "
                          (pr-str (vec (keys vm-constructors))))]))

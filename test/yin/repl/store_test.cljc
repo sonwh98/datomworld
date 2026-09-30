@@ -15,12 +15,17 @@
             #?(:cljd nil
                :clj [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
+            [clojure.set :as cset]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dao.datom :as datom]
+            [dao.jing :as jing]
             [dao.jing.file :as dao.jing.file]
             [dao.jing.mem :as jing.mem]
             [dao.space.index :as dao.index]
+            [dao.space.transactor :as transactor]
             [dao.stream :as dao.stream]
+            [dao.stream.memory-log :as memory-log]
             [yin.repl :as repl]
             [yin.repl.store :as store]
             [yin.repl.store.fs :as fs]))
@@ -1093,5 +1098,293 @@
           (is (= first-manifest (get-in reopened [:recovery :manifest])))
           (is (= first-committed (set (:datoms (:recovery reopened)))))
           (store/close! reopened)))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+;; =============================================================================
+;; Rehydration and (reset) continuity — slice 3.  The restart sequence of
+;; the durable-store ruling (§5), as the REPL input lines an operator types:
+;; evaluate, stop, restart on the same directory, require dao.space.query,
+;; query the old facts, evaluate more, query both.
+;; =============================================================================
+
+(def ^:private require-line
+  "(require (quote dao.space.query))")
+
+
+(defn- q-line
+  [query & more]
+  (str "(dao.space.query/q (quote " (pr-str query) ")"
+       (apply str (map #(str " " %) more))
+       ")"))
+
+
+(defn- evaluate
+  [state lines]
+  (reduce (fn [[state texts] line]
+            (let [[state' text] (repl/eval-input state line)]
+              [state' (conj texts text)]))
+          [state []]
+          lines))
+
+
+(defn- provenance-line
+  "A history-view query for the session token and t of the literal
+   `value` — a constant only one def carries.  It sits inside the quoted
+   query, never as an input, so the calling line's own literals (every
+   program is indexed, the calling one included) cannot match it."
+  [value]
+  (q-line [:find '?s '?t
+           :where ['?e :yin/value value '?t '?m]
+           ['?m :yin.repl/session '?s '?t1 '?m1]]
+          "{:view :history}"))
+
+
+(defn- provenance
+  "The `[token t]` pairs a provenance answer's text names."
+  [text]
+  (set (map (fn [[_ token t]] [token (read-edn t)])
+            (re-seq #"\[\"([^\"]+)\" (\d+)\]" (str text)))))
+
+
+(defn- local-datoms
+  "Every datom of the indexer's retained transaction log."
+  [state]
+  (mapcat :datoms (transactions state)))
+
+
+(defn- ids-of
+  "The entity and metadata-entity ids a datom set uses."
+  [datoms]
+  (into #{}
+        (comp (mapcat (fn [[e _a _v _t m]] [e m]))
+              (filter #(and (integer? %) (<= datom/first-user-id %))))
+        datoms))
+
+
+(deftest a-restarted-durable-shell-answers-q-with-the-previous-runs-facts
+  (let [dir (temp-dir)
+        spec {:type :file :dir dir}]
+    (try
+      (let [[first-run _] (evaluate (repl/create-state {:index-store-spec spec})
+                                    ["(def alpha 1001)"])
+            first-token (:shell-token first-run)
+            first-datoms (set (local-datoms first-run))
+            _ (store/close! (:index-store first-run))
+            restarted (repl/create-state {:index-store-spec spec})
+            [second-run [required old-only _ both-alpha both-beta]]
+            (evaluate restarted
+                      [require-line
+                       (provenance-line 1001)
+                       "(def beta 2002)"
+                       (provenance-line 1001)
+                       (provenance-line 2002)])
+            second-token (:shell-token second-run)
+            [[_ alpha-t]] (vec (provenance both-alpha))
+            [[_ beta-t]] (vec (provenance both-beta))]
+        (is (= "'dao.space.query" required))
+        (testing "the restarted shell is seeded before any evaluation"
+          (let [status (:index (repl/repl-state restarted))]
+            (is (= (count (transactions first-run)) (:transactions status))
+                "the restored transactions are counted")
+            (is (true? (:published? status))
+                "and published: q can answer before any new program")))
+        (is (not= first-token second-token)
+            "every process start mints its own shell token")
+        (testing "q sees the old facts before any new evaluation"
+          (is (= #{first-token} (set (map first (provenance old-only))))
+              old-only))
+        (testing "q sees old and new facts, with increasing t and distinct
+                  session provenance"
+          (is (= #{first-token} (set (map first (provenance both-alpha))))
+              both-alpha)
+          (is (= #{second-token} (set (map first (provenance both-beta))))
+              both-beta)
+          (is (and alpha-t beta-t (< alpha-t beta-t))
+              "the new transactions continue t from the restored log"))
+        (testing "restored entity ids never collide with new ones"
+          (let [new-datoms (remove first-datoms (local-datoms second-run))]
+            (is (seq new-datoms))
+            (is (empty? (cset/intersection (ids-of first-datoms)
+                                           (ids-of new-datoms))))))
+        (testing "the first post-restart publication's HEAD covers old and
+                  new facts"
+          (let [manifest (get-in second-run [:indexer :manifest-address])
+                published (set (dao.index/read-datoms
+                                 (:index-store second-run) manifest))]
+            (is (= {:version 1 :manifest manifest} (head-record-of dir)))
+            (is (every? published first-datoms) "the old facts")
+            (is (every? published (local-datoms second-run))
+                "and every committed fact")))
+        (testing "(reset) and (vm …) keep the facts, t and entity allocation"
+          (let [before (set (local-datoms second-run))
+                [after-reset [_ _ alpha-after beta-after]]
+                (evaluate second-run
+                          ["(reset)" require-line
+                           (provenance-line 1001) (provenance-line 2002)])
+                [switched [_ _ gamma-text]]
+                (evaluate after-reset
+                          ["(vm :stack)" "(def gamma 3003)"
+                           (provenance-line 3003)])
+                [switched' [_ gamma-q]]
+                (evaluate switched [require-line (provenance-line 3003)])
+                [[_ gamma-t]] (vec (provenance gamma-q))
+                gamma-datoms (remove before (local-datoms switched'))]
+            (is (= (provenance both-alpha) (provenance alpha-after)))
+            (is (= (provenance both-beta) (provenance beta-after)))
+            (is (str/includes? (str gamma-text) "Unable to resolve")
+                "the switched session needs its own require")
+            (is (and gamma-t (< beta-t gamma-t)) gamma-q)
+            (is (empty? (cset/intersection (ids-of before)
+                                           (ids-of gamma-datoms)))
+                "entity allocation continued across the rebuilds")))
+        (store/close! (:index-store second-run)))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest mem-mode-reset-still-starts-an-empty-index
+  (let [[state [_ _ _ _ after-reset]]
+        (evaluate (repl/create-state)
+                  ["(def alpha 1001)" require-line (provenance-line 1001)
+                   "(reset)"
+                   require-line])
+        [_ [alpha-after]] (evaluate state [(provenance-line 1001)])]
+    (is (= "'dao.space.query" after-reset))
+    (is (= "#{}" alpha-after)
+        "the memory store's reset keeps today's empty rebuild")))
+
+
+;; =============================================================================
+;; Rehydration fidelity over a published fixture: several `t`, a retraction,
+;; and a greatest id that occurs only in `m`.
+;; =============================================================================
+
+(defn- memory-log!
+  []
+  (:dao.stream/handle
+    (memory-log/create! {:dao.stream/type memory-log/transport-type})))
+
+
+(def ^:private fixture-txs
+  "Three transactions a real transactor commits as t 0, 1 and 2: two
+   assertions; an assertion whose metadata entity, 40, is the greatest id
+   and occurs nowhere but in `m`; and the retraction of the first fact."
+  [[[16 :fixture/name "a" nil 1] [17 :fixture/name "b" nil 1]]
+   [[18 :fixture/name "c" nil 40]]
+   [[16 :fixture/name "a" nil 0]]])
+
+
+(defn- publish-fixture!
+  "Commit `fixture-txs` through a transactor, publish the covered indexes
+   into a fresh durable store at `dir`, drain them into it, move HEAD to
+   the manifest as a round would, and close the store.  Answers the
+   committed transaction records."
+  [dir]
+  (let [opened (store/open {:type :file :dir dir})
+        local (memory-log!)
+        intake (memory-log!)
+        tx (transactor/create! {:local-stream local
+                                :intake-pool [intake]
+                                :name "fixture"})]
+    (doseq [tx-data fixture-txs]
+      (is (= :dao.stream/ok
+             (:dao.stream/outcome (transactor/transact! tx tx-data)))))
+    (let [{:keys [manifest-address]} (transactor/publish! tx)]
+      (loop [pool (jing/observer-state
+                    [{:stream intake
+                      :cursor (:dao.stream/cursor
+                                (dao.stream/cursor intake :dao.stream/oldest))}])]
+        (let [{:keys [signal state]} (jing/observe-step! opened pool)]
+          (when (= :dao.stream/ok signal)
+            (recur state))))
+      ((:head-fn opened) manifest-address)
+      (store/close! opened)
+      (mapv :dao.space/transaction (stream-values local)))))
+
+
+(defn- groups
+  "Transaction records as `t` -> the set of its datoms."
+  [records]
+  (into {} (map (fn [{:keys [t datoms]}] [t (set datoms)])) records))
+
+
+(def ^:private fixture-history
+  '[:find ?e ?v ?t ?m :where [?e :fixture/name ?v ?t ?m]])
+
+
+(def ^:private fixture-current
+  '[:find ?e ?v :where [?e :fixture/name ?v]])
+
+
+(deftest a-restart-restores-every-transaction-group-history-row-and-retraction
+  (let [dir (temp-dir)]
+    (try
+      (let [committed (publish-fixture! dir)
+            expected-groups (groups committed)
+            history-rows (into #{}
+                               (comp (mapcat :datoms)
+                                     (map (fn [[e _a v t m]] [e v t m])))
+                               committed)
+            restarted (repl/create-state {:index-store-spec {:type :file
+                                                             :dir dir}})
+            ;; The log is a live stream the later rounds append to: read
+            ;; the restored groups before anything is evaluated.
+            restored-groups (groups (transactions restarted))
+            [before [_ history current]]
+            (evaluate restarted [require-line
+                                 (q-line fixture-history "{:view :history}")
+                                 (q-line fixture-current)])
+            [after [_ history' current']]
+            (evaluate before ["(def delta 4004)"
+                              (q-line fixture-history "{:view :history}")
+                              (q-line fixture-current)])]
+        (is (= [0 1 2] (sort (keys expected-groups)))
+            "the fixture spans three transaction times")
+        (is (= expected-groups restored-groups)
+            "each restored transaction is its original group, at its t")
+        (testing "before a new publication"
+          (is (= history-rows (read-edn history))
+              "history rows: every assertion and the retraction, each at its
+               t and with its m")
+          (is (= #{[17 "b"] [18 "c"]} (read-edn current))
+              "the current view applies the retraction"))
+        (testing "after a new publication"
+          (is (= expected-groups
+                 (select-keys (groups (transactions after))
+                              (keys expected-groups)))
+              "the restored groups are untouched")
+          (is (every? #(< 2 %) (remove (set (keys expected-groups))
+                                       (keys (groups (transactions after)))))
+              "new transactions come after the restored ones")
+          (is (= history-rows (read-edn history')))
+          (is (= #{[17 "b"] [18 "c"]} (read-edn current'))))
+        (testing "a greatest id only in m still bounds entity allocation"
+          (let [new-datoms (remove (set (mapcat :datoms committed))
+                                   (local-datoms after))]
+            (is (seq new-datoms))
+            (is (every? #(< 40 %) (ids-of new-datoms))
+                "every id allocated after the restart exceeds m = 40")))
+        (store/close! (:index-store after)))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest vm-selection-says-what-it-keeps
+  (let [dir (temp-dir)]
+    (try
+      (let [[durable [switched]] (evaluate (repl/create-state
+                                             {:index-store-spec {:type :file
+                                                                 :dir dir}})
+                                           ["(vm :stack)"])
+            [_ [switched-mem]] (evaluate (repl/create-state) ["(vm :stack)"])]
+        (is (= (str "Switched to DebruijnStackVM (VM store cleared; durable"
+                    " code index kept)")
+               switched)
+            "in durable mode the code index survives the switch, and says so")
+        (is (= "Switched to DebruijnStackVM (store cleared)" switched-mem)
+            "the memory store's message is today's")
+        (store/close! (:index-store durable)))
       (finally
         (cleanup-dir! dir)))))

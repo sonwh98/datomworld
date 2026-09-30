@@ -166,12 +166,29 @@ published snapshot: both are HEAD naming an older valid manifest, which
 opens and recovers.
 
 What the open recovered — `{:manifest <address or nil> :datoms <the
-walked snapshot or nil>}` — is exposed as `:recovery` on the store
-handle and `:index-recovery` on the shell state, for the rehydration
-slice. Nothing installs it yet: `q` in a new session answers from that
-session's own publications, and `(reset)` keeps today's rebuild
-semantics. Restoring the transaction log, initializing the indexer from
-the snapshot, and `(reset)` continuity in durable mode are that slice,
-not this one. Until it lands, a restarted (or reset) session's first
-publication covers only its own facts, so HEAD moves off the previous
-snapshot; the older blobs stay in `content.jing`, unreferenced.
+walked snapshot or nil>}` — is `:recovery` on the store handle and
+`:index-recovery` on the shell state, and the shell installs it before
+it admits any evaluation (`yin.repl.index/rehydrate`). The indexer's
+log becomes a fresh complete-retention memory log holding the recovered
+datoms as transaction records, one per original `t` in ascending order,
+each datom and its `t` preserved, so the round's transactor keeps
+deriving the next `t` from it. Entity allocation resumes one past the
+greatest restored entity or metadata id (never below
+`datom/first-user-id`), so restored and new ids never collide. The
+recovered manifest is the indexer's published one and its transaction
+counts are the restored ones, so `q` answers the previous run's facts
+before any new evaluation, and the first publication after a restart
+covers old and new facts — HEAD moves to a manifest holding both.
+
+Every process start mints a new shell token. Restored facts keep their
+original session tokens and root and round metadata, since they are the
+datoms as committed; new facts carry the new token, so `q` over the
+history view tells the runs apart.
+
+With a durable store, `(reset)` and VM selection rebuild the VM, the
+expander, and their observers, but the new indexer continues the old
+one's log, entity allocation, counts, and published manifest
+(`yin.repl.index/carry-over`): they never reset `t` or entity
+allocation, and the published index stays queryable once
+`dao.space.query` is required again. With the default memory store they
+start an empty index, exactly as before.

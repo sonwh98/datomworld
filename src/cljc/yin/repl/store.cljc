@@ -1,7 +1,7 @@
 (ns yin.repl.store
   "Startup selection and durable lifecycle of the code index's store
    (docs/design/yin.repl.dao.space-index.md; the durable-store startup
-   contract, slices 1-2).
+   contract, slices 1-3).
 
    The store is chosen once, before the shell composes: `mem` — a fresh
    in-memory `dao.jing` store, today's behaviour — or `file:<dir>`, the
@@ -21,13 +21,16 @@
    absent HEAD is an empty index while a malformed HEAD, a missing
    manifest, or an unreadable index node refuses startup rather than
    starting empty.  A round that publishes moves HEAD only after its
-   manifest is read back (`:head-fn`), and the recovery it leaves is
-   exposed as `:recovery` for the rehydration slice.
+   manifest is read back (`:head-fn`), and what the open recovered is
+   `:recovery`.
 
-   Rehydration itself is not this slice.  The recovered facts are exposed,
-   not installed: `q` in a new session answers from that session's own
-   publications until slice 3 rebuilds the indexer from `:recovery`, and
-   `(reset)` keeps today's rebuild semantics."
+   The shell installs that recovery before it admits any evaluation
+   (`yin.repl.index/rehydrate`): the indexer's log, entity allocation,
+   counts, and published manifest continue the previous run's, so `q`
+   answers the old facts, new transactions continue `t`, and the next
+   HEAD covers old and new facts.  A durable store (`durable?`) also
+   carries the index across `(reset)` and VM selection; the memory store
+   keeps today's empty rebuild."
   (:require #?@(:cljd [["dart:io" :as dart-io]
                        [clojure.edn :as edn]])
             #?(:cljd nil
@@ -367,7 +370,7 @@
    content log; `:head-fn`, `(fn [manifest-address])`, the atomic HEAD
    write a round performs after its manifest is read back; `:recovery`,
    `{:manifest <address or nil> :datoms <the walked snapshot or nil>}`,
-   exposed for the rehydration slice; and `:durable-dir`, the directory
+   which the shell rehydrates its indexer from; and `:durable-dir`, the directory
    an operator's refusal can name."
   [spec]
   (let [checked (checked-spec spec)]
@@ -386,6 +389,14 @@
                                 (head-record manifest-address)))
                    :recovery recovery
                    :durable-dir dir)))))))
+
+
+(defn durable?
+  "True when `store` is a durable directory store `open` answered: its
+   published index outlives the process, so a session rebuild continues
+   it rather than starting an empty one."
+  [store]
+  (some? (:durable-dir store)))
 
 
 (defn close!

@@ -41,7 +41,10 @@
    round lost for the shell's round result, and `status` is the
    evaluator-independent view `repl-state` reports.  Everything here is a
    session-composition value; reset and VM selection rebuild it with the
-   session."
+   session.  Over a durable store a new process's indexer is seeded from
+   the recovered snapshot (`rehydrate`), and a rebuilt session's continues
+   the old one's index (`carry-over`), so `t` and entity allocation never
+   restart there."
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.space.index :as index]
@@ -165,6 +168,64 @@
    :manifest-address nil
    :lost? false
    :failure nil})
+
+
+(defn- next-entity-id
+  "One greater than the greatest entity or metadata-entity id `datoms`
+   use, never below `datom/first-user-id`."
+  [datoms]
+  (reduce (fn [next-e [e _a _v _t m]]
+            (cond-> next-e
+              (integer? e) (max (inc e))
+              (integer? m) (max (inc m))))
+          datom/first-user-id
+          datoms))
+
+
+(defn rehydrate
+  "Seed a fresh indexer from a recovered durable snapshot, `{:manifest
+   address :datoms [...]}` (yin.repl.store's `:recovery`), before any
+   evaluation is admitted.  Its log becomes a fresh complete-retention
+   memory log holding the recovered datoms as transaction records, one
+   per original `t` in ascending order, each datom and its `t` preserved,
+   so the round's transactor keeps deriving the next `t` from it.  Entity
+   allocation resumes one past the greatest restored entity or metadata
+   id.  The manifest is the published one, covering every restored
+   transaction, so `q` answers from it before anything new is evaluated.
+   Restored facts keep their original session tokens and round metadata:
+   they are the datoms as committed.  A recovery without a manifest is an
+   empty index and leaves the indexer as it is."
+  [indexer {:keys [manifest datoms]}]
+  (if (nil? manifest)
+    indexer
+    (let [log (memory-log)
+          by-t (group-by index/datom-t datoms)
+          ts (sort (keys by-t))]
+      (doseq [t ts]
+        (let [answer (stream/append! log {:dao.space/transaction
+                                          {:t t, :datoms (vec (get by-t t))}})]
+          (when-not (= :dao.stream/ok (:dao.stream/outcome answer))
+            (throw (ex-info "the recovered snapshot could not be rehydrated"
+                            {:t t, :outcome answer})))))
+      (assoc indexer
+             :local log
+             :next-e (next-entity-id datoms)
+             :transactions (count ts)
+             :published (count ts)
+             :manifest-address manifest))))
+
+
+(defn carry-over
+  "A rebuilt session's fresh `indexer`, continuing `previous`'s index: its
+   transaction log, entity allocation, counts, and published manifest.
+   `(reset)` and VM selection over a durable store use it, so a rebuild
+   never resets `t` or entity allocation and `q` keeps answering the
+   published index; the observer is the new session's, and a lost or
+   failed indexer is recovered by the rebuild as it is today."
+  [indexer previous]
+  (merge indexer
+         (select-keys previous [:local :next-e :transactions :published
+                                :published-payloads :manifest-address])))
 
 
 (defn- open-publication
