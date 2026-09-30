@@ -1,10 +1,12 @@
-# dao.atom — Distributed Atoms over the DaoJing DHT
+# dao.data.atom — Distributed Atoms over the DaoJing DHT
 
 Status: proposed design, not implemented. Derived from and subordinate to
 [`datom.world.md`](./datom.world.md). Nothing here amends
 [`dao.stream.md`](./dao.stream.md), [`dao.jing.md`](./dao.jing.md), or
 [`dao.jing.dht.md`](./dao.jing.dht.md); every mechanism below is a
-convention over their existing contracts.
+convention over their existing contracts. `dao.data.atom` is a data
+structure that consumes DaoJing, not an extension of it: DaoJing still
+keeps no roots (§10, OD-1).
 
 **Related documents:**
 - [dao.jing.dht.md](dao.jing.dht.md) — the content-addressed network store
@@ -81,10 +83,10 @@ humans is discovery's problem (`dao.stream.discovery.md`), not this one's.
 An atom is published as a descriptor map:
 
 ```clojure
-{:dao.atom/succession  <remote descriptor>   ; owner #{:reader}
- :dao.atom/proposals   <remote descriptor>   ; owner #{:writer}
- :dao.atom/answers     <remote descriptor>   ; owner #{:reader}
- :dao.atom/store       <dao.jing coordinate>} ; the DHT the values live in
+{:dao.data.atom/succession  <remote descriptor>   ; owner #{:reader}
+ :dao.data.atom/proposals   <remote descriptor>   ; owner #{:writer}
+ :dao.data.atom/answers     <remote descriptor>   ; owner #{:reader}
+ :dao.data.atom/store       <dao.jing coordinate>} ; the DHT the values live in
 ```
 
 ### 3.3 The succession record
@@ -92,23 +94,23 @@ An atom is published as a descriptor map:
 Every element of the succession stream is exactly one record:
 
 ```clojure
-{:dao.atom/atom     <identity of this succession stream>
- :dao.atom/n        n                 ; 0 for the genesis record, then +1
- :dao.atom/prev     <record address or nil>
- :dao.atom/root     <segment address or nil>
- :dao.atom/proposal <proposal id or nil>}   ; nil only for genesis
+{:dao.data.atom/atom     <identity of this succession stream>
+ :dao.data.atom/n        n                 ; 0 for the genesis record, then +1
+ :dao.data.atom/prev     <record address or nil>
+ :dao.data.atom/root     <segment address or nil>
+ :dao.data.atom/proposal <proposal id or nil>}   ; nil only for genesis
 ```
 
-- `:dao.atom/root` names the value. Its shape (a single segment or a B-tree
+- `:dao.data.atom/root` names the value. Its shape (a single segment or a B-tree
   root) is recorded in the value's own segment, not in the record; see §5.
   `nil` is the value `nil`.
 - The record's own **address** is `jing/segment-key` of the record. Anyone
   holding the record can compute it; it is never written into the record
   itself.
-- `:dao.atom/prev` makes the succession a **hash chain**. The owner also
+- `:dao.data.atom/prev` makes the succession a **hash chain**. The owner also
   materializes each record into the DHT, so any peer can walk an atom's
   history backwards from any record without the owner being reachable.
-- Because `:dao.atom/n` and `:dao.atom/prev` are inside the hashed bytes,
+- Because `:dao.data.atom/n` and `:dao.data.atom/prev` are inside the hashed bytes,
   two records that name the same root at different times have different
   addresses. Compare-and-set against a record address has no ABA problem.
 
@@ -116,11 +118,11 @@ Every element of the succession stream is exactly one record:
 
 Deref is a read by the reader's own interpreter:
 
-1. Attach to `:dao.atom/succession` through `dao.stream.remote` and hold a
+1. Attach to `:dao.data.atom/succession` through `dao.stream.remote` and hold a
    cursor on it.
 2. Drain the cursor to `:dao.stream/blocked`. The last record drained is
    this reader's **head**.
-3. Resolve `:dao.atom/root` through the reader's DHT content handle. Reads
+3. Resolve `:dao.data.atom/root` through the reader's DHT content handle. Reads
    are local-first; a miss runs one lookup per missing segment, is
    verified by hashing, and is cached (`dao.jing.dht.md`, *Reads*). A
    B-tree value is restored lazily, so a lookup costs O(log n) segment
@@ -140,21 +142,21 @@ on the succession stream, and each record it drains is the watch event.
 
 ### 4.1 Vocabulary
 
-Proposals and answers are plain data dispatched on `:dao.atom/status`:
+Proposals and answers are plain data dispatched on `:dao.data.atom/status`:
 
-| Fact | `:dao.atom/status` | Author | Required keys |
+| Fact | `:dao.data.atom/status` | Author | Required keys |
 |---|---|---|---|
-| Proposal | `:dao.atom/proposed` | proposer | `:dao.atom/proposal`, `:dao.atom/atom`, `:dao.atom/base`, `:dao.atom/root` |
-| Accepted | `:dao.atom/accepted` | owner | `:dao.atom/proposal`, `:dao.atom/record` (address), `:dao.atom/n` |
-| Rejected | `:dao.atom/rejected` | owner | `:dao.atom/proposal`, `:dao.atom/cause`, `:dao.atom/head` (current record address) |
+| Proposal | `:dao.data.atom/proposed` | proposer | `:dao.data.atom/proposal`, `:dao.data.atom/atom`, `:dao.data.atom/base`, `:dao.data.atom/root` |
+| Accepted | `:dao.data.atom/accepted` | owner | `:dao.data.atom/proposal`, `:dao.data.atom/record` (address), `:dao.data.atom/n` |
+| Rejected | `:dao.data.atom/rejected` | owner | `:dao.data.atom/proposal`, `:dao.data.atom/cause`, `:dao.data.atom/head` (current record address) |
 
-- `:dao.atom/proposal` is an identity the proposer mints, never reuses, and
+- `:dao.data.atom/proposal` is an identity the proposer mints, never reuses, and
   retries with. Deduplication is the payload's (`dao.stream.md`,
   *Writing*): the steward answers a proposal id it has already judged with
   the same answer again and does not judge it a second time.
-- `:dao.atom/base` is the record address the proposer computed from. It is
+- `:dao.data.atom/base` is the record address the proposer computed from. It is
   the "expected" half of compare-and-set.
-- `:dao.atom/cause` is one of `:stale` (base is not the head),
+- `:dao.data.atom/cause` is one of `:stale` (base is not the head),
   `:unavailable` (the proposed value could not be fetched in full),
   `:invalid` (the owner's validator declined it), or `:malformed`.
 
@@ -172,7 +174,7 @@ on the owner, and is re-run against the newer value on conflict.
    and cost nothing.
 4. Append a proposal with `:base` = head address and `:root` = the address
    of `value'`.
-5. Read the answer from `:dao.atom/answers`. On `:accepted`, done. On
+5. Read the answer from `:dao.data.atom/answers`. On `:accepted`, done. On
    `:stale`, advance the succession cursor and go to 1.
 
 `reset!` is the same loop with `f` ignoring its argument. `compare-and-set!`
@@ -275,7 +277,7 @@ transport, since the hash chain in the DHT recovers history it missed.
 - **Owner restarts.** The steward re-derives `n`, `prev`, and the set of
   judged proposal ids from its retained succession and answers streams.
 - **Planned handoff.** The owner appends a final record carrying
-  `:dao.atom/successor <atom descriptor>` and the successor's genesis
+  `:dao.data.atom/successor <atom descriptor>` and the successor's genesis
   record names that final record as its `:prev`. Readers follow the
   pointer, so the hash chain stays unbroken across owners.
 - **Unplanned failover** is out of scope; see OD-2.
@@ -305,9 +307,19 @@ GC roots) applies to published indexes too.
 
 ## 10. Open decisions
 
-**OD-1. Name.** `dao.atom` is chosen for recognizability. It collides with
-the idea of an in-memory mutable cell, which this is not. `dao.succession`
-names what it does to streams and may be the better name.
+**OD-1. Name and placement (decided).** The namespace is `dao.data.atom`,
+beside `dao.data.btree`, and its keywords live under `:dao.data.atom/`.
+`dao.data.md` places specific data structures in `dao.data.*`
+sub-namespaces, and an atom is one: a persistent identity over immutable
+values, as the B-tree is a persistent collection over immutable segments.
+Placing it here also keeps it off DaoJing's side of the storage boundary,
+so it does not give DaoJing a mutable root. `dao.jing.md` still holds: DaoJing
+keeps no roots, CAS records, or deletes, and `dao.jing/get` still rejects
+anything that is not a content address. An atom's head lives on the
+owner's succession stream, and the steward's compare-and-set is a judgement
+by the owner's interpreter, not an operation of the content store.
+`dao.data.atom` consumes DaoJing's contract the way `dao.data.btree`'s
+`IStorage` does; it adds nothing to it.
 
 **OD-2. Unplanned failover.** An ownership lease (`dao.lease.md`) could let a
 successor take over when the owner falls silent. But a lease judge must
