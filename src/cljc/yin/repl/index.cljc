@@ -140,17 +140,24 @@
    materialize into.  `session-token` is the shell's stable token, recorded
    as provenance; `publish-opts` reach `transactor/publish!` as-is.
 
+   `after-publish` is `(fn [manifest-address])`, called after a round's
+   manifest is read back from the store and before the round is reported
+   published: the durable store's HEAD write, which is what makes the
+   round durably published (docs/design/yin.repl.dao.space-index.md).
+   Nil — the memory store — publishes exactly as before.
+
    Between rounds that is all it holds.  A round that has code to commit
    opens its `:publication` — a transactor over `:local` whose intake pool
    is one fresh complete-retention intake — and drops it when the round
    ends, so no earlier publication's payloads stay reachable from the
    indexer (see `step`)."
-  [{:keys [observer session-token content-store publish-opts]}]
+  [{:keys [observer session-token content-store publish-opts after-publish]}]
   {:observer observer
    :local (memory-log)
    :content-store content-store
    :session-token session-token
    :publish-opts publish-opts
+   :after-publish after-publish
    :next-e datom/first-user-id
    :transactions 0
    :published 0
@@ -233,7 +240,11 @@
   "Publish the covered indexes over every committed transaction through
    the round's transactor, drain its intake into the store, and read the
    manifest back from it.  Only a publication whose manifest the store
-   answers becomes the reported one, covering `:published` transactions."
+   answers becomes the reported one, covering `:published` transactions;
+   in durable mode the HEAD pointer moves — `after-publish` — only after
+   that read-back, so a HEAD never names a manifest the store cannot
+   answer, and a HEAD that cannot be written leaves the round reported
+   unpublished."
   [ix round]
   (try
     (let [{:keys [transactor pool]} (:publication ix)
@@ -243,6 +254,8 @@
       (if defect
         (assoc ix :failure {:round round :stage :materialize :outcome defect})
         (do (index/read-manifest (:content-store ix) manifest-address)
+            (when-some [write-head! (:after-publish ix)]
+              (write-head! manifest-address))
             (assoc ix
                    :manifest-address manifest-address
                    :published (:transactions ix)

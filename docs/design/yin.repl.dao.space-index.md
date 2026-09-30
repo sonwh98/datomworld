@@ -79,3 +79,99 @@ in `dao.stream.remote.implementation-plan.md`, section 1. It adds no
 wire shape. It composes beside that epic's middleware, remote channel,
 content service, REPL service, UDP, pair, and UCF slices; their transport
 and content-service file sets need no change for this local observer.
+
+## Durable store: startup, HEAD, and the directory lock
+
+The store is picked once, at startup: `--index-store mem | file:<dir>`
+through the one shared argument parser every host's `-main` uses, or
+`:index-store-spec` (`:mem`, `{:type :file :dir dir}`) to
+`yin.repl/create-state`. Omission means `mem`, today's behaviour. A
+missing value, an unknown scheme, an empty directory, a directory that
+cannot be opened, a host build without file support, a handle and a spec
+together — each refuses before any shell or server composes, with its
+reason; nothing falls back to memory silently. There is no runtime
+switching.
+
+A durable directory holds three things: `content.jing` — the
+`dao.jing.file` content log the indexer's publications materialize into,
+exactly as the memory store receives them; `HEAD` — a versioned record
+(`{:version 1 :manifest <address>}`, EDN) naming the latest published
+manifest; and `lock` — the exclusive lock. Opening is exclusive and
+validating: the lock is acquired before anything else in the directory
+is touched and held until the store closes; a second owner is refused
+naming the directory, and the first is unaffected. The JVM and Dart take
+an operating-system lock on `lock` (released when the holding process
+dies). Node, which has no `flock` in its core, uses claim entries: each
+contender creates its own uniquely named `lock.<pid>.<nonce>` and only
+then reads the others. An entry naming a live process — an owner or a
+rival contender — refuses, and the contender withdraws its own. An entry
+naming a dead process — an owner that crashed, or a contender that
+crashed at any point in its own claim — is removed, and that removal is
+race-free: a unique name is never created again, so it can never be a
+newer live claim. A crashed process never bricks the directory and no
+operator step is needed; since every contender creates before it reads,
+two contenders never both own it (two simultaneous starts may both
+refuse). That holds for worker threads of one Node process too: they
+share its pid but not its in-process record, so an entry naming this
+pid is live unless it is the contender's own entry by exact name.
+
+Contract, pid reuse (Node only): a claim is as live as its pid, so a
+crashed owner's claim whose pid the OS has since given to an unrelated
+live process reads as live and startup refuses. That is the safe
+direction, accepted rather than engineered around: a claim is never
+read as dead while its owner lives. The refusal names the claim entries
+it saw. Operator remedy: confirm that no REPL uses the directory, then
+delete the named `<dir>/lock.<pid>.<nonce>` entries (or wait until the
+process now holding that pid exits); the next start opens normally. The
+JVM and Dart locks are held by the operating system and have no
+pid-reuse case.
+
+Those operating-system locks are per process
+(a POSIX `fcntl` lock never refuses its own process), so the store also
+records the directories this process holds and refuses a second owner
+inside the one process before it opens any handle on the lock file.
+That record is process-global mutable state, and it is an explicit
+host-ownership exception to the no-hidden-global-state invariant: it
+mirrors a fact the host already keeps per process — which files this
+process has locked — so it can be no narrower than the process, and it
+holds nothing but the canonical paths of the directories this process
+currently owns. (On Node each worker thread has its own record; across
+workers the claim entries decide.)
+
+Publication moves HEAD only after the round's blobs are drained and its
+manifest read back: the indexer's `after-publish` hook (`:head-fn` on
+the store handle) writes the whole record to a temp file beside HEAD —
+every byte, however many writes the host takes (Node's `writeSync` may
+store fewer bytes than asked) — syncs it, renames it over HEAD — rename
+is the atomicity, so a torn, short, or interrupted write is never
+observed as HEAD — and syncs the directory
+where the host can (Node and the JVM on POSIX systems). There, a failed
+directory sync fails the replacement; a host that cannot sync a
+directory at all (Dart's core, Windows) is not a failed sync. Only then
+is the round reported durably published; a HEAD that cannot be written
+or made durable leaves the round reporting a publication failure. (After
+a failed directory sync the renamed HEAD may already be visible; it
+still names a manifest the store answered, so a later open recovers
+either snapshot, never a torn one.) The memory mode has no hook and
+writes no HEAD.
+
+On open, an absent HEAD means an empty index. A malformed HEAD, a
+missing or invalid manifest, or an unreadable index node — the full
+`read-manifest` traversal over the opened store, walking every index
+root the manifest names (EAVT, AEVT, AVET, VAET), each of which must
+cover exactly the manifest's `:count` datoms — refuses startup rather
+than starting empty. An unreferenced blob after a
+crash is harmless, and a crash before the rename keeps the previous
+published snapshot: both are HEAD naming an older valid manifest, which
+opens and recovers.
+
+What the open recovered — `{:manifest <address or nil> :datoms <the
+walked snapshot or nil>}` — is exposed as `:recovery` on the store
+handle and `:index-recovery` on the shell state, for the rehydration
+slice. Nothing installs it yet: `q` in a new session answers from that
+session's own publications, and `(reset)` keeps today's rebuild
+semantics. Restoring the transaction log, initializing the indexer from
+the snapshot, and `(reset)` continuity in durable mode are that slice,
+not this one. Until it lands, a restarted (or reset) session's first
+publication covers only its own facts, so HEAD moves off the previous
+snapshot; the older blobs stay in `content.jing`, unreferenced.

@@ -138,6 +138,15 @@
      :cljs (.exit js/process 1)))
 
 
+(defn close-index-store!
+  "Release the index store's lifecycle resources before the host exits —
+   in durable mode, the exclusive directory lock.  The shell has already
+   stopped when a host calls this; the memory store has nothing to
+   release."
+  [state]
+  (store/close! (get-in state [:repl :index-store])))
+
+
 (defn- entry-text
   [entry]
   (or (get entry driver/text-key) (get entry serve/text-key)))
@@ -307,6 +316,7 @@
                     (recur state' server' cadence-state)))
               (do (drain-server! server' w)
                   (println)
+                  (close-index-store! state')
                   (exit!)))))))
 
      (defn- read-loop!
@@ -386,6 +396,7 @@
              finish! (fn []
                        (wake/disarm! @wake-ref)
                        (when rl (.close rl))
+                       (close-index-store! (:state @box))
                        (js/process.exit 0))
              tick (fn []
                     ;; The interval timer this namespace replaced fired
@@ -502,6 +513,7 @@
              wake-ref (volatile! nil)
              finish! (fn []
                        (wake/disarm! @wake-ref)
+                       (close-index-store! (:state @box))
                        (io/exit 0)
                        nil)
              tick (fn []

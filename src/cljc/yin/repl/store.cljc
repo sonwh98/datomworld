@@ -1,7 +1,7 @@
 (ns yin.repl.store
-  "Startup selection of the code index's store
+  "Startup selection and durable lifecycle of the code index's store
    (docs/design/yin.repl.dao.space-index.md; the durable-store startup
-   contract, slice 1).
+   contract, slices 1-2).
 
    The store is chosen once, before the shell composes: `mem` — a fresh
    in-memory `dao.jing` store, today's behaviour — or `file:<dir>`, the
@@ -13,15 +13,32 @@
    be opened, a host build without file support — is refused with its
    reason; nothing falls back to memory silently.
 
-   Restart recovery is not this slice.  A file store opened here receives
-   a session's publications exactly as the memory store does, and a later
-   process reopening the same directory appends to the same log, but no
-   HEAD pointer, directory lock, or index rehydration exists yet, so
-   nothing answers `q` from a previous run's facts (slices 2-3)."
-  (:require #?@(:cljd [["dart:io" :as dart-io]])
+   Opening a durable directory is exclusive and validating
+   (yin.repl.store.fs): the directory lock is acquired before anything
+   else in it is touched and held until `close!`; HEAD — the versioned
+   record naming the latest published manifest — is read and the
+   snapshot it names walked in full through the opened store, so an
+   absent HEAD is an empty index while a malformed HEAD, a missing
+   manifest, or an unreadable index node refuses startup rather than
+   starting empty.  A round that publishes moves HEAD only after its
+   manifest is read back (`:head-fn`), and the recovery it leaves is
+   exposed as `:recovery` for the rehydration slice.
+
+   Rehydration itself is not this slice.  The recovered facts are exposed,
+   not installed: `q` in a new session answers from that session's own
+   publications until slice 3 rebuilds the indexer from `:recovery`, and
+   `(reset)` keeps today's rebuild semantics."
+  (:require #?@(:cljd [["dart:io" :as dart-io]
+                       [clojure.edn :as edn]])
+            #?(:cljd nil
+               :clj [clojure.edn :as edn]
+               :cljs [cljs.reader :as reader])
             [clojure.string :as str]
+            [dao.jing :as jing]
             [dao.jing.file :as jing.file]
-            [dao.jing.mem :as jing.mem]))
+            [dao.jing.mem :as jing.mem]
+            [dao.space.index :as dao.index]
+            [yin.repl.store.fs :as fs]))
 
 
 (def file-scheme
@@ -32,6 +49,18 @@
 (def content-name
   "The content log's own file name inside a durable store directory."
   "content.jing")
+
+
+(def head-name
+  "The durable root pointer's own file name inside a durable store
+   directory: the versioned record naming the latest published
+   manifest."
+  "HEAD")
+
+
+(def head-version
+  "The HEAD record version this store writes and accepts."
+  1)
 
 
 (def unsupported-host-text
@@ -184,12 +213,162 @@
        (dir-refusal dir))))
 
 
+;; =============================================================================
+;; HEAD — the durable root pointer, and the snapshot it names
+;; =============================================================================
+
+(defn- head-record
+  "The text of one HEAD record: the version and the manifest address,
+   written whole and replaced whole."
+  [manifest-address]
+  (str (pr-str {:version head-version :manifest manifest-address}) "\n"))
+
+
+(defn- read-edn
+  [text]
+  #?(:cljd (edn/read-string text)
+     :clj (edn/read-string text)
+     :cljs (reader/read-string text)))
+
+
+(defn- recovered-head
+  "The manifest address HEAD names, or nil for an empty index.  A missing
+   file is an empty index; a file that is not exactly the versioned
+   record naming a content address is a corrupt pointer, and a corrupt
+   pointer refuses startup rather than pretending there was no index."
+  [dir]
+  (if-some [text (fs/read-file-text dir head-name)]
+    (let [head (try (read-edn text)
+                    (catch #?(:cljd Object
+                              :clj Exception
+                              :cljs :default)
+                           e
+                      (throw (ex-info (str "the HEAD at " dir
+                                           " is not a readable record: "
+                                           (error-text e))
+                                      {:dir dir :head text}
+                                      e))))]
+      (when-not (and (map? head)
+                     (= head-version (:version head))
+                     (jing/segment-address? (:manifest head)))
+        (throw (ex-info (str "the HEAD at " dir " is not a version-"
+                             head-version
+                             " record naming a manifest address")
+                        {:dir dir :head head})))
+      (:manifest head))
+    nil))
+
+
+(defn- validated-snapshot
+  "The datoms of the snapshot HEAD names, walked eagerly through the
+   opened store — the design's full read-manifest and read-datoms
+   traversal, over every index root the manifest names, not only EAVT:
+   each of the four trees must read back whole and cover exactly the
+   manifest's `:count` datoms.  A missing or invalid manifest, or any
+   unreadable index node, refuses startup here; never a silent empty
+   index."
+  [store dir manifest-address]
+  (try
+    (let [manifest (dao.index/read-manifest store manifest-address)
+          walked (into {}
+                       (map (fn [[index root]]
+                              [index (vec (dao.index/walk-index-datoms
+                                            store root))]))
+                       (:indexes manifest))]
+      (doseq [[index datoms] walked]
+        (when-not (= (:count manifest) (count datoms))
+          (throw (ex-info (str "the " (name index) " index covers "
+                               (count datoms) " datoms, not the manifest's "
+                               (:count manifest))
+                          {:index index}))))
+      (:eavt walked))
+    (catch #?(:cljd Object
+              :clj Throwable
+              :cljs :default)
+           e
+      (throw (ex-info (str "the durable index at " dir " is corrupt: "
+                           (error-text e))
+                      {:dir dir :manifest manifest-address}
+                      e)))))
+
+
+(defn- open-locked-dir
+  "Open the durable directory as its one owner: take the lock before
+   anything else in the directory is touched, then open the content log,
+   read HEAD, and walk the snapshot it names.  Every failure after the
+   lock closes the content log it opened and releases the lock again, so
+   a refused startup never leaves this process holding a directory it
+   did not open."
+  [dir]
+  (let [lock (fs/lock! dir)
+        opened (volatile! nil)]
+    (try
+      (let [handle (try (jing.file/create-content-file (content-path dir))
+                        (catch #?(:cljd Object
+                                  :clj Exception
+                                  :cljs :default)
+                               e
+                          (throw (ex-info (str "cannot open the index store at "
+                                               (content-path dir) ": "
+                                               (error-text e))
+                                          {:dir dir}
+                                          e))))
+            _ (vreset! opened handle)
+            manifest (recovered-head dir)
+            datoms (when manifest
+                     (validated-snapshot handle dir manifest))]
+        {:handle handle
+         :lock lock
+         :recovery {:manifest manifest
+                    :datoms datoms}})
+      (catch #?(:cljd Object
+                :clj Throwable
+                :cljs :default)
+             e
+        (when-some [close-content! (:close-fn @opened)]
+          (try (close-content!)
+               (catch #?(:cljd Object
+                         :clj Throwable
+                         :cljs :default)
+                      _
+                 nil)))
+        (fs/unlock! lock)
+        (throw e)))))
+
+
+(defn lock-releasing-close
+  "The durable handle's `:close-fn`: close the content log, then release
+   the directory lock `lock` — released even when the close throws, so a
+   failed close never keeps a live process holding the directory."
+  [close-content! lock]
+  (fn []
+    (try
+      (close-content!)
+      (finally
+        (fs/unlock! lock)))))
+
+
 (defn open
   "Open the store `spec` names and keep it plain: `:mem` (or nil) is a
    fresh in-memory `dao.jing` store; `{:type :file :dir dir}` is the
    durable content log at `<dir>/content.jing`, opened once here and
    carried by the shell for its lifetime.  A spec this build cannot open
-   is refused with its reason."
+   is refused with its reason.
+
+   The durable open is exclusive and validating.  The directory lock is
+   acquired before the content log or HEAD is touched — a second owner
+   is refused naming the directory — and every failure after it releases
+   the lock again.  HEAD is read and the snapshot it names walked in
+   full: an absent HEAD is an empty index; a malformed HEAD or a corrupt
+   snapshot refuses startup rather than starting empty.
+
+   Beside the plain byte-store fns, the durable handle carries what its
+   lifecycle owns: `:close-fn`, wrapped to release the lock with the
+   content log; `:head-fn`, `(fn [manifest-address])`, the atomic HEAD
+   write a round performs after its manifest is read back; `:recovery`,
+   `{:manifest <address or nil> :datoms <the walked snapshot or nil>}`,
+   exposed for the rehydration slice; and `:durable-dir`, the directory
+   an operator's refusal can name."
   [spec]
   (let [checked (checked-spec spec)]
     (if (= :mem checked)
@@ -197,12 +376,22 @@
       (let [dir (:dir checked)]
         (if-some [refusal (file-refusal dir)]
           (throw (ex-info refusal {:dir dir}))
-          (try (jing.file/create-content-file (content-path dir))
-               (catch #?(:cljd Object
-                         :clj Exception
-                         :cljs :default)
-                      e
-                 (throw (ex-info (str "cannot open the index store at "
-                                      (content-path dir) ": " (error-text e))
-                                 {:dir dir}
-                                 e)))))))))
+          (let [{:keys [handle lock recovery]} (open-locked-dir dir)]
+            (assoc handle
+                   :close-fn (lock-releasing-close (:close-fn handle) lock)
+                   :head-fn (fn publish-head!
+                              [manifest-address]
+                              (fs/atomic-replace!
+                                dir head-name
+                                (head-record manifest-address)))
+                   :recovery recovery
+                   :durable-dir dir)))))))
+
+
+(defn close!
+  "Release the store's lifecycle resources — the content log handle and,
+   in durable mode, the directory lock.  Nothing further can be read or
+   written through the handle afterwards.  Idempotent."
+  [store]
+  (when-let [close! (:close-fn store)]
+    (close!)))

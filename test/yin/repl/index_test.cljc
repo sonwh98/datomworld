@@ -2,8 +2,10 @@
   "The shell's code indexer (docs/design/yin.repl.dao.space-index.md): a
    dao.space.index observer on program-out, one transaction per forwarded
    program, covered indexes published into dao.jing each round."
-  (:require [clojure.string :as str]
+  (:require #?@(:cljd [["dart:io" :as dart-io]])
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dao.jing.file :as jing.file]
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.stream :as stream]
@@ -11,6 +13,7 @@
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
             [yin.repl.index :as repl.index]
+            [yin.repl.store :as store]
             [yin.vm :as vm]
             [yin.vm.macro :as macro]))
 
@@ -235,8 +238,9 @@
 
 (deftest no-earlier-publication-is-retained-between-rounds
   (let [held-keys #{:observer :local :content-store :session-token
-                    :publish-opts :next-e :transactions :published
-                    :published-payloads :manifest-address :lost? :failure}
+                    :publish-opts :after-publish :next-e :transactions
+                    :published :published-payloads :manifest-address
+                    :lost? :failure}
         rounds (reductions
                  (fn [[state _] line] (repl/eval-input state line))
                  [(repl/create-state) nil]
@@ -349,3 +353,105 @@
     (is (empty? (transactions switched)))
     (is (not (identical? (get-in state [:indexer :observer :stream])
                          (get-in switched [:indexer :observer :stream]))))))
+
+
+;; =============================================================================
+;; The durable round's HEAD write — only after the manifest is read back
+;; (the durable-store design, section 2). The memory store has no
+;; after-publish hook and writes no HEAD.
+;; =============================================================================
+
+(defn- temp-store-dir
+  []
+  (str "target/test-index-head-" (random-uuid)))
+
+
+(defn- cleanup-store-dir!
+  [dir]
+  #?(:cljd (try (.deleteSync (dart-io/Directory. dir) .recursive true)
+                (catch Object _ nil))
+     :clj (let [f (java.io.File. ^String dir)]
+            (when (.isDirectory f)
+              (doseq [child (.listFiles f)]
+                (.delete ^java.io.File child))
+              (.delete f)))
+     :cljs (try (.rmSync (js/require "fs") dir #js {:recursive true :force true})
+                (catch :default _ nil))))
+
+
+(defn- head-text
+  [dir]
+  #?(:cljd (let [f (dart-io/File. (str dir "/HEAD"))]
+             (when (.existsSync f) (.readAsStringSync f)))
+     :clj (let [f (java.io.File. (str dir "/HEAD"))]
+            (when (.exists f) (slurp f)))
+     :cljs (let [fs (js/require "fs")
+                 path (str dir "/HEAD")]
+             (when (.existsSync fs path)
+               (.readFileSync fs path "utf8")))))
+
+
+(deftest a-durable-round-writes-head-only-after-the-manifest-read-back
+  (testing "a healthy round: blobs, read-back, then HEAD names the manifest"
+    (let [dir (temp-store-dir)
+          opened (store/open {:type :file :dir dir})]
+      (try
+        (let [[state text] (repl/eval-input
+                             (repl/create-state {:index-store opened})
+                             "(+ 1 2)")
+              manifest (get-in state [:indexer :manifest-address])]
+          (is (= "3" text))
+          (is (true? (get-in (repl/repl-state state) [:index :published?])))
+          (is (str/includes? (str (head-text dir)) (str manifest))
+              "HEAD names the manifest the round published"))
+        (finally
+          (store/close! opened)
+          (cleanup-store-dir! dir)))))
+  (testing "a round whose manifest cannot be read back writes no HEAD"
+    (let [dir (temp-store-dir)
+          opened (store/open {:type :file :dir dir})]
+      (try
+        (let [broken (assoc opened
+                            :get-bytes-fn (fn [_address _not-found]
+                                            (throw (ex-info
+                                                     "store refused the read"
+                                                     {}))))
+              [state text] (repl/eval-input
+                             (repl/create-state {:index-store broken})
+                             "(+ 1 2)")]
+          (is (str/starts-with? text "3\nWarning: ")
+              "the round evaluates and says what its publication lost")
+          (is (= :publish (get-in (repl/repl-state state)
+                                  [:index :failure :stage])))
+          (is (nil? (head-text dir))
+              "no manifest read-back, no HEAD — never a HEAD naming an
+               unreadable snapshot")
+          (is (pos? (count (jing.file/records (store/content-path dir))))
+              "the blobs themselves did land"))
+        (finally
+          (store/close! opened)
+          (cleanup-store-dir! dir)))))
+  (testing "a round whose HEAD write fails reports the round unpublished"
+    (let [dir (temp-store-dir)
+          opened (store/open {:type :file :dir dir})]
+      (try
+        (let [[first-state _] (repl/eval-input
+                                (repl/create-state {:index-store opened})
+                                "(+ 1 2)")
+              first-manifest (get-in first-state [:indexer :manifest-address])
+              failing (assoc opened
+                             :head-fn (fn [_manifest]
+                                        (throw (ex-info "disk gone" {}))))
+              [second-state text] (repl/eval-input
+                                    (repl/create-state {:index-store failing})
+                                    "(+ 2 3)")]
+          (is (str/starts-with? text "5\nWarning: "))
+          (is (false? (get-in (repl/repl-state second-state)
+                              [:index :published?])))
+          (is (nil? (get-in second-state [:indexer :manifest-address]))
+              "the round whose HEAD did not move reports no manifest")
+          (is (str/includes? (str (head-text dir)) (str first-manifest))
+              "the previous published snapshot keeps the HEAD"))
+        (finally
+          (store/close! opened)
+          (cleanup-store-dir! dir))))))

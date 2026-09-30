@@ -736,7 +736,11 @@
    the VM's half is its FFI pair, the interpreter's half with its request
    cursor sits under `:query-pair`, and the interpreter answers from the
    session's `:indexer`, and `:ast-indexer` for `$ast` and `$occ`, as they
-   stand when it serves."
+   stand when it serves.
+
+   A durable store's HEAD write travels with the store handle
+   (`:head-fn`, yin.repl.store): every session the store outlives
+   publishes through the same one."
   [vm-type output-stream extra-primitives shell-token index-store]
   (let [pair (link/make-pair)
         query-pair (query/make-pair query-pair-capacity)
@@ -753,7 +757,8 @@
      :row-observer (:observer program-out)
      :indexer (index/make-indexer {:observer ((:attach program-out))
                                    :session-token shell-token
-                                   :content-store index-store})
+                                   :content-store index-store
+                                   :after-publish (:head-fn index-store)})
      :ast-indexer (ast-index/make-indexer {:observer ((:attach program-out))})
      :link-pair pair
      :query-pair (dissoc query-pair :out-cursor)}))
@@ -807,12 +812,18 @@
    `index-store-spec` is the startup selection of that store
    (yin.repl.store): `:mem` — the default, today's behaviour — or
    `{:type :file :dir dir}`, the durable content log at
-   `<dir>/content.jing`.  The spec is resolved and the store opened once
+   `<dir>/content.jing`, opened under an exclusive directory lock with
+   its HEAD read and the snapshot it names validated — a corrupt HEAD
+   or snapshot refuses construction, and a second owner of the directory
+   is refused naming it.  The spec is resolved and the store opened once
    here, never switched at runtime, and supplying it together with
-   `index-store` (a handle injected directly) is refused.  Restart
-   recovery from a file store is not implemented yet: it receives this
-   session's publications like the memory store does, and nothing
-   rehydrates a previous run's facts (slices 2-3)."
+   `index-store` (a handle injected directly) is refused.
+
+   `:index-recovery` carries what the durable open recovered —
+   `{:manifest <address or nil> :datoms <the validated snapshot or nil>}`
+   — exposed for the rehydration slice; nothing installs it yet, so `q`
+   answers from this session's own publications and `(reset)` keeps
+   today's rebuild semantics."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
             content-store content-client name-env link-policy index-store
@@ -850,6 +861,8 @@
         :shell-token shell-token
         :index-store index-store
         :index-store-spec index-store-spec
+        :index-recovery (or (:recovery index-store)
+                            {:manifest nil :datoms nil})
         :round 0
         :ingress-loss? false
         :last-value nil
