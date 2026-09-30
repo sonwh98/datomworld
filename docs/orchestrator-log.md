@@ -8405,3 +8405,18 @@ thread 01a0ecbd-959c-7de1-af34-1feb70855f89 (collab/1790678232000-reviewer-apply
 Next: open items — pre-existing same-tick REPL queue ordering (owner has not selected); $ast row relation deferred;
 incremental index publish and lease-proposals DO LATER pending owner thresholds; deployment policy for remote FFI;
 archive completed collab/ artifacts (owner confirmation).
+
+## 2026-09-30 17:45 +07 — fable ruling on REPL free-variable rules
+- Ruling: collab/1790764371000-architect-repl-free-variable-rules.claude-fable-5-1.findings.md.
+  (a)+(b): `occurrence-rules` becomes one pure-data rule over `$ast`/`$occ` using a new generic `subvec` builtin plus the collection binding idiom; reject a named rule-set registry and a bridge `:fns` option.
+  Found a worse latent defect: the production rules read the default `$`, so in the REPL every name comes back free (a silent wrong answer).
+- $ast slice 3: the refusal test was removed per §3; the other 6 tests stand; kondo clean; lanes running.
+- Slice 4 (src change) queued; it needs owner decisions §5.1–4 (subvec builtin; no shell binding; raw free set incl. yin/def; unscoped enumeration).
+
+## 2026-09-30 19:05 +07 — $ast slice 3 committed; durable slice 2 committed on repl-durable-index
+- $ast slice 3: gpt-6-sol withheld at r1 (2 MEDIUM vacuous assertions). claude-opus-5-5 fixed them; gpt-6-sol GRANTED at r2.
+  Lanes: kondo clean; Node 2314/0; CLJD all passed.
+  The full JVM run had 3 failures in `yin.repl.main-test/a-dart-client-attaches-to-this-jvm-server` (cross-process timeouts at load average 51). A focused rerun gave 18/0. The delegate's full JVM run was 2409/0.
+- Durable slice 2: gemini GRANTED at r3; gpt-6-sol GRANTED at r4 (Node claim-entry lock scoped per worker; short-write loop; pid-reuse limit documented).
+  Orchestrator lanes in the worktree: JVM 2411/0, Node 2320/0, CLJD all passed.
+- DHT S2: gpt-6-sol withheld at r1 and r2; fix round 2 in flight. DHT S1 is still running.
