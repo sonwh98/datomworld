@@ -113,7 +113,7 @@ The host decides which parked continuation to resume and what value to pass. Thi
 
 The continuation is a first-class value. It can be stored, passed through streams, or sent to another node (via datom migration). The combination of capture + store + park + resume gives the same power as Scheme's `call/cc`.
 
-**Invoking reified continuations as functions:** Currently the application dispatch (`ast_walker.cljc:325`) throws "Cannot apply non-function" for `:reified-continuation` values. Adding one `cond` clause to the application dispatch would make captured continuations callable as functions, enabling the classic pattern:
+**Invoking reified continuations as functions:** The application dispatch of every VM has a `:reified-continuation` clause, so captured continuations are callable as functions (abortive, multi-shot, store not rolled back, exactly one argument; see `ast.md` Part 7), enabling the classic pattern:
 
 ```
 (call/cc (lambda (k)
@@ -123,6 +123,9 @@ The continuation is a first-class value. It can be stored, passed through stream
 ```
 
 This is a single `cond` branch in existing code, not a new node type.
+There is no `call/cc` node: the pattern is written by binding
+`:vm/current-continuation`, e.g. `((fn [k] ... (k 42)) (current-continuation))`,
+where the capture point receives `k` first and `42` on re-entry.
 
 **Strengths:**
 - Maximum flexibility (full continuation control)
@@ -156,6 +159,5 @@ All three models work today with the AST Walker VM. The other VMs (Stack, Regist
 
 Optional ergonomic improvements (none required, none are new node types):
 - Make `:vm/resume` evaluate its arguments as sub-expressions (enables in-VM resume with runtime-computed park-ids)
-- Add a `:reified-continuation` clause in application dispatch (makes captured continuations callable as functions)
 - Add `:do` node type (evaluate N expressions in sequence, return the last, avoids nested `((fn [_] ...) effect)` for sequencing)
 - Add `:let` node type (sequential bindings + body, avoids nested immediately-invoked lambdas)

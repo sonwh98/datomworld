@@ -246,6 +246,13 @@
             {:stop (assoc state :control nil :k nil)}
             {:goto [seg (inc pc) value St E K state (get code seg)]}))
         {:goto [seg (inc pc) result St E K vm (get code seg)]}))
+    ;; An abortive jump: the call site's St/E/K are dropped and the
+    ;; captured registers take over, with the argument in val as the
+    ;; capture instruction left it (19). The store is not a register.
+    (engine/reified-continuation? f)
+    (let [v (engine/continuation-argument f args)
+          seg' (:segment f)]
+      {:goto [seg' (:pc f) v (:stack f) (:env f) (:k f) vm (get code seg')]})
     :else (throw (ex-info "Cannot apply non-function" {:fn f}))))
 
 

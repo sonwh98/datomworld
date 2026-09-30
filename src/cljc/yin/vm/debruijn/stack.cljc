@@ -593,6 +593,13 @@
               (run-effect vm result stack')
               (assoc vm :pc (inc pc) :stack (conj stack' result))))
 
+          ;; A captured continuation: abortive, so the call site's stack,
+          ;; frames and return frames are dropped and the captured
+          ;; registers are restored with the argument on the stack, as a
+          ;; resume would deliver it. The store is not a register.
+          (engine/reified-continuation? f)
+          (stack-restore vm f (engine/continuation-argument f args))
+
           :else
           (throw (ex-info "Cannot apply non-function" {:fn f}))))
 

@@ -409,6 +409,7 @@ The evaluation of an application node follows several steps:
 3. **Apply Function**:
    - **If Primitive**: The VM calls the host-language function with the evaluated arguments.
    - **If Closure**: The VM extends the closure's captured environment by binding `:params` to the argument values, then evaluates the closure's `:body` in this new environment.
+   - **If Reified Continuation**: The VM discards the current continuation and delivers the one argument as the value of the capture point (see Part 7).
 
 **Implementation (from `ast_walker.cljc`):**
 
@@ -434,6 +435,13 @@ The evaluation of an application node follows several steps:
               extended-env (merge closure-env
                                   (engine/bind-params params evaluated-operands))]
           (cesk-return state body extended-env k (:value state)))
+        (engine/reified-continuation? fn-value)
+        (cesk-return state
+                     nil
+                     (:env fn-value)
+                     (:k fn-value)
+                     (engine/continuation-argument fn-value
+                                                   evaluated-operands))
         :else (throw (ex-info "Cannot apply non-function" {:fn fn-value}))))
 ```
 
@@ -667,6 +675,21 @@ Continuations represent "the rest of the computation." Yin VM provides first-cla
 ```clojure
 :vm/current-continuation
 (cesk-return state nil env k {:type :reified-continuation, :k k, :env env})
+```
+
+**Invocation:** A `:reified-continuation` is applicable, in tail or non-tail
+operator position, on every VM. Applying it to exactly one argument is
+abortive, Scheme-style: the current continuation is discarded and the
+argument becomes the value of the original capture point, with the captured
+control context restored (`k`/`env` here; the captured registers on the
+semantic, de Bruijn stack and register VMs). The store is not part of a
+continuation and is not rolled back. A continuation is multi-shot: it can be
+invoked any number of times, including after the expression that captured it
+has returned. Any other arity throws `"Continuation expects exactly one
+argument"` (`engine/continuation-argument`), identically on every VM.
+
+```clojure
+;; ((fn [r] (if (= r 7) r (+ 1000 (r 7)))) (current-continuation))  ;; -> 7
 ```
 
 ### 2. Suspend Execution (Park)

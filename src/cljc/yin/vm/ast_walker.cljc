@@ -258,6 +258,13 @@
               extended-env (merge closure-env
                                   (engine/bind-params params evaluated-operands))]
           (cesk-return state body extended-env k (:value state)))
+        (engine/reified-continuation? fn-value)
+        (cesk-return state
+                     nil
+                     (:env fn-value)
+                     (:k fn-value)
+                     (engine/continuation-argument fn-value
+                                                   evaluated-operands))
         :else (throw (ex-info "Cannot apply non-function" {:fn fn-value}))))
 
 

@@ -350,6 +350,48 @@
                    :images (:images base)})))
 
 
+(defn- check-format!
+  "Refuse `entry` unless it is this model's payload for a row of the offset
+   table (r6)."
+  [base entry]
+  (when-not (and (= format-tag (:format entry))
+                 (some #(= (:image entry) (nth % 0)) (:images base)))
+    (refuse-continuation! base entry)))
+
+
+(defn- write-back
+  "Write `entry`'s registers back and deliver `val` via `:write-result` or
+   `:return-result`. Registers only: `:segment` is kernel state."
+  [base entry val]
+  (if (= :return-result (:resume-mode entry))
+    (return-transition (assoc base
+                              :pc (:pc entry)
+                              :frames (:frames entry)
+                              :continuation (:continuation entry)
+                              :store-of (:store-of entry)
+                              :halted? false)
+                       val)
+    (let [pc (:pc entry)
+          body (body-of-pc (:segment base) pc)
+          reg-count (:registers body)
+          dest (:dest entry)
+          restored-regs
+          (reduce (fn [acc [r v]] (assoc acc r v))
+                  (vec (repeat reg-count nil))
+                  (:regs entry))
+          final-regs (if (some? dest)
+                       (assoc restored-regs dest val)
+                       restored-regs)]
+      (assoc base
+             :pc pc
+             :frames (:frames entry)
+             :registers final-regs
+             :continuation (:continuation entry)
+             :store-of (:store-of entry)
+             :value val
+             :halted? false))))
+
+
 (defn register-restore
   "The register VM's restore function, `base entry val -> state`
    (design section 5.2.3). Validates format identity and that the entry's
@@ -361,9 +403,7 @@
    `:return-result`. The entry restores registers only and never assigns
    `:segment`: the code space is kernel state."
   [base entry val]
-  (when-not (and (= format-tag (:format entry))
-                 (some #(= (:image entry) (nth % 0)) (:images base)))
-    (refuse-continuation! base entry))
+  (check-format! base entry)
   (when-let [defect (effects/continuation-defect entry)]
     (throw (ex-info "Corrupt or tampered continuation payload"
                     defect)))
@@ -379,35 +419,8 @@
                :halted? false))
     (let [call-id (:call-id entry)
           base (if call-id (update base :parked dissoc call-id) base)
-          val (if call-id (ffi/call-result val call-id) val)
-          resume-mode (:resume-mode entry)]
-      (if (= :return-result resume-mode)
-        (return-transition (assoc base
-                                  :pc (:pc entry)
-                                  :frames (:frames entry)
-                                  :continuation (:continuation entry)
-                                  :store-of (:store-of entry)
-                                  :halted? false)
-                           val)
-        (let [pc (:pc entry)
-              body (body-of-pc (:segment base) pc)
-              reg-count (:registers body)
-              dest (:dest entry)
-              restored-regs
-              (reduce (fn [acc [r v]] (assoc acc r v))
-                      (vec (repeat reg-count nil))
-                      (:regs entry))
-              final-regs (if (some? dest)
-                           (assoc restored-regs dest val)
-                           restored-regs)]
-          (assoc base
-                 :pc pc
-                 :frames (:frames entry)
-                 :registers final-regs
-                 :continuation (:continuation entry)
-                 :store-of (:store-of entry)
-                 :value val
-                 :halted? false))))))
+          val (if call-id (ffi/call-result val call-id) val)]
+      (write-back base entry val))))
 
 
 ;; =============================================================================
@@ -601,6 +614,19 @@
                 (assoc vm
                        :pc (inc pc)
                        :registers (assoc registers rd result)))))
+
+          ;; A captured continuation: abortive, so the call site's
+          ;; registers, frames and return frames are dropped and the
+          ;; captured ones restored with the argument in the capture's
+          ;; destination register. The store is not a register. An
+          ;; in-machine value, so only its identity is checked: the
+          ;; payload-defect and plain-data gates are for a continuation
+          ;; or value crossing into the machine, and a capture's live
+          ;; registers may hold closures and primitives.
+          (engine/reified-continuation? f)
+          (let [v (engine/continuation-argument f args)]
+            (check-format! vm f)
+            (write-back vm f v))
 
           :else
           (throw (ex-info "Cannot apply non-function" {:fn f}))))

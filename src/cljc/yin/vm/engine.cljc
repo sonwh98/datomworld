@@ -57,6 +57,23 @@
   (into {} (map vector params (concat args (repeat nil)))))
 
 
+(defn reified-continuation?
+  [f]
+  (and (map? f) (= :reified-continuation (:type f))))
+
+
+(defn continuation-argument
+  "The one value a captured continuation is applied to. Applying a
+   `:reified-continuation` is abortive: the current continuation is
+   discarded and the argument becomes the value of the capture point.
+   Every VM refuses any other arity with this same message."
+  [k args]
+  (when-not (= 1 (count args))
+    (throw (ex-info "Continuation expects exactly one argument"
+                    {:continuation-type (:type k), :argc (count args)})))
+  (first args))
+
+
 (defn resolve-var
   "Look up a variable name: env -> store -> primitives -> module registry.
 
