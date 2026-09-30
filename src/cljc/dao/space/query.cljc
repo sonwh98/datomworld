@@ -1270,6 +1270,55 @@
     nil))
 
 
+(defn- unify-tuple
+  "Unify each term of a tuple binding form with the matching position of
+   ret, or nil on a mismatch. A ret that is not sequential or not of the
+   form's arity is a query error."
+  [binding terms ret clause]
+  (when (or (not (sequential? ret)) (not= (count terms) (count ret)))
+    (throw (ex-info "Function return does not match tuple binding arity"
+                    {:binding-form terms, :returned ret, :clause clause})))
+  (reduce (fn [b [term val]] (or (unify b term val) (reduced nil)))
+          binding
+          (map vector terms ret)))
+
+
+(defn- bind-fn-result
+  "The bindings a fn clause's result ret yields under its binding form out:
+   the forms :in accepts (classify-in-pattern), with Datomic semantics.
+   Scalar ?x binds ret; tuple [?a ?b] binds positionally; collection
+   [?x ...] yields one binding per element; relation [[?a ?b]] one per
+   tuple. Terms unify as in patterns, so _ is blank and a bare symbol is a
+   constant. A collection or relation form takes a sequential or a set ret
+   (order is irrelevant: the result is a set); nil or an empty one yields
+   no binding, and anything else, a map included, is a query error."
+  [binding out ret clause]
+  (if-not (vector? out)
+    (if-let [b (unify binding out ret)] [b] [])
+    (let [kind (classify-in-pattern out)
+          terms (case kind
+                  :coll (butlast out)
+                  :relation (first out)
+                  :tuple out)]
+      (when (or (and (= :coll kind) (not= 2 (count out)))
+                (and (= :relation kind) (not= 1 (count out)))
+                (some #(or (= '... %) (vector? %)) terms))
+        (throw (ex-info
+                 "Unsupported binding form — use ?x, [?a ?b], [?x ...] or [[?a ?b]]"
+                 {:binding-form out, :clause clause})))
+      (when (and (#{:coll :relation} kind)
+                 (not (or (nil? ret) (sequential? ret) (set? ret))))
+        (throw (ex-info (str "Function return for a "
+                             (if (= :coll kind) "collection" "relation")
+                             " binding must be nil, sequential or a set")
+                        {:binding-form out, :returned ret, :clause clause})))
+      (case kind
+        :tuple (if-let [b (unify-tuple binding out ret clause)] [b] [])
+        :coll (let [term (first out)]
+                (into [] (keep #(unify binding term %)) ret))
+        :relation (into [] (keep #(unify-tuple binding terms % clause)) ret)))))
+
+
 (defn- eval-fn-clause
   [clause binding ctx]
   (let [[fsym-and-args & result-vars] clause
@@ -1312,22 +1361,7 @@
                   (ex-info
                     "Function clause takes one binding form; use a tuple [?a ?b] for multi-return"
                     {:clause clause})))
-              (when (and (vector? out) (some #(or (= '... %) (vector? %)) out))
-                (throw
-                  (ex-info
-                    "Unsupported binding form — only a scalar ?out or tuple [?a ?b]"
-                    {:binding-form out, :clause clause})))
-              (when (and (vector? out)
-                         (or (not (sequential? ret))
-                             (not= (count out) (count ret))))
-                (throw (ex-info
-                         "Function return does not match tuple binding arity"
-                         {:binding-form out, :returned ret, :clause clause})))
-              (let [pairs (if (vector? out) (map vector out ret) [[out ret]])
-                    b (reduce (fn [b [sym val]] (when b (unify b sym val)))
-                              binding
-                              pairs)]
-                (if b [b] [])))))))))
+              (bind-fn-result binding out ret clause))))))))
 
 
 (defn- eval-rule

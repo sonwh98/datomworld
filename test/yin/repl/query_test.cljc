@@ -231,6 +231,24 @@
         (is (= "#{[3]}" text) "bump names the three call sites of bump")))))
 
 
+(deftest a-collection-binding-walks-the-operands-vector
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[_ [_ _ literals]]
+            (evaluate (repl/create-state {:vm-type vm-type})
+                      ["(defn inc [i] (+ i 1))"
+                       require-line
+                       (q-line '[:find ?v
+                                 :where [?app :yin/operator ?op]
+                                 [?op :yin/name yin/def]
+                                 [?app :yin/operands ?ops]
+                                 [(identity ?ops) [?arg ...]]
+                                 [?arg :yin/type :literal]
+                                 [?arg :yin/value ?v]])])]
+        (is (= "#{[inc]}" literals)
+            "the literal operands of yin/def, one binding per operand")))))
+
+
 (defn- stream-values
   "Every value currently on a stream, read from its oldest cursor."
   [s]

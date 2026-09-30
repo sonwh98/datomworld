@@ -390,15 +390,27 @@ cardinality-one schema or automatic supersession.
   set, group by the find vars only (`:with` vars keep intended duplicates
   within a group, never split groups), aggregate per group.
 - **Predicates & function clauses** — `[(f ?a ...)]` filters; `[(f ?a ...)
-  ?out]` (or `[?o1 ?o2]` for tuple destructuring) binds. `f` resolves from a
+  <form>]` binds, where `<form>` accepts the same binding forms as `:in`, with
+  Datomic semantics: scalar `?x` binds the result; tuple `[?a ?b]` binds
+  positionally; collection `[?x ...]` yields one binding per element;
+  relation `[[?a ?b]]` yields one binding per tuple. So a vector value such
+  as `:yin/operands` is walked by `[(identity ?ops) [?arg ...]]`. Terms
+  inside a form follow the term rule: `_` is blank, and a bare symbol stays
+  a constant the element must equal. A collection or relation form takes a
+  sequential result or a set (a set of tuples for a relation); order is
+  irrelevant, since the result is a set. A `nil` result, like an empty
+  collection or relation, yields no binding: the clause filters the row
+  out. `f` resolves from a
   caller-supplied `{:fns {sym fn}}` entry — no symbol `resolve`, no hidden
   global registry, so the surface stays pure and clj/cljs/cljd-portable. A
   default `builtins` registry of pure, data-first functions (`=`, `<`,
   arithmetic, `str`, `count`, `get`, `tuple`/`untuple`, `ground`, …) resolves
   before caller fns and can be disabled with `{:builtins false}` for
   governed/confined callers. Unknown fn, unbound argument, more than one
-  binding form, tuple-arity mismatch, and the collection/relation binding
-  forms (`[?y ...]`, `[[?a ?b]]` — not implemented) all throw. Predicates keep
+  binding form, a malformed binding form, tuple-arity mismatch (for a tuple
+  or any relation tuple), and a collection or relation form over a result
+  that is neither `nil`, sequential, nor a set (a map, a string, or a scalar)
+  all throw. Predicates keep
   a binding on any *truthy* return — broader than Datomic's boolean contract,
   so a predicate returning `0` keeps the row where Datomic would be a type
   error.

@@ -536,6 +536,163 @@
               source)))))
 
 
+(def ^:private def-application-datoms
+  "A yin/def application as the yin.repl index stores it: :yin/operands is
+   ONE vector value, so walking the operands needs a function-clause
+   binding."
+  '[[20 :yin/type :application 0 1] [20 :yin/operator 21 0 1]
+    [21 :yin/type :variable 0 1] [21 :yin/name yin/def 0 1]
+    [20 :yin/operands [22 23] 0 1] [22 :yin/type :literal 0 1]
+    [22 :yin/value inc 0 1] [23 :yin/type :lambda 0 1]])
+
+
+(deftest fn-clause-collection-binding-binds-each-element
+  (is (= #{[22] [23]}
+         (qcur '[:find ?arg :where
+                 [?app :yin/operands ?ops]
+                 [(identity ?ops) [?arg ...]]]
+               def-application-datoms))
+      "one binding per operand")
+  (is (= '#{[inc]}
+         (qcur '[:find ?v :where
+                 [?app :yin/operator ?op] [?op :yin/name yin/def]
+                 [?app :yin/operands ?ops]
+                 [(identity ?ops) [?arg ...]]
+                 [?arg :yin/type :literal] [?arg :yin/value ?v]]
+               def-application-datoms))
+      "the literal operands of yin/def")
+  (is (= #{[22]}
+         (qcur '[:find ?arg :in $ ?arg :where
+                 [?app :yin/operands ?ops]
+                 [(identity ?ops) [?arg ...]]]
+               def-application-datoms
+               22))
+      "an already-bound variable unifies with the elements"))
+
+
+(deftest fn-clause-relation-binding-binds-each-tuple
+  (is (= #{[1 :a] [2 :b]}
+         (qcur '[:find ?n ?k :in $ ?pairs :where
+                 [(identity ?pairs) [[?n ?k]]]]
+               []
+               [[1 :a] [2 :b]])))
+  (is (= #{[2]}
+         (qcur '[:find ?n :in $ ?pairs ?k :where
+                 [(identity ?pairs) [[?n ?k]]]]
+               []
+               [[1 :a] [2 :b]]
+               :b))
+      "an already-bound variable filters the tuples")
+  (is (thrown-with-msg? #?(:cljs js/Error
+                           :cljd Object
+                           :default Exception)
+                        #"tuple binding arity"
+        (qcur '[:find ?n :in $ ?pairs :where [(identity ?pairs) [[?n ?k]]]]
+              []
+              [[1 :a] [2]]))
+      "a tuple of the wrong arity is an error, as for a tuple binding"))
+
+
+(deftest fn-clause-empty-collection-binds-nothing
+  (doseq [form '[[?x ...] [[?a ?b]] [_ ...] [[_ _]]]
+          ret [[] #{} nil]]
+    (testing (str (pr-str form) " <- " (pr-str ret))
+      (is (= #{}
+             (qcur [:find '?e :in '$ '?c :where '[?e :a _]
+                    [(list 'identity '?c) form]]
+                   symbol-datoms
+                   ret))
+          "an empty collection or nil filters the row out"))))
+
+
+(deftest fn-clause-set-result-binds-each-element
+  (is (= #{[7] [8]}
+         (qcur '[:find ?x :in $ ?c :where [(identity ?c) [?x ...]]]
+               []
+               #{7 8}))
+      "a set binds one row per element")
+  (is (= #{[1 :a] [2 :b]}
+         (qcur '[:find ?n ?k :in $ ?pairs :where [(identity ?pairs) [[?n ?k]]]]
+               []
+               #{[1 :a] [2 :b]}))
+      "a set of tuples binds one row per tuple")
+  (is (= #{[2]}
+         (qcur '[:find ?n :in $ ?pairs :where [(identity ?pairs) [[?n foo]]]]
+               []
+               '#{[1 bar] [2 foo]}))
+      "a bare symbol inside a relation over a set stays a constant"))
+
+
+(deftest fn-clause-non-collection-result-is-an-error
+  (doseq [form '[[?x ...] [[?a ?b]]]
+          ret [42 :k "ab" {:a 1}]]
+    (testing (str (pr-str form) " <- " (pr-str ret))
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"sequential or a set"
+            (qcur [:find '?e :in '$ '?c :where '[?e :a _]
+                   [(list 'identity '?c) form]]
+                  symbol-datoms
+                  ret))))))
+
+
+(deftest fn-clause-blank-and-constants-inside-collection-and-relation
+  (testing "_ matches every element and binds nothing"
+    (is (= #{[1] [2]}
+           (qcur '[:find ?e :in $ ?c :where [?e :a _] [(identity ?c) [_ ...]]]
+                 symbol-datoms
+                 [7 8])))
+    (is (= #{[1] [2]}
+           (qcur '[:find ?n :in $ ?pairs :where [(identity ?pairs) [[?n _]]]]
+                 []
+                 [[1 :a] [2 :b]]))))
+  (testing "a bare symbol stays a constant comparison"
+    (is (= #{[1] [2]}
+           (qcur '[:find ?e :in $ ?c :where [?e :a _] [(identity ?c) [foo ...]]]
+                 symbol-datoms
+                 '[foo bar])))
+    (is (= #{}
+           (qcur '[:find ?e :in $ ?c :where [?e :a _] [(identity ?c) [foo ...]]]
+                 symbol-datoms
+                 '[bar baz])))
+    (is (= #{[2]}
+           (qcur '[:find ?n :in $ ?pairs :where [(identity ?pairs) [[?n foo]]]]
+                 []
+                 '[[1 bar] [2 foo]])))))
+
+
+(deftest fn-clause-tuple-and-scalar-bindings-are-unchanged
+  (is (= #{[22 23]}
+         (qcur '[:find ?lit ?fn :where
+                 [?app :yin/operands ?ops]
+                 [(identity ?ops) [?lit ?fn]]]
+               def-application-datoms))
+      "a tuple binds positionally")
+  (is (= #{[[22 23]]}
+         (qcur '[:find ?x :where
+                 [?app :yin/operands ?ops]
+                 [(identity ?ops) ?x]]
+               def-application-datoms))
+      "a scalar binds the whole result")
+  (is (thrown-with-msg? #?(:cljs js/Error
+                           :cljd Object
+                           :default Exception)
+                        #"tuple binding arity"
+        (qcur '[:find ?a :where
+                [?app :yin/operands ?ops]
+                [(identity ?ops) [?a ?b ?c]]]
+              def-application-datoms)))
+  (doseq [form '[[?a ?b ...] [[?a ?b] ...] [[?a] [?b]] [?a [?b]] [[?a ...]]]]
+    (testing (pr-str form)
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"Unsupported binding form"
+            (qcur [:find '?e :where '[?e :a _] [(list 'identity [1 2]) form]]
+                  symbol-datoms))))))
+
+
 (deftest match-materializes-over-a-current-view
   (let [src (query/current (rel sample-datoms))]
     (is (= [[1 :work/status :todo] [2 :work/status :done]]
