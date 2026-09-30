@@ -92,6 +92,15 @@
   :dao.jing.content/present-but-absent)
 
 
+(def unacknowledged-code
+  "The error code for a put a DHT answered {:jing/request r
+   :jing/unacknowledged reason} (docs/design/dao.jing.dht.md section 3):
+   the local insert happened, the network acknowledgement did not, and
+   the completion carries the DHT's reason. A purely local content
+   service never produces it."
+  :dao.jing.content/unacknowledged)
+
+
 (def abandoned-code
   "The default abandon reason: this layer's own word for a request given
    up by policy rather than lost by the medium."
@@ -340,6 +349,21 @@
   (and (map? v) (= #{:jing/request :jing/result} (set (keys v)))))
 
 
+(defn- unacknowledged-answer?
+  "True only for the exact unacknowledged write answer {:jing/request r
+   :jing/unacknowledged reason}."
+  [v]
+  (and (map? v)
+       (= #{:jing/request :jing/unacknowledged} (set (keys v)))))
+
+
+(defn- unacknowledged
+  "The error map an unacknowledged write answer completes with."
+  [answer]
+  {:code unacknowledged-code
+   :reason (get answer :jing/unacknowledged)})
+
+
 (defn- decode-plain-completion
   "Total decode of one completion no materialization claims: the answer
    conforms to its request's vocabulary or the completion carries an
@@ -360,6 +384,9 @@
           (if (identical? refused value)
             {:id id, :error integrity-failure}
             {:id id, :found? true, :value value})))
+
+      (unacknowledged-answer? answer)
+      {:id id, :error (unacknowledged answer)}
 
       :else
       (if (and (put-answer? answer)
@@ -410,6 +437,9 @@
           (if (identical? refused value)
             (finish {:error integrity-failure})
             (finish {:result :present}))))
+
+      (unacknowledged-answer? answer)
+      (finish {:error (unacknowledged answer)})
 
       :else
       (let [verdict (and (put-answer? answer)

@@ -7,7 +7,7 @@
    dao.jing handle, or a scripted answering server where the test is
    about a hostile answer."
 
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.content :as content]
             [dao.jing.content.step :as step]
@@ -699,3 +699,40 @@
     (is (= {} (get-in stepped [:state :outstanding])))
     (is (= [] (get-in stepped [:state :completed])))
     (is (= [] (get-in stepped [:state :diagnostics])))))
+
+
+(deftest an-unacknowledged-put-completes-with-its-reason
+  ;; docs/design/dao.jing.dht.md section 3: {:jing/request r
+  ;; :jing/unacknowledged reason} completes as {:id id :error {:code
+  ;; :dao.jing.content/unacknowledged :reason reason}}, for a plain put
+  ;; and for a materialization's put alike.
+  (let [server (scripted-server
+                 (fn [request]
+                   {:jing/request (:jing/request request)
+                    :jing/unacknowledged :dao.jing.dht/too-few-peers}))
+        payload {:not "acknowledged"}
+        address (jing/segment-key payload)
+        {s :state, put-id :id} (step/request-put (stepped-over server)
+                                                 address payload)
+        {s :state, mat-id :id} (step/request-materialize s payload)
+        _ ((:serve! server))
+        {:keys [completions]} (step/step s 16)]
+    (is (= [{:id put-id
+             :error {:code :dao.jing.content/unacknowledged
+                     :reason :dao.jing.dht/too-few-peers}}
+            {:id mat-id, :materialized? true, :address address
+             :error {:code :dao.jing.content/unacknowledged
+                     :reason :dao.jing.dht/too-few-peers}}]
+           completions)))
+  (testing "an unacknowledged answer with an extra key is malformed"
+    (let [server (scripted-server
+                   (fn [request]
+                     {:jing/request (:jing/request request)
+                      :jing/unacknowledged :dao.jing.dht/solo
+                      :extra true}))
+          payload {:not "acknowledged"}
+          {s :state} (step/request-put (stepped-over server)
+                                       (jing/segment-key payload) payload)
+          _ ((:serve! server))]
+      (is (= :dao.jing.content/malformed-response
+             (:code (first-error (step/step s 16))))))))
