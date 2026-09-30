@@ -12,6 +12,7 @@
             [clojure.edn :as edn]
             [dao.data.btree :as bt]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.jing.coordinate :as jing-coordinate]
             [dao.jing.file :as jing-file]
             [dao.jing.mem :as jing-mem]
@@ -1350,6 +1351,79 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; The subvec builtin
+;; ---------------------------------------------------------------------------
+;; The vector sibling of subs: the occurrence rules' path-prefix test
+;; (yin.vm/occurrence-rules) is written with it, so it must answer the same
+;; value, and refuse with the same text, on every host.
+
+(defn- subvec-of
+  "The value `(subvec ...)` answers inside a query, over `args`."
+  [& args]
+  (let [vars (mapv #(symbol (str "?a" %)) (range (count args)))]
+    (apply qq
+           (-> [:find '?r '. :in '$]
+               (into vars)
+               (into [:where [(apply list 'subvec vars) '?r]]))
+           (rel [])
+           args)))
+
+
+(defn- subvec-refusal
+  "The error `(subvec ...)` throws inside a query over `args`, or nil."
+  [& args]
+  (try (apply subvec-of args)
+       nil
+       (catch #?(:cljd Object :clj Throwable :cljs :default) e
+         e)))
+
+
+(deftest subvec-builtin-answers-both-arities
+  (is (= [3 4] (subvec-of [1 2 3 4] 2)) "(subvec v start) runs to the end")
+  (is (= [2 3] (subvec-of [1 2 3 4] 1 3)) "(subvec v start end)")
+  (is (= [] (subvec-of [1 2] 2)) "start at the count is the empty vector")
+  (is (= [] (subvec-of [1 2] 1 1)) "start = end is the empty vector")
+  (is (= [1 2] (subvec-of [1 2] 0 2)) "the whole range is the vector"))
+
+
+(deftest subvec-builtin-result-is-a-plain-vector-value
+  (let [r (subvec-of [[3 0] 2 3] 0 2)]
+    (is (vector? r) "the result is a vector")
+    (is (cbor/content= [[3 0] 2] r) "content= to the equal plain vector")
+    (is (zero? (cbor/encoded-compare [[3 0] 2] r))
+        "encodes to the plain vector's canonical CBOR bytes")
+    (is (vector? (cbor/decode (cbor/encode r)))
+        "and decodes back as a vector")
+    (is (= #{[[[3 0]]]}
+           (qq '[:find ?p :in $ ?full
+                 :where [(subvec ?full 0 1) ?p] [$ ?p]]
+               (rel [[[[3 0]]]]) [[3 0] 2]))
+        "a subvec result unifies with a stored plain vector")))
+
+
+(deftest subvec-builtin-refuses-bad-operands
+  (doseq [[args msg] [[['(1 2) 0] "a vector"]
+                      [["ab" 0 1] "a vector"]
+                      [[nil 0] "a vector"]
+                      [[[1 2] -1] "bounds"]
+                      [[[1 2] 3] "bounds"]
+                      [[[1 2] 0 3] "bounds"]
+                      [[[1 2] 2 1] "bounds"]
+                      [[[1 2] :a] "bounds"]
+                      [[[1 2] 0 "1"] "bounds"]
+                      [[[1 2] 0.5] "bounds"]]]
+    (testing (pr-str args)
+      (let [e (apply subvec-refusal args)]
+        (is (some? e) "the call refuses")
+        (is (= (if (= "a vector" msg)
+                 "query builtin subvec requires a vector operand"
+                 "query builtin subvec requires integer bounds 0 <= start <= end <= (count v)")
+               (ex-message e))
+            "the refusal text is the same on every host")
+        (is (= 'subvec (:fn (ex-data e))))))))
+
+
+;; ---------------------------------------------------------------------------
 ;; Recursive rules: free variables are queried, not tagged
 ;; ---------------------------------------------------------------------------
 ;; yin.vm.code-as-tuples.md §4.5/§7.7: whether a :variable row is free or
@@ -1492,7 +1566,7 @@
    contrast fixture for root-scoping, the exact gap §4.5 names: over a
    many-tree relation it can resolve one tree's occurrence against
    another tree's binder. Needs `member?`/`path-pop` under :fns
-   (`yin.vm/occurrence-fns`)."
+   (`unscoped-occurrence-fns`)."
   '[[(p-up ?child ?parent) [(path-pop ?child) ?parent]]
     [(occ-anc ?a ?d) (p-up ?d ?a)]
     [(occ-anc ?a ?d) (p-up ?d ?m) (occ-anc ?a ?m)]
@@ -1501,6 +1575,13 @@
      [$occ ?r ?lam-path ?lam]
      [?lam :lambda ?params _]
      [(member? ?params ?name)]]])
+
+
+(def ^:private unscoped-occurrence-fns
+  "The contrast fixture's own `:fns`: membership, and one step up a §2.5
+   path (nil at the root)."
+  {'member? member?,
+   'path-pop (fn [p] (when (pos? (count p)) (subvec p 0 (dec (count p)))))})
 
 
 (deftest occurrence-aware-rules-resolve-mixed-free-and-bound-rows
@@ -1520,18 +1601,17 @@
         ;; body x at [2 3] (body is :lambda's row-position-3 slot), and
         ;; the operand x at [[3 0]] (first of the operands' nodes slot).
         occ (rel (vm/occurrences bc))
-        opts {:fns vm/occurrence-fns}
-        free-occ-paths (qq '[:find ?path :in $ $occ % ?root
+        free-occ-paths (qq '[:find ?path :in $ast $occ % ?root
                              :where
                              [$occ ?root ?path ?v]
-                             [?v :variable ?name]
+                             [$ast ?v :variable ?name]
                              (not (occ-bound? ?root ?path ?name))]
-                           db occ vm/occurrence-rules (:root bc) opts)
-        bound-occ-paths (qq '[:find ?path :in $ $occ % ?root ?v ?name
+                           db occ vm/occurrence-rules (:root bc))
+        bound-occ-paths (qq '[:find ?path :in $ast $occ % ?root ?v ?name
                               :where
                               [$occ ?root ?path ?v]
                               (occ-bound? ?root ?path ?name)]
-                            db occ vm/occurrence-rules (:root bc) x 'x opts)]
+                            db occ vm/occurrence-rules (:root bc) x 'x)]
     (is (= 2 (count (filter #(= {:type :variable, :name 'x} %)
                             (tree-seq coll? seq ast))))
         "premise, map side: the fixture really has two :variable x nodes")
@@ -1600,6 +1680,12 @@
         "B's x stays free: B's own binder is the [y] :lambda, and A's
           binder — reachable only by leaving B's root — never classifies
           it, which is exactly what the ?root threading prevents")
+    (is (= #{[rootA]}
+           (qq '[:find ?root :in $ast $occ % ?path ?name
+                 :where (occ-bound? ?root ?path ?name)]
+               db occ vm/occurrence-rules [3] 'x))
+        "a positive call with ?root free enumerates the roots where x is
+          bound at [3] — A only; B's same path never borrows A's binder")
     (is (= #{}
            (qq '[:find ?name :in $ $occ %
                  :where
@@ -1607,7 +1693,7 @@
                  [?v :variable ?name]
                  (not (occ-bound? ?path ?name))]
                db occ unscoped-occurrence-rules
-               {:fns vm/occurrence-fns}))
+               {:fns unscoped-occurrence-fns}))
         "contrast: the unscoped rule set finds A's :lambda through the
           root occurrence both trees share and calls B's free x bound —
           the cross-tree misclassification, demonstrated not narrated")))
@@ -1634,13 +1720,12 @@
         occ (rel (vm/occurrences bc))
         s (ast-row-id ast :variable 's)
         k (ast-row-id ast :variable 'k)
-        opts {:fns vm/occurrence-fns}
         bound-paths (fn [v nm]
-                      (qq '[:find ?path :in $ $occ % ?root ?v ?name
+                      (qq '[:find ?path :in $ast $occ % ?root ?v ?name
                             :where
                             [$occ ?root ?path ?v]
                             (occ-bound? ?root ?path ?name)]
-                          db occ vm/occurrence-rules (:root bc) v nm opts))]
+                          db occ vm/occurrence-rules (:root bc) v nm))]
     (is (= 11 (count (vm/occurrences bc)))
         "one tuple per place across :if, :vm/store-get, :lambda,
           :stream/put, :stream/cursor, :stream/make, :vm/resume,

@@ -219,6 +219,21 @@
           (is (str/includes? text "bare symbol") text))))))
 
 
+(deftest host-functions-cannot-enter-a-query
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[_ [_ unknown fns]]
+            (evaluate (repl/create-state {:vm-type vm-type})
+                      [require-line
+                       (q-line '[:find ?x :in % :where (r ?x)]
+                               "(quote [[(r ?x) [(no-such-fn 1) ?x]]])")
+                       (q-line '[:find ?e :where [?e :no/such 1]]
+                               "{:fns {}}")])]
+        (is (str/includes? unknown "(:yin.repl.query/query-failed)") unknown)
+        (is (str/includes? unknown "Unknown query fn") unknown)
+        (is (str/includes? fns "(:yin.repl.query/invalid-input)") fns)))))
+
+
 (deftest a-bare-symbol-in-a-pattern-is-the-symbol-constant
   (doseq [vm-type vm-types]
     (testing (str vm-type)

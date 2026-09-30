@@ -562,6 +562,11 @@ free-name extraction query of §7.7 as a function. Criteria:
 the hand fixture; a two-tree relation with the same literal path in both
 classifies each tree's occurrence against its own binder; a fixture using
 `:if`, `:vm/resume`, and the `:stream/*` tags. Size: two to three days.
+*Historical:* the `p-up`/`occ-anc` rule set described here was superseded
+by the 2026-09-30 fable ruling
+(`collab/1790764371000-architect-repl-free-variable-rules.claude-fable-5-1.findings.md`):
+`yin.vm/occurrence-rules` is now one non-recursive, root-scoped prefix rule
+over `$ast`/`$occ` using builtins only (code-as-tuples §4.5).
 
 Phase 1 total: roughly three working weeks for one implementer, less in
 parallel lanes (U1‖U2‖U3, then U4, then U5‖U7, then U6).

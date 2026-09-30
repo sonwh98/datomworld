@@ -38,6 +38,12 @@
    read from the AST indexer the shell holds when it serves, and a lost or
    failed one refuses such a query while datom-only queries still answer.
 
+   Free variables are a query over these two relations: pass
+   `yin.vm/occurrence-rules`, the portable data rule set, as the opt-in `%`
+   input.  The shell ships no binding for it; the user defines or pastes
+   the literal.  The answer is the raw free set, so it includes `yin/def`
+   where a definition is present (`yin.vm/free-names` removes it).
+
    Answers and refusals are portable data.  Refusals use the FFI error
    envelope under a stable code: `::index-unavailable`, `::invalid-input`,
    `::result-limit`, or `::query-failed` for a query the engine rejects.

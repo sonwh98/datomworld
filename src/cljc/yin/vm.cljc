@@ -1622,32 +1622,28 @@
 
 
 (def occurrence-rules
-  "§4.5/§7.7: root-scoped occurrence rules. `?root` is threaded through
-   every head (`p-up`/`occ-anc`/`occ-bound?`) and the `[$occ …]` join is
-   constrained to one root, so a binder in another tree of the same
-   relation can never classify this tree's occurrence — the gap §4.5 names
-   in an unscoped rule set. The ancestor walk is over path prefixes
-   (`path-pop`), not row edges, so it is generic over every §2.3 tag. `$`
-   must be the row relation and `$occ` the occurrence relation; the rules
-   need `member?` and `path-pop` under `:fns` — see `occurrence-fns`.
-   `?root` must be bound at every call: the bodies never bind it, and an
-   unscoped invocation fails loudly rather than enumerate."
-  '[[(p-up ?root ?child ?parent) [(path-pop ?child) ?parent]]
-    [(occ-anc ?root ?a ?d) (p-up ?root ?d ?a)]
-    [(occ-anc ?root ?a ?d) (p-up ?root ?d ?m) (occ-anc ?root ?a ?m)]
-    [(occ-bound? ?root ?path ?name)
-     (occ-anc ?root ?lam-path ?path)
+  "§4.5/§7.7: root-scoped occurrence rules, as portable data. A name is
+   bound at `[root path]` iff a `:lambda` occurrence of the same root sits
+   at a proper prefix of `path` and lists the name in its params. The
+   `[$occ ?root …]` join confines the binder to one root, so a binder in
+   another tree of the same relation can never classify this tree's
+   occurrence — the gap §4.5 names in an unscoped rule set. The prefix
+   test is over paths, not row edges, so it is generic over every §2.3
+   tag. `$ast` must be the row relation and `$occ` the occurrence
+   relation; the rules use engine builtins only, so they need no `:fns`.
+   Clause order is load-bearing: `[(< ?n ?m)]` guards the `subvec` range,
+   and it holds because every pattern clause is separated by a function
+   clause, which the planner never reorders across. A positive call with
+   `?root` unbound enumerates the roots where the name is bound at that
+   path; inside `not` every variable must be bound."
+  '[[(occ-bound? ?root ?path ?name)
      [$occ ?root ?lam-path ?lam]
-     [?lam :lambda ?params _]
-     [(member? ?params ?name)]]])
-
-
-(def occurrence-fns
-  "The `:fns` map `occurrence-rules` requires (§6.3: quoted-symbol keys):
-   membership over a `:syms`/`:nodes` vector, and one step up a §2.5 path
-   (nil at the root, where no occurrence tuple carries the answer anyway)."
-  {'member? (fn [coll x] (boolean (some #(= % x) coll))),
-   'path-pop (fn [p] (when (pos? (count p)) (subvec p 0 (dec (count p)))))})
+     [(count ?lam-path) ?n]
+     [(count ?path) ?m]
+     [(< ?n ?m)]
+     [(subvec ?path 0 ?n) ?lam-path]
+     [$ast ?lam :lambda ?params _]
+     [(identity ?params) [?name ...]]]])
 
 
 (defn free-names
@@ -1663,13 +1659,12 @@
   [db occ root]
   (disj (set (map first
                   (query/collect
-                    (query/q '[:find ?name :in $ $occ % ?root
+                    (query/q '[:find ?name :in $ast $occ % ?root
                                :where
                                [$occ ?root ?path ?v]
-                               [?v :variable ?name]
+                               [$ast ?v :variable ?name]
                                (not (occ-bound? ?root ?path ?name))]
-                             db occ occurrence-rules root
-                             {:fns occurrence-fns}))))
+                             db occ occurrence-rules root))))
         definition-operator))
 
 

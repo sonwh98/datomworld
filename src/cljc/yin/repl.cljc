@@ -841,9 +841,144 @@
 ;; Reading and classifying input
 ;; =============================================================================
 
-(defn- read-forms
+#?(:cljd
+   (defn- escape-percent-tokens
+     "ClojureDart's reader reads a bare `%` token outside `#(...)` as an
+      anonymous argument and drops the `%` (`%` becomes a symbol with an
+      empty name), where the JVM and JavaScript readers read the plain
+      symbol `%`, `%1`, `%&`. Answers `[text tokens]`: `input` with every
+      such token replaced by `prefix` followed by its index in `tokens`, one
+      index per distinct token, so the reader's duplicate refusals still
+      apply. The scan walks form starts as the reader does (every `#`
+      dispatch and prefix macro included) and skips strings, regexes,
+      comments, character literals and `#(...)` bodies."
+     [input prefix]
+     (let [n (count input)
+           at #(subs input % (inc %))
+           ends-token #{" " "\t" "\n" "\r" "\f" "," "\"" ";" "@" "^" "`" "~"
+                        "(" ")" "[" "]" "{" "}" "\\"}
+           token-end (fn [i] (if (or (>= i n) (ends-token (at i))) i (recur (inc i))))
+           string-end (fn [i]
+                        (cond (>= i n) n
+                              (= "\\" (at i)) (recur (+ i 2))
+                              (= "\"" (at i)) (inc i)
+                              :else (recur (inc i))))
+           line-end (fn [i] (if (or (>= i n) (= "\n" (at i))) i (recur (inc i))))]
+       (loop [i 0, start 0, parts [], tokens {}, frames ()]
+         (if (>= i n)
+           [(apply str (conj parts (subs input start)))
+            (mapv key (sort-by val tokens))]
+           (let [c (at i)
+                 d (when (< (inc i) n) (at (inc i)))
+                 [i' frames' token]
+                 (cond
+                   (#{" " "\t" "\n" "\r" "\f" ","} c) [(inc i) frames]
+                   (= "\"" c) [(string-end (inc i)) frames]
+                   (= ";" c) [(line-end i) frames]
+                   (= "\\" c) [(token-end (min n (+ i 2))) frames]
+                   (#{"'" "@" "^" "`" "~"} c) [(inc i) frames]
+                   (#{"(" "[" "{"} c) [(inc i) (conj frames :coll)]
+                   (#{")" "]" "}"} c) [(inc i) (rest frames)]
+                   (= "#" c)
+                   (case d
+                     "(" [(+ i 2) (conj frames :anon)]
+                     "{" [(+ i 2) (conj frames :coll)]
+                     "\"" [(string-end (+ i 2)) frames]
+                     ("_" "'" "=" "^") [(+ i 2) frames]
+                     "?" [(if (and (< (+ i 2) n) (= "@" (at (+ i 2)))) (+ i 3) (+ i 2))
+                          frames]
+                     "!" [(line-end i) frames]
+                     ("#" ":") [(token-end (+ i 2)) frames]
+                     [(token-end (inc i)) frames])
+                   (and (= "%" c) (not-any? #{:anon} frames))
+                   (let [end (token-end (inc i))] [end frames (subs input i end)])
+                   :else [(token-end i) frames])]
+             (if token
+               (let [index (get tokens token (count tokens))]
+                 (recur i' i'
+                        (conj parts (subs input start i) (str prefix index))
+                        (assoc tokens token index)
+                        frames'))
+               (recur i' start parts tokens frames'))))))))
+
+
+#?(:cljd
+   (defn- restore-percent-tokens
+     "`form` with each placeholder symbol of `smap` (`{placeholder token}`)
+      replaced by its token, in values and in metadata alike. A qualified
+      token (`%/foo`) is restored whole; an unqualified one keeps the
+      namespace its placeholder gained from the reader (syntax quote,
+      `#:ns{}`), as the JVM reader qualifies `%` itself. Only a branch that
+      holds a placeholder is rebuilt; everything else is returned
+      identical. A rebuilt branch keeps its collection type and order, and
+      takes exactly `form`'s own metadata (restored), nil included: on
+      ClojureDart a list built by `(apply list ...)` carries
+      `{:line ... :tag <Type>}` metadata that dao.jing.cbor refuses."
+     [smap form]
+     (let [again #(restore-percent-tokens smap %)
+           same? #(every? true? (map identical? %1 %2))
+           m (meta form)
+           m' (when m (again m))
+           v (cond
+               (symbol? form) (if-let [token (get smap (symbol (name form)))]
+                                (if (namespace token)
+                                  token
+                                  (symbol (namespace form) (name token)))
+                                form)
+               (seq? form) (let [xs (map again form)]
+                             (if (same? xs form) form (apply list xs)))
+               (vector? form) (let [xs (mapv again form)]
+                                (if (same? xs form) form xs))
+               (map? form) (let [kvs (mapv (fn [[k x]] [(again k) (again x)]) form)]
+                             (if (same? (mapcat identity kvs) (mapcat identity form))
+                               form
+                               (into (empty form) kvs)))
+               (set? form) (let [xs (mapv again form)]
+                             (if (same? xs form) form (into (empty form) xs)))
+               :else form)]
+       (if (and (identical? v form) (identical? m m'))
+         form
+         (with-meta v m')))))
+
+
+#?(:cljd
+   (defn- read-percent-forms
+     "`input`'s forms read as the JVM and JavaScript readers read a bare `%`
+      token (see `escape-percent-tokens`). A reader refusal that names a
+      placeholder is rethrown naming the token instead."
+     [input]
+     (let [read #(edn/read-string (str "[" % "]"))
+           prefix (loop [p "yin_repl_percent_"]
+                    (if (str/includes? input p) (recur (str p "_")) p))
+           [text tokens] (escape-percent-tokens input prefix)]
+       (if (empty? tokens)
+         (read input)
+         (let [forms (try (read text)
+                          (catch Object error
+                            (let [message (or (ex-message error) (str error))]
+                              (if (str/includes? message prefix)
+                                (throw (ex-info
+                                         (reduce (fn [m i]
+                                                   (str/replace m (str prefix i)
+                                                                (nth tokens i)))
+                                                 message
+                                                 (reverse (range (count tokens))))
+                                         {}))
+                                (throw error)))))]
+           (restore-percent-tokens
+             (zipmap (map #(symbol (str prefix %)) (range (count tokens)))
+                     (map symbol tokens))
+             forms))))))
+
+
+(defn read-forms
+  "The forms of one input line, as a vector, read by the host reader.
+   Public so the cross-host reader tests can compare the forms, metadata
+   included, that each host reads."
   [input]
-  #?(:cljd (edn/read-string (str "[" input "]"))
+  #?(:cljd (if (str/includes? input "%")
+             (read-percent-forms input)
+             (edn/read-string (str "[" input "]")))
      :cljs (reader/read-string (str "[" input "]"))
      :clj (clojure.core/read-string (str "[" input "]"))))
 

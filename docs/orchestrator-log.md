@@ -8420,3 +8420,151 @@ archive completed collab/ artifacts (owner confirmation).
 - Durable slice 2: gemini GRANTED at r3; gpt-6-sol GRANTED at r4 (Node claim-entry lock scoped per worker; short-write loop; pid-reuse limit documented).
   Orchestrator lanes in the worktree: JVM 2411/0, Node 2320/0, CLJD all passed.
 - DHT S2: gpt-6-sol withheld at r1 and r2; fix round 2 in flight. DHT S1 is still running.
+
+## 2026-09-30 19:17:40 +07 — captured continuations invocable on all four VMs (branch vm-continuation-invoke b32ca18a)
+Completed-GMT: 2026-09-30 12:17:40 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat; second orchestrator seat running in parallel with the DHT/REPL seat)
+Tree: vm-continuation-invoke@b32ca18a in worktree /Users/sto/workspace/datomworld-k-invoke (from master dac64b41); committed, NOT pushed, NOT merged
+Done: applying a :reified-continuation to one argument is an abortive jump on ast-walker, semantic, debruijn stack and
+register VMs (store kept, multi-shot, identical arity message via engine/continuation-argument). register-restore split
+into check-format! + write-back. New test/yin/vm/continuation_invoke_test.cljc runs every case on all four VMs. Docs
+co-routines.md/ast.md updated. Motivation: ANTLR frontends (docs/design/yang.antlr.md) lower early return,
+break/continue and try/raise to continuation escapes.
+Decisions: OWNER, verbatim: "yes, wire up continuation invocation with a test if it does not cause conflict with the
+current work with the DHT." No conflict: DHT worktrees touch dao.stream.datagram/dao.jing/linker tests; this touches
+only yin/vm evaluators. All four VMs (not just the walker) for parity. Register invocation skips the plain-data/defect
+gate (captures legitimately hold closures). Dead ast-walker-run-active-continuation left untouched.
+Verification (orchestrator, worktree): kondo 0 errors (1 pre-existing unused-private warning); cljstyle clean after
+orchestrator cljstyle fix on the new test; clj -M:test 2408/184780/0; bb test:cljs 2313/51231/0 (Testing
+yin.vm.continuation-invoke-test present); bb test:cljd +2275 All tests passed, and flutter test on the new file alone
++5 all passed. Implementer mutation proof: reverting each VM's clause fails exactly that VM's 6 assertions. Landed
+commit stat identical to reviewed diff (8 files +325/-34).
+Delegates: VM engineer claude-opus-5-5 session 0dd55e3e-bfc9-48ba-ba2a-5e307baeb120
+(collab/1790766815406-vm-engineer-continuation-invocation.*; r1 blocked: acceptEdits delegate could not read main-tree
+collab/ from the worktree, brief copied in, r2 done). Gate gpt-6-sol thread 01a0f227-f33c-79b3-86ff-34de56a9afe4
+(collab/1790769087413-reviewer-continuation-invocation-gate.*): READY / GRANTED, no actionable findings.
+Next: owner decisions from the gate — Q1 whether malformed in-machine continuation values must fail as qualified
+defects; Q3 program-forged {:type :reified-continuation} maps are accepted (no new privilege vs forged closures) — decide
+whether continuations need authenticity like stream refs (engine authentic-ref?). Owner: push/merge the branch;
+remove the worktree afterwards (collab/ already synced).
+
+## 2026-09-30 20:11:12 +07 — master rewrite of ca5a38f8 -> 17ce78b5 (collab/ removed); continuation invocation merged and pushed 8f9f90b0
+Completed-GMT: 2026-09-30 13:11:12 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat; parallel to the DHT/REPL seat)
+Tree: master@8f9f90b0, pushed (origin 2f030c66..8f9f90b0); main-tree uncommitted edits of the other seat untouched
+Done: OWNER, verbatim: "merge it to master and push"; then chose "Fix ca5a38f8 first (Recommended)". Unpushed tip
+ca5a38f8 (slice-3 e2e tests, other seat) had committed 15 collab/ files (rule: collab/ never committed). Rebuilt it as
+17ce78b5 via a temporary index + commit-tree: same author/committer/dates/message, diff vs ca5a38f8 is exactly the 15
+collab deletions; master moved with a CAS update-ref; the 15 paths untracked in the main index (files kept on disk).
+OTHER SEAT: any reference to ca5a38f8 now means 17ce78b5. Rebased vm-continuation-invoke onto it (b32ca18a -> 8f9f90b0,
+same 8 files +325/-34), reran lanes, fast-forwarded master, pushed (also publishes 48ec9d66, 76038c60, dac64b41, 17ce78b5).
+Verification: rebased branch JVM 2414/184964/0, Node 2319/51410/0, CLJD +2281 All tests passed.
+Decisions: 11 older collab/ files are tracked since before origin 2f030c66 (already published) — not rewritten; owner
+may untrack them with git rm --cached going forward.
+Delegates: none new for this unit (Architect cell-primitive dispatch recorded separately when it lands).
+Next: owner — remove worktree datomworld-k-invoke and branch vm-continuation-invoke (collab/ synced); gate Q1/Q3 owner
+decisions; Architect fable on the cell primitive running (collab/1790773810605-architect-cell-primitive.*, session
+f8eef849-bc12-4f36-87ee-4ae5da8aaa8c).
+
+## 2026-09-30 20:16:57 +07 — Architect ruling: cell primitive (fable)
+Completed-GMT: 2026-09-30 13:16:57 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@8f9f90b0 (pushed); no code changed by this unit
+Done: OWNER, verbatim: "ask the architect about the cell primitive". fable ruled: cells are sealed ref values
+{:type :cell-ref :id :seal} over a task-scoped :heap VM field, reached via a host module cell/new, cell/get, cell/set!
+(effect constructors, like the stream module); three engine/handle-effect arms give four-VM parity; no new AST tag,
+Rule R / yin/def / :vm/store-put untouched; runtime key on yin/def or store-put rejected; Scheme box semantics across
+multi-shot continuations; copy-on-lift across tasks. Corrects the orchestrator: continuations capture env, so
+"uncaptured locals -> rebinding" is unsound under continuation-lowered try/raise/break; spike rule = box every
+reassigned local. Findings F1 (pre-existing: effect detection by result shape lets pure prims forge engine effects,
+medium), F2 (yang.antlr.md §8.1 contradiction), F3 (completion/encoder must refuse :cell-ref in slice 1), F4-F7 low/doc.
+Brief cited the Rule R ruling in collab/; it lives in archive/ (ruling's "does not exist" is a stale citation, not a gap).
+Decisions: none taken; owner decisions pending (copy-on-lift, naming cell vs box, amend §8.1, F1 scheduling, accept
+continuation-only control flow consequence).
+Verification: n/a (read-only design).
+Delegates: Architect claude-fable-5-1 session f8eef849-bc12-4f36-87ee-4ae5da8aaa8c
+(collab/1790773810605-architect-cell-primitive.*; findings promoted from stdout; plan copy
+~/.claude/plans/read-collab-1790773810605-architect-cell-cosmic-harp.md).
+Next: owner decisions 1-5; then slice 1 (VM engineer + gpt-6-sol gate) in a worktree.
+
+## 2026-09-30 21:15:24 +07 — Architect mob (fable + gpt-6-astra): ten outstanding decisions converged in 2 rounds
+Completed-GMT: 2026-09-30 14:15:24 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@8f9f90b0; no code changed by this unit
+Done: OWNER, verbatim: "mob with fable, gpt-6.0-astra on this and tell me the decision"; mid-round owner direction,
+verbatim: "compilers have a pipeline of transformation. yang/yin.vm compilation pipeline is dynamic where interpreters read
+from dao.stream and make transformation onto another dao.stream. any number of interpreters can attach to those
+dao.stream to do more transformation of its own" and "yes, include that in round 2". Converged: D1 copy-on-lift (aliases/
+cycles preserved within one transferred graph; slice 1 refuses cell-bearing lifts); D2 cell/* + :heap/:yin.k/heap;
+D3 amend yang.antlr.md §8.1 to a task-owned cell heap (state threading allowed per frontend); D4 F1 fix before cell
+slice 1: effects become a host type minted only by module/make-effect (fable additionally layers a callee-profile
+effect-kind check via an identity-keyed callable->profile map; astra accepted the host type and withdrew mandatory
+profile lookup "for this fix" — layering not explicitly re-ruled by astra); D5 box EVERY function-local binding and
+parameter (unbound sentinel; binding collection required; un-boxing is an optional attached interpreter); D6+D7 not spike
+gates: host-typed closures AND continuations together on a separate track, required before untrusted/multi-author code
+reaches an evaluator, with qualified refusals and task-ownership checks (no continuation payload table); D8 remove
+worktree+branch; D9 git rm --cached the 11 collab files, NO ignore/exclude (orchestrator.md:110), no history rewrite;
+D10 D4 -> cell slice 1 -> spike as a stream topology (JVM parser interpreter -> CST stream -> portable cljc lowering ->
+row stream -> evaluator; analyses attach as own interpreters). Also: seal cached in heap entry; heap lift reserves id
+before traversal; reclamation first after the spike; repeated receive-module is a slice-2 correctness gate.
+Evidence: fable executed on the AST walker (JVM): F1 forged store write via assoc/get; forged closure incl. forged
+:yin.k/store-of accepted; forged continuation redirected control. astra confirmed by reading (ast_walker.cljc:256,
+engine.cljc:145,167).
+Decisions (owner): D9 optional pre-commit hook rejecting collab/ paths; confirm before orchestrator executes D8
+(worktree remove --force + branch delete) and D9 (untrack commit + push) and before dispatching D4/slice 1.
+Delegates: fable claude-fable-5-1 session f8eef849-bc12-4f36-87ee-4ae5da8aaa8c; astra gpt-6-astra thread
+01a0f29e-7b04-7891-a38f-274da87b9ad8 (resume with -m accepted; no model switch). Artifacts
+collab/1790776815400-architect-mob-outstanding-decisions.{prompt.md,claude-fable-5-1.findings(-r2).md,
+gpt-6-astra.findings(-r2).md,*.stdout*.log}.
+Next: owner confirmation; then D4 (F1 host-typed effects, VM engineer + gpt-6-sol gate), cell slice 1, spike.
+
+## 2026-09-30 21:31:49 +07 — owner go-ahead executed: collab/ pre-commit hook, D8 cleanup, D9 untrack pushed e3cf971b; D4 dispatched
+Completed-GMT: 2026-09-30 14:31:49 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@e3cf971b pushed (8f9f90b0..e3cf971b)
+Done: OWNER, verbatim: "1. yes 2. yes 3. yes" (1 = pre-commit hook rejecting collab/ paths; 2 = execute D8+D9;
+3 = dispatch D4). (1) .git/hooks/pre-commit (untracked, shared by all worktrees) gained a step 0 that refuses staged
+Added/Copied/Modified/Renamed collab/ paths (deletions allowed); backup at $CLAUDE_JOB_DIR/tmp/pre-commit.bak; tested:
+staging an untracked collab file -> exit 1 with message; no staged residue. (2) D8: worktree datomworld-k-invoke removed
+(--force; only difference was the older one-line Session-ID copy of the gate prompt) and branch vm-continuation-invoke
+deleted (was 8f9f90b0, merged, never pushed). D9: git rm --cached the 11 tracked collab/ files (files kept on disk),
+committed e3cf971b "chore(collab): untrack collab/ artifacts committed before 2f030c66", pushed; git ls-files collab = 0.
+(3) D4 dispatched: VM engineer claude-opus-5-5 session 34a43a41-4291-4c0a-ba31-296bdadeab7a in worktree
+datomworld-host-effects (branch vm-host-typed-effects from e3cf971b); brief
+collab/1790778658842-vm-engineer-host-typed-effects.prompt.md (copied into the worktree with the three decision files).
+Next: verify D4 locally (JVM/Node/CLJD), gpt-6-sol gate, commit on sign-off; then cell slice 1; then the Python spike.
+
+## 2026-09-30 21:37:12 +07 — Architect ruling: mutable guest objects and collections (fable)
+Completed-GMT: 2026-09-30 14:37:12 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@e3cf971b; no code changed by this unit
+Done: OWNER, verbatim: "have we decided on how mutations will work?" then "yes, ask the architect". fable ruled: a mutable
+object = one cell holding one persistent tagged value; identity = the :cell-ref (= on refs is same-cell, portable,
+refs usable as map keys); immutables get no cell; slots get their own cell only when aliasable (PHP &refs via a
+reference marker in the variable cell; Go &s.f as (cell,path); Go slices header-by-value over a backing cell); PHP
+arrays/Go structs plain persistent values (copy free); cycles only through heap ids; all semantics in prelude UAST over
+cell/new|get|set! plus pure data primitives — no grammar change, no new cell ops (cell/swap! rejected). Slice 1 gains
+tests only (ref =, ref as map key, self-referential cell). Spike prerequisite: a :pure host data module (count, dissoc,
+pop, subvec, contains?, strings) — standard registry lacks them (vm.cljc:351-391). Prelude must never iterate host maps
+(ordered dict = index map + order vector) and must normalize dict keys (1, 1.0, True).
+Decisions (owner, pending): (1) is on immutables = same type+value per profile; (2) id() unstable across lift, accept+
+document; (3) pure data primitives in a profile-named host module vs vm/primitives; (4) reclamation first after the spike,
+ahead of lift/lower.
+Delegates: Architect claude-fable-5-1 session f8eef849-bc12-4f36-87ee-4ae5da8aaa8c
+(collab/1790778866412-architect-mutable-objects.*; findings promoted).
+Next: owner decisions 1-4; D4 still running; then cell slice 1 (+ tests above), data host module, Python spike.
+
+## 2026-10-01 00:05 +07 — $ast slice 4 committed; DHT S1/S2/S3 committed on branches; S4 dispatched
+- $ast slice 4 (claude-opus-5-5): pure-data occurrence rules over $ast/$occ, the `subvec` builtin, and a Dart-only `%` reader workaround.
+  - gpt-6-sol withheld at r1 and r2 (reader edge cases); GRANTED at r3. Duplicate ruling: keep each host reader's own behaviour.
+  - Orchestrator lanes: JVM 2430/0, Node 2335/0, CLJD all passed.
+  - Four ClojureDart reader bugs are recommended for upstream: `%` outside `#()`, no duplicate refusal, no syntax-quote resolver, list metadata `:tag <Type>`.
+- DHT S1 d0b734ae (dht-s1; fable r2 conditional), S2 ba672389 (dht-s2; gpt-6-sol r4), S3 072a1f0c (dht-s3 = master + S1 + S2 + S3; gemini r2, because fable returned 529). Live cross-host sockets are deferred to S5.
+- GLM paced until 2026-10-04 01:26 per the owner; S1 fixes, S3 and S4 went to codex gpt-6-sol in workspace-write mode.
+- Master moved outside this session: 17ce78b5 (the rewrite of ca5a38f8), 8f9f90b0, e3cf971b.

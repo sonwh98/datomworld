@@ -178,13 +178,16 @@ from that rule, then:
     [(seg-bound? ?addr ?pc ?name)
      [$scope ?addr ?pc ?c]
      [$code ?addr ?c :closure ?params _]
-     [(member? ?params ?name)]]
+     [(identity ?params) [?name ...]]]
     [(seg-bound? ?addr ?pc ?name)
      [$scope ?addr ?pc ?c]
      (seg-bound? ?addr ?c ?name)]
 
     [:find ?name :in $code $scope % ?addr
      :where [$code ?addr ?pc :var ?name] (not (seg-bound? ?addr ?pc ?name))]
+
+The collection binding `[(identity ?params) [?name ...]]` is the membership
+test, so the rules need no `:fns`, like the tree side's `yin.vm/occurrence-rules`.
 
 Because segment instructions are positionally addressed (one pc, one row), the
 mixed-occurrence problem of §4.5 does not arise here; the conformance test of

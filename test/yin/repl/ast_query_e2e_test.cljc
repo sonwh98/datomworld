@@ -9,6 +9,7 @@
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
             [yin.repl.ast-index :as ast-index]
+            [yin.vm :as vm]
             [yin.vm.macro :as macro]))
 
 
@@ -267,6 +268,158 @@
             occ-res)
         (is (= (str "1\n" lost-warning) datom-res)
             "a $-only query still succeeds and includes the round's warning")))))
+
+
+;; =============================================================================
+;; 1. Occurrence rules as portable data through q
+;; =============================================================================
+
+(def ^:private free-names-q
+  "The free variables of one root, chosen by address."
+  '[:find [?name ...]
+    :in $ast $occ % ?root
+    :where
+    [$occ ?root ?path ?v]
+    [$ast ?v :variable ?name]
+    (not (occ-bound? ?root ?path ?name))])
+
+
+(def ^:private round-free-names-q
+  "The free variables of one round's root, chosen by the round-join."
+  '[:find [?name ...]
+    :in $ $ast $occ % ?round
+    :where
+    [?m :yin.repl/round ?round]
+    [?m :yin.repl/root ?root]
+    [$occ ?root ?path ?v]
+    [$ast ?v :variable ?name]
+    (not (occ-bound? ?root ?path ?name))])
+
+
+(def ^:private round-root-q
+  '[:find ?root . :in $ ?round
+    :where [?m :yin.repl/round ?round] [?m :yin.repl/root ?root]])
+
+
+(def ^:private rules-src
+  "`yin.vm/occurrence-rules` passed as quoted data."
+  (str "(quote " (pr-str vm/occurrence-rules) ")"))
+
+
+(def ^:private user-rules-line
+  "The rule set as the user types it, in their own `(def ...)` line."
+  (str "(def occurrence-rules (quote "
+       "[[(occ-bound? ?root ?path ?name) "
+       "[$occ ?root ?lam-path ?lam] "
+       "[(count ?lam-path) ?n] "
+       "[(count ?path) ?m] "
+       "[(< ?n ?m)] "
+       "[(subvec ?path 0 ?n) ?lam-path] "
+       "[$ast ?lam :lambda ?params _] "
+       "[(identity ?params) [?name ...]]]]))"))
+
+
+(defn- quoted
+  [x]
+  (str "(quote " (pr-str x) ")"))
+
+
+(defn- session-roots
+  "Evaluate `lines` after the require; answer the state and the root of
+   each line's program, in round order (the require's first)."
+  [vm-type lines]
+  (let [[state _] (evaluate (repl/create-state {:vm-type vm-type})
+                            (into [require-line] lines))]
+    [state (mapv first (stream-values (:row-stream state)))]))
+
+
+(defn- answers
+  "The texts `lines` answer, each evaluated in the state the previous one
+   left: a session's streams are live, so a state is used once."
+  [state lines]
+  (second (evaluate state lines)))
+
+
+(defn- name-set
+  "The set of names a `[?name ...]` answer prints (the shell prints a
+   vector's symbols quoted, `['+ 'y]`), or the text itself when it is not
+   such an answer."
+  [text]
+  (if (str/starts-with? text "[")
+    (set (map symbol (re-seq #"[^\s\[\]']+" text)))
+    text))
+
+
+(deftest occurrence-rules-as-data-answer-free-names-through-q
+  ;; §4 acceptance 4: the §2 query, with the rule set passed as quoted
+  ;; data, on real input lines.
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[s1 [_ open-root]] (session-roots vm-type ["((fn [x] (+ x y)) 1)"])
+            [s2 [_ mixed-root]] (session-roots vm-type ["((fn [x] x) x)"])
+            [open] (answers s1 [(q-line free-names-q rules-src
+                                        (quoted open-root))])
+            [mixed] (answers s2 [(q-line free-names-q rules-src
+                                         (quoted mixed-root))])]
+        (is (= #{'+ 'y} (name-set open))
+            "+ and y are free; the parameter x is bound")
+        (is (= #{'x} (name-set mixed))
+            "the operand x is free although the body x is bound")))))
+
+
+(deftest occurrence-rules-classify-each-root-by-its-own-binder
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[state [_ root-a root-b]] (session-roots vm-type
+                                                     ["(fn [x] x)" "(fn [y] x)"])
+            [a b] (answers state
+                           [(q-line free-names-q rules-src (quoted root-a))
+                            (q-line free-names-q rules-src (quoted root-b))])]
+        (is (not= root-a root-b))
+        (is (= #{} (name-set a)) "A's x is bound by A's own lambda")
+        (is (= #{'x} (name-set b))
+            "B's x stays free; A's binder at the same path never classifies it")))))
+
+
+(deftest the-round-join-selects-the-same-root-as-the-address
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[state [_ _ root-b]] (session-roots vm-type
+                                                ["(fn [x] x)" "(fn [y] x)"])
+            [selected by-address by-round other-round]
+            (answers state
+                     [(q-line round-root-q "3")
+                      (q-line free-names-q rules-src (quoted root-b))
+                      (q-line round-free-names-q rules-src "3")
+                      (q-line round-free-names-q rules-src "2")])]
+        (is (= (pr-str root-b) selected)
+            "round 3 is the (fn [y] x) program")
+        (is (= #{'x} (name-set by-address)))
+        (is (= by-address by-round)
+            "the round-join form answers what the address form answers")
+        (is (= #{} (name-set other-round))
+            "and round 2 names the other root, whose x is bound")))))
+
+
+(deftest a-user-defined-rule-set-gives-the-same-answer
+  ;; The user's own (def ...) line: %, ... and _ survive the reader.
+  (doseq [vm-type vm-types]
+    (testing (str vm-type)
+      (let [[state [_ defined open-root mixed-root]]
+            (session-roots vm-type [user-rules-line
+                                    "((fn [x] (+ x y)) 1)"
+                                    "((fn [x] x) x)"])
+            [open-def mixed-def open-data mixed-data]
+            (answers state
+                     [(q-line free-names-q "occurrence-rules" (quoted open-root))
+                      (q-line free-names-q "occurrence-rules" (quoted mixed-root))
+                      (q-line free-names-q rules-src (quoted open-root))
+                      (q-line free-names-q rules-src (quoted mixed-root))])]
+        (is (some? defined) "the def line is a program too")
+        (is (= #{'+ 'y} (name-set open-def)))
+        (is (= #{'x} (name-set mixed-def)))
+        (is (= open-data open-def) "the defined rules answer what the data answers")
+        (is (= mixed-data mixed-def))))))
 
 
 ;; =============================================================================

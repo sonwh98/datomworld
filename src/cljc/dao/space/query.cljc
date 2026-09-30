@@ -896,6 +896,22 @@
     (apply f args)))
 
 
+(defn- portable-subvec
+  "subvec over a vector with checked integer bounds `0 <= start <= end <=
+   (count v)`. Anything else is an explicit refusal with the same text on
+   every host, never a host error."
+  ([v start] (portable-subvec v start (when (vector? v) (count v))))
+  ([v start end]
+   (when-not (vector? v)
+     (throw (ex-info "query builtin subvec requires a vector operand"
+                     {:fn 'subvec, :operand v, :type (type-label v)})))
+   (when-not (and (integer? start) (integer? end) (<= 0 start end (count v)))
+     (throw (ex-info (str "query builtin subvec requires integer bounds"
+                          " 0 <= start <= end <= (count v)")
+                     {:fn 'subvec, :start start, :end end, :count (count v)})))
+   (subvec v start end)))
+
+
 (def ^:private builtins
   {'= content-eq,
    'not= content-not-eq,
@@ -917,6 +933,7 @@
    'abs (host-arithmetic 'abs abs),
    'str str,
    'subs subs,
+   'subvec portable-subvec,
    'count count,
    'first first,
    'last last,

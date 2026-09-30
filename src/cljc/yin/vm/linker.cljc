@@ -309,10 +309,10 @@
    relations, extended to return each occurrence's path (section 4.1):
    the same rules, one more find column."
   '[:find ?name ?path
-    :in $ $occ % ?root
+    :in $ast $occ % ?root
     :where
     [$occ ?root ?path ?v]
-    [?v :variable ?name]
+    [$ast ?v :variable ?name]
     (not (occ-bound? ?root ?path ?name))])
 
 
@@ -409,8 +409,7 @@
   (let [{:keys [root db occ]} (tree-rows tree)]
     (->> (query/collect
            (query/q tree-occurrence-query db occ
-                    vm/occurrence-rules root
-                    {:fns vm/occurrence-fns}))
+                    vm/occurrence-rules root))
          (remove (fn [[name _]] (vm/reserved-name? name)))
          (map (fn [[name path]]
                 (let [[in-body? _] (tree-enclosure tree path)]

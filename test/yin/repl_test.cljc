@@ -302,6 +302,161 @@
       (is (str/starts-with? result "Error: ")))))
 
 
+(deftest the-reader-keeps-datalog-symbols-on-every-host
+  ;; A Datalog query or rule set typed at the prompt names its rules input
+  ;; `%`, a collection binding `...` and a blank `_`: the input reader must
+  ;; read each as the plain symbol on every host.
+  (doseq [[line expected]
+          [["(quote [:in $ast $occ % ?root])" "[:in '$ast '$occ '% '?root]"]
+           ["(quote [% ?root])" "['% '?root]"]
+           ["(quote [?root %])" "['?root '%]"]
+           ["(quote [?name ...])" "['?name '...]"]
+           ["(quote [:in % :where (r ?x)])" "[:in '% :where ('r '?x)]"]
+           ["(quote [$ast ?lam :lambda ?params _])"
+            "['$ast '?lam :lambda '?params '_]"]]]
+    (is (= expected (second (repl/eval-input (repl/create-state) line)))
+        line)))
+
+
+(defn- answer
+  [line]
+  (second (repl/eval-input (repl/create-state) line)))
+
+
+(deftest the-reader-reads-percent-forms-alike-on-every-host
+  ;; Cross-host parity: each line reads to the same form, printed as the
+  ;; same text, on the JVM, Node and Dart readers, including a `%` right
+  ;; after a discard, a string and a discarded character literal.
+  (doseq [[line expected]
+          [["(quote [#_% %])" "['%]"]
+           ["(quote [#_#_% % %1])" "['%1]"]
+           ["(quote [#_ % %&])" "['%&]"]
+           ["(quote [\"%\" #_\\% %])" "[\"%\" '%]"]
+           ["(quote {% [%]})" "{'% ['%]}"]]]
+    (is (= expected (answer line)) line)))
+
+
+(deftest a-percent-reads-as-any-other-symbol-does
+  ;; On each host, a line with `%` answers exactly what the same line with
+  ;; an ordinary symbol answers: the Dart workaround changes nothing but
+  ;; the `%` itself (map type and order, metadata, duplicate handling and
+  ;; tag refusals stay the host reader's own).
+  (doseq [[line plain]
+          [["(quote [% {:z %, :y 2, :x 3}])" "(quote [zz9 {:z zz9, :y 2, :x 3}])"]
+           ["(quote [% {:c 1, :b 2, :a 3} #{%}])"
+            "(quote [zz9 {:c 1, :b 2, :a 3} #{zz9}])"]
+           ["(quote [% ^{:m 1} [1 {:b 2, :a 1}] (f (g %))])"
+            "(quote [zz9 ^{:m 1} [1 {:b 2, :a 1}] (f (g zz9))])"]
+           ["(quote #{% %})" "(quote #{zz9 zz9})"]
+           ["(quote {% 1 % 2})" "(quote {zz9 1 zz9 2})"]
+           ["(quote [#foo %])" "(quote [#foo zz9])"]]]
+    (is (= (str/replace (answer plain) "zz9" "%") (answer line)) line)))
+
+
+(defn- shape
+  "`form` as plain data that prints alike on every host and shows its
+   metadata: a map becomes `[:map [k v] ...]` and a set `[:set x ...]`,
+   entries sorted by printed text, and a form carrying metadata becomes
+   `[:meta <shape of the metadata> <shape of the form>]`, at every depth."
+  [form]
+  (let [v (cond (seq? form) (apply list (map shape form))
+                (vector? form) (mapv shape form)
+                (map? form) (into [:map]
+                                  (sort-by pr-str
+                                           (map (fn [[k x]] [(shape k) (shape x)]) form)))
+                (set? form) (into [:set] (sort-by pr-str (map shape form)))
+                :else form)
+        m (meta form)]
+    (if (seq m) [:meta (shape m) v] v)))
+
+
+(defn- read-shape
+  "The shape of `line`'s forms, or the refusal's message."
+  [line]
+  (try (pr-str (shape (repl/read-forms line)))
+       (catch #?(:cljd Object :clj Exception :cljs :default) e
+         (str "refused: " (or (ex-message e) (str e))))))
+
+
+(deftest a-percent-reads-alike-in-every-symbol-position
+  ;; Every reader position where a symbol can appear, read to the same
+  ;; forms, metadata included, on the JVM, Node and Dart.
+  (let [cases
+        [[:value "[% %1 %& (f %) {:k %}]" "[[% %1 %& (f %) [:map [:k %]]]]"]
+         [:qualified-value "[%/foo %x/y]" "[[%/foo %x/y]]"]
+         [:meta-tag "^% x" "[[:meta [:map [:tag %]] x]]"]
+         [:meta-map-value "^{:tag %} x" "[[:meta [:map [:tag %]] x]]"]
+         [:meta-map-key "^{% 1} [x]" "[[:meta [:map [% 1]] [x]]]"]
+         [:meta-nested "^{:k [%/foo]} (f)" "[[:meta [:map [:k [%/foo]]] (f)]]"]
+         [:meta-on-coll "[^% [1] ^% {:a 1} ^% #{1}]"
+          "[[[:meta [:map [:tag %]] [1]] [:meta [:map [:tag %]] [:map [:a 1]]] [:meta [:map [:tag %]] [:set 1]]]]"]
+         [:map-key "{% 1}" "[[:map [% 1]]]"]
+         [:map-key-qualified "{%/foo [%]}" "[[:map [%/foo [%]]]]"]
+         [:set-element "#{% [%]}" "[[:set % [%]]]"]
+         [:set-element-qualified "#{%/foo}" "[[:set %/foo]]"]
+         [:namespaced-map-key "#:a{% 1}" "[[:map [a/% 1]]]"]
+         [:namespaced-map-qualified-key "#:a{%/foo 1, _/% 2}" "[[:map [% 2] [%/foo 1]]]"]
+         [:namespaced-map-value "#:a{:b %}" "[[:map [:a/b %]]]"]]]
+    ;; one assertion naming every position that differs: a host test
+    ;; runner that stops at the first failure still reports them all
+    (is (= [] (into []
+                    (keep (fn [[position line expected]]
+                            (let [actual (read-shape line)]
+                              (when (not= expected actual)
+                                [position line actual]))))
+                    cases)))))
+
+
+(deftest a-percent-reads-as-a-symbol-reads-under-syntax-quote
+  ;; Syntax quote qualifies an unqualified symbol with the reading
+  ;; namespace and leaves a qualified one alone; its expansion, like the
+  ;; `'`, `#'` and `@` expansions, is each host's own (Node's EDN reader
+  ;; has none of them and refuses), so the `%` line is compared with a
+  ;; plain-symbol line on the same host.
+  (is (= [] (into []
+                  (keep (fn [[line plain]]
+                          (let [actual (read-shape line)
+                                expected (str/replace (read-shape plain) "zz9" "%")]
+                            (when (not= expected actual) [line actual expected]))))
+                  [["['% #'% @% '%/foo]" "['zz9 #'zz9 @zz9 'zz9/foo]"]
+                   ["`%" "`zz9"]
+                   ["`%/foo" "`zz9/foo"]
+                   ["`[% ~% ~@%]" "`[zz9 ~zz9 ~@zz9]"]
+                   ["`(f %/foo ^% x)" "`(f zz9/foo ^zz9 x)"]]))))
+
+
+(deftest tagged-literals-and-reader-conditionals-refuse-alike
+  ;; An unknown tag refuses on every host; the input reader enables no
+  ;; reader conditionals on any host.
+  (doseq [line ["[#foo %]" "[#?(:clj %)]" "[#?@(:clj [%])]"]]
+    (is (str/starts-with? (read-shape line) "refused: ") line)))
+
+
+(deftest regex-and-anonymous-fn-forms-read-as-on-the-jvm
+  ;; A `%` after a regex or an anonymous fn literal. Node reads input as
+  ;; EDN, which has neither form and refuses both; Dart must read them as
+  ;; the JVM does. (ClojureDart reads only `%1`, `%2`, ... inside `#(...)`.)
+  (doseq [line ["(quote [#_#\"%\" %])" "(quote [#_#(+ %1 1) %])"]]
+    (let [result (answer line)]
+      #?(:cljd (is (= "['%]" result) line)
+         :cljs (is (str/starts-with? result "Error: ") line)
+         :clj (is (= "['%]" result) line)))))
+
+
+(deftest duplicate-percent-keys-are-refused-where-the-reader-refuses-them
+  ;; The JVM and Node readers refuse duplicate set elements and map keys,
+  ;; `%` included. ClojureDart's reader refuses no duplicates at all; there
+  ;; `a-percent-reads-as-any-other-symbol-does` pins that `%` collapses as
+  ;; any symbol does.
+  (doseq [[line fragment] [["(quote #{% %})" "uplicate key: %"]
+                           ["(quote {% 1 % 2})" "uplicate key: %"]]]
+    (let [[state result] (repl/eval-input (repl/create-state) line)]
+      #?@(:cljd [(is (not (str/starts-with? result "Error: ")) (str line " => " result))]
+          :default [(is (str/starts-with? result "Error: ") (str line " => " result))
+                    (is (str/includes? result fragment) (str line " => " result))])
+      (is (true? (:running? state)) line))))
+
+
 (deftest the-output-drain-is-total-over-next
   (testing "a gap prints a loss notice and resumes at the recovery cursor"
     (let [output (handle 2)

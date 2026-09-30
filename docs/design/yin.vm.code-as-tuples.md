@@ -731,42 +731,58 @@ The fix is not to bring `:global` back. A name's free/bound status at a
 each occurrence's own path to its ancestors, not the row's abstracted
 parent edges. This is not merely argued — `test/dao/space/query_test.cljc`'s
 `occurrence-aware-rules-resolve-mixed-free-and-bound-rows` proves it
-against the real `q` engine, on the exact `((fn [x] x) x)` case above: a
-hand-built occurrence relation of §2.5's shape (the production indexer
-that would emit it does not exist yet, so the test builds it as fixture
-data, same honest scoping as the row-level demo), a recursive rule
-walking path-prefix ancestry rather than row edges, and — the point of
+against the real `q` engine, on the exact `((fn [x] x) x)` case above: the
+occurrence relation of §2.5's shape as `yin.vm/occurrences` emits it, a
+rule testing path-prefix ancestry rather than row edges, and — the point of
 the exercise — a **contrast assertion that runs the row-only rule against
 the same database and confirms it actually does undercount** (`#{}`
 instead of `#{'x}`), so the failure mode §4.5 describes above is
 demonstrated, not narrated. No new structure was needed; only the
 richer, occurrence-joined query, exactly as this section claims.
 
-**Not root-scoped as written — a real gap, not a hedge.** The test's
-`occ-anc`/`occ-bound?` rules take only `?path` and `?name` as arguments;
-they never thread a root through the recursion. Over a single tree this
-is harmless, but a production occurrence relation holds every reachable
-tree's occurrences together, and structural paths are not
-root-qualified — two different trees can produce the identical literal
-path (e.g. both have a lambda at path `[2]`). `occ-anc`/`occ-bound?` as
-written would then find a binder in the WRONG tree and misclassify an
-occurrence in one tree against a binder in another. Whoever wires up the
-real `:yin.k/requires` computation (open item 5, "Conservative dependency
-completion") must thread `?root` through every rule head
-(`p-up`/`occ-anc`/`occ-bound?`) and constrain the `[$occ ...]` join to
-one root-address, not lift the test's rule set unmodified. What the test
-actually exercises is one single-root fixture using `:lambda` and
-`:application` only — it does not test `:if` or any other node-valued
-tag. What it establishes beyond that fixture is reasoning, not tested
-coverage: the occurrence rule walks path prefixes generically rather
-than one edge clause per tag, so — unlike the row-only rule's own
-tag-coverage gap noted above — nothing about its approach depends on
-which tag sits at a given path, which is why it should generalize across
-the whole §2.3 grammar without the row-only rule's gap. That reasoning is
-not itself tested here. What remains before production use is
-root-scoping the rules and building the indexer that emits occurrence
-tuples in the first place — both implementation work, not open design
-questions.
+**Root-scoped, and portable data.** A production occurrence relation
+holds every reachable tree's occurrences together, and structural paths
+are not root-qualified — two different trees can produce the identical
+literal path (e.g. both have a lambda at path `[2]`). A rule set that
+takes only `?path` and `?name` would find a binder in the WRONG tree and
+misclassify an occurrence in one tree against a binder in another;
+`test/dao/space/query_test.cljc` keeps such an unscoped set as a contrast
+fixture and shows the misclassification. The production rule set,
+`yin.vm/occurrence-rules`, is one non-recursive rule over explicitly
+named `$ast` and `$occ`, using engine builtins only:
+
+```clojure
+[[(occ-bound? ?root ?path ?name)
+  [$occ ?root ?lam-path ?lam]
+  [(count ?lam-path) ?n]
+  [(count ?path) ?m]
+  [(< ?n ?m)]
+  [(subvec ?path 0 ?n) ?lam-path]
+  [$ast ?lam :lambda ?params _]
+  [(identity ?params) [?name ...]]]]
+```
+
+A name is bound at `[root path]` iff a `:lambda` occurrence **of the same
+root** sits at a proper prefix of `path` and lists the name in its
+params. The `[$occ ?root ...]` join is the root-scoping; the prefix test
+(`subvec`) replaces an ancestor walk, and the collection binding
+`[(identity ?params) [?name ...]]` replaces a membership predicate, so the
+rules need no `:fns` and travel as data to any peer that implements the
+`dao.space.query` builtins. Clause order is load-bearing: `[(< ?n ?m)]`
+guards the `subvec` range, and the planner reorders only runs of
+adjacent pattern clauses. A positive call with `?root` unbound
+enumerates the roots where the name is bound at that path; inside `not`
+every variable must be bound. Because the test is over path prefixes,
+not row edges, nothing depends on which tag sits at a given path:
+`occurrence-walk-covers-the-whole-grammar` resolves binding through `:if`
+and `:stream/*` tags the row-only rules cannot walk. The indexer that
+emits the occurrence tuples is `yin.vm/occurrences`.
+
+Through the REPL, `(require 'dao.space.query)` makes `q` available over
+`$ast` and `$occ`; the shell ships no binding for the rule set, so the
+user defines or pastes the literal above. The answer there is the raw
+free set: it includes `yin/def` where a definition is present, which
+`yin.vm/free-names` removes in host code.
 
 **The definition operator is never free (Rule R).** `yin/def` is syntax,
 never a name. A `:variable` row naming it is legal only as the operator
@@ -982,9 +998,13 @@ Verified shapes, each of which is a rule a query author may rely on:
 - **Per-tag selection.** `[?id :variable ?name]` matches only arity-3 rows.
 - **Joins across arities.** `[?site :application ?op _ _] [?op :variable
   ?f]` joins an arity-5 row to an arity-3 row on the address.
-- **Operand membership** goes through a predicate: `[(member? ?operands
-  ?x)]` with `member?` supplied under `:fns`; predicate arguments must
-  already be bound.
+- **Operand membership** goes through the collection binding form:
+  `[(identity ?operands) [?x ...]]` binds (or, when `?x` is already
+  bound, tests) one element per binding, with no `:fns`.
+- **Path prefixes** go through the `subvec` builtin: `[(subvec ?path 0
+  ?n) ?prefix]`, guarded by a preceding `[(< ?n ?m)]` over the counts.
+  `subvec` refuses a non-vector or out-of-range bounds with the same text
+  on every host.
 - **Ledger as-of** (§8.6) and **ref-to-code joins** (§6.4) run in one
   query, the ref pattern on the fast path and the code pattern on the
   general path.

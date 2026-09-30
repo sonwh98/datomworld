@@ -175,7 +175,7 @@
   '[[(seg-bound? ?addr ?pc ?name)
      [$scope ?addr ?pc ?c]
      [$code ?addr ?c :closure ?params _]
-     [(member? ?params ?name)]]
+     [(identity ?params) [?name ...]]]
     [(seg-bound? ?addr ?pc ?name)
      [$scope ?addr ?pc ?c]
      (seg-bound? ?addr ?c ?name)]])
@@ -203,8 +203,7 @@
                             db
                             (query/relation (segment-scope v))
                             segment-scope-rules
-                            address
-                            {:fns vm/occurrence-fns}))))
+                            address))))
        (set (map first
                  (query/collect
                    (query/q '[:find ?name :in $code
