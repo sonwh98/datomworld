@@ -1997,8 +1997,8 @@ request and response pair, local ring buffers or reflections
 `dao.jing/accept-bytes!`. Reimplement
 `fetch` as the blocking driver over a link runtime; export `verify` and
 `discharge`. Tests: the full refusal matrix through `step` over ring
-buffers on all three hosts; the JVM WebSocket path from B6 completion
-criterion 1; a `:pending` sequence where the content server answers one
+buffers on all three hosts; the JVM WebSocket transfer path of
+criterion 5a; a `:pending` sequence where the content server answers one
 part per step; a request carrying a function or a handle is
 `:invalid-request`; the local-fetch traffic test of section 6.4 with a
 `get`-counting server handle and a handle-free linker state; the DHT
@@ -2168,9 +2168,31 @@ Structure:
 
 Verification:
 
-5. Every B6 completion criterion -- the refusal matrix, the structure
-   rules, and the cross-host transfer rules -- holds for all four
-   formats where applicable, through both `fetch` and `step`.
+ 5. The B6 predecessor's completion criteria hold for all four formats
+    where applicable, through both `fetch` and `step`. Its section 11
+    was deleted with the predecessor, so its continuing obligations are
+    restated here:
+    a. A host holding only the identity (H or R) and an index obtains
+       the image over a stream; the JVM-to-Dart transfer over remote
+       streams exercises exactly that starting state, including the
+       Dart-side client harness for the path.
+    b. An image obtained over a stream and lifted -- the H and R
+       formats -- executes under the semantic VM with results equal
+       under the B0 normalizer to the same program executed locally.
+    c. `:address-mismatch` is refused when the received value does not
+       match the address algorithm and digest, tested by local storage
+       corruption and by a corrupt response on the content stream.
+    d. A DHT peer serving content that does not match the requested
+       address is rejected before load: the DHT get verifies every
+       peer payload against the address, discards a failure and tries
+       the next candidate, and answers not found -- `:absent` at the
+       linker -- when no candidate verifies (`dao.jing.dht.md` section
+       4.5).
+    e. No test pins a `dao.jing` address as a golden; addresses are
+       computed dynamically. The predecessor's companion restriction,
+       a cross-host corpus of print-stable scalars, was transitional
+       before the canonical CBOR landing (section 3) and is not
+       carried.
 6. A payload whose address is valid but whose identity is not the one
    requested is refused for every format, including the two whose
    identity is a storage address, and under every registered algorithm.
