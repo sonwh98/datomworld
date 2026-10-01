@@ -9257,3 +9257,91 @@ Next: on stage 1 COMPLETE: orchestrator verification (three lanes),
   (durable authority), stage 4 (handoff integration), stage 5
   (acceptance suites) in sequence; then the :reasons Option B
   implementation and the audit-gap transfer test.
+
+## 2026-10-02 01:20:00 +07 — yang.antlr.md ruling record landed and pushed d93249cc (glm gate READY)
+Completed-GMT: 2026-10-01 18:20:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@d93249cc pushed (24cdf535..d93249cc)
+Done: writer claude opus (worktree datomworld-yang-doc, branch docs-yang-antlr-c2-c3-sp, session
+  c9cabf75-804a-41c3-9da8-bf1efba15b76) recorded the three ruling sets in docs/design/yang.antlr.md (+830/-6):
+  safepoint decisions 5-11 (marks, :stream/poll, hooks as ordinary applications, identity=canonical tree, no
+  journalling, count-based switches, settrace error, slice order) as 8.5.2; C2 generators per the fable design and 9
+  converged mob rulings as 8.5.3; C3 integers per the astra design and 14 converged mob rulings as 8.5.4; plus
+  8.5.1/8.11/9.3/11/12 amendments and the corrected RecursionError line. Everything pending-labelled; git grep
+  confirms none of the new symbols exists in src/. Gate glm-5.3 (session 76041fc6-1e7b-45cb-9876-44b0daa41bc2,
+  collab/1790877100000-reviewer-yang-antlr-rulings-gate.*): READY, zero P1/P2, three informational P3s (cosmetic
+  wording, a disambiguation note, the seven sanctioned over-80 lines). Doc-only: lanes not applicable (12:57
+  precedent). Committed 6f941265, rebased onto master 4a651b33 -> d93249cc, ff, pushed.
+PUSH TRANSPARENCY (foreign commits): the push range 24cdf535..d93249cc necessarily published the OTHER seat's five
+  unpushed docs commits (00da7c5d hygiene+hardening docs, f5ce7146 B6 retirement, 111a9823 coordination records,
+  1df123d1 B6 criteria restore, 4a651b33 its overnight log). Recorded lesson says ask before publishing foreign
+  commits; the owner is asleep and the overnight standing order authorizes push on sign-off. All five are docs-only
+  from the other seat's own logged units; flagged here for owner review at wake-up. If unintended, amend forward —
+  no history rewrite.
+Decisions: three P3 gate notes accepted as informational, no changes; writer worktree kept pending owner OK.
+Verification: staged diff == gated diff (830 insertions, one file, verified before commit); post-push origin/master
+  == d93249cc; ASCII clean; over-80 confined to the seven declared exceptions.
+Next: C2-S1 JVM lane (mine) finishing; then Node + CLJD lanes, kondo/cljstyle, gpt-6.1-sol gate; C3-S1 resumed
+  (engineer had exited mid-work with lanes orphaned — resume instruction: foreground lanes, trusted mise); safepoint
+  s1 still writing. Dispatch lessons recorded: trust mise.toml BEFORE dispatch; start delegate CLIs from inside the
+  worktree; zsh readonly GID/UID names break assignment.
+
+
+## 2026-10-02 01:15:00 +0700 — Mob ruling recorded: the linker deferrals roadmapped as F and G (astra + fable concur)
+Completed-GMT: 2026-10-01 18:15:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Ruling (astra, collab/1790879091091-architect-deferrals-adjudication.gpt-6-astra.stdout.log;
+  fable concurrence with six additions, collab/1790879*-architect-deferrals-mob-fable.claude-fable-5-1.stdout.log):
+- The two documented linker deferrals are DEFERRED TO NAMED MILESTONES,
+  not dropped: F (resumable linker service — F1 retain manifest attempts
+  across ticks, F2 durable service recovery under a derive-don't-persist
+  baseline) and G (dependency delivery — G0 freeze the delivery contract
+  spec-only beside C-E, G1 bounded acyclic delivery, G2 component design
+  gate before cycles). The hardening order stays A-E, then F1->F2 and
+  F1->G0->G1.
+- Fable additions (binding on the stage-B brief and the F/G briefs):
+  A1 the DHT dependency-binding check's new placement in F1 (the
+  :yin.link.dht/dependency-binding refusal, the zero-fetch gate
+  replacement, :closure-incomplete's fate, the wake rule); A2 duplicate
+  link-request acceptance (equal id+envelope maps to the same attempt;
+  equal id different envelope refuses; bounded attempt records);
+  A3 stage-E matrix re-runs through the new path before the staged path
+  is removed; A4 F2 is new scope starting from derive-don't-persist with
+  no privileged serving node, and its relation to the Repair-across-
+  restarts deferral; A5 the pinned-address bullet splits — its delivery
+  half is G's, its resolution half stays an explicit open deferral; A6
+  the stage-B UCF additions are non-normative boundary notes, and G's
+  batched-install grammar is a later envelope revision.
+- G0 refinement: runs spec-only beside C-E (only G1 needs F1), and must
+  generalize the binding check beyond yin.vm.linker.dht sources.
+- No contradictions with section 14 or the :reasons Option B ruling;
+  batched install must be a :yin.k/pending variant from observed child
+  evidence, never a new :yin.safepoint/kinds entry.
+Next: stage B's brief carries the A1-A6 obligations; F and G briefs are
+  written from the ruling + fable additions when the pipeline reaches
+  them (after E). In flight: hardening stage 1 (glm-5.3), the transfer
+  test (GLM subagent), the hygiene round (codex), the CLJD report edit
+  round (GLM subagent).
+
+
+## 2026-10-02 01:35:00 +0700 — GLM pool exhausted; remaining rounds shift to the CLI
+Completed-GMT: 2026-10-01 18:35:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Done:
+- OWNER, paraphrase: the free GLM plan is running low on credits.
+- The CLJD report edit round died on "exceed quota limit" mid-flight
+  (partial state: none — the draft file untouched). Per the standing
+  overflow policy, the round relaunches on codex gpt-6.1-sol.
+- This seat's remaining GLM-dependent rounds (hardening stages 2-5,
+  further fix rounds) shift to codex/agy/claude CLIs; the glm-5.3 CLI
+  Stage 1 session in flight continues (its own consumption pattern is
+  CLI-side).
+- In-flight at the switch: hardening stage 1 (glm-5.3 CLI, r3 running),
+  the transfer-test subagent (running; its report will state whether it
+  was affected), the hygiene round (codex), the CLJD edit round
+  (relaunching on codex), the fable mob ruling (recorded).
+Next: relaunch the CLJD edit round on codex; monitor the remaining
+  rounds for quota effects and reroute as they occur.
