@@ -33,7 +33,6 @@
 
 ### 3. Test Infrastructure
 - ✅ Works with `clojure` CLI (deps.edn) - **Recommended**
-- ✅ Works with `lein` (project.clj) - Alternative
 - ✅ Cognitect test-runner configured
 - ✅ Shared test utilities in [test/yin/test_util.clj](../../../../../test/yin/test_util.clj)
 

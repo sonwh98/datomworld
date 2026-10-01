@@ -1,0 +1,35 @@
+datom.world Linking Exception
+
+Copyright (C) 2021-2026 Sonny To
+
+datom.world is licensed under the GNU General Public License, version 2
+only (GPL-2.0-only), as set out in the file LICENSE, with the additional
+permission below. It is not licensed under any later version of the GPL.
+
+Linking datom.world statically or dynamically with other modules may
+make a combined work based on datom.world, which the GPL would otherwise
+require to be licensed as a whole under the GPL.
+
+As a special exception, the copyright holder gives you permission to
+link or otherwise combine datom.world with independent modules licensed
+under the Eclipse Public License 1.0 (EPL-1.0), the Eclipse Public
+License 2.0 (EPL-2.0), or the Apache License 2.0 (Apache-2.0), and to
+copy and distribute the resulting combination without licensing the
+combination as a whole under the GPL, provided that:
+
+  (a) datom.world and any modified version of datom.world (but not the
+      independent modules) are distributed under GPL-2.0-only, and you
+      comply with the GPL for that code, including providing its
+      source code by any of the options in section 3 of the GPL; and
+
+  (b) for each independent module, you meet the terms and conditions
+      of that module's own licence.
+
+An "independent module" is a module that is not derived from or based
+on datom.world. Any obligation to provide or offer the source code of
+an independent module arises solely under that module's own licence,
+not under the GPL.
+
+If you modify datom.world, you may extend this exception to your
+version, but you are not obligated to do so. If you do not wish to do
+so, delete this exception statement from your version.

@@ -18,7 +18,7 @@ Tests basic primitive operations and lambda-based addition:
 - ✅ `(+ 10 20)` → `30`
 - ✅ `((lambda (x y) (+ x y)) 3 5)` → `8`
 
-**Run:** `lein run -m clojure.main test_add.clj`
+**Run:** `clj test_add.clj`
 
 ### 2. Continuation Stepping Test
 **File:** [test_simple_continuation.clj](../../../../../test_simple_continuation.clj)
@@ -29,7 +29,7 @@ Demonstrates step-by-step execution with continuations:
 - Expression: `((lambda (x) (+ x 1)) 5)` → `6`
 - Takes 17 execution steps
 
-**Run:** `lein run -m clojure.main test_simple_continuation.clj`
+**Run:** `clj test_simple_continuation.clj`
 
 **Sample Output:**
 ```
@@ -103,14 +103,6 @@ clj test_add.clj
 
 # Continuation stepping test
 clj test_simple_continuation.clj
-```
-
-### Using Leiningen (Alternative)
-
-**Run individual tests:**
-```bash
-lein run -m clojure.main test_add.clj
-lein run -m clojure.main test_simple_continuation.clj
 ```
 
 ### From REPL

@@ -100,7 +100,6 @@ Located in `test/` directory:
 ### Configuration
 
 - **[deps.edn](deps.edn)** - Clojure CLI configuration
-- **[project.clj](../../../../../project.clj)** - Leiningen configuration (alternative)
 
 ## 📊 Project Documentation
 
@@ -223,8 +222,7 @@ datomworld/
 │       └── vm_continuation_test.clj # Continuation tests
 │
 └── Configuration
-    ├── deps.edn                      # Clojure CLI config
-    └── project.clj                   # Leiningen config
+    └── deps.edn                      # Clojure CLI config
 
 ⭐ = Most important files
 ```
