@@ -13,6 +13,7 @@
                        ["dart:core" :as dart-core]
                        ["dart:io" :as io]])
             [clojure.string :as str]
+            [dao.space.store.fs :as fs]
             [dao.stream.datagram :as datagram]
             [dao.stream.waitset.cadence :as cadence]
             [dao.stream.waitset.driver :as wake]
@@ -21,7 +22,8 @@
             [yin.repl.driver :as driver]
             [yin.repl.host :as host]
             [yin.repl.serve :as serve]
-            [yin.repl.store :as store]))
+            [yin.repl.store :as store]
+            [yin.vm.linker.sign :as sign]))
 
 
 (def tick-millis
@@ -94,7 +96,109 @@
 
 (def ^:private dht-flags
   #{"--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
-    "--dht-max-inbound-bytes" "--dht-manifest"})
+    "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key" "--dht-principal"})
+
+
+(defn parse-principal
+  "A `--dht-principal` value: a declared publisher's public key, exactly
+   64 lowercase hexadecimal characters (yin.vm.linker.dht.md 6.2)."
+  [text]
+  (if (and (string? text) (re-matches #"^[0-9a-f]{64}$" text))
+    text
+    (throw (ex-info (str "--dht-principal takes a public key of 64 lowercase "
+                         "hexadecimal characters, not " (pr-str text))
+                    {:value text}))))
+
+
+;; =============================================================================
+;; The publisher's key file (yin.vm.linker.dht.md 6.5)
+;; =============================================================================
+
+(defn- split-path
+  "`[dir name]` of a file path."
+  [path]
+  (if-let [i (str/last-index-of path "/")]
+    [(subs path 0 i) (subs path (inc i))]
+    ["." path]))
+
+
+(defn load-key
+  "The publisher key `{:seed :public}` the key file at `path` holds, or a
+   refusal of startup with the reason: a file that does not exist, or one
+   `yin.vm.linker.sign/key-from-text` refuses.  Nothing falls back to a
+   fresh key, and no refusal carries the file's content."
+  [path]
+  (let [[dir name] (split-path path)
+        text (fs/read-file-text dir name)
+        key (when text (sign/key-from-text text))]
+    (cond
+      (nil? text)
+      (throw (ex-info (str "--dht-key " path ": the key file does not exist; "
+                           "nothing falls back to a fresh key (create one with "
+                           "--dht-keygen " path ")")
+                      {:path path}))
+
+      (= :refused (:status key))
+      (throw (ex-info (str "--dht-key " path ": the key file is refused ("
+                           (:reason key) ")")
+                      {:path path :reason (:reason key)}))
+
+      :else key)))
+
+
+(defn- write-new-file!
+  "Create `path` holding `text`, readable by its owner only where the host
+   can set that, refusing an existing file: a key file is never
+   overwritten."
+  [path text]
+  (let [exists (fn []
+                 (ex-info (str "--dht-keygen " path ": the file exists; "
+                               "a key file is never overwritten")
+                          {:path path}))]
+    #?(:cljd (let [f (io/File. path)]
+               (when (.existsSync f) (throw (exists)))
+               (try (.createSync f .exclusive true)
+                    (catch Object _ (throw (exists))))
+               (.writeAsStringSync f text))
+       :clj (let [p (.toPath (java.io.File. ^String path))
+                  owner-only (java.nio.file.attribute.PosixFilePermissions/asFileAttribute
+                               (java.nio.file.attribute.PosixFilePermissions/fromString
+                                 "rw-------"))]
+              (try
+                (try (java.nio.file.Files/createFile
+                       p (into-array java.nio.file.attribute.FileAttribute
+                                     [owner-only]))
+                     (catch UnsupportedOperationException _
+                       (java.nio.file.Files/createFile
+                         p (make-array java.nio.file.attribute.FileAttribute 0))))
+                (catch java.nio.file.FileAlreadyExistsException _
+                  (throw (exists))))
+              (spit path text))
+       :cljs (let [fs-module (js/require "fs")]
+               (try (.writeFileSync fs-module path text #js {:flag "wx" :mode 384})
+                    (catch :default e
+                      (if (= "EEXIST" (.-code e))
+                        (throw (exists))
+                        (throw (ex-info (str "--dht-keygen " path ": " (.-message e))
+                                        {:path path})))))))))
+
+
+(defn keygen!
+  "Write a new key, from the host CSPRNG, to a new key file at `path`
+   (`--dht-keygen`), and answer the lines to print and the exit status.
+   The seed is never printed."
+  [path]
+  (let [key (sign/generate)]
+    (write-new-file! path (str (sign/key-text key) "\n"))
+    {:lines (cond-> [(str "dht: wrote a new Ed25519 key to " path "; its principal is "
+                          (sign/principal (:public key)) ". Keep the file: a lost key "
+                          "can never sign again, and a new key is a new principal.")]
+              ;; dart:io sets no file permissions (yin.vm.linker.dht.md 6.5)
+              #?(:cljd true :default false)
+              (conj (str "dht: WARNING: this host cannot restrict the key file's "
+                         "permissions; it is readable as the process umask allows. "
+                         "Restrict it now: chmod 600 " path)))
+     :exit 0}))
 
 
 (defn- dht-spec
@@ -154,7 +258,11 @@
    socket's address, loopback and ephemeral unless given;
    `--dht-max-inbound-bytes n`, the inbound storage bound; and
    `--dht-manifest address`, a remote index to hydrate before the first
-   evaluation.  Any of them without `dht:<dir>` is refused."
+   evaluation; `--dht-key file`, the publisher's stable key file
+   (yin.vm.linker.dht.md 6.5); and `--dht-principal hex`, repeatable, a
+   publisher whose signed names this node honors (7.1).  Any of them
+   without `dht:<dir>` is refused.  `--dht-keygen file` writes a new key
+   file and exits."
   [args]
   (loop [args (seq args)
          opts {:headless? false :host nil :port nil :rejected []
@@ -189,6 +297,22 @@
                                                   (dht-number arg value)))
           "--dht-manifest" (recur (nnext args) opts
                                   (assoc dht :manifest (parse-manifest value)))
+          "--dht-key" (recur (nnext args)
+                             (assoc opts :dht-key-file
+                                    (or value
+                                        (throw (ex-info "--dht-key needs a key file"
+                                                        {}))))
+                             dht)
+          "--dht-principal" (recur (nnext args)
+                                   (update opts :principals (fnil conj [])
+                                           (parse-principal value))
+                                   dht)
+          "--dht-keygen" (recur (nnext args)
+                                (assoc opts :dht-keygen
+                                       (or value
+                                           (throw (ex-info "--dht-keygen needs a file"
+                                                           {}))))
+                                dht)
           "--telemetry" (recur (next args) (update opts :rejected conj arg) dht)
           "--telemetry-stream" (recur (nnext args)
                                       (update opts :rejected conj arg) dht)
@@ -205,7 +329,9 @@
   ([opts] (driver/create-state
             {:host (or (:adapter opts) (host/websocket))
              :repl (shell/create-state {:index-store-spec
-                                        (:index-store-spec opts)})})))
+                                        (:index-store-spec opts)
+                                        :dht-key (:dht-key opts)
+                                        :principals (:principals opts)})})))
 
 
 (defn boot-server
@@ -229,13 +355,23 @@
    its reason rather than composing a shell around a fallback store.
 
    Only a designed refusal is answered: an error carrying no ex-info
-   keeps its stack trace, because it is a defect, not an operator error."
+   keeps its stack trace, because it is a defect, not an operator error.
+
+   `--dht-keygen` composes nothing: it writes the key file and answers
+   `{:lines [...] :exit 0}` for the host to print and exit with.  A
+   `--dht-key` file is loaded here (`load-key`); the key reaches the
+   shell, and only its principal reaches the options the banner reads."
   [args]
   (try
     (let [opts (parse-args args)]
-      {:opts opts
-       :state (boot opts)
-       :server (boot-server opts)})
+      (if-some [path (:dht-keygen opts)]
+        (keygen! path)
+        (let [key (some-> (:dht-key-file opts) load-key)
+              opts (cond-> opts
+                     key (assoc :publisher (sign/principal (:public key))))]
+          {:opts opts
+           :state (boot (assoc opts :dht-key key))
+           :server (boot-server opts)})))
     (catch #?(:cljd Object
               :clj Throwable
               :cljs :default)
@@ -275,12 +411,34 @@
    before anything is shared — what it will share: the whole store when
    `--dht-publish` is given, nothing otherwise (yin.repl.dht/banner)."
   [opts]
-  (let [spec (:index-store-spec opts)]
+  (let [spec (:index-store-spec opts)
+        dht? (= :dht (:type spec))]
     (cond-> []
       (seq (:rejected opts)) (conj telemetry-text)
       (and (:headless? opts) (not (:port opts)))
       (conj "--headless has nothing to attend without a served endpoint")
-      (= :dht (:type spec)) (into (repl.dht/banner spec)))))
+      dht? (into (repl.dht/banner spec))
+      (and dht? (:publish? spec))
+      (conj (str "dht: the code index and the code itself are shared: every"
+                 " evaluated program's rows are written to the index store"
+                 " each round"))
+      (and dht? (:publisher opts))
+      (conj (str "dht: names published here are signed by principal "
+                 (:publisher opts) " (key from " (:dht-key-file opts) ")"))
+      (and dht? (not (:publisher opts)))
+      (conj (str "dht: no --dht-key: (yin.link/publish ...) is refused; names"
+                 " are still read, resolved, loaded and linked")))))
+
+
+(defn- exit-with!
+  "Print a composition that ends at startup -- `--dht-keygen` -- and end
+   the process with its status."
+  [{:keys [lines exit]}]
+  (doseq [line lines]
+    (println line))
+  #?(:cljd (io/exit exit)
+     :clj (.halt (Runtime/getRuntime) (int exit))
+     :cljs (.exit js/process exit)))
 
 
 (defn step-all
@@ -492,6 +650,7 @@
      (defn -main
        [& args]
        (let [started (startup args)]
+         (when (contains? started :exit) (exit-with! started))
          (if-some [refusal (:refusal started)]
            (refuse! refusal)
            (let [{:keys [opts state server]} started
@@ -608,6 +767,7 @@
      (defn -main
        [& args]
        (let [started (startup args)]
+         (when (contains? started :exit) (exit-with! started))
          (if-some [refusal (:refusal started)]
            (refuse! refusal)
            (let [{:keys [opts state server]} started
@@ -728,6 +888,7 @@
      (defn -main
        [& args]
        (let [started (startup args)]
+         (when (contains? started :exit) (exit-with! started))
          (if-some [refusal (:refusal started)]
            (refuse! refusal)
            (let [{:keys [opts state server]} started

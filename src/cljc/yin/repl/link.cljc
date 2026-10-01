@@ -127,8 +127,14 @@
    and says so.  Supplying both is a composition defect.  `dht?` is the
    DHT link source (yin.vm.linker.dht.md 4.1): it reads content from the
    node each serve round is handed, holds nothing here, and is refused
-   together with either content source."
-  [{:keys [name-env content-store content-client dht?]}]
+   together with either content source.
+
+   `principals` are the public keys (64 lowercase hex) whose signed name
+   assertions the reader honors (yin.vm.linker.dht.md 7.1), and `key`
+   the node's own publisher key, whose principal is declared too (6.5):
+   a node resolves the names it published.  Only the public half is
+   kept here."
+  [{:keys [name-env content-store content-client dht? principals key]}]
   (when (and content-store content-client)
     (throw (ex-info "content-store and content-client are exclusive"
                     {:content-store content-store})))
@@ -137,6 +143,8 @@
                          "content-store and content-client are refused with it")
                     {:dht? dht?})))
   {:name-env (or name-env {})
+   :principals (vec (distinct (cond-> (vec principals)
+                                key (conj (:public key)))))
    :content (cond
               dht? {:kind :dht}
 
@@ -150,6 +158,14 @@
               {:kind :remote, :client content-client}
 
               :else nil)})
+
+
+(defn authority
+  "The reader's authority of a link source (yin.vm.linker.dht.md 7.1):
+   its declared principals and its direct name entries, as the plain
+   `yin.vm.linker.dht/authority` composes them."
+  [source]
+  (linker.dht/authority (select-keys source [:principals :name-env])))
 
 
 ;; =============================================================================
@@ -343,11 +359,11 @@
               :defect :yin.repl/name-required}}
 
       dht?
-      (let [authority {:name-env (:name-env source)}
-            entry (get-in (linker.dht/names node authority) [:names name])]
+      (let [declared (authority source)
+            entry (linker.dht/resolve-name node declared name)]
         (if (= :ok (:status entry))
-          (dht-attempt node authority request (:address entry))
-          {:node node, :body {:status :refused, :reason :absent, :name name}}))
+          (dht-attempt node declared request (:address entry))
+          {:node node, :body entry}))
 
       :else
       {:node node

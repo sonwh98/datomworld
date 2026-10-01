@@ -22,6 +22,7 @@
             [dao.jing.dht.mesh :as mesh]
             [dao.jing.mem :as mem]
             [dao.space.dht :as space.dht]
+            [dao.space.index :as space.index]
             [dao.stream :as stream]
             [dao.stream.datagram :as datagram]
             [yin.repl :as repl]
@@ -31,9 +32,12 @@
             [yin.repl.store :as store]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
+            [yin.vm.linker :as linker]
             [yin.vm.linker.closure-test :as ct]
             [yin.vm.linker.dht :as ld]
-            [yin.vm.linker.publish :as publish]))
+            [yin.vm.linker.publish :as publish]
+            [yin.vm.linker.publish-test :as publish-test]
+            [yin.vm.linker.sign :as sign]))
 
 
 ;; =============================================================================
@@ -1285,3 +1289,744 @@
     (is (str/includes? banner "may fetch"))
     (is (str/includes? help "require"))
     (is (str/includes? help "may fetch"))))
+
+
+;; =============================================================================
+;; L4: rows every round, names in the index, publish at the prompt
+;; (docs/design/yin.vm.linker.dht.md 5.1, 5.3, 5.5.6, 6, 7 and 12, slice L4)
+;; =============================================================================
+
+(defn- keyed-state
+  "The step owner's state for a shell over a dht store at `dir`, at mesh
+   `port` with bootstrap contacts `peer-ports` (none: solo), holding
+   `key` (nil: none) and declaring the principals `principals`."
+  ([net dir port peer-ports key principals]
+   (keyed-state net dir port peer-ports key principals (mesh-bind net port (atom 0))))
+  ([_net dir _port peer-ports key principals bind!]
+   (main/boot {:index-store-spec
+               (dht-spec dir {:bind! bind!
+                              :publish? true
+                              :peers (mapv (fn [p] {:host "127.0.0.1" :port p})
+                                           peer-ports)})
+               :dht-key key
+               :principals principals})))
+
+
+(defn- value-of
+  "The value `line` answers at the shell's prompt: `[state value text]`."
+  [state line]
+  (let [[state text] (type! state line)]
+    [state (get-in state [:repl :last-value]) text]))
+
+
+(defn- tree-ast
+  "The map AST of the tree whose root row `root` is in `store`."
+  [store root]
+  (vm/semantic-bytecode->ast
+    {:root root
+     :rows (into {} (map (fn [[a body]] [a (into [a] body)]))
+                 (ct/tree-rows store root))}))
+
+
+(defn- index-envelopes
+  "Every name envelope in the shell's published index."
+  [state]
+  (let [ix (get-in state [:repl :indexer])]
+    (vec (keep (fn [[_ a v]] (when (= :yin.module/envelope a) v))
+               (space.index/read-datoms (:content-store ix)
+                                        (:manifest-address ix))))))
+
+
+(defn- link-base!
+  "Publish base into the solo shell's own store, name it directly, and
+   require it: answers the state with base linked, and base's address."
+  [state]
+  (let [base (:address (ct/publish-base! (space.dht/local (node-of state))))
+        state (assoc-in state [:repl :link-source :name-env] {'base base})
+        [state _] (type! state "(require (quote base))")
+        w (run-ticks {:state state :peers {} :now 0} 1000
+                     #(nil? (parked (:state %))))]
+    (is (= 'base (get-in w [:state :repl :last-value])) (pr-str (:lines w)))
+    [(:state w) base]))
+
+
+(deftest publish-at-the-prompt-derives-one-tree-and-declares-what-it-reads
+  (let [dir (temp-dir)
+        key (sign/generate)]
+    (try
+      (let [state (keyed-state (mesh/mesh) dir 4 [] key [])
+            [state base] (link-base! state)
+            store (space.dht/local (node-of state))
+            [state _] (type! state "(def h (fn [x] (+ x 1)))")
+            [state _] (type! state "(def unused 5)")
+            [state _] (type! state "(def f (fn [] (h (base/f))))")
+            [state required] (type! state "(require (quote yin.link))")
+            [state res text] (value-of state "(yin.link/publish (quote my.lib) (quote [f]))")
+            manifest (jing/get store (:address res) nil)]
+        (is (= "'yin.link" required))
+        (testing "one tree, the defining programs in t order"
+          (is (= '[h f] (publish-test/module-defs
+                          (tree-ast store (:yin.module/tree manifest))))
+              text))
+        (testing "a manifest declaring the free primitive and the linked module"
+          (is (= {'base base} (:yin.module/requires manifest)))
+          (is (= #{'+ 'require} (set (keys (:yin.module/primitives manifest))))
+              "require is free in the collected (require 'base) program")
+          (is (= #{'f} (:yin.module/exports manifest))))
+        (testing "the answer names the module, its address and where it links"
+          (is (= 'my.lib (:module res)))
+          (is (= #{:yin.ast/code :yin.semantic/code :yin.debruijn.code
+                   :yin.debruijn.register}
+                 (set (keys (:links res))))))
+        (testing "the assertion is in the round's index, and the node resolves it"
+          (is (= [{:yin.module/op :assert :yin.module/name 'my.lib
+                   :yin.module/manifest (:address res)
+                   :yin.module/asserted-by (sign/principal (:public key))
+                   :yin.module/seq 1}]
+                 (index-envelopes state)))
+          (is (= (get-in state [:repl :indexer :manifest-address])
+                 (head-manifest dir))
+              "HEAD names the index holding it")
+          (let [[state names] (value-of state "(yin.link/names)")]
+            (is (= (:address res) (get-in names [:names 'my.lib :address])))
+            (testing "republishing with a new manifest retracts, then asserts"
+              (let [[state _] (type! state "(def f (fn [] (h 2)))")
+                    [state again] (value-of state "(yin.link/publish (quote my.lib) (quote [f]))")
+                    [state names] (value-of state "(yin.link/names)")
+                    [state same] (value-of state "(yin.link/publish (quote my.lib) (quote [f]))")]
+                (is (not= (:address res) (:address again)))
+                (is (= [[:assert 1] [:retract 2] [:assert 3]]
+                       (mapv (juxt :yin.module/op :yin.module/seq)
+                             (sort-by :yin.module/seq (index-envelopes state)))))
+                (is (= (:address again) (get-in names [:names 'my.lib :address])))
+                (is (= (:address again) (:address same)))
+                (is (= 3 (count (index-envelopes state)))
+                    "the same manifest again writes nothing")
+                (main/close-index-store! state))))))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest publish-at-the-prompt-refuses-and-writes-nothing
+  (let [dir (temp-dir)
+        key (sign/generate)]
+    (try
+      (let [state (keyed-state (mesh/mesh) dir 4 [] key [])
+            lines ["(def ok (fn [] 1))"
+                   "(def g (fn [] (mystery 1)))"
+                   "(require (quote dao.space.query))"
+                   "(def q2 (fn [] (dao.space.query/q 1)))"
+                   "(require (quote yin.link))"]
+            state (reduce (fn [s l] (first (type! s l))) state lines)
+            refused (fn [state exports reason]
+                      (let [before (get-in state [:repl :indexer :transactions])
+                            [state text] (type! state (str "(yin.link/publish (quote my.lib) (quote "
+                                                           exports "))"))]
+                        (is (str/includes? (str text) reason) (str text))
+                        (is (empty? (index-envelopes state)) "no name was asserted")
+                        (is (= (inc before) (get-in state [:repl :indexer :transactions]))
+                            "only the round's own program was committed")
+                        state))
+            state (refused state "[nope]" "undefined-export")
+            state (refused state "[g]" "undeclared-free")
+            state (refused state "[q2]" "host-module")
+            state (refused (assoc-in state [:repl :dht-key] nil) "[ok]" "no-key")]
+        (main/close-index-store! state))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest the-next-sequence-is-derived-from-the-index-after-a-restart
+  (let [dir (temp-dir)
+        key (sign/generate)]
+    (try
+      (let [state (keyed-state (mesh/mesh) dir 4 [] key [])
+            state (reduce (fn [s l] (first (type! s l)))
+                          state
+                          ["(def f (fn [] 1))" "(require (quote yin.link))"
+                           "(yin.link/publish (quote my.lib) (quote [f]))"])
+            _ (main/close-index-store! state)
+            ;; a new process over the same directory and the same key file
+            state (keyed-state (mesh/mesh) dir 4 [] key [])
+            state (reduce (fn [s l] (first (type! s l)))
+                          state
+                          ["(def f (fn [] 2))" "(require (quote yin.link))"])
+            [state res] (value-of state "(yin.link/publish (quote my.lib) (quote [f]))")
+            [state names] (value-of state "(yin.link/names)")]
+        (is (= [[:assert 1] [:retract 2] [:assert 3]]
+               (mapv (juxt :yin.module/op :yin.module/seq)
+                     (sort-by :yin.module/seq (index-envelopes state))))
+            "no sequence restarts at 1: no equivocation")
+        (is (= (:address res) (get-in names [:names 'my.lib :address])))
+        (is (empty? (:diagnostics names)))
+        (main/close-index-store! state))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+;; -----------------------------------------------------------------------------
+;; A mesh world of shells, plain nodes and plain peers
+;; -----------------------------------------------------------------------------
+
+(defn- blocking-bind
+  "The mesh seam at `port`, whose socket never reaches the ports
+   `blocked`: a node whose lookups cannot reach the publisher."
+  [net port blocked]
+  (let [bind! (mesh/seam net port)]
+    (fn [opts]
+      (let [seam (bind! opts)]
+        (assoc seam
+               :send! (fn [host to-port bs]
+                        (if (contains? blocked to-port)
+                          {:dao.stream/outcome :dao.stream/transport-error}
+                          ((:send! seam) host to-port bs))))))))
+
+
+(defn- shell-at
+  "A publishing shell over a dht store at `dir`, socket `bind!`, contacts
+   `peer-ports`, holding `key` and declaring `principals`."
+  [dir bind! peer-ports key principals]
+  (repl/create-state
+    {:index-store-spec (dht-spec dir {:bind! bind!
+                                      :publish? true
+                                      :peers (mapv (fn [p] {:host "127.0.0.1" :port p})
+                                                   peer-ports)})
+     :dht-key key
+     :principals principals}))
+
+
+(defn- plain-node
+  "A fetch-only plain node: what it loads it never serves on."
+  [bind! peer-ports]
+  (space.dht/join {:local (mem/create-content-mem)
+                   :peers (mapv (fn [p] {:host "127.0.0.1" :port p}) peer-ports)
+                   :bind! bind!}))
+
+
+(defn- world
+  [net peer-ports]
+  {:net net
+   :peers (into {} (map (fn [p] [p (peer-node net p)])) peer-ports)
+   :shells {}
+   :nodes {}
+   :now 0
+   :lines []
+   :events []})
+
+
+(defn- step-world
+  "One reading `dt` long: every shell's node (`yin.repl.dht/step`, then
+   the re-check its load events call for, as the host ticker does), every
+   plain node, every peer.  Lines and events accumulate, each event
+   marked with its owner under `:who` and its reading under `:at`."
+  [w dt]
+  (let [now (:now w)
+        mark (fn [who events] (map #(assoc % :who who :at now) events))
+        shells (map (fn [[k s]]
+                      (let [[s lines events] (repl.dht/step s now)
+                            [s text] (repl/recheck-on-load-events s events)]
+                        [k s (cond-> lines text (conj text)) (mark k events)]))
+                    (:shells w))
+        nodes (map (fn [[k n]]
+                     (let [[n events] (space.dht/step n now)]
+                       [k n (mark k events)]))
+                   (:nodes w))]
+    (-> w
+        (assoc :shells (into {} (map (fn [[k s]] [k s])) shells)
+               :nodes (into {} (map (fn [[k n]] [k n])) nodes)
+               :peers (step-peers (:peers w) now)
+               :now (+ now dt))
+        (update :lines into (mapcat #(nth % 2)) shells)
+        (update :events into (mapcat #(nth % 3)) shells)
+        (update :events into (mapcat #(nth % 2)) nodes))))
+
+
+(defn- run-world
+  [w dt limit done?]
+  (loop [w w]
+    (if (or (done? w) (> (:now w) limit))
+      w
+      (recur (step-world w dt)))))
+
+
+(defn- eval-at
+  "Evaluate `line` at shell `k`'s prompt: `[w text value]`."
+  [w k line]
+  (let [[s text] (repl/eval-input (get-in w [:shells k]) line)]
+    [(assoc-in w [:shells k] s) text (:last-value s)]))
+
+
+(defn- event-of
+  [w who kind manifest]
+  (some #(when (and (= who (:who %)) (= kind (::space.dht/event %))
+                    (= manifest (:manifest %)))
+           %)
+        (:events w)))
+
+
+(defn- head-of
+  "The index manifest shell `k` published last."
+  [w k]
+  (get-in w [:shells k :indexer :manifest-address]))
+
+
+(defn- datoms-of
+  [w k]
+  (let [ix (get-in w [:shells k :indexer])]
+    (vec (space.index/read-datoms (:content-store ix) (:manifest-address ix)))))
+
+
+(defn- row-of-value
+  "The row address of the literal `v` in shell `k`'s index."
+  [w k v]
+  (let [datoms (datoms-of w k)
+        e (some (fn [[e a x]] (when (and (= :yin/value a) (= v x)) e)) datoms)]
+    (some (fn [[e' a x]] (when (and (= e e') (= :yin/address a)) x)) datoms)))
+
+
+(defn- root-of-value
+  "The `:yin.repl/root` of the program in shell `k`'s index holding the
+   literal `v`."
+  [w k v]
+  (let [datoms (datoms-of w k)
+        e (some (fn [[e a x]] (when (and (= :yin/value a) (= v x)) e)) datoms)
+        m (some (fn [[e' _ _ _ m]] (when (= e e') m)) datoms)]
+    (some (fn [[e' a x]] (when (and (= m e') (= :yin.repl/root a)) x)) datoms)))
+
+
+(defn- tree-walk
+  "A `dao.space.dht/load` walk over the program tree at `root`: missing at
+   the first row not local, complete once every row is."
+  [root]
+  (fn [handle]
+    (loop [queue [root]
+           seen #{}]
+      (if-let [a (first queue)]
+        (if (contains? seen a)
+          (recur (rest queue) seen)
+          (let [body (jing/get handle a ::absent)]
+            (if (= ::absent body)
+              {::space.dht/walk :missing :address a}
+              (recur (concat (rest queue) ((:parts-fn linker/ast-format) body))
+                     (conj seen a)))))
+        {::space.dht/walk :complete :value (count seen)}))))
+
+
+(defn- load-tree
+  [node root]
+  (space.dht/load node root {:kind ::tree :walk (tree-walk root)}))
+
+
+(defn- close-all!
+  [w]
+  (doseq [[_ s] (:shells w)] (close! s))
+  (doseq [[_ n] (:nodes w)] (space.dht/close! n))
+  nil)
+
+
+;; -----------------------------------------------------------------------------
+;; Rows every round
+;; -----------------------------------------------------------------------------
+
+(deftest every-round-s-rows-are-published-and-a-second-node-loads-the-tree-by-its-root
+  (let [dir (temp-dir)
+        net (mesh/mesh)]
+    (try
+      (let [w (assoc-in (world net [2 3]) [:shells :p]
+                        (shell-at dir (mesh-bind net 10 (atom 0)) [2 3] nil []))
+            [w _] (eval-at w :p "(def answer (fn [x] (+ x 4242)))")
+            m (head-of w :p)
+            root (root-of-value w :p 4242)
+            w (run-world w 10 20000 #(event-of % :p :published m))
+            report (event-of w :p :published m)]
+        (is (= :acknowledged (:result report)) (pr-str (dissoc report :failed)))
+        (testing "the round's publication holds the program's rows"
+          (is (< 8 (:blobs report)) "rows and the index blobs both")
+          (is (some? (jing/get (space.dht/local (get-in w [:shells :p :dht])) root nil))))
+        (let [w (assoc-in w [:nodes :r] (load-tree (plain-node (mesh/seam net 11) [2 3 10])
+                                                   root))
+              w (run-world w 10 60000
+                           #(#{:loaded :failed} (:status (space.dht/load-status
+                                                           (get-in % [:nodes :r]) root))))
+              status (space.dht/load-status (get-in w [:nodes :r]) root)]
+          (is (= :loaded (:status status)) (pr-str status))
+          (is (pos? (:fetched status)) "the rows came from the network")
+          (close-all! w)))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(defn- big-program
+  "`(def big<r> (fn [] (+ r0 (+ r1 ... ))))`: well over the DHT's
+   pending-write bound in rows."
+  [r n]
+  (str "(def big" r " (fn [] "
+       (apply str (map (fn [i] (str "(+ " (+ (* r 1000) i) " ")) (range n)))
+       "0"
+       (apply str (repeat n ")"))
+       "))"))
+
+
+(deftest rounds-larger-than-the-pending-write-bound-are-acknowledged-never-busy
+  (let [dir (temp-dir)
+        net (mesh/mesh)]
+    (try
+      (let [w (assoc-in (world net [2 3]) [:shells :p]
+                        (shell-at dir (mesh-bind net 10 (atom 0)) [2 3] nil []))
+            [w ms] (reduce (fn [[w ms] r]
+                             (let [[w _] (eval-at w :p (big-program r 80))]
+                               [w (conj ms (head-of w :p))]))
+                           [w []]
+                           (range 1 9))
+            w (run-world w 10 60000
+                         (fn [w] (every? #(event-of w :p :published %) ms)))
+            reports (mapv #(event-of w :p :published %) ms)]
+        (is (= 8 (count (distinct ms))))
+        (is (every? #(< space.dht/max-pending-writes (:blobs %)) reports)
+            (pr-str (map :blobs reports)))
+        (is (= (repeat 8 :acknowledged) (mapv :result reports)))
+        (is (not-any? #(= ::dht/busy (:reason %)) (mapcat :failed (:events w)))
+            "no write ever drew /busy")
+        (close-all! w))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+;; -----------------------------------------------------------------------------
+;; A failed row replication, repaired with no call from anyone
+;; -----------------------------------------------------------------------------
+
+(defn- refused-row-world
+  "A publishing shell at mesh port 10 whose stores of the addresses
+   `@refuse` holds are refused by every peer; `(def partly (fn [] 7007))`
+   evaluated, the literal's row refused, and the round reported.
+   Answers `[w m row dir]`."
+  [net dir refuse]
+  (let [w (assoc-in (world net [2 3]) [:shells :p]
+                    (shell-at dir (refusing-bind net 10 refuse) [2 3] nil []))
+        [w _] (eval-at w :p "(def partly (fn [] 7007))")
+        m (head-of w :p)
+        row (row-of-value w :p 7007)
+        _ (reset! refuse #{row})
+        w (run-world w 10 20000 #(event-of % :p :published m))]
+    [w m row]))
+
+
+(deftest a-failed-row-is-partial-unreachable-except-from-the-publisher-and-repaired
+  (let [dir (temp-dir)
+        net (mesh/mesh)
+        refuse (atom (constantly false))]
+    (try
+      (let [[w m row] (refused-row-world net dir refuse)
+            report (event-of w :p :published m)
+            first-line (line-with (:lines w) (str "published " m))
+            root (root-of-value w :p 7007)]
+        (testing "the round is indexed, HEAD moves, and the result is partial naming the row"
+          (is (= :partial (:result report)))
+          (is (= [row] (mapv :address (:failed report))))
+          (is (true? (:repairing? report)))
+          (is (= m (head-manifest dir))))
+        (testing "the first line names the result, the failed count and the retry"
+          (is (str/includes? first-line "PARTIAL") first-line)
+          (is (str/includes? first-line (str "1 of " (:blobs report) " blobs not sent")))
+          (is (str/includes? first-line "retrying while the node is open")))
+        (let [w (-> w
+                    (assoc-in [:nodes :far] (-> (plain-node (blocking-bind net 11 #{10}) [2 3])
+                                                (space.dht/load-index m)))
+                    (assoc-in [:nodes :near] (plain-node (mesh/seam net 12) [2 3 10])))
+              w (run-world w 10 60000
+                           #(= :loaded (:status (space.dht/load-status
+                                                  (get-in % [:nodes :far]) m))))
+              _ (is (= :loaded (:status (space.dht/load-status (get-in w [:nodes :far]) m)))
+                    "a reader loads the index from the peers")
+              settled? (fn [w k]
+                         (#{:loaded :failed}
+                          (:status (space.dht/load-status (get-in w [:nodes k]) root))))
+              w (run-world (update-in w [:nodes :far] load-tree root) 10 120000
+                           #(settled? % :far))
+              far (space.dht/load-status (get-in w [:nodes :far]) root)
+              w (run-world (update-in w [:nodes :near] load-tree root) 10 (+ (:now w) 120000)
+                           #(settled? % :near))]
+          (testing "a lookup that does not reach the publisher misses exactly that row"
+            (is (= :failed (:status far)) (pr-str far))
+            (is (= :miss (get-in far [:reason ::space.dht/failure])))
+            (is (= row (get-in far [:reason :address])))
+            (is (keyword? (get-in far [:reason :cause]))))
+          (testing "a lookup that reaches the publisher loads it"
+            (is (= :loaded (:status (space.dht/load-status (get-in w [:nodes :near]) root)))))
+          (reset! refuse #{})
+          (let [first-at (:at report)
+                w (run-world w 100 (+ first-at 200000) #(event-of % :p :republished m))
+                again (event-of w :p :republished m)]
+            (testing "the node repairs on its own, after :repair-ticks"
+              (is (= :acknowledged (:result again)) (pr-str again))
+              (is (<= 30000 (- (:at again) first-at)))
+              (is (str/includes? (str (line-with (:lines w) (str "republished " m)))
+                                 "acknowledged: sent to 2 peers")))
+            (testing "and a new load succeeds"
+              (let [w (update-in w [:nodes :far] #(load-tree (space.dht/forget % root) root))
+                    w (run-world w 10 (+ (:now w) 60000) #(settled? % :far))]
+                (is (= :loaded (:status (space.dht/load-status (get-in w [:nodes :far]) root))))
+                (close-all! w))))))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest retry-at-the-prompt-brings-the-same-repair-forward
+  (let [dir (temp-dir)
+        net (mesh/mesh)
+        refuse (atom (constantly false))]
+    (try
+      (let [[w m] (refused-row-world net dir refuse)
+            first-at (:at (event-of w :p :published m))
+            _ (reset! refuse #{})
+            [w _] (eval-at w :p "(require (quote dao.space.dht))")
+            [w retried] (eval-at w :p (str "(dao.space.dht/retry " m ")"))
+            w (run-world w 10 (+ first-at 20000) #(event-of % :p :republished m))
+            again (event-of w :p :republished m)]
+        (is (= ":retrying" retried))
+        (is (= :acknowledged (:result again)) (pr-str again))
+        (is (< (- (:at again) first-at) 30000) "well before :repair-ticks")
+        (close-all! w))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest a-refused-manifest-is-unacknowledged-and-repaired-the-same-way
+  (let [dir (temp-dir)
+        net (mesh/mesh)
+        refuse (atom (constantly false))]
+    (try
+      (let [w (assoc-in (world net [2 3]) [:shells :p]
+                        (shell-at dir (refusing-bind net 10 refuse) [2 3] nil []))
+            [w _] (eval-at w :p "(def unsent 8)")
+            m (head-of w :p)
+            _ (reset! refuse #{m})
+            w (run-world w 10 20000 #(event-of % :p :published m))
+            report (event-of w :p :published m)
+            _ (reset! refuse #{})
+            w (run-world w 100 (+ (:at report) 200000) #(event-of % :p :republished m))
+            again (event-of w :p :republished m)]
+        (is (= :unacknowledged (:result report)))
+        (is (= [m] (mapv :address (:failed report))))
+        (is (= m (head-manifest dir)) "HEAD moved")
+        (is (= :acknowledged (:result again)) (pr-str again))
+        (is (<= 30000 (- (:at again) (:at report))))
+        (close-all! w))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+;; -----------------------------------------------------------------------------
+;; Peers that never accept: twenty rounds, the prompt and the ticker
+;; -----------------------------------------------------------------------------
+
+(deftest with-peers-that-never-accept-twenty-rounds-report-and-the-ticker-idles
+  (let [dir (temp-dir)
+        net (mesh/mesh)
+        peers {2 (peer-node net 2) 3 (peer-node net 3)}]
+    (try
+      (let [state (keyed-state net dir 10 [2 3] nil [] (refusing-bind net 10 (atom (constantly true))))
+            step (fn [{:keys [state peers now] :as w}]
+                   (let [[state _ lines] (main/step-all state nil now)]
+                     (-> w
+                         (assoc :state state :peers (step-peers peers now) :now (+ now 250)
+                                :moved? (main/moved? state nil lines))
+                         (update :lines into lines)
+                         (update :moved into [(main/moved? state nil lines)]))))
+            w (reduce (fn [w i]
+                        (let [[state text] (type! (:state w) (str "(def v" i " " i ")"))
+                              m (get-in state [:repl :indexer :manifest-address])]
+                          (is (= (str i) text) "the prompt answers at once")
+                          (loop [w (assoc w :state state)]
+                            (if (or (line-with (:lines w) (str "published " m))
+                                    (> (:now w) 2000000))
+                              w
+                              (recur (step w))))))
+                      {:state state :peers peers :now 0 :lines [] :moved []}
+                      (range 20))
+            firsts (filter #(re-find #"dht: published " %) (:lines w))
+            idle (reduce (fn [w _] (step w)) (assoc w :moved []) (range 400))]
+        (is (= 20 (count firsts)) (pr-str (count firsts)))
+        (is (every? #(str/includes? % "NOT acknowledged") firsts))
+        (is (not-any? #(str/includes? % "acknowledged: sent") (:lines idle))
+            "no event ever reports acknowledged")
+        (testing "between repair cycles the ticker returns to its idle cadence"
+          (is (some true? (:moved idle)) "repair cycles keep the base cadence")
+          (is (some false? (drop-while false? (:moved idle)))
+              "and the idle curve resumes after a cycle"))
+        (main/close-index-store! (:state idle)))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+;; -----------------------------------------------------------------------------
+;; A module published at the prompt in a partial round
+;; -----------------------------------------------------------------------------
+
+(deftest a-module-published-in-a-partial-round-is-absent-until-repaired
+  (let [[pdir rdir] [(temp-dir) (temp-dir)]
+        net (mesh/mesh)
+        refuse (atom #{})
+        kp (sign/generate)]
+    (try
+      (let [w (-> (world net [2 3])
+                  (assoc-in [:shells :p] (shell-at pdir (refusing-bind net 10 refuse)
+                                                   [2 3] kp []))
+                  (assoc-in [:shells :r] (shell-at rdir (blocking-bind net 12 #{10})
+                                                   [2 3] nil [(:public kp)])))
+            [w _] (eval-at w :p "(def f (fn [] 4242))")
+            [w _] (eval-at w :p "(require (quote yin.link))")
+            [w _ res] (eval-at w :p "(yin.link/publish (quote my.lib) (quote [f]))")
+            a (:address res)
+            m (head-of w :p)
+            store (space.dht/local (get-in w [:shells :p :dht]))
+            image (get-in (jing/get store a nil) [:yin.module/derivations :yin.semantic/code])
+            _ (reset! refuse #{image})
+            w (run-world w 10 20000 #(event-of % :p :published m))
+            report (event-of w :p :published m)]
+        (is (= :partial (:result report)) (pr-str (dissoc report :failed)))
+        (is (= [image] (mapv :address (:failed report))))
+        (let [[w _] (eval-at w :r "(require (quote dao.space.dht))")
+              [w _] (eval-at w :r (str "(dao.space.dht/load-index " m ")"))
+              w (run-world w 10 (+ (:now w) 60000) #(event-of % :r :loaded m))
+              [w _] (eval-at w :r "(require (quote yin.link))")
+              [w _ names] (eval-at w :r "(yin.link/names)")
+              _ (is (= a (get-in names [:names 'my.lib :address])) "the reader resolves the name")
+              [w text] (eval-at w :r "(require (quote my.lib))")
+              _ (is (str/includes? text "pending"))
+              w (run-world w 10 (+ (:now w) 120000)
+                           #(nil? (get-in % [:shells :r :pending-run])))
+              refusal (peek (mesh/values (get-in w [:shells :r :link-pair :responses])))]
+          (testing "until repair completes the require is refused :absent with the miss cause"
+            (is (= {:status :refused :reason :absent :address image}
+                   (select-keys refusal [:status :reason :address])))
+            (is (keyword? (:cause refusal)) (pr-str refusal)))
+          (reset! refuse #{})
+          (let [w (run-world w 100 (+ (:at report) 200000) #(event-of % :p :republished m))
+                _ (is (= :acknowledged (:result (event-of w :p :republished m))))
+                [w text] (eval-at w :r "(require (quote my.lib))")
+                _ (is (str/includes? text "pending"))
+                w (run-world w 10 (+ (:now w) 120000)
+                             #(nil? (get-in % [:shells :r :pending-run])))
+                _ (is (= 'my.lib (get-in w [:shells :r :last-value])) (pr-str (:lines w)))
+                [w answer] (eval-at w :r "(my.lib/f)")]
+            (testing "a require after it evaluates"
+              (is (= "4242" answer)))
+            (close-all! w))))
+      (finally
+        (run! cleanup-dir! [pdir rdir])))))
+
+
+;; -----------------------------------------------------------------------------
+;; A two-principal dependency at the prompt
+;; -----------------------------------------------------------------------------
+
+(defn- until-settled
+  "Run `w` until every shell's latest index publication is reported."
+  [w]
+  (run-world w 10 (+ (:now w) 60000)
+             (fn [w]
+               (every? (fn [[k _]]
+                         (event-of w k :published (head-of w k)))
+                       (:shells w)))))
+
+
+(defn- require-at
+  "Require `module` at shell `k` and run until the run ends: `[w text]`,
+   the text of the require or of the re-check that ended it."
+  [w k module]
+  (let [[w text] (eval-at w k (str "(require (quote " module "))"))
+        w (run-world w 10 (+ (:now w) 120000)
+                     #(nil? (get-in % [:shells k :pending-run])))]
+    [w (str text (str/join "\n" (:lines w)))]))
+
+
+(defn- last-response
+  [w k]
+  (dissoc (peek (mesh/values (get-in w [:shells k :link-pair :responses])))
+          :yin.link/id))
+
+
+(deftest a-two-principal-dependency-evaluates-or-raises-dependency-binding
+  (let [dirs (vec (repeatedly 3 temp-dir))
+        net (mesh/mesh)
+        k1 (sign/generate)
+        k2 (sign/generate)]
+    (try
+      (let [w (-> (world net [2 3])
+                  (assoc-in [:shells :p1] (shell-at (dirs 0) (mesh-bind net 10 (atom 0))
+                                                    [2 3 11 12] k1 []))
+                  (assoc-in [:shells :p2] (shell-at (dirs 1) (mesh-bind net 11 (atom 0))
+                                                    [2 3 10 12] k2 [(:public k1)]))
+                  (assoc-in [:shells :r] (shell-at (dirs 2) (mesh-bind net 12 (atom 0))
+                                                   [2 3 10 11] nil
+                                                   [(:public k1) (:public k2)])))
+            ;; P1 publishes base
+            [w _] (eval-at w :p1 "(def f (fn [] 42))")
+            [w _] (eval-at w :p1 "(require (quote yin.link))")
+            [w _ base] (eval-at w :p1 "(yin.link/publish (quote base) (quote [f]))")
+            m1 (head-of w :p1)
+            w (until-settled w)
+            ;; P2 loads P1's index, links base, and publishes app against it
+            [w _] (eval-at w :p2 "(require (quote dao.space.dht))")
+            [w _] (eval-at w :p2 (str "(dao.space.dht/load-index " m1 ")"))
+            w (run-world w 10 (+ (:now w) 60000) #(event-of % :p2 :loaded m1))
+            [w _] (require-at w :p2 'base)
+            ;; the require above is its own program: 5.3's closure by
+            ;; linked requirements collects it into app's tree
+            [w _] (eval-at w :p2 "(def g (fn [] (+ (base/f) 1)))")
+            [w _] (eval-at w :p2 "(require (quote yin.link))")
+            [w _ app] (eval-at w :p2 "(yin.link/publish (quote app) (quote [g]))")
+            m2 (head-of w :p2)
+            w (until-settled w)
+            ;; a (reset) drops host modules: require the DHT one each time
+            load-at (fn [w m]
+                      (let [[w _] (eval-at w :r "(require (quote dao.space.dht))")
+                            [w _] (eval-at w :r (str "(dao.space.dht/load-index " m ")"))]
+                        (run-world w 10 (+ (:now w) 60000) #(event-of % :r :loaded m))))]
+        (is (= {'base (:address base)}
+               (:yin.module/requires (jing/get (space.dht/local (get-in w [:shells :p2 :dht]))
+                                               (:address app) nil)))
+            "app pins the base P2 linked")
+        (testing "absent: the reader has not loaded P1's index"
+          (let [w (load-at w m2)
+                [w _] (require-at w :r 'app)]
+            (is (= {:status :refused :reason :yin.link.dht/dependency-binding
+                    :module (:address app) :name 'base :pinned (:address base)
+                    :binding :absent :diagnostics []}
+                   (last-response w :r)))
+            (testing "matching: both indexes loaded, both principals declared"
+              (let [w (load-at w m1)
+                    [w _] (require-at w :r 'app)
+                    _ (is (= 'app (get-in w [:shells :r :last-value])) (pr-str (last-response w :r)))
+                    [w answer] (eval-at w :r "(app/g)")]
+                (is (= "43" answer))
+                (testing "mismatch: P1 republished base at another address"
+                  (let [[w _] (eval-at w :p1 "(def f (fn [] 7))")
+                        [w _ base2] (eval-at w :p1 "(yin.link/publish (quote base) (quote [f]))")
+                        w (until-settled w)
+                        w (load-at w (head-of w :p1))
+                        [w _] (eval-at w :r "(reset)")
+                        [w _] (require-at w :r 'app)]
+                    (is (= {:status :refused :reason :yin.link.dht/dependency-binding
+                            :module (:address app) :name 'base :pinned (:address base)
+                            :binding :mismatch :resolved (:address base2)
+                            :asserters [(sign/principal (:public k1))]}
+                           (last-response w :r)))
+                    (testing "ambiguous: P2 also asserts base at another address"
+                      (let [[w _] (eval-at w :p2 "(def f (fn [] 9))")
+                            [w _ own] (eval-at w :p2 "(yin.link/publish (quote base) (quote [f]))")
+                            w (until-settled w)
+                            w (load-at w (head-of w :p2))
+                            [w _] (eval-at w :r "(reset)")
+                            [w _] (require-at w :r 'app)
+                            body (last-response w :r)]
+                        (is (= [:yin.link.dht/dependency-binding :ambiguous]
+                               [(:reason body) (:binding body)]))
+                        (is (= (set [(:address base2) (:address own)]) (set (:addresses body))))
+                        (is (= #{(sign/principal (:public k1)) (sign/principal (:public k2))}
+                               (set (:asserters body))))
+                        (close-all! w))))))))))
+      (finally
+        (run! cleanup-dir! dirs)))))

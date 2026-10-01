@@ -5,7 +5,9 @@
   (:require #?@(:cljd [["dart:io" :as dart-io]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
             [dao.jing.file :as jing.file]
+            [dao.jing.mem :as mem]
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.store :as durable]
@@ -16,6 +18,8 @@
             [yin.repl.index :as repl.index]
             [yin.repl.store :as store]
             [yin.vm :as vm]
+            [yin.vm.linker.publish :as publish]
+            [yin.vm.linker.sign :as sign]
             [yin.vm.macro :as macro]))
 
 
@@ -304,13 +308,98 @@
                                        ["(+ 1 2)" "(+ 2 3)"])
         status (get-in (repl/repl-state state) [:index])]
     (is (str/starts-with? text "3\nWarning: "))
-    (is (str/includes? text "publish failed: store refused the write"))
+    (is (str/includes? text "materialize failed: store refused the write")
+        "the program's rows are the round's first write (yin.vm.linker.dht.md 5.1)")
     (is (str/starts-with? again "5\nWarning: ")
         "each round whose code is not published says so")
     (is (= 2 (:transactions status)) "the transactions were committed")
     (is (false? (:published? status)))
-    (is (= :publish (get-in status [:failure :stage])))
+    (is (= :materialize (get-in status [:failure :stage])))
     (is (false? (:lost? status)))))
+
+
+;; =============================================================================
+;; L4: rows every round, and the name transaction
+;; (docs/design/yin.vm.linker.dht.md 5.1, 6.1)
+;; =============================================================================
+
+(deftest every-row-of-each-evaluated-program-is-in-the-index-store
+  (let [[state _] (evaluate (repl/create-state)
+                            ["(def inc2 (fn [x] (+ x 2)))" "(inc2 40)"])
+        store (get-in state [:indexer :content-store])
+        packets (stream-values (:row-stream state))
+        roots (set (keep (fn [[_ a v]] (when (= :yin.repl/root a) v))
+                         (mapcat :datoms (transactions state))))]
+    (is (= 2 (count packets)))
+    (is (= roots (set (map first packets)))
+        "each program's root address is its :yin.repl/root fact")
+    (doseq [packet packets
+            [id row] (:rows (macro/packet->row-set packet))]
+      (is (= (subvec row 1) (jing/get store id nil))
+          (str "row " id " is stored under its own address")))))
+
+
+(deftest rows-a-round-could-not-write-are-written-before-any-later-head-moves
+  (let [broken? (atom true)
+        heads (atom [])
+        inner (mem/create-content-mem)
+        store (assoc inner
+                     :put-bytes-fn (fn [address bs]
+                                     (when @broken?
+                                       (throw (ex-info "store refused" {})))
+                                     ((:put-bytes-fn inner) address bs))
+                     :head-fn (fn [m] (swap! heads conj m)))
+        [state [first-text second-text]]
+        (evaluate (repl/create-state {:index-store store})
+                  ["(def a 4101)" "(def b 4102)"])
+        packets (stream-values (:row-stream state))]
+    (testing "while rows cannot be written, no round publishes and HEAD stays"
+      (is (str/includes? first-text "materialize failed"))
+      (is (str/includes? second-text "materialize failed"))
+      (is (= [] @heads))
+      (is (= 2 (:transactions (repl.index/status (:indexer state))))))
+    (reset! broken? false)
+    (let [[state [text]] (evaluate state ["(def c 4103)"])
+          status (repl.index/status (:indexer state))
+          rows (mapcat (comp vals :rows macro/packet->row-set)
+                       (stream-values (:row-stream state)))]
+      (testing "the next round writes the earlier rows first, then publishes"
+        (is (= 3 (count (stream-values (:row-stream state)))))
+        (is (every? (fn [[id & body]] (= (vec body) (jing/get store id nil))) rows)
+            "every committed program's rows are held")
+        (is (= 1 (count @heads)) "one HEAD move, covering all three")
+        (is (= 3 (count (filter #(= :yin.repl/root (second %))
+                                (index/read-datoms store (first @heads))))))
+        (is (true? (:published? status)))
+        (is (nil? (:failure status)) "the materialize failure is recovered")
+        (is (str/starts-with? text "4103"))
+        (is (str/includes? text "rows of earlier rounds are now written"))))
+    (is (= 2 (count packets)))))
+
+
+(deftest the-name-envelopes-are-one-transaction-under-the-session-s-metadata
+  (let [[state _] (evaluate (repl/create-state) ["(def f (fn [] 1))"])
+        key (sign/generate)
+        signed [(publish/assertion key {:name 'lib :seq 1
+                                        :manifest (jing/segment-key "m")})]
+        indexer (repl.index/commit-names (:indexer state) signed 7)
+        status (repl.index/status indexer)
+        datoms (index/read-datoms (:content-store indexer)
+                                  (:manifest-address indexer))
+        [ev] (keep (fn [[e a]] (when (= :yin.module/envelope a) e)) datoms)
+        of-ev (filterv #(= ev (first %)) datoms)
+        m (nth (first of-ev) 4)]
+    (is (= 2 (:transactions status)))
+    (is (true? (:published? status)) "committed and published at once")
+    (is (= #{[:yin.module/envelope (:envelope (first signed))]
+             [:yin.module/proof (:proof (first signed))]}
+           (set (map (fn [[_ a v]] [a v]) of-ev)))
+        "one entity per envelope: its envelope and its proof")
+    (is (= #{[:db/op :db/assert] [:yin.repl/session (:shell-token state)]
+             [:yin.repl/round 7]}
+           (set (keep (fn [[e a v]] (when (= m e) [a v])) datoms)))
+        "m is the session's metadata entity, with no program root")
+    (is (= [] (filterv #(= :yin/address (second %)) of-ev)))))
 
 
 (deftest an-index-gap-is-reported-evaluation-continues-and-reset-recovers

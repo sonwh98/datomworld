@@ -48,7 +48,14 @@
    envelope under a stable code: `::index-unavailable`, `::invalid-input`,
    `::result-limit`, or `::query-failed` for a query the engine rejects.
    Limits are the caller's: `serve` takes the row and encoded-byte bound
-   and checks both before it appends a response."
+   and checks both before it appends a response.
+
+   `(require 'dao.space.dht)` and `(require 'yin.link)` activate two more
+   host modules the same way, answered over the shell's DHT node through
+   the plain functions of `dao.space.dht` and `yin.vm.linker.dht`
+   (yin.vm.linker.dht.md 10): each answer checks its arguments, makes one
+   call into the plain API, and responds; a `yin.link/publish` then
+   commits the envelopes it signed through the session's indexer."
   (:require #?@(:cljd [["dart:typed_data" :refer [Uint8List]]]
                 :default [])
             [dao.jing :as jing]
@@ -98,6 +105,21 @@
    'cancel ::dht-cancel
    'load-module ::dht-load-module
    'module-status ::dht-module-status})
+
+
+(def link-module-name
+  "The module `(require 'yin.link)` activates: publishing a module from
+   the session's indexed code and reading the reader's name environment
+   (yin.vm.linker.dht.md 10), over the shell's own DHT node."
+  'yin.link)
+
+
+(def link-ops
+  "The `dao.stream.apply` operations the `yin.link` module requests:
+   `publish`, answered by `yin.vm.linker.dht/publish-name!`, and `names`,
+   answered by `yin.vm.linker.dht/names`."
+  {'publish ::link-publish
+   'names ::link-names})
 
 
 (def views
@@ -157,9 +179,23 @@
           dht-arities)))
 
 
+(defn activate-link
+  "`registry` with the `yin.link` host module installed."
+  [registry]
+  (module/register-host-module
+    registry link-module-name
+    (into {} (map (fn [[sym op]]
+                    [sym (fn [& args]
+                           (module/make-effect ::call {:op op, :args (vec args)}))]))
+          link-ops)
+    {'publish (vm/primitive-profile 'publish :effectful [2] #{::call} :none)
+     'names (vm/primitive-profile 'names :effectful [0] #{::call} :none)}))
+
+
 (def ^:private host-modules
   {module-name activate
-   dht-module-name activate-dht})
+   dht-module-name activate-dht
+   link-module-name activate-link})
 
 
 (defn- require-handler
@@ -667,6 +703,99 @@
   (contains? (set (vals dht-ops)) (apply2/request-op request)))
 
 
+(defn- link-op?
+  [request]
+  (contains? (set (vals link-ops)) (apply2/request-op request)))
+
+
+(defn- session-modules
+  "`[linked hosts]` of the requesting VM's module `registry`: the modules
+   it linked through the linker, `{name manifest-address}` -- a linked
+   entry carries its manifest's address -- and the names of its host
+   modules, which carry none."
+  [registry]
+  (let [entries (module/module-entries registry)]
+    [(into {} (keep (fn [[n e]] (when (some? (:address e)) [n (:address e)])))
+           entries)
+     (set (keep (fn [[n e]] (when (nil? (:address e)) n)) entries))]))
+
+
+(defn- link-answer
+  "The response to one `yin.link` call, from `node` -- the shell's DHT
+   node -- and `indexer`, the session's code indexer, under the session
+   composition `ctx` (`:authority`, `:key`, `:primitives`, `:modules`,
+   `:round`): `names` answers `yin.vm.linker.dht/names`; `publish` answers
+   `yin.vm.linker.dht/publish-name!` over the published index, whose
+   name envelopes the indexer then commits and publishes as one
+   transaction, the HEAD write announcing the round's publication.  A
+   refusal is answered under its own reason.  Answers `[node indexer
+   response]`."
+  [node indexer ctx request]
+  (let [id (apply2/request-id request)
+        args (apply2/request-args request)
+        [indexer answer]
+        (cond
+          (nil? node)
+          [indexer (unavailable (str "the shell has no DHT node; start it with "
+                                     "--index-store dht:<dir>"))]
+
+          (nil? (encoded-size args))
+          [indexer (invalid "yin.link takes portable Yin data only")]
+
+          (= ::link-names (apply2/request-op request))
+          [indexer {:ok (linker.dht/names node (:authority ctx))}]
+
+          :else
+          (let [[name exports] args
+                db (when (and (symbol? name) (sequential? exports)
+                              (every? symbol? exports))
+                     (snapshot indexer))]
+            (cond
+              (nil? db)
+              [indexer (invalid (str "yin.link/publish expects a module name "
+                                     "and a vector of export names, got "
+                                     (pr-str args)))]
+
+              (refused? db) [indexer db]
+
+              :else
+              (let [[linked hosts] (session-modules (:modules ctx))
+                    res (linker.dht/publish-name!
+                          node db {:name name
+                                   :exports (vec exports)
+                                   :key (:key ctx)
+                                   :primitives (:primitives ctx)
+                                   :modules linked
+                                   :host-modules hosts})
+                    indexer' (if (seq (:envelopes res))
+                               (repl.index/commit-names indexer (:envelopes res)
+                                                        (:round ctx))
+                               indexer)]
+                (cond
+                  (= :refused (:status res))
+                  [indexer (refusal (:reason res)
+                                    (str "yin.link/publish refused: "
+                                         (pr-str (dissoc res :status :reason)))
+                                    nil)]
+
+                  (not= (:failure indexer) (:failure indexer'))
+                  [indexer' (unavailable "the name assertion was not indexed")]
+
+                  :else
+                  [indexer'
+                   {:ok {:module name
+                         :address (:address res)
+                         :links (into {}
+                                      (map (fn [[f o]]
+                                             [f (if (= :ok (:status o))
+                                                  :ok
+                                                  (:reason o))]))
+                                      (:links res))}}])))))]
+    [node indexer (if (refused? answer)
+                    {apply2/id-key id, apply2/error-key answer}
+                    (apply2/success-response id (:ok answer)))]))
+
+
 ;; =============================================================================
 ;; The interpreter
 ;; =============================================================================
@@ -678,25 +807,33 @@
    moves past its request; one the call-out refuses leaves the request to
    be re-read.  A value that is not a request envelope is consumed
    unanswered: no call made it.  A `dao.space.dht` call is answered from
-   `dht`, the shell's DHT node, which a `load-index` advances.  Returns
-   `{:pair pair :dht node :progress? bool :answered n}`, `n` the
-   responses appended."
-  [{:keys [pair indexer ast-indexer dht limits budget]}]
+   `dht`, the shell's DHT node, which a `load-index` advances.  A
+   `yin.link` call is answered from `dht` and `indexer` under `link`, the
+   session composition `link-answer` reads; a publish advances both.
+   Returns `{:pair pair :dht node :indexer indexer :progress? bool
+   :answered n}`, `n` the responses appended."
+  [{:keys [pair indexer ast-indexer dht limits budget link]}]
   (loop [pair pair
          node dht
+         indexer indexer
          remaining budget
          progress? false
          answered 0]
     (let [r (when (pos? remaining)
-              (stream/next (:call-in pair) (:cursor pair)))]
+              (stream/next (:call-in pair) (:cursor pair)))
+          done (fn [pair node indexer progress? answered]
+                 {:pair pair, :dht node, :indexer indexer,
+                  :progress? progress?, :answered answered})]
       (if-not (= :dao.stream/ok (:dao.stream/outcome r))
-        {:pair pair, :dht node, :progress? progress?, :answered answered}
+        (done pair node indexer progress? answered)
         (let [request (:dao.stream/value r)
-              [node' response] (cond
-                                 (not (apply2/request? request)) [node nil]
-                                 (dht-op? request) (dht-answer node limits request)
-                                 :else [node (answer indexer ast-indexer limits
-                                                     request)])
+              [node' indexer' response]
+              (cond
+                (not (apply2/request? request)) [node indexer nil]
+                (dht-op? request) (let [[n response] (dht-answer node limits request)]
+                                    [n indexer response])
+                (link-op? request) (link-answer node indexer link request)
+                :else [node indexer (answer indexer ast-indexer limits request)])
               landed? (or (nil? response)
                           (= :dao.stream/ok
                              (:dao.stream/outcome
@@ -705,8 +842,8 @@
           (if landed?
             (recur (assoc pair :cursor (:dao.stream/cursor r))
                    node'
+                   indexer'
                    (dec remaining)
                    true
                    (cond-> answered response inc))
-            {:pair pair, :dht node, :progress? progress?,
-             :answered answered}))))))
+            (done pair node indexer progress? answered)))))))

@@ -14,7 +14,8 @@
             [yin.repl :as shell]
             [yin.repl.driver :as driver]
             [yin.repl.host.common :as host-common]
-            [yin.repl.serve :as serve]))
+            [yin.repl.serve :as serve]
+            [yin.vm.linker.sign :as sign]))
 
 
 ;; =============================================================================
@@ -242,6 +243,123 @@
        (repl/poll-loop! state nil false (fn [] (swap! exits inc)))
        (is (= 1 @exits)
            "the step owner exits; the reader is still parked in read-line"))))
+
+
+;; =============================================================================
+;; L4: the publisher's key file (docs/design/yin.vm.linker.dht.md 6.5)
+;; =============================================================================
+
+(defn- write-text!
+  [path text]
+  #?(:cljd (let [f (dart-io/File. path)]
+             (when-not (.existsSync (.-parent f))
+               (.createSync (.-parent f) .recursive true))
+             (.writeAsStringSync f text))
+     :clj (do (.mkdirs (.getParentFile (java.io.File. path)))
+              (spit path text))
+     :cljs (let [fs (js/require "fs")
+                 path-module (js/require "path")]
+             (.mkdirSync fs (.dirname path-module path) #js {:recursive true})
+             (.writeFileSync fs path text))))
+
+
+(defn- read-text
+  [path]
+  #?(:cljd (.readAsStringSync (dart-io/File. path))
+     :clj (slurp path)
+     :cljs (.readFileSync (js/require "fs") path "utf8")))
+
+
+(defn- key-start
+  "Startup over a fresh dht:<dir> with `--dht-key path`; the directory is
+   removed afterwards."
+  [path]
+  (let [dir (temp-dir)]
+    (try
+      (let [started (repl/startup ["--index-store" (str "dht:" dir) "--dht-key" path])]
+        (some-> (:state started) repl/close-index-store!)
+        started)
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest a-key-file-loads-the-stable-key-or-refuses-startup-with-its-reason
+  (let [key (sign/generate)
+        principal (sign/principal (:public key))
+        good (temp-file)
+        malformed (temp-file)
+        mismatched (temp-file)
+        absent (temp-file)]
+    (try
+      (write-text! good (sign/key-text key))
+      (write-text! malformed "{:version 1 :algorithm :ed25519")
+      (write-text! mismatched (sign/key-text (assoc key :public
+                                                    (:public (sign/generate)))))
+      (testing "a well-formed file is the node's key; the banner prints the principal"
+        (let [started (key-start good)]
+          (is (nil? (:refusal started)))
+          (is (= key (get-in started [:state :repl :dht-key])))
+          (is (some #(str/includes? % principal) (repl/banner (:opts started))))
+          (is (not-any? #(str/includes? % (:seed key))
+                        (repl/banner (:opts started))))))
+      (doseq [[path reason] [[absent "does not exist"]
+                             [malformed "malformed-key"]
+                             [mismatched "public-mismatch"]]]
+        (testing reason
+          (let [started (key-start path)]
+            (is (nil? (:state started)) "nothing falls back to a fresh key")
+            (is (str/includes? (str (:refusal started)) reason) (:refusal started))
+            (is (str/includes? (str (:refusal started)) path)))))
+      (testing "the seed of a refused file appears in no output"
+        (is (not (str/includes? (str (:refusal (key-start mismatched)))
+                                (:seed key)))))
+      (testing "--dht-key needs the dht store"
+        (is (str/includes? (str (:refusal (repl/startup ["--dht-key" good])))
+                           "dht:<dir>")))
+      (finally
+        (run! cleanup-file! [good malformed mismatched absent])))))
+
+
+(deftest keygen-writes-a-new-key-file-and-never-overwrites-one
+  (let [path (temp-file)]
+    (try
+      (let [made (repl/startup ["--dht-keygen" path])
+            text (read-text path)
+            key (sign/key-from-text text)]
+        (is (nil? (:refusal made)))
+        (is (nil? (:state made)) "keygen composes no shell: it writes and exits")
+        (is (= 0 (:exit made)))
+        (is (string? (:seed key)) "the file is a well-formed key")
+        (is (some #(str/includes? % (sign/principal (:public key))) (:lines made)))
+        (is (not-any? #(str/includes? % (:seed key)) (:lines made))
+            "the seed is never printed")
+        (testing "a host that cannot set the file's permissions says what to do"
+          (is (= #?(:cljd true :default false)
+                 (boolean (some #(str/includes? % (str "chmod 600 " path))
+                                (:lines made))))))
+        (testing "a second keygen refuses to overwrite it"
+          (let [again (repl/startup ["--dht-keygen" path])]
+            (is (str/includes? (str (:refusal again)) "exists"))
+            (is (= text (read-text path)) "the file is unchanged"))))
+      (finally
+        (cleanup-file! path)))))
+
+
+(deftest declared-principals-are-strict-hex-and-reach-the-composition
+  (let [public (:public (sign/generate))
+        dir (temp-dir)]
+    (try
+      (let [started (repl/startup ["--index-store" (str "dht:" dir)
+                                   "--dht-principal" public])]
+        (is (= [public] (get-in started [:state :repl :link-source :principals])))
+        (repl/close-index-store! (:state started)))
+      (doseq [bad [(str/upper-case public) (subs public 1) (str public "0") "xyz"]]
+        (is (str/includes? (str (:refusal (repl/startup ["--index-store" (str "dht:" dir)
+                                                         "--dht-principal" bad])))
+                           "--dht-principal")
+            bad))
+      (finally
+        (cleanup-dir! dir)))))
 
 
 (deftest an-ephemeral-bind-is-refused-with-its-reason

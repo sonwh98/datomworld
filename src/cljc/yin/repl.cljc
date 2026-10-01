@@ -258,6 +258,10 @@
        "  (require (quote m))  - link module m; with a dht:<dir> index store"
        " it may fetch m's code from peers, and stays pending until it has\n"
        "  (abandon)  - give up a (require ...) that is still pending\n"
+       "  (require (quote yin.link)), then (yin.link/publish (quote m)"
+       " (quote [f]))  - publish module m exporting f from this session's"
+       " indexed code under the --dht-key principal, and (yin.link/names)"
+       "  - the names this node resolves\n"
        "  (repl-state)\n"
        "  (help)\n"
        "  (quit)\n"
@@ -844,11 +848,18 @@
    (yin.vm.linker.dht.md 4.1): a `(require ...)` of a name `name-env`
    resolves starts a closure load on the node, which may fetch from
    peers, and parks until the load ends; `content-store` and
-   `content-client` are refused with it."
+   `content-client` are refused with it.
+
+   `:dht-key` is the publisher's stable key `{:seed :public}`, loaded
+   from its key file by the host (yin.vm.linker.dht.md 6.5); without it
+   `(yin.link/publish ...)` is refused and the node still reads, resolves,
+   loads and links.  `:principals` are the public keys whose signed name
+   assertions the reader honors (7.1); a key's own principal is declared
+   with them."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
             content-store content-client name-env link-policy index-store
-            index-store-spec]
+            index-store-spec dht-key principals]
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
@@ -872,7 +883,9 @@
                        {:name-env name-env
                         :content-store content-store
                         :content-client content-client
-                        :dht? (= :dht (:type index-store-spec))})
+                        :dht? (= :dht (:type index-store-spec))
+                        :principals principals
+                        :key dht-key})
          index-store (or index-store
                          (if (= :dht (:type index-store-spec))
                            (repl.dht/open index-store-spec)
@@ -901,6 +914,7 @@
         :pending-input nil
         :link-source link-source
         :link-policy (checked-link-policy link-policy)
+        :dht-key dht-key
         :pending-run nil
         :running? true}))))
 
@@ -1300,18 +1314,34 @@
                   ::link-origins (:origins vm)
                   ::query-pair (:query-pair state)
                   ::link-pair (:link-pair state)
-                  ::dht (:dht state))))
+                  ::dht (:dht state)
+                  ::indexer (:indexer state))))
 
 
 (defn- carry-served
   "`state` rolled back by a link raise, keeping what the interpreters
    already concluded: the query pair, the link pair past every request
-   answered, and the DHT node a load started or forgot on."
+   answered, the DHT node a load started or forgot on, and the indexer
+   a `yin.link/publish` committed its name envelopes through."
   [state d]
   (cond-> state
     (::query-pair d) (assoc :query-pair (::query-pair d))
     (::link-pair d) (assoc :link-pair (::link-pair d))
-    (contains? d ::dht) (assoc :dht (::dht d))))
+    (contains? d ::dht) (assoc :dht (::dht d))
+    (::indexer d) (assoc :indexer (::indexer d))))
+
+
+(defn- link-context
+  "What a `yin.link` call is answered under (yin.repl.query/serve): the
+   reader's authority, the publisher's key, and the requesting VM's
+   primitives and module registry -- the modules it linked are derived
+   from it, never recorded -- and the round."
+  [state vm]
+  {:authority (link/authority (:link-source state))
+   :key (:dht-key state)
+   :primitives (:primitives vm)
+   :modules (:modules vm)
+   :round (:round state)})
 
 
 (defn- drive-links
@@ -1368,6 +1398,7 @@
                                        :indexer (:indexer state)
                                        :ast-indexer (:ast-indexer state)
                                        :dht (:dht state)
+                                       :link (link-context state vm)
                                        :limits {:row-limit query-row-limit
                                                 :byte-limit query-byte-limit}
                                        :budget (min query-serve-budget
@@ -1375,7 +1406,8 @@
                                                        calls))}))
               state (cond-> state
                       answered (assoc :query-pair (:pair answered)
-                                      :dht (:dht answered)))
+                                      :dht (:dht answered)
+                                      :indexer (:indexer answered)))
               pending (if (seq (:pending served)) (:pending served) pending)]
           (if (or (:progress? served) (:progress? answered))
             (let [vm' (try (vm/run vm)

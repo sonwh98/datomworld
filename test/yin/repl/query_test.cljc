@@ -380,7 +380,9 @@
                                             :index-store broken})
                         [require-line (q-line names-query)])]
           (is (str/includes? text "(:yin.repl.query/index-unavailable)"))
-          (is (str/includes? text "publish failed"))))))
+          ;; a store refusing every write fails the round's first write:
+          ;; the program's rows (yin.vm.linker.dht.md 5.1)
+          (is (str/includes? text "materialize failed"))))))
   (testing "committed code that is not published"
     (let [[state _] (evaluate (repl/create-state) ["(+ 1 2)"])
           unpublished (assoc (:indexer state) :published 0)

@@ -309,6 +309,15 @@ round's publication is announced.
 - A packet the indexer did not commit materializes nothing.
 - A row put that fails is recorded under the indexer's `:failure` with
   stage `:materialize`; the round is not reported indexed.
+- **Recovery.** The committed program whose rows were not written stays
+  in the indexer's unwritten set. Every later round that commits, and
+  every name transaction, writes the unwritten rows first, oldest first,
+  and publishes only when none remain: no HEAD write and no announcement
+  is made while a committed program's row is missing. Once they are all
+  written the `:materialize` failure is cleared and that round's
+  publication covers every committed transaction; the REPL says the index
+  caught up. The unwritten set is process state: it survives `(reset)`
+  over a durable store, and not a restart.
 - Restored history is not re-materialized on rehydration. An index
   published before this slice names rows its store does not hold, and
   loading one such program by tree address is `:absent`.
@@ -406,10 +415,16 @@ argument from a queryable index and a name. It persists nothing.
 
 ```clojure
 (module-from-index db {:name 'my.lib :exports '[f g]
-                       :primitives vm/primitives :modules linked-modules})
-;; -> the publish-module! spec, or
-{:yin.link.publish/refused reason ...}
+                       :primitives vm/primitives :modules linked-modules
+                       :host-modules host-module-names})
+;; -> the publish-module! spec, or the section 9 refusal
+{:status :refused :reason reason ...}
 ```
+
+`db` is a relation of the index's `[e a v t m]` datoms. `:modules` is
+`{name manifest-address}`, derived from the session's module registry (a
+linked entry carries its manifest address); `:host-modules` the names of
+its host modules.
 
 - **Defining program.** The defining program of a symbol is the indexed
   program, greatest `t`, whose tree holds a `yin/def` application with that
@@ -418,6 +433,7 @@ argument from a queryable index and a name. It persists nothing.
 - **Closure by definitions.** Start from the exports' defining programs. A
   free name of the collected programs that some indexed program defines
   adds that name's defining program. Repeat to a fixed point.
+- **Closure by linked requirements.** For each linked module declared as a requirement by a free qualified name in a collected program, also collect the latest indexed program, by `t`, whose module-level form requires that module. Repeat definition and requirement collection to a fixed point. Sequence every collected program once in ascending `t`. If no such requiring program exists, refuse publication with `:yin.link.publish/missing-require-program`, naming the module. The manifest still pins the module address derived from the session’s linked module registry; the index does not declare reader principals.
 - **One tree.** The module tree is the collected programs in ascending `t`,
   each once, sequenced in that order. Whole programs are taken; a
   definition that is not exported is module-internal.
@@ -853,6 +869,14 @@ one EDN map:
   by an explicit act: `--dht-keygen <file>` writes a new key file and exits,
   and refuses to overwrite an existing file.
 - The file is written owner-readable only where the host can set that.
+  The JVM creates it `rw-------` on a POSIX file system; Node creates it
+  with mode `0600`. **Dart cannot**: `dart:io` sets no file permissions, so
+  the Dart keygen creates the file as the process umask allows and prints
+  a warning naming `chmod 600 <file>`. The operator must protect the key
+  file on such a host — `chmod 600` it at once, or create it under
+  `umask 077` or in a directory only its owner can read — and on any
+  host where the file system ignores POSIX modes. Anyone who can read the
+  file holds the principal (the disclosed-key row of the table below).
 - The seed is never printed, logged, written to the index, or sent. The
   banner prints the principal.
 - Without a key a node publishes no name: `publish` refuses
@@ -1066,8 +1090,10 @@ JVM, Node and Dart. A consumer matches `:reason` and, for
 
 Publication refusals, returned by the plain functions and printed by the
 REPL: `:yin.link.publish/no-key`, `/undefined-export`, `/undeclared-free`,
-`/host-module`, `/missing-requirement`, `/unprofiled-primitive`, `/ffi-op`,
-`/parked-id`, and the three closure refusals below. Each is
+`/host-module`, `/missing-require-program` (carrying `:module`, the linked
+module no indexed program requires; section 5.3), `/missing-requirement`,
+`/unprofiled-primitive`, `/ffi-op`, `/parked-id`, and the three closure
+refusals below. Each is
 `{:status :refused :reason <reason> ...carried data}`.
 
 | `:reason` | Carried data | When |
@@ -1118,8 +1144,13 @@ join -> publish!  -> assert! -> announce!                 (publisher)
 | `yin.vm.linker.sign/*` | Section 6.4. |
 | `yin.vm.linker.publish/publish-module!`, `footprint`, `module-from-index`, `assertion`, `retraction` | Sections 5.2, 5.3, 6.1. `assertion` and `retraction` answer `{:envelope e :proof p :datoms [...]}` for a key and a sequence. |
 | `(yin.vm.linker.dht/publish! node spec)` | 5.4. |
-| `(yin.vm.linker.dht/snapshots node)` | The snapshot vector of 7.2. |
+| `(yin.vm.linker.dht/publish-name! node db opts)` | `module-from-index` over the publisher's own index `db`, `publish!`, and the envelopes of 6.6 signed with `:key`: `{:status :ok :address a :links {...} :envelopes [...]}`, the envelopes for the caller to commit as one index transaction before it announces; refused `:yin.link.publish/no-key` without a key. Every refusal writes nothing. |
+| `yin.vm.linker.publish/next-seq`, `name-envelopes` | 6.5 and 6.6: the next sequence derived from the publisher's own envelopes in its index, and what publishing a name writes (nothing for the standing manifest; else a retraction of each other standing assertion, then the assertion). |
+| `(yin.vm.linker.dht/head node)` | The manifest the HEAD of the node's directory names, or nil (a node over no durable directory). |
+| `(yin.vm.linker.dht/snapshots node)` | The snapshot vector of 7.2: HEAD and every `:loaded` index, sorted. |
+| `(yin.vm.linker.dht/authority {:principals [hex ...] :name-env {...}})` | The reader's authority of 7.1: each declared public key an Ed25519 signature principal at `:seq-floor` 0. |
 | `(yin.vm.linker.dht/names node authority)` | 7.3. |
+| `(yin.vm.linker.dht/resolve-name node authority name)` | The name's 7.3 entry when it resolves, else its section 9 refusal: `:absent` with `:name` and that name's `:diagnostics`, or `:ambiguous-name` with `:name`, `:addresses`, `:asserters`. The DHT link source refuses with it. |
 | `(yin.vm.linker.dht/load-module node manifest-address)` | Starts the closure load; answers the node. |
 | `(yin.vm.linker.dht/module-status node manifest-address)` | The load status of 4.3. |
 | `(yin.vm.linker.dht/dependency-bindings node authority manifest-address)` | 7.4; refused `:yin.link.dht/not-loaded` unless the load is `:loaded`. |
@@ -1162,6 +1193,7 @@ of those.
 | `:seq-floor` | 0 | Per declared principal. |
 | Link attempt budget | 64 drive rounds | `yin.repl.link/attempt-budget`, unchanged. |
 | Name scope | HEAD and loaded index manifests | Section 7.2. |
+| Cost of one fold | Linear in the snapshots' datoms | **Performance limit.** `names`, `resolve-name` and `dependency-bindings` read `<dir>/HEAD` from disk and rebuild the HEAD index's datoms on every fold, and every name a `require` resolves folds once. Resolution cost therefore grows with the publisher's own index size. No cache is kept; one is admissible only if invalidated on every HEAD change and every index load. |
 
 ## 12. Slices
 

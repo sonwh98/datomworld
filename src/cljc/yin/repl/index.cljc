@@ -8,7 +8,10 @@
    rows]` it observes is projected to local `[e a v t m]` AST facts
    (yin.vm.code-as-tuples.md §6.5) and committed as ONE atomic transaction
    record through a `dao.space.transactor`, which allocates `t`; this
-   namespace supplies no clock.  After a round that committed, the covered
+   namespace supplies no clock.  Every row of a committed packet is
+   materialized into the `dao.jing` store in the same round, so its
+   `:yin/address` facts name content the store holds (yin.vm.linker.dht.md
+   5.1, rows every round).  After a round that committed, the covered
    indexes are published through `transactor/publish!` into that round's
    own fresh intake, the intake is drained into the `dao.jing` store, the
    manifest is read back, and the intake is dropped: between rounds the
@@ -122,7 +125,8 @@
                         (sort-by key addresses))),
      :next-e next-e',
      :meta-e meta-e,
-     :root root}))
+     :root root
+     :row-set row-set}))
 
 
 ;; =============================================================================
@@ -225,7 +229,8 @@
   [indexer previous]
   (merge indexer
          (select-keys previous [:local :next-e :transactions :published
-                                :published-payloads :manifest-address])))
+                                :published-payloads :manifest-address
+                                :unwritten])))
 
 
 (defn- open-publication
@@ -252,13 +257,41 @@
                                                  :dao.stream/oldest))}])}))))
 
 
+(defn- write-rows
+  "Put the rows of every committed program not yet written into the index
+   store, oldest first (yin.vm.linker.dht.md 5.1, owner decision 1: rows
+   every round), so `:yin/address` facts name content the store holds.
+   `:unwritten` holds those programs' row sets.  A put that fails stops
+   the writing: it and every later row set stay `:unwritten`, and the
+   round's failure is stage `:materialize`.  Once nothing is unwritten, a
+   `:materialize` failure is recovered and cleared.  No publication is
+   made while anything is unwritten, so a HEAD never moves over a missing
+   row."
+  [ix round]
+  (loop [ix ix]
+    (if-let [row-set (first (:unwritten ix))]
+      (let [failed (try (vm/materialize-tree! (:content-store ix) row-set)
+                        nil
+                        (catch #?(:cljd Object :clj Exception :cljs js/Error) e
+                          {:round round
+                           :stage :materialize
+                           :root (:root row-set)
+                           :message (ex-message e)}))]
+        (if failed
+          (assoc ix :failure failed)
+          (recur (update ix :unwritten (comp vec rest)))))
+      (cond-> (dissoc ix :unwritten)
+        (= :materialize (:stage (:failure ix))) (dissoc :failure)))))
+
+
 (defn- commit
-  "Commit one packet as one transaction.  A packet that could not be
-   projected or committed is consumed and recorded as the failure, never
-   counted."
+  "Commit one packet as one transaction; its rows join `:unwritten`, which
+   the round writes before it publishes (`write-rows`).  A packet that
+   could not be projected or committed is consumed and recorded as the
+   failure, never counted, and materializes nothing."
   [ix packet round]
   (try
-    (let [{:keys [tx-data next-e root]}
+    (let [{:keys [tx-data next-e root row-set]}
           (packet->tx-data packet
                            (:next-e ix)
                            {:session-token (:session-token ix), :round round})
@@ -267,7 +300,8 @@
       (if (= :dao.stream/ok (:dao.stream/outcome answer))
         [(-> ix
              (assoc :next-e next-e)
-             (update :transactions inc))
+             (update :transactions inc)
+             (update :unwritten (fnil conj []) row-set))
          true]
         [(assoc ix
                 :failure {:round round
@@ -352,10 +386,52 @@
   [indexer round]
   (let [ix (consume indexer
                     (fn [ix packet]
-                      (first (commit (open-publication ix) packet round))))]
-    (dissoc (if (> (:transactions ix) (:transactions indexer))
+                      (first (commit (open-publication ix) packet round))))
+        committed? (> (:transactions ix) (:transactions indexer))
+        ;; this round's rows and any an earlier round could not write,
+        ;; before any publication: no announcement names a missing row
+        ix (if committed? (write-rows ix round) ix)]
+    (dissoc (if (and committed? (empty? (:unwritten ix)))
               (publish ix round)
               ix)
+            :publication)))
+
+
+(defn commit-names
+  "Commit the signed name envelopes `signed` -- each `{:envelope e :proof
+   p}` -- as ONE transaction, then publish the covered indexes at once,
+   the HEAD write included (docs/design/yin.vm.linker.dht.md 6.1): one
+   entity per envelope carrying `:yin.module/envelope` and
+   `:yin.module/proof`, with the session's metadata entity -- `:db/op`,
+   the session token and `round`, no program root -- in `m`.  A
+   transaction refused is recorded as the failure, like a packet's."
+  [indexer signed round]
+  (let [ix (open-publication indexer)
+        meta-e (:next-e ix)
+        untimed (fn [e a v m] [e a v nil m])
+        tx-data (into [(untimed meta-e :db/op :db/assert datom/default-op)
+                       (untimed meta-e :yin.repl/session (:session-token ix)
+                                datom/default-op)
+                       (untimed meta-e :yin.repl/round round datom/default-op)]
+                      (comp (map-indexed
+                              (fn [i {:keys [envelope proof]}]
+                                (let [e (+ meta-e 1 i)]
+                                  [(untimed e :yin.module/envelope envelope meta-e)
+                                   (untimed e :yin.module/proof proof meta-e)])))
+                            cat)
+                      signed)
+        answer (transactor/transact! (get-in ix [:publication :transactor])
+                                     tx-data)]
+    (dissoc (if (= :dao.stream/ok (:dao.stream/outcome answer))
+              (let [ix (-> ix
+                           (assoc :next-e (+ meta-e 1 (count signed)))
+                           (update :transactions inc)
+                           (write-rows round))]
+                (cond-> ix (empty? (:unwritten ix)) (publish round)))
+              (assoc ix
+                     :failure {:round round
+                               :stage :transact
+                               :outcome (:dao.stream/outcome answer)}))
             :publication)))
 
 
@@ -392,6 +468,10 @@
       (:lost? after)
       (str "Warning: the code index lost a program batch; this round's code"
            " was not indexed, and indexing is suspended until (reset)")
+
+      (and (= :materialize (:stage (:failure before))) (nil? (:failure after)))
+      (str "Note: the code index caught up: rows of earlier rounds are now"
+           " written, and this round is published")
 
       (not= (:failure before) (:failure after))
       (str "Warning: this round's code is not in the published code index ("

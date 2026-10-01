@@ -14,11 +14,17 @@
    Names come from the reader's composition: the principals it declares
    and the index snapshots it chose to load.  Nothing here is read from an
    index as authority, and nothing depends on `yin.repl`."
-  (:require [dao.space.dht :as dht]
+  (:require [clojure.edn :as edn]
+            [clojure.string :as str]
+            [dao.space.dht :as dht]
+            [dao.space.index :as index]
+            [dao.space.store :as durable]
+            [dao.space.store.fs :as fs]
             [yin.vm.linker :as linker]
             [yin.vm.linker.authority :as authority]
             [yin.vm.linker.closure :as closure]
-            [yin.vm.linker.publish :as publish]))
+            [yin.vm.linker.publish :as publish]
+            [yin.vm.linker.sign :as sign]))
 
 
 (def module-kind
@@ -41,6 +47,28 @@
    it."
   [node spec]
   (publish/publish-module! (dht/store node) spec))
+
+
+(defn publish-name!
+  "Publish the module `name` exporting `exports`, derived from the
+   publisher's own index `db` (`module-from-index`, section 5.3), through
+   the node's store, and sign what binds the name to it (6.6): answers
+   `{:status :ok :address a :links {...} :envelopes [...]}`, each envelope
+   `publish/assertion`'s answer, for the caller to enter into its index
+   as one transaction (6.1) before it announces.  Without `key` it is
+   refused `:yin.link.publish/no-key`; any refusal writes nothing.
+   `opts` also carries `module-from-index`'s `:primitives`, `:modules`
+   and `:host-modules`."
+  [node db {:keys [key name] :as opts}]
+  (if-not key
+    (refused :yin.link.publish/no-key {:name name})
+    (let [spec (publish/module-from-index db opts)
+          res (if (= :refused (:status spec)) spec (publish! node spec))]
+      (if (= :refused (:status res))
+        res
+        (assoc (select-keys res [:address :links])
+               :status :ok
+               :envelopes (publish/name-envelopes db key name (:address res)))))))
 
 
 ;; =============================================================================
@@ -91,10 +119,34 @@
 ;; Names: the snapshot set and the fold (7.2, 7.3)
 ;; =============================================================================
 
-(defn snapshots
-  "The sorted vector of index manifests whose load is `:loaded` on `node`."
+(defn head
+  "The manifest the HEAD of the node's directory names, or nil: a node
+   over a durable directory store (`dao.space.store`) has one once its
+   publisher has written it; any other node has none."
   [node]
-  (dht/loaded-indexes node))
+  (when-some [dir (:durable-dir (dht/local node))]
+    (some-> (fs/read-file-text dir durable/head-name)
+            str/trim
+            edn/read-string
+            :manifest)))
+
+
+(defn snapshots
+  "The node's snapshot set (7.2) as the sorted vector of its addresses:
+   the manifest its directory's HEAD names, when there is one, and every
+   index manifest whose load is `:loaded`.  Nothing else in the local
+   store is considered."
+  [node]
+  (vec (sort-by str (distinct (cond-> (vec (dht/loaded-indexes node))
+                                (head node) (conj (head node)))))))
+
+
+(defn- snapshot-datoms
+  "The datoms of the snapshot `s`: a loaded index's, or HEAD's read from
+   the node's own store."
+  [node s]
+  (or (dht/loaded-datoms node s)
+      (index/read-datoms (dht/local node) s)))
 
 
 (defn- snapshot-events
@@ -109,9 +161,25 @@
                                     (contains? #{:yin.module/envelope
                                                  :yin.module/proof}
                                                a))
-                                  (dht/loaded-datoms node s)))))
+                                  (snapshot-datoms node s)))))
               (distinct))
         snapshot))
+
+
+(defn authority
+  "The reader's authority from its composition (7.1): each declared
+   public key (64 lowercase hex) a principal whose proof is an Ed25519
+   signature (6.3), at `:seq-floor` 0, and `name-env`'s direct entries."
+  [{:keys [principals name-env]}]
+  {:principals (into {}
+                     (map (fn [public]
+                            [(sign/principal public)
+                             {:proof :yin.module/signature
+                              :key public
+                              :verify sign/verify-envelope
+                              :seq-floor 0}]))
+                     principals)
+   :name-env (or name-env {})})
 
 
 (defn- fold
@@ -145,10 +213,6 @@
   (:env (fold node authority)))
 
 
-;; =============================================================================
-;; Dependency bindings (7.4)
-;; =============================================================================
-
 (defn- diagnostics-for
   "The fold's diagnostics whose envelope binds or retracts `n`."
   [{:keys [env envelopes]} n]
@@ -158,6 +222,30 @@
                     (:yin.module/name e)))]
     (filterv (fn [d] (= n (name-of (get envelopes (:id d)))))
              (:diagnostics env))))
+
+
+(defn resolve-name
+  "The name `n` in the reader's name environment: its `names` entry when
+   it resolves, else its section 9 refusal -- `:absent` with the fold's
+   `:diagnostics` for that name, or `:ambiguous-name` with every
+   `:addresses` and `:asserters`."
+  [node authority n]
+  (let [folded (fold node authority)
+        entry (get-in folded [:env :names n])]
+    (cond
+      (= :ok (:status entry)) entry
+
+      (= :ambiguous-name (:reason entry))
+      (refused :ambiguous-name (merge {:name n}
+                                      (select-keys entry [:addresses :asserters])))
+
+      :else
+      (refused :absent {:name n :diagnostics (diagnostics-for folded n)}))))
+
+
+;; =============================================================================
+;; Dependency bindings (7.4)
+;; =============================================================================
 
 
 (defn dependency-bindings

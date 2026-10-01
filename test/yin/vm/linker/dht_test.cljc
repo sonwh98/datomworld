@@ -6,7 +6,8 @@
    reader's declared principals and loaded index snapshots.  The sockets
    are `dao.stream.datagram` host seams over the `dao.jing.dht` test
    mesh; time advances only by the readings each step is handed."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require #?@(:cljd [["dart:io" :as dart-io]])
+            [clojure.test :refer [deftest is testing]]
             [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.jing.dht :as jing.dht]
@@ -14,15 +15,19 @@
             [dao.jing.mem :as mem]
             [dao.space.dht :as dht]
             [dao.space.dht-test :as dht-test]
+            [dao.space.index :as index]
+            [dao.space.query :as query]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.debruijn-vm-contract-test :as b0]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.linker :as linker]
+            [yin.vm.linker.closure :as closure]
             [yin.vm.linker.closure-test :as ct]
             [yin.vm.linker.dht :as ld]
             [yin.vm.linker.publish :as publish]
+            [yin.vm.linker.publish-test :as publish-test]
             [yin.vm.linker.sign :as sign]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
@@ -474,3 +479,220 @@
                             (:diagnostics (ld/names (:node r) {})))))
         "undeclared: the shared envelope and the other, one diagnostic each")
     (dht/close! (:node r))))
+
+
+;; =============================================================================
+;; L4: the fold over the snapshot set (7.2, 7.3)
+;; =============================================================================
+
+(defn- temp-dir
+  []
+  (str "target/test-linker-dht-" (random-uuid)))
+
+
+(defn- cleanup-dir!
+  [dir]
+  #?(:cljd (try (.deleteSync (dart-io/Directory. dir) .recursive true)
+                (catch Object _ nil))
+     :clj (let [f (java.io.File. ^String dir)]
+            (when (.isDirectory f)
+              (doseq [child (.listFiles f)]
+                (.delete ^java.io.File child))
+              (.delete f)))
+     :cljs (try (.rmSync (js/require "fs") dir #js {:recursive true :force true})
+                (catch :default _ nil))))
+
+
+(defn- envelope-index!
+  "Publish `signed` envelopes (`{:env :proof}`) as one covered index
+   through `node`; answers its manifest address."
+  [node signed]
+  (dht-test/publish-datoms!
+    node
+    (vec (map-indexed (fn [i {:keys [env proof]}]
+                        {:db/id (+ datom/first-user-id i)
+                         :yin.module/envelope env
+                         :yin.module/proof proof})
+                      signed))))
+
+
+(deftest only-head-and-loaded-indexes-are-folded
+  (let [dir (temp-dir)]
+    (try
+      (let [node (dht/join {:dir dir})
+            local (dht/local node)
+            base (:address (ct/publish-base! local))
+            other (:address (ct/publish-base! local (ct/def! 'f (ct/lit 7))))
+            authority (declare-keys p1)
+            at-head (envelope-index! node [(assertion p1 'base base 1)])
+            stray (envelope-index! node [(assertion p1 'other other 2)])]
+        (testing "before HEAD is written, nothing is in the snapshot set"
+          (is (= [] (ld/snapshots node)))
+          (is (= :absent (get-in (ld/names node authority) [:names 'base :reason]
+                                 :absent))))
+        ((:head-fn local) at-head)
+        (testing "the manifest HEAD names is a snapshot without any load"
+          (is (= [at-head] (ld/snapshots node)))
+          (is (= base (get-in (ld/names node authority) [:names 'base :address])))
+          (is (= [at-head] (:snapshot (ld/names node authority)))))
+        (testing "an index merely in the local store is never considered"
+          (is (some? (jing/get local stray nil)))
+          (is (nil? (get-in (ld/names node authority) [:names 'other]))))
+        (testing "once loaded, it joins the set, in address order"
+          (let [[node _] (dht/step (dht/load-index node stray) 0)]
+            (is (= (vec (sort-by str [at-head stray])) (ld/snapshots node)))
+            (is (= other (get-in (ld/names node authority)
+                                 [:names 'other :address])))
+            (dht/close! node))))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(defn- names-of
+  [snapshots authority]
+  (let [r (reader snapshots)
+        env (ld/names (:node r) authority)]
+    (dht/close! (:node r))
+    (assoc env :r r)))
+
+
+(deftest the-fold-reports-what-does-not-resolve-and-refuses-ambiguity
+  (testing "an undeclared principal is reported and does not resolve"
+    (let [env (names-of (fn [{:keys [base]}] [[(assertion p2 'base base 1)]])
+                        (declare-keys p1))]
+      (is (= :absent (get-in env [:names 'base :reason])))
+      (is (= [[:undeclared-principal (sign/principal (:public p2))]]
+             (mapv (juxt :reason :principal) (:diagnostics env))))))
+  (testing "a bad signature is reported and does not resolve"
+    (let [env (names-of (fn [{:keys [base base2]}]
+                          (let [good (assertion p1 'base base 1)
+                                forged (assertion p1 'base base2 1)]
+                            [[(assoc good :proof (:proof forged))]]))
+                        (declare-keys p1))]
+      (is (= :absent (get-in env [:names 'base :reason])))
+      (is (= [[:unauthenticated :bad-proof]]
+             (mapv (juxt :reason :kind) (:diagnostics env))))))
+  (testing "two declared principals on different addresses: ambiguous, naming both"
+    (let [env (names-of (fn [{:keys [base base2]}]
+                          [[(assertion p1 'base base 1)]
+                           [(assertion p2 'base base2 1)]])
+                        (declare-keys p1 p2))
+          entry (get-in env [:names 'base])
+          r (:r env)]
+      (is (= :ambiguous-name (:reason entry)))
+      (is (= (set [(:base r) (:base2 r)]) (set (:addresses entry))))
+      (is (= #{(sign/principal (:public p1)) (sign/principal (:public p2))}
+             (set (:asserters entry))))))
+  (testing "two on the same address resolve, both in provenance"
+    (let [env (names-of (fn [{:keys [base]}]
+                          [[(assertion p1 'base base 1)]
+                           [(assertion p2 'base base 1)]])
+                        (declare-keys p1 p2))]
+      (is (= (get-in env [:r :base]) (get-in env [:names 'base :address])))
+      (is (= #{(sign/principal (:public p1)) (sign/principal (:public p2))}
+             (set (get-in env [:names 'base :yin.link/provenance
+                               :yin.module/asserted-by]))))))
+  (testing "a retraction removes exactly its assertion"
+    (let [env (names-of (fn [{:keys [base base2]}]
+                          (let [a (assertion p1 'base base 1)]
+                            [[a (assertion p1 'other base2 2) (retraction p1 a 3)]]))
+                        (declare-keys p1))]
+      (is (= :absent (get-in env [:names 'base :reason])))
+      (is (= (get-in env [:r :base2]) (get-in env [:names 'other :address])))
+      (is (empty? (:diagnostics env))))))
+
+
+;; =============================================================================
+;; L4: publishing a name, and republishing it (5.3, 6.5, 6.6)
+;; =============================================================================
+
+(def ^:private lines
+  ["(def k (fn [] 1))" "(def g (fn [] (+ (k) 41)))"])
+
+
+(defn- signed-index!
+  "Publish `envelopes` (`publish/assertion`'s answers) as one covered
+   index through `node`."
+  [node envelopes]
+  (envelope-index! node (mapv (fn [s] {:env (:envelope s) :proof (:proof s)})
+                              envelopes)))
+
+
+(deftest publish-name-derives-publishes-and-signs-and-refuses-writing-nothing
+  (let [node (dht/join {:local (mem/create-content-mem)})
+        db (publish-test/indexed lines)
+        entries #(count (ct/entries (dht/local node)))
+        opts {:name 'my.lib :exports '[g] :key p1 :primitives vm/primitives}]
+    (testing "without a key: refused, nothing written"
+      (is (= {:status :refused :reason :yin.link.publish/no-key :name 'my.lib}
+             (ld/publish-name! node db (dissoc opts :key))))
+      (is (zero? (entries))))
+    (testing "an undefined export: refused, nothing written"
+      (is (= :yin.link.publish/undefined-export
+             (:reason (ld/publish-name! node db (assoc opts :exports '[nope])))))
+      (is (zero? (entries))))
+    (let [res (ld/publish-name! node db opts)]
+      (is (= :ok (:status res)))
+      (is (jing/segment-address? (:address res)))
+      (is (= #{:yin.ast/code :yin.semantic/code :yin.debruijn.code
+               :yin.debruijn.register}
+             (set (keys (:links res)))))
+      (is (= [{:yin.module/op :assert :yin.module/name 'my.lib
+               :yin.module/manifest (:address res)
+               :yin.module/asserted-by (sign/principal (:public p1))
+               :yin.module/seq 1}]
+             (mapv :envelope (:envelopes res))))
+      (is (= :complete (:yin.link.closure/outcome
+                         (closure/walk (dht/local node) (:address res))))))
+    (dht/close! node)))
+
+
+(defn- reader-of
+  "A solo reader over a copy of `publisher`'s store that has loaded the
+   index snapshots `manifests`, and nothing else."
+  [publisher manifests]
+  (let [node (reduce dht/load-index
+                     (dht/join {:local (mem/create-content-mem
+                                         (ct/entries (dht/local publisher)))})
+                     manifests)
+        [node _] (dht/step node 0)]
+    node))
+
+
+(deftest republishing-a-name-resolves-by-the-snapshot-a-reader-holds
+  (let [node (dht/join {:local (mem/create-content-mem)})
+        opts {:name 'my.lib :exports '[g] :key p1 :primitives vm/primitives}
+        first-run (ld/publish-name! node (publish-test/indexed lines) opts)
+        old (:address first-run)
+        m1 (signed-index! node (:envelopes first-run))
+        changed (ld/publish-name!
+                  node
+                  (query/relation
+                    (into (publish-test/indexed-datoms
+                            ["(def k (fn [] 2))" "(def g (fn [] (+ (k) 41)))"])
+                          (index/read-datoms (dht/local node) m1)))
+                  opts)
+        new (:address changed)
+        m2 (signed-index! node (into (:envelopes first-run) (:envelopes changed)))
+        authority (declare-keys p1)
+        resolve-in (fn [manifests]
+                     (let [reader (reader-of node manifests)
+                           env (ld/names reader authority)]
+                       (dht/close! reader)
+                       env))]
+    (is (not= old new))
+    (testing "the new manifest writes the retraction, then the assertion"
+      (is (= [[:retract 2] [:assert 3]]
+             (mapv (fn [s] [(:yin.module/op (:envelope s)) (:yin.module/seq (:envelope s))])
+                   (:envelopes changed))))
+      (is (= (jing/segment-key (:envelope (first (:envelopes first-run))))
+             (:yin.module/of (:envelope (first (:envelopes changed)))))))
+    (testing "a reader of the new snapshot resolves the new address"
+      (is (= new (get-in (resolve-in [m2]) [:names 'my.lib :address]))))
+    (testing "a reader holding only the old snapshot resolves the old one"
+      (is (= old (get-in (resolve-in [m1]) [:names 'my.lib :address]))))
+    (testing "both snapshots: an envelope in two counts once"
+      (let [env (resolve-in [m1 m2])]
+        (is (= new (get-in env [:names 'my.lib :address])))
+        (is (empty? (:diagnostics env)))))
+    (dht/close! node)))

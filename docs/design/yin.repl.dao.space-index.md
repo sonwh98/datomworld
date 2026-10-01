@@ -50,6 +50,27 @@ outside the content-hashed rows. Index code and its claims only: printed
 output, last-value history, and ephemeral evaluation results do not enter
 the code index by default.
 
+**Rows every round** (owner decision of 2026-10-01,
+`yin.vm.linker.dht.md` 5.1). After a program's transaction commits, the
+indexer materializes every row of its expanded tree into the index store
+(`yin.vm/materialize-tree!`), before the round publishes, so a
+`:yin/address` fact names content the store holds and a peer can load a
+program's tree by its `:yin.repl/root` address. A row put that fails is
+the round's failure at stage `:materialize`, and the round does not
+publish. The committed program's row set stays unwritten: every later
+round that commits (and every name transaction) writes the unwritten rows
+first, oldest first, and publishes only when none remain, so HEAD never
+moves over a missing row. When they are all written the failure is
+cleared, the publication covers every committed transaction, and the
+round says the index caught up. Restored history is not re-materialized.
+
+**Names are claims in the same index** (`yin.vm.linker.dht.md` 6.1).
+`(yin.link/publish 'm '[exports])` commits the signed name envelopes as
+one transaction — one entity per envelope carrying
+`:yin.module/envelope` and `:yin.module/proof`, the session's metadata
+entity (no program root) in `m` — and publishes at once, so the round's
+HEAD write announces the module's blobs with the index naming them.
+
 ## Query surface: owner ruling (2026-09-27)
 
 **User require.** `dao.space.query/q` is not bound in the session; the
