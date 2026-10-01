@@ -261,6 +261,66 @@
     (dht/close! node)))
 
 
+;; =============================================================================
+;; A failed load as its section 9 row
+;; =============================================================================
+
+(deftest a-failed-load-is-its-section-9-row
+  (let [m (jing/segment-key "a module")]
+    (testing ":miss is :absent with the miss cause"
+      (is (= {:status :refused :reason :absent :address m :cause ::jing.dht/exhausted}
+             (ld/load-refusal {:status :failed :kind ld/module-kind :fetched 0
+                               :reason {::dht/failure :miss :address m
+                                        :cause ::jing.dht/exhausted}}))))
+    (testing ":invalid is :descriptor-defect with the code, and detail and text when present"
+      (is (= {:status :refused :reason :descriptor-defect :address m
+              :code :manifest-defect}
+             (ld/load-refusal {:status :failed :kind ld/module-kind :fetched 1
+                               :reason {::dht/failure :invalid :address m
+                                        :defect {:code :manifest-defect}}})))
+      (is (= {:status :refused :reason :descriptor-defect :address nil
+              :code ::dht/walk-threw :detail {:k 1} :text "boom"}
+             (ld/load-refusal {:status :failed :kind ld/module-kind :fetched 0
+                               :reason {::dht/failure :invalid :address nil
+                                        :defect {:code ::dht/walk-threw
+                                                 :detail {:k 1} :text "boom"
+                                                 :other :dropped}}}))))
+    (testing ":unaskable is :yin.link.dht/unaskable with the outcome"
+      (is (= {:status :refused :reason :yin.link.dht/unaskable :address m
+              :outcome :request-undeliverable}
+             (ld/load-refusal {:status :failed :kind ld/module-kind :fetched 0
+                               :reason {::dht/failure :unaskable :address m
+                                        :outcome :request-undeliverable}}))))
+    (testing "a load that has not failed has no row"
+      (is (nil? (ld/load-refusal nil)))
+      (is (nil? (ld/load-refusal {:status :loading :kind ld/module-kind :fetched 0
+                                  :fetching nil})))
+      (is (nil? (ld/load-refusal {:status :loaded :kind ld/module-kind :fetched 3}))))
+    (testing "over a real failed load: the node's own status converts"
+      (let [node (ld/load-module (dht/join {:local (mem/create-content-mem)}) m)
+            [node _] (dht/step node 0)
+            [node _] (dht/step node 10)]
+        (is (= :failed (:status (ld/module-status node m))) (pr-str (ld/module-status node m)))
+        (is (= {:status :refused :reason :absent :address m :cause ::jing.dht/solo}
+               (ld/load-refusal (ld/module-status node m))))
+        (dht/close! node)))))
+
+
+(deftest a-malformed-optional-index-fails-the-load-as-a-manifest-defect
+  (doseq [bad [42 [1] "bad"]]
+    (testing (pr-str bad)
+      (let [store (mem/create-content-mem)
+            m (jing/materialize! store (assoc (:manifest (ct/publish-base! store))
+                                              :yin.module/index bad))
+            [node events] (dht/step (ld/load-module (dht/join {:local store}) m) 0)]
+        (is (= {:status :refused :reason :descriptor-defect :address m
+                :code :manifest-defect
+                :detail {:rule :manifest-shape :key :yin.module/index}}
+               (ld/load-refusal (ld/module-status node m))))
+        (is (= 1 (count (filter #(= :load-failed (::dht/event %)) events))))
+        (dht/close! node)))))
+
+
 (defn- hiding
   "`store` whose reads of any address `@hidden` holds answer not-found: a
    local store that lost a blob after the load walked it."
@@ -600,6 +660,56 @@
       (is (= :absent (get-in env [:names 'base :reason])))
       (is (= (get-in env [:r :base2]) (get-in env [:names 'other :address])))
       (is (empty? (:diagnostics env))))))
+
+
+;; =============================================================================
+;; A dangling retraction is one global diagnostic (owner decision 6)
+;; =============================================================================
+
+(deftest a-retraction-of-an-assertion-outside-the-snapshot-set-is-global
+  (let [gone (fn [{:keys [base]}] (assertion p1 'base base 1))
+        gone-id (fn [r] (jing/segment-key (:env (gone r))))]
+    (testing "reported once, globally, with the retraction's principal and the id it names"
+      (let [r (reader (fn [a]
+                        [[(retraction p1 (gone a) 2)]
+                         [(retraction p1 (gone a) 2) (assertion p1 'app (:app a) 3)]]))
+            authority (declare-keys p1)
+            env (ld/names (:node r) authority)]
+        (is (= [[:dangling-retraction (sign/principal (:public p1)) (gone-id r)]]
+               (mapv (juxt :reason :principal :of) (:global-diagnostics env)))
+            (pr-str env))
+        (testing "and in no per-name diagnostic"
+          (is (not-any? #(= :dangling-retraction (:reason %)) (:diagnostics env))
+              (pr-str (:diagnostics env)))
+          (is (= {:status :refused :reason :absent :name 'base :diagnostics []}
+                 (ld/resolve-name (:node r) authority 'base)))
+          (is (= (:app r) (:address (ld/resolve-name (:node r) authority 'app)))
+              "the other name still resolves"))
+        (dht/close! (:node r))))
+    (testing "a retraction whose target is a retraction names no name: global too"
+      (let [r (reader (fn [a]
+                        (let [r1 (retraction p1 (gone a) 2)]
+                          [[r1 (retraction p1 r1 3) (assertion p1 'app (:app a) 4)]])))
+            authority (declare-keys p1)
+            env (ld/names (:node r) authority)
+            r1-id (jing/segment-key (:env (retraction p1 (gone r) 2)))]
+        (is (= #{[:dangling-retraction (gone-id r)] [:dangling-retraction r1-id]}
+               (set (mapv (juxt :reason :of) (:global-diagnostics env))))
+            (pr-str env))
+        (is (= 2 (count (:global-diagnostics env))) "each once")
+        (is (not-any? #(= :dangling-retraction (:reason %)) (:diagnostics env))
+            (pr-str (:diagnostics env)))
+        (dht/close! (:node r))))
+    (testing "a retraction of an assertion inside the set stays with that name"
+      (let [r (reader (fn [a] [[(gone a)] [(retraction p2 (gone a) 1)]]))
+            authority (declare-keys p1 p2)
+            env (ld/names (:node r) authority)]
+        (is (= [] (:global-diagnostics env)) (pr-str env))
+        (is (= [[:dangling-retraction (sign/principal (:public p2))]]
+               (mapv (juxt :reason :principal) (:diagnostics env))))
+        (is (= (:base r) (:address (ld/resolve-name (:node r) authority 'base)))
+            "p2 cannot retract p1's assertion")
+        (dht/close! (:node r))))))
 
 
 ;; =============================================================================

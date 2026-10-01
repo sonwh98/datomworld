@@ -267,18 +267,6 @@
 ;; The DHT link source (yin.vm.linker.dht.md 4.1)
 ;; =============================================================================
 
-(defn- load-refusal
-  "The one response shape of a failed closure load (section 9)."
-  [{::dht/keys [failure] :keys [address cause defect outcome]}]
-  (case failure
-    :miss {:status :refused, :reason :absent, :address address, :cause cause}
-    :invalid (merge {:status :refused, :reason :descriptor-defect,
-                     :address address, :code (:code defect)}
-                    (select-keys defect [:detail :text]))
-    :unaskable {:status :refused, :reason :yin.link.dht/unaskable,
-                :address address, :outcome outcome}))
-
-
 (defn- dht-link
   "Link the loaded closure of `address` over a local runtime on the
    node's store (`yin.vm.linker/local-runtime`), `:verifying`, discharge
@@ -323,7 +311,7 @@
       (= :loading (:status status)) {:node node, :body ::pending, :waits address}
 
       (= :failed (:status status)) {:node (dht/forget node address)
-                                    :body (load-refusal (:reason status))}
+                                    :body (linker.dht/load-refusal status)}
 
       :else
       (let [bindings (linker.dht/dependency-bindings node authority address)

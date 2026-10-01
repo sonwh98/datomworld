@@ -101,6 +101,25 @@
   (dht/load-status node manifest-address))
 
 
+(defn load-refusal
+  "The section 9 response row of a failed closure load: `status` as
+   `module-status` answers it.  `:miss` is `:absent` with the miss
+   `:cause`, `:invalid` is `:descriptor-defect` with the defect's `:code`
+   (and its `:detail` and `:text` when present), and `:unaskable` is
+   `:yin.link.dht/unaskable` with the client's `:outcome`.  nil for a load
+   that has not failed.  The DHT link source refuses with it."
+  [status]
+  (when (= :failed (:status status))
+    (let [{::dht/keys [failure] :keys [address cause defect outcome]} (:reason status)]
+      (case failure
+        :miss (refused :absent {:address address :cause cause})
+        :invalid (refused :descriptor-defect
+                          (merge {:address address :code (:code defect)}
+                                 (select-keys defect [:detail :text])))
+        :unaskable (refused :yin.link.dht/unaskable
+                            {:address address :outcome outcome})))))
+
+
 (defn- not-loaded
   [node manifest-address]
   (refused :yin.link.dht/not-loaded
@@ -185,30 +204,46 @@
 (defn- fold
   "The fold of the reader's snapshot set under `authority`
    `{:principals {principal declaration} :name-env {name address}}`, and
-   every envelope it saw by id."
+   every envelope it saw by id.  A retraction whose target is not an
+   assertion the snapshot set holds -- none, or another retraction --
+   names no name, so its diagnostic moves from `:diagnostics` to
+   `:global-diagnostics`, once (owner decision 6)."
   [node authority]
   (let [snapshot (snapshots node)
         events (snapshot-events node snapshot)
         env (authority/name-environment
               {:snapshot snapshot :principals (or (:principals authority) {})}
-              events)]
-    {:env (update env :names into
-                  (map (fn [[n address]]
-                         [n {:status :ok :address address
-                             :yin.link/provenance :composition}]))
-                  (:name-env authority))
-     :envelopes (into {}
-                      (map (fn [e]
-                             (let [env (:yin.module/envelope e)]
-                               [(authority/assertion-id env) env])))
-                      events)}))
+              events)
+        envelopes (into {}
+                        (map (fn [e]
+                               (let [env (:yin.module/envelope e)]
+                                 [(authority/assertion-id env) env])))
+                        events)
+        ;; global unless the target is an assertion in the set: only an
+        ;; assertion carries a name
+        global? (fn [d]
+                  (and (= :dangling-retraction (:reason d))
+                       (not= :assert (:yin.module/op (get envelopes (:of d))))))]
+    {:env (-> env
+              (assoc :diagnostics (filterv (complement global?) (:diagnostics env))
+                     :global-diagnostics (filterv global? (:diagnostics env)))
+              (update :names into
+                      (map (fn [[n address]]
+                             [n {:status :ok :address address
+                                 :yin.link/provenance :composition}]))
+                      (:name-env authority)))
+     :envelopes envelopes}))
 
 
 (defn names
   "The reader's name environment: `authority/name-environment` over the
    envelopes of the loaded index snapshots, under the principals
    `authority` declares, with its direct `:name-env` entries winning,
-   their provenance `:composition`."
+   their provenance `:composition`.  A retraction whose target is not an
+   assertion in the snapshot set (an assertion outside it, or a
+   retraction) is under `:global-diagnostics`, once, with
+   its `:principal` and the assertion id it names under `:of`; it is in
+   no per-name diagnostic."
   [node authority]
   (:env (fold node authority)))
 

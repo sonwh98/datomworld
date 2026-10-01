@@ -817,9 +817,11 @@
                   (when-not (contains? (:yin.module/contracts manifest) f)
                     {:rule :contract-missing, :format f}))
                 (keys (:yin.module/derivations manifest)))
-          (when (some (fn [v] (not (address? v)))
-                      (vals (:yin.module/index manifest)))
-            (shape :yin.module/index))
+          ;; optional, but when present a map: vals of anything else throws
+          (let [index (:yin.module/index manifest)]
+            (when (or (and (some? index) (not (map? index)))
+                      (some (fn [v] (not (address? v))) (vals index)))
+              (shape :yin.module/index)))
           (when-not (and (set? (:yin.module/exports manifest))
                          (every? (fn [n] (symbol? n))
                                  (:yin.module/exports manifest)))

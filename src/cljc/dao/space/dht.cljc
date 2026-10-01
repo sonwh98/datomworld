@@ -1227,16 +1227,16 @@
     (cond
       (and fetching (nil? done)) [node []]
 
+      ;; the miss cause stays: another load may wait on the same address;
+      ;; advance-loads drops it once none does
       (and done (not (:found? done)))
-      (let [a (:address fetching)
-            cause (get-in node [:misses a] ::dht/gap)]
-        (fail-load (update node :misses dissoc a) m
-                   {::failure :miss :address a :cause cause}))
+      (let [a (:address fetching)]
+        (fail-load node m {::failure :miss :address a
+                           :cause (get-in node [:misses a] ::dht/gap)}))
 
       :else
       (let [fetched (cond-> (:fetched record) done inc)
-            node (cond-> (update-in node [:loads m] assoc :fetching nil :fetched fetched)
-                   fetching (update :misses dissoc (:address fetching)))
+            node (update-in node [:loads m] assoc :fetching nil :fetched fetched)
             walked (walk-outcome walk (local node))]
         (case (::walk walked)
           :complete
@@ -1274,12 +1274,15 @@
       [node []]
       (let [{:keys [state completions]} (content.step/step (:client node)
                                                            fetch-budget)
-            done-by-id (into {} (map (juxt :id identity)) completions)]
-        (reduce (fn [[node events] m]
-                  (let [[node more] (advance-load node m done-by-id)]
-                    [node (into events more)]))
-                [(assoc node :client state) []]
-                loading)))))
+            done-by-id (into {} (map (juxt :id identity)) completions)
+            [node events] (reduce (fn [[node events] m]
+                                    (let [[node more] (advance-load node m done-by-id)]
+                                      [node (into events more)]))
+                                  [(assoc node :client state) []]
+                                  loading)]
+        ;; every load waiting on an address has read its miss cause: keep
+        ;; only the causes of addresses still being fetched
+        [(update node :misses select-keys (fetching node)) events]))))
 
 
 ;; =============================================================================

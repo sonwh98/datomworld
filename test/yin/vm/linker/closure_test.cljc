@@ -285,6 +285,53 @@
           (is (= code (get-in w [:defect :code])) (pr-str w)))))))
 
 
+(def malformed-values
+  "Values no manifest key accepts, of every collection and scalar kind."
+  [42 [1] "bad" #{1} '(1) :k {1 2} [[1 2]]])
+
+
+(defn- defect-or-throw
+  [manifest]
+  (try (linker/manifest-defect manifest)
+       (catch #?(:cljd Object :clj Throwable :cljs :default) e
+         {::threw (str e)})))
+
+
+(deftest the-manifest-validator-is-total-over-every-key
+  (let [store (mem/create-content-mem)
+        manifest (:manifest (publish-base! store))]
+    (is (nil? (linker/manifest-defect manifest)) "the published manifest is valid")
+    (doseq [k (sort-by str (conj (set (keys manifest)) :yin.module/index))
+            v malformed-values]
+      (testing (str k " " (pr-str v))
+        (let [bad (assoc manifest k v)
+              d (defect-or-throw bad)
+              m (jing/materialize! store bad)
+              w (try (closure/walk store m)
+                     (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                       {::threw (str e)}))]
+          (is (map? d) (pr-str d))
+          (is (not (contains? d ::threw)) (pr-str d))
+          (is (= [:invalid m :manifest-defect]
+                 [(:yin.link.closure/outcome w) (:address w) (get-in w [:defect :code])])
+              (str "the walk is total: " (pr-str w))))))))
+
+
+(deftest a-malformed-optional-index-is-a-manifest-defect-naming-the-manifest
+  (doseq [bad [42 [1] "bad"]]
+    (testing (pr-str bad)
+      (let [store (mem/create-content-mem)
+            res (publish-base! store)
+            m (with-manifest store (assoc (:manifest res) :yin.module/index bad))]
+        (is (= {:rule :manifest-shape :key :yin.module/index}
+               (defect-or-throw (jing/get store m nil))))
+        (is (= {:yin.link.closure/outcome :invalid :address m :role :manifest :path [m]
+                :defect {:code :manifest-defect
+                         :detail {:rule :manifest-shape :key :yin.module/index}}}
+               (select-keys (closure/walk store m)
+                            [:yin.link.closure/outcome :address :role :path :defect])))))))
+
+
 (deftest each-bound-is-a-parts-limit
   (let [{:keys [store app]} (world)]
     (doseq [[bounds bound] [[{:max-parts 2} :max-parts]

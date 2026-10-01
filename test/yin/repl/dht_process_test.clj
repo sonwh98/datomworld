@@ -22,18 +22,43 @@
    refused, naming it.  The Node reader is required: build it with
    `bb build:yin-repl-node`; a missing build fails this test.
 
+   Linker over DHT slice L5 (docs/design/yin.vm.linker.dht.md section 12)
+   is the end-to-end gate: a JVM publisher holding a key file publishes a
+   module by name; JVM and Node readers handed its index manifest and
+   principal require it by name and evaluate the export on each of the
+   four VMs; a reader that does not declare the principal is refused; and
+   plain Clojure in this JVM takes the same path through the functions
+   the REPL's host functions call, failure results included.  Its
+   in-process form, over the mesh seam on all three hosts, is
+   yin.vm.linker.dht-end-to-end-test.
+
    Real processes wait on sockets, so this test polls their output with
    bounded deadlines; the DHT core itself still sees only ticks."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dao.datom :as datom]
+            [dao.jing :as jing]
             [dao.jing.dht :as jing.dht]
             [dao.jing.mem :as mem]
             [dao.space.dht :as dht]
+            [dao.space.dht-test :as dht-test]
             [dao.stream :as stream]
             [dao.stream.datagram :as datagram]
             [dao.stream.datagram.jvm :as datagram.jvm]
-            [dao.stream.ringbuffer :as ringbuffer])
+            [dao.stream.ringbuffer :as ringbuffer]
+            [yin.repl.main :as main]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.linker :as linker]
+            [yin.vm.linker.closure-test :as ct]
+            [yin.vm.linker.dht :as ld]
+            [yin.vm.linker.publish :as publish]
+            [yin.vm.linker.sign :as sign]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu])
   (:import (java.util.concurrent TimeUnit)))
 
 
@@ -87,23 +112,25 @@
 
 
 (defn- start-bound-anchor!
-  [seam traffic bound]
+  [seam traffic bound opts]
   (let [port (get-in bound [:dao.stream.datagram/local :dao.stream.datagram/port])
         ticks (ring)
         state (jing.dht/state
-                {:local (mem/create-content-mem)
-                 :requests (ring) :answers (ring) :facts (ring) :ticks ticks
-                 :traffic traffic
-                 :datagrams (datagram/writer
-                              seam
-                              {:dao.stream/type datagram/transport-type
-                               :dao.stream/identity "anchor"
-                               :dao.stream.datagram/bind-host "127.0.0.1"
-                               :dao.stream.datagram/bind-port port}
-                              1200)
-                 ::jing.dht/id (jing.dht/bytes->hex (dht/secure-random-bytes 32))
-                 ::jing.dht/secret (dht/secure-random-bytes 32)
-                 ::jing.dht/max-inbound-bytes 0})
+                (merge
+                  {:local (mem/create-content-mem)
+                   :requests (ring) :answers (ring) :facts (ring) :ticks ticks
+                   :traffic traffic
+                   :datagrams (datagram/writer
+                                seam
+                                {:dao.stream/type datagram/transport-type
+                                 :dao.stream/identity "anchor"
+                                 :dao.stream.datagram/bind-host "127.0.0.1"
+                                 :dao.stream.datagram/bind-port port}
+                                1200)
+                   ::jing.dht/id (jing.dht/bytes->hex (dht/secure-random-bytes 32))
+                   ::jing.dht/secret (dht/secure-random-bytes 32)
+                   ::jing.dht/max-inbound-bytes 0}
+                  opts))
         running (atom true)
         origin (System/nanoTime)
         thread (doto (Thread.
@@ -134,16 +161,18 @@
    port, which needs no bootstrap contact to hold a socket, stepped by
    one owner thread with its monotonic clock as ticks.  Answers `{:port p
    :stop! f}`, or `{:failure text}` when its socket did not bind (the
-   seam already closed)."
-  []
-  (let [traffic (ring)
-        seam (datagram.jvm/bind! {:identity "anchor" :deposit traffic
-                                  :bind-host "127.0.0.1" :bind-port 0
-                                  :max-bytes 1200})
-        {:keys [bound failure]} (await-bound seam traffic)]
-    (if failure
-      {:failure failure}
-      (start-bound-anchor! seam traffic bound))))
+   seam already closed).  `opts` merge into the core state: a storing
+   peer is `{::jing.dht/publish? true ::jing.dht/max-inbound-bytes n}`."
+  ([] (start-anchor! {}))
+  ([opts]
+   (let [traffic (ring)
+         seam (datagram.jvm/bind! {:identity "anchor" :deposit traffic
+                                   :bind-host "127.0.0.1" :bind-port 0
+                                   :max-bytes 1200})
+         {:keys [bound failure]} (await-bound seam traffic)]
+     (if failure
+       {:failure failure}
+       (start-bound-anchor! seam traffic bound opts)))))
 
 
 (def ^:private listening
@@ -410,4 +439,396 @@
         (finally
           (doseq [p @procs] (stop! p))
           ((:stop! anchor))
+          (run! delete-dir! dirs))))))
+
+
+;; =============================================================================
+;; Linker over DHT slice L5: a module by name, end to end
+;; =============================================================================
+
+(defn- await-count
+  "The output lines matching `re` once there are at least `n`, polling
+   until `ms` pass; nil if there never were."
+  [{:keys [lines]} re n ms]
+  (let [deadline (+ (System/currentTimeMillis) ms)]
+    (loop []
+      (let [found (filterv #(re-find re %) @lines)]
+        (cond
+          (<= n (count found)) found
+          (< (System/currentTimeMillis) deadline) (do (Thread/sleep 50) (recur))
+          :else nil)))))
+
+
+(def ^:private publisher-lines
+  "A defines a function and a module-level value read by a second
+   function, and publishes each as a module by name."
+  ["(def f (fn [x] (+ x 4200)))"
+   "(def base 7)"
+   "(def g (fn [] (+ base 1)))"
+   "(require (quote yin.link))"
+   "(yin.link/publish (quote my.lib) (quote [f]))"
+   "(yin.link/publish (quote my.store) (quote [g]))"])
+
+
+(def ^:private vm-types
+  [:ast-walker :semantic :stack :register])
+
+
+(def ^:private vm-names
+  {:ast-walker "ASTWalkerVM" :semantic "SemanticVM"
+   :stack "DebruijnStackVM" :register "DebruijnRegisterVM"})
+
+
+(defn- require-on-each-vm
+  "At reader `p`, on each VM in turn: switch to it, require `my.lib` by
+   name and evaluate its export, then require the store corpus `my.store`
+   and evaluate its export.  Each step waits for the line it answers
+   (`(vm ...)` is answered at once even while a require is pending, so
+   nothing is typed ahead).  Answers the failures, each naming the VM and
+   the line it did not see."
+  [p]
+  (reduce
+    (fn [failures [i vm-type]]
+      (let [n (inc i)
+            step (fn [failures line re k]
+                   (if (seq failures)
+                     failures
+                     (do (type! p line)
+                         (if (await-count p re k exchange-ms)
+                           failures
+                           (conj failures (str vm-type ": " line " never answered "
+                                               re " (" k ")"))))))
+            walker? (= :ast-walker vm-type)]
+        (-> failures
+            (step (str "(vm " vm-type ")")
+                  (re-pattern (str "Switched to " (vm-names vm-type))) 1)
+            (step "(require (quote my.lib))" #"^(yin> )*'my\.lib$" n)
+            (step "(my.lib/f 1)" #"^(yin> )*4201$" n)
+            (step "(require (quote my.store))"
+                  (if walker?
+                    #"Module link refused: undeclared-free"
+                    #"^(yin> )*'my\.store$")
+                  (if walker? 1 (dec n)))
+            (cond-> (not walker?)
+              (step "(my.store/g)" #"^(yin> )*8$" (dec n))))))
+    []
+    (map-indexed vector vm-types)))
+
+
+(def ^:private published-line
+  #"dht: published :(segment/\S+) .*— acknowledged")
+
+
+(defn- head-of-dir
+  [dir]
+  (some->> (io/file dir "HEAD") (#(when (.exists ^java.io.File %) (slurp %)))
+           (re-find #":manifest :(segment/\S+?)\}")
+           second))
+
+
+(defn- await-head-published
+  "The index manifest A's output reports acknowledged last, once it is
+   the one A's HEAD names: what A announced after its last round."
+  [a dir ms]
+  (let [deadline (+ (System/currentTimeMillis) ms)]
+    (loop []
+      (let [last-published (some->> @(:lines a)
+                                    (keep #(second (re-find published-line %)))
+                                    last)]
+        (cond
+          (and last-published (= last-published (head-of-dir dir))) last-published
+          (< (System/currentTimeMillis) deadline) (do (Thread/sleep 100) (recur))
+          :else nil)))))
+
+
+(defn- step-until
+  "Step the plain node with the wall clock until `(done? node)`: `[node
+   nil]`, or `[node cause]` when `ms` pass first."
+  [node ms cause done?]
+  (let [deadline (+ (System/currentTimeMillis) ms)]
+    (loop [node node]
+      (cond
+        (done? node) [node nil]
+        (> (System/currentTimeMillis) deadline) [node (str cause " within " ms " ms")]
+        :else (let [[node _] (dht/step node (System/currentTimeMillis))]
+                (Thread/sleep 10)
+                (recur node))))))
+
+
+(defn- settled?
+  [address]
+  (fn [node]
+    (contains? #{:loaded :failed} (:status (dht/load-status node address)))))
+
+
+(defn- hiding
+  "`store` whose reads of any address `@hidden` holds answer not-found."
+  [store hidden]
+  (assoc store :get-bytes-fn
+         (fn [address not-found]
+           (if (contains? @hidden address)
+             not-found
+             ((:get-bytes-fn store) address not-found)))))
+
+
+(defn- loaded-vm
+  "A VM of `format-kw`'s own backend holding the linked image `res`."
+  [format-kw res]
+  (let [contract (get-in res [:manifest :yin.module/contracts format-kw])
+        receiver {:primitives vm/primitives :contract contract}]
+    (case format-kw
+      :yin.ast/code (ast-walker/vm-load-rows (tu/create-vm) (:value res) contract)
+      :yin.semantic/code (semantic/load-vector (semantic/create-vm) (:value res) contract)
+      :yin.debruijn.code (dvm/create-vm (:value res) receiver)
+      :yin.debruijn.register (rvm/create-vm (:value res) receiver))))
+
+
+(def ^:private call-f
+  {:type :application
+   :operator {:type :variable :name 'f}
+   :operands [{:type :literal :value 1}]})
+
+
+(defn- undeliverable
+  "A request writer that refuses every append as closed."
+  []
+  (reify
+    stream/IDaoStreamWriter
+
+    (append! [_ _] {:dao.stream/outcome :dao.stream/closed})))
+
+
+(defn- requiring-app!
+  "Publish `app` into `store`: `(require 'my.lib)`, then `(yin/def g
+   (my.lib/f 1))`, pinned to the manifest `lib`."
+  [store lib]
+  (let [variable (fn [n] {:type :variable :name n})
+        call (fn [f & xs] {:type :application :operator f :operands (vec xs)})]
+    (publish/publish-module!
+      store {:name 'app
+             :ast (call {:type :lambda :params '[_]
+                         :body (ct/def! 'g (call (variable 'my.lib/f) (ct/lit 1)))}
+                        (call (variable 'require) (ct/lit 'my.lib)))
+             :exports #{'g}
+             :requires {'my.lib lib}
+             :primitives {'require (vm/profile-of vm/primitives 'require)}})))
+
+
+(defn- plain-clojure-leg
+  "join -> load-index -> names -> load-module -> link over real UDP, the
+   functions the REPL's host functions call, then each failure result of
+   section 9 as the plain functions answer it."
+  [peers manifest public]
+  (let [hidden (atom #{})
+        node (dht/join {:local (hiding (mem/create-content-mem) hidden)
+                        :peers (mapv (fn [p] {:host "127.0.0.1" :port p}) peers)})
+        m (keyword manifest)
+        authority (ld/authority {:principals [public]})
+        principal (sign/principal public)]
+    (try
+      (let [[node cause] (step-until (dht/load-index node m) exchange-ms
+                                     "the index did not load" (settled? m))
+            _ (is (nil? cause) cause)
+            _ (is (= :loaded (:status (dht/load-status node m))))
+            names (ld/names node authority)
+            lib (get-in names [:names 'my.lib :address])
+            store-module (get-in names [:names 'my.store :address])]
+        (testing "names: the publisher's signed names resolve under its principal"
+          (is (= [m] (ld/snapshots node)))
+          (is (jing/segment-address? lib) (pr-str names))
+          (is (= [principal] (get-in names [:names 'my.lib :yin.link/provenance
+                                            :yin.module/asserted-by])))
+          (is (= (get-in names [:names 'my.lib]) (ld/resolve-name node authority 'my.lib))))
+        (testing "link before the load is :yin.link.dht/not-loaded"
+          (is (= {:status :refused :reason :yin.link.dht/not-loaded :address lib :load nil}
+                 (ld/link node lib :yin.semantic/code))))
+        (let [[node cause] (step-until (ld/load-module node lib) exchange-ms
+                                       "my.lib did not load" (settled? lib))
+              [node cause'] (step-until (ld/load-module node store-module) exchange-ms
+                                        "my.store did not load" (settled? store-module))]
+          (is (nil? cause) cause)
+          (is (nil? cause') cause')
+          (testing "load-module fetched the closure from peers"
+            (is (= :loaded (:status (ld/module-status node lib)))
+                (pr-str (ld/module-status node lib)))
+            (is (pos? (:fetched (ld/module-status node lib)))))
+          (testing "link on all four formats, and run each image"
+            (doseq [f [:yin.ast/code :yin.semantic/code :yin.debruijn.code
+                       :yin.debruijn.register]]
+              (let [res (ld/link node lib f)]
+                (is (linker/ok? res) (str f " " (pr-str res)))
+                (when (linker/ok? res)
+                  (is (some? (get (vm/store (vm/run (loaded-vm f res))) 'f))
+                      (str f ": the image defines the export"))))))
+          (testing "and the export evaluates"
+            (let [image (vm/run (loaded-vm :yin.ast/code (ld/link node lib :yin.ast/code)))
+                  answer (vm/eval (tu/create-vm {:env {'f (get (vm/store image) 'f)}})
+                                  call-f)]
+              (is (= 4201 (vm/value answer)))))
+          (testing "the store corpus links on semantic, stack and register"
+            (doseq [f [:yin.semantic/code :yin.debruijn.code :yin.debruijn.register]]
+              (is (linker/ok? (ld/link node store-module f)) (str f))))
+          (testing "failure results of section 9, as data"
+            (testing ":absent (name): the principal is not declared"
+              (let [r (ld/resolve-name node (ld/authority {}) 'my.lib)]
+                (is (= {:status :refused :reason :absent :name 'my.lib}
+                       (dissoc r :diagnostics)))
+                (is (= [[:undeclared-principal principal]]
+                       (mapv (juxt :reason :principal) (:diagnostics r))))))
+            (testing ":ambiguous-name: a second declared principal names another address"
+              (let [other (sign/generate)
+                    own (dht-test/publish-datoms!
+                          node
+                          (mapv (fn [{:keys [envelope proof]}]
+                                  {:db/id datom/first-user-id
+                                   :yin.module/envelope envelope
+                                   :yin.module/proof proof})
+                                [(publish/assertion other {:name 'my.lib
+                                                           :manifest store-module
+                                                           :seq 1})]))
+                    [node' _] (dht/step (dht/load-index node own) (System/currentTimeMillis))
+                    r (ld/resolve-name node' (ld/authority {:principals [public (:public other)]})
+                                       'my.lib)]
+                (is (= {:status :refused :reason :ambiguous-name :name 'my.lib}
+                       (select-keys r [:status :reason :name])))
+                (is (= #{lib store-module} (set (:addresses r))))
+                (is (= #{principal (sign/principal (:public other))} (set (:asserters r))))))
+            (testing ":absent (content): a manifest no peer holds misses, exhausted"
+              (let [nowhere (jing/segment-key "a module no node holds")
+                    [node cause] (step-until (ld/load-module node nowhere) exchange-ms
+                                             "the miss was not reported" (settled? nowhere))]
+                (is (nil? cause) cause)
+                (is (= {:status :refused :reason :absent :address nowhere
+                        :cause ::jing.dht/exhausted}
+                       (ld/load-refusal (ld/module-status node nowhere))))))
+            (testing ":descriptor-defect: a defective manifest fails :invalid with its code"
+              (let [bad (jing/materialize! (dht/store node)
+                                           (assoc (jing/get (dht/local node) lib nil)
+                                                  :yin.module/schema 2))
+                    [node _] (dht/step (ld/load-module node bad) (System/currentTimeMillis))
+                    row (ld/load-refusal (ld/module-status node bad))]
+                (is (= {:status :refused :reason :descriptor-defect :address bad
+                        :code :manifest-defect}
+                       (dissoc row :detail :text))
+                    (pr-str row))))
+            (testing ":yin.link.dht/dependency-binding: app pins my.lib"
+              (let [app (:address (requiring-app! (dht/store node) lib))
+                    [node _] (dht/step (ld/load-module node app) (System/currentTimeMillis))]
+                (is (= :loaded (:status (ld/module-status node app))))
+                (is (= [{:module app :name 'my.lib :pinned lib :binding :absent
+                         :diagnostics [{:reason :undeclared-principal}]}]
+                       (mapv #(update % :diagnostics (partial mapv (fn [d] (select-keys d [:reason]))))
+                             (ld/dependency-bindings node (ld/authority {}) app))))
+                (is (= [{:module app :name 'my.lib :pinned lib :binding :ok}]
+                       (ld/dependency-bindings node authority app)))))
+            (testing "the linker's own refusal: the store corpus on the walker"
+              (is (= {:status :refused :reason :undeclared-free :name 'base}
+                     (select-keys (ld/link node store-module :yin.ast/code)
+                                  [:status :reason :name]))))
+            (testing ":yin.link.dht/closure-incomplete: a blob lost after :loaded"
+              (let [image (get-in (jing/get (dht/local node) lib nil)
+                                  [:yin.module/derivations :yin.semantic/code])]
+                (swap! hidden conj image)
+                (is (= {:status :refused :reason :yin.link.dht/closure-incomplete
+                        :address image}
+                       (ld/link node lib :yin.semantic/code)))
+                (reset! hidden #{})))
+            (testing ":yin.link.dht/unaskable: a client that cannot submit"
+              (let [elsewhere (jing/segment-key "another module no node holds")
+                    [node _] (dht/step (-> node
+                                           (update :client assoc :requests (undeliverable))
+                                           (ld/load-module elsewhere))
+                                       (System/currentTimeMillis))]
+                (is (= {:status :refused :reason :yin.link.dht/unaskable
+                        :address elsewhere :outcome :request-undeliverable}
+                       (ld/load-refusal (ld/module-status node elsewhere))))))))
+        (dht/close! node))
+      (catch Throwable t
+        (dht/close! node)
+        (throw t)))))
+
+
+(deftest a-module-published-by-name-is-required-by-name-across-processes
+  (let [storing {::jing.dht/publish? true
+                 ::jing.dht/max-inbound-bytes (* 64 1024 1024)}
+        anchors [(start-anchor! storing) (start-anchor! storing)]
+        dirs (vec (repeatedly 4 temp-dir))
+        key-file (str (temp-dir) ".key")
+        peer #(str "127.0.0.1:" %)
+        procs (atom [])]
+    (doseq [x anchors] (is (nil? (:failure x)) (:failure x)))
+    (when-not (some :failure anchors)
+      (try
+        (main/keygen! key-file)
+        (let [[x y] (map :port anchors)
+              a (spawn! "publisher-a" ["--index-store" (str "dht:" (dirs 0))
+                                       "--dht-peer" (peer x) "--dht-peer" (peer y)
+                                       "--dht-publish" "--dht-key" key-file])
+              _ (swap! procs conj a)
+              pa (bound-port a)
+              _ (is (some? pa) (transcript a))
+              public (some->> (await-line a #"signed by principal ed25519:([0-9a-f]{64})"
+                                          1000)
+                              (re-find #"ed25519:([0-9a-f]{64})")
+                              second)
+              _ (testing "A states the principal it signs names with"
+                  (is (some? public) (transcript a)))
+              _ (doseq [line publisher-lines] (type! a line))
+              published (await-line a #":module 'my\.store" exchange-ms)
+              _ (testing "A publishes both modules by name"
+                  (is (some? published) (transcript a))
+                  (is (await-line a #":module 'my\.lib" 1000) (transcript a)))
+              manifest (await-head-published a (dirs 0) exchange-ms)
+              _ (testing "A's output reports the index naming them acknowledged"
+                  (is (some? manifest) (transcript a)))
+              reader (fn [label command dir principals]
+                       (let [p (spawn! label command
+                                       (into ["--index-store" (str "dht:" dir)
+                                              "--dht-peer" (peer x) "--dht-peer" (peer pa)
+                                              "--dht-manifest" (str ":" manifest)]
+                                             (mapcat (fn [k] ["--dht-principal" k]))
+                                             principals))]
+                         (swap! procs conj p)
+                         p))]
+          (when (and public manifest)
+            (is (.exists (io/file node-script))
+                (str "the Node reader is required: " node-script
+                     " is absent; build it with `bb build:yin-repl-node`"))
+            (let [b (reader "reader-b-jvm" (jvm-command) (dirs 1) [public])
+                  e (when (.exists (io/file node-script))
+                      (reader "reader-b-node" ["node" node-script] (dirs 2) [public]))
+                  c (reader "reader-c-undeclared" (jvm-command) (dirs 3) [])]
+              (doseq [p (remove nil? [b e])]
+                (testing (str (:label p) " hydrates A's index")
+                  (is (await-line p (re-pattern (str "dht: hydrated :" manifest))
+                                  startup-ms)
+                      (transcript p)))
+                (testing (str (:label p) " requires each module by name on all four"
+                              " VMs: my.lib evaluates; the store corpus evaluates on"
+                              " semantic, stack and register and the walker refuses it")
+                  (let [failures (require-on-each-vm p)]
+                    (is (empty? failures) (str failures "\n" (transcript p))))
+                  (is (await-line p #";; require pending: my\.lib" 1000)
+                      "the first require waited through pending")
+                  (is (= 1 (count (filter #(re-find #"Module link refused" %) @(:lines p))))
+                      (transcript p))))
+              (testing "without --dht-principal, the require is :absent, undeclared"
+                (is (await-line c (re-pattern (str "dht: hydrated :" manifest)) startup-ms)
+                    (transcript c))
+                (type! c "(require (quote my.lib))")
+                (is (await-line c #"Module link refused: absent" exchange-ms) (transcript c))
+                (type! c "(require (quote yin.link))")
+                (type! c "(yin.link/names)")
+                (is (await-line c (re-pattern (str ":reason :undeclared-principal|"
+                                                   ":undeclared-principal"))
+                                exchange-ms)
+                    (transcript c))
+                (is (await-line c (re-pattern (str "ed25519:" public)) 1000)
+                    (transcript c)))
+              (testing "plain Clojure takes the same path, and answers each failure as data"
+                (plain-clojure-leg [x pa] manifest public)))))
+        (finally
+          (doseq [p @procs] (stop! p))
+          (doseq [x anchors] ((:stop! x)))
+          (io/delete-file key-file true)
           (run! delete-dir! dirs))))))

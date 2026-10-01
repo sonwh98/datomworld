@@ -436,7 +436,11 @@ its host modules.
 - **Closure by linked requirements.** For each linked module declared as a requirement by a free qualified name in a collected program, also collect the latest indexed program, by `t`, whose module-level form requires that module. Repeat definition and requirement collection to a fixed point. Sequence every collected program once in ascending `t`. If no such requiring program exists, refuse publication with `:yin.link.publish/missing-require-program`, naming the module. The manifest still pins the module address derived from the session’s linked module registry; the index does not declare reader principals.
 - **One tree.** The module tree is the collected programs in ascending `t`,
   each once, sequenced in that order. Whole programs are taken; a
-  definition that is not exported is module-internal.
+  definition that is not exported is module-internal. An empty export
+  list collects no program. Its tree is the canonical no-op tree
+  `yin.vm.linker.publish/no-op-tree`, a single `nil` literal that defines
+  nothing. That module is published and linked like any other; deriving
+  it never throws.
 - **Free names after closure.** A remaining free name must be a primitive
   of `:primitives` (declared under `:yin.module/primitives` with its profile
   address) or a name qualified by a module in `:modules` that the session
@@ -938,8 +942,9 @@ there is one, and every manifest whose `:dao.space.dht/index` load is
 
 ```clojure
 (yin.vm.linker.dht/names node authority)
-;; -> authority/name-environment's answer:
-{:names {name entry} :diagnostics [...] :honored-seq {...} :snapshot [...]}
+;; -> authority/name-environment's answer, its diagnostics split:
+{:names {name entry} :diagnostics [...] :global-diagnostics [...]
+ :honored-seq {...} :snapshot [...]}
 ```
 
 - For each snapshot, the envelope and proof datoms are read by query from
@@ -955,6 +960,12 @@ there is one, and every manifest whose `:dao.space.dht/index` load is
   declared principals assert it; provenance names them all (R8). More than
   one distinct address is `:ambiguous-name` naming every address and
   asserter. None is `:absent`.
+- **A dangling retraction is a global diagnostic** (owner decision 6).
+  - Scope: a dangling retraction whose target is not an assertion in the set. Either the target is in no snapshot, or it is another retraction.
+  - Why it cannot be per-name: the envelope carries only the target's id, and only an assertion carries a name, so the reader cannot tell which name it would retract.
+  - What the reader gets: the diagnostic is under `:global-diagnostics`, once. It carries `:principal`, the retraction's principal, and `:of`, the assertion id it names. It is in no per-name diagnostic. `resolve-name` and `dependency-bindings` never carry it, and `(yin.link/names)` returns it as part of this answer.
+  - Retraction inside the set: when the referenced assertion is in the set, for example another principal's assertion that this principal cannot retract, the diagnostic names that assertion's name and stays under `:diagnostics`.
+  - The envelope is unchanged.
 - The answer is a pure function of the snapshot vector and the authority.
   A composition may keep it and recompute when either changes.
 - A direct entry (`:name-env {'my.lib address}`, `--link-name
@@ -1073,7 +1084,7 @@ the require's error, and printed by the REPL from that data.
 
 | Outcome | Carried data | When |
 |---|---|---|
-| `:absent` (name) | `:name`, `:diagnostics` for that name | The fold found no accepted assertion. Diagnostics name every discarded envelope for the name: `:unauthenticated` (`:no-proof`, `:bad-proof`), `:undeclared-principal`, `:replay`, `:equivocation`, `:dangling-retraction`, `:malformed-envelope`. |
+| `:absent` (name) | `:name`, `:diagnostics` for that name | The fold found no accepted assertion. Diagnostics name every discarded envelope for the name: `:unauthenticated` (`:no-proof`, `:bad-proof`), `:undeclared-principal`, `:replay`, `:equivocation`, `:dangling-retraction` (only when the retracted assertion is in the snapshot set), `:malformed-envelope`. A retraction of an assertion outside the set names no name. It is never here; it is reported once under the fold's `:global-diagnostics` (7.3). |
 | `:ambiguous-name` | `:addresses`, `:asserters` | More than one distinct address. |
 | `:absent` (content) | `:address`, `:cause` the `:miss` cause | The load failed `:miss`. |
 | `:descriptor-defect` | `:address` (or nil), `:code` the defect's closed code, `:detail` and `:text` when present | The load failed `:invalid`: the closure walk's codes of 4.2, `:dao.space.dht/walk-threw`, or `:dao.space.dht/walk-shape`. |
@@ -1153,6 +1164,7 @@ join -> publish!  -> assert! -> announce!                 (publisher)
 | `(yin.vm.linker.dht/resolve-name node authority name)` | The name's 7.3 entry when it resolves, else its section 9 refusal: `:absent` with `:name` and that name's `:diagnostics`, or `:ambiguous-name` with `:name`, `:addresses`, `:asserters`. The DHT link source refuses with it. |
 | `(yin.vm.linker.dht/load-module node manifest-address)` | Starts the closure load; answers the node. |
 | `(yin.vm.linker.dht/module-status node manifest-address)` | The load status of 4.3. |
+| `(yin.vm.linker.dht/load-refusal status)` | The section 9 row of a failed closure load, given the status `module-status` answers. `:miss` gives `:absent` with `:cause`. `:invalid` gives `:descriptor-defect` with `:code`, plus `:detail` and `:text` when present. `:unaskable` gives `:yin.link.dht/unaskable` with `:outcome`. It answers nil for a load that has not failed. The DHT link source refuses with this row, so there is one conversion, not two. |
 | `(yin.vm.linker.dht/dependency-bindings node authority manifest-address)` | 7.4; refused `:yin.link.dht/not-loaded` unless the load is `:loaded`. |
 | `(yin.vm.linker.dht/link node manifest-address format opts)` | `link-manifest` over the node's local store; refused `:yin.link.dht/not-loaded` unless the load is `:loaded`. |
 
@@ -1163,8 +1175,8 @@ nothing under `yin.repl`.
 these functions:
 
 - `(require 'name)` is served by `yin.repl.link` calling `names`,
-  `load-module`, `module-status`, `dependency-bindings` and
-  `local-runtime` + `link-manifest`.
+  `load-module`, `module-status`, `load-refusal`, `dependency-bindings`
+  and `local-runtime` + `link-manifest`.
 - The `dao.space.dht` host module gains `load-module`, `module-status`,
   `retry` and `cancel`, beside `load-index`, `load-status` and `q`, as
   effects on the query call pair.

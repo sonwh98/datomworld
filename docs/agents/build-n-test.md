@@ -17,9 +17,29 @@ npm test             # Node.js tests
 # Cross-host peers the JVM lane spawns (bb test and bb test:clj build them)
 bb build:yin-repl-peer   # Dart exe build/yin-repl-peer (yin.repl R5 pairs)
 bb build:yin-repl-node   # Node REPL target/yin-repl.js; REQUIRED by
-                         # yin.repl.dht-process-test (JVM-to-Node DHT reader):
-                         # `clojure -M:test` without it fails that test
+                         # yin.repl.dht-process-test (JVM-to-Node DHT reader,
+                         # and the linker L5 Node reader that requires a module
+                         # by name): `clojure -M:test` without it fails that test
+```
 
+The linker-over-DHT end-to-end gate (docs/design/yin.vm.linker.dht.md,
+slice L5) is two tests:
+
+- `yin.repl.dht-process-test` (JVM lane only): real `yin.repl.main`
+  processes over real loopback UDP. A JVM publisher with a key file
+  publishes modules by name, and JVM and Node readers require them by
+  name on all four VMs. Plain Clojure in the test JVM takes the same path
+  and checks each section 9 failure as data. Ports are ephemeral, and
+  every wait is bounded. A run takes a few minutes. Run it alone with
+  `clojure -M:test -n yin.repl.dht-process-test`, after
+  `bb build:yin-repl-node`.
+- `yin.vm.linker.dht-end-to-end-test` (all three lanes): the same
+  scenario in process, over the `dao.jing.dht` test mesh seam. Dart's
+  signed-name leg runs here, because no Dart `yin.repl.main` process
+  exists to spawn. `build/yin-repl-peer` is the R5 slice peer, not a
+  REPL.
+
+```sh
 # ClojureScript / shadow-cljs (always via deps.edn :cljs alias, never npx)
 clj -M:cljs -m shadow.cljs.devtools.cli watch <build-id>    # e.g. watch demo
 clj -M:cljs -m shadow.cljs.devtools.cli compile <build-id>  # e.g. compile demo

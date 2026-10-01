@@ -259,18 +259,27 @@
                    (:root tree))))
 
 
+(def no-op-tree
+  "The tree of a module that collects no program, which is the module of
+   an empty export list: one `nil` literal, defining nothing."
+  {:type :literal :value nil})
+
+
 (defn- sequenced
   "One tree running `asts` in order: `((fn [_] second) first)`, nested.
-   A program root in operand position is not a tail call."
+   A program root in operand position is not a tail call.  No programs
+   is `no-op-tree`."
   [asts]
-  (reduce (fn [body ast]
-            {:type :application
-             :tail? true
-             :operator {:type :lambda :params '[_] :body body}
-             :operands [(cond-> ast
-                          (= :application (:type ast)) (assoc :tail? false))]})
-          (peek asts)
-          (rseq (pop asts))))
+  (if (empty? asts)
+    no-op-tree
+    (reduce (fn [body ast]
+              {:type :application
+               :tail? true
+               :operator {:type :lambda :params '[_] :body body}
+               :operands [(cond-> ast
+                            (= :application (:type ast)) (assoc :tail? false))]})
+            (peek asts)
+            (rseq (pop asts)))))
 
 
 (defn- free-declaration

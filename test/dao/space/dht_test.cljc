@@ -590,6 +590,64 @@
       (dht/close! node))))
 
 
+(defn- missing-walk
+  "A load walk that is always missing `a`."
+  [a]
+  (fn [_] {::dht/walk :missing :address a}))
+
+
+(defn- load-missing
+  [node m a]
+  (dht/load node m {:kind ::shared :walk (missing-walk a)}))
+
+
+(defn- step-until-failed
+  "Step `node` from `now` by 10 until every load of `ms` failed or
+   `limit` passes: `[node now]`."
+  [node ms now limit]
+  (loop [node node now now]
+    (if (or (> now limit)
+            (every? #(= :failed (:status (dht/load-status node %))) ms))
+      [node now]
+      (recur (first (dht/step node now)) (+ now 10)))))
+
+
+(deftest loads-sharing-a-missing-blob-each-keep-its-cause
+  (let [a (jing/segment-key "the shared blob")
+        [m1 m2 m3] (mapv #(jing/segment-key (str "load " %)) [1 2 3])
+        reason (fn [node m] (:reason (dht/load-status node m)))]
+    (testing "/solo: two loads asking in the same step"
+      (let [[node _] (step-until-failed (-> (solo-node) (load-missing m1 a) (load-missing m2 a))
+                                        [m1 m2] 0 1000)]
+        (doseq [m [m1 m2]]
+          (is (= {::dht/failure :miss :address a :cause ::jing.dht/solo} (reason node m))
+              (str m)))
+        (dht/close! node)))
+    (testing "/exhausted: later loads join the first one's request steps later"
+      (let [net (mesh/mesh)
+            _silent (mesh/join! net 6)
+            node (load-missing (node-at net 7 [6] {}) m1 a)
+            [node _] (dht/step node 0)
+            [node _] (dht/step node 10)
+            node (load-missing node m2 a)
+            [node _] (dht/step node 20)
+            [node _] (dht/step node 30)
+            node (load-missing node m3 a)
+            [node _] (step-until-failed node [m1 m2 m3] 40 30000)]
+        (doseq [m [m1 m2 m3]]
+          (is (= {::dht/failure :miss :address a :cause ::jing.dht/exhausted} (reason node m))
+              (str m)))
+        (testing "and the cause is not kept once no load waits on it"
+          (is (empty? (:misses node))))
+        (dht/close! node)))
+    (testing "a load started after the first one failed asks again and keeps its own cause"
+      (let [[node now] (step-until-failed (load-missing (solo-node) m1 a) [m1] 0 1000)
+            [node _] (step-until-failed (load-missing node m2 a) [m2] now 2000)]
+        (is (= ::jing.dht/solo (:cause (reason node m1))))
+        (is (= ::jing.dht/solo (:cause (reason node m2))))
+        (dht/close! node)))))
+
+
 (defn- lying-store
   "A content store that answers `address` with bytes that are not its."
   [address]

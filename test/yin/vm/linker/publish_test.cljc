@@ -74,6 +74,27 @@
     (is (nil? (jing/get store root nil)))))
 
 
+(deftest a-required-manifest-with-a-malformed-index-refuses-as-data
+  (doseq [bad [42 [1] "bad"]]
+    (testing (pr-str bad)
+      (let [store (mem/create-content-mem)
+            dep (:manifest (publish/publish-module!
+                             store {:name 'dep :ast module-ast :exports #{'f}
+                                    :requires {} :primitives {}}))
+            address (jing/materialize! store (assoc dep :yin.module/index bad))
+            ast (app (var-node 'yin/def) (lit 'g) (lit 1))
+            root (:root (vm/ast->semantic-bytecode ast))
+            result (try (publish/publish-module!
+                          store {:name 'app :ast ast :exports #{'g}
+                                 :requires {'dep address} :primitives {}})
+                        (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                          {:threw (str e)}))]
+        (is (= {:status :refused :reason :yin.link.publish/invalid-requirement
+                :name 'dep}
+               result))
+        (is (nil? (jing/get store root nil)) "nothing was written")))))
+
+
 (deftest publishes-four-formats
   (let [store (mem/create-content-mem)
         spec {:name 'example :ast module-ast :exports #{'f}
@@ -254,6 +275,26 @@
                (indexed (pop derived-lines))
                {:name 'my.lib :exports '[f] :primitives vm/primitives
                 :modules {'base base-address}}))))))
+
+
+(deftest an-empty-export-list-is-the-canonical-no-op-module
+  (let [db (indexed ["(def f (fn [] 1))"])
+        opts {:name 'empty.lib :exports [] :primitives vm/primitives}
+        spec (publish/module-from-index db opts)]
+    (testing "zero collected programs: the canonical no-op tree, as data"
+      (is (= {:name 'empty.lib :ast publish/no-op-tree :exports #{}
+              :requires {} :primitives {}}
+             spec)))
+    (testing "the same spec from any index: nothing indexed is collected"
+      (is (= spec (publish/module-from-index (indexed ["(def g 2)" "(def h 3)"]) opts))))
+    (testing "it publishes, and links and runs on all four formats"
+      (let [store (mem/create-content-mem)
+            res (publish/publish-module! store spec)]
+        (is (jing/segment-address? (:address res)) (pr-str res))
+        (is (= {:yin.ast/code :ok :yin.semantic/code :ok
+                :yin.debruijn.code :ok :yin.debruijn.register :ok}
+               (into {} (map (fn [[f o]] [f (:status o)])) (:links res))))
+        (is (= #{} (get-in (jing/get store (:address res) nil) [:yin.module/exports])))))))
 
 
 (deftest module-from-index-collects-defining-programs-in-t-order
