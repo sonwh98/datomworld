@@ -8846,3 +8846,109 @@ store context off the lexical env later (slice C); (4) add data/number? and data
 tracing profile raises an explicit unsupported error; (11) slice order signals, recursion, tracing, threads.
 Next: dispatch D7 slice A now (allowed to touch only py/numeric? in the spike prelude; conflicts with C1 resolved at
 rebase); safepoint slice 1 after C1 lands (both rewrite the Python lowering).
+
+## 2026-10-01 19:13:50 +07 — D7 slice A landed and pushed 6b8502fd (with the owner's 764948c8); C1 rebased onto it and in gate r2
+Completed-GMT: 2026-10-01 12:13:50 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@6b8502fd pushed (60b60898..6b8502fd incl. owner-approved 764948c8, verbatim "yes, include it in the push")
+Done: D7 slice A (engineer session a991361e-3716-4327-84f0-1a35a3a5a57b; ns yin.vm.values because yin.vm.value clashes on
+CLJS). Gate gpt-6.1-sol (thread 01a0f732-d45c-7302-8cf2-744f7958d3d1) r1 REQUEST CHANGES: P1 printing leaked payloads,
+P1 lower skipped binder validation, P2 nil/false params; engineer r2 fixed all (opaque markers on every host/path;
+marker params checked against the attached lambda, :marker-mismatch; boxed bad-binder check); r2 READY, sign-off
+conditional on CLJD. Orchestrator lanes r2: JVM 2691/187798/0, Node 2538/53552/0, CLJD -1 (CLJD str gave "Instance of
+'Closure'"); orchestrator added Object toString to the :cljd branch of both deftypes; CLJD rerun +2493 passed. Committed
+d67050d0, rebased onto 764948c8 (docs only) -> 6b8502fd, pushed.
+C1: qwen (cmd session 735ea0f5-f108-41aa-8a10-0f9221aa416e) r1 REQUEST CHANGES (P1 tuple-of-classes, P2 2^53 bound, P3
+a-f); OWNER, verbatim: "cmd has a low budget so after this round, stop using cmd until farther notice". Engineer r2
+fixed P1/P2 and all P3s. Committed daf1c797, rebased cleanly onto 6b8502fd -> 7a8493e1 (py/numeric? keeps data/number?).
+Lanes running; r2 gate is a fresh gpt-6.1-sol session (collab/1790856811617-reviewer-python-phase-c1-gate-r2.*).
+Next: C1 land; safepoint slice 1; D7 slice B (linker origin/store check) and C (store context off the lexical env).
+- 2026-10-01 19:27 +0700: OWNER "4. yes cleanup" — removed datomworld-d7 and deleted merged branch vm-host-typed-closures (report already saved as report-r2).
+
+## 2026-10-01 19:31:52 +07 — owner: relicense to GPL-2.0-only + linking exception (draft dispatched)
+Completed-GMT: 2026-10-01 12:31:52 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Done: OWNER, verbatim: "i want datom.world to have same license as Linux kernel because it is infrastructure at that
+level"; then "option 1" (GPL-2.0-only plus a linking exception for EPL-1.0 and Apache-2.0 dependencies). Findings: LICENSE is
+GPL-3.0 (init commit 30bc5b9c), package.json says ISC; all commits by the owner; EPL-1.0 deps (Clojure, core.async,
+tools.reader, data.json, instaparse, nREPL, cider-nrepl, shadow-cljs) and Apache-2.0 deps (http-kit, transit, Datomic peer)
+are GPL-2-incompatible per FSF, hence the exception. Writer claude-opus-5-5 session
+c9c76024-1216-4bf5-a6b5-5d725ecc491e in worktree datomworld-license (branch chore-license-gpl2): LICENSE (verbatim GPLv2),
+new LICENSE-EXCEPTION (draft), package.json license field only. Next: gpt-6.1-sol review, then show the owner the exact
+exception text BEFORE committing (orchestrator's commitment); recommend counsel review before a public release.
+
+## 2026-10-01 — owner stop
+Owner, verbatim: "after existing task complete, stop". The in-flight L5 fix round 4 (malformed :yin.module/index; claude-opus-5-5 session 3d9f6b2a-8e4c-4a1d-b7f3-6e0a2c5d8f14, worktree datomworld-linker-l2, branch linker-l5) runs to completion. After that, nothing new is dispatched: no epic re-review, no commit of L5, no rebase or landing.
+
+## 2026-10-01 20:08:11 +07 — owner approved the LICENSE-EXCEPTION text
+Completed-GMT: 2026-10-01 13:08:11 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Done: OWNER, verbatim: "approve the exception text" — for the 35-line LICENSE-EXCEPTION shown in conversation (worktree
+datomworld-license, round 2), SHA-256 0f8f73598bee755d00c75551a059a6a420616fda3fabd064a36a37227d30e313. Earlier owner
+choices, verbatim: "option 1"; "I'm not using project.clj"; "Delete it (Recommended)"; "Yes, update it (Recommended)".
+Commit conditions: gpt-6.1-sol re-review (thread 01a0f782-a3c1-7173-9857-646af3b75f30) READY with no change to the approved
+text (any text change goes back to the owner); LICENSE byte check against a fresh gnu.org fetch (pending; gnu.org timing out).
+
+## 2026-10-01 20:11:15 +07 — relicence landed and pushed d0a4b00e (GPL-2.0-only + linking exception)
+Completed-GMT: 2026-10-01 13:11:15 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@d0a4b00e pushed (6b8502fd..d0a4b00e; only this commit)
+Done: OWNER, verbatim: "approve the exception text"; on the gnu.org byte check, option chosen verbatim: "Commit now
+(Recommended)". Review gpt-6.1-sol r1 REQUEST CHANGES (whole-work waiver, section-3 source options, metadata pointers,
+project.clj and lockfile conflicts) -> writer r2 (session c9c76024-1216-4bf5-a6b5-5d725ecc491e) -> r2 READY/GRANTED (thread
+01a0f782-a3c1-7173-9857-646af3b75f30). Committed files: LICENSE (verbatim GPLv2, sha256 edaef632..., matches the writer's
+gnu.org fetch; a FRESH gnu.org byte comparison is STILL PENDING — gnu.org timed out 6 times), LICENSE-EXCEPTION (committed
+digest == owner-approved digest), package.json and package-lock.json root -> "SEE LICENSE IN LICENSE-EXCEPTION", project.clj
+deleted, Leiningen lines removed from three yin/vm docs.
+Open release caveats (owner/counsel): counsel review of the exception; earlier GPL-3.0/ISC/EPL metadata grants stay with
+earlier copies; inbound contribution policy; dependency licence audit incl. transitives and the exact Datomic peer artifact;
+the two unlicensed Python3 grammar Java helpers remain fetched, not distributed.
+Next: redo the gnu.org byte comparison when reachable.
+
+## 2026-10-01 — session stop state (linker over dao.jing.dht)
+Owner, verbatim: "after existing task complete, stop". Done. Nothing was dispatched after L5 fix round 4.
+
+Landed and pushed (master == origin/master):
+- $ast slices 3–4; durable index store slices 1–3; DHT epic S0–S5 (master c66809fa).
+- dao.space.dht is the plain-Clojure path that yin.repl reuses via host functions (owner 2026-10-01).
+
+Linker over DHT (owner-queued design pass, then L0–L5): NOT landed.
+- Design: docs/design/yin.vm.linker.dht.md, a1f41db3 on linker-dht. Lead fable; signed off by gpt-6-sol r5.
+- Owner decisions 1–6: collab/1790808000000-orchestrator-linker-over-dht-owner-decisions.md.
+  1. rows every round;
+  2. a stable key file;
+  3. Ed25519 on Dart;
+  4. same-address consensus;
+  5. automatic repair;
+  6. dangling retraction is a global diagnostic.
+- Commits:
+  - L0 e5392305 (linker-l0; fable conditional; gemini key-fix);
+  - L1 3c76c063 (linker-l1; gpt-6-sol r1, gemini r2);
+  - L2 79c1e55d (gemini r2);
+  - L3 bd9bfae7 (gemini);
+  - L4 e5b856b9 (gpt-6-sol r2).
+  L2–L5 are on one worktree: /Users/sto/workspace/datomworld-linker-l2.
+- L5: UNCOMMITTED on branch linker-l5, 13 files.
+  - Engineer claude-opus-5-5, session 3d9f6b2a-8e4c-4a1d-b7f3-6e0a2c5d8f14.
+  - Report: collab/1790837000000-engineer-linker-L5.claude-opus-5-5.report.md (fix rounds 1–4).
+- Epic reviews, all withheld:
+  - r1 gpt-6-sol (01a0f702-6168-7402-8475-392920704f6b);
+  - r2 gpt-6.1-sol (01a0f750-287c-7a11-9659-8e68fd47962f), three defects, fixed;
+  - r3 gpt-6.1-sol (01a0f774-06ea-7be0-93a3-0c761e42bae0): L5 GRANTED, epic withheld on a malformed :yin.module/index. Fixed in round 4: validator, an 88-case totality test, and regressions. The engineer's lanes passed (JVM 2700/0 in chunks, Node 2613/0, peer, CLJD +2568). Not yet reviewed, and not run by the orchestrator.
+Next, on resume:
+1. A fresh gpt-6.1-sol epic confirm, using the r3 findings plus Fix round 4.
+2. Orchestrator lanes.
+3. Commit L5.
+4. Rebase linker-l5 onto master and re-verify.
+5. Fast-forward master.
+6. Remove merged worktrees: dht-s5, linker-l0, linker-l1, linker-dht.
+
+Routing as of stop:
+- codex is gpt-6.1-sol (owner), with fresh threads and no resume across models.
+- GLM paced until 2026-10-04 01:26.
+- gemini stood in while codex was capped; its reviews were lighter. r2 found an L1 defect it had passed.
+- Five ClojureDart reader bugs were found this session and are candidates for an upstream report: % outside #(), no duplicate refusal, no syntax-quote resolver, list :tag <Type> metadata, whitespace before a closer.
